@@ -145,7 +145,7 @@ restate in a sentence is a rule nobody will apply.
     | Intake — document register                     |
     |   every page registered (text + vision)        |
     |   tag occurrence index                         |
-    |   symbol legend extraction                     |
+    |   legend and keynote extraction                |
     |   supersession ladder, revision diff           |
     +----+-------------------------------------------+
          |  system bundle: every page concerning AHU-1
@@ -183,7 +183,7 @@ class Evidence:
     doc_date: date
 
 class Derivation:
-    method: RULE | SYMBOL_COUNT | MODEL | HUMAN
+    method: RULE | PLAN_COUNT | MODEL | HUMAN   # PLAN_COUNT = symbols or keynotes
     rule: str | None           # "terminal-unit-ddc-ships-to-factory"
     note: str
 
@@ -336,8 +336,9 @@ So recall never depends on the model:
 1. **Page register** — every page of every document, text layer plus vision where
    there is no text layer. A page that could not be read is a hard blocker.
 2. **Tag occurrence index** — every occurrence of every equipment tag, located.
-3. **Symbol legend extraction** — the controls legend on each drawing set, giving the
-   symbol → device-type map that §8.2 counts against.
+3. **Legend and keynote extraction** — the controls symbol legend on each drawing set
+   (symbol → device type), and the keynote list on each sheet (number → note text).
+   §8.2 counts against both.
 4. **System bundle** — "everything about AHU-1" becomes a query, not a search.
 
 This mirrors the manual method — flip through everything, find every page mentioning
@@ -444,24 +445,61 @@ controllers — and those are the scope. This chain counts them, in this source 
 
 | Priority | Source | Confidence |
 |---|---|---|
-| 1 | **Plan symbol count** — legend-driven symbol match across sheets | highest; it is a count, not a derivation |
+| 1 | **Plan evidence** — device symbols matched against the legend, and device keynotes placed on the sheet | highest; it is a count, not a derivation |
 | 2 | **Point list / control matrix** — spec gives points per unit | high |
 | 3 | **Sequence of operation** — implies which points exist | medium |
 | 4 | **Standard package** — the AME default for that equipment class, from the price book's selection notes and ASHRAE Guideline 36 | assumption; always flagged |
 
-**The delivery model decides which source exists.** On design-build, or where the
-engineer drew controls, device symbols are on the sheets and can be counted. On
-design-bid-build the controls contractor designs the layout, so the plans show
-equipment but no sensors, and quantity must be derived from tiers 2–4. The tool detects
+**The delivery model decides which source exists.** Confirmed practice: devices are
+counted from the plans whenever they are drawn there, as symbols or as keynotes. On
+design-bid-build the controls contractor designs the layout, so the plans may show
+equipment but no devices, and quantity must be derived from tiers 2–4. The tool detects
 which world a job is in and says so:
 
-> `No controls device symbols found on plan sheets (28 sheets searched, legend absent).`
-> `Device quantities derived from sequence and standard packages — see flags.`
+> `No device symbols or device keynotes found on plan sheets (28 sheets searched,`
+> `legend absent). Device quantities derived from sequence and standard packages — see flags.`
 
-**Method.** Extract the controls legend, which gives symbol → device type. Template-match
-each legend symbol across plan sheets at drawing scale, with the match scored and the
-hit located. Every counted device carries a `SYMBOL` evidence record naming the sheet
-and position, so a disputed count can be pointed at.
+**Symbols.** Extract the controls legend, which gives symbol → device type.
+Template-match each legend symbol across plan sheets at drawing scale, with the match
+scored and the hit located. Every counted device carries a `SYMBOL` evidence record
+naming the sheet and position, so a disputed count can be pointed at.
+
+**Keynotes.** Devices are often not drawn as symbols but called out with a keynote — a
+number in a hexagon or circle, placed at the location, pointing to the sheet's keynote
+list. Only 7 of 279 issued proposals cite a keynote explicitly, but that undercounts
+use: estimators read a keynote and write the line without citing it. Where they do cite
+one, it is carrying something large:
+
+| Job | Issued line |
+|---|---|
+| 26-0190 | Space Static Pressure Sensor – (Qty. 24 Total) – as per IC00-02 Keynote #14 |
+| 26-0328 | Data Hall to Corridor Differential Pressure Sensor – Qty. 20 (Keynote 9) |
+| 26-0267 | Qty (182) Existing FTR-# (Scope as per Demo Plan Key notes) |
+| 25-0671 | Sump Box Leak Sensor; Wired by Others – as per key note #27 |
+| 25-0749 | *All scope with Fire Alarm by Others. Key Note #23 on M-110.07 |
+| 25-0726 | EF-5 – Scope as per Keynote #3 on M-404 |
+
+A keynote therefore carries more than a count. Its text gives the device type, and
+often the ownership, an exclusion, or a unit's entire scope. It feeds Chain B with a
+count and Chain C with ownership and wording.
+
+*Count* = placements of the callout on the sheet. *Type* = the keynote's text.
+
+Three traps, each flagged rather than guessed:
+
+- **A bare number is everywhere.** A "7" appears in dimensions, grid lines, room numbers
+  and sheet references. A placement counts only when the number sits inside a keynote
+  shape — hexagon, circle or diamond, per the sheet's convention — and matches an entry
+  in that sheet's keynote list. Without the enclosing-shape check, every "7" on the sheet
+  becomes a sensor.
+- **"TYP." multiplies.** A keynote placed once and marked *typical* applies to every
+  similar location. Counting the single placement undercounts; the modifier is parsed
+  and the multiplier made explicit, the same way typical-floor expansion is (§8.1).
+- **Numbering is per sheet.** Keynote 7 on M-101 and keynote 7 on M-102 are different
+  notes. Every keynote reference is keyed by sheet, never by number alone.
+
+Every counted keynote placement carries a `KEYNOTE` evidence record naming the sheet,
+the keynote number, its text and the placement position.
 
 **Honest limits, stated now rather than discovered later:** symbol sets are not
 standardised between engineering firms, which is why the legend is the entry point
@@ -481,14 +519,15 @@ Device count is not a function of unit count. From issued 26-0246:
 
 Four heaters in one vestibule share one stat; 105 baseboards inside VAV zones need
 none. This is exactly why Chain B exists as a counting chain rather than a
-multiplication: **when the plan shows one thermostat symbol serving four heaters, the
-answer is one, and you get it by counting rather than reasoning.**
+multiplication: **when the plan shows one thermostat — as a symbol or a keynote —
+serving four heaters, the answer is one, and you get it by counting rather than
+reasoning.**
 
-Where no symbol exists to count, it falls to tier 4 and becomes a review question with
-an honest default:
+Where nothing exists to count, it falls to tier 4 and becomes a review question with an
+honest default:
 
 ```
-ECUH-## — 43 units, M-101…M-104. No thermostat symbols found on these sheets.
+ECUH-## — 43 units, M-101…M-104. No thermostat symbols or keynotes on these sheets.
 Schedule and sequence silent.  Default 1:1 -> 42  [ASSUMPTION].  Confirm grouping.
 ```
 
@@ -519,7 +558,7 @@ review.
 ## 9. Reconciler and review queue
 
 Rules and model derive scope **independently** from the same bundle. Where Chain B
-counted symbols, that count is a third voice.
+counted symbols or keynotes, that count is a third voice.
 
 | Outcome | Category | Behaviour |
 |---|---|---|
@@ -550,7 +589,7 @@ Replay N of the 268 paired jobs; generate and diff against the issued proposal.
 | Equipment blocks | recall / precision — a missing block is the worst failure |
 | Block quantities | agreement on the `Qty (N)` header |
 | **Device lines** | recall / precision — the Occupancy ×21 class of error |
-| **Device quantities** | agreement, split by source tier so symbol counting can be scored on its own |
+| **Device quantities** | agreement, split by source tier so symbol counting and keynote counting are each scored on their own |
 | Wording | drawn from the approved bank; matches issued text |
 | Price | line total vs. the filled workup, on the 61 jobs that have one |
 | Boilerplate integrity | **binary, must be 100%** — every exclusion and clarification present |
@@ -570,7 +609,7 @@ Versions verified on PyPI, 2026-09-24.
 |---|---|---|---|
 | Domain model / validation | `pydantic` | 2.13.5 | MIT. Enforces §4 types at every boundary |
 | PDF parse, text layer, render | `pymupdf` | 1.28.2 | **AGPL-3.0-or-commercial.** Internal use inside one legal entity is not conveying, so fine as an internal tool; distribution outside Nordomatic needs an Artifex licence |
-| Symbol matching | `opencv-python-headless` | 4.x | Legend-driven template matching for Chain B. `headless` avoids ~30 MB of unused Qt |
+| Symbol and keynote detection | `opencv-python-headless` | 4.x | Legend-driven template matching, and the enclosing-shape check that separates a keynote callout from a stray digit. `headless` avoids ~30 MB of unused Qt |
 | Arrays | `numpy` | 2.x | — |
 | Proposal render | `docxtpl` | 0.20.2 | **LGPL-2.1-only.** Jinja2 inside a `.docx`; preserves styles, header table, numbering |
 | …under it | `python-docx` | 1.2.0 | MIT |
@@ -635,8 +674,8 @@ extraction, supersession ladder, revision diff and the change log.
 **M4 — Chain A.** Equipment inventory: schedule extraction, plan locate, typical-floor
 expansion, the Rule 1–9 cross-check, Rule 3 categorisation.
 
-**M5 — Chain B and C.** Device takeoff by symbol count with the tiered fallback, package
-selection, phrasing bank, dual derivation, review queue.
+**M5 — Chain B and C.** Device takeoff by symbol and keynote count with the tiered
+fallback, package selection, phrasing bank, dual derivation, review queue.
 
 *Why last:* it is the largest and the most judgement-heavy, and it is the one that most
 needs a scoreboard that already exists before work starts.
@@ -667,8 +706,10 @@ last, against a scoreboard that already exists.**
    or a per-estimator switch.
 4. **Guideline 36 validation.** Minimum point lists need checking against AME practice
    before they become defaults — it is a design standard, not a bid standard.
-5. **Symbol coverage.** What share of jobs actually draw controls devices on plans
-   decides how much weight tier 1 carries versus tiers 2–4 (§8.2).
+5. **Plan-evidence coverage.** Confirmed practice: devices are counted from plans when
+   drawn, as symbols or keynotes. The share of jobs where they are drawn is unknown, and
+   is **measured by the harness** rather than estimated — it decides how much weight
+   tier 1 carries versus tiers 2–4 (§8.2).
 6. **Brick dependency vs. vendored table** (§11).
 7. **Job-class coverage.** The six classes in `decision_model_v2` came from 7 jobs.
    Whether they cover the 268 needs checking.
