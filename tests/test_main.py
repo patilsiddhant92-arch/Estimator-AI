@@ -72,7 +72,8 @@ def test_a_job_needing_too_many_price_sheets_is_plain(small_job, tmp_path, capsy
 
 def test_the_output_folder_being_a_file_that_is_open_is_plain(small_job, tmp_path, capsys):
     """A destination held open (the closest a test can get, cross-platform, to "the file is open
-    in Word or Excel") is reported in plain words, not a Python traceback."""
+    in Word or Excel") is reported in plain words, naming the real file the estimator has open —
+    never a hidden temp or backup name — not a Python traceback."""
     job_path = tmp_path / "job.json"
     job_path.write_text(small_job.model_dump_json(), encoding="utf-8")
     out = tmp_path / "out"
@@ -82,7 +83,7 @@ def test_the_output_folder_being_a_file_that_is_open_is_plain(small_job, tmp_pat
     with open(locked, "rb"):    # an open handle blocks the rename, like Word holding the file open
         code, _, err = _run(["build", str(job_path), "--out", str(out)], capsys)
     assert code == 1
-    assert err.strip().endswith("is open in Word or Excel — close it and run again")
+    assert err.strip() == f"Stopped: {locked} is open in Word or Excel — close it and run again"
 
 
 def test_a_locked_price_sheet_leaves_both_old_files_untouched(small_job, tmp_path, capsys, monkeypatch):
