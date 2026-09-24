@@ -2,6 +2,7 @@
 import datetime as dt
 from pathlib import Path
 
+import docx
 import pytest
 
 from estimator.scope import Alternate, Block, FrontEnd, Header, Item, Job, Run
@@ -124,3 +125,13 @@ def without_prices():
         return Job.model_validate(data)
 
     return clear
+
+
+@pytest.fixture(scope="session")
+def template_document():
+    return docx.Document(str(PROPOSAL_TEMPLATE))
+
+
+@pytest.fixture(scope="session")
+def sent_document():
+    return docx.Document(str(SENT_PROPOSAL))
