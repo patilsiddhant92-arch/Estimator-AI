@@ -13,6 +13,9 @@ PLAN = Page(width=3024, height=2160, texts=((200, 300, FILLER, 12), (900, 900, "
 NO_NUMBER = Page(width=3024, height=2160, texts=((200, 300, FILLER, 12),))
 SPEC = Page(texts=((72, 72, "SECTION 23 09 23 - INSTRUMENTATION AND CONTROL FOR HVAC\n"
                             "2.1 SYSTEM\nA. The BMS shall be built on the Tridium Niagara 4 Framework.\n23 09 23 - 1", 10),))
+SPEC_SHEET = Page(width=3024, height=2160,
+                  texts=((200, 300, "PROVIDE DISTECH ALLURE EC-SMART-AIR SERIES CONTROLLERS AND RELAYS.", 12),
+                        (2640, 1860, "MECHANICAL SPECIFICATIONS", 20), (2800, 2000, "M-601", 40)))
 
 
 @pytest.fixture
@@ -82,6 +85,17 @@ def test_a_blank_drawing_sheet_is_flagged(tmp_path):
     make_pdf(base / "Mech.pdf", Page(width=3024, height=2160))
     result = catalogue_job(root, tmp_path / "cache")
     assert any("Mech.pdf" in f and "blank drawing page" in f for f in result.flags)
+
+
+def test_specs_on_a_drawing_sheet_are_found_when_there_is_no_spec_book(tmp_path):
+    # C1 / 26-0352: a job with no spec book, whose specifications live on a drawing sheet.
+    root = tmp_path / "26-9999"
+    base = root / "2. Takeoffs" / "1. Base Takeoff"
+    make_pdf(base / "Marked_Mech.pdf", SPEC_SHEET)
+    result = catalogue_job(root, tmp_path / "cache")
+    assert result.bid.others == ("Distech Controls",)
+    assert "No spec book was found among the bid documents" in result.bid.reason
+    assert any(m.sheet == "M-601" for m in result.bid.mentions)
 
 
 def test_non_pdf_files_are_flagged_by_type_and_zip_gets_its_own_advice(tmp_path):

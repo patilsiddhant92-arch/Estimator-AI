@@ -1,5 +1,6 @@
 from estimator.catalogue.qualify import ReadingList, check_bid
 from estimator.catalogue.register import PageRecord
+from estimator.catalogue.sheet_types import Sheet
 from estimator.catalogue.spec_sections import SpecSection
 
 CONTROLS = SpecSection("23 09 23", "INSTRUMENTATION AND CONTROL FOR HVAC", "spec.pdf", 1, 5)
@@ -89,6 +90,41 @@ def test_carrier_in_lower_case_is_an_ordinary_word():
 def test_carrier_sense_is_a_network_term():
     pages = _pages("1. The BACnet IP network shall employ Carrier Sense Multiple Access/Collision Detection.")
     assert check_bid(pages, [CONTROLS]).others == ()
+
+
+def test_a_drawing_specifications_sheet_is_searched_when_there_is_no_spec_book():
+    # C1 / 26-0352: the specs live on a drawing sheet (typed Specifications), and the job has
+    # no spec book at all — Distech must still be found, and named for the US team.
+    pages = _pages("MECHANICAL SPECIFICATIONS SHEET 1 OF 2\nPROVIDE DISTECH ALLURE EC-SMART-AIR SERIES "
+                   "DISTECH MICROPROCESSOR CONTROLLERS AND RELAYS.", document="Marked_Mech.pdf")
+    sheet = Sheet("Marked_Mech.pdf", 1, "M-601.00", "MECHANICAL SPECIFICATIONS SHEET 1 OF 2", "Mechanical",
+                 ("Specifications",))
+    bid = check_bid(pages, [], {("Marked_Mech.pdf", 1): sheet}, has_spec_book=False)
+    assert bid.others == ("Distech Controls",)
+    assert bid.finding == "Open"
+    assert "No spec book was found among the bid documents" in bid.reason
+    assert any(m.sheet == "M-601.00" for m in bid.mentions)
+
+
+def test_a_drawing_passage_is_quoted_by_its_sheet_number():
+    pages = _pages("2.1 SYSTEM\nA. The BMS shall be built on the Tridium Niagara 4 Framework.", document="Marked_Mech.pdf")
+    sheet = Sheet("Marked_Mech.pdf", 1, "M-601.00", "MECHANICAL SPECIFICATIONS", "Mechanical", ("Specifications",))
+    bid = check_bid(pages, [], {("Marked_Mech.pdf", 1): sheet})
+    assert "M-601.00 (Marked_Mech.pdf, page 1)" in bid.reason
+
+
+def test_a_plans_sheet_with_a_controls_word_still_counts():
+    pages = _pages("CONTROLS NOTE: THE BMS SHALL BE A JOHNSON CONTROLS METASYS SYSTEM.", document="Marked_Mech.pdf")
+    sheet = Sheet("Marked_Mech.pdf", 1, "M-401", "ROOF PLAN", "Mechanical", ("Plans",))
+    bid = check_bid(pages, [], {("Marked_Mech.pdf", 1): sheet})
+    assert bid.others == ("Johnson Controls Metasys",)
+
+
+def test_a_plans_sheet_without_a_controls_word_is_not_searched():
+    pages = _pages("UNIT SCHEDULE: TRANE ROOFTOP UNIT MODEL RT-100.", document="Marked_Mech.pdf")
+    sheet = Sheet("Marked_Mech.pdf", 1, "M-401", "ROOF PLAN", "Mechanical", ("Plans",))
+    bid = check_bid(pages, [], {("Marked_Mech.pdf", 1): sheet})
+    assert bid.mentions == ()
 
 
 def test_the_reading_list_file_loads():

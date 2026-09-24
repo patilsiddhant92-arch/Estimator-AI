@@ -35,10 +35,12 @@ def catalogue_job(root: Path, cache_dir: Path | None = None, workers: int = 1) -
     kinds = {d.relative: d.kind for d in job.documents}
     sheets = tuple(classify_sheet(record, read_title_block(record.edge_spans))
                    for record in pages if record.large_sheet)
+    by_sheet = {(s.document, s.page): s for s in sheets}
     written = [record for record in pages if kinds[record.document] != "drawings"]
     sections = tuple(index_sections(written))
-    bid = check_bid(written, sections)
-    tags = tuple(index_tags(pages, {(s.document, s.page): s for s in sheets}))
+    has_spec_book = any(d.kind == "specs" for d in job.documents)
+    bid = check_bid(pages, sections, by_sheet, has_spec_book)
+    tags = tuple(index_tags(pages, by_sheet))
     catalogue = Catalogue(job, pages, sheets, sections, bid, tags, ())
     return Catalogue(job, pages, sheets, sections, bid, tags, tuple(_flags(catalogue)))
 

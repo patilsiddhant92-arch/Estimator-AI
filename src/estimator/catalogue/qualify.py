@@ -9,12 +9,18 @@ from __future__ import annotations
 
 import json
 import re
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
 from estimator.catalogue.register import PageRecord
+from estimator.catalogue.sheet_types import Sheet
 from estimator.catalogue.spec_sections import SpecSection
+
+# A large sheet typed as one of these carries controls-relevant prose even away from the
+# specs — its own "spec section", in effect — so a passage on it is read the same way as one
+# inside a controls spec section (C1).
+SHEET_TYPES_LIKE_CONTROLS = ("Specifications", "Control diagrams", "Network riser")
 
 ASSETS = Path(__file__).resolve().parents[3] / "assets"
 MANUFACTURERS = ASSETS / "reading_lists" / "manufacturers.json"
@@ -67,6 +73,7 @@ class Mention:
     listed: tuple[str, ...]
     others: tuple[str, ...]
     sole: bool
+    sheet: str | None = None    # the sheet number, when the passage is on a drawing sheet
 
 
 @dataclass(frozen=True)
@@ -79,20 +86,32 @@ class BidCheck:
 
 
 def check_bid(pages: Sequence[PageRecord], sections: Sequence[SpecSection],
+              sheets: Mapping[tuple[str, int], Sheet] | None = None, has_spec_book: bool = True,
               reading: ReadingList | None = None) -> BidCheck:
+    """Every page is searched — the specs, and the drawings too (design §8): a job with no spec
+    book at all can carry its whole specification on a drawing sheet (C1)."""
     reading = reading or ReadingList.load()
+    sheets = sheets or {}
     controls = [s for s in sections if s.controls]
-    mentions = [m for record in pages for m in _mentions(record, controls, reading)]
+    mentions = [m for record in pages
+                for m in _mentions(record, controls, sheets.get((record.document, record.page)), reading)]
     others = tuple(sorted({name for m in mentions for name in m.others}))
     section_names = tuple(dict.fromkeys(f"{s.number} {s.title}".strip() for s in controls))   # each named once
     finding, reason = _judge(mentions, others)
     if not controls:
-        reason += " The specs have no controls section (23 09 xx, 159xx or Division 25) — the whole spec was searched."
+        if has_spec_book:
+            reason += (" The specs have no controls section (23 09 xx, 159xx or Division 25) — the whole spec, "
+                       "plus the drawings' notes and spec sheets, was searched.")
+        else:
+            reason += (" No spec book was found among the bid documents; the drawings' notes and spec sheets "
+                       "were searched.")
     return BidCheck(finding, reason, others, tuple(mentions), section_names)
 
 
-def _mentions(record: PageRecord, controls: Sequence[SpecSection], reading: ReadingList) -> list[Mention]:
-    in_controls = any(s.document == record.document and s.first_page <= record.page <= s.last_page for s in controls)
+def _mentions(record: PageRecord, controls: Sequence[SpecSection], sheet: Sheet | None,
+             reading: ReadingList) -> list[Mention]:
+    in_controls = (any(s.document == record.document and s.first_page <= record.page <= s.last_page for s in controls)
+                   or (sheet is not None and any(t in sheet.types for t in SHEET_TYPES_LIKE_CONTROLS)))
     text = record.text
     windows = []
     for named in reading.all_names():
@@ -119,12 +138,14 @@ def _mentions(record: PageRecord, controls: Sequence[SpecSection], reading: Read
         others = tuple(n.name for n in reading.others if n.found_in(passage))
         if ours or listed or others:
             found.append(Mention(record.document, record.page, " ".join(passage.split()),
-                                 ours, listed, others, bool(reading.sole_words.search(passage))))
+                                 ours, listed, others, bool(reading.sole_words.search(passage)),
+                                 sheet.number if sheet is not None else None))
     return found
 
 
 def _where(mention: Mention) -> str:
-    return f"{mention.document.rsplit('/', 1)[-1]}, page {mention.page}"
+    place = f"{mention.document.rsplit('/', 1)[-1]}, page {mention.page}"
+    return f"{mention.sheet} ({place})" if mention.sheet else place
 
 
 def _judge(mentions: Sequence[Mention], others: tuple[str, ...]) -> tuple[str, str]:
