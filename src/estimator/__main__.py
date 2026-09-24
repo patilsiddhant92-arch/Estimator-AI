@@ -73,6 +73,10 @@ def main(argv: list[str] | None = None) -> int:
             print("In the workup but not the proposal, so ignored:")
             for text in report.unmatched_theirs:
                 print(f"    {text}")
+        if report.ignored:
+            print("On a matched line, but with nowhere in the job to go, so ignored:")
+            for text in report.ignored:
+                print(f"    {text}")
     elif args.command == "price-check":
         book = PriceBook.load(PRICE_BOOK, ALIASES)
         args.out.parent.mkdir(parents=True, exist_ok=True)

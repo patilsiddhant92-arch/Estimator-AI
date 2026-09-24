@@ -38,6 +38,7 @@ class Item(_Model):
     depth: int = Field(default=1, ge=1, le=5)
     runs: tuple[Run, ...] = Field(min_length=1)
     quantity: int | None = Field(default=None, ge=0)
+    tech_hours: float | None = Field(default=None, ge=0)
 
     @property
     def text(self) -> str:

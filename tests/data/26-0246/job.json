@@ -23,7 +23,8 @@
             "bold": true
           }
         ],
-        "quantity": 1
+        "quantity": 1,
+        "tech_hours": null
       },
       {
         "kind": "line",
@@ -34,7 +35,8 @@
             "bold": true
           }
         ],
-        "quantity": 1
+        "quantity": 1,
+        "tech_hours": null
       },
       {
         "kind": "line",
@@ -45,7 +47,8 @@
             "bold": true
           }
         ],
-        "quantity": 1
+        "quantity": 1,
+        "tech_hours": null
       },
       {
         "kind": "line",
@@ -56,7 +59,8 @@
             "bold": true
           }
         ],
-        "quantity": 1
+        "quantity": 1,
+        "tech_hours": null
       },
       {
         "kind": "line",
@@ -67,7 +71,8 @@
             "bold": true
           }
         ],
-        "quantity": 1
+        "quantity": 1,
+        "tech_hours": null
       },
       {
         "kind": "line",
@@ -78,7 +83,8 @@
             "bold": true
           }
         ],
-        "quantity": 1
+        "quantity": 1,
+        "tech_hours": null
       },
       {
         "kind": "line",
@@ -89,7 +95,8 @@
             "bold": true
           }
         ],
-        "quantity": null
+        "quantity": null,
+        "tech_hours": null
       },
       {
         "kind": "note",
@@ -100,7 +107,8 @@
             "bold": true
           }
         ],
-        "quantity": null
+        "quantity": null,
+        "tech_hours": null
       },
       {
         "kind": "note",
@@ -111,7 +119,8 @@
             "bold": true
           }
         ],
-        "quantity": null
+        "quantity": null,
+        "tech_hours": null
       },
       {
         "kind": "note",
@@ -122,7 +131,8 @@
             "bold": true
           }
         ],
-        "quantity": null
+        "quantity": null,
+        "tech_hours": null
       },
       {
         "kind": "note",
@@ -133,7 +143,8 @@
             "bold": true
           }
         ],
-        "quantity": null
+        "quantity": null,
+        "tech_hours": null
       },
       {
         "kind": "note",
@@ -144,7 +155,8 @@
             "bold": true
           }
         ],
-        "quantity": null
+        "quantity": null,
+        "tech_hours": null
       }
     ],
     "tech_hours": 140.0
@@ -162,7 +174,8 @@
               "bold": false
             }
           ],
-          "quantity": 1
+          "quantity": 1,
+          "tech_hours": null
         },
         {
           "kind": "line",
@@ -181,7 +194,8 @@
               "bold": false
             }
           ],
-          "quantity": 1
+          "quantity": 1,
+          "tech_hours": null
         },
         {
           "kind": "line",
@@ -192,7 +206,8 @@
               "bold": false
             }
           ],
-          "quantity": 1
+          "quantity": 1,
+          "tech_hours": null
         },
         {
           "kind": "line",
@@ -203,7 +218,8 @@
               "bold": false
             }
           ],
-          "quantity": null
+          "quantity": null,
+          "tech_hours": null
         },
         {
           "kind": "line",
@@ -214,7 +230,8 @@
               "bold": false
             }
           ],
-          "quantity": null
+          "quantity": null,
+          "tech_hours": null
         },
         {
           "kind": "line",
@@ -229,7 +246,8 @@
               "bold": true
             }
           ],
-          "quantity": null
+          "quantity": null,
+          "tech_hours": null
         },
         {
           "kind": "note",
@@ -240,7 +258,8 @@
               "bold": true
             }
           ],
-          "quantity": null
+          "quantity": null,
+          "tech_hours": null
         },
         {
           "kind": "note",
@@ -251,7 +270,8 @@
               "bold": true
             }
           ],
-          "quantity": null
+          "quantity": null,
+          "tech_hours": null
         }
       ],
       "tech_hours": 10.0
@@ -272,7 +292,8 @@
               "bold": true
             }
           ],
-          "quantity": 5
+          "quantity": 5,
+          "tech_hours": null
         },
         {
           "kind": "line",
@@ -287,7 +308,8 @@
               "bold": true
             }
           ],
-          "quantity": 7
+          "quantity": 7,
+          "tech_hours": null
         },
         {
           "kind": "line",
@@ -302,7 +324,8 @@
               "bold": true
             }
           ],
-          "quantity": 5
+          "quantity": 5,
+          "tech_hours": null
         },
         {
           "kind": "line",
@@ -317,7 +340,8 @@
               "bold": true
             }
           ],
-          "quantity": 5
+          "quantity": 5,
+          "tech_hours": null
         }
       ],
       "tech_hours": 25.0
@@ -346,7 +370,8 @@
               "bold": true
             }
           ],
-          "quantity": 4
+          "quantity": 4,
+          "tech_hours": null
         },
         {
           "kind": "line",
@@ -357,7 +382,8 @@
               "bold": false
             }
           ],
-          "quantity": 4
+          "quantity": 4,
+          "tech_hours": null
         },
         {
           "kind": "line",
@@ -368,7 +394,8 @@
               "bold": false
             }
           ],
-          "quantity": 4
+          "quantity": 4,
+          "tech_hours": null
         },
         {
           "kind": "line",
@@ -379,7 +406,8 @@
               "bold": false
             }
           ],
-          "quantity": 4
+          "quantity": 4,
+          "tech_hours": null
         },
         {
           "kind": "note",
@@ -390,7 +418,8 @@
               "bold": true
             }
           ],
-          "quantity": null
+          "quantity": null,
+          "tech_hours": null
         }
       ],
       "tech_hours": 20.0
@@ -407,7 +436,8 @@
               "bold": false
             }
           ],
-          "quantity": 1
+          "quantity": 1,
+          "tech_hours": null
         },
         {
           "kind": "line",
@@ -418,7 +448,8 @@
               "bold": false
             }
           ],
-          "quantity": 1
+          "quantity": 1,
+          "tech_hours": null
         },
         {
           "kind": "line",
@@ -429,7 +460,8 @@
               "bold": false
             }
           ],
-          "quantity": 1
+          "quantity": 1,
+          "tech_hours": null
         }
       ],
       "tech_hours": 6.0
@@ -446,7 +478,8 @@
               "bold": false
             }
           ],
-          "quantity": null
+          "quantity": null,
+          "tech_hours": null
         },
         {
           "kind": "line",
@@ -457,7 +490,8 @@
               "bold": false
             }
           ],
-          "quantity": null
+          "quantity": null,
+          "tech_hours": null
         },
         {
           "kind": "line",
@@ -468,7 +502,8 @@
               "bold": false
             }
           ],
-          "quantity": null
+          "quantity": null,
+          "tech_hours": null
         },
         {
           "kind": "line",
@@ -483,7 +518,8 @@
               "bold": true
             }
           ],
-          "quantity": null
+          "quantity": null,
+          "tech_hours": null
         },
         {
           "kind": "line",
@@ -494,7 +530,8 @@
               "bold": false
             }
           ],
-          "quantity": null
+          "quantity": null,
+          "tech_hours": null
         },
         {
           "kind": "line",
@@ -505,7 +542,8 @@
               "bold": false
             }
           ],
-          "quantity": null
+          "quantity": null,
+          "tech_hours": null
         },
         {
           "kind": "line",
@@ -528,7 +566,8 @@
               "bold": true
             }
           ],
-          "quantity": null
+          "quantity": null,
+          "tech_hours": null
         },
         {
           "kind": "line",
@@ -539,7 +578,8 @@
               "bold": false
             }
           ],
-          "quantity": null
+          "quantity": null,
+          "tech_hours": null
         },
         {
           "kind": "line",
@@ -550,7 +590,8 @@
               "bold": false
             }
           ],
-          "quantity": null
+          "quantity": null,
+          "tech_hours": null
         },
         {
           "kind": "line",
@@ -565,7 +606,8 @@
               "bold": true
             }
           ],
-          "quantity": null
+          "quantity": null,
+          "tech_hours": null
         },
         {
           "kind": "line",
@@ -576,7 +618,8 @@
               "bold": false
             }
           ],
-          "quantity": null
+          "quantity": null,
+          "tech_hours": null
         },
         {
           "kind": "line",
@@ -587,7 +630,8 @@
               "bold": false
             }
           ],
-          "quantity": null
+          "quantity": null,
+          "tech_hours": null
         },
         {
           "kind": "note",
@@ -598,7 +642,8 @@
               "bold": true
             }
           ],
-          "quantity": null
+          "quantity": null,
+          "tech_hours": null
         }
       ],
       "tech_hours": 64.0
@@ -615,7 +660,8 @@
               "bold": false
             }
           ],
-          "quantity": null
+          "quantity": null,
+          "tech_hours": null
         },
         {
           "kind": "line",
@@ -626,7 +672,8 @@
               "bold": false
             }
           ],
-          "quantity": null
+          "quantity": null,
+          "tech_hours": null
         },
         {
           "kind": "line",
@@ -637,7 +684,8 @@
               "bold": false
             }
           ],
-          "quantity": null
+          "quantity": null,
+          "tech_hours": null
         },
         {
           "kind": "line",
@@ -648,7 +696,8 @@
               "bold": false
             }
           ],
-          "quantity": null
+          "quantity": null,
+          "tech_hours": null
         },
         {
           "kind": "line",
@@ -659,7 +708,8 @@
               "bold": false
             }
           ],
-          "quantity": null
+          "quantity": null,
+          "tech_hours": null
         },
         {
           "kind": "line",
@@ -682,7 +732,8 @@
               "bold": true
             }
           ],
-          "quantity": null
+          "quantity": null,
+          "tech_hours": null
         },
         {
           "kind": "line",
@@ -693,7 +744,8 @@
               "bold": false
             }
           ],
-          "quantity": null
+          "quantity": null,
+          "tech_hours": null
         },
         {
           "kind": "line",
@@ -704,7 +756,8 @@
               "bold": false
             }
           ],
-          "quantity": null
+          "quantity": null,
+          "tech_hours": null
         },
         {
           "kind": "line",
@@ -715,7 +768,8 @@
               "bold": false
             }
           ],
-          "quantity": null
+          "quantity": null,
+          "tech_hours": null
         },
         {
           "kind": "line",
@@ -726,7 +780,8 @@
               "bold": false
             }
           ],
-          "quantity": null
+          "quantity": null,
+          "tech_hours": null
         },
         {
           "kind": "line",
@@ -737,7 +792,8 @@
               "bold": false
             }
           ],
-          "quantity": null
+          "quantity": null,
+          "tech_hours": null
         },
         {
           "kind": "note",
@@ -748,7 +804,8 @@
               "bold": true
             }
           ],
-          "quantity": null
+          "quantity": null,
+          "tech_hours": null
         }
       ],
       "tech_hours": 16.0
@@ -765,7 +822,8 @@
               "bold": false
             }
           ],
-          "quantity": null
+          "quantity": null,
+          "tech_hours": null
         },
         {
           "kind": "line",
@@ -776,7 +834,8 @@
               "bold": false
             }
           ],
-          "quantity": null
+          "quantity": null,
+          "tech_hours": null
         },
         {
           "kind": "line",
@@ -787,7 +846,8 @@
               "bold": false
             }
           ],
-          "quantity": null
+          "quantity": null,
+          "tech_hours": null
         },
         {
           "kind": "line",
@@ -798,7 +858,8 @@
               "bold": false
             }
           ],
-          "quantity": null
+          "quantity": null,
+          "tech_hours": null
         },
         {
           "kind": "line",
@@ -809,7 +870,8 @@
               "bold": false
             }
           ],
-          "quantity": null
+          "quantity": null,
+          "tech_hours": null
         },
         {
           "kind": "line",
@@ -832,7 +894,8 @@
               "bold": true
             }
           ],
-          "quantity": null
+          "quantity": null,
+          "tech_hours": null
         },
         {
           "kind": "line",
@@ -843,7 +906,8 @@
               "bold": false
             }
           ],
-          "quantity": null
+          "quantity": null,
+          "tech_hours": null
         },
         {
           "kind": "line",
@@ -854,7 +918,8 @@
               "bold": false
             }
           ],
-          "quantity": null
+          "quantity": null,
+          "tech_hours": null
         },
         {
           "kind": "note",
@@ -865,7 +930,8 @@
               "bold": true
             }
           ],
-          "quantity": null
+          "quantity": null,
+          "tech_hours": null
         }
       ],
       "tech_hours": 16.0
@@ -882,7 +948,8 @@
               "bold": false
             }
           ],
-          "quantity": 58
+          "quantity": 58,
+          "tech_hours": null
         },
         {
           "kind": "line",
@@ -893,7 +960,8 @@
               "bold": false
             }
           ],
-          "quantity": 58
+          "quantity": 58,
+          "tech_hours": null
         },
         {
           "kind": "line",
@@ -904,7 +972,8 @@
               "bold": true
             }
           ],
-          "quantity": null
+          "quantity": null,
+          "tech_hours": null
         }
       ],
       "tech_hours": 174.0
@@ -921,7 +990,8 @@
               "bold": false
             }
           ],
-          "quantity": 19
+          "quantity": 19,
+          "tech_hours": null
         },
         {
           "kind": "line",
@@ -932,7 +1002,8 @@
               "bold": true
             }
           ],
-          "quantity": null
+          "quantity": null,
+          "tech_hours": null
         }
       ],
       "tech_hours": 57.0
@@ -949,7 +1020,8 @@
               "bold": false
             }
           ],
-          "quantity": 4
+          "quantity": 4,
+          "tech_hours": null
         },
         {
           "kind": "line",
@@ -960,7 +1032,8 @@
               "bold": false
             }
           ],
-          "quantity": 4
+          "quantity": 4,
+          "tech_hours": null
         },
         {
           "kind": "line",
@@ -971,7 +1044,8 @@
               "bold": false
             }
           ],
-          "quantity": 4
+          "quantity": 4,
+          "tech_hours": null
         },
         {
           "kind": "line",
@@ -982,7 +1056,8 @@
               "bold": false
             }
           ],
-          "quantity": 4
+          "quantity": 4,
+          "tech_hours": null
         },
         {
           "kind": "line",
@@ -993,7 +1068,8 @@
               "bold": false
             }
           ],
-          "quantity": 4
+          "quantity": 4,
+          "tech_hours": null
         },
         {
           "kind": "line",
@@ -1004,7 +1080,8 @@
               "bold": true
             }
           ],
-          "quantity": null
+          "quantity": null,
+          "tech_hours": null
         }
       ],
       "tech_hours": 24.0
@@ -1021,7 +1098,8 @@
               "bold": false
             }
           ],
-          "quantity": null
+          "quantity": null,
+          "tech_hours": null
         },
         {
           "kind": "line",
@@ -1032,7 +1110,8 @@
               "bold": false
             }
           ],
-          "quantity": 10
+          "quantity": 10,
+          "tech_hours": null
         },
         {
           "kind": "line",
@@ -1043,7 +1122,8 @@
               "bold": false
             }
           ],
-          "quantity": 10
+          "quantity": 10,
+          "tech_hours": null
         },
         {
           "kind": "line",
@@ -1058,7 +1138,8 @@
               "bold": true
             }
           ],
-          "quantity": null
+          "quantity": null,
+          "tech_hours": null
         },
         {
           "kind": "line",
@@ -1069,7 +1150,8 @@
               "bold": false
             }
           ],
-          "quantity": null
+          "quantity": null,
+          "tech_hours": null
         },
         {
           "kind": "line",
@@ -1080,7 +1162,8 @@
               "bold": false
             }
           ],
-          "quantity": null
+          "quantity": null,
+          "tech_hours": null
         },
         {
           "kind": "line",
@@ -1091,7 +1174,8 @@
               "bold": false
             }
           ],
-          "quantity": null
+          "quantity": null,
+          "tech_hours": null
         },
         {
           "kind": "line",
@@ -1102,7 +1186,8 @@
               "bold": false
             }
           ],
-          "quantity": null
+          "quantity": null,
+          "tech_hours": null
         }
       ],
       "tech_hours": 20.0
@@ -1138,7 +1223,8 @@
               "bold": true
             }
           ],
-          "quantity": null
+          "quantity": null,
+          "tech_hours": null
         },
         {
           "kind": "line",
@@ -1149,7 +1235,8 @@
               "bold": false
             }
           ],
-          "quantity": 1
+          "quantity": 1,
+          "tech_hours": null
         },
         {
           "kind": "line",
@@ -1164,7 +1251,8 @@
               "bold": true
             }
           ],
-          "quantity": 2
+          "quantity": 2,
+          "tech_hours": null
         },
         {
           "kind": "line",
@@ -1175,7 +1263,8 @@
               "bold": false
             }
           ],
-          "quantity": 1
+          "quantity": 1,
+          "tech_hours": null
         },
         {
           "kind": "line",
@@ -1190,7 +1279,8 @@
               "bold": true
             }
           ],
-          "quantity": null
+          "quantity": null,
+          "tech_hours": null
         },
         {
           "kind": "line",
@@ -1201,7 +1291,8 @@
               "bold": false
             }
           ],
-          "quantity": null
+          "quantity": null,
+          "tech_hours": null
         },
         {
           "kind": "line",
@@ -1212,7 +1303,8 @@
               "bold": false
             }
           ],
-          "quantity": null
+          "quantity": null,
+          "tech_hours": null
         },
         {
           "kind": "line",
@@ -1223,7 +1315,8 @@
               "bold": false
             }
           ],
-          "quantity": null
+          "quantity": null,
+          "tech_hours": null
         },
         {
           "kind": "line",
@@ -1234,7 +1327,8 @@
               "bold": false
             }
           ],
-          "quantity": null
+          "quantity": null,
+          "tech_hours": null
         },
         {
           "kind": "line",
@@ -1253,7 +1347,8 @@
               "bold": false
             }
           ],
-          "quantity": null
+          "quantity": null,
+          "tech_hours": null
         },
         {
           "kind": "line",
@@ -1264,7 +1359,8 @@
               "bold": false
             }
           ],
-          "quantity": null
+          "quantity": null,
+          "tech_hours": null
         },
         {
           "kind": "line",
@@ -1275,7 +1371,8 @@
               "bold": false
             }
           ],
-          "quantity": null
+          "quantity": null,
+          "tech_hours": null
         },
         {
           "kind": "line",
@@ -1294,7 +1391,8 @@
               "bold": false
             }
           ],
-          "quantity": null
+          "quantity": null,
+          "tech_hours": null
         },
         {
           "kind": "line",
@@ -1305,7 +1403,8 @@
               "bold": false
             }
           ],
-          "quantity": null
+          "quantity": null,
+          "tech_hours": null
         },
         {
           "kind": "line",
@@ -1316,7 +1415,8 @@
               "bold": false
             }
           ],
-          "quantity": null
+          "quantity": null,
+          "tech_hours": null
         }
       ],
       "tech_hours": null
@@ -1333,7 +1433,8 @@
               "bold": false
             }
           ],
-          "quantity": 3
+          "quantity": 3,
+          "tech_hours": null
         },
         {
           "kind": "line",
@@ -1344,7 +1445,8 @@
               "bold": false
             }
           ],
-          "quantity": 3
+          "quantity": 3,
+          "tech_hours": null
         },
         {
           "kind": "line",
@@ -1359,7 +1461,8 @@
               "bold": true
             }
           ],
-          "quantity": 3
+          "quantity": 3,
+          "tech_hours": null
         }
       ],
       "tech_hours": 12.0
@@ -1376,7 +1479,8 @@
               "bold": false
             }
           ],
-          "quantity": 1
+          "quantity": 1,
+          "tech_hours": 4.0
         },
         {
           "kind": "line",
@@ -1387,7 +1491,8 @@
               "bold": false
             }
           ],
-          "quantity": 1
+          "quantity": 1,
+          "tech_hours": null
         },
         {
           "kind": "line",
@@ -1398,7 +1503,8 @@
               "bold": false
             }
           ],
-          "quantity": 1
+          "quantity": 1,
+          "tech_hours": null
         },
         {
           "kind": "line",
@@ -1409,7 +1515,8 @@
               "bold": false
             }
           ],
-          "quantity": 1
+          "quantity": 1,
+          "tech_hours": null
         }
       ],
       "tech_hours": null
@@ -1441,7 +1548,8 @@
               "bold": false
             }
           ],
-          "quantity": 6
+          "quantity": 6,
+          "tech_hours": null
         },
         {
           "kind": "line",
@@ -1452,7 +1560,8 @@
               "bold": false
             }
           ],
-          "quantity": 6
+          "quantity": 6,
+          "tech_hours": null
         },
         {
           "kind": "line",
@@ -1467,7 +1576,8 @@
               "bold": true
             }
           ],
-          "quantity": 6
+          "quantity": 6,
+          "tech_hours": null
         }
       ],
       "tech_hours": 8.0
@@ -1484,7 +1594,8 @@
               "bold": false
             }
           ],
-          "quantity": null
+          "quantity": null,
+          "tech_hours": null
         },
         {
           "kind": "line",
@@ -1495,7 +1606,8 @@
               "bold": false
             }
           ],
-          "quantity": 1
+          "quantity": 1,
+          "tech_hours": null
         },
         {
           "kind": "line",
@@ -1506,7 +1618,8 @@
               "bold": false
             }
           ],
-          "quantity": 1
+          "quantity": 1,
+          "tech_hours": null
         }
       ],
       "tech_hours": 4.0
@@ -1523,7 +1636,8 @@
               "bold": false
             }
           ],
-          "quantity": null
+          "quantity": null,
+          "tech_hours": null
         },
         {
           "kind": "line",
@@ -1534,7 +1648,8 @@
               "bold": false
             }
           ],
-          "quantity": 1
+          "quantity": 1,
+          "tech_hours": null
         },
         {
           "kind": "line",
@@ -1545,7 +1660,8 @@
               "bold": false
             }
           ],
-          "quantity": 1
+          "quantity": 1,
+          "tech_hours": null
         },
         {
           "kind": "note",
@@ -1556,7 +1672,8 @@
               "bold": true
             }
           ],
-          "quantity": null
+          "quantity": null,
+          "tech_hours": null
         }
       ],
       "tech_hours": 4.0
@@ -1573,7 +1690,8 @@
               "bold": false
             }
           ],
-          "quantity": 1
+          "quantity": 1,
+          "tech_hours": null
         },
         {
           "kind": "line",
@@ -1584,7 +1702,8 @@
               "bold": false
             }
           ],
-          "quantity": 1
+          "quantity": 1,
+          "tech_hours": null
         },
         {
           "kind": "line",
@@ -1595,7 +1714,8 @@
               "bold": false
             }
           ],
-          "quantity": 1
+          "quantity": 1,
+          "tech_hours": null
         },
         {
           "kind": "line",
@@ -1606,7 +1726,8 @@
               "bold": false
             }
           ],
-          "quantity": 1
+          "quantity": 1,
+          "tech_hours": null
         }
       ],
       "tech_hours": 4.0
@@ -1627,7 +1748,8 @@
               "bold": true
             }
           ],
-          "quantity": 4
+          "quantity": 4,
+          "tech_hours": null
         },
         {
           "kind": "note",
@@ -1638,7 +1760,8 @@
               "bold": true
             }
           ],
-          "quantity": null
+          "quantity": null,
+          "tech_hours": null
         }
       ],
       "tech_hours": 6.0
@@ -1655,7 +1778,8 @@
               "bold": false
             }
           ],
-          "quantity": 1
+          "quantity": 1,
+          "tech_hours": null
         },
         {
           "kind": "line",
@@ -1666,7 +1790,8 @@
               "bold": false
             }
           ],
-          "quantity": 1
+          "quantity": 1,
+          "tech_hours": null
         },
         {
           "kind": "line",
@@ -1677,7 +1802,8 @@
               "bold": false
             }
           ],
-          "quantity": 1
+          "quantity": 1,
+          "tech_hours": null
         },
         {
           "kind": "line",
@@ -1688,7 +1814,8 @@
               "bold": false
             }
           ],
-          "quantity": 1
+          "quantity": 1,
+          "tech_hours": null
         },
         {
           "kind": "note",
@@ -1699,7 +1826,8 @@
               "bold": true
             }
           ],
-          "quantity": null
+          "quantity": null,
+          "tech_hours": null
         },
         {
           "kind": "note",
@@ -1710,7 +1838,8 @@
               "bold": true
             }
           ],
-          "quantity": null
+          "quantity": null,
+          "tech_hours": 10.0
         }
       ],
       "tech_hours": 4.0
@@ -1732,7 +1861,8 @@
               "bold": false
             }
           ],
-          "quantity": null
+          "quantity": null,
+          "tech_hours": null
         },
         {
           "kind": "line",
@@ -1743,7 +1873,8 @@
               "bold": false
             }
           ],
-          "quantity": null
+          "quantity": null,
+          "tech_hours": null
         },
         {
           "kind": "line",
@@ -1754,7 +1885,8 @@
               "bold": false
             }
           ],
-          "quantity": 1
+          "quantity": 1,
+          "tech_hours": null
         },
         {
           "kind": "line",
@@ -1765,7 +1897,8 @@
               "bold": false
             }
           ],
-          "quantity": 1
+          "quantity": 1,
+          "tech_hours": null
         }
       ],
       "tech_hours": null
@@ -1782,7 +1915,8 @@
               "bold": false
             }
           ],
-          "quantity": 1
+          "quantity": 1,
+          "tech_hours": null
         },
         {
           "kind": "line",
@@ -1793,7 +1927,8 @@
               "bold": false
             }
           ],
-          "quantity": 1
+          "quantity": 1,
+          "tech_hours": null
         },
         {
           "kind": "line",
@@ -1804,7 +1939,8 @@
               "bold": false
             }
           ],
-          "quantity": 1
+          "quantity": 1,
+          "tech_hours": null
         },
         {
           "kind": "line",
@@ -1815,7 +1951,8 @@
               "bold": false
             }
           ],
-          "quantity": 1
+          "quantity": 1,
+          "tech_hours": null
         },
         {
           "kind": "line",
@@ -1826,7 +1963,8 @@
               "bold": false
             }
           ],
-          "quantity": 1
+          "quantity": 1,
+          "tech_hours": null
         }
       ],
       "tech_hours": 6.0
@@ -1843,7 +1981,8 @@
               "bold": false
             }
           ],
-          "quantity": 1
+          "quantity": 1,
+          "tech_hours": null
         },
         {
           "kind": "line",
@@ -1854,7 +1993,8 @@
               "bold": false
             }
           ],
-          "quantity": 1
+          "quantity": 1,
+          "tech_hours": null
         },
         {
           "kind": "line",
@@ -1865,7 +2005,8 @@
               "bold": false
             }
           ],
-          "quantity": 1
+          "quantity": 1,
+          "tech_hours": null
         },
         {
           "kind": "line",
@@ -1876,7 +2017,8 @@
               "bold": false
             }
           ],
-          "quantity": 1
+          "quantity": 1,
+          "tech_hours": null
         }
       ],
       "tech_hours": 4.0
@@ -1897,7 +2039,8 @@
               "bold": true
             }
           ],
-          "quantity": null
+          "quantity": null,
+          "tech_hours": null
         },
         {
           "kind": "note",
@@ -1908,7 +2051,8 @@
               "bold": true
             }
           ],
-          "quantity": null
+          "quantity": null,
+          "tech_hours": null
         }
       ],
       "tech_hours": 4.0
@@ -1929,7 +2073,8 @@
               "bold": true
             }
           ],
-          "quantity": 1
+          "quantity": 1,
+          "tech_hours": null
         }
       ],
       "tech_hours": 4.0
@@ -1950,7 +2095,8 @@
               "bold": true
             }
           ],
-          "quantity": 42
+          "quantity": 42,
+          "tech_hours": null
         }
       ],
       "tech_hours": 86.0
@@ -1971,7 +2117,8 @@
               "bold": true
             }
           ],
-          "quantity": 11
+          "quantity": 11,
+          "tech_hours": null
         }
       ],
       "tech_hours": 22.0
@@ -1988,7 +2135,8 @@
               "bold": false
             }
           ],
-          "quantity": null
+          "quantity": null,
+          "tech_hours": null
         }
       ],
       "tech_hours": 52.5
@@ -2009,7 +2157,8 @@
               "bold": true
             }
           ],
-          "quantity": 5
+          "quantity": 5,
+          "tech_hours": null
         }
       ],
       "tech_hours": 10.0
@@ -2026,7 +2175,8 @@
               "bold": false
             }
           ],
-          "quantity": 1
+          "quantity": 1,
+          "tech_hours": null
         },
         {
           "kind": "line",
@@ -2041,7 +2191,8 @@
               "bold": true
             }
           ],
-          "quantity": 4
+          "quantity": 4,
+          "tech_hours": null
         },
         {
           "kind": "line",
@@ -2056,7 +2207,8 @@
               "bold": true
             }
           ],
-          "quantity": 2
+          "quantity": 2,
+          "tech_hours": null
         },
         {
           "kind": "line",
@@ -2071,7 +2223,8 @@
               "bold": true
             }
           ],
-          "quantity": null
+          "quantity": null,
+          "tech_hours": null
         },
         {
           "kind": "line",
@@ -2082,7 +2235,8 @@
               "bold": false
             }
           ],
-          "quantity": null
+          "quantity": null,
+          "tech_hours": null
         },
         {
           "kind": "line",
@@ -2105,7 +2259,8 @@
               "bold": true
             }
           ],
-          "quantity": null
+          "quantity": null,
+          "tech_hours": null
         },
         {
           "kind": "line",
@@ -2116,7 +2271,8 @@
               "bold": false
             }
           ],
-          "quantity": null
+          "quantity": null,
+          "tech_hours": null
         },
         {
           "kind": "line",
@@ -2127,7 +2283,8 @@
               "bold": false
             }
           ],
-          "quantity": null
+          "quantity": null,
+          "tech_hours": null
         },
         {
           "kind": "line",
@@ -2150,7 +2307,8 @@
               "bold": true
             }
           ],
-          "quantity": null
+          "quantity": null,
+          "tech_hours": null
         },
         {
           "kind": "line",
@@ -2161,7 +2319,8 @@
               "bold": false
             }
           ],
-          "quantity": null
+          "quantity": null,
+          "tech_hours": null
         },
         {
           "kind": "line",
@@ -2172,7 +2331,8 @@
               "bold": false
             }
           ],
-          "quantity": null
+          "quantity": null,
+          "tech_hours": null
         },
         {
           "kind": "note",
@@ -2183,7 +2343,8 @@
               "bold": true
             }
           ],
-          "quantity": null
+          "quantity": null,
+          "tech_hours": null
         }
       ],
       "tech_hours": 12.0
@@ -2200,7 +2361,8 @@
               "bold": false
             }
           ],
-          "quantity": 1
+          "quantity": 1,
+          "tech_hours": null
         },
         {
           "kind": "line",
@@ -2211,7 +2373,8 @@
               "bold": false
             }
           ],
-          "quantity": 1
+          "quantity": 1,
+          "tech_hours": null
         },
         {
           "kind": "line",
@@ -2222,7 +2385,8 @@
               "bold": false
             }
           ],
-          "quantity": null
+          "quantity": null,
+          "tech_hours": null
         },
         {
           "kind": "line",
@@ -2233,7 +2397,8 @@
               "bold": false
             }
           ],
-          "quantity": null
+          "quantity": null,
+          "tech_hours": null
         },
         {
           "kind": "line",
@@ -2244,7 +2409,8 @@
               "bold": false
             }
           ],
-          "quantity": null
+          "quantity": null,
+          "tech_hours": null
         },
         {
           "kind": "line",
@@ -2259,7 +2425,8 @@
               "bold": true
             }
           ],
-          "quantity": 1
+          "quantity": 1,
+          "tech_hours": null
         },
         {
           "kind": "line",
@@ -2274,7 +2441,8 @@
               "bold": true
             }
           ],
-          "quantity": 1
+          "quantity": 1,
+          "tech_hours": null
         },
         {
           "kind": "line",
@@ -2293,7 +2461,8 @@
               "bold": false
             }
           ],
-          "quantity": null
+          "quantity": null,
+          "tech_hours": null
         },
         {
           "kind": "line",
@@ -2304,7 +2473,8 @@
               "bold": false
             }
           ],
-          "quantity": null
+          "quantity": null,
+          "tech_hours": null
         },
         {
           "kind": "line",
@@ -2315,7 +2485,8 @@
               "bold": false
             }
           ],
-          "quantity": null
+          "quantity": null,
+          "tech_hours": null
         },
         {
           "kind": "line",
@@ -2330,7 +2501,8 @@
               "bold": true
             }
           ],
-          "quantity": null
+          "quantity": null,
+          "tech_hours": null
         },
         {
           "kind": "line",
@@ -2341,7 +2513,8 @@
               "bold": false
             }
           ],
-          "quantity": null
+          "quantity": null,
+          "tech_hours": null
         },
         {
           "kind": "line",
@@ -2352,7 +2525,8 @@
               "bold": false
             }
           ],
-          "quantity": null
+          "quantity": null,
+          "tech_hours": null
         },
         {
           "kind": "note",
@@ -2363,7 +2537,8 @@
               "bold": true
             }
           ],
-          "quantity": null
+          "quantity": null,
+          "tech_hours": null
         }
       ],
       "tech_hours": 6.0
@@ -2384,7 +2559,8 @@
               "bold": true
             }
           ],
-          "quantity": 2
+          "quantity": 2,
+          "tech_hours": null
         },
         {
           "kind": "line",
@@ -2403,7 +2579,8 @@
               "bold": false
             }
           ],
-          "quantity": 2
+          "quantity": 2,
+          "tech_hours": null
         },
         {
           "kind": "line",
@@ -2414,7 +2591,8 @@
               "bold": false
             }
           ],
-          "quantity": null
+          "quantity": null,
+          "tech_hours": null
         },
         {
           "kind": "line",
@@ -2425,7 +2603,8 @@
               "bold": false
             }
           ],
-          "quantity": null
+          "quantity": null,
+          "tech_hours": null
         }
       ],
       "tech_hours": 4.0
@@ -2442,7 +2621,8 @@
               "bold": false
             }
           ],
-          "quantity": 1
+          "quantity": 1,
+          "tech_hours": null
         },
         {
           "kind": "line",
@@ -2453,7 +2633,8 @@
               "bold": false
             }
           ],
-          "quantity": 1
+          "quantity": 1,
+          "tech_hours": null
         },
         {
           "kind": "line",
@@ -2464,7 +2645,8 @@
               "bold": false
             }
           ],
-          "quantity": null
+          "quantity": null,
+          "tech_hours": null
         }
       ],
       "tech_hours": 4.0
@@ -2481,7 +2663,8 @@
               "bold": false
             }
           ],
-          "quantity": null
+          "quantity": null,
+          "tech_hours": null
         },
         {
           "kind": "line",
@@ -2496,7 +2679,8 @@
               "bold": true
             }
           ],
-          "quantity": null
+          "quantity": null,
+          "tech_hours": 2.0
         },
         {
           "kind": "line",
@@ -2515,7 +2699,8 @@
               "bold": false
             }
           ],
-          "quantity": null
+          "quantity": null,
+          "tech_hours": null
         },
         {
           "kind": "line",
@@ -2530,7 +2715,8 @@
               "bold": true
             }
           ],
-          "quantity": null
+          "quantity": null,
+          "tech_hours": 2.0
         },
         {
           "kind": "line",
@@ -2549,7 +2735,8 @@
               "bold": false
             }
           ],
-          "quantity": null
+          "quantity": null,
+          "tech_hours": null
         },
         {
           "kind": "line",
@@ -2564,7 +2751,8 @@
               "bold": true
             }
           ],
-          "quantity": null
+          "quantity": null,
+          "tech_hours": 2.0
         },
         {
           "kind": "line",
@@ -2583,7 +2771,8 @@
               "bold": false
             }
           ],
-          "quantity": null
+          "quantity": null,
+          "tech_hours": null
         },
         {
           "kind": "line",
@@ -2598,7 +2787,8 @@
               "bold": true
             }
           ],
-          "quantity": null
+          "quantity": null,
+          "tech_hours": 43.0
         },
         {
           "kind": "line",
@@ -2609,7 +2799,8 @@
               "bold": true
             }
           ],
-          "quantity": null
+          "quantity": null,
+          "tech_hours": null
         },
         {
           "kind": "line",
@@ -2620,7 +2811,8 @@
               "bold": true
             }
           ],
-          "quantity": null
+          "quantity": null,
+          "tech_hours": null
         },
         {
           "kind": "line",
@@ -2631,7 +2823,8 @@
               "bold": true
             }
           ],
-          "quantity": null
+          "quantity": null,
+          "tech_hours": null
         },
         {
           "kind": "line",
@@ -2642,7 +2835,8 @@
               "bold": true
             }
           ],
-          "quantity": null
+          "quantity": null,
+          "tech_hours": null
         },
         {
           "kind": "line",
@@ -2653,7 +2847,8 @@
               "bold": true
             }
           ],
-          "quantity": null
+          "quantity": null,
+          "tech_hours": null
         },
         {
           "kind": "line",
@@ -2664,7 +2859,8 @@
               "bold": true
             }
           ],
-          "quantity": null
+          "quantity": null,
+          "tech_hours": null
         },
         {
           "kind": "line",
@@ -2675,7 +2871,8 @@
               "bold": true
             }
           ],
-          "quantity": null
+          "quantity": null,
+          "tech_hours": null
         },
         {
           "kind": "line",
@@ -2686,7 +2883,8 @@
               "bold": false
             }
           ],
-          "quantity": null
+          "quantity": null,
+          "tech_hours": null
         },
         {
           "kind": "line",
@@ -2701,7 +2899,8 @@
               "bold": true
             }
           ],
-          "quantity": null
+          "quantity": null,
+          "tech_hours": 6.0
         },
         {
           "kind": "line",
@@ -2716,7 +2915,8 @@
               "bold": true
             }
           ],
-          "quantity": null
+          "quantity": null,
+          "tech_hours": 11.0
         },
         {
           "kind": "line",
@@ -2731,7 +2931,8 @@
               "bold": true
             }
           ],
-          "quantity": null
+          "quantity": null,
+          "tech_hours": 2.0
         },
         {
           "kind": "line",
@@ -2742,7 +2943,8 @@
               "bold": false
             }
           ],
-          "quantity": null
+          "quantity": null,
+          "tech_hours": null
         },
         {
           "kind": "line",
@@ -2753,7 +2955,8 @@
               "bold": false
             }
           ],
-          "quantity": null
+          "quantity": null,
+          "tech_hours": null
         },
         {
           "kind": "line",
@@ -2768,7 +2971,8 @@
               "bold": true
             }
           ],
-          "quantity": null
+          "quantity": null,
+          "tech_hours": 2.0
         },
         {
           "kind": "line",
@@ -2779,7 +2983,8 @@
               "bold": false
             }
           ],
-          "quantity": null
+          "quantity": null,
+          "tech_hours": null
         },
         {
           "kind": "line",
@@ -2790,7 +2995,8 @@
               "bold": false
             }
           ],
-          "quantity": null
+          "quantity": null,
+          "tech_hours": null
         },
         {
           "kind": "line",
@@ -2805,7 +3011,8 @@
               "bold": true
             }
           ],
-          "quantity": null
+          "quantity": null,
+          "tech_hours": 2.0
         },
         {
           "kind": "line",
@@ -2816,7 +3023,8 @@
               "bold": false
             }
           ],
-          "quantity": null
+          "quantity": null,
+          "tech_hours": null
         },
         {
           "kind": "line",
@@ -2827,7 +3035,8 @@
               "bold": false
             }
           ],
-          "quantity": null
+          "quantity": null,
+          "tech_hours": null
         },
         {
           "kind": "line",
@@ -2850,7 +3059,8 @@
               "bold": true
             }
           ],
-          "quantity": null
+          "quantity": null,
+          "tech_hours": null
         },
         {
           "kind": "line",
@@ -2861,7 +3071,8 @@
               "bold": false
             }
           ],
-          "quantity": null
+          "quantity": null,
+          "tech_hours": null
         },
         {
           "kind": "line",
@@ -2872,7 +3083,8 @@
               "bold": false
             }
           ],
-          "quantity": null
+          "quantity": null,
+          "tech_hours": null
         },
         {
           "kind": "line",
@@ -2883,7 +3095,8 @@
               "bold": false
             }
           ],
-          "quantity": null
+          "quantity": null,
+          "tech_hours": 2.0
         }
       ],
       "tech_hours": null
@@ -2909,7 +3122,8 @@
               "bold": true
             }
           ],
-          "quantity": null
+          "quantity": null,
+          "tech_hours": null
         },
         {
           "kind": "line",
@@ -2924,7 +3138,8 @@
               "bold": true
             }
           ],
-          "quantity": null
+          "quantity": null,
+          "tech_hours": null
         },
         {
           "kind": "line",
@@ -2939,7 +3154,8 @@
               "bold": true
             }
           ],
-          "quantity": null
+          "quantity": null,
+          "tech_hours": null
         }
       ],
       "tech_hours": null
@@ -2966,7 +3182,8 @@
                   "bold": false
                 }
               ],
-              "quantity": 1
+              "quantity": 1,
+              "tech_hours": null
             },
             {
               "kind": "line",
@@ -2977,7 +3194,8 @@
                   "bold": false
                 }
               ],
-              "quantity": 1
+              "quantity": 1,
+              "tech_hours": null
             }
           ],
           "tech_hours": 4.0
@@ -3001,7 +3219,8 @@
                   "bold": false
                 }
               ],
-              "quantity": 1
+              "quantity": 1,
+              "tech_hours": null
             },
             {
               "kind": "line",
@@ -3012,7 +3231,8 @@
                   "bold": false
                 }
               ],
-              "quantity": 1
+              "quantity": 1,
+              "tech_hours": null
             },
             {
               "kind": "note",
@@ -3023,7 +3243,8 @@
                   "bold": true
                 }
               ],
-              "quantity": null
+              "quantity": null,
+              "tech_hours": null
             }
           ],
           "tech_hours": 4.0

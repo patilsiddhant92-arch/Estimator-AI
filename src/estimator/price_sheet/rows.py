@@ -68,7 +68,7 @@ def _block_rows(block: Block, number: int, ref: tuple) -> list[Row]:
 
 def _item_row(item: Item, markers: dict[int, str], ref: tuple) -> Row:
     text = squash(item.text) if item.kind == "note" else f"{markers[item.depth]}  {squash(item.text)}"
-    return Row(text, quantity=item.quantity, item=item, ref=ref)
+    return Row(text, hours=item.tech_hours, quantity=item.quantity, item=item, ref=ref)
 
 
 @dataclass(frozen=True)
@@ -79,6 +79,8 @@ class SentRow:
     hours: float | None
     quantity: int | None
     unit_price: float | None
+    hours_raw: object = None       # the cell's own value, for reporting what couldn't be used
+    quantity_raw: object = None
 
 
 def _number(value) -> float | None:
@@ -101,8 +103,9 @@ def read_sent_rows(path: Path) -> dict[str, list[SentRow]]:
         for r in range(FIRST_ROW, LAST_ROW + 1):
             text = ws.cell(r, SCOPE).value
             if isinstance(text, str) and text.strip():
-                rows.append(SentRow(ws.title, r, text, _number(ws.cell(r, HOURS).value),
-                                    _whole(ws.cell(r, QUANTITY).value), _number(ws.cell(r, UNIT_PRICE).value)))
+                hours_cell, quantity_cell = ws.cell(r, HOURS).value, ws.cell(r, QUANTITY).value
+                rows.append(SentRow(ws.title, r, text, _number(hours_cell), _whole(quantity_cell),
+                                    _number(ws.cell(r, UNIT_PRICE).value), hours_cell, quantity_cell))
         sheets[ws.title] = rows
     return sheets
 
