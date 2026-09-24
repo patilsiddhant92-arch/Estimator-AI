@@ -1,5 +1,5 @@
 {
-  "about": "The bid check's reading list (design §8). Everything is matched ignoring case, except a name marked exact_case (because in lower case it is an ordinary word). Add a manufacturer here, never in code.",
+  "about": "The bid check's reading list (design §8). Everything is matched ignoring case, except a name marked exact_case (because in lower case it is an ordinary word). not_controls_words mark a passage as being about security, life-safety or another non-HVAC system — outside a controls spec section, a passage matching one of these doesn't count as a controls mention, even if it also uses a controls word like BMS. Add a manufacturer here, never in code.",
   "platforms_we_bid": [
     {"name": "Honeywell WEBs", "patterns": ["\\bWEBs(?:[- ]?N4)?\\b", "\\bWEBStation\\b"]},
     {"name": "Johnson Controls FX", "patterns": ["\\bJohnson\\s+Controls\\b[^\\n]{0,60}?\\bFX\\b", "\\bFX\\s?(?:Server|Supervisory|Supervisor|Workbench|PCG|PCX|PCV|PCA|80|90)\\b", "\\bFacility\\s+Explorer\\b"]},
@@ -28,6 +28,7 @@
     {"name": "Emerson", "patterns": ["\\bEmerson\\b"]}
   ],
   "controls_words": ["\\bBMS\\b", "\\bBAS\\b", "\\bDDC\\b", "building\\s+automation", "building\\s+management", "temperature\\s+control", "control\\s+system", "controls\\s+contractor", "direct\\s+digital", "\\bBACnet\\b", "energy\\s+management", "\\bEMS\\b", "\\bSCADA\\b", "front[- ]end"],
+  "not_controls_words": ["access\\s+control", "card\\s+readers?", "\\bsecurity\\b", "intrusion", "video\\s+surveillance", "\\bCCTV\\b", "fire\\s+alarm"],
   "list_words": ["acceptable\\s+manufacturers?", "approved\\s+manufacturers?", "available\\s+manufacturers?", "manufacturers?\\s*:", "one\\s+of\\s+the\\s+following", "subject\\s+to\\s+compliance"],
   "sole_words": ["no\\s+substitutions?", "sole[- ]source", "no\\s+exceptions", "shall\\s+be\\s+unacceptable", "only\\s+systems\\s+that", "no\\s+other\\s+(?:manufacturer|system|vendor)s?"]
 }

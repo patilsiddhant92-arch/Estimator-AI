@@ -94,3 +94,23 @@ def test_carrier_sense_is_a_network_term():
 def test_the_reading_list_file_loads():
     reading = ReadingList.load()
     assert {"Honeywell WEBs", "Johnson Controls FX", "Niagara N4"} == {p.name for p in reading.ours}
+
+
+ACCESS_CONTROL_TEXT = ("Access control panels and equipment shall be from a manufacturer with at least 5 years "
+                       "of experience. Approved manufacturers: 1) Controllers/Panels: Honeywell 2) Readers: HID. "
+                       "The access control system shall integrate with the BMS.")
+
+
+def test_an_access_control_passage_outside_controls_is_not_a_mention():
+    # 26-0445: this names Honeywell, but it's the building's security system, not HVAC controls.
+    pages = _pages(ACCESS_CONTROL_TEXT, document="security.pdf")
+    bid = check_bid(pages, [CONTROLS])
+    assert bid.finding != "Qualifies"
+    assert bid.mentions == ()
+
+
+def test_the_same_access_control_passage_inside_a_controls_section_still_counts():
+    pages = _pages(ACCESS_CONTROL_TEXT)
+    bid = check_bid(pages, [CONTROLS])
+    assert bid.finding == "Qualifies"
+    assert bid.mentions != ()

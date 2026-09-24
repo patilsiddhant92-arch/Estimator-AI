@@ -38,6 +38,7 @@ class ReadingList:
     controls_words: re.Pattern
     list_words: re.Pattern
     sole_words: re.Pattern
+    not_controls_words: re.Pattern
 
     @classmethod
     def load(cls, path: Path = MANUFACTURERS) -> "ReadingList":
@@ -51,7 +52,7 @@ class ReadingList:
             return re.compile("|".join(f"(?:{w})" for w in data[key]), re.I)
 
         return cls(named("platforms_we_bid"), named("on_an_approved_list"), named("other_manufacturers"),
-                   words("controls_words"), words("list_words"), words("sole_words"))
+                   words("controls_words"), words("list_words"), words("sole_words"), words("not_controls_words"))
 
     def all_names(self) -> tuple[Named, ...]:
         return self.ours + self.listed + self.others
@@ -110,6 +111,8 @@ def _mentions(record: PageRecord, controls: Sequence[SpecSection], reading: Read
     for start, end in merged:
         passage = text[start:end]
         if not (in_controls or reading.controls_words.search(passage)):
+            continue
+        if not in_controls and reading.not_controls_words.search(passage):
             continue
         ours = tuple(n.name for n in reading.ours if n.found_in(passage))
         listed = tuple(n.name for n in reading.listed if n.found_in(passage)) if reading.list_words.search(passage) else ()
