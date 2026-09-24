@@ -182,12 +182,14 @@ def test_a_bookmark_or_comment_marker_inside_the_scope_is_not_refused(tmp_path, 
 
 
 def test_a_foreign_body_element_inside_the_exclusions_is_refused(tmp_path):
+    """A content control among the exclusions is named for that region, not misreported as
+    sitting inside the scope of work."""
     document = docx.Document(str(SENT_PROPOSAL))
     heading = next(p for p in document.paragraphs if squash(p.text).startswith("Exceptions and Exclusions"))
     heading._p.addnext(OxmlElement("w:sdt"))
     edited = tmp_path / "with-sdt-in-exclusions.docx"
     document.save(str(edited))
-    with pytest.raises(ProposalFormatError, match="content control"):
+    with pytest.raises(ProposalFormatError, match=r"a content control sits among the exclusions"):
         read_proposal(edited, PROPOSAL_TEMPLATE)
 
 

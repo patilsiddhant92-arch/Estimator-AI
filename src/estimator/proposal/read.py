@@ -78,7 +78,7 @@ def _exclusions(document: DocxDocument) -> list[str]:
     end = next((i for i, t in enumerate(texts) if t.startswith(layout.BASE_PRICE)), None)
     if start is None or end is None or end <= start:
         raise ProposalFormatError("can't find the exclusions list")
-    _refuse_foreign_children(document, paragraphs[start], paragraphs[end])
+    _refuse_foreign_children(document, paragraphs[start], paragraphs[end], region="among the exclusions")
     _refuse_deleted_paragraphs(document.paragraphs, paragraphs[start], paragraphs[end])
     for paragraph in paragraphs[start + 1 : end]:
         _refuse_hidden_text(paragraph)
@@ -199,7 +199,8 @@ _FOREIGN_BODY_CHILD_NAMES = {
 }
 
 
-def _refuse_foreign_children(document: DocxDocument, first: Paragraph, last: Paragraph) -> None:
+def _refuse_foreign_children(document: DocxDocument, first: Paragraph, last: Paragraph,
+                             region: str = "inside the scope of work") -> None:
     """Anything between the two headings that isn't an ordinary paragraph — a table, a content
     control, custom XML, embedded (altChunk) content — can carry text of its own that the reader,
     which only ever walks document.paragraphs, would never see at all."""
@@ -211,7 +212,7 @@ def _refuse_foreign_children(document: DocxDocument, first: Paragraph, last: Par
             return
         elif inside and element.tag not in _HARMLESS_BODY_CHILDREN:
             name = _FOREIGN_BODY_CHILD_NAMES.get(element.tag, f"a {element.tag.split('}')[-1]}")
-            raise ProposalFormatError(f"{name} sits inside the scope of work; the reader doesn't handle it")
+            raise ProposalFormatError(f"{name} sits {region}; the reader doesn't handle it")
 
 
 def _refuse_deleted_paragraphs(full: list[Paragraph], first: Paragraph, last: Paragraph) -> None:
