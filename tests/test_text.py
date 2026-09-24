@@ -17,6 +17,8 @@ def test_squash_collapses_every_kind_of_space():
     ("Outside Air Temperature", "Outside Air Temperature"),
     ("2 Year Workmanship and Material Guarantee", "2 Year Workmanship and Material Guarantee"),
     ("o  1. something", "1. something"),
+    ("Ø  Transformer w/ Circuit Breaker ", "Transformer w/ Circuit Breaker"),
+    ("§  Pump Status", "Pump Status"),
 ])
 def test_strip_list_marker(pasted, clean):
     assert strip_list_marker(pasted) == clean

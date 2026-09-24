@@ -5,7 +5,10 @@ import re
 
 _SPACE = re.compile(r"\s+")
 # What Word draws in front of a list item, once pasted into Excel as plain text.
-_LIST_MARKER = re.compile(r"^(?:\d{1,3}\.|o|⮚|➢|·|•|▪|◦)\s+")
+# Ø and § are Word's ➢ and ▪ bullets as Excel receives them after a paste from
+# their symbol font (Wingdings): the glyph comes across as the Latin character
+# that shares its code point in that font, not the bullet Word displayed.
+_LIST_MARKER = re.compile(r"^(?:\d{1,3}\.|o|⮚|➢|·|•|▪|◦|Ø|§)\s+")
 
 
 def squash(text: str) -> str:
