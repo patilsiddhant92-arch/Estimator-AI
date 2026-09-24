@@ -1,0 +1,38 @@
+{
+  "about": "How a drawing sheet's discipline and type are read from its title block (design §9.2). Patterns are matched against the sheet title, ignoring case. A sheet can have several types. Extend this file when the Learn check shows a sheet it couldn't sort — never code.",
+  "types": [
+    {"name": "Schedules", "patterns": ["\\bSCHEDULES?\\b"]},
+    {"name": "Plans", "patterns": ["\\bPLANS?\\b", "\\bRCP\\b", "\\bLAYOUTS?\\b", "^(?!.*\\b(?:RISERS?|DIAGRAMS?|SCHEDULES?|DETAILS?|SECTIONS?|ELEVATIONS?)\\b).*\\b(?:LEVEL|SECTOR|OVERALL|FLOOR)\\b"]},
+    {"name": "Details", "patterns": ["\\bDETAILS?\\b", "\\bPRV\\s+STATION\\b"]},
+    {"name": "Air riser", "patterns": ["\\b(?:AIR|DUCT|DUCTWORK|AIRFLOW|EXHAUST|SUPPLY|VENTILATION|SMOKE)\\b.*\\bRISERS?\\b", "\\bRISERS?\\b.*\\b(?:AIR|DUCT|DUCTWORK)\\b", "\\bAIR\\s*FLOW\\s+DIAGRAMS?\\b"]},
+    {"name": "Water riser", "patterns": ["\\b(?:WATER|PIPING|HYDRONIC|STEAM|CONDENSER|CONDENSATE|CHILLED|GLYCOL|REFRIGERANT|HEATING|SANITARY|STORM|GAS)\\b.*\\b(?:RISERS?|FLOW\\s+DIAGRAMS?|SCHEMATICS?)\\b"]},
+    {"name": "Network riser", "patterns": ["\\bNETWORK\\b", "\\b(?:BMS|BAS|COMMUNICATIONS?|DATA)\\b.*\\b(?:RISERS?|ARCHITECTURE|DIAGRAMS?)\\b", "\\bSYSTEM\\s+ARCHITECTURE\\b"]},
+    {"name": "Control diagrams", "patterns": ["^(?!.*\\bPLANS?\\b).*\\bCONTROLS?\\b", "\\bSEQUENCES?\\s+OF\\s+OPERATIONS?\\b", "\\bPOINTS?\\s+LISTS?\\b", "\\bINSTRUMENT(?:ATION)?\\b", "^(?!.*\\bPLANS?\\b).*\\b(?:BMS|BAS|EPMS|DCIM)\\b"]},
+    {"name": "Diagrams", "patterns": ["\\bDIAGRAMS?\\b", "\\bONE[- ]LINE\\b", "\\bSCHEMATICS?\\b", "\\bRISERS?\\b", "\\bISOMETRICS?\\b"]},
+    {"name": "Sections and elevations", "patterns": ["\\bSECTIONS?\\b", "\\bELEVATIONS?\\b"]},
+    {"name": "Demolition", "patterns": ["\\bDEMOLITION\\b", "\\bDEMO\\b", "\\bREMOVALS?\\b"]},
+    {"name": "Specifications", "patterns": ["\\bSPECIFICATIONS?\\b", "\\bSPECS\\b"]},
+    {"name": "Notes and legends", "patterns": ["\\bNOTES\\b", "\\bLEGENDS?\\b", "\\bSYMBOLS\\b", "\\bABBREVIATIONS\\b", "\\bCOVER\\b", "\\bINDEX\\b", "\\bDRAWINGS?\\s+LISTS?\\b", "\\bTABLE\\s+OF\\s+CONTENTS\\b", "\\bGENERAL\\s+INFORMATION\\b", "\\bINSPECTIONS?\\b", "\\bCOMPLIANCE\\b"]}
+  ],
+  "disciplines_by_title": [
+    {"name": "Mechanical", "patterns": ["\\bMECHANICAL\\b", "\\bHVAC\\b"]},
+    {"name": "Plumbing", "patterns": ["\\bPLUMBING\\b", "\\bSANITARY\\b", "\\bDOMESTIC\\s+WATER\\b"]},
+    {"name": "Fire protection", "patterns": ["\\bFIRE\\s+PROTECTION\\b", "\\bSPRINKLERS?\\b", "\\bSTANDPIPE\\b"]},
+    {"name": "Electrical", "patterns": ["\\bELECTRICAL\\b", "\\bLIGHTING\\b", "\\bPOWER\\b"]},
+    {"name": "Technology", "patterns": ["\\bTELECOM(?:MUNICATIONS?)?\\b", "\\bTECHNOLOGY\\b"]},
+    {"name": "Architectural", "patterns": ["\\bARCHITECTURAL\\b"]},
+    {"name": "Structural", "patterns": ["\\bSTRUCTURAL\\b"]},
+    {"name": "Civil", "patterns": ["\\bCIVIL\\b"]},
+    {"name": "Hazardous materials", "patterns": ["\\bASBESTOS\\b", "\\bABATEMENT\\b", "\\bHAZARDOUS\\b"]}
+  ],
+  "disciplines_by_letters": {
+    "M": "Mechanical", "H": "Mechanical", "MD": "Mechanical", "MH": "Mechanical", "MP": "Mechanical", "MSK": "Mechanical",
+    "IC": "Controls", "TC": "Controls", "BMS": "Controls", "BAS": "Controls",
+    "P": "Plumbing", "PL": "Plumbing", "PD": "Plumbing",
+    "FP": "Fire protection", "F": "Fire protection", "SP": "Fire protection",
+    "E": "Electrical", "ED": "Electrical", "EL": "Electrical", "EP": "Electrical", "FA": "Electrical",
+    "TN": "Technology", "TY": "Technology",
+    "A": "Architectural", "AD": "Architectural", "ID": "Architectural", "LS": "Architectural", "G": "General", "GI": "General",
+    "S": "Structural", "C": "Civil", "CS": "Civil", "L": "Civil"
+  }
+}
