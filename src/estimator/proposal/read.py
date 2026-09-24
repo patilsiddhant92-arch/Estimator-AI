@@ -133,6 +133,7 @@ def read_scope(document: DocxDocument):
     alternates: dict[str, list[dict]] = {"add": [], "deduct": []}
     section = "front end"
     items: list[Item] | None = None
+    previous_depth = 0   # the first line of a block, or of the front end, is at most depth 1
     for paragraph in paragraphs[start + 2 : end]:
         _refuse_hidden_text(paragraph)
         text = squash(paragraph.text)
@@ -158,8 +159,11 @@ def read_scope(document: DocxDocument):
             else:
                 raise ProposalFormatError(f"{text!r} sits under the {section} alternates before any ALT line")
             items = block["items"]
+            previous_depth = 0
             continue
-        item = _read_item(paragraph, lists, in_front_end=(section == "front end"))
+        item = _read_item(paragraph, lists, in_front_end=(section == "front end"), previous_depth=previous_depth)
+        if item.kind == "line":
+            previous_depth = item.depth
         if section == "front end":
             front_end_items.append(item)
         elif items is not None:
@@ -313,7 +317,7 @@ def _is_block_header(paragraph: Paragraph) -> bool:
     return WordLists.written_numbering(paragraph) is None or _is_group_heading(paragraph)
 
 
-def _read_item(paragraph: Paragraph, lists: WordLists, *, in_front_end: bool) -> Item:
+def _read_item(paragraph: Paragraph, lists: WordLists, *, in_front_end: bool, previous_depth: int) -> Item:
     stretches = merged_runs(paragraph)
     runs = tuple(Run(text=re.sub(r"\s+", " ", text), bold=bold) for text, bold in stretches)
     if lists.numbering(paragraph) is None:
@@ -321,6 +325,11 @@ def _read_item(paragraph: Paragraph, lists: WordLists, *, in_front_end: bool) ->
     base, step = ((layout.FRONT_END_LINE_INDENT, layout.FRONT_END_LINE_STEP) if in_front_end
                   else (layout.BLOCK_LINE_INDENT, layout.BLOCK_LINE_STEP))
     depth = max(1, 1 + round((lists.left_indent(paragraph) - base) / step))
+    # A line is never more than one level deeper than the line before it in the same block (the
+    # first line of a block or front end is at most depth 1, since previous_depth starts at 0) —
+    # copy-paste between proposals sometimes leaves an indent that jumps two or more levels at
+    # once, which is never really a new depth of nesting, just a paragraph indented wrong.
+    depth = min(depth, previous_depth + 1)
     limit = 2 if in_front_end else 5
     if depth > limit:
         raise ProposalFormatError(f"{squash(paragraph.text)!r} is indented to depth {depth}; the most is {limit}")

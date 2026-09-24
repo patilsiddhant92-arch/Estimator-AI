@@ -1199,7 +1199,7 @@
         },
         {
           "kind": "line",
-          "depth": 3,
+          "depth": 2,
           "runs": [
             {
               "text": "AME requires mfr. Rep to assist in integration, cost to be incurred by mech contractor",
@@ -1392,7 +1392,7 @@
         },
         {
           "kind": "line",
-          "depth": 3,
+          "depth": 2,
           "runs": [
             {
               "text": "AME requires mfr. Rep to assist in integration, cost to be incurred by mech contractor",
@@ -1436,7 +1436,7 @@
         },
         {
           "kind": "line",
-          "depth": 3,
+          "depth": 2,
           "runs": [
             {
               "text": "AME requires mfr. Rep to assist in integration, cost to be incurred by mech contractor",
@@ -2867,7 +2867,7 @@
         },
         {
           "kind": "line",
-          "depth": 4,
+          "depth": 3,
           "runs": [
             {
               "text": "PP-## – (Qty. 16 Total)",

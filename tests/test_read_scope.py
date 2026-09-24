@@ -11,7 +11,7 @@ from conftest import PROPOSAL_TEMPLATE, SENT_PROPOSAL
 from estimator.proposal.read import ProposalFormatError, read_proposal
 from estimator.text import squash
 
-MISC_MONITORING_DEPTHS = [1, 2, 3, 2, 3, 2, 3, 2, 4, 4, 4, 4, 4, 4, 4, 3, 2, 2, 2, 3, 3, 2, 3, 3, 2, 3, 3, 3, 3, 4, 2]
+MISC_MONITORING_DEPTHS = [1, 2, 3, 2, 3, 2, 3, 2, 3, 4, 4, 4, 4, 4, 4, 3, 2, 2, 2, 3, 3, 2, 3, 3, 2, 3, 3, 3, 3, 4, 2]
 
 
 def test_scope_heading_and_front_end(sent_scope):
@@ -33,7 +33,7 @@ def test_blocks(sent_scope):
     items = [item for block in blocks for item in block.items]
     assert len(items) == 203
     assert Counter((i.kind, i.depth) for i in items) == {
-        ("line", 1): 137, ("line", 2): 31, ("line", 3): 15, ("line", 4): 8, ("note", 1): 12}
+        ("line", 1): 137, ("line", 2): 34, ("line", 3): 13, ("line", 4): 7, ("note", 1): 12}
 
 
 def test_stacked_headers_are_joined_and_run_on_from_each_other(sent_scope):
@@ -155,18 +155,77 @@ def test_a_partly_hidden_block_header_is_refused(tmp_path):
         read_proposal(edited, PROPOSAL_TEMPLATE)
 
 
-@pytest.mark.parametrize("target_text, indent", [
-    ("Furnish and Install UPS", Twips(1800 + 360 * 6)),                 # depth 7 under a block; limit 5
-    ("Furnish Network Level Control Panel", Twips(1440 + 720 * 2)),     # depth 3 in the front end; limit 2
-])
-def test_a_line_indented_past_the_depth_limit_is_refused(tmp_path, target_text, indent):
+def test_a_block_line_indented_past_the_depth_limit_is_refused(tmp_path):
+    """Even after the one-level-deeper-at-a-time cap, a line still can't out-nest the template's
+    own list levels: build a staircase up to depth 5 first (so the cap doesn't get in the way),
+    then push the next line past it."""
     document = docx.Document(str(SENT_PROPOSAL))
-    paragraph = next(p for p in document.paragraphs if squash(p.text) == target_text)
-    paragraph.paragraph_format.left_indent = indent
-    edited = tmp_path / "too-deep.docx"
+    paragraphs = {squash(p.text): p for p in document.paragraphs}
+    staircase = ["Furnish and Install UPS", "Furnish and Install (Rack Mounted) BACnet Server",
+                 "Furnish and Install LCD Display", "Keyboard", "Mouse"]
+    for depth, text in enumerate(staircase, start=1):
+        paragraphs[text].paragraph_format.left_indent = Twips(1800 + 360 * (depth - 1))
+    target = paragraphs["Install Cisco 24 Port Switch (Switch Furnished by Others)"]
+    target.paragraph_format.left_indent = Twips(1800 + 360 * 6)   # raw depth 7; capped to 6, still past 5
+    edited = tmp_path / "too-deep-block.docx"
     document.save(str(edited))
     with pytest.raises(ProposalFormatError, match="depth"):
         read_proposal(edited, PROPOSAL_TEMPLATE)
+
+
+def test_a_front_end_line_indented_past_the_depth_limit_is_refused(tmp_path):
+    """Same as above, in the front end, whose own limit is 2 rather than 5. The very first line of
+    the front end is always capped to depth 1, so the depth-2 rung of the staircase has to be the
+    *second* line, not the first."""
+    document = docx.Document(str(SENT_PROPOSAL))
+    paragraphs = {squash(p.text): p for p in document.paragraphs}
+    # "Furnish Network Level Control Panel" (the first front-end line) is left at its natural
+    # depth 1; "Furnish PC Workstation..." becomes depth 2.
+    paragraphs["Furnish PC Workstation (School Operator Console )"].paragraph_format.left_indent = \
+        Twips(1440 + 720)
+    target = paragraphs["Furnish BMS Server"]
+    target.paragraph_format.left_indent = Twips(1440 + 720 * 2)   # raw depth 3; capped to 3, still past 2
+    edited = tmp_path / "too-deep-front-end.docx"
+    document.save(str(edited))
+    with pytest.raises(ProposalFormatError, match="depth"):
+        read_proposal(edited, PROPOSAL_TEMPLATE)
+
+
+# --- depth cap: never more than one level deeper than the line before it in the same block ---
+
+def test_a_deep_jump_is_capped_to_one_level_deeper(tmp_path):
+    """A single mis-indented line that jumps straight from depth 1 to depth 4 must read as depth
+    2 — one level deeper than the line before it — not be refused, and not silently keep its raw
+    depth either."""
+    document = docx.Document(str(SENT_PROPOSAL))
+    block_first = next(p for p in document.paragraphs if squash(p.text) == "Furnish and Install UPS")
+    jump = next(p for p in document.paragraphs
+                if squash(p.text) == "Furnish and Install (Rack Mounted) BACnet Server")
+    jump.paragraph_format.left_indent = Twips(1800 + 360 * 3)   # raw depth 4, straight after depth 1
+    edited = tmp_path / "deep-jump.docx"
+    document.save(str(edited))
+    job = read_proposal(edited, PROPOSAL_TEMPLATE)
+    block = next(b for b in job.blocks if b.header == "*Qty (1) BACnet Data Cabinet")
+    assert [i.depth for i in block.items[:2]] == [1, 2]
+
+
+def _check_no_deep_jump(items) -> None:
+    previous = 0
+    for item in items:
+        if item.kind != "line":
+            continue
+        assert item.depth <= previous + 1, f"{item.text!r} is depth {item.depth} right after depth {previous}"
+        previous = item.depth
+
+
+def test_no_26_0246_line_is_more_than_one_level_deeper_than_the_line_before_it(sent_job):
+    _check_no_deep_jump(sent_job.front_end.items)
+    for block in sent_job.blocks:
+        _check_no_deep_jump(block.items)
+    for alternates in (sent_job.add_alternates, sent_job.deduct_alternates):
+        for alternate in alternates:
+            for block in alternate.blocks:
+                _check_no_deep_jump(block.items)
 
 
 # --- I4: anything between the headings that isn't a plain paragraph --------------------------
