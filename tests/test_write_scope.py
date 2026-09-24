@@ -64,6 +64,18 @@ def test_lines_and_notes(small_job, proposal_template, tmp_path):
     assert WordLists.written_numbering(note) is None and note.paragraph_format.left_indent == Twips(1440)
 
 
+def test_block_lines_notes_and_headers_are_calibri(small_job, proposal_template, tmp_path):
+    """Word measures every equipment-block word in the team's sent proposals as Calibri,
+    while the template's Normal style (used by block lines and notes) is Myriad Pro — so
+    each run is forced to Calibri explicitly rather than left to fall back to the style."""
+    _, document = _written(small_job, proposal_template, tmp_path)
+    line = _paragraph(document, "Furnish and Install DDC Controller")
+    note = _paragraph(document, "*DAMPERS BY OTHERS")
+    header = _paragraph(document, "Qty (2) Exhaust Fan EF-1, 2")
+    for paragraph in (line, note, header):
+        assert paragraph.runs and all(run.font.name == "Calibri" for run in paragraph.runs)
+
+
 def test_front_end_lines_and_notes(small_job, proposal_template, tmp_path):
     _, document = _written(small_job, proposal_template, tmp_path)
     line = _paragraph(document, "Furnish Network Level Control Panel")
@@ -77,6 +89,14 @@ def test_front_end_note_is_calibri(small_job, proposal_template, tmp_path):
     _, document = _written(small_job, proposal_template, tmp_path)
     note = _paragraph(document, "*CONNECTION TO OWNER WAN BY OTHERS")
     assert note.runs and all(run.font.name == "Calibri" for run in note.runs)
+
+
+def test_front_end_line_is_not_forced_to_calibri(small_job, proposal_template, tmp_path):
+    """The front end already matches the sent proposal on its own — Myriad Pro on its
+    lines, Calibri only on its notes — so a front-end line's runs are left alone."""
+    _, document = _written(small_job, proposal_template, tmp_path)
+    line = _paragraph(document, "Furnish Network Level Control Panel")
+    assert line.runs and all(run.font.name is None for run in line.runs)
 
 
 def test_a_small_blank_line_sits_before_the_front_end_note(small_job, proposal_template, tmp_path):

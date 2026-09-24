@@ -48,19 +48,24 @@ class ParagraphFormat:
 
 
 BLANK = ParagraphFormat(style="Normal")
-BLOCK_HEADER = ParagraphFormat(style=OUTLINE_STYLE, indent=1566, space_after=0, size=12, bold=True)
+# Block headers and the unnumbered group heading are PR2 style, which Word already shows as
+# Calibri — font is still set explicitly below so the runs say so themselves, not the style.
+BLOCK_HEADER = ParagraphFormat(style=OUTLINE_STYLE, indent=1566, space_after=0, size=12, bold=True, font="Calibri")
 # An unnumbered group heading, such as "Kitchen Exhaust System" — measured on the sent 26-0246
 # proposal: PR2, bold 12pt like BLOCK_HEADER, but numbering explicitly switched off (list 0) and
 # no indent override, so it sits flush with the front-end text rather than a block header's line.
-GROUP_HEADING = ParagraphFormat(style=OUTLINE_STYLE, list_id=0, level=0, space_after=0, size=12, bold=True)
-BLOCK_NOTE = ParagraphFormat(style="Normal", indent=1440, space_after=0)
+GROUP_HEADING = ParagraphFormat(style=OUTLINE_STYLE, list_id=0, level=0, space_after=0, size=12, bold=True,
+                                 font="Calibri")
+# Block lines and notes are Normal style, whose own font is Myriad Pro — but the team's sent
+# proposals set every equipment-block word to Calibri, so both are forced to Calibri here too.
+BLOCK_NOTE = ParagraphFormat(style="Normal", indent=1440, space_after=0, font="Calibri")
 FRONT_END_NOTE = ParagraphFormat(style="Normal", indent=720, font="Calibri")
 FRONT_END_NOTE_GAP = ParagraphFormat(style="Normal", size=6)
 
 
 def block_line(depth: int) -> ParagraphFormat:
     """A bulleted line under a block header. Depth 1 is list 12 level 4; depth 5 is level 8."""
-    return ParagraphFormat(style="Normal", list_id=BLOCK_LINE_LIST, level=3 + depth, space_after=0)
+    return ParagraphFormat(style="Normal", list_id=BLOCK_LINE_LIST, level=3 + depth, space_after=0, font="Calibri")
 
 
 def front_end_line(mode: str, depth: int) -> ParagraphFormat:
