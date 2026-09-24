@@ -152,3 +152,8 @@ def sent_job():
 @pytest.fixture(scope="session")
 def price_book():
     return PriceBook.load(PRICE_BOOK, ALIASES)
+
+
+@pytest.fixture(scope="session")
+def test_job():
+    return Job.model_validate_json(TEST_JOB_FILE.read_text(encoding="utf-8"))
