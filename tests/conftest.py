@@ -1,7 +1,10 @@
 """Shared test fixtures: where the real templates, price book and test job live."""
+import datetime as dt
 from pathlib import Path
 
 import pytest
+
+from estimator.scope import Alternate, Block, FrontEnd, Header, Item, Job, Run
 
 ROOT = Path(__file__).resolve().parents[1]
 ASSETS = ROOT / "assets"
@@ -43,3 +46,81 @@ def sent_proposal() -> Path:
 @pytest.fixture
 def sent_workup() -> Path:
     return SENT_WORKUP
+
+
+def _line(text: str, *, quantity: int | None = None, depth: int = 1, bold: bool = False) -> Item:
+    return Item(kind="line", depth=depth, runs=(Run(text=text, bold=bold),), quantity=quantity)
+
+
+def _note(text: str) -> Item:
+    return Item(kind="note", runs=(Run(text=text, bold=True),))
+
+
+_HEADER = Header(
+    date=dt.date(2026, 6, 8),
+    quote_number="26-9999",
+    reference="Test Building, 1 Main St",
+    mep_engineer="Test MEP",
+    based_on=("M-001 thru M-100 Dated: 01/02/2026", "Specs 23 09 00"),
+)
+
+
+@pytest.fixture
+def small_job() -> Job:
+    """A small job that uses every kind of line, both sections, a priced, a pending and a questioned price."""
+    return Job(
+        header=_HEADER,
+        scope_heading_suffix="PREVAILING WAGE",
+        front_end=FrontEnd(mode="new-system", tech_hours=40.0, items=(
+            _line("Furnish Network Level Control Panel", quantity=1, bold=True),   # no price book match
+            _line("Furnish BMS Server", quantity=1, bold=True),                    # price book: 2500
+            _note("*CONNECTION TO OWNER WAN BY OTHERS"),
+        )),
+        blocks=(
+            Block(header="Qty (2) Exhaust Fan EF-1, 2", tech_hours=8.0, items=(
+                _line("Furnish and Install DDC Controller", quantity=2),           # no price book match
+                _line("Mfr. to Provide Relay", depth=2),
+                _note("*DAMPERS BY OTHERS"),
+            )),
+            Block(header="Qty (1) Air Handling Unit AHU-1", tech_hours=12.0, items=(
+                _line("Furnish and Install Space Temperature Sensor", quantity=3), # price book: 142
+                _line("Furnish and Wire Filter DP Switch", quantity=1),            # price book: 50, marked "Need review"
+                Item(kind="line", runs=(Run(text="Furnish and Install "), Run(text="(Duct Mounted)", bold=True),
+                                        Run(text=" Static Pressure Sensor"))),
+            )),
+        ),
+        add_alternates=(Alternate(label="ALT 1: Controls for EF-3", blocks=(
+            Block(header="Qty (1) Exhaust Fan EF-3", tech_hours=4.0, items=(
+                _line("Furnish and Install DDC Controller", quantity=1),
+            )),
+        )),),
+        named_exceptions=("EXCEPTION TO ANY WORK WITH EXHAUST FAN EF-4",),
+    )
+
+
+@pytest.fixture
+def bare_job() -> Job:
+    """Only the cover page and the front-end choice — no scope lines at all."""
+    return Job(header=_HEADER, scope_heading_suffix="PREVAILING WAGE", front_end=FrontEnd(mode="new-system"))
+
+
+@pytest.fixture
+def without_prices():
+    """Clear every tech_hours and quantity: what a proposal alone can tell you."""
+    def clear(job: Job) -> Job:
+        data = job.model_dump()
+
+        def walk(node):
+            if isinstance(node, dict):
+                node.pop("tech_hours", None)
+                node.pop("quantity", None)
+                for value in node.values():
+                    walk(value)
+            elif isinstance(node, (list, tuple)):
+                for value in node:
+                    walk(value)
+
+        walk(data)
+        return Job.model_validate(data)
+
+    return clear
