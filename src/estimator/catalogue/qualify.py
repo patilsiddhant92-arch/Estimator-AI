@@ -9,8 +9,9 @@ from __future__ import annotations
 
 import json
 import re
+from collections import Counter
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 from estimator.catalogue.register import PageRecord
@@ -25,6 +26,8 @@ SHEET_TYPES_LIKE_CONTROLS = ("Specifications", "Control diagrams", "Network rise
 ASSETS = Path(__file__).resolve().parents[3] / "assets"
 MANUFACTURERS = ASSETS / "reading_lists" / "manufacturers.json"
 REACH = 350        # characters either side of a manufacturer's name that make up its passage
+CARRY_LINES = 5    # lines of the previous page carried into this one's search text (I7): a list
+                   # running over a page break keeps its heading
 
 
 @dataclass(frozen=True)
@@ -79,6 +82,8 @@ class Mention:
     sheet: str | None = None            # the sheet number, when the passage is on a drawing sheet
     passing: tuple[tuple[str, str], ...] = ()   # (name, note) — Honeywell/JCI named outside a list (I9)
     basis: bool = False                 # the passage names another manufacturer as basis of design / approved equal
+    is_list: bool = False               # list wording ("acceptable manufacturers:") is in the passage
+    also_at: tuple[tuple[str, int, str | None], ...] = ()   # (document, page, sheet) of the same quote elsewhere (M3)
 
     @property
     def named(self) -> str:
@@ -108,8 +113,11 @@ def check_bid(pages: Sequence[PageRecord], sections: Sequence[SpecSection],
     reading = reading or ReadingList.load()
     sheets = sheets or {}
     controls = [s for s in sections if s.controls]
-    mentions = [m for record in pages
-                for m in _mentions(record, controls, sheets.get((record.document, record.page)), reading)]
+    texts = _carried_texts(pages)
+    raw = [m for record in pages
+           for m in _mentions(record, texts[(record.document, record.page)], controls,
+                              sheets.get((record.document, record.page)), reading)]
+    mentions = _dedupe(raw)
     others = tuple(sorted({name for m in mentions for name in m.others}))
     section_names = tuple(dict.fromkeys(f"{s.number} {s.title}".strip() for s in controls))   # each named once
     finding, reason = _judge(mentions, others)
@@ -120,14 +128,57 @@ def check_bid(pages: Sequence[PageRecord], sections: Sequence[SpecSection],
         else:
             reason += (" No spec book was found among the bid documents; the drawings' notes and spec sheets "
                        "were searched.")
+    unread = sorted({r.page for r in pages if r.status == "unreadable" and sheets.get((r.document, r.page)) is None})
+    if unread:
+        word = "page" if len(unread) == 1 else "pages"
+        reason += (f" {len(unread)} {word} of the specs could not be read ({word} {_page_ranges(unread)}) — "
+                   "the check could not see them.")
     return BidCheck(finding, reason, others, tuple(mentions), section_names)
 
 
-def _mentions(record: PageRecord, controls: Sequence[SpecSection], sheet: Sheet | None,
+def _carried_texts(pages: Sequence[PageRecord]) -> dict[tuple[str, int], str]:
+    """A list of acceptable manufacturers can run over a page break, and the heading that gives
+    it meaning ("Acceptable manufacturers:") sits on the page before — carry the tail of each
+    page's text into the next one so the search sees the whole list together (I7)."""
+    texts: dict[tuple[str, int], str] = {}
+    previous: PageRecord | None = None
+    for record in pages:
+        if previous is not None and previous.document == record.document and previous.page == record.page - 1:
+            tail = [line for line in previous.text.split("\n") if line.strip()][-CARRY_LINES:]
+            texts[(record.document, record.page)] = f"{chr(10).join(tail)}\n{record.text}" if tail else record.text
+        else:
+            texts[(record.document, record.page)] = record.text
+        previous = record
+    return texts
+
+
+def _page_ranges(numbers: list[int]) -> str:
+    runs: list[list[int]] = []
+    for n in sorted(numbers):
+        if runs and n == runs[-1][1] + 1:
+            runs[-1][1] = n
+        else:
+            runs.append([n, n])
+    return ", ".join(str(a) if a == b else f"{a}–{b}" for a, b in runs)
+
+
+def _dedupe(mentions: list[Mention]) -> list[Mention]:
+    """The same passage is often quoted from more than one copy of a document — list it once,
+    with every place it was found (M3)."""
+    groups: dict[str, list[Mention]] = {}
+    for m in mentions:
+        groups.setdefault(m.quote, []).append(m)
+    merged = []
+    for items in groups.values():
+        first, rest = items[0], items[1:]
+        merged.append(replace(first, also_at=tuple((m.document, m.page, m.sheet) for m in rest)) if rest else first)
+    return merged
+
+
+def _mentions(record: PageRecord, text: str, controls: Sequence[SpecSection], sheet: Sheet | None,
              reading: ReadingList) -> list[Mention]:
     in_controls = (any(s.document == record.document and s.first_page <= record.page <= s.last_page for s in controls)
                    or (sheet is not None and any(t in sheet.types for t in SHEET_TYPES_LIKE_CONTROLS)))
-    text = record.text
     windows = []
     for named in reading.all_names():
         for pattern in named.patterns:
@@ -161,13 +212,31 @@ def _mentions(record: PageRecord, controls: Sequence[SpecSection], sheet: Sheet 
             found.append(Mention(record.document, record.page, " ".join(passage.split()),
                                  ours, listed, others, bool(reading.sole_words.search(passage)),
                                  sheet.number if sheet is not None else None, passing,
-                                 bool(reading.basis_words.search(passage))))
+                                 bool(reading.basis_words.search(passage)), is_list))
     return found
 
 
+def _place(document: str, page: int, sheet: str | None, ambiguous: bool) -> str:
+    name = document if ambiguous else document.rsplit("/", 1)[-1]
+    body = f"{name}, page {page}"
+    return f"{sheet} ({body})" if sheet else body
+
+
 def _where(mention: Mention) -> str:
-    place = f"{mention.document.rsplit('/', 1)[-1]}, page {mention.page}"
-    return f"{mention.sheet} ({place})" if mention.sheet else place
+    """Every place the passage was found (M3): the folder is given only when two of them share
+    a file name — most quotes have a single place, where this reads exactly as it always did."""
+    places = [(mention.document, mention.page, mention.sheet)] + list(mention.also_at)
+    basenames = Counter(document.rsplit("/", 1)[-1] for document, _, _ in places)
+    return "; ".join(_place(document, page, sheet, basenames[document.rsplit("/", 1)[-1]] > 1)
+                     for document, page, sheet in places)
+
+
+def _deciding(qualifying: Sequence[Mention]) -> Mention:
+    """Prefer a passage with list or sole-source wording as the one to cite — a casual mention
+    naming AME's own product elsewhere (a programming tool, say) is not the approved list (M11)."""
+    return (next((m for m in qualifying if m.is_list or m.sole), None)
+            or next((m for m in qualifying if m.ours), None)
+            or qualifying[0])
 
 
 def _judge(mentions: Sequence[Mention], others: tuple[str, ...]) -> tuple[str, str]:
@@ -185,7 +254,7 @@ def _judge(mentions: Sequence[Mention], others: tuple[str, ...]) -> tuple[str, s
     passing_sole = [m for m in mentions if m.sole and m.passing and not m.ours and not m.listed and not m.others]
     contrary = sole_blocking or basis_blocking
     if qualifying and contrary:
-        first = next((m for m in qualifying if m.ours), qualifying[0])
+        first = _deciding(qualifying)
         name = ', '.join(first.ours or first.listed)
         against = sole_blocking[0] if sole_blocking else basis_blocking[0]
         if against.sole:
@@ -195,7 +264,7 @@ def _judge(mentions: Sequence[Mention], others: tuple[str, ...]) -> tuple[str, s
                         f"{', '.join(against.others)} as the basis of design, or approved equal ({_where(against)}). "
                         f"The US team decides.")
     if qualifying:
-        first = next((m for m in qualifying if m.ours), qualifying[0])
+        first = _deciding(qualifying)
         if first.ours:
             return "Qualifies", f"The spec names {', '.join(first.ours)} ({_where(first)})."
         verb = "is" if len(first.listed) == 1 else "are"

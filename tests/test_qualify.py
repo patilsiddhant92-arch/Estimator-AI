@@ -218,3 +218,57 @@ def test_m6_only_at_the_end_of_a_sentence_is_sole_source():
     pages = _pages("A. The building automation system shall be Automated Logic WebCTRL only.")
     bid = check_bid(pages, [CONTROLS])
     assert bid.finding == "Does not qualify" and "Automated Logic" in bid.reason
+
+
+# I7: what the check couldn't read, and a list that runs over a page break.
+
+def test_i7_unread_spec_pages_are_admitted_in_the_reason():
+    pages = [PageRecord("spec.pdf", 1, "text", "2.1 SYSTEM\nA. The BMS shall use Tridium Niagara.", 0),
+             PageRecord("spec.pdf", 2, "unreadable", "", 0)]
+    bid = check_bid(pages, [CONTROLS])
+    assert "1 page of the specs could not be read (page 2)" in bid.reason
+    assert "the check could not see them" in bid.reason
+
+
+def test_i7_a_drawing_pages_unreadable_status_is_not_counted_as_a_spec_page():
+    pages = [PageRecord("Marked_Mech.pdf", 1, "unreadable", "", 0, True)]
+    sheet = Sheet("Marked_Mech.pdf", 1, "M-101", "ROOF PLAN", "Mechanical", ("Plans",))
+    bid = check_bid(pages, [], {("Marked_Mech.pdf", 1): sheet})
+    assert "could not be read" not in bid.reason
+
+
+def test_i7_a_list_that_runs_over_a_page_break_keeps_its_heading():
+    # The review's Siemens / Automated Logic / Honeywell example: the heading and the first two
+    # items are on one page, the third item alone on the next.
+    pages = [PageRecord("spec.pdf", 1, "text", "2.2 CONTROL SYSTEM\nA. Acceptable manufacturers:\n"
+                                               "1. Siemens.\n2. Automated Logic.", 0),
+             PageRecord("spec.pdf", 2, "text", "3. Honeywell.", 0)]
+    bid = check_bid(pages, [CONTROLS])
+    assert bid.finding == "Qualifies"
+    assert any(m.listed == ("Honeywell",) for m in bid.mentions)
+
+
+# M3: the same passage quoted from more than one copy is listed once, with all its places.
+
+def test_m3_the_same_quote_from_two_copies_is_listed_once_with_both_places():
+    text = "2.1 MANUFACTURERS\nA. The BMS shall be built on the Tridium Niagara 4 Framework."
+    pages = [PageRecord("1. Project Documents/spec.pdf", 1, "text", text, 0),
+             PageRecord("2. Takeoffs/spec.pdf", 1, "text", text, 0)]
+    sections = [SpecSection("23 09 23", "INSTRUMENTATION AND CONTROL FOR HVAC", "1. Project Documents/spec.pdf", 1, 5),
+                SpecSection("23 09 23", "INSTRUMENTATION AND CONTROL FOR HVAC", "2. Takeoffs/spec.pdf", 1, 5)]
+    bid = check_bid(pages, sections)
+    assert len(bid.mentions) == 1
+    # the two copies share a file name, so the folder is given to tell them apart
+    assert "1. Project Documents/spec.pdf, page 1" in bid.reason
+    assert "2. Takeoffs/spec.pdf, page 1" in bid.reason
+
+
+# M11: the deciding passage is one with list or sole-source wording, when there is one.
+
+def test_m11_a_casual_mention_loses_to_the_approved_list_elsewhere():
+    pages = _pages("2.1 The Niagara programming tool may be used by the controls contractor for "
+                   "commissioning.",
+                   "2.3 CONTROL SYSTEM\nA. Acceptable manufacturers: 1. Siemens. 2. Tridium Niagara.")
+    bid = check_bid(pages, [CONTROLS])
+    assert bid.finding == "Qualifies"
+    assert "spec.pdf, page 2" in bid.reason and "spec.pdf, page 1" not in bid.reason
