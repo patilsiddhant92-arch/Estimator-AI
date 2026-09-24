@@ -1,4 +1,5 @@
 import docx
+from docx.oxml.ns import qn
 from docx.shared import Pt, Twips
 
 from estimator.proposal import layout
@@ -20,12 +21,38 @@ def _paragraph(document, text):
     return next(p for p in document.paragraphs if squash(p.text) == text)
 
 
+def _mark_rPr(paragraph):
+    pPr = paragraph._p.pPr
+    return pPr.find(qn("w:rPr")) if pPr is not None else None
+
+
+def _is_small_gap(paragraph):
+    """An empty paragraph whose paragraph mark is sized 12 half-points (6pt) — the
+    small blank line the sent proposal puts before every front-end note."""
+    if paragraph.text.strip():
+        return False
+    rPr = _mark_rPr(paragraph)
+    sz = rPr.find(qn("w:sz")) if rPr is not None else None
+    return sz is not None and sz.get(qn("w:val")) == "12"
+
+
 def test_block_headers(small_job, proposal_template, tmp_path):
     _, document = _written(small_job, proposal_template, tmp_path)
     header = _paragraph(document, "Qty (2) Exhaust Fan EF-1, 2")
     assert header.style.name == "PR2" and WordLists.written_numbering(header) is None
     assert header.paragraph_format.left_indent == Twips(1566)
     assert all(r.bold for r in header.runs) and header.runs[0].font.size == Pt(12)
+
+
+def test_block_header_paragraph_mark_is_bold_and_sized(small_job, proposal_template, tmp_path):
+    """Word draws the "1." number from the paragraph mark, not the run text — the
+    mark itself must be bold 12pt, or the number comes out small and plain."""
+    _, document = _written(small_job, proposal_template, tmp_path)
+    header = _paragraph(document, "Qty (2) Exhaust Fan EF-1, 2")
+    rPr = _mark_rPr(header)
+    assert rPr is not None and rPr.find(qn("w:b")) is not None
+    sz = rPr.find(qn("w:sz"))
+    assert sz is not None and sz.get(qn("w:val")) == "24"
 
 
 def test_lines_and_notes(small_job, proposal_template, tmp_path):
@@ -43,6 +70,26 @@ def test_front_end_lines_and_notes(small_job, proposal_template, tmp_path):
     assert line.runs[0].bold and line.runs[0].font.size == Pt(12)
     note = _paragraph(document, "*CONNECTION TO OWNER WAN BY OTHERS")
     assert WordLists.written_numbering(note) is None and note.paragraph_format.left_indent == Twips(720)
+
+
+def test_front_end_note_is_calibri(small_job, proposal_template, tmp_path):
+    _, document = _written(small_job, proposal_template, tmp_path)
+    note = _paragraph(document, "*CONNECTION TO OWNER WAN BY OTHERS")
+    assert note.runs and all(run.font.name == "Calibri" for run in note.runs)
+
+
+def test_a_small_blank_line_sits_before_the_front_end_note(small_job, proposal_template, tmp_path):
+    _, document = _written(small_job, proposal_template, tmp_path)
+    paragraphs = document.paragraphs
+    index = next(i for i, p in enumerate(paragraphs) if squash(p.text) == "*CONNECTION TO OWNER WAN BY OTHERS")
+    assert _is_small_gap(paragraphs[index - 1])
+
+
+def test_no_small_blank_line_before_the_first_front_end_line(small_job, proposal_template, tmp_path):
+    _, document = _written(small_job, proposal_template, tmp_path)
+    paragraphs = document.paragraphs
+    index = next(i for i, p in enumerate(paragraphs) if squash(p.text) == "Furnish Network Level Control Panel")
+    assert not _is_small_gap(paragraphs[index - 1])
 
 
 def test_emphasis_inside_a_line(small_job, proposal_template, tmp_path):

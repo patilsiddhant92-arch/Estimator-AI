@@ -44,12 +44,14 @@ class ParagraphFormat:
     space_after: int | None = None    # points
     size: float | None = None         # font size in points; None = from the style
     bold: bool | None = None          # True forces bold; None = each run's own emphasis
+    font: str | None = None           # run font name; None = from the style
 
 
 BLANK = ParagraphFormat(style="Normal")
 BLOCK_HEADER = ParagraphFormat(style=OUTLINE_STYLE, indent=1566, space_after=0, size=12, bold=True)
 BLOCK_NOTE = ParagraphFormat(style="Normal", indent=1440, space_after=0)
-FRONT_END_NOTE = ParagraphFormat(style="Normal", indent=720)
+FRONT_END_NOTE = ParagraphFormat(style="Normal", indent=720, font="Calibri")
+FRONT_END_NOTE_GAP = ParagraphFormat(style="Normal", size=6)
 
 
 def block_line(depth: int) -> ParagraphFormat:

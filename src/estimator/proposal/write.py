@@ -276,6 +276,29 @@ def _set_scope_suffix(document: DocxDocument, suffix: str) -> None:
 
 # --- the scope of work ------------------------------------------------------------
 
+def _mark_formatting(pPr, fmt: ParagraphFormat) -> None:
+    """Bold and/or size a format sets also belong on the paragraph mark (pPr's own rPr).
+
+    Word draws a list number or bullet from the paragraph mark's formatting, not from
+    the runs that follow it — so without this, a bold 12pt header numbers itself in
+    whatever plain, small font the style's mark otherwise falls back to.
+    """
+    rPr = pPr.find(qn("w:rPr"))
+    if rPr is None:
+        rPr = OxmlElement("w:rPr")
+        anchor = pPr.find(qn("w:sectPr"))
+        if anchor is None:
+            anchor = pPr.find(qn("w:pPrChange"))
+        if anchor is not None:
+            anchor.addprevious(rPr)
+        else:
+            pPr.append(rPr)
+    if fmt.bold:
+        rPr.get_or_add_b()
+    if fmt.size is not None:
+        rPr.sz_val = Pt(fmt.size)
+
+
 def _apply(paragraph: Paragraph, fmt: ParagraphFormat, runs: tuple[Run, ...]) -> None:
     paragraph.style = fmt.style
     if fmt.list_id is not None:
@@ -286,12 +309,19 @@ def _apply(paragraph: Paragraph, fmt: ParagraphFormat, runs: tuple[Run, ...]) ->
         paragraph.paragraph_format.left_indent = Twips(fmt.indent)
     if fmt.space_after is not None:
         paragraph.paragraph_format.space_after = Pt(fmt.space_after)
+    if fmt.bold or fmt.size is not None:
+        _mark_formatting(paragraph._p.get_or_add_pPr(), fmt)
     for part in runs:
         run = paragraph.add_run(part.text)
         if fmt.bold or part.bold:
             run.bold = True
         if fmt.size is not None:
             run.font.size = Pt(fmt.size)
+        if fmt.font is not None:
+            run.font.name = fmt.font
+            rFonts = run._r.get_or_add_rPr().get_or_add_rFonts()
+            rFonts.set(qn("w:eastAsia"), fmt.font)
+            rFonts.set(qn("w:cs"), fmt.font)
 
 
 def _insert_after(cursor: Paragraph, fmt: ParagraphFormat, runs: tuple[Run, ...] = ()) -> Paragraph:
@@ -322,6 +352,8 @@ def _write_scope(heading: Paragraph, job: Job) -> None:
     """The job's front-end lines straight after the kept heading, then every block, then a blank line."""
     cursor = heading
     for item in job.front_end.items:
+        if item.kind == "note":
+            cursor = _insert_after(cursor, layout.FRONT_END_NOTE_GAP)
         cursor = _insert_after(cursor, _front_end_format(job.front_end.mode, item), item.runs)
     for block in job.blocks:
         cursor = _write_block(cursor, block)
