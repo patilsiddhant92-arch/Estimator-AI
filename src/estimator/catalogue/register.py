@@ -17,7 +17,7 @@ from pathlib import Path
 import pymupdf
 
 from estimator.catalogue.documents import LARGE_SHEET, Document, JobFolder
-from estimator.catalogue.pdf import Span, clean_text, ocr_textpage, visual_spans
+from estimator.catalogue.pdf import Span, clean_text, ocr_textpage, tessdata, visual_spans
 
 CACHE_VERSION = 2
 MIN_TEXT = 50          # characters: fewer and the page is treated as having no text layer
@@ -115,7 +115,10 @@ def register_job(job: JobFolder, cache_dir: Path | None = None, workers: int = 1
 
 def _cache_file(cache_dir: Path, document: Document) -> Path:
     stat = document.path.stat()
-    key = f"{CACHE_VERSION}|{document.relative}|{document.kind}|{stat.st_size}|{stat.st_mtime_ns}"
+    # Whether OCR is set up is part of the key: a page unreadable for lack of OCR must be read
+    # again, not kept stale, once Tesseract is installed (I4).
+    key = (f"{CACHE_VERSION}|{document.relative}|{document.kind}|{stat.st_size}|{stat.st_mtime_ns}"
+           f"|ocr={tessdata() is not None}")
     return Path(cache_dir) / f"{hashlib.sha1(key.encode()).hexdigest()}.json"
 
 

@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import pytest
 
 from estimator.catalogue import register
@@ -116,6 +118,18 @@ def test_the_cache_keeps_edge_spans(tmp_path):
     cache = tmp_path / "cache"
     assert register_job(job, cache) == register_job(job, cache)
     assert register_job(job, cache)[0].edge_spans[0].text == "M101"
+
+
+def test_a_document_is_read_again_once_ocr_becomes_available(tmp_path, monkeypatch):
+    job = _job(tmp_path, ("scan.pdf", [Page(scanned="HOT WATER PUMP SCHEDULE")]))
+    cache = tmp_path / "cache"
+    monkeypatch.setattr(register, "tessdata", lambda: None)
+    register_job(job, cache)
+    monkeypatch.setattr(register, "tessdata", lambda: Path(r"C:\fake\tessdata"))
+    calls = []
+    monkeypatch.setattr(register, "read_document", lambda document: calls.append(document) or [])
+    register_job(job, cache)
+    assert calls, "OCR becoming available should invalidate the earlier cache entry"
 
 
 def test_parallel_reading_gives_the_same_register(tmp_path):
