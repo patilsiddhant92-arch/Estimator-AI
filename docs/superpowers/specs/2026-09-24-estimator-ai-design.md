@@ -321,8 +321,24 @@ write prose.
 | `AME_nordomatic Proposal Template.docx` | **Document shell** | 87 paragraphs, 1 header table, `Heading 1`/`PR1`/`PR2`/`PR3`/`List Paragraph`, full exclusions + clarifications + ADD/DEDUCT + Base Price + signature |
 | `Brain/2024_Template.docx` | **Phrasing bank** | 810 paragraphs, zero tables, 691 approved `PR2` scope lines |
 | `Brain/AME Std Pricing Spreadsheet.xlsx` | **Price book** | material price and device selection per scope item |
-| *(pending)* | **Labour book** | tech hours per scope item — to be supplied |
+| *(pending)* | **Labour book** | tech hours per equipment block — to be supplied |
 | `PriceWorkup_Template - 12-21-25.xlsx` | **Price sheet shell** | `Price Sheet 1` mirrors the scope; `Summary` rolls up to margin and sell price |
+
+### The price sheet shell
+
+Measured on the filled 26-0246 workup:
+
+- **Tech hours attach to blocks; unit prices attach to lines.** Of 288 scope rows, 47
+  carry tech hours — the `Qty (N)` equipment headers and the front-end section — and 91
+  carry a unit price — the device lines beneath them. The labour book is therefore keyed
+  by equipment block, not by device, and the renderer writes hours and prices to
+  different rows.
+- **It is formula-dense: 527 formulas** — 408 in `Price Sheet 1`, 119 in `Summary`. The
+  fill must load with `data_only=False` and write only input cells; anything else ships a
+  workbook with dead totals.
+- **Header fields are not trustworthy in the ground truth.** 26-0246's `Summary` reads
+  *"Job Name: MCCC LA"* — copied from another job and never updated. The harness keys
+  workups by folder, never by their header; the renderer fills the header from the job.
 
 ### The document shell
 
@@ -371,9 +387,10 @@ Four things follow from its structure:
 3. **Incomplete rows are flags, not zeros.** Several entries are marked *"Need review
    from Engg Team"* or *"Need Part # & pricing"*, and the plant-panel block is marked
    incomplete. A missing price surfaces as `PRICE-PENDING`, never as nothing.
-4. **It is written for Honeywell WEBs.** The controller and supervisor part numbers —
-   `VAA-VA75MB24NMC`, `UN-RS0844MSB24NMC`, `N-ADV-112-H-C`, `WEB-S-100-N4` — are
-   Honeywell. Whether Johnson Controls FX jobs price from the same book is open (§16).
+4. **One book prices both product lines — confirmed.** The design-reference part numbers
+   are Honeywell WEBs — `VAA-VA75MB24NMC`, `UN-RS0844MSB24NMC`, `N-ADV-112-H-C`,
+   `WEB-S-100-N4` — but the estimation prices apply to Johnson Controls FX jobs too. The
+   part numbers are a design reference, not a product-line lock.
 
 ---
 
@@ -434,10 +451,10 @@ need to decide. The spec paragraph is quoted verbatim.
 
 **The tool reports; it does not decide.** Final call is the US team's.
 
-**Behaviour** (proposed, §16): the full analysis runs regardless, because the job's size
-and shape inform the US team's decision. The qualification finding is the first page of
-the Evidence Package, and any finding other than *qualifies* blocks issue until the US
-team has decided.
+**Behaviour — confirmed: continue.** The full analysis runs regardless; the job's size and
+shape inform the US team's decision. The qualification finding is the first page of the
+Evidence Package, and any finding other than *qualifies* blocks issue until the US team
+has decided.
 
 Qualification ships first within its milestone (§14): it is small, and a job that does
 not qualify is the most expensive one to take off.
@@ -724,10 +741,16 @@ backbone is fibre or Ethernet, and who furnishes switches, workstations, laptops
 servers.
 
 It is also where **VFD integration** and **miscellaneous plumbing and electrical
-integrations** are called out — sometimes only there. When they are, they are in scope
-even if the sequence is silent. VFD integration is a significant cost, which makes the
-network riser the single most expensive sheet to skip. *(Reading pending confirmation,
-§16.)*
+integrations** are called out — sometimes only there.
+
+**Rule — confirmed: one source is enough.** If the network riser, or any other single
+source, shows VFD integration, it is in scope even when the sequence is silent. This is
+step 3 of §10.2 applied to the network riser: silence is not contradiction, so the line
+is `ADDED` and cited to its source, not a `DISCREPANCY`. Only an explicit contrary
+statement — *"VFD integration by others"* — raises a flag.
+
+It deserves its own paragraph because VFD integration is a significant cost, which makes
+the network riser the single most expensive sheet to skip.
 
 ---
 
@@ -806,7 +829,7 @@ Versions verified on PyPI, 2026-09-24.
 | Arrays | `numpy` | 2.x | — |
 | Proposal render | `docxtpl` | 0.20.2 | **LGPL-2.1-only.** Jinja2 inside a `.docx`; preserves styles, header table, numbering |
 | …under it | `python-docx` | 1.2.0 | MIT |
-| Price sheet fill | `openpyxl` | 3.1.5 | MIT. **Load `data_only=False`** — `data_only=True` loses every formula on save, and `Summary` is entirely formulas |
+| Price sheet fill | `openpyxl` | 3.1.5 | MIT. **Load `data_only=False`** — `data_only=True` loses every formula on save, and the workup carries 527 of them (§6) |
 | Equipment vocabulary | Brick Schema | `brickschema` 0.7.9 | BSD-3. Class backbone only |
 
 ### On Brick Schema
@@ -852,8 +875,29 @@ hand-written `ScopeLine[]` fixture for one real job. Add the price sheet fill wi
 preservation, and the price book join. Enforce I1, I4, I5. No extraction at all.
 
 *Why first:* it is the entire "presentable" half, it is deterministic, and it makes every
-later milestone's output immediately inspectable. Done when a fixture round-trips to a
-document that is byte-plausible against issued 26-0352.
+later milestone's output immediately inspectable.
+
+**Fixture job: 26-0246** — PS Q517, 1 Beach 39th St, Queens (SCA). It is in the canonical
+`Qty (N)` style, it has a filled price workup, and it is rich: expanded front end, BACnet
+data cabinets, packaged AHUs with VFD and enthalpy-wheel integration, terminal units,
+split systems, a kitchen exhaust system, electric heat, domestic hot water, generator,
+metering, spec-cited warranties, and both ADD and DEDUCT alternates. It lives in `Learn/`
+and not in the 268-job corpus, so the job M1 is built against cannot leak into the harness
+that later scores it.
+
+26-0352, the job the previous build was measured on, is one of the nine `(xN)` proposals
+and so cannot be a target for a `Qty (N)` renderer.
+
+**Done when:**
+
+- the proposal matches issued 26-0246 in structure, styles and boilerplate;
+- the price sheet mirrors the proposal line for line (I1), its formulas survive and
+  compute, and every line is either priced from the book or flagged `PRICE-PENDING`;
+- differences between book prices and the prices entered in 26-0246's own workup are
+  **reported, not failed** — they measure how far the book has drifted from what
+  estimators actually enter.
+
+Tech hours come from the fixture until the labour book arrives.
 
 **M2 — The harness.** Score generated output against issued proposals across the 268
 paired jobs. Runs against M1's renderer with fixtures, so the scoring dimensions are
@@ -894,31 +938,35 @@ against a scoreboard that already exists.**
 
 ### Needs you
 
-1. **Labour book.** Tech hours per scope line are still to be supplied. The price book
-   covers material only. Blocks the hours column of the price sheet, not the proposal.
-2. **Johnson Controls FX pricing.** The price book's controller and supervisor part numbers
-   are Honeywell WEBs. Is there an FX equivalent, or does one book price both lines?
-3. **Qualification behaviour.** Proposed: run the full analysis regardless, put the finding
-   on page one of the Evidence Package, and block issue until the US team decides (§8).
-4. **Network riser and VFD integration.** Reading taken: VFD integration shown on the
-   network riser is in scope even when the sequence is silent, and is a significant cost
-   (§10.5). Confirm.
-5. **House style intent.** `Qty (N)` is canonical by 260 to 9. Is `(xN)` — every instance
-   from 2026 — a deliberate new direction, or drift?
-6. **Guideline 36 validation.** Minimum point lists need checking against AME practice
-   before they become defaults — it is a design standard, not a bid standard.
+1. **Labour book.** Tech hours per equipment block, still to be supplied. The price book
+   covers material only. Blocks the hours column for real jobs — not M1, whose fixture
+   carries its own hours.
+2. **Guideline 36 validation.** Minimum point lists need checking against AME practice
+   before they become defaults — it is a design standard, not a bid standard. Needed by
+   M5, not before.
+
+### Answered
+
+| Question | Answer | Where |
+|---|---|---|
+| VFD integration on the network riser | In scope if the riser or any one source shows it | §10.5 |
+| Qualification behaviour | Continue the full analysis; the US team decides | §8 |
+| Johnson Controls FX pricing | Same book as Honeywell WEBs | §6 |
+| House style | `Qty (N)` — 260 of 279 issued proposals | §7 |
+| Scanned-PDF share | Roughly 10% | §7 |
+| Devices on plans | Counted when drawn, as symbols or keynotes | §9.8 |
 
 ### Measured or decided during the build
 
-7. **Price book join.** Validated against the 61 filled workups, gaps listed.
-8. **Plan-evidence coverage.** The share of jobs that draw devices on plans, measured by
+3. **Price book join.** Validated against the 61 filled workups, gaps listed.
+4. **Plan-evidence coverage.** The share of jobs that draw devices on plans, measured by
    the harness — it decides how much weight priority 1 of §10.3 carries.
-9. **Brick dependency vs. vendored table** (§13).
-10. **Job-class coverage.** The six classes in `decision_model_v2` came from 7 jobs;
-    checked against the 268.
-11. **The 113 folders without an issued proposal.** Some may be no-bid decisions, which
-    would make them test cases for qualification. Unverified — some will simply be jobs
-    still in progress.
+5. **Brick dependency vs. vendored table** (§13).
+6. **Job-class coverage.** The six classes in `decision_model_v2` came from 7 jobs;
+   checked against the 268.
+7. **The 113 folders without an issued proposal.** Some may be no-bid decisions, which
+   would make them test cases for qualification. Unverified — some will simply be jobs
+   still in progress.
 
 ---
 
