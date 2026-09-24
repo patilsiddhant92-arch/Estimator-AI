@@ -6,7 +6,10 @@ from estimator.price_sheet.price_book import BookItem, PriceBook, price_key
 @pytest.mark.parametrize("line, key", [
     ("o  Furnish and Install BACnet IP Router – (Qty. 7 Total)", "bacnet ip router"),
     ("Furnish NEMA 12K Enclosure – (Qty. 5 Total) Installation by Others", "nema 12k enclosure"),
-    ("Install and wire Programmable Thermostat (Furnished by Unit Mfr.)", "programmable thermostat (furnished by unit mfr.)"),
+    # "install" and "install and wire" are kept, not stripped: an install-only line prices a
+    # device furnished by others, which the book must never guess a price for (M1).
+    ("Install and wire Programmable Thermostat (Furnished by Unit Mfr.)",
+     "install and wire programmable thermostat (furnished by unit mfr.)"),
     ("Furnish and Wire Filter DP Switch", "filter dp switch"),
     ("Furnish UPS", "ups"),
 ])
@@ -35,6 +38,14 @@ def test_known_prices(price_book, line, price):
 def test_no_guessing(price_book):
     assert price_book.lookup("Furnish and Install DDC Controller") is None
     assert price_book.lookup("Furnish and Install Damper Actuator") is None
+
+
+def test_install_only_lines_are_never_priced_from_the_furnish_and_install_price(price_book):
+    """M1: "Install Space Temperature Sensor" names a device furnished by others — pricing it
+    from the book's "Furnish and Install Space Temperature Sensor" entry would guess a price
+    for a part AME isn't supplying."""
+    assert price_book.lookup("Install Space Temperature Sensor") is None
+    assert price_book.lookup("Install and wire Duct Static Pressure Sensor") is None
 
 
 def test_the_books_own_doubts_are_kept(price_book):

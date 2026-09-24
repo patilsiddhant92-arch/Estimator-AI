@@ -20,7 +20,10 @@ from estimator.text import squash, strip_list_marker
 
 SHEETS = ("Parts Pricing", "BMS-DDC-Panels")
 _QUANTITY = re.compile(r"\s*[–-]\s*\(qty\.?\s*\d+\s*total\).*$", re.IGNORECASE)
-_VERB = re.compile(r"^(?:furnish and install|furnish and wire|install and wire|furnish|install|provide)\s+", re.IGNORECASE)
+# "install" and "install and wire" are deliberately not stripped: an install-only line's device
+# is furnished by others, so pricing its material from the book's furnish-and-install price would
+# be a guessed price for the part AME isn't supplying. Those lines go PRICE PENDING instead.
+_VERB = re.compile(r"^(?:furnish and install|furnish and wire|furnish|provide)\s+", re.IGNORECASE)
 
 
 def price_key(text: str) -> str:
