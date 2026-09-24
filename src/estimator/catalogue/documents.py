@@ -102,16 +102,33 @@ def find_documents(root: Path) -> JobFolder:
                 other_files.append((here / name).relative_to(root).as_posix())
     paths.sort(key=lambda p: p.relative_to(root).as_posix())
     other_files.sort()
-    seen: dict[tuple, str] = {}
+    seen: dict[tuple, list[dict]] = {}
     documents = tuple(_describe(root, path, seen) for path in paths)
     return JobFolder(job_name(root), root, documents, tuple(notes), tuple(left_out), tuple(nested_jobs), tuple(other_files))
 
 
-def _describe(root: Path, path: Path, seen: dict[tuple, str]) -> Document:
+def _find_duplicate(path: Path, relative: str, seen: dict[tuple, list[dict]]) -> str | None:
+    """size plus the first and last megabyte can match on two different files (a PDF's middle
+    can differ while its size, header objects and tail don't); only a match on that cheap
+    fingerprint pays for a full-file hash, and only that confirms a real duplicate."""
+    bucket = seen.setdefault(_fingerprint(path), [])
+    if bucket:
+        full = _full_hash(path)
+        for entry in bucket:
+            if entry["full"] is None:
+                entry["full"] = _full_hash(entry["path"])
+            if entry["full"] == full:
+                return entry["relative"]
+        bucket.append({"relative": relative, "path": path, "full": full})
+        return None
+    bucket.append({"relative": relative, "path": path, "full": None})
+    return None
+
+
+def _describe(root: Path, path: Path, seen: dict[tuple, list[dict]]) -> Document:
     relative = path.relative_to(root).as_posix()
     revision = _revision(path.relative_to(root).parts)
-    first = seen.setdefault(_fingerprint(path), relative)
-    duplicate_of = None if first == relative else first
+    duplicate_of = _find_duplicate(path, relative, seen)
     try:
         with pymupdf.open(str(path)) as pdf:
             return Document(path, relative, _kind(path.name, pdf), revision, pdf.page_count, duplicate_of)
@@ -152,3 +169,11 @@ def _fingerprint(path: Path) -> tuple:
             handle.seek(max(size - _MEGABYTE, _MEGABYTE))
             digest.update(handle.read(_MEGABYTE))
     return size, digest.hexdigest()
+
+
+def _full_hash(path: Path) -> str:
+    digest = hashlib.sha1()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(_MEGABYTE), b""):
+            digest.update(chunk)
+    return digest.hexdigest()

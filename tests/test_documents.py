@@ -122,6 +122,30 @@ def test_electrical_left_out_only_at_the_top_of_the_job(tmp_path):
     assert any(d.relative.endswith("Base Takeoff/Electrical/E-101.pdf") for d in folder.documents)
 
 
+def test_same_size_head_and_tail_but_a_different_middle_are_not_duplicates(tmp_path):
+    # I8: size plus the first and last megabyte can match on two different files — a PDF's
+    # middle can differ while its size, header objects and tail don't.
+    from estimator.catalogue.documents import _find_duplicate
+    head, tail = b"H" * (1 << 20), b"T" * (1 << 20)
+    a, b = tmp_path / "a.pdf", tmp_path / "b.pdf"
+    a.write_bytes(head + b"AAAA" + tail)
+    b.write_bytes(head + b"BBBB" + tail)
+    seen: dict = {}
+    assert _find_duplicate(a, "a.pdf", seen) is None
+    assert _find_duplicate(b, "b.pdf", seen) is None
+
+
+def test_a_genuine_byte_for_byte_copy_is_still_a_duplicate(tmp_path):
+    from estimator.catalogue.documents import _find_duplicate
+    head, tail = b"H" * (1 << 20), b"T" * (1 << 20)
+    a, b = tmp_path / "a.pdf", tmp_path / "b.pdf"
+    a.write_bytes(head + b"SAME" + tail)
+    b.write_bytes(head + b"SAME" + tail)
+    seen: dict = {}
+    assert _find_duplicate(a, "a.pdf", seen) is None
+    assert _find_duplicate(b, "b.pdf", seen) == "a.pdf"
+
+
 def test_a_folder_os_walk_cannot_open_is_flagged_not_fatal(tmp_path, monkeypatch):
     root = tmp_path / "26-9999"
     make_pdf(root / "2. Takeoffs" / "1. Base Takeoff" / "spec.pdf", LETTER)
