@@ -31,7 +31,10 @@ def write_evidence(path: Path, catalogue: Catalogue) -> Path:
     _table(workbook.create_sheet(TABS[1]), ["What to look at"], [[f] for f in catalogue.flags] or [["Nothing to flag."]])
     _table(workbook.create_sheet(TABS[2]), ["Document", "What it is", "Revision", "Pages", "Same file as"],
            [[d.relative, _KIND[d.kind], d.revision, d.pages, d.duplicate_of] for d in catalogue.job.documents]
-           + [[folder, "Left out — AME's own work, not a bid document", None, None, None] for folder in catalogue.job.left_out])
+           + [[folder, "Left out — AME's own work, not a bid document", None, None, None] for folder in catalogue.job.left_out]
+           + [[folder, "Left out — another job, catalogue it on its own", None, None, None] for folder in catalogue.job.nested_jobs]
+           + [[f, f"Not read — not a PDF ({Path(f).suffix or 'no extension'})", None, None, None]
+              for f in catalogue.job.other_files])
     numbers = {(s.document, s.page): s.number for s in catalogue.sheets}
     _table(workbook.create_sheet(TABS[3]), ["Document", "Page", "Read by", "Sheet number"],
            [[p.document, p.page, _READ_BY[p.status], numbers.get((p.document, p.page))] for p in catalogue.pages])

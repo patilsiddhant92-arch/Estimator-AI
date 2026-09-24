@@ -17,7 +17,8 @@ def _catalogue() -> Catalogue:
                  Document(Path("s.pdf"), "2. Takeoffs/1. Base Takeoff/15970.pdf", "specs", "base", 1),
                  Document(Path("c.pdf"), "2. Takeoffs/1. Base Takeoff/copy.pdf", "drawings", "base", 2,
                           duplicate_of="2. Takeoffs/1. Base Takeoff/Mech.pdf"))
-    job = JobFolder("26-9999", Path("26-9999"), documents, (), ("3. Proposal",))
+    job = JobFolder("26-9999", Path("26-9999"), documents, (), ("3. Proposal",),
+                    ("2. Takeoffs/1. Base Takeoff/26-9998",), ("2. Takeoffs/1. Base Takeoff/notes.xlsx",))
     pages = (PageRecord(documents[0].relative, 1, "text", "AHU-1", 90), PageRecord(documents[0].relative, 2, "unreadable", "", 0),
              PageRecord(documents[1].relative, 1, "ocr", "SECTION 15970", 0))
     sheets = (Sheet(documents[0].relative, 1, "M-601", "HVAC SCHEDULES", "Mechanical", ("Schedules",)),
@@ -54,6 +55,10 @@ def test_flags_documents_pages_sheets_sections_and_tags(tmp_path):
     assert _values(wb["Documents"])[3] == ["2. Takeoffs/1. Base Takeoff/copy.pdf", "Drawings", "base", 2,
                                            "2. Takeoffs/1. Base Takeoff/Mech.pdf"]
     assert _values(wb["Documents"])[4] == ["3. Proposal", "Left out — AME's own work, not a bid document", None, None, None]
+    assert _values(wb["Documents"])[5] == ["2. Takeoffs/1. Base Takeoff/26-9998",
+                                           "Left out — another job, catalogue it on its own", None, None, None]
+    assert _values(wb["Documents"])[6] == ["2. Takeoffs/1. Base Takeoff/notes.xlsx", "Not read — not a PDF (.xlsx)",
+                                           None, None, None]
     assert _values(wb["Pages"])[2] == ["2. Takeoffs/1. Base Takeoff/Mech.pdf", 2, "could not be read", None]
     assert _values(wb["Pages"])[1][3] == "M-601"
     assert _values(wb["Sheets"])[1] == ["M-601", "HVAC SCHEDULES", "Mechanical", "Schedules",

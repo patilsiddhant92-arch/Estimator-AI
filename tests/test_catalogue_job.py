@@ -84,6 +84,19 @@ def test_a_blank_drawing_sheet_is_flagged(tmp_path):
     assert any("Mech.pdf" in f and "blank drawing page" in f for f in result.flags)
 
 
+def test_non_pdf_files_are_flagged_by_type_and_zip_gets_its_own_advice(tmp_path):
+    root = tmp_path / "26-9999"
+    base = root / "2. Takeoffs" / "1. Base Takeoff"
+    make_pdf(base / "spec.pdf", NO_NUMBER)
+    (base / "RFI Responses.xlsx").write_text("not really a workbook")
+    (base / "Bid Checklist.xlsx").write_text("not really a workbook")
+    (base / "Addendum 2.zip").write_bytes(b"PK\x03\x04")
+    result = catalogue_job(root, tmp_path / "cache")
+    assert any("2 .xlsx" in f and "1 .zip" in f and "3 files" in f for f in result.flags)
+    assert any(f == "2. Takeoffs/1. Base Takeoff/Addendum 2.zip is a zip file — unzip it into the job folder and run again"
+              for f in result.flags)
+
+
 def test_a_document_that_fails_partway_is_flagged_in_plain_words(tmp_path, monkeypatch):
     from estimator.catalogue import register
     root = tmp_path / "26-9999"

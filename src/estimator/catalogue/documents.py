@@ -24,6 +24,7 @@ _LEFT_OUT = re.compile(
     r"^(?:\d+\.\s*)?(proposal|price workup|electrical|vendor.*|trace_logs|00_stage0_artifacts|04_deliverable)$", re.I)
 _JOB_FOLDER = re.compile(r"^\d{2}-\d{4}\b")
 _DOCUMENTS_FOLDER = re.compile(r"^(?:\d+\.\s*)?(takeoffs|project documents)$", re.I)
+_JOB_MARKER = re.compile(r"^(?:\d+\.\s*)?(takeoffs|proposal|price workup|project documents)$", re.I)
 _NUMBERED = re.compile(r"^\d+\.\s*(.+)$")
 _ADDENDUM = re.compile(r"addend|bulletin", re.I)
 _RFI = re.compile(r"(?<![a-z])rfi(?![a-z])", re.I)
@@ -47,35 +48,63 @@ class JobFolder:
     name: str
     root: Path
     documents: tuple[Document, ...]
-    notes: tuple[str, ...]              # in plain words, for the flags: another job's folder found inside this one
+    notes: tuple[str, ...]              # in plain words, for the flags: a nested job, a folder that couldn't be opened
     left_out: tuple[str, ...] = ()      # AME's own folders that were skipped, for the Documents tab
+    nested_jobs: tuple[str, ...] = ()   # another job's folder found inside this one, for the Documents tab
+    other_files: tuple[str, ...] = ()   # files under the bid documents that aren't PDFs, for the Documents tab
 
 
 def job_name(root: Path) -> str:
     return Path(root).name.split(",")[0].strip()
 
 
+def _is_nested_job(folder: Path) -> bool:
+    """A folder named like a job number is another job's folder only when it holds its own
+    Takeoffs, Proposal, Price Workup or Project Documents folder — a folder that only looks
+    like a job number, such as a date-named addendum folder ("03-2026 Addendum 1"), is not."""
+    try:
+        return any(child.is_dir() and _JOB_MARKER.match(child.name) for child in folder.iterdir())
+    except OSError:
+        return False
+
+
 def find_documents(root: Path) -> JobFolder:
     root = Path(root)
     if not root.is_dir():
         raise FileNotFoundError(2, "No such folder", str(root))
-    paths, notes, left_out = [], [], []
-    for folder, subfolders, files in os.walk(root):
+    paths, notes, left_out, nested_jobs, other_files = [], [], [], [], []
+
+    def _on_error(error: OSError) -> None:
+        where = Path(error.filename)
+        try:
+            where = where.relative_to(root)
+        except ValueError:
+            pass
+        notes.append(f"Could not open folder {where.as_posix()} — {error.strerror or error}")
+
+    for folder, subfolders, files in os.walk(root, onerror=_on_error):
         here = Path(folder)
         kept = []
         for name in sorted(subfolders):
-            if _JOB_FOLDER.match(name):
+            if _JOB_FOLDER.match(name) and _is_nested_job(here / name):
+                relative = (here / name).relative_to(root).as_posix()
                 notes.append(f"{name} is another job's folder inside this one — catalogue it on its own")
-            elif _LEFT_OUT.match(name):
+                nested_jobs.append(relative)
+            elif here == root and _LEFT_OUT.match(name):
                 left_out.append((here / name).relative_to(root).as_posix())
             else:
                 kept.append(name)
         subfolders[:] = kept
-        paths += [here / name for name in files if name.lower().endswith(".pdf")]
+        for name in files:
+            if name.lower().endswith(".pdf"):
+                paths.append(here / name)
+            else:
+                other_files.append((here / name).relative_to(root).as_posix())
     paths.sort(key=lambda p: p.relative_to(root).as_posix())
+    other_files.sort()
     seen: dict[tuple, str] = {}
     documents = tuple(_describe(root, path, seen) for path in paths)
-    return JobFolder(job_name(root), root, documents, tuple(notes), tuple(left_out))
+    return JobFolder(job_name(root), root, documents, tuple(notes), tuple(left_out), tuple(nested_jobs), tuple(other_files))
 
 
 def _describe(root: Path, path: Path, seen: dict[tuple, str]) -> Document:

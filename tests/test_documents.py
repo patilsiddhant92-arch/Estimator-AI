@@ -1,7 +1,9 @@
 import shutil
+from pathlib import Path
 
 import pytest
 
+from estimator.catalogue import documents
 from estimator.catalogue.documents import find_documents, job_name
 from pdfs import Page, make_pdf
 
@@ -79,6 +81,61 @@ def test_ames_own_folders_and_other_jobs_are_left_out_and_listed(job):
     assert not [d for d in folder.documents if "26-9998" in d.relative]
     assert folder.notes == ("26-9998 is another job's folder inside this one — catalogue it on its own",)
     assert folder.left_out == ("3. Proposal", "5. Price Workup")
+    assert folder.nested_jobs == ("2. Takeoffs/1. Base Takeoff/26-9998",)
+
+
+def test_files_that_are_not_pdfs_are_listed_not_dropped(job):
+    folder = find_documents(job)
+    assert folder.other_files == ("2. Takeoffs/1. Base Takeoff/notes.txt",)
+
+
+def test_a_date_named_folder_without_its_own_takeoffs_is_not_a_nested_job(tmp_path):
+    # I6: "^\d{2}-\d{4}" also matches a date; only a folder with its own Takeoffs/Proposal/
+    # Price Workup/Project Documents folder inside is really another job.
+    root = tmp_path / "26-9999"
+    base = root / "2. Takeoffs" / "1. Base Takeoff"
+    make_pdf(base / "03-2026 Addendum 1" / "Addendum.pdf", LETTER)
+    folder = find_documents(root)
+    assert folder.nested_jobs == () and folder.notes == ()
+    assert any(d.relative.endswith("03-2026 Addendum 1/Addendum.pdf") for d in folder.documents)
+
+
+def test_a_nested_job_needs_its_own_documents_folder(tmp_path):
+    root = tmp_path / "26-9999"
+    base = root / "2. Takeoffs" / "1. Base Takeoff"
+    make_pdf(base / "26-9998" / "2. Takeoffs" / "their plan.pdf", DRAWING)
+    make_pdf(base / "26-9997" / "loose file.pdf", LETTER)   # looks like a job number, but no Takeoffs/Proposal inside
+    folder = find_documents(root)
+    assert folder.nested_jobs == ("2. Takeoffs/1. Base Takeoff/26-9998",)
+    assert any(d.relative.endswith("26-9997/loose file.pdf") for d in folder.documents)
+
+
+def test_electrical_left_out_only_at_the_top_of_the_job(tmp_path):
+    # I6: AME's own top-level "Electrical" quote folder is left out; a discipline subfolder of
+    # the real bid drawings, several levels down, is not.
+    root = tmp_path / "26-9999"
+    base = root / "2. Takeoffs" / "1. Base Takeoff"
+    make_pdf(root / "6. Electrical" / "sub quote.pdf", LETTER)
+    make_pdf(base / "Electrical" / "E-101.pdf", DRAWING)
+    folder = find_documents(root)
+    assert folder.left_out == ("6. Electrical",)
+    assert any(d.relative.endswith("Base Takeoff/Electrical/E-101.pdf") for d in folder.documents)
+
+
+def test_a_folder_os_walk_cannot_open_is_flagged_not_fatal(tmp_path, monkeypatch):
+    root = tmp_path / "26-9999"
+    make_pdf(root / "2. Takeoffs" / "1. Base Takeoff" / "spec.pdf", LETTER)
+    real_walk = documents.os.walk
+
+    def _walk(top, onerror=None, **kwargs):
+        if onerror is not None:
+            onerror(OSError(13, "Permission denied", str(Path(top) / "Locked")))
+        yield from real_walk(top, onerror=onerror, **kwargs)
+
+    monkeypatch.setattr(documents.os, "walk", _walk)
+    folder = find_documents(root)
+    assert any("Could not open folder" in n and "Locked" in n for n in folder.notes)
+    assert len(folder.documents) == 1
 
 
 def test_documents_are_listed_in_a_fixed_order(job):

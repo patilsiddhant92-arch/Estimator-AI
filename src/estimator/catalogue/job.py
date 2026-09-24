@@ -1,7 +1,7 @@
 """One job, catalogued: every stage of build step 3, and the flags an estimator should look at."""
 from __future__ import annotations
 
-from collections import defaultdict
+from collections import Counter, defaultdict
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -66,6 +66,13 @@ def _flags(catalogue: Catalogue) -> list[str]:
     flags = list(job.notes)
     flags += [f"{d.relative} could not be opened — is it a real PDF?" for d in job.documents if d.kind == "unreadable"]
     flags += [f"{d.relative} is the same file as {d.duplicate_of} — catalogued once" for d in job.documents if d.duplicate_of]
+    if job.other_files:
+        by_type = Counter(Path(f).suffix.lower() or "no extension" for f in job.other_files)
+        breakdown = ", ".join(f"{n} {ext}" for ext, n in sorted(by_type.items()))
+        flags.append(f"{_plural(len(job.other_files), 'file')} under the bid documents could not be read "
+                     f"— not PDFs ({breakdown})")
+        flags += [f"{f} is a zip file — unzip it into the job folder and run again" for f in job.other_files
+                  if f.lower().endswith(".zip")]
     read_errors: dict[str, tuple[int, str]] = {}
     for record in catalogue.pages:
         if record.read_error and record.document not in read_errors:
