@@ -8,7 +8,7 @@ from pdfs import FILLER, Page, make_pdf
 
 
 @pytest.mark.parametrize("text", ["M001.00", "M-101", "M1.01", "M00-03", "TC00-00", "H-301", "M-111",
-                                  "FP-101A", "MSK-001", "E-1.01", "M001.3", "M 101"])
+                                  "FP-101A", "MSK-001", "E-1.01", "M001.3", "M 101", "P01-00A1.1"])
 def test_sheet_number_shapes(text):
     assert SHEET_NUMBER.fullmatch(text)
 
@@ -105,6 +105,24 @@ def test_no_number_and_no_title():
 
 def test_small_text_shaped_like_a_number_is_not_the_sheet_number():
     assert read_title_block([_span("M-101", 8, 0.95, 0.95)]).number is None
+
+
+def test_a_keyplan_grid_label_loses_to_the_real_sheet_number():
+    # 26-0445's plumbing sheets: a 40 pt keyplan grid cell "D1" outsizes the real 36 pt sheet number,
+    # but "P01-00A1.1" carries two digits in a row and "D1" does not.
+    spans = [_span("D1", 40, 0.30, 0.90), _span("PIPING PLAN - UNDERSLAB - SEGMENT A1.1", 20, 0.90, 0.85, w=0.09),
+             _span("P01-00A1.1", 36, 0.94, 0.93, h=0.02)]
+    assert read_title_block(spans).number == "P01-00A1.1"
+
+
+def test_a_grid_line_label_loses_to_the_real_sheet_number():
+    # 26-0445's mechanical sheets: a grid line "B.9" is picked up instead of the real sheet number.
+    spans = [_span("B.9", 40, 0.30, 0.90), _span("M-302", 36, 0.94, 0.93, h=0.02)]
+    assert read_title_block(spans).number == "M-302"
+
+
+def test_a_sheet_whose_only_candidate_has_no_double_digit_still_reads_it():
+    assert read_title_block([_span("M1", 50, 0.94, 0.93, h=0.02)]).number == "M1"
 
 
 def test_a_rotated_sheet_read_from_the_pdf(tmp_path):

@@ -13,7 +13,7 @@ from dataclasses import dataclass
 
 from estimator.catalogue.pdf import Span
 
-SHEET_NUMBER = re.compile(r"[A-Z]{1,3}[-\s.]?\d{1,4}(?:-\d{1,3})?(?:\.\d{1,3})?[A-Z]?")
+SHEET_NUMBER = re.compile(r"[A-Z]{1,3}[-\s.]?\d{1,4}(?:-\d{1,3}(?:[A-Z]\d{0,3})?)?(?:\.\d{1,3})?[A-Z]?")
 MIN_NUMBER_SIZE = 12      # points: sheet numbers measured 19–56 pt; a cross-reference is ~10
 MIN_TITLE_SIZE = 12       # points: titles measured 15–25 pt; labels, names and notes are 7–10
 LABEL_SIZE = 12           # labels ("DRAWING TITLE:", "SCALE", "Drawing No.:") are smaller than this
@@ -38,7 +38,10 @@ def read_title_block(spans: Sequence[Span]) -> TitleBlock:
     numbers = [s for s in spans if s.size >= MIN_NUMBER_SIZE and SHEET_NUMBER.fullmatch(s.text)]
     if not numbers:
         return TitleBlock(None, None)
-    number = max(numbers, key=lambda s: (s.size, s.y0))
+    # A real sheet number almost always carries two digits in a row somewhere ("M00-03", "P01-00A1.1");
+    # a keyplan grid label or grid line ("D1", "B.9", "V4") does not — prefer the real number over those,
+    # then the larger text, then whichever sits lower on the sheet.
+    number = max(numbers, key=lambda s: (bool(re.search(r"\d{2}", s.text)), s.size, s.y0))
     return TitleBlock(" ".join(number.text.split()), _title_by_label(spans, number) or _title_above(spans, number))
 
 
