@@ -2,6 +2,9 @@ from collections import Counter
 
 import docx
 import pytest
+from docx.oxml import OxmlElement
+from docx.oxml.ns import qn
+from docx.shared import Twips
 
 from conftest import PROPOSAL_TEMPLATE, SENT_PROPOSAL
 from estimator.proposal.read import ProposalFormatError, read_proposal
@@ -71,4 +74,55 @@ def test_a_table_inside_the_scope_is_refused(tmp_path):
     edited = tmp_path / "with-table.docx"
     document.save(str(edited))
     with pytest.raises(ProposalFormatError, match="table"):
+        read_proposal(edited, PROPOSAL_TEMPLATE)
+
+
+def _hide_runs_in_tracked_insertion(paragraph, runs) -> None:
+    """Move the given <w:r> children of the paragraph into a <w:ins> (an unaccepted tracked
+    insertion) — text python-docx's ordinary run access can't see, but still on the page."""
+    ins = OxmlElement("w:ins")
+    ins.set(qn("w:id"), "901")
+    ins.set(qn("w:author"), "test")
+    for run in runs:
+        paragraph._p.remove(run)
+        ins.append(run)
+    paragraph._p.append(ins)
+
+
+def test_a_wholly_hidden_item_is_refused(tmp_path):
+    """A paragraph whose entire text sits inside a tracked insertion has no visible run at all —
+    it must still be caught, not silently dropped for having no ordinary text."""
+    document = docx.Document(str(SENT_PROPOSAL))
+    paragraph = next(p for p in document.paragraphs if squash(p.text) == "Furnish and Install UPS")
+    _hide_runs_in_tracked_insertion(paragraph, paragraph._p.findall(qn("w:r")))
+    edited = tmp_path / "wholly-hidden-item.docx"
+    document.save(str(edited))
+    with pytest.raises(ProposalFormatError):
+        read_proposal(edited, PROPOSAL_TEMPLATE)
+
+
+def test_a_partly_hidden_block_header_is_refused(tmp_path):
+    """The hidden-text check must run on block headers (and every other kind of scope paragraph),
+    not only on items — a block header read from truncated text would misname the block."""
+    document = docx.Document(str(SENT_PROPOSAL))
+    paragraph = next(p for p in document.paragraphs if squash(p.text) == "*Qty (1) BACnet Data Cabinet")
+    runs = paragraph._p.findall(qn("w:r"))
+    _hide_runs_in_tracked_insertion(paragraph, runs[-1:])
+    edited = tmp_path / "partly-hidden-header.docx"
+    document.save(str(edited))
+    with pytest.raises(ProposalFormatError):
+        read_proposal(edited, PROPOSAL_TEMPLATE)
+
+
+@pytest.mark.parametrize("target_text, indent", [
+    ("Furnish and Install UPS", Twips(1800 + 360 * 6)),                 # depth 7 under a block; limit 5
+    ("Furnish Network Level Control Panel", Twips(1440 + 720 * 2)),     # depth 3 in the front end; limit 2
+])
+def test_a_line_indented_past_the_depth_limit_is_refused(tmp_path, target_text, indent):
+    document = docx.Document(str(SENT_PROPOSAL))
+    paragraph = next(p for p in document.paragraphs if squash(p.text) == target_text)
+    paragraph.paragraph_format.left_indent = indent
+    edited = tmp_path / "too-deep.docx"
+    document.save(str(edited))
+    with pytest.raises(ProposalFormatError, match="depth"):
         read_proposal(edited, PROPOSAL_TEMPLATE)

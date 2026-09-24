@@ -108,10 +108,12 @@ def read_proposal(path: Path, template_path: Path) -> Job:
 def read_scope(document: DocxDocument):
     """(scope heading suffix, front end, blocks, add alternates, deduct alternates)."""
     lists = WordLists(document)
-    paragraphs = [p for p in document.paragraphs if p.text.strip()]
+    paragraphs = [p for p in document.paragraphs if visible_text(p).strip()]
     start = _find(paragraphs, layout.SCOPE_HEADING)
     end = _find(paragraphs, layout.CLARIFICATIONS)
     _refuse_tables_between(document, paragraphs[start], paragraphs[end])
+    _refuse_hidden_text(paragraphs[start])
+    _refuse_hidden_text(paragraphs[start + 1])
     suffix = squash(paragraphs[start].text)[len(layout.SCOPE_HEADING):].strip()
     mode, existing = _front_end_mode(squash(paragraphs[start + 1].text))
 
@@ -121,6 +123,7 @@ def read_scope(document: DocxDocument):
     section = "front end"
     items: list[Item] | None = None
     for paragraph in paragraphs[start + 2 : end]:
+        _refuse_hidden_text(paragraph)
         text = squash(paragraph.text)
         if text.upper().startswith(layout.ADD_ALTERNATES):
             section, items = "add", None
@@ -185,6 +188,17 @@ def _refuse_tables_between(document: DocxDocument, first: Paragraph, last: Parag
             raise ProposalFormatError("a table sits inside the scope of work; the reader doesn't handle tables yet")
 
 
+def _refuse_hidden_text(paragraph: Paragraph) -> None:
+    """A tracked insertion, a content control or a text box can hide text from every reader that
+    only looks at ordinary runs. Compare what the ordinary runs say against every character Word
+    actually draws, so a paragraph like that is refused rather than silently read short."""
+    stretches = merged_runs(paragraph)
+    if re.sub(r"\s+", "", "".join(t for t, _ in stretches)) != re.sub(r"\s+", "", visible_text(paragraph)):
+        raise ProposalFormatError(
+            f"part of {squash(paragraph.text)!r} sits inside something the reader doesn't handle yet "
+            "(a tracked change, a content control or a text box)")
+
+
 def _front_end_mode(heading: str) -> tuple[str, str | None]:
     if heading.startswith(layout.NEW_SYSTEM_HEADING):
         return "new-system", None
@@ -201,10 +215,6 @@ def _is_block_header(paragraph: Paragraph) -> bool:
 
 def _read_item(paragraph: Paragraph, lists: WordLists, *, in_front_end: bool) -> Item:
     stretches = merged_runs(paragraph)
-    if re.sub(r"\s+", "", "".join(t for t, _ in stretches)) != re.sub(r"\s+", "", visible_text(paragraph)):
-        raise ProposalFormatError(
-            f"part of {squash(paragraph.text)!r} sits inside something the reader doesn't handle yet "
-            "(a tracked change, a content control or a text box)")
     runs = tuple(Run(text=re.sub(r"\s+", " ", text), bold=bold) for text, bold in stretches)
     if lists.numbering(paragraph) is None:
         return Item(kind="note", runs=runs)
