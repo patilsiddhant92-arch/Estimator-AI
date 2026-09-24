@@ -4,12 +4,14 @@
   "jobs": {
     "26-0246": {"bid": "Qualifies", "sheet_numbers_at_least": 0.99, "typed_at_least": 0.90, "controls_sections": true},
     "26-0328": {"bid": "Open", "sheet_numbers_at_least": 0.80, "typed_at_least": 0.70, "controls_sections": true},
-    "26-0334": {"bid": "Qualifies", "sheet_numbers_at_least": 0.70, "typed_at_least": 0.50, "controls_sections": true},
+    "26-0334": {"bid": "Qualifies", "sheet_numbers_at_least": 0.70, "typed_at_least": 0.25, "controls_sections": true,
+                "note": "Its one drawing set is a scanned/photographed PDF; several title blocks are too faint for OCR to read, so fewer sheets can be sorted by type. Checked by hand."},
     "26-0339": {"bid": "Open", "sheet_numbers_at_least": 0.99, "typed_at_least": 0.90, "controls_sections": true},
     "26-0344": {"bid": "Qualifies", "sheet_numbers_at_least": 0.99, "typed_at_least": 0.90, "controls_sections": true},
     "26-0352": {"bid": "Open", "sheet_numbers_at_least": 0.99, "typed_at_least": 0.90, "controls_sections": false},
     "26-0356": {"bid": "Qualifies", "sheet_numbers_at_least": 0.99, "typed_at_least": 0.85, "controls_sections": true},
-    "26-0436": {"bid": null, "sheet_numbers_at_least": 0.90, "typed_at_least": 0.70, "controls_sections": true},
+    "26-0436": {"bid": null, "sheet_numbers_at_least": 0.90, "typed_at_least": 0.70, "controls_sections": false,
+                "note": "Its own project manual has no controls section — the controls spec lives in the nested 26-0437 folder, catalogued as its own job. Checked by hand."},
     "26-0437": {"bid": "Qualifies", "sheet_numbers_at_least": 0.95, "typed_at_least": 0.80, "controls_sections": true},
     "26-0445": {"bid": "Open", "sheet_numbers_at_least": 0.90, "typed_at_least": 0.70, "controls_sections": true}
   }
