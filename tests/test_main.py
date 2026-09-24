@@ -1,5 +1,6 @@
 """One plain-words message per way the tool can be stopped, instead of a Python traceback."""
 import json
+import os
 
 import docx
 import pytest
@@ -70,17 +71,48 @@ def test_a_job_needing_too_many_price_sheets_is_plain(small_job, tmp_path, capsy
 
 
 def test_the_output_folder_being_a_file_that_is_open_is_plain(small_job, tmp_path, capsys):
-    """A destination that can't be written to at all (the closest a test can get, cross-platform,
-    to "the file is open in Word or Excel") is reported in plain words, not a Python traceback."""
+    """A destination held open (the closest a test can get, cross-platform, to "the file is open
+    in Word or Excel") is reported in plain words, not a Python traceback."""
     job_path = tmp_path / "job.json"
     job_path.write_text(small_job.model_dump_json(), encoding="utf-8")
     out = tmp_path / "out"
     out.mkdir()
     locked = out / f"{small_job.header.quote_number} Proposal.docx"
-    locked.mkdir()    # a directory where the proposal needs to be written: Windows refuses to open it for writing
-    code, _, err = _run(["build", str(job_path), "--out", str(out)], capsys)
+    locked.write_bytes(b"an old proposal")
+    with open(locked, "rb"):    # an open handle blocks the rename, like Word holding the file open
+        code, _, err = _run(["build", str(job_path), "--out", str(out)], capsys)
     assert code == 1
     assert err.strip().endswith("is open in Word or Excel — close it and run again")
+
+
+def test_a_locked_price_sheet_leaves_both_old_files_untouched(small_job, tmp_path, capsys, monkeypatch):
+    """If the price sheet can't be replaced (open in Excel), the proposal must not be replaced
+    either — both files or neither. Build once to get an old proposal and an old price sheet,
+    then rebuild with the price sheet's move failing partway through, and check nothing changed:
+    no half-swapped pair, and no leftover temp or backup file."""
+    job_path = tmp_path / "job.json"
+    job_path.write_text(small_job.model_dump_json(), encoding="utf-8")
+    out = tmp_path / "out"
+    assert main(["build", str(job_path), "--out", str(out)]) == 0
+    proposal = out / f"{small_job.header.quote_number} Proposal.docx"
+    sheet = out / f"{small_job.header.quote_number} Price Sheet.xlsx"
+    old_proposal, old_sheet = proposal.read_bytes(), sheet.read_bytes()
+
+    real_replace = os.replace
+
+    def fail_on_price_sheet(src, dst):
+        if "Price Sheet" in str(src) or "Price Sheet" in str(dst):
+            raise PermissionError(13, "The process cannot access the file", str(dst))
+        return real_replace(src, dst)
+
+    monkeypatch.setattr(cli.os, "replace", fail_on_price_sheet)
+    code, _, err = _run(["build", str(job_path), "--out", str(out)], capsys)
+
+    assert code == 1
+    assert err.strip() == f"Stopped: {sheet} is open in Word or Excel — close it and run again"
+    assert proposal.read_bytes() == old_proposal
+    assert sheet.read_bytes() == old_sheet
+    assert sorted(p.name for p in out.iterdir()) == sorted([proposal.name, sheet.name])
 
 
 def test_the_price_books_own_value_error_is_plain(small_job, tmp_path, capsys, monkeypatch):

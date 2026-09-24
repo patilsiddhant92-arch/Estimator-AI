@@ -64,9 +64,10 @@ def _safe_filename(text: str) -> str:
 
 def _build(job: Job, template: Path, workup_template: Path, book: PriceBook, out: Path) -> tuple[Path, Path]:
     """Write the proposal and the price sheet as one unit: check the job fits both templates
-    before writing anything, then write both under temporary names and rename them into place
+    before writing anything, then write both under temporary names and swap them into place
     together, so a job that doesn't fit never leaves a proposal behind with no price sheet, or a
-    stale price sheet beside a freshly written proposal."""
+    stale price sheet beside a freshly written proposal — and so does a destination that can't be
+    replaced because it's open in Word or Excel."""
     check_template(docx.Document(str(template)))
     check_fit(job)
     out.mkdir(parents=True, exist_ok=True)
@@ -76,12 +77,52 @@ def _build(job: Job, template: Path, workup_template: Path, book: PriceBook, out
     try:
         write_proposal(job, template, tmp_proposal)
         write_price_sheet(job, workup_template, book, tmp_sheet)
-        os.replace(tmp_proposal, proposal_path)
-        os.replace(tmp_sheet, sheet_path)
+        _swap_into_place([(tmp_proposal, proposal_path), (tmp_sheet, sheet_path)])
     finally:
         tmp_proposal.unlink(missing_ok=True)
         tmp_sheet.unlink(missing_ok=True)
     return proposal_path, sheet_path
+
+
+def _swap_into_place(pairs: list[tuple[Path, Path]]) -> None:
+    """Replace every (new file, real destination) pair as one unit — both files or neither.
+
+    Each existing destination is moved aside to a backup name first, so a destination that
+    can't be moved (open in Word or Excel) stops everything before either file has changed.
+    Only then are the new files moved into place. On any failure, the backups go back and any
+    new file already placed is removed, so the folder ends up exactly as it started. Either
+    way — success or failure — no backup or temp file is left in the folder."""
+    backups: list[tuple[Path, Path]] = []
+    placed: list[Path] = []
+    try:
+        for _, dest in pairs:
+            if dest.exists():
+                backup = dest.with_name(f".{dest.name}.bak")
+                _replace(dest, backup, real=dest)
+                backups.append((backup, dest))
+        for tmp, dest in pairs:
+            _replace(tmp, dest, real=dest)
+            placed.append(dest)
+    except BaseException:
+        backed_up = {dest for _, dest in backups}
+        for dest in placed:
+            if dest not in backed_up:
+                dest.unlink(missing_ok=True)
+        for backup, dest in backups:
+            os.replace(backup, dest)
+        raise
+    else:
+        for backup, _ in backups:
+            backup.unlink(missing_ok=True)
+
+
+def _replace(src: Path, dest: Path, *, real: Path) -> None:
+    """os.replace, but a failure always names `real` — the file an estimator would actually
+    have open — never a hidden temp or backup name, whichever side of the move it lands on."""
+    try:
+        os.replace(src, dest)
+    except OSError as error:
+        raise PermissionError(error.errno, error.strerror, str(real)) from error
 
 
 def _job_validation_message(error: ValidationError) -> str:
