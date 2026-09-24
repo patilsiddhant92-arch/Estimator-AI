@@ -86,3 +86,140 @@ def read_named_exceptions(document: DocxDocument, template_path: Path) -> tuple[
             "the standard exclusions were edited, reordered or cut in this proposal; the tool can "
             "only add exceptions after the standard list, so it can't reproduce this one")
     return tuple(sent[len(standard):])
+
+
+# --- the scope of work ------------------------------------------------------------
+
+def read_proposal(path: Path, template_path: Path) -> Job:
+    """A sent proposal as a Job. A proposal carries no hours or quantities, so those stay empty."""
+    document = docx.Document(str(path))
+    suffix, front_end, blocks, add, deduct = read_scope(document)
+    return Job(
+        header=read_cover(document),
+        scope_heading_suffix=suffix,
+        front_end=front_end,
+        blocks=blocks,
+        add_alternates=add,
+        deduct_alternates=deduct,
+        named_exceptions=read_named_exceptions(document, template_path),
+    )
+
+
+def read_scope(document: DocxDocument):
+    """(scope heading suffix, front end, blocks, add alternates, deduct alternates)."""
+    lists = WordLists(document)
+    paragraphs = [p for p in document.paragraphs if p.text.strip()]
+    start = _find(paragraphs, layout.SCOPE_HEADING)
+    end = _find(paragraphs, layout.CLARIFICATIONS)
+    _refuse_tables_between(document, paragraphs[start], paragraphs[end])
+    suffix = squash(paragraphs[start].text)[len(layout.SCOPE_HEADING):].strip()
+    mode, existing = _front_end_mode(squash(paragraphs[start + 1].text))
+
+    front_end_items: list[Item] = []
+    blocks: list[dict] = []
+    alternates: dict[str, list[dict]] = {"add": [], "deduct": []}
+    section = "front end"
+    items: list[Item] | None = None
+    for paragraph in paragraphs[start + 2 : end]:
+        text = squash(paragraph.text)
+        if text.upper().startswith(layout.ADD_ALTERNATES):
+            section, items = "add", None
+            continue
+        if text.upper().startswith(layout.DEDUCT_ALTERNATES):
+            section, items = "deduct", None
+            continue
+        if section in alternates and re.match(r"ALT\b", text):
+            alternates[section].append({"label": text, "blocks": []})
+            items = None
+            continue
+        if _is_block_header(paragraph):
+            block = {"header": text, "items": []}
+            if section == "front end":
+                section = "blocks"
+            if section == "blocks":
+                blocks.append(block)
+            elif alternates[section]:
+                alternates[section][-1]["blocks"].append(block)
+            else:
+                raise ProposalFormatError(f"{text!r} sits under the {section} alternates before any ALT line")
+            items = block["items"]
+            continue
+        item = _read_item(paragraph, lists, in_front_end=(section == "front end"))
+        if section == "front end":
+            front_end_items.append(item)
+        elif items is not None:
+            items.append(item)
+        else:
+            raise ProposalFormatError(f"{text!r} sits outside any block")
+
+    front_end = FrontEnd(mode=mode, existing_system_name=existing, items=tuple(front_end_items))
+    return (
+        suffix,
+        front_end,
+        tuple(_block(b) for b in blocks),
+        _alternates(alternates["add"]),
+        _alternates(alternates["deduct"]),
+    )
+
+
+def _alternates(raw: list[dict]) -> tuple[Alternate, ...]:
+    """The template's own empty "ALT #:" line is a placeholder, not an alternate — leave it out."""
+    return tuple(_alternate(a) for a in raw if a["blocks"] or a["label"] != layout.ALTERNATE_LABEL)
+
+
+def _find(paragraphs: list[Paragraph], heading: str) -> int:
+    for index, paragraph in enumerate(paragraphs):
+        if squash(paragraph.text).startswith(heading):
+            return index
+    raise ProposalFormatError(f"can't find {heading!r}")
+
+
+def _refuse_tables_between(document: DocxDocument, first: Paragraph, last: Paragraph) -> None:
+    inside = False
+    for element in document.element.body.iterchildren():
+        if element is first._p:
+            inside = True
+        elif element is last._p:
+            return
+        elif inside and element.tag == qn("w:tbl"):
+            raise ProposalFormatError("a table sits inside the scope of work; the reader doesn't handle tables yet")
+
+
+def _front_end_mode(heading: str) -> tuple[str, str | None]:
+    if heading.startswith(layout.NEW_SYSTEM_HEADING):
+        return "new-system", None
+    if heading.startswith(layout.EXISTING_SYSTEM_HEADING):
+        name = heading[len(layout.EXISTING_SYSTEM_HEADING):].strip()
+        return "extend-existing", re.sub(r"\s*BMS$", "", name).strip()
+    raise ProposalFormatError(f"expected the front-end heading after SCOPE OF WORK, found {heading!r}")
+
+
+def _is_block_header(paragraph: Paragraph) -> bool:
+    """A PR2 paragraph with nothing written over the template's outline numbering — Word numbers it."""
+    return paragraph.style.name == layout.OUTLINE_STYLE and WordLists.written_numbering(paragraph) is None
+
+
+def _read_item(paragraph: Paragraph, lists: WordLists, *, in_front_end: bool) -> Item:
+    stretches = merged_runs(paragraph)
+    if re.sub(r"\s+", "", "".join(t for t, _ in stretches)) != re.sub(r"\s+", "", visible_text(paragraph)):
+        raise ProposalFormatError(
+            f"part of {squash(paragraph.text)!r} sits inside something the reader doesn't handle yet "
+            "(a tracked change, a content control or a text box)")
+    runs = tuple(Run(text=re.sub(r"\s+", " ", text), bold=bold) for text, bold in stretches)
+    if lists.numbering(paragraph) is None:
+        return Item(kind="note", runs=runs)
+    base, step = ((layout.FRONT_END_LINE_INDENT, layout.FRONT_END_LINE_STEP) if in_front_end
+                  else (layout.BLOCK_LINE_INDENT, layout.BLOCK_LINE_STEP))
+    depth = max(1, 1 + round((lists.left_indent(paragraph) - base) / step))
+    limit = 2 if in_front_end else 5
+    if depth > limit:
+        raise ProposalFormatError(f"{squash(paragraph.text)!r} is indented to depth {depth}; the most is {limit}")
+    return Item(kind="line", depth=depth, runs=runs)
+
+
+def _block(raw: dict) -> Block:
+    return Block(header=raw["header"], items=tuple(raw["items"]))
+
+
+def _alternate(raw: dict) -> Alternate:
+    return Alternate(label=raw["label"], blocks=tuple(_block(b) for b in raw["blocks"]))

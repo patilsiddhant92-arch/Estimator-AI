@@ -5,6 +5,7 @@ from pathlib import Path
 import docx
 import pytest
 
+from estimator.proposal.read import read_proposal, read_scope
 from estimator.scope import Alternate, Block, FrontEnd, Header, Item, Job, Run
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -135,3 +136,13 @@ def template_document():
 @pytest.fixture(scope="session")
 def sent_document():
     return docx.Document(str(SENT_PROPOSAL))
+
+
+@pytest.fixture(scope="session")
+def sent_scope(sent_document):
+    return read_scope(sent_document)
+
+
+@pytest.fixture(scope="session")
+def sent_job():
+    return read_proposal(SENT_PROPOSAL, PROPOSAL_TEMPLATE)
