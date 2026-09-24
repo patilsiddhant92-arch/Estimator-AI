@@ -1,5 +1,5 @@
 from estimator.price_sheet.rows import align, read_sent_rows, sheet_plan
-from estimator.scope import Alternate
+from estimator.scope import Alternate, Block
 from estimator.text import squash, strip_list_marker
 
 
@@ -37,6 +37,25 @@ def test_alternates_get_their_own_sheet_and_numbering_runs_on(small_job):
     assert [row.text for row in alternate.rows if row.text] == [
         "ADD ALTERNATES:", "1.  ALT 1: Controls for EF-3", "3.  Qty (1) Exhaust Fan EF-3",
         "o  Furnish and Install DDC Controller"]
+
+
+def test_a_joined_block_has_no_blank_row_and_keeps_its_own_number(small_job):
+    extra = Block(header="Qty (1) Exhaust Fan EF-9", joined=True)
+    job = small_job.model_copy(update={"blocks": small_job.blocks + (extra,)})
+    all_rows = sheet_plan(job)[0].rows
+    index = next(i for i, row in enumerate(all_rows) if row.text == "3.  Qty (1) Exhaust Fan EF-9")
+    assert all_rows[index - 1].text != ""   # no blank row was inserted before it
+
+
+def test_an_unnumbered_group_heading_has_no_number_and_does_not_use_one_up(small_job):
+    heading = Block(header="Kitchen Exhaust System", numbered=False, tech_hours=10.0)
+    after = Block(header="Qty (1) Exhaust Fan EF-9")
+    job = small_job.model_copy(update={"blocks": small_job.blocks + (heading, after)})
+    plan = sheet_plan(job)[0]
+    rows = {row.text: row for row in plan.rows if row.text}
+    assert rows["Kitchen Exhaust System"].hours == 10.0
+    assert "3.  Kitchen Exhaust System" not in rows
+    assert "3.  Qty (1) Exhaust Fan EF-9" in rows   # the unnumbered heading didn't use up a number
 
 
 def test_several_alternates_are_numbered_sheets(small_job):

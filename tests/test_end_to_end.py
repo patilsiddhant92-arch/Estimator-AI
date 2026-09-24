@@ -4,7 +4,7 @@ from conftest import TEST_JOB_FILE
 from estimator.__main__ import main
 from estimator.price_sheet.rows import read_sent_rows
 from estimator.proposal.read import read_proposal
-from estimator.proposal.sections import closing_texts, cover_lines, opening_texts, scope_texts
+from estimator.proposal.sections import closing_texts, cover_lines, opening_texts, scope_blank_pattern, scope_texts
 from estimator.text import strip_list_marker
 
 
@@ -19,6 +19,13 @@ def test_the_proposal_matches_what_was_sent(tmp_path, sent_proposal, proposal_te
     assert closing_texts(proposal) == closing_texts(sent_proposal)
     assert opening_texts(proposal) == opening_texts(sent_proposal)
     assert read_proposal(proposal, proposal_template) == without_prices(test_job)
+
+
+def test_the_blank_line_pattern_matches_what_was_sent(tmp_path, sent_proposal):
+    """Words alone don't show grouping: a header that runs straight on from the one before it
+    (no blank line) reads the same as one behind a blank line, unless the blanks are compared too."""
+    proposal, _ = _build(tmp_path)
+    assert scope_blank_pattern(proposal) == scope_blank_pattern(sent_proposal)
 
 
 def test_the_cover_page_differs_only_where_the_sent_copy_left_the_template(tmp_path, sent_proposal):

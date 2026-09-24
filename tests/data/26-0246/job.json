@@ -274,7 +274,9 @@
           "tech_hours": null
         }
       ],
-      "tech_hours": 10.0
+      "tech_hours": 10.0,
+      "joined": false,
+      "numbered": true
     },
     {
       "header": "Qty (5) Multiple BACnet Router Data Cabinet",
@@ -344,7 +346,9 @@
           "tech_hours": null
         }
       ],
-      "tech_hours": 25.0
+      "tech_hours": 25.0,
+      "joined": false,
+      "numbered": true
     },
     {
       "header": "Qty (4) Power Distribution Panel LVCP-1, 2, 4, 5",
@@ -422,7 +426,9 @@
           "tech_hours": null
         }
       ],
-      "tech_hours": 20.0
+      "tech_hours": 20.0,
+      "joined": false,
+      "numbered": true
     },
     {
       "header": "Qty (1) Global Points",
@@ -464,7 +470,9 @@
           "tech_hours": null
         }
       ],
-      "tech_hours": 6.0
+      "tech_hours": 6.0,
+      "joined": false,
+      "numbered": true
     },
     {
       "header": "Qty (4) Packaged Air Handling Unit AHU-1, 2, 3, 4",
@@ -646,7 +654,9 @@
           "tech_hours": null
         }
       ],
-      "tech_hours": 64.0
+      "tech_hours": 64.0,
+      "joined": false,
+      "numbered": true
     },
     {
       "header": "Qty (1) Packaged Air Handling Unit AHU-5",
@@ -808,7 +818,9 @@
           "tech_hours": null
         }
       ],
-      "tech_hours": 16.0
+      "tech_hours": 16.0,
+      "joined": false,
+      "numbered": true
     },
     {
       "header": "Qty (1) Packaged Air Handling Unit AHU-6",
@@ -934,7 +946,9 @@
           "tech_hours": null
         }
       ],
-      "tech_hours": 16.0
+      "tech_hours": 16.0,
+      "joined": false,
+      "numbered": true
     },
     {
       "header": "Qty (58) Variable Air Volume Box – VAV",
@@ -976,7 +990,9 @@
           "tech_hours": null
         }
       ],
-      "tech_hours": 174.0
+      "tech_hours": 174.0,
+      "joined": false,
+      "numbered": true
     },
     {
       "header": "Qty (19) Constant Air Volume Box CAV-## (NO CONTROL INFORMATION PROVIDED)",
@@ -1006,7 +1022,9 @@
           "tech_hours": null
         }
       ],
-      "tech_hours": 57.0
+      "tech_hours": 57.0,
+      "joined": false,
+      "numbered": true
     },
     {
       "header": "Qty (4) Fan Powered Variable Air Volume Box w/ Heating Coil – FPVAV",
@@ -1084,7 +1102,9 @@
           "tech_hours": null
         }
       ],
-      "tech_hours": 24.0
+      "tech_hours": 24.0,
+      "joined": false,
+      "numbered": true
     },
     {
       "header": "Qty (10) Split System Indoor Unit AC-## | Qty (10) Outdoor Unit ACCU-##",
@@ -1190,22 +1210,30 @@
           "tech_hours": null
         }
       ],
-      "tech_hours": 20.0
+      "tech_hours": 20.0,
+      "joined": false,
+      "numbered": true
     },
     {
       "header": "Qty (1) Split System Indoor Unit AC-502 | Qty (1) Outdoor Unit ACCU-502",
       "items": [],
-      "tech_hours": 10.0
+      "tech_hours": 10.0,
+      "joined": false,
+      "numbered": true
     },
     {
       "header": "Qty (1) Energy Recovery Ventilator Unit ERV-502",
       "items": [],
-      "tech_hours": null
+      "tech_hours": null,
+      "joined": true,
+      "numbered": true
     },
     {
       "header": "Qty (2) Gravity Ventilator GV-502-IN, EX",
       "items": [],
-      "tech_hours": null
+      "tech_hours": null,
+      "joined": true,
+      "numbered": true
     },
     {
       "header": "Qty (1) Electric Duct Heater EDH-502",
@@ -1419,7 +1447,9 @@
           "tech_hours": null
         }
       ],
-      "tech_hours": null
+      "tech_hours": null,
+      "joined": true,
+      "numbered": true
     },
     {
       "header": "Qty (3) Toilet Exhaust Fan TEF-1, 2, 3",
@@ -1465,7 +1495,9 @@
           "tech_hours": null
         }
       ],
-      "tech_hours": 12.0
+      "tech_hours": 12.0,
+      "joined": false,
+      "numbered": true
     },
     {
       "header": "Qty (1) Electric Room Exhaust Fan EF-1",
@@ -1519,22 +1551,30 @@
           "tech_hours": null
         }
       ],
-      "tech_hours": null
+      "tech_hours": null,
+      "joined": false,
+      "numbered": true
     },
     {
       "header": "Qty (1) Shower Room Exhaust Fan EF-2",
       "items": [],
-      "tech_hours": 4.0
+      "tech_hours": 4.0,
+      "joined": false,
+      "numbered": true
     },
     {
       "header": "Qty (2) Storage Room Exhaust Fan EF-3, 8",
       "items": [],
-      "tech_hours": 8.0
+      "tech_hours": 8.0,
+      "joined": true,
+      "numbered": true
     },
     {
       "header": "Qty (1) Water Service Room Exhaust Fan EF-5",
       "items": [],
-      "tech_hours": 4.0
+      "tech_hours": 4.0,
+      "joined": true,
+      "numbered": true
     },
     {
       "header": "Qty (2) Locker Room Exhaust Fan EF-6, 10",
@@ -1580,7 +1620,9 @@
           "tech_hours": null
         }
       ],
-      "tech_hours": 8.0
+      "tech_hours": 8.0,
+      "joined": true,
+      "numbered": true
     },
     {
       "header": "Qty (1) Art Storage Room Kiln Exhaust Fan EF-7",
@@ -1622,7 +1664,9 @@
           "tech_hours": null
         }
       ],
-      "tech_hours": 4.0
+      "tech_hours": 4.0,
+      "joined": false,
+      "numbered": true
     },
     {
       "header": "*Qty (1) Can Wash Kitchen Exhaust Fan EF-9 (SEE AME ADD ALT)",
@@ -1676,7 +1720,9 @@
           "tech_hours": null
         }
       ],
-      "tech_hours": 4.0
+      "tech_hours": 4.0,
+      "joined": false,
+      "numbered": true
     },
     {
       "header": "Qty (1) MEP Storage Room Exhaust Fan EF-11 | Qty (1) Motorized Damper MD-2",
@@ -1730,7 +1776,9 @@
           "tech_hours": null
         }
       ],
-      "tech_hours": 4.0
+      "tech_hours": 4.0,
+      "joined": false,
+      "numbered": true
     },
     {
       "header": "Qty (3) Post-Fire Smoke Purge Fans SPF-1, 2A, B | Qty (1) Motorized Damper MD-1",
@@ -1764,7 +1812,9 @@
           "tech_hours": null
         }
       ],
-      "tech_hours": 6.0
+      "tech_hours": 6.0,
+      "joined": false,
+      "numbered": true
     },
     {
       "header": "Qty (1) General Kitchen Exhaust Fan KEF-1",
@@ -1828,26 +1878,25 @@
           ],
           "quantity": null,
           "tech_hours": null
-        },
-        {
-          "kind": "note",
-          "depth": 1,
-          "runs": [
-            {
-              "text": "Kitchen Exhaust System",
-              "bold": true
-            }
-          ],
-          "quantity": null,
-          "tech_hours": 10.0
         }
       ],
-      "tech_hours": 4.0
+      "tech_hours": 4.0,
+      "joined": false,
+      "numbered": true
+    },
+    {
+      "header": "Kitchen Exhaust System",
+      "items": [],
+      "tech_hours": 10.0,
+      "joined": false,
+      "numbered": false
     },
     {
       "header": "Qty (1) Kitchen Exhaust Fan KEF-2",
       "items": [],
-      "tech_hours": null
+      "tech_hours": null,
+      "joined": true,
+      "numbered": true
     },
     {
       "header": "Qty (2) Kitchen Hood",
@@ -1901,7 +1950,9 @@
           "tech_hours": null
         }
       ],
-      "tech_hours": null
+      "tech_hours": null,
+      "joined": true,
+      "numbered": true
     },
     {
       "header": "Qty (1) Canopy Area Supply Fan SF-100B | Qty (1) Electric Duct Heater EDH-1",
@@ -1967,7 +2018,9 @@
           "tech_hours": null
         }
       ],
-      "tech_hours": 6.0
+      "tech_hours": 6.0,
+      "joined": false,
+      "numbered": true
     },
     {
       "header": "Qty (1) Roof Storage Room Exhaust Fan EX-R03 | Qty (2) Motorized Damper MD-3, 4",
@@ -2021,7 +2074,9 @@
           "tech_hours": null
         }
       ],
-      "tech_hours": 4.0
+      "tech_hours": 4.0,
+      "joined": false,
+      "numbered": true
     },
     {
       "header": "Qty (2) Electric Air Curtain ARC-1.1, 1.2",
@@ -2055,7 +2110,9 @@
           "tech_hours": null
         }
       ],
-      "tech_hours": 4.0
+      "tech_hours": 4.0,
+      "joined": false,
+      "numbered": true
     },
     {
       "header": "Qty (4) Recessed Wall Electric Cabinet Unit Heater CBH-A",
@@ -2077,7 +2134,9 @@
           "tech_hours": null
         }
       ],
-      "tech_hours": 4.0
+      "tech_hours": 4.0,
+      "joined": false,
+      "numbered": true
     },
     {
       "header": "Qty (43) Electric Cabinet Unit Heater ECUH-##",
@@ -2099,7 +2158,9 @@
           "tech_hours": null
         }
       ],
-      "tech_hours": 86.0
+      "tech_hours": 86.0,
+      "joined": false,
+      "numbered": true
     },
     {
       "header": "Qty (11) Electric Unit Heater EUH-##",
@@ -2121,7 +2182,9 @@
           "tech_hours": null
         }
       ],
-      "tech_hours": 22.0
+      "tech_hours": 22.0,
+      "joined": false,
+      "numbered": true
     },
     {
       "header": "Qty (105) Electric Baseboard Heater",
@@ -2139,7 +2202,9 @@
           "tech_hours": null
         }
       ],
-      "tech_hours": 52.5
+      "tech_hours": 52.5,
+      "joined": false,
+      "numbered": true
     },
     {
       "header": "Qty (8) Electric Baseboard Heater",
@@ -2161,7 +2226,9 @@
           "tech_hours": null
         }
       ],
-      "tech_hours": 10.0
+      "tech_hours": 10.0,
+      "joined": false,
+      "numbered": true
     },
     {
       "header": "*Qty (3) Heat Pump Water Heater HPWH-1, 2, 3 | Qty (2) Recirculating Pump HWCP-1, 2 – As per Control Diagram 1 (M413.00)",
@@ -2347,7 +2414,9 @@
           "tech_hours": null
         }
       ],
-      "tech_hours": 12.0
+      "tech_hours": 12.0,
+      "joined": false,
+      "numbered": true
     },
     {
       "header": "Qty (1) Emergency Generator",
@@ -2541,7 +2610,9 @@
           "tech_hours": null
         }
       ],
-      "tech_hours": 6.0
+      "tech_hours": 6.0,
+      "joined": false,
+      "numbered": true
     },
     {
       "header": "Qty (2) Sub-Slab Depressurization System SF-1, 2 (H205.00)",
@@ -2607,7 +2678,9 @@
           "tech_hours": null
         }
       ],
-      "tech_hours": 4.0
+      "tech_hours": 4.0,
+      "joined": false,
+      "numbered": true
     },
     {
       "header": "Qty (1) Refrigerant Shaft Leak Detection – As per Keynote 7 (M101.00)",
@@ -2649,7 +2722,9 @@
           "tech_hours": null
         }
       ],
-      "tech_hours": 4.0
+      "tech_hours": 4.0,
+      "joined": false,
+      "numbered": true
     },
     {
       "header": "Misc Monitoring Systems",
@@ -3099,12 +3174,16 @@
           "tech_hours": 2.0
         }
       ],
-      "tech_hours": null
+      "tech_hours": null,
+      "joined": false,
+      "numbered": true
     },
     {
       "header": "Provide 2 Year Full Preventive Maintenance contract including all labor, materials and equipment necessary for the successful operation of the entire BACnet BMS/DDC Temperature Control System as provided by the TCC – 15970-42",
       "items": [],
-      "tech_hours": null
+      "tech_hours": null,
+      "joined": false,
+      "numbered": true
     },
     {
       "header": "Guarantee / Warranty",
@@ -3158,12 +3237,16 @@
           "tech_hours": null
         }
       ],
-      "tech_hours": null
+      "tech_hours": null,
+      "joined": false,
+      "numbered": true
     },
     {
       "header": "Provide 2 Year Guarantee for Workmanship and Material – 15970-49",
       "items": [],
-      "tech_hours": null
+      "tech_hours": null,
+      "joined": false,
+      "numbered": true
     }
   ],
   "add_alternates": [
@@ -3198,7 +3281,9 @@
               "tech_hours": null
             }
           ],
-          "tech_hours": 4.0
+          "tech_hours": 4.0,
+          "joined": false,
+          "numbered": true
         }
       ]
     }
@@ -3247,7 +3332,9 @@
               "tech_hours": null
             }
           ],
-          "tech_hours": 4.0
+          "tech_hours": 4.0,
+          "joined": true,
+          "numbered": true
         }
       ]
     }

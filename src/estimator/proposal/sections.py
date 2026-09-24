@@ -25,6 +25,28 @@ def scope_texts(path: Path) -> list[str]:
     return texts[_index(texts, layout.SCOPE_HEADING) : _index(texts, layout.CLARIFICATIONS)]
 
 
+def scope_blank_pattern(path: Path) -> list[tuple[str, bool]]:
+    """Every non-blank line from SCOPE OF WORK down to the clarifications, paired with whether a
+    blank line sits immediately before it — the layout a words-only comparison can't see: which
+    headers run straight on from what came before (joined), and which stand behind a gap.
+
+    Consecutive blank paragraphs count as one gap: the tool always writes a single blank line
+    (layout.BLANK), so where a sent proposal happens to carry two or three Enter presses in a
+    row, that is still one gap, not a difference in grouping.
+    """
+    texts = [squash(p.text) for p in docx.Document(str(path)).paragraphs]
+    start = next(i for i, t in enumerate(texts) if t.startswith(layout.SCOPE_HEADING))
+    end = next(i for i, t in enumerate(texts) if t.startswith(layout.CLARIFICATIONS))
+    pairs, gap = [], False
+    for text in texts[start:end]:
+        if text.strip():
+            pairs.append((text, gap))
+            gap = False
+        else:
+            gap = True
+    return pairs
+
+
 def closing_texts(path: Path) -> list[str]:
     """Every line from the clarifications to the end — the part the template owns."""
     texts = _texts(path)

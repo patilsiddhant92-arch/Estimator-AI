@@ -108,7 +108,9 @@ def read_proposal(path: Path, template_path: Path) -> Job:
 def read_scope(document: DocxDocument):
     """(scope heading suffix, front end, blocks, add alternates, deduct alternates)."""
     lists = WordLists(document)
-    paragraphs = [p for p in document.paragraphs if visible_text(p).strip()]
+    full = document.paragraphs
+    joined_after = _joined_after_map(full)
+    paragraphs = [p for p in full if visible_text(p).strip()]
     start = _find(paragraphs, layout.SCOPE_HEADING)
     end = _find(paragraphs, layout.CLARIFICATIONS)
     _refuse_tables_between(document, paragraphs[start], paragraphs[end])
@@ -136,7 +138,8 @@ def read_scope(document: DocxDocument):
             items = None
             continue
         if _is_block_header(paragraph):
-            block = {"header": text, "items": []}
+            block = {"header": text, "items": [], "joined": joined_after[id(paragraph)],
+                     "numbered": not _is_group_heading(paragraph)}
             if section == "front end":
                 section = "blocks"
             if section == "blocks":
@@ -208,9 +211,40 @@ def _front_end_mode(heading: str) -> tuple[str, str | None]:
     raise ProposalFormatError(f"expected the front-end heading after SCOPE OF WORK, found {heading!r}")
 
 
+def _joined_after_map(paragraphs: list[Paragraph]) -> dict[int, bool]:
+    """For every paragraph (keyed by id(paragraph)): is the paragraph right before it, blanks
+    included, itself non-blank? A header for which this is true runs straight on from whatever
+    came before it — no blank line — so `Block.joined` should be True."""
+    joined: dict[int, bool] = {}
+    previous_blank = True
+    for paragraph in paragraphs:
+        joined[id(paragraph)] = not previous_blank
+        previous_blank = not visible_text(paragraph).strip()
+    return joined
+
+
+def _mark_size_pt(paragraph: Paragraph) -> float | None:
+    """The paragraph mark's own font size, in points — what Word draws a list number or bullet
+    in. None if the mark doesn't override the style's size."""
+    pPr = paragraph._p.pPr
+    rPr = pPr.find(qn("w:rPr")) if pPr is not None else None
+    sz = rPr.find(qn("w:sz")) if rPr is not None else None
+    return int(sz.get(qn("w:val"))) / 2 if sz is not None else None
+
+
+def _is_group_heading(paragraph: Paragraph) -> bool:
+    """An unnumbered group heading such as "Kitchen Exhaust System": PR2, numbering explicitly
+    switched off (list 0), with the paragraph mark bold and sized like a block header's — unlike
+    a note, which also sits at list 0 but never carries that mark formatting."""
+    return (WordLists.written_numbering(paragraph) == (0, 0)
+            and _mark_size_pt(paragraph) == layout.GROUP_HEADING.size)
+
+
 def _is_block_header(paragraph: Paragraph) -> bool:
-    """A PR2 paragraph with nothing written over the template's outline numbering — Word numbers it."""
-    return paragraph.style.name == layout.OUTLINE_STYLE and WordLists.written_numbering(paragraph) is None
+    """A PR2 paragraph Word numbers by its own outline list, or an unnumbered group heading."""
+    if paragraph.style.name != layout.OUTLINE_STYLE:
+        return False
+    return WordLists.written_numbering(paragraph) is None or _is_group_heading(paragraph)
 
 
 def _read_item(paragraph: Paragraph, lists: WordLists, *, in_front_end: bool) -> Item:
@@ -228,7 +262,7 @@ def _read_item(paragraph: Paragraph, lists: WordLists, *, in_front_end: bool) ->
 
 
 def _block(raw: dict) -> Block:
-    return Block(header=raw["header"], items=tuple(raw["items"]))
+    return Block(header=raw["header"], items=tuple(raw["items"]), joined=raw["joined"], numbered=raw["numbered"])
 
 
 def _alternate(raw: dict) -> Alternate:

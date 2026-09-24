@@ -26,13 +26,36 @@ def test_scope_heading_and_front_end(sent_scope):
 
 def test_blocks(sent_scope):
     blocks = sent_scope[2]
-    assert len(blocks) == 44
+    assert len(blocks) == 45
     assert blocks[0].header == "*Qty (1) BACnet Data Cabinet"
     assert blocks[-1].header == "Provide 2 Year Guarantee for Workmanship and Material – 15970-49"
     items = [item for block in blocks for item in block.items]
-    assert len(items) == 204
+    assert len(items) == 203
     assert Counter((i.kind, i.depth) for i in items) == {
-        ("line", 1): 137, ("line", 2): 31, ("line", 3): 15, ("line", 4): 8, ("note", 1): 13}
+        ("line", 1): 137, ("line", 2): 31, ("line", 3): 15, ("line", 4): 8, ("note", 1): 12}
+
+
+def test_stacked_headers_are_joined_and_run_on_from_each_other(sent_scope):
+    """EF-2 / EF-3,8 / EF-5 / EF-6,10 stack with no blank line between them in the sent copy —
+    only the first of the group starts a fresh (non-joined) block."""
+    blocks = {b.header: b for b in sent_scope[2]}
+    assert not blocks["Qty (1) Shower Room Exhaust Fan EF-2"].joined
+    assert blocks["Qty (2) Storage Room Exhaust Fan EF-3, 8"].joined
+    assert blocks["Qty (1) Water Service Room Exhaust Fan EF-5"].joined
+    assert blocks["Qty (2) Locker Room Exhaust Fan EF-6, 10"].joined
+    assert blocks["Qty (1) Energy Recovery Ventilator Unit ERV-502"].joined
+    assert blocks["Qty (2) Gravity Ventilator GV-502-IN, EX"].joined
+    assert blocks["Qty (1) Electric Duct Heater EDH-502"].joined
+    assert blocks["Qty (2) Kitchen Hood"].joined
+
+
+def test_kitchen_exhaust_system_is_an_unnumbered_group_heading(sent_scope):
+    """A bold PR2 heading with numbering switched off, carrying 10 hours in the workup — not a
+    note of the block before it."""
+    blocks = {b.header: b for b in sent_scope[2]}
+    heading = blocks["Kitchen Exhaust System"]
+    assert not heading.numbered and not heading.joined and heading.items == ()
+    assert blocks["Qty (1) Kitchen Exhaust Fan KEF-2"].joined
 
 
 def test_nesting_is_read_from_the_indent(sent_scope):
@@ -61,7 +84,7 @@ def test_alternates(sent_scope):
 def test_the_whole_proposal(sent_job):
     assert sent_job.header.quote_number == "26-0246"
     assert sent_job.scope_heading_suffix == "PREWAILING WAGE"
-    assert len(sent_job.blocks) == 44
+    assert len(sent_job.blocks) == 45
     assert sent_job.named_exceptions == ("EXCEPTION TO ANY WORK WITH EXHAUST FAN EF-4 (24/7 OPERATION)",)
     assert sent_job.front_end.tech_hours is None and sent_job.blocks[0].items[0].quantity is None
 

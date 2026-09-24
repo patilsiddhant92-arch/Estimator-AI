@@ -6,6 +6,7 @@ from estimator.proposal import layout
 from estimator.proposal.sections import closing_texts, opening_texts, scope_texts
 from estimator.proposal.word import WordLists
 from estimator.proposal.write import write_proposal
+from estimator.scope import Block
 from estimator.text import squash
 
 INTERNAL_MARKERS = ("🟡", "🔴", "🟠", "🟢", "PRICE PENDING", "PRICE NEEDS REVIEW", "[CONFIRMED", "ASSUMPTION]",
@@ -114,6 +115,32 @@ def test_word_numbers_exactly_the_block_headers(small_job, proposal_template, tm
     numbered = [squash(p.text) for p in paragraphs[:end] if p.style.name == "PR2" and WordLists.written_numbering(p) is None]
     assert numbered == [b.header for b in small_job.blocks] + [b.header for a in small_job.add_alternates for b in a.blocks]
     assert not [p for p in paragraphs[:end] if p.style.name == "PR1"]
+
+
+def test_a_joined_block_has_no_blank_line_before_it(small_job, proposal_template, tmp_path):
+    """I1: a header that runs straight on from the block before it (no blank line) —
+    the stacked EF-2 / EF-3, 8 / EF-5 / EF-6, 10 pattern in the sent 26-0246 proposal."""
+    extra = Block(header="Qty (1) Exhaust Fan EF-9", joined=True)
+    job = small_job.model_copy(update={"blocks": small_job.blocks + (extra,)})
+    _, document = _written(job, proposal_template, tmp_path)
+    paragraphs = document.paragraphs
+    index = next(i for i, p in enumerate(paragraphs) if squash(p.text) == "Qty (1) Exhaust Fan EF-9")
+    assert paragraphs[index - 1].text.strip()   # the previous block's header, not a blank line
+
+
+def test_an_unnumbered_group_heading_takes_no_number(small_job, proposal_template, tmp_path):
+    """I1: an unnumbered group heading such as "Kitchen Exhaust System" — bold and sized like a
+    block header, but with Word's own numbering switched off."""
+    heading = Block(header="Kitchen Exhaust System", numbered=False)
+    job = small_job.model_copy(update={"blocks": small_job.blocks + (heading,)})
+    _, document = _written(job, proposal_template, tmp_path)
+    paragraph = _paragraph(document, "Kitchen Exhaust System")
+    assert paragraph.style.name == layout.OUTLINE_STYLE
+    assert WordLists.written_numbering(paragraph) == (0, 0)
+    rPr = _mark_rPr(paragraph)
+    assert rPr is not None and rPr.find(qn("w:b")) is not None
+    sz = rPr.find(qn("w:sz"))
+    assert sz is not None and sz.get(qn("w:val")) == "24"
 
 
 def test_alternates(small_job, proposal_template, tmp_path):

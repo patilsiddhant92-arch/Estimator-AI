@@ -49,6 +49,10 @@ class ParagraphFormat:
 
 BLANK = ParagraphFormat(style="Normal")
 BLOCK_HEADER = ParagraphFormat(style=OUTLINE_STYLE, indent=1566, space_after=0, size=12, bold=True)
+# An unnumbered group heading, such as "Kitchen Exhaust System" — measured on the sent 26-0246
+# proposal: PR2, bold 12pt like BLOCK_HEADER, but numbering explicitly switched off (list 0) and
+# no indent override, so it sits flush with the front-end text rather than a block header's line.
+GROUP_HEADING = ParagraphFormat(style=OUTLINE_STYLE, list_id=0, level=0, space_after=0, size=12, bold=True)
 BLOCK_NOTE = ParagraphFormat(style="Normal", indent=1440, space_after=0)
 FRONT_END_NOTE = ParagraphFormat(style="Normal", indent=720, font="Calibri")
 FRONT_END_NOTE_GAP = ParagraphFormat(style="Normal", size=6)

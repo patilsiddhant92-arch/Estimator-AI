@@ -341,8 +341,10 @@ def _block_format(item: Item) -> ParagraphFormat:
 
 
 def _write_block(cursor: Paragraph, block: Block) -> Paragraph:
-    cursor = _insert_after(cursor, layout.BLANK)
-    cursor = _insert_after(cursor, layout.BLOCK_HEADER, (Run(text=block.header, bold=True),))
+    if not block.joined:
+        cursor = _insert_after(cursor, layout.BLANK)
+    fmt = layout.BLOCK_HEADER if block.numbered else layout.GROUP_HEADING
+    cursor = _insert_after(cursor, fmt, (Run(text=block.header, bold=True),))
     for item in block.items:
         cursor = _insert_after(cursor, _block_format(item), item.runs)
     return cursor

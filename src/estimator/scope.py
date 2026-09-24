@@ -56,11 +56,21 @@ class Item(_Model):
 
 
 class Block(_Model):
-    """An equipment block: a numbered "Qty (N) ..." header and what sits under it."""
+    """An equipment block: a "Qty (N) ..." header and what sits under it.
+
+    `joined` is True when this block's header follows the previous block (or the
+    front end's last line) with no blank line between them — several headers
+    stacked over one shared set of lines, as the sent proposals sometimes do.
+    `numbered` is False for a group heading such as "Kitchen Exhaust System": bold,
+    at the block heading's own indent, but with Word's numbering switched off, so
+    it takes no number and the blocks after it keep counting as if it weren't there.
+    """
 
     header: str = Field(min_length=1)
     items: tuple[Item, ...] = ()
     tech_hours: float | None = Field(default=None, ge=0)
+    joined: bool = False
+    numbered: bool = True
 
 
 class FrontEnd(_Model):

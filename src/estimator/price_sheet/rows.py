@@ -45,7 +45,7 @@ def sheet_plan(job: Job) -> list[Sheet]:
     for j, item in enumerate(job.front_end.items):
         base.append(_item_row(item, markers, ("front_end", "items", j)))
     for i, block in enumerate(job.blocks):
-        base += _block_rows(block, next(numbers), ("blocks", i))
+        base += _block_rows(block, next(numbers) if block.numbered else None, ("blocks", i))
     sheets = [Sheet("Price Sheet 1", tuple(base))]
     for field, heading, name in (("add_alternates", layout.ADD_ALTERNATES, "ADD ALT"),
                                  ("deduct_alternates", layout.DEDUCT_ALTERNATES, "DEDUCT ALT")):
@@ -53,14 +53,16 @@ def sheet_plan(job: Job) -> list[Sheet]:
         for k, alternate in enumerate(alternates):
             rows = [Row(heading), Row(), Row(f"{k + 1}.  {alternate.label}")]
             for i, block in enumerate(alternate.blocks):
-                rows += _block_rows(block, next(numbers), (field, k, "blocks", i))
+                rows += _block_rows(block, next(numbers) if block.numbered else None, (field, k, "blocks", i))
             title = name if len(alternates) == 1 else f"{name} {k + 1}"
             sheets.append(Sheet(title, tuple(rows)))
     return sheets
 
 
-def _block_rows(block: Block, number: int, ref: tuple) -> list[Row]:
-    rows = [Row(), Row(f"{number}.  {squash(block.header)}", hours=block.tech_hours, ref=ref)]
+def _block_rows(block: Block, number: int | None, ref: tuple) -> list[Row]:
+    header = squash(block.header) if number is None else f"{number}.  {squash(block.header)}"
+    rows = [] if block.joined else [Row()]
+    rows.append(Row(header, hours=block.tech_hours, ref=ref))
     for j, item in enumerate(block.items):
         rows.append(_item_row(item, layout.BLOCK_LINE_MARKER, ref + ("items", j)))
     return rows
