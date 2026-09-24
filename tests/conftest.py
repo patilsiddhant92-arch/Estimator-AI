@@ -5,6 +5,7 @@ from pathlib import Path
 import docx
 import pytest
 
+from estimator.price_sheet.price_book import PriceBook
 from estimator.proposal.read import read_proposal, read_scope
 from estimator.scope import Alternate, Block, FrontEnd, Header, Item, Job, Run
 
@@ -146,3 +147,8 @@ def sent_scope(sent_document):
 @pytest.fixture(scope="session")
 def sent_job():
     return read_proposal(SENT_PROPOSAL, PROPOSAL_TEMPLATE)
+
+
+@pytest.fixture(scope="session")
+def price_book():
+    return PriceBook.load(PRICE_BOOK, ALIASES)
