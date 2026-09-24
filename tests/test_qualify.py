@@ -189,6 +189,17 @@ def test_c2_or_approved_equal_alone_on_a_minor_component_does_not_block():
     assert bid.finding == "Qualifies"
 
 
+def test_c2_a_basis_of_design_label_inside_the_approved_list_itself_still_qualifies():
+    # 26-0334: "Vykon (Basis of Design)" is the first item of the very list that also names
+    # Honeywell WEBS, Johnson Controls FX and Niagara N4 as acceptable — the list wins, it's
+    # not a contrary requirement against itself.
+    pages = _pages("2.1 ACCEPTABLE MANUFACTURERS\nA. Vykon (Basis of Design)\nB. Delta,\nC. Distech\n"
+                   "D. Siemens (Talon),\nE. Schneider Electric (TAC)\nF. Honeywell (WEBS)\nG. Johnson Controls (FX)\n"
+                   "H. Or approved equal Niagara N4 based (open protocol standard) manufacturers are acceptable.")
+    bid = check_bid(pages, [CONTROLS])
+    assert bid.finding == "Qualifies"
+
+
 def test_c2_johnson_controls_metasys_does_not_read_as_the_approved_list_item():
     pages = _pages("Acceptable manufacturers: 1. Johnson Controls Metasys. 2. Siemens Desigo.")
     bid = check_bid(pages, [CONTROLS])

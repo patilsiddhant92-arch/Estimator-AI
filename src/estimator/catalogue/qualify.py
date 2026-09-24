@@ -247,8 +247,11 @@ def _judge(mentions: Sequence[Mention], others: tuple[str, ...]) -> tuple[str, s
     sole_blocking = [m for m in mentions if m.sole and m.others]
     # "Basis of design: Siemens, or approved equal" is a softer contrary requirement — it doesn't
     # rule AME out on its own ("or approved equal" leaves the door open), but it still keeps a
-    # would-be Qualifies from winning outright.
-    basis_blocking = [m for m in mentions if m.basis and m.others and m not in sole_blocking]
+    # would-be Qualifies from winning outright. Not when the same passage is itself a formal
+    # acceptable-manufacturers list: a "(Basis of Design)" label on the list's first item doesn't
+    # override AME's own line also being on that same list (26-0334's "Vykon (Basis of Design) ...
+    # Honeywell (WEBS) ... Or approved equal Niagara N4 based ... manufacturers are acceptable").
+    basis_blocking = [m for m in mentions if m.basis and m.others and not m.is_list and m not in sole_blocking]
     # Honeywell/Johnson Controls named with sole-source wording, but not on any list: the US team
     # must see this even though it never counts toward Qualifies (I9).
     passing_sole = [m for m in mentions if m.sole and m.passing and not m.ours and not m.listed and not m.others]
