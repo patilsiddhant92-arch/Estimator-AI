@@ -9,8 +9,9 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
-from concurrent.futures import ProcessPoolExecutor
+from concurrent.futures import ProcessPoolExecutor, as_completed
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
@@ -38,11 +39,36 @@ class PageRecord:
     rotation: int
     large_sheet: bool = False           # its long edge is at least LARGE_SHEET, whatever the document's kind
     edge_spans: tuple[Span, ...] = ()   # large sheets only: the text in the right and bottom fifths
+    read_error: str | None = None       # set only on the first page after a document's read broke down
 
 
 def read_document(document: Document) -> list[PageRecord]:
-    with pymupdf.open(str(document.path)) as pdf:
-        return [_read_page(document, number, page) for number, page in enumerate(pdf, start=1)]
+    """Every page of one document. A failure partway through — a corrupt page, an out-of-memory
+    error, a worker killed mid-read — never loses the pages already read, and never stops the
+    job: every page from the break onward is registered "unreadable", with a plain-words flag on
+    the first of them (design §9.1: recall never depends on the read succeeding)."""
+    records: list[PageRecord] = []
+    try:
+        with pymupdf.open(str(document.path)) as pdf:
+            for number, page in enumerate(pdf, start=1):
+                records.append(_read_page(document, number, page))
+        return records
+    except Exception as error:
+        return records + _unreadable_from(document, len(records) + 1, error)
+
+
+def _plain_reason(error: BaseException) -> str:
+    text = str(error).strip()
+    if isinstance(error, MemoryError) or not text:
+        return "the file is too large or too damaged to read"
+    return text
+
+
+def _unreadable_from(document: Document, start: int, error: BaseException) -> list[PageRecord]:
+    last = max(document.pages, start)
+    return [PageRecord(document.relative, number, "unreadable", "", 0, False, (),
+                       _plain_reason(error) if number == start else None)
+            for number in range(start, last + 1)]
 
 
 def _image_covers_half(page: pymupdf.Page) -> bool:
@@ -96,21 +122,41 @@ def register_job(job: JobFolder, cache_dir: Path | None = None, workers: int = 1
     to_read: list[tuple[Document, Path | None]] = []
     for document in documents:
         cache_file = _cache_file(cache_dir, document) if cache_dir is not None else None
-        if cache_file is not None and cache_file.exists():
-            found[document.relative] = _load(cache_file)
+        cached = _load(cache_file) if cache_file is not None and cache_file.exists() else None
+        if cached is not None:
+            found[document.relative] = cached
         else:
             to_read.append((document, cache_file))
     if workers > 1 and len(to_read) > 1:
         with ProcessPoolExecutor(max_workers=workers) as pool:
-            results = list(pool.map(read_document, [document for document, _ in to_read]))
+            futures = {pool.submit(read_document, document): (document, cache_file) for document, cache_file in to_read}
+            for future in as_completed(futures):
+                document, cache_file = futures[future]
+                try:
+                    records = future.result()
+                except BaseException as error:  # a worker killed mid-read (BrokenProcessPool) or similar
+                    records = _unreadable_from(document, 1, error)
+                _store(found, document, cache_file, records)
     else:
-        results = [read_document(document) for document, _ in to_read]
-    for (document, cache_file), records in zip(to_read, results):
-        found[document.relative] = records
-        if cache_file is not None:
-            cache_file.parent.mkdir(parents=True, exist_ok=True)
-            cache_file.write_text(json.dumps([asdict(r) for r in records]), encoding="utf-8")
+        for document, cache_file in to_read:
+            try:
+                records = read_document(document)
+            except BaseException as error:  # read_document guards its own errors; this is a last resort
+                records = _unreadable_from(document, 1, error)
+            _store(found, document, cache_file, records)
     return [record for document in documents for record in found[document.relative]]
+
+
+def _store(found: dict[str, list[PageRecord]], document: Document, cache_file: Path | None,
+           records: list[PageRecord]) -> None:
+    found[document.relative] = records
+    # Never cache a document some of whose pages failed to read: the failure may be transient
+    # (a busy machine, a killed worker), and the next run should try reading it again.
+    if cache_file is not None and not any(r.read_error for r in records):
+        cache_file.parent.mkdir(parents=True, exist_ok=True)
+        tmp = cache_file.with_name(cache_file.name + ".tmp")
+        tmp.write_text(json.dumps([asdict(r) for r in records]), encoding="utf-8")
+        os.replace(tmp, cache_file)
 
 
 def _cache_file(cache_dir: Path, document: Document) -> Path:
@@ -122,6 +168,11 @@ def _cache_file(cache_dir: Path, document: Document) -> Path:
     return Path(cache_dir) / f"{hashlib.sha1(key.encode()).hexdigest()}.json"
 
 
-def _load(cache_file: Path) -> list[PageRecord]:
-    return [PageRecord(**{**raw, "edge_spans": tuple(Span(**s) for s in raw["edge_spans"])})
-            for raw in json.loads(cache_file.read_text(encoding="utf-8"))]
+def _load(cache_file: Path) -> list[PageRecord] | None:
+    """None when the cache file is missing, or won't parse — a truncated write from an
+    interrupted run is ignored, not fatal: the document is simply read again."""
+    try:
+        raw_records = json.loads(cache_file.read_text(encoding="utf-8"))
+        return [PageRecord(**{**raw, "edge_spans": tuple(Span(**s) for s in raw["edge_spans"])}) for raw in raw_records]
+    except (OSError, ValueError, TypeError, KeyError):
+        return None

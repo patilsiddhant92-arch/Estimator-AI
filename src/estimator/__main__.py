@@ -212,6 +212,8 @@ def main(argv: list[str] | None = None) -> int:
         # TemplateError, ProposalFormatError, PriceSheetError, and the price book's own
         # ValueError are all plain-words already — nothing more to translate.
         print(f"Stopped: {error}", file=sys.stderr)
+    except Exception as error:  # last resort: a plain word or two, never a Python traceback
+        print(f"Stopped: {error}", file=sys.stderr)
     return 1
 
 

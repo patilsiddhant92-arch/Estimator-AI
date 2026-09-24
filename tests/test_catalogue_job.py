@@ -82,3 +82,20 @@ def test_a_blank_drawing_sheet_is_flagged(tmp_path):
     make_pdf(base / "Mech.pdf", Page(width=3024, height=2160))
     result = catalogue_job(root, tmp_path / "cache")
     assert any("Mech.pdf" in f and "blank drawing page" in f for f in result.flags)
+
+
+def test_a_document_that_fails_partway_is_flagged_in_plain_words(tmp_path, monkeypatch):
+    from estimator.catalogue import register
+    root = tmp_path / "26-9999"
+    base = root / "2. Takeoffs" / "1. Base Takeoff"
+    make_pdf(base / "Specs.pdf", Page(texts=((72, 72, "PART 1", 10),)), Page(texts=((72, 72, "PART 2", 10),)))
+    real_read_page = register._read_page
+
+    def _flaky(document, number, page):
+        if number == 2:
+            raise RuntimeError("truncated stream")
+        return real_read_page(document, number, page)
+
+    monkeypatch.setattr(register, "_read_page", _flaky)
+    result = catalogue_job(root, tmp_path / "cache")
+    assert any(f == "Specs.pdf could not be read from page 2 on — truncated stream" for f in result.flags)

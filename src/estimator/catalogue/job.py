@@ -66,9 +66,14 @@ def _flags(catalogue: Catalogue) -> list[str]:
     flags = list(job.notes)
     flags += [f"{d.relative} could not be opened — is it a real PDF?" for d in job.documents if d.kind == "unreadable"]
     flags += [f"{d.relative} is the same file as {d.duplicate_of} — catalogued once" for d in job.documents if d.duplicate_of]
+    read_errors: dict[str, tuple[int, str]] = {}
+    for record in catalogue.pages:
+        if record.read_error and record.document not in read_errors:
+            read_errors[record.document] = (record.page, record.read_error)
+    flags += [f"{_name(doc)} could not be read from page {page} on — {reason}" for doc, (page, reason) in read_errors.items()]
     unreadable: dict[str, list[int]] = defaultdict(list)
     for record in catalogue.pages:
-        if record.status == "unreadable":
+        if record.status == "unreadable" and record.document not in read_errors:
             unreadable[record.document].append(record.page)
     why = "OCR found no words on them" if tessdata() is not None else "OCR isn't set up on this computer"
     flags += [f"{_name(doc)}: {_plural(len(p), 'page')} could not be read ({'page' if len(p) == 1 else 'pages'} {_ranges(p)}) — {why}"

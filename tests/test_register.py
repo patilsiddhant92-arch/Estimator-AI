@@ -120,6 +120,72 @@ def test_the_cache_keeps_edge_spans(tmp_path):
     assert register_job(job, cache)[0].edge_spans[0].text == "M101"
 
 
+def test_a_failure_partway_through_a_document_registers_the_rest_as_unreadable(tmp_path, monkeypatch):
+    job = _job(tmp_path, ("spec.pdf", [Page(texts=((72, 72, SPEC_TEXT, 10),))] * 3))
+    real_read_page = register._read_page
+
+    def _flaky(document, number, page):
+        if number == 2:
+            raise RuntimeError("page 2 is corrupt")
+        return real_read_page(document, number, page)
+
+    monkeypatch.setattr(register, "_read_page", _flaky)
+    records = read_document(job.documents[0])
+    assert [(r.page, r.status) for r in records] == [(1, "text"), (2, "unreadable"), (3, "unreadable")]
+    assert records[1].read_error == "page 2 is corrupt" and records[2].read_error is None
+
+
+def test_a_document_that_cannot_be_opened_at_all_is_unreadable_start_to_end(tmp_path, monkeypatch):
+    job = _job(tmp_path, ("spec.pdf", [Page(texts=((72, 72, SPEC_TEXT, 10),))] * 2))
+    monkeypatch.setattr(register.pymupdf, "open", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("cannot open broken document")))
+    records = read_document(job.documents[0])
+    assert [r.status for r in records] == ["unreadable", "unreadable"]
+    assert records[0].read_error == "cannot open broken document"
+
+
+def test_one_bad_document_does_not_stop_the_others(tmp_path, monkeypatch):
+    job = _job(tmp_path, ("bad.pdf", [Page(texts=((72, 72, SPEC_TEXT, 10),))]),
+               ("good.pdf", [Page(texts=((72, 72, SPEC_TEXT, 10),))]))
+    real_read_document = register.read_document
+
+    def _flaky(document):
+        if document.relative.endswith("bad.pdf"):
+            raise RuntimeError("out of memory")
+        return real_read_document(document)
+
+    monkeypatch.setattr(register, "read_document", _flaky)
+    records = register_job(job)
+    by_doc = {r.document.rsplit("/", 1)[-1]: r for r in records}
+    assert by_doc["good.pdf"].status == "text"
+    assert by_doc["bad.pdf"].status == "unreadable" and by_doc["bad.pdf"].read_error == "out of memory"
+
+
+def test_a_failed_read_is_not_cached(tmp_path, monkeypatch):
+    job = _job(tmp_path, ("bad.pdf", [Page(texts=((72, 72, SPEC_TEXT, 10),))]))
+    monkeypatch.setattr(register, "read_document", lambda document: register._unreadable_from(document, 1, RuntimeError("boom")))
+    cache = tmp_path / "cache"
+    register_job(job, cache)
+    assert list(cache.glob("*.json")) == []
+
+
+def test_a_truncated_cache_file_is_ignored_and_the_document_is_read_again(tmp_path):
+    job = _job(tmp_path, ("spec.pdf", [Page(texts=((72, 72, SPEC_TEXT, 10),))]))
+    cache = tmp_path / "cache"
+    first = register_job(job, cache)
+    [cache_file] = cache.glob("*.json")
+    cache_file.write_text('{"not": "valid json"', encoding="utf-8")
+    assert register_job(job, cache) == first
+    assert [p for p in cache.glob("*") if p.suffix == ".tmp"] == []
+
+
+def test_no_temp_files_are_left_behind_after_a_successful_run(tmp_path):
+    job = _job(tmp_path, *[(f"{n} spec.pdf", [Page(texts=((72, 72, SPEC_TEXT, 10),))]) for n in range(3)])
+    cache = tmp_path / "cache"
+    register_job(job, cache, workers=2)
+    assert [p for p in cache.iterdir() if p.suffix == ".tmp"] == []
+    assert len(list(cache.glob("*.json"))) == 3
+
+
 def test_a_document_is_read_again_once_ocr_becomes_available(tmp_path, monkeypatch):
     job = _job(tmp_path, ("scan.pdf", [Page(scanned="HOT WATER PUMP SCHEDULE")]))
     cache = tmp_path / "cache"
