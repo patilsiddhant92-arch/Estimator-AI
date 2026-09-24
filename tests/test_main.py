@@ -1,6 +1,7 @@
 """One plain-words message per way the tool can be stopped, instead of a Python traceback."""
 import json
 import os
+from pathlib import Path
 
 import docx
 import pytest
@@ -46,6 +47,45 @@ def test_a_missing_proposal_for_import_sent_is_plain(tmp_path, sent_workup, prop
     code, _, err = _run(["import-sent", str(missing), str(sent_workup), "--out", str(tmp_path / "job.json")], capsys)
     assert code == 1
     assert err.strip() == f"Stopped: can't find {missing}"
+
+
+@pytest.mark.parametrize("make_args", [
+    lambda tmp_path, small_job, sent_workup, sent_proposal, proposal_template: (
+        ["build", str(_write_job(tmp_path, small_job)), "--out", str(tmp_path / "out"),
+         "--template", str(_corrupt(tmp_path, "bad-template.docx"))]),
+    lambda tmp_path, small_job, sent_workup, sent_proposal, proposal_template: (
+        ["build", str(_write_job(tmp_path, small_job)), "--out", str(tmp_path / "out"),
+         "--workup-template", str(_corrupt(tmp_path, "bad-workup.xlsx"))]),
+    lambda tmp_path, small_job, sent_workup, sent_proposal, proposal_template: (
+        ["import-sent", str(_corrupt(tmp_path, "bad-proposal.docx")), str(sent_workup),
+         "--out", str(tmp_path / "job.json")]),
+    lambda tmp_path, small_job, sent_workup, sent_proposal, proposal_template: (
+        ["import-sent", str(sent_proposal), str(_corrupt(tmp_path, "bad-workup.xlsx")),
+         "--out", str(tmp_path / "job.json")]),
+], ids=["build-template", "build-workup-template", "import-sent-proposal", "import-sent-workup"])
+def test_a_corrupt_office_file_is_plain(small_job, tmp_path, sent_workup, sent_proposal, proposal_template,
+                                        capsys, make_args):
+    """A file that isn't really a .docx or .xlsx — not just missing, but present and unreadable —
+    is reported in one plain line, never a zipfile or python-docx traceback."""
+    args = make_args(tmp_path, small_job, sent_workup, sent_proposal, proposal_template)
+    code, _, err = _run(args, capsys)
+    assert code == 1
+    assert err.strip().startswith("Stopped: ")
+    assert err.strip().endswith("can't be opened — is it a real Word file?") or \
+        err.strip().endswith("can't be opened — is it a real Excel file?")
+    assert "Traceback" not in err
+
+
+def _write_job(tmp_path, job) -> Path:
+    job_path = tmp_path / "job.json"
+    job_path.write_text(job.model_dump_json(), encoding="utf-8")
+    return job_path
+
+
+def _corrupt(tmp_path, name) -> Path:
+    path = tmp_path / name
+    path.write_text("not a real Office file", encoding="utf-8")
+    return path
 
 
 def test_a_template_the_tool_does_not_recognise_is_plain(small_job, tmp_path, capsys):

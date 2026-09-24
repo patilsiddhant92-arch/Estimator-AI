@@ -12,12 +12,12 @@ import datetime as dt
 import re
 from pathlib import Path
 
-import docx
 from docx.document import Document as DocxDocument
 from docx.oxml.ns import qn
 from docx.table import _Cell
 from docx.text.paragraph import Paragraph
 
+from estimator.files import open_docx
 from estimator.proposal import layout
 from estimator.proposal.word import WordLists, field_result_text, merged_runs, visible_text
 from estimator.scope import Alternate, Block, FrontEnd, Header, Item, Job, Run
@@ -86,7 +86,7 @@ def _exclusions(document: DocxDocument) -> list[str]:
 
 def read_named_exceptions(document: DocxDocument, template_path: Path) -> tuple[str, ...]:
     """Exclusions this job added after the template's standard list."""
-    standard = _exclusions(docx.Document(str(template_path)))
+    standard = _exclusions(open_docx(template_path))
     sent = _exclusions(document)
     if sent[: len(standard)] != standard:
         raise ProposalFormatError(
@@ -99,7 +99,7 @@ def read_named_exceptions(document: DocxDocument, template_path: Path) -> tuple[
 
 def read_proposal(path: Path, template_path: Path) -> Job:
     """A sent proposal as a Job. A proposal carries no hours or quantities, so those stay empty."""
-    document = docx.Document(str(path))
+    document = open_docx(path)
     suffix, front_end, blocks, add, deduct = read_scope(document)
     return Job(
         header=read_cover(document),

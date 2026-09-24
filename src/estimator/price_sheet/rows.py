@@ -9,8 +9,7 @@ import difflib
 from dataclasses import dataclass
 from pathlib import Path
 
-import openpyxl
-
+from estimator.files import open_workbook
 from estimator.proposal import layout
 from estimator.scope import Block, Item, Job
 from estimator.text import squash, strip_list_marker
@@ -96,7 +95,7 @@ def _whole(value) -> int | None:
 
 def read_sent_rows(path: Path) -> dict[str, list[SentRow]]:
     """Every price sheet's scope rows, as written — markers, odd spacing and all."""
-    workbook = openpyxl.load_workbook(str(path), data_only=True)
+    workbook = open_workbook(path, data_only=True)
     sheets: dict[str, list[SentRow]] = {}
     for ws in workbook.worksheets:
         if ws.title == "Summary":

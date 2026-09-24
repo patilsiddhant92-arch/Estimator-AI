@@ -12,10 +12,10 @@ import re
 import sys
 from pathlib import Path
 
-import docx
 from docx.opc.exceptions import PackageNotFoundError
 from pydantic import ValidationError
 
+from estimator.files import open_docx
 from estimator.price_sheet.check import price_check
 from estimator.price_sheet.price_book import PriceBook
 from estimator.price_sheet.write import check_fit, write_price_sheet
@@ -68,7 +68,7 @@ def _build(job: Job, template: Path, workup_template: Path, book: PriceBook, out
     together, so a job that doesn't fit never leaves a proposal behind with no price sheet, or a
     stale price sheet beside a freshly written proposal — and so does a destination that can't be
     replaced because it's open in Word or Excel."""
-    check_template(docx.Document(str(template)))
+    check_template(open_docx(template))
     check_fit(job)
     out.mkdir(parents=True, exist_ok=True)
     quote = _safe_filename(job.header.quote_number)

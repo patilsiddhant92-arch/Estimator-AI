@@ -13,7 +13,6 @@ import copy
 import datetime as dt
 from pathlib import Path
 
-import docx
 from docx.document import Document as DocxDocument
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
@@ -21,6 +20,7 @@ from docx.shared import Pt, Twips
 from docx.table import _Cell
 from docx.text.paragraph import Paragraph
 
+from estimator.files import open_docx
 from estimator.proposal import layout
 from estimator.proposal.layout import ParagraphFormat
 from estimator.proposal.word import WordLists
@@ -35,7 +35,7 @@ class TemplateError(ValueError):
 
 
 def write_proposal(job: Job, template_path: Path, out_path: Path) -> Path:
-    document = docx.Document(str(template_path))
+    document = open_docx(template_path)
     check_template(document)
     _fill_cover(document, job.header)
     heading = _keep_front_end(document, job)

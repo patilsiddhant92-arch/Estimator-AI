@@ -11,9 +11,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import openpyxl
 from openpyxl.styles import Font
 
+from estimator.files import open_workbook
 from estimator.price_sheet.price_book import PriceBook
 from estimator.price_sheet.rows import FIRST_ROW, FLAG, HOURS, LAST_ROW, QUANTITY, SCOPE, UNIT_PRICE, Sheet, sheet_plan
 from estimator.scope import Job
@@ -45,7 +45,7 @@ def check_fit(job: Job) -> list[Sheet]:
 
 def write_price_sheet(job: Job, template_path: Path, book: PriceBook, out_path: Path) -> Path:
     plan = check_fit(job)
-    workbook = openpyxl.load_workbook(str(template_path))    # formulas kept as formulas
+    workbook = open_workbook(template_path)    # formulas kept as formulas
     pending = 0
     for index, sheet in enumerate(plan):
         template_title = f"Price Sheet {index + 1}"

@@ -14,8 +14,7 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
-import openpyxl
-
+from estimator.files import open_workbook
 from estimator.text import squash, strip_list_marker
 
 SHEETS = ("Parts Pricing", "BMS-DDC-Panels")
@@ -62,7 +61,7 @@ class PriceBook:
 
     @classmethod
     def load(cls, book_path: Path, aliases_path: Path) -> "PriceBook":
-        workbook = openpyxl.load_workbook(str(book_path), data_only=True)
+        workbook = open_workbook(book_path, data_only=True)
         items = []
         for sheet in SHEETS:
             ws = workbook[sheet]
