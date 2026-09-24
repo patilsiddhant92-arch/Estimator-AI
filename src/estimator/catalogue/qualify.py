@@ -243,8 +243,12 @@ def _judge(mentions: Sequence[Mention], others: tuple[str, ...]) -> tuple[str, s
     qualifying = [m for m in mentions if m.ours or m.listed]
     # A passage with a sole-source word and another manufacturer is a contrary requirement even
     # when it also names one of AME's own lines — "Niagara or Honeywell WEBs shall be
-    # unacceptable ... BAS shall be Siemens" still means Open, not Qualifies (C2).
-    sole_blocking = [m for m in mentions if m.sole and m.others]
+    # unacceptable ... BAS shall be Siemens" still means Open, not Qualifies (C2). Not when the
+    # passage is itself a formal acceptable-manufacturers list: naming three interchangeable
+    # options is the opposite of sole-sourcing, whatever stray "only" turns up nearby (26-0445's
+    # "Mains: Circuit breaker or Lugs only." sits inside "Manufacturers: ... one of the
+    # following: Schneider Electric, Eaton, Siemens" — a list, not a sole-source clause).
+    sole_blocking = [m for m in mentions if m.sole and m.others and not m.is_list]
     # "Basis of design: Siemens, or approved equal" is a softer contrary requirement — it doesn't
     # rule AME out on its own ("or approved equal" leaves the door open), but it still keeps a
     # would-be Qualifies from winning outright. Not when the same passage is itself a formal

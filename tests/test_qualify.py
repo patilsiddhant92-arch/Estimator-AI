@@ -241,6 +241,16 @@ def test_m6_only_at_the_end_of_a_sentence_is_sole_source():
     assert bid.finding == "Does not qualify" and "Automated Logic" in bid.reason
 
 
+def test_m6_a_stray_only_inside_an_unrelated_list_does_not_block():
+    # 26-0445: "Mains: Circuit breaker or Lugs only." sits inside a components list naming three
+    # interchangeable manufacturers — a list is the opposite of sole-sourcing.
+    pages = _pages("2.2 SYSTEM\nA. The BMS shall be built on the Tridium Niagara 4 Framework.",
+                   "2.9 POWER PANELBOARDS\nA. Manufacturers: Subject to compliance, provide products by one "
+                   "of the following: Schneider Electric, Siemens.\nB. Mains: Circuit breaker or Lugs only.")
+    bid = check_bid(pages, [CONTROLS])
+    assert bid.finding == "Qualifies"
+
+
 # I7: what the check couldn't read, and a list that runs over a page break.
 
 def test_i7_unread_spec_pages_are_admitted_in_the_reason():
