@@ -162,6 +162,18 @@ def test_a_folder_os_walk_cannot_open_is_flagged_not_fatal(tmp_path, monkeypatch
     assert len(folder.documents) == 1
 
 
+def test_a_password_protected_pdf_is_its_own_kind(tmp_path):
+    import pymupdf
+    root = tmp_path / "26-9999"
+    base = root / "2. Takeoffs" / "1. Base Takeoff"
+    base.mkdir(parents=True)
+    locked = pymupdf.open()
+    locked.new_page()
+    locked.save(str(base / "Locked.pdf"), encryption=pymupdf.PDF_ENCRYPT_AES_256, user_pw="secret")
+    [document] = find_documents(root).documents
+    assert document.kind == "password" and document.pages == 0
+
+
 def test_documents_are_listed_in_a_fixed_order(job):
     assert [d.relative for d in find_documents(job).documents] == sorted(d.relative for d in find_documents(job).documents)
 

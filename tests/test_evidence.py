@@ -73,6 +73,17 @@ def test_nothing_to_flag_says_so(tmp_path):
     assert _values(wb["Flags"])[1] == ["Nothing to flag."]
 
 
+def test_a_flag_starting_with_equals_is_kept_as_plain_text(tmp_path):
+    # M1: openpyxl treats a string starting with "=" as a formula unless told otherwise.
+    from dataclasses import replace
+    catalogue = replace(_catalogue(), flags=("=SUM(A1) looks like a formula but is only a quote",))
+    out = write_evidence(tmp_path / "e.xlsx", catalogue)
+    ws = openpyxl.load_workbook(out)["Flags"]
+    cell = ws["A2"]
+    assert cell.data_type == "s"
+    assert cell.value == "=SUM(A1) looks like a formula but is only a quote"
+
+
 def test_headings_are_bold_and_frozen(tmp_path):
     ws = openpyxl.load_workbook(write_evidence(tmp_path / "e.xlsx", _catalogue()))["Sheets"]
     assert ws["A1"].font.bold and ws.freeze_panes == "A2"

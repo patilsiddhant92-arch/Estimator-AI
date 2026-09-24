@@ -117,7 +117,7 @@ def _read_page(document: Document, number: int, page: pymupdf.Page) -> PageRecor
 def register_job(job: JobFolder, cache_dir: Path | None = None, workers: int = 1) -> list[PageRecord]:
     """Every page of the job's documents, in document order. Duplicates and unreadable documents
     aren't read — the job stage reports them."""
-    documents = [d for d in job.documents if d.duplicate_of is None and d.kind != "unreadable"]
+    documents = [d for d in job.documents if d.duplicate_of is None and d.kind not in ("unreadable", "password")]
     found: dict[str, list[PageRecord]] = {}
     to_read: list[tuple[Document, Path | None]] = []
     for document in documents:

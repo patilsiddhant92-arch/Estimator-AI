@@ -63,10 +63,36 @@ def _plural(n: int, word: str) -> str:
     return f"{n} {word}" if n == 1 else f"{n} {word}s"
 
 
+def _repeats(catalogue: Catalogue) -> tuple[list[str], set[tuple[str, str]]]:
+    """One document's sheet numbers can be almost entirely a repeat of another's — a marked-up
+    copy of the same set. One line says so, instead of an "is on N pages" flag per sheet (M2)."""
+    numbers: dict[str, set[str]] = defaultdict(set)
+    for sheet in catalogue.sheets:
+        if sheet.number:
+            numbers[sheet.document].add(sheet.number)
+    by_size = sorted(numbers, key=lambda d: -len(numbers[d]))
+    lines: list[str] = []
+    claimed: set[str] = set()
+    covered: set[tuple[str, str]] = set()
+    for original in by_size:
+        for copy in by_size:
+            if copy == original or copy in claimed or not numbers[copy]:
+                continue
+            if len(numbers[copy]) > len(numbers[original]):
+                continue
+            shared = numbers[copy] & numbers[original]
+            if len(numbers[copy]) >= 3 and len(shared) / len(numbers[copy]) >= 0.8:
+                lines.append(f"{_name(copy)} repeats {len(shared)} sheets of {_name(original)} — probably a marked-up copy")
+                claimed.add(copy)
+                covered |= {(number, copy) for number in shared}
+    return lines, covered
+
+
 def _flags(catalogue: Catalogue) -> list[str]:
     job = catalogue.job
     flags = list(job.notes)
     flags += [f"{d.relative} could not be opened — is it a real PDF?" for d in job.documents if d.kind == "unreadable"]
+    flags += [f"{d.relative} is password-protected — ask for an unlocked copy" for d in job.documents if d.kind == "password"]
     flags += [f"{d.relative} is the same file as {d.duplicate_of} — catalogued once" for d in job.documents if d.duplicate_of]
     if job.other_files:
         by_type = Counter(Path(f).suffix.lower() or "no extension" for f in job.other_files)
@@ -103,11 +129,14 @@ def _flags(catalogue: Catalogue) -> list[str]:
                          f"({'page' if len(missing) == 1 else 'pages'} {_ranges(missing)})")
     untyped = [s for s in catalogue.sheets if s.number and not s.types and s.discipline in CONTROLS_DISCIPLINES]
     if untyped:
-        names = ", ".join(s.number for s in untyped[:20]) + (" …" if len(untyped) > 20 else "")
+        unique = list(dict.fromkeys(s.number for s in untyped))   # each number named once, even from copies
+        names = ", ".join(unique[:20]) + (" …" if len(unique) > 20 else "")
         flags.append(f"{_plural(len(untyped), 'drawing sheet')} could not be sorted by type — {names}")
+    repeat_lines, repeat_covered = _repeats(catalogue)
+    flags += repeat_lines
     places: dict[str, dict[str, list[int]]] = defaultdict(lambda: defaultdict(list))
     for sheet in catalogue.sheets:
-        if sheet.number:
+        if sheet.number and (sheet.number, sheet.document) not in repeat_covered:
             places[sheet.number][sheet.document].append(sheet.page)
     for number, by_document in places.items():
         count = sum(len(p) for p in by_document.values())
@@ -132,7 +161,7 @@ def summary_lines(catalogue: Catalogue) -> list[str]:
         f"Other controls manufacturers named, for the US team: {', '.join(bid.others) or 'none'}.",
         f"Drawing sheets: {len(sheets)}; {sum(1 for s in sheets if s.number)} with a sheet number; "
         f"{sum(1 for s in sheets if s.number and not s.types and s.discipline in CONTROLS_DISCIPLINES)} "
-        f"mechanical, controls or plumbing sheets not sorted by type.",
+        f"sheets that carry controls scope not sorted by type.",
         f"Spec sections: {len(catalogue.sections)}; controls sections: {'; '.join(controls) or 'none found'}.",
         f"Equipment tags: {len(catalogue.tags)} ({sum(1 for t in catalogue.tags if t.on_schedules)} on schedules).",
         f"{_plural(len(catalogue.flags), 'thing')} to look at — see the Flags tab." if catalogue.flags else "Nothing to flag.",

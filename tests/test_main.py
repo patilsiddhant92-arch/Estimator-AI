@@ -168,6 +168,19 @@ def test_the_price_books_own_value_error_is_plain(small_job, tmp_path, capsys, m
                            "which isn't in the price book")
 
 
+def test_workers_is_clamped_so_windows_does_not_reject_it(tmp_path, monkeypatch):
+    seen = {}
+
+    def _fake_catalogue_job(job, cache_dir, workers):
+        seen["workers"] = workers
+        raise SystemExit  # short-circuit before it tries to catalogue tmp_path for real
+
+    monkeypatch.setattr(cli, "catalogue_job", _fake_catalogue_job)
+    with pytest.raises(SystemExit):
+        main(["catalogue", str(tmp_path), "--out", str(tmp_path / "out"), "--workers", "100"])
+    assert seen["workers"] <= 61
+
+
 def test_an_unexpected_error_is_a_plain_stopped_message_not_a_traceback(tmp_path, capsys, monkeypatch):
     def _boom(*args, **kwargs):
         raise RuntimeError("the disk went away")

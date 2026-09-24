@@ -186,7 +186,8 @@ def _run(args: argparse.Namespace) -> int:
         args.out.write_text(price_check(args.generated, args.sent, book, args.generated.stem), encoding="utf-8")
         print(f"Wrote {args.out}")
     elif args.command == "catalogue":
-        result = catalogue_job(args.job, args.out / ".cache", args.workers)
+        workers = max(1, min(args.workers, 61, os.cpu_count() or 1))
+        result = catalogue_job(args.job, args.out / ".cache", workers)
         package = write_evidence(args.out / f"{_safe_filename(result.job.name)} Evidence Package.xlsx", result)
         for line in summary_lines(result):
             print(line)

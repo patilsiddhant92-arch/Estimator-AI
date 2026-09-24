@@ -111,6 +111,44 @@ def test_non_pdf_files_are_flagged_by_type_and_zip_gets_its_own_advice(tmp_path)
               for f in result.flags)
 
 
+def _sheet(number):
+    return Page(width=3024, height=2160, texts=((200, 300, FILLER, 12), (2640, 1860, "ROOF PLAN", 20),
+                                                (2800, 2000, number, 40)))
+
+
+def test_m2_a_marked_up_copy_gets_one_flag_not_one_per_sheet(tmp_path):
+    root = tmp_path / "26-9999"
+    base = root / "2. Takeoffs" / "1. Base Takeoff"
+    numbers = [f"M-10{n}" for n in range(1, 6)]
+    make_pdf(base / "Mech.pdf", *[_sheet(n) for n in numbers])
+    make_pdf(base / "Marked_Mech.pdf", *[_sheet(n) for n in numbers])
+    result = catalogue_job(root, tmp_path / "cache")
+    assert any(f == "Marked_Mech.pdf repeats 5 sheets of Mech.pdf — probably a marked-up copy" for f in result.flags)
+    assert not [f for f in result.flags if f.startswith("Sheet M-10")]
+
+
+def test_m4_the_summary_names_controls_scope_not_a_discipline_list(tmp_path):
+    root = tmp_path / "26-9999"
+    base = root / "2. Takeoffs" / "1. Base Takeoff"
+    make_pdf(base / "Mech.pdf", NO_NUMBER)
+    make_pdf(base / "Marked_230923.pdf", SPEC)
+    lines = summary_lines(catalogue_job(root, tmp_path / "cache"))
+    assert any("sheets that carry controls scope not sorted by type" in line for line in lines)
+
+
+def test_m5_a_password_protected_pdf_says_so(tmp_path):
+    import pymupdf
+    root = tmp_path / "26-9999"
+    base = root / "2. Takeoffs" / "1. Base Takeoff"
+    make_pdf(base / "spec.pdf", SPEC)
+    locked = pymupdf.open()
+    locked.new_page()
+    locked.save(str(base / "Locked Addendum.pdf"), encryption=pymupdf.PDF_ENCRYPT_AES_256, user_pw="secret")
+    result = catalogue_job(root, tmp_path / "cache")
+    assert any(f == "2. Takeoffs/1. Base Takeoff/Locked Addendum.pdf is password-protected — ask for an unlocked copy"
+              for f in result.flags)
+
+
 def test_a_document_that_fails_partway_is_flagged_in_plain_words(tmp_path, monkeypatch):
     from estimator.catalogue import register
     root = tmp_path / "26-9999"

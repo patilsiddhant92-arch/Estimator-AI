@@ -17,7 +17,7 @@ import pymupdf
 
 from estimator.catalogue.pdf import clean_text
 
-KINDS = ("drawings", "specs", "addendum", "rfi", "other", "unreadable")
+KINDS = ("drawings", "specs", "addendum", "rfi", "other", "unreadable", "password")
 LARGE_SHEET = 1500   # points: the long edge of every drawing sheet in the Learn jobs is at least this
 
 _LEFT_OUT = re.compile(
@@ -131,6 +131,8 @@ def _describe(root: Path, path: Path, seen: dict[tuple, list[dict]]) -> Document
     duplicate_of = _find_duplicate(path, relative, seen)
     try:
         with pymupdf.open(str(path)) as pdf:
+            if pdf.needs_pass:
+                return Document(path, relative, "password", revision, 0, duplicate_of)
             return Document(path, relative, _kind(path.name, pdf), revision, pdf.page_count, duplicate_of)
     except (pymupdf.FileDataError, RuntimeError, ValueError):
         return Document(path, relative, "unreadable", revision, 0, duplicate_of)

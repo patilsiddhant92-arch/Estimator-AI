@@ -16,12 +16,21 @@ from estimator.catalogue.job import Catalogue
 
 TABS = ("Bid check", "Flags", "Documents", "Pages", "Sheets", "Spec sections", "Equipment tags")
 _KIND = {"drawings": "Drawings", "specs": "Specs", "addendum": "Addendum", "rfi": "RFI", "other": "Other",
-         "unreadable": "Could not be opened"}
+         "unreadable": "Could not be opened", "password": "Password-protected"}
 _READ_BY = {"text": "its text", "ocr": "OCR", "blank": "blank page", "unreadable": "could not be read"}
 _FINDING = {"Qualifies": "C6EFCE", "Open": "FFEB9C", "Does not qualify": "FFC7CE"}
 _HEADING = PatternFill("solid", fgColor="D9E1F2")
 _BOLD = Font(bold=True)
 _WIDEST = 80
+
+
+def _append(ws, row: list) -> None:
+    """openpyxl treats any string starting with "=" as a formula; an OCR'd quote or a sheet
+    title that happens to start with "=" would otherwise make Excel "repair" the file (M1)."""
+    ws.append(row)
+    for cell in ws[ws.max_row]:
+        if isinstance(cell.value, str) and cell.value.startswith("="):
+            cell.data_type = "s"
 
 
 def write_evidence(path: Path, catalogue: Catalogue) -> Path:
@@ -53,22 +62,22 @@ def write_evidence(path: Path, catalogue: Catalogue) -> Path:
 
 def _bid_check(ws, catalogue: Catalogue) -> None:
     bid = catalogue.bid
-    ws.append([f"Bid check — {catalogue.job.name}"])
+    _append(ws, [f"Bid check — {catalogue.job.name}"])
     ws["A1"].font = Font(bold=True, size=14)
-    ws.append([])
-    ws.append(["Finding", bid.finding])
+    _append(ws, [])
+    _append(ws, ["Finding", bid.finding])
     ws["B3"].fill = PatternFill("solid", fgColor=_FINDING.get(bid.finding, "FFFFFF"))
     ws["B3"].font = _BOLD
-    ws.append(["Why", bid.reason])
-    ws.append(["Other controls manufacturers named (for the US team)", ", ".join(bid.others) or "none"])
-    ws.append(["Controls sections in the specs", "; ".join(bid.controls_sections) or "none found"])
-    ws.append(["The US team makes the final call. Every passage the check found is quoted below, word for word."])
-    ws.append([])
-    ws.append(["Document", "Page", "Manufacturers named", "What the spec says (word for word)"])
+    _append(ws, ["Why", bid.reason])
+    _append(ws, ["Other controls manufacturers named (for the US team)", ", ".join(bid.others) or "none"])
+    _append(ws, ["Controls sections in the specs", "; ".join(bid.controls_sections) or "none found"])
+    _append(ws, ["The US team makes the final call. Every passage the check found is quoted below, word for word."])
+    _append(ws, [])
+    _append(ws, ["Document", "Page", "Manufacturers named", "What the spec says (word for word)"])
     for cell in ws[ws.max_row]:
         cell.font, cell.fill = _BOLD, _HEADING
     for m in bid.mentions:
-        ws.append([m.document, m.page, m.named, m.quote])
+        _append(ws, [m.document, m.page, m.named, m.quote])
         ws.cell(ws.max_row, 4).alignment = Alignment(wrap_text=True, vertical="top")
     for row in range(3, 7):
         ws.cell(row, 1).font = _BOLD
@@ -79,11 +88,11 @@ def _bid_check(ws, catalogue: Catalogue) -> None:
 
 
 def _table(ws, headings: list[str], rows: list[list]) -> None:
-    ws.append(headings)
+    _append(ws, headings)
     for cell in ws[1]:
         cell.font, cell.fill = _BOLD, _HEADING
     for row in rows:
-        ws.append(row)
+        _append(ws, row)
     ws.freeze_panes = "A2"
     ws.auto_filter.ref = ws.dimensions
     for index, heading in enumerate(headings, start=1):
