@@ -35,13 +35,15 @@ class TemplateError(ValueError):
 
 
 def write_proposal(job: Job, template_path: Path, out_path: Path) -> Path:
-    if job.front_end.items or job.blocks or job.add_alternates or job.deduct_alternates or job.named_exceptions:
-        raise NotImplementedError("writing the scope of work is added in the next task")
     document = docx.Document(str(template_path))
     check_template(document)
     _fill_cover(document, job.header)
-    _keep_front_end(document, job)
+    heading = _keep_front_end(document, job)
     _set_scope_suffix(document, job.scope_heading_suffix)
+    _write_scope(heading, job)
+    _write_alternates(document, layout.ADD_ALTERNATES, job.add_alternates)
+    _write_alternates(document, layout.DEDUCT_ALTERNATES, job.deduct_alternates)
+    _add_named_exceptions(document, job.named_exceptions)
     out_path.parent.mkdir(parents=True, exist_ok=True)
     document.save(str(out_path))
     return out_path
@@ -270,3 +272,99 @@ def _set_scope_suffix(document: DocxDocument, suffix: str) -> None:
     extra = copy.deepcopy(runs[-1])
     _set_run_text(extra, suffix if heading.text.endswith((" ", "\xa0")) else f" {suffix}")
     runs[-1].addnext(extra)
+
+
+# --- the scope of work ------------------------------------------------------------
+
+def _apply(paragraph: Paragraph, fmt: ParagraphFormat, runs: tuple[Run, ...]) -> None:
+    paragraph.style = fmt.style
+    if fmt.list_id is not None:
+        numPr = paragraph._p.get_or_add_pPr().get_or_add_numPr()
+        numPr.get_or_add_ilvl().val = fmt.level
+        numPr.get_or_add_numId().val = fmt.list_id
+    if fmt.indent is not None:
+        paragraph.paragraph_format.left_indent = Twips(fmt.indent)
+    if fmt.space_after is not None:
+        paragraph.paragraph_format.space_after = Pt(fmt.space_after)
+    for part in runs:
+        run = paragraph.add_run(part.text)
+        if fmt.bold or part.bold:
+            run.bold = True
+        if fmt.size is not None:
+            run.font.size = Pt(fmt.size)
+
+
+def _insert_after(cursor: Paragraph, fmt: ParagraphFormat, runs: tuple[Run, ...] = ()) -> Paragraph:
+    element = OxmlElement("w:p")
+    cursor._p.addnext(element)
+    paragraph = Paragraph(element, cursor._parent)
+    _apply(paragraph, fmt, runs)
+    return paragraph
+
+
+def _front_end_format(mode: str, item: Item) -> ParagraphFormat:
+    return layout.FRONT_END_NOTE if item.kind == "note" else layout.front_end_line(mode, item.depth)
+
+
+def _block_format(item: Item) -> ParagraphFormat:
+    return layout.BLOCK_NOTE if item.kind == "note" else layout.block_line(item.depth)
+
+
+def _write_block(cursor: Paragraph, block: Block) -> Paragraph:
+    cursor = _insert_after(cursor, layout.BLANK)
+    cursor = _insert_after(cursor, layout.BLOCK_HEADER, (Run(text=block.header, bold=True),))
+    for item in block.items:
+        cursor = _insert_after(cursor, _block_format(item), item.runs)
+    return cursor
+
+
+def _write_scope(heading: Paragraph, job: Job) -> None:
+    """The job's front-end lines straight after the kept heading, then every block, then a blank line."""
+    cursor = heading
+    for item in job.front_end.items:
+        cursor = _insert_after(cursor, _front_end_format(job.front_end.mode, item), item.runs)
+    for block in job.blocks:
+        cursor = _write_block(cursor, block)
+    _insert_after(cursor, layout.BLANK)
+
+
+def _label_under(document: DocxDocument, section: str) -> Paragraph:
+    paragraphs = document.paragraphs
+    start = next(i for i, p in enumerate(paragraphs) if squash(p.text).startswith(section))
+    for paragraph in paragraphs[start + 1 :]:
+        text = squash(paragraph.text)
+        if text == layout.ALTERNATE_LABEL:
+            return paragraph
+        if text:
+            break
+    raise TemplateError(f"no {layout.ALTERNATE_LABEL!r} line under {section!r}")
+
+
+def _write_alternates(document: DocxDocument, section: str, alternates: tuple[Alternate, ...]) -> None:
+    if not alternates:
+        return
+    label = _label_under(document, section)
+    untouched_label = copy.deepcopy(label._p)
+    cursor = label
+    for index, alternate in enumerate(alternates):
+        if index:
+            element = copy.deepcopy(untouched_label)
+            cursor._p.addnext(element)
+            cursor = Paragraph(element, cursor._parent)
+        _replace_text(cursor, alternate.label)
+        for block in alternate.blocks:
+            cursor = _write_block(cursor, block)
+
+
+def _add_named_exceptions(document: DocxDocument, exceptions: tuple[str, ...]) -> None:
+    if not exceptions:
+        return
+    paragraphs = document.paragraphs
+    base = next(i for i, p in enumerate(paragraphs) if squash(p.text).startswith(layout.BASE_PRICE))
+    last = next(p for p in reversed(paragraphs[:base]) if p.text.strip())
+    cursor = last._p
+    for text in exceptions:
+        clone = copy.deepcopy(last._p)
+        _replace_text(Paragraph(clone, last._parent), text)
+        cursor.addnext(clone)
+        cursor = clone

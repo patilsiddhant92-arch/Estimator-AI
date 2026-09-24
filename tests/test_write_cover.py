@@ -93,11 +93,6 @@ def test_the_rest_of_the_template_is_untouched(bare_job, proposal_template, tmp_
     assert out_texts[out_texts.index(layout.ADD_ALTERNATES):] == template_texts[start:]
 
 
-def test_scope_content_waits_for_the_next_task(small_job, proposal_template, tmp_path):
-    with pytest.raises(NotImplementedError):
-        write_proposal(small_job, proposal_template, tmp_path / "p.docx")
-
-
 def test_delete_from_until_refuses_a_stop_before_first(proposal_template):
     document = docx.Document(str(proposal_template))
     openings = [p for p in document.paragraphs if squash(p.text).startswith(layout.OPENING)]
