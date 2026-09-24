@@ -10,6 +10,7 @@ import argparse
 import sys
 from pathlib import Path
 
+from estimator.price_sheet.check import price_check
 from estimator.price_sheet.price_book import PriceBook
 from estimator.price_sheet.write import write_price_sheet
 from estimator.proposal.write import write_proposal
@@ -39,6 +40,11 @@ def _parser() -> argparse.ArgumentParser:
     importer.add_argument("workup", type=Path)
     importer.add_argument("--out", type=Path, required=True)
     importer.add_argument("--template", type=Path, default=PROPOSAL_TEMPLATE)
+
+    check = commands.add_parser("price-check", help="compare a generated price sheet with the workup that was sent")
+    check.add_argument("generated", type=Path)
+    check.add_argument("sent", type=Path)
+    check.add_argument("--out", type=Path, required=True)
     return parser
 
 
@@ -67,6 +73,11 @@ def main(argv: list[str] | None = None) -> int:
             print("In the workup but not the proposal, so ignored:")
             for text in report.unmatched_theirs:
                 print(f"    {text}")
+    elif args.command == "price-check":
+        book = PriceBook.load(PRICE_BOOK, ALIASES)
+        args.out.parent.mkdir(parents=True, exist_ok=True)
+        args.out.write_text(price_check(args.generated, args.sent, book, args.generated.stem), encoding="utf-8")
+        print(f"Wrote {args.out}")
     return 0
 
 
