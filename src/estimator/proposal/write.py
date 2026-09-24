@@ -382,6 +382,7 @@ def _write_alternates(document: DocxDocument, section: str, alternates: tuple[Al
     cursor = label
     for index, alternate in enumerate(alternates):
         if index:
+            cursor = _insert_after(cursor, layout.BLANK)
             element = copy.deepcopy(untouched_label)
             cursor._p.addnext(element)
             cursor = Paragraph(element, cursor._parent)
