@@ -40,8 +40,15 @@ def _powershell(script: str) -> str:
     return done.stdout
 
 
+def _ps_path(path: Path) -> str:
+    """A path, single-quoted for a PowerShell string literal — an apostrophe in the path (a
+    building or client name with one, say) must be doubled, or it closes the quote early and
+    breaks the script, or worse, runs whatever text follows as PowerShell."""
+    return str(path).replace("'", "''")
+
+
 def _to_pdf(documents: list[Path]) -> None:
-    pairs = ",".join(f"@('{d}','{d.with_suffix('.pdf')}')" for d in documents)
+    pairs = ",".join(f"@('{_ps_path(d)}','{_ps_path(d.with_suffix('.pdf'))}')" for d in documents)
     _powershell(f"""
 $ErrorActionPreference = 'Stop'
 $word = New-Object -ComObject Word.Application
@@ -69,7 +76,7 @@ def _render(pdf: Path, folder: Path, stem: str) -> list[Path]:
 
 def _excel_check(workbooks: list[Path]) -> list[list[dict]]:
     """Open each workbook in Excel, recalculate, and report each sheet's error cells and totals."""
-    paths = ",".join(f"'{w}'" for w in workbooks)
+    paths = ",".join(f"'{_ps_path(w)}'" for w in workbooks)
     out = _powershell(f"""
 $ErrorActionPreference = 'Stop'
 $excel = New-Object -ComObject Excel.Application
@@ -124,6 +131,13 @@ def main(argv: list[str] | None = None) -> int:
     args.out.mkdir(parents=True, exist_ok=True)
 
     work = Path(tempfile.mkdtemp(prefix="estimator-"))
+    try:
+        return _run(args, work)
+    finally:
+        shutil.rmtree(work, ignore_errors=True)
+
+
+def _run(args: argparse.Namespace, work: Path) -> int:
     sent, generated = work / "sent.docx", work / "generated.docx"
     shutil.copy2(args.sent, sent)
     shutil.copy2(args.generated, generated)
