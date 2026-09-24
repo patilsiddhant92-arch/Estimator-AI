@@ -7,6 +7,7 @@ import re
 from collections import Counter, defaultdict
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
+from functools import lru_cache
 from pathlib import Path
 
 from estimator.catalogue.register import PageRecord
@@ -30,14 +31,19 @@ class Equipment:
         return cls(data["prefixes"], data["names"], frozenset(data["schedule_only"]))
 
     def patterns(self) -> tuple[re.Pattern, re.Pattern]:
-        codes = "|".join(re.escape(p) for p in sorted(self.prefixes, key=len, reverse=True))
-        rest = rf"\d[A-Z0-9]*(?:[{_DASH}][A-Z0-9]+)*"
-        letter_rest = rf"[A-Z]{{1,2}}\d*(?:[{_DASH}][A-Z0-9]+)*"
-        sep = rf"(?:\s*(?:[{_DASH}#]|No\.?)\s*|\s)"
-        by_code = re.compile(rf"(?<![A-Za-z0-9])({codes})(?:{sep}?({rest})|[{_DASH}]({letter_rest}))(?![A-Za-z0-9])")
-        names = "|".join(re.escape(n) for n in sorted(self.names, key=len, reverse=True))
-        by_name = re.compile(rf"(?<![A-Za-z])({names})\s*(?:No\.?|#)\s*(\d[A-Z0-9]*)(?![A-Za-z0-9])", re.I)
-        return by_code, by_name
+        return _compiled_patterns(tuple(sorted(self.prefixes)), tuple(sorted(self.names)))
+
+
+@lru_cache
+def _compiled_patterns(prefixes: tuple[str, ...], names: tuple[str, ...]) -> tuple[re.Pattern, re.Pattern]:
+    codes = "|".join(re.escape(p) for p in sorted(prefixes, key=len, reverse=True))
+    rest = rf"\d[A-Z0-9]*(?:[{_DASH}][A-Z0-9]+)*"
+    letter_rest = rf"[A-Z]{{1,2}}\d*(?:[{_DASH}][A-Z0-9]+)*"
+    sep = rf"(?:\s*(?:[{_DASH}#]|No\.?)\s*|\s)"
+    by_code = re.compile(rf"(?<![A-Za-z0-9])({codes})(?:{sep}?({rest})|[{_DASH}]({letter_rest}))(?![A-Za-z0-9])")
+    names_pat = "|".join(re.escape(n) for n in sorted(names, key=len, reverse=True))
+    by_name = re.compile(rf"(?<![A-Za-z])({names_pat})\s*(?:No\.?|#)\s*(\d[A-Z0-9]*)(?![A-Za-z0-9])", re.I)
+    return by_code, by_name
 
 
 def _canonical(prefix: str, rest: str) -> str:
@@ -73,8 +79,8 @@ def _natural(tag: str) -> list:
 def index_tags(pages: Sequence[PageRecord], sheets: Mapping[tuple[str, int], Sheet],
                equipment: Equipment | None = None) -> list[TagEntry]:
     equipment = equipment or Equipment.load()
-    exclude = frozenset(_canonical(*n.split("-", 1)) if "-" in n else n
-                        for n in (s.number for s in sheets.values() if s.number))
+    numbers = [s.number for s in sheets.values() if s.number]
+    exclude = frozenset(tag for n in numbers for tag in find_tags(n, equipment))
     on_schedules: dict[str, list[str]] = defaultdict(list)
     elsewhere: dict[str, list[str]] = defaultdict(list)
     times: Counter = Counter()

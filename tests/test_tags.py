@@ -51,6 +51,20 @@ def test_the_index_says_where_each_tag_appears():
         TagEntry("P-1", "Pump", ("M-601",), ("M-101",), 2)]
 
 
+def test_a_sheet_number_written_without_a_dash_is_never_read_as_a_tag():
+    pages = [_record("plumb.pdf", 1, "SEE P101.00 AND PUMP P-1")]
+    sheets = {("plumb.pdf", 1): Sheet("plumb.pdf", 1, "P101.00", "PUMP SCHEDULE", "Plumbing", ("Schedules",))}
+    tags = [e.tag for e in index_tags(pages, sheets, EQUIPMENT)]
+    assert tags == ["P-1"]
+
+
+def test_a_sheet_numbered_ef101_is_not_counted_as_the_tag_ef_101():
+    pages = [_record("mech.pdf", 1, "EF101 SERVES ROOM 204. EF-2 IS IN THE CORRIDOR.")]
+    sheets = {("mech.pdf", 1): Sheet("mech.pdf", 1, "EF101", "MECHANICAL PLAN", "Mechanical", ("Plans",))}
+    tags = [e.tag for e in index_tags(pages, sheets, EQUIPMENT)]
+    assert tags == ["EF-2"]
+
+
 def test_tags_sort_in_number_order():
     pages = [_record("mech.pdf", 1, "VAV-10 VAV-2 VAV-1 AHU-3")]
     tags = [e.tag for e in index_tags(pages, {}, EQUIPMENT)]
