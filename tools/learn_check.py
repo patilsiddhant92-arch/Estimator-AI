@@ -33,6 +33,7 @@ class JobResult:
     bid: str
     others: tuple[str, ...]
     tags: int
+    blank_sheets: int       # blank pages on a large sheet — always worth a look (T3)
 
 
 def measure(catalogue) -> JobResult:
@@ -45,13 +46,17 @@ def measure(catalogue) -> JobResult:
         sheets=len(sheets), numbered=sum(1 for s in sheets if s.number),
         relevant=len(relevant), typed=sum(1 for s in relevant if s.types),
         controls_sections=sum(1 for s in catalogue.sections if s.controls),
-        bid=catalogue.bid.finding, others=catalogue.bid.others, tags=len(catalogue.tags))
+        bid=catalogue.bid.finding, others=catalogue.bid.others, tags=len(catalogue.tags),
+        blank_sheets=sum(1 for p in pages if p.status == "blank" and p.large_sheet))
 
 
 def misses(result: JobResult, expected: dict) -> list[str]:
     found = []
     if expected["bid"] is not None and result.bid != expected["bid"]:
         found.append(f"bid check said {result.bid}, the estimator concluded {expected['bid']}")
+    for name in expected.get("others_include", ()):
+        if name not in result.others:
+            found.append(f"{name} was expected among the other manufacturers named, but the check didn't find it")
     if result.sheets:
         share = result.numbered / result.sheets
         if share < expected["sheet_numbers_at_least"]:
@@ -66,6 +71,9 @@ def misses(result: JobResult, expected: dict) -> list[str]:
         found.append("no controls section found, and the job has one")
     if not expected["controls_sections"] and result.controls_sections:
         found.append(f"{result.controls_sections} controls sections found, and the job has none")
+    if result.blank_sheets:
+        word = "page" if result.blank_sheets == 1 else "pages"
+        found.append(f"{result.blank_sheets} blank drawing {word} found — check whether they should have been read")
     return found
 
 

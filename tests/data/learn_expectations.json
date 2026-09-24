@@ -1,5 +1,5 @@
 {
-  "about": "What the estimator concluded for each Learn job (docs/superpowers/plans/step-3-facts.md). bid null = report the result, don't check it. sheet_numbers_at_least / typed_at_least = share of drawing sheets whose sheet number must be found / that must be sorted by type.",
+  "about": "What the estimator concluded for each Learn job (docs/superpowers/plans/step-3-facts.md). bid null = report the result, don't check it. sheet_numbers_at_least / typed_at_least = share of drawing sheets whose sheet number must be found / that must be sorted by type. others_include (optional) = other controls manufacturers the bid check must name for the US team.",
   "learn_folder": "D:\\Estimation Assistant\\Learn",
   "jobs": {
     "26-0246": {"bid": "Qualifies", "sheet_numbers_at_least": 0.99, "typed_at_least": 0.90, "controls_sections": true},
@@ -8,7 +8,8 @@
                 "note": "Its one drawing set is a scanned/photographed PDF; several title blocks are too faint for OCR to read, so fewer sheets can be sorted by type. Checked by hand."},
     "26-0339": {"bid": "Open", "sheet_numbers_at_least": 0.99, "typed_at_least": 0.90, "controls_sections": true},
     "26-0344": {"bid": "Qualifies", "sheet_numbers_at_least": 0.99, "typed_at_least": 0.90, "controls_sections": true},
-    "26-0352": {"bid": "Open", "sheet_numbers_at_least": 0.99, "typed_at_least": 0.90, "controls_sections": false},
+    "26-0352": {"bid": "Open", "sheet_numbers_at_least": 0.99, "typed_at_least": 0.90, "controls_sections": false,
+                "others_include": ["Distech Controls"]},
     "26-0356": {"bid": "Qualifies", "sheet_numbers_at_least": 0.99, "typed_at_least": 0.85, "controls_sections": true},
     "26-0436": {"bid": null, "sheet_numbers_at_least": 0.90, "typed_at_least": 0.70, "controls_sections": false,
                 "note": "Its own project manual has no controls section — the controls spec lives in the nested 26-0437 folder, catalogued as its own job. Checked by hand."},
