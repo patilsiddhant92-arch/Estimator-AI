@@ -1,9 +1,64 @@
 # Estimator AI — Design
 
 **Date:** 2026-09-24
-**Status:** Design approved in conversation; awaiting spec review
+**Status:** Agreed in conversation; waiting for your sign-off
 **Supersedes:** `D:\Estimation Assistant` (read-only reference from here on)
 **Reference corpus:** `D:\AME Estimation` (read-only)
+
+---
+
+## Read this first — in plain words
+
+**What the tool does.** You give it a job's mechanical drawings and specs. It gives you back
+three files: the proposal, the price sheet, and a third file that shows where every number
+came from and lists everything it wasn't sure about. You go through that list, make the
+calls, and the proposal is ready to send.
+
+**How it works.** It follows your method, in the order you work:
+
+1. **Check the job can be bid.** It reads the spec for the controls manufacturer. Honeywell
+   WEBs or Johnson Controls FX — it carries on. Anything else — it flags it for the US team
+   and keeps going, but the proposal can't go out until they've decided.
+2. **Read the whole job, sheet by sheet.** Schedules, plans, details, air riser, water
+   riser, network riser and specs — each read for the things you look for on that kind of
+   sheet. It locates every unit, and counts sensors, actuators and keynotes wherever the
+   drawings show them.
+3. **Write the scope one system at a time.** For each system it gathers everything about it
+   into one place, reads the sequence of operation, checks it against the point list, and
+   adds anything the drawings show that both of those missed.
+4. **Fill in your templates.** Your own proposal template and your own price workup — so
+   the output looks like yours because it is built on yours.
+
+**Why you can trust it.** Every number in the proposal has to point back to a sheet, a spec
+paragraph or a stated assumption, or the tool won't produce the document. When two
+documents disagree, it doesn't quietly pick one — it shows you both and asks. When it
+doesn't know, it says so, instead of writing "as required".
+
+**How we'll know it's working.** There are 268 past jobs where we have both the drawings and
+the proposal you actually sent. The tool will be run on those and its output compared line
+by line with yours. That comparison is the scoreboard. Every improvement has to show up on
+it, and nothing is allowed to make it worse.
+
+**The order it gets built in** — five steps, each usable on its own:
+
+1. **Make the documents come out right.** Before the tool reads a single drawing, prove it
+   can produce a proposal and a price sheet exactly like yours. Tested on job 26-0246.
+2. **Build the scoreboard** that compares the tool's output with your real proposals.
+3. **Check the job can be bid, and catalogue every page.**
+4. **Read the job the way you do**, sheet type by sheet type.
+5. **Write each system**, and produce the list of doubtful items for you to decide.
+
+The parts that can simply be checked come first. The parts that need judgement come last —
+when the scoreboard already exists to tell us whether they are right.
+
+**Still needed from you:**
+
+- The tech-hours sheet you are putting together.
+- Later, when the tool reaches writing scope: a check that the standard minimum list of
+  sensors for each type of equipment — used only when nothing on the job says otherwise —
+  matches how AME actually bids.
+
+*Everything after this section is the detailed design, written for whoever builds the tool.*
 
 ---
 
@@ -110,8 +165,8 @@ tool follows it step for step.
 
 That is deliberate. When the tool raises a flag, it should read the way the estimator
 already thinks — *"found on water riser M-601, not in the sequence"* — rather than in the
-tool's own terms. A review queue written in the reviewer's own vocabulary is one that
-gets cleared.
+tool's own terms. A review list written in the reviewer's own words is one that gets
+cleared.
 
 ### Stage 1 — Qualify
 
@@ -172,7 +227,7 @@ water system with pumps and heat exchangers:
   space sensor; the plan says how many zones there are.
 - **The reading lists are data.** Each sheet type has a checklist of things to look for
   (§9.2). They are the estimator's experience made explicit, and they are extended every
-  time the harness finds something the tool missed — which is how experience gets
+  time the scoreboard finds something the tool missed — which is how experience gets
   captured in a form that improves instead of one that depends on who is at the desk.
 - **Step 8 is where a tool can beat a tired person** rather than merely match one: it
   checks every detail, every riser and every plan against the sequence, for every
@@ -245,10 +300,10 @@ restate in a sentence is a rule nobody will apply.
          point list             = cross-check
          drawings               = add what both missed
          plan counts            = how many
-         reconcile -> flags
+         compare the answers -> the review list
          |
-    4. RENDER
-         ScopeLine[] --+--> Proposal .docx     (docxtpl, AME template)
+    4. FILL IN YOUR TEMPLATES
+         scope lines --+--> Proposal .docx     (python-docx, AME template)
                        +--> Price Sheet .xlsx  (openpyxl, PriceWorkup template)
                        +--> Evidence Package   (flags, provenance, change log)
 ```
@@ -284,33 +339,37 @@ class Quantity:
 `sheet_type` records *where* evidence was found; `kind` records *what form* it takes. A
 keynote on an air riser is `AIR_RISER` + `KEYNOTE`.
 
-### Invariants
+### Six guarantees
 
-Enforced by tests, not convention. Each closes a failure observed in the previous build.
+Each is checked by an automatic test, not left to good intentions, and each closes a
+failure seen in the old tool.
 
-**I1 — One list, two documents.** The proposal and the price sheet are renderings of the
-same `ScopeLine[]`. A line cannot exist in one and not the other. `Price Sheet 1` already
-mirrors the scope one row per line; this makes that structural.
+**One list, two documents.** The proposal and the price sheet are both produced from the
+same list of scope lines. A line cannot appear in one and not the other. `Price Sheet 1`
+already mirrors the scope row for row when an estimator fills it in by hand; the tool
+makes that automatic.
 
-**I2 — No number without provenance.** Empty `evidence` fails the build. This is "never
-invent", made mechanical.
+**Every number has a source.** A quantity that cannot point to a sheet, a spec paragraph
+or a stated assumption stops the tool. This is the old doctrine's "never invent", made
+automatic.
 
-**I3 — "I don't know" is representable and unrenderable.** `value: None` is legal in the
-model and illegal in the client document; the renderer raises. This is what makes *"as
-required"* impossible — the tool can say *pending*, so it never has to bluff.
+**No guessing.** The tool is allowed to say "I don't know" — and a line it doesn't know
+cannot go into the client document. This is what makes *"as required"* impossible: the
+tool can say *pending*, so it never has to bluff.
 
-**I4 — Boilerplate lives in the template, not in code.** Exclusions, clarifications,
-header table, ADD/DEDUCT sections and signature block are authored in the `.docx`. Code
-injects only what varies. The 13 dropped exclusions happened because code was assembling
-the list; if the template owns it, no code path can drop it.
+**The template owns the boilerplate.** Exclusions, clarifications, the header table, the
+ADD/DEDUCT sections and the signature block live in your Word template, exactly as you
+wrote them. The tool fills in only what changes from job to job. The 13 exclusions went
+missing because the old tool rebuilt that list itself; if the template owns it, nothing
+can drop it.
 
-**I5 — Internal state has no route to the client document.** Confidence, rule names and
-flag markers exist only in review artifacts. The client template has no placeholder for
-them, so they cannot leak. Not filtered — structurally absent.
+**Nothing internal reaches the client.** Confidence scores, rule names and flag markers
+live only in the review files. The client template has no place to put them, so they
+cannot leak — not filtered out, simply impossible.
 
-**I6 — Wording is selected, never generated.** Scope line text comes from the approved
-phrasing bank (§10.4). An item with no approved phrasing is a flag, not an invitation to
-write prose.
+**Only approved wording.** Every scope line's wording is taken from the approved phrasing
+bank (§10.4). If an item has no approved wording, the tool flags it rather than making
+some up.
 
 ---
 
@@ -331,24 +390,37 @@ Measured on the filled 26-0246 workup:
 - **Tech hours attach to blocks; unit prices attach to lines.** Of 288 scope rows, 47
   carry tech hours — the `Qty (N)` equipment headers and the front-end section — and 91
   carry a unit price — the device lines beneath them. The labour book is therefore keyed
-  by equipment block, not by device, and the renderer writes hours and prices to
+  by equipment block, not by device, and the tool writes hours and prices to
   different rows.
-- **It is formula-dense: 527 formulas** — 408 in `Price Sheet 1`, 119 in `Summary`. The
-  fill must load with `data_only=False` and write only input cells; anything else ships a
-  workbook with dead totals.
-- **Header fields are not trustworthy in the ground truth.** 26-0246's `Summary` reads
-  *"Job Name: MCCC LA"* — copied from another job and never updated. The harness keys
-  workups by folder, never by their header; the renderer fills the header from the job.
+- **It is formula-dense: 4,199 formulas** — 408 on each of the ten price sheets and 119 on
+  the `Summary`. The fill must load with `data_only=False` and write only input cells;
+  anything else ships a workbook with dead totals.
+- **Header fields are not trustworthy in the ground truth.** The master template itself
+  carries a leftover *"MCCC LA"* as the Job Name and as the location of Price Sheet 1, and a
+  stale date — so every workup made from it starts out saying "MCCC LA" unless an estimator
+  overwrites it. The scoreboard identifies workups by folder, never by their header; the
+  tool fills the header in from the job itself.
+- **The Summary's total adds the alternates in.** Its Total row sums every price sheet, so
+  a job whose alternates sit on their own sheets (as 26-0246's do) shows a total that
+  includes them. The base price is the base sheet's own sell price, never that Total.
+- **The two documents already drift apart by hand.** In the proposal sent for 26-0246 the
+  alternate blocks are numbered 45 and 46; in its workup they are 44 and 45, because the
+  workup was built from an earlier draft with one fewer block. The one-list, two-documents
+  guarantee exists to make that impossible.
 
 ### The document shell
 
 Issued `26-0352.docx` is 875,713 bytes; the shell is 875,213. The estimator copies the
-shell and types scope into it — which is what I4 makes structural.
+shell and types scope into it — which is what the template-owns-the-boilerplate
+guarantee makes automatic.
 `proposal template.docx` is a stale variant (2024 dates, 60-day validity, no tariff
 clause). Not canonical.
 
-**Template conversion.** The shell becomes a `docxtpl` template. Two things in it are
-conditionals, not clutter, and must survive:
+**Filling the template.** The tool fills the team's template file directly — it finds
+the headings it knows, writes the job's lines in between, and leaves everything else as the
+team wrote it. There is no converted copy to keep in step: when the team updates their
+template, refreshing the tool is copying the new file in. Two things in the template are
+choices, not clutter, and the tool makes them:
 
 - **Two front-end openings** separated by a literal `OR` line — new system vs. extension
   of an existing district-wide BMS. Selected from the spec and the network riser (§10.5),
@@ -360,6 +432,16 @@ conditionals, not clutter, and must survive:
 Genuinely removable: the duplicated exclusion (`"Any demolition work not mentioned."` and
 `"Any demolition work not specifically mentioned"` are both present) and the stale
 template date.
+
+**The cover date is a live field.** The template's Date is a Word `DATE` field, so every
+proposal made from it shows *today's* date whenever it is reopened or printed — an archived
+proposal never shows the day it was issued. The tool writes the issue date as plain text.
+
+**The template has no example of an equipment block.** It goes from the front-end block
+straight to *ADD ALTERNATES*, so estimators paste block formatting in from older proposals.
+That is why 26-0246 builds its scope lines from six different bullet lists in two fonts
+(the house font, and Calibri pasted in from elsewhere). The template's own list 12 is the
+right one for scope lines, and the tool always uses it.
 
 ### The price book
 
@@ -391,6 +473,13 @@ Four things follow from its structure:
    are Honeywell WEBs — `VAA-VA75MB24NMC`, `UN-RS0844MSB24NMC`, `N-ADV-112-H-C`,
    `WEB-S-100-N4` — but the estimation prices apply to Johnson Controls FX jobs too. The
    part numbers are a design reference, not a product-line lock.
+5. **It is the generic price — confirmed.** A job can use a vendor quote for a line instead:
+   26-0246's Space Temperature / CO2 Sensor was quoted at $380 against the book's generic
+   $182. A quoted price applies to that job only and never changes the book. So every
+   price has a source — a vendor quote for this job (named), the price book, or
+   PRICE PENDING — and a difference between the book and a sent workup is not, by itself,
+   an error in the book. Each job folder keeps its quotes in `7. Vendor-Sub Quotes`;
+   reading them comes in a later build step.
 
 ---
 
@@ -419,7 +508,7 @@ Every job uses the same skeleton, which makes the corpus machine-readable:
 The revision folders encode supersession order in the filesystem, so it is read rather
 than inferred.
 
-**268 paired input→output examples** is the basis for the harness (§12). The previous
+**268 paired input→output examples** is the basis for the scoreboard (§12). The previous
 build learned from 9.
 
 **Roughly 10% of incoming packages are scanned image PDFs.** Vision is required, but not
@@ -427,7 +516,7 @@ on the critical path for nine jobs in ten.
 
 **House style is `Qty (N)`.** 260 of 279 issued proposals use `Qty (4) Recessed Wall
 Electric Cabinet Unit Heater CBH-A`; 9 use `(x12) VAV-21-01 thru 12`, all of them from
-2026. The harness treats the two notations as equivalent when scoring content.
+2026. The scoreboard treats the two notations as equivalent when scoring content.
 
 ---
 
@@ -485,7 +574,7 @@ scanned sheet, the index misses it. The `every-page-read` gate stays hard.
 
 Every sheet is typed, then read against the checklist for its type. The checklists are
 the method of §3 made explicit. **They are data, not code**, versioned, and extended
-whenever the harness shows a miss.
+whenever the scoreboard shows a miss.
 
 | Sheet type | Read for |
 |---|---|
@@ -506,7 +595,7 @@ type (a plan sheet with a schedule on it). A sheet that cannot be typed is flagg
 
 `AHU-1` / `AHU–1` (en dash) / `AHU 1` / `AHU#1` / `Air Handling Unit No. 1` are one
 system. `AHU-1` must never match `AHU-10`. Whole-token matching against an alias table,
-with the negative cases as test fixtures.
+with the look-alikes that must *not* match as test cases.
 
 ### 9.4 Document authority ladder
 
@@ -568,7 +657,7 @@ trusting the diff.
 - Plans locate and verify; risers and control diagrams cross-check (Rule 2)
 - Every item lands in exactly one Rule 3 category; nothing is unclassified
 - Rule 7 (duplicate tag), Rule 8 (typical/type-only schedule) and Rule 9 (paired systems)
-  port verbatim, with their worked examples as test fixtures
+  port verbatim, with their worked examples as test cases
 - **Equipment on a riser but not on the plans or schedule is `EXTRA`** — highlighted, and
   not priced until confirmed (Rule 3)
 
@@ -727,8 +816,8 @@ rule. That is the mechanism by which the tool stops needing per-job patching.
 |---|---|
 | Which equipment package | job class + equipment type + evidence — the eight packages named in §4 |
 | Which device is selected | price book selection notes — e.g. the space temperature sensor that is standard for all terminal units |
-| What wording | the 691-line approved phrasing bank (I6) |
-| What it costs | price book material price + labour book hours |
+| What wording | the 691-line approved phrasing bank — only approved wording |
+| What it costs | a vendor quote sourced for this job, if there is one; otherwise the price book's generic price — plus labour book hours |
 
 `2024_Template.docx` yields the phrasing bank. Unmatched items raise *"no approved wording
 for this scope item"* — which is also how the bank grows, deliberately, with review.
@@ -754,32 +843,34 @@ the network riser the single most expensive sheet to skip.
 
 ---
 
-## 11. Reconciler and review queue
+## 11. Comparing answers, and the review list
 
-Two independent sources of flags feed one review queue.
+Two kinds of disagreement feed one review list.
 
-**Source against source** — the estimator's own cross-check. Sequence against point list;
-schedule against plans against risers (Rule 2); keynotes against the sequence. Documents
-that disagree with each other.
+**Document against document** — your own cross-check. Sequence against point list;
+schedule against plans against risers (Rule 2); keynotes against the sequence. Places
+where the documents themselves disagree.
 
-**Method against method** — the tool's own safety net. Rules and model derive each scope
-line independently from the same bundle; where they disagree, both answers and both
-citations go to the queue. Where plan counts exist, they are a third voice.
+**Method against method** — the tool's own safety net. It works out every scope line
+twice, two different ways: once by following written rules, and once by having the AI
+read the documents the way a person would. Where the two answers differ, both go on the
+review list with their sources. Where the plans give a count, that is a third answer to
+compare against.
 
-| Outcome | Category | Behaviour |
+| What happened | Label | What the tool does |
 |---|---|---|
-| Sources and methods agree | `CONFIRMED` | renders |
-| Sources or methods disagree | `DISCREPANCY` | every answer and citation queued; renders only after resolution |
-| On the drawings, in neither sequence nor point list | `ADDED` | renders, cited to its sheet |
-| Unit not in the schedule | `EXTRA` | highlighted; not priced until confirmed |
-| Rules silent, model proposed | `ASSUMPTION` | renders, assumption logged and cited |
-| Nothing establishes it | `PENDING` | cannot render (I3) |
-| Price book has no entry | `PRICE-PENDING` | line renders; price cell flags |
-| Spec names another manufacturer | `QUALIFICATION` | to the US team; blocks issue until decided |
+| The documents and both methods agree | CONFIRMED | goes in the proposal |
+| The documents or the methods disagree | DISCREPANCY | every answer and its source go on the review list; stays out of the proposal until you decide |
+| On the drawings, but in neither the sequence nor the point list | ADDED | goes in the proposal, citing the sheet it came from |
+| A whole unit that isn't in the schedule | EXTRA | highlighted; not priced until confirmed |
+| Only the AI found it; the rules were silent | ASSUMPTION | goes in the proposal, with the assumption stated |
+| Nothing establishes it | PENDING | cannot go in the proposal (no guessing) |
+| No entry in the price book | PRICE PENDING | the line goes in; its price is flagged |
+| The spec names another manufacturer | QUALIFICATION | goes to the US team; the proposal cannot be issued until they decide |
 
-This is `Quantity rules.txt` Rule 2 raised one level: cross-check the schedule against
-every supporting sheet that exists, and confirm nothing until they agree — applied from
-sheet-vs-sheet to method-vs-method.
+This is your Rule 2 taken one level further: cross-check every sheet that exists and
+confirm nothing until they agree — applied not only between documents, but between the
+two methods as well.
 
 Confidence derives from **evidence agreement**, never from a model's self-assessment. A
 model reporting `0.85` about its own output is not a number that belongs in a priced
@@ -787,33 +878,35 @@ document.
 
 ---
 
-## 12. The harness
+## 12. The scoreboard
 
-Without this, every change is a guess and "don't patch it per job" is unmeasurable.
+Without this, every change is a guess and "don't patch it per job" cannot be measured.
 
-Replay N of the 268 paired jobs; generate and diff against the issued proposal.
+The tool is run on past jobs where we have both the drawings and the proposal you actually
+sent — up to all 268 of them — and its output is compared with yours, line by line.
 
-| Dimension | Measure |
+| What is checked | How it is judged |
 |---|---|
-| Equipment blocks | recall / precision — a missing block is the worst failure |
-| Block quantities | agreement on the `Qty (N)` header |
-| Device lines | recall / precision — the Occupancy ×21 class of error |
-| Device quantities | agreement, split by priority (§10.3), so plan counting, point lists and derivation are each scored on their own |
-| **Drawing-sourced lines** | recall on issued lines that cite a detail, riser or keynote — the proxy for step 3 of §10.2 |
-| **Sheet classification** | agreement with a hand-typed sample |
-| Wording | drawn from the approved bank; matches issued text |
-| Price | line total vs. the filled workup, on the 61 jobs that have one |
-| Boilerplate integrity | **binary, must be 100%** — every exclusion and clarification present |
-| Structural integrity | **binary, must be 100%** — styles, header table, zero internal markers |
+| Equipment blocks | Did it find every block you wrote, and invent none you didn't? A missing block is the worst failure there is |
+| Block quantities | Does each `Qty (N)` header match yours? |
+| Device lines | Did it find every sensor, actuator and valve line you wrote? This is where "Occupancy ×21" gets caught |
+| Device quantities | Do the counts match? Scored separately for counts taken off the plans, counts from the point list, and counts worked out from the equipment — so each source is judged on its own |
+| Lines you took from the drawings | Of your lines that cite a detail, a riser or a keynote, how many did the tool also find? This is the best available check on the "add what the drawings show" step |
+| Sheet sorting | Does it sort sheets by type the same way a person does, on a sample checked by hand? |
+| Wording | Is every line from the approved phrasing bank, and does it match what you wrote? |
+| Price | Does each line's price match the filled workup, on the 61 jobs that have one? |
+| Boilerplate | **Must be perfect, every time** — every exclusion and clarification present |
+| Layout | **Must be perfect, every time** — right styles, the header table, and no internal markers |
 
-**The human is not always right.** Every delta is classified `new-better` / `new-worse` /
-`neutral`, with sampled human adjudication. The release bar is **no `new-worse`
-deltas**, not "higher score".
+**You are not always right either, and the scoreboard allows for that.** Every difference
+is sorted into *better than what was sent*, *worse than what was sent*, or *no real
+difference*, with a sample checked by a person. The bar for accepting a change is **no
+change makes anything worse** — not simply "the score went up".
 
-**Where misses go.** A `new-worse` delta caused by something the tool did not look for is
-fixed by extending the reading list for that sheet type (§9.2) — not by a job-specific
-script. That is the rule that keeps `tools/_build_0393_takeoff.py` from being written
-again.
+**Where misses go.** When the tool misses something because it didn't know to look for it,
+the fix is to add that thing to the reading list for that type of sheet (§9.2) — never a
+script written for one job. That is the rule that stops `tools/_build_0393_takeoff.py` from
+being written again.
 
 ---
 
@@ -827,9 +920,8 @@ Versions verified on PyPI, 2026-09-24.
 | PDF parse, text layer, render | `pymupdf` | 1.28.2 | **AGPL-3.0-or-commercial.** Internal use inside one legal entity is not conveying, so fine as an internal tool; distribution outside Nordomatic needs an Artifex licence |
 | Symbol and keynote detection | `opencv-python-headless` | 4.x | Legend-driven template matching, and the enclosing-shape check that separates a keynote callout from a stray digit. `headless` avoids ~30 MB of unused Qt |
 | Arrays | `numpy` | 2.x | — |
-| Proposal render | `docxtpl` | 0.20.2 | **LGPL-2.1-only.** Jinja2 inside a `.docx`; preserves styles, header table, numbering |
-| …under it | `python-docx` | 1.2.0 | MIT |
-| Price sheet fill | `openpyxl` | 3.1.5 | MIT. **Load `data_only=False`** — `data_only=True` loses every formula on save, and the workup carries 527 of them (§6) |
+| Proposal render | `python-docx` | 1.2.0 | MIT. Fills the team's template in place (§6). `docxtpl` was considered and dropped: it would need a converted copy of the template kept in step with the team's, and the template has no equipment-block example for it to repeat anyway |
+| Price sheet fill | `openpyxl` | 3.1.5 | MIT. **Load `data_only=False`** — `data_only=True` loses every formula on save, and the workup carries 4,199 of them (§6) |
 | Equipment vocabulary | Brick Schema | `brickschema` 0.7.9 | BSD-3. Class backbone only |
 
 ### On Brick Schema
@@ -868,59 +960,67 @@ estimators. The stack's job is to give it somewhere solid to live.
 
 ## 14. Build order
 
-Five milestones, each independently useful, each ending in something runnable.
+Five build steps. Each one is usable on its own and ends in something that runs.
 
-**M1 — Render truthfully.** Convert the shell into a `docxtpl` template; fill it from a
-hand-written `ScopeLine[]` fixture for one real job. Add the price sheet fill with formula
-preservation, and the price book join. Enforce I1, I4, I5. No extraction at all.
+**Build step 1 — Make the documents come out right.** Before the tool reads a single
+drawing, prove it can produce a proposal and a price sheet that look exactly like yours.
+The tool fills in your Word template itself. The price workup is filled
+with every formula left working. Material prices come from the price book. All of it is
+tested on one real job, using the scope lines taken straight from the proposal you
+actually sent for that job — so this step tests only the documents, not the reading.
 
-*Why first:* it is the entire "presentable" half, it is deterministic, and it makes every
-later milestone's output immediately inspectable.
+*Why first:* it is the whole "presentable" half of what you asked for, it involves no
+judgement, and from then on every later step's output can be checked by eye.
 
-**Fixture job: 26-0246** — PS Q517, 1 Beach 39th St, Queens (SCA). It is in the canonical
-`Qty (N)` style, it has a filled price workup, and it is rich: expanded front end, BACnet
-data cabinets, packaged AHUs with VFD and enthalpy-wheel integration, terminal units,
-split systems, a kitchen exhaust system, electric heat, domestic hot water, generator,
-metering, spec-cited warranties, and both ADD and DEDUCT alternates. It lives in `Learn/`
-and not in the 268-job corpus, so the job M1 is built against cannot leak into the harness
-that later scores it.
+**Test job: 26-0246** — PS Q517, 1 Beach 39th St, Queens (SCA). It is written in the
+house `Qty (N)` style, it has a filled price workup, and it has nearly every kind of block:
+the expanded SCA front end, BACnet data cabinets, packaged AHUs with VFD and energy-wheel
+integration, terminal units, split systems, a kitchen exhaust system, electric heat,
+domestic hot water, a generator, metering, warranties quoted from the spec, and both ADD
+and DEDUCT alternates. It sits in `Learn/` rather than among the 268 past jobs, so the job
+this step is built on cannot also be one the scoreboard later marks.
 
-26-0352, the job the previous build was measured on, is one of the nine `(xN)` proposals
-and so cannot be a target for a `Qty (N)` renderer.
+26-0352 — the job the old tool was measured on — is one of the nine written in `(xN)`
+style, so it cannot be the target for a tool that writes `Qty (N)`.
 
 **Done when:**
 
-- the proposal matches issued 26-0246 in structure, styles and boilerplate;
-- the price sheet mirrors the proposal line for line (I1), its formulas survive and
-  compute, and every line is either priced from the book or flagged `PRICE-PENDING`;
-- differences between book prices and the prices entered in 26-0246's own workup are
-  **reported, not failed** — they measure how far the book has drifted from what
-  estimators actually enter.
+- the proposal matches the one you issued for 26-0246 in layout, styles and boilerplate;
+- the price sheet has exactly the proposal's lines, its formulas still calculate, and every
+  line is either priced from the price book or flagged PRICE PENDING;
+- where the price book's price differs from what was entered in 26-0246's own workup, the
+  difference is **reported, not treated as a failure** — the book holds the generic price
+  used on most jobs, and a job often uses a vendor quote sourced for it instead.
 
-Tech hours come from the fixture until the labour book arrives.
+Tech hours come from the test job itself until the labour book arrives.
 
-**M2 — The harness.** Score generated output against issued proposals across the 268
-paired jobs. Runs against M1's renderer with fixtures, so the scoring dimensions are
-proven before anything depends on them.
+**Build step 2 — Build the scoreboard.** Run the tool against the 268 past jobs where we
+have both the drawings and the proposal you actually sent, and score its output against
+yours. It starts by scoring build step 1's output, so the scoring itself is proven before
+anything depends on it.
 
-*Why second:* it converts "don't patch it per job" from an aspiration into a number.
+*Why second:* it turns "don't patch it per job" from a hope into a number.
 
-**M3 — Qualify, and register the job.** Page register, sheet classification, spec-section
-index, bid qualification, tag occurrence index, alias resolution. Qualification ships
-first within the milestone.
+**Build step 3 — Check the job can be bid, and catalogue every page.** Every page read and
+recorded; every sheet sorted by type; the spec sections indexed; the bid check; every
+equipment tag located; and the different ways one tag gets written — `AHU-1`, `AHU 1`,
+`AHU#1` — matched up. The bid check comes first within this step.
 
-**M4 — Understand the job.** The reading list for each sheet type; equipment inventory;
-device marks by symbol and keynote; supersession ladder; revision diff and the change log.
+**Build step 4 — Read the job the way you do.** The reading list for each sheet type; the
+equipment list; sensors, actuators and keynotes counted off the plans; latest-date-wins
+for addenda; and comparing old and new versions of a sheet, with every change logged.
 
-**M5 — Write each system.** The system bundle, the sequence as backbone, the point-list
-cross-check, adding from the drawings, quantities, package and device selection, the
-reconciler and the review queue.
+**Build step 5 — Write each system.** Gather everything about each system into one place;
+the sequence of operation as the backbone; the cross-check against the point list; adding
+whatever the drawings show that both missed; the quantities; choosing the equipment
+package and devices; comparing the two methods' answers; and the review list.
 
-*Why last:* it is the largest and the most judgement-heavy, and it most needs a scoreboard
-that already exists before work starts.
+*Why last:* it is the largest step and needs the most judgement, so it is the one that most
+needs the scoreboard to exist before work on it starts.
 
-The order is deliberate: **deterministic, testable work first; judgement-heavy work last,
-against a scoreboard that already exists.**
+The order is deliberate: **the parts that can simply be checked come first; the parts that
+need judgement come last, when there is already a scoreboard to tell us whether they are
+right.**
 
 ---
 
@@ -939,11 +1039,15 @@ against a scoreboard that already exists.**
 ### Needs you
 
 1. **Labour book.** Tech hours per equipment block, still to be supplied. The price book
-   covers material only. Blocks the hours column for real jobs — not M1, whose fixture
+   covers material only. Blocks the hours column for real jobs — not build step 1, whose test job
    carries its own hours.
 2. **Guideline 36 validation.** Minimum point lists need checking against AME practice
    before they become defaults — it is a design standard, not a bid standard. Needed by
-   M5, not before.
+   build step 5, not before.
+
+3. **Vendor quotes.** When the tool starts reading them: does a quote always give a unit
+   price per device, or sometimes one lump sum for a package? Needed by build step 5, not
+   before.
 
 ### Answered
 
@@ -955,12 +1059,13 @@ against a scoreboard that already exists.**
 | House style | `Qty (N)` — 260 of 279 issued proposals | §7 |
 | Scanned-PDF share | Roughly 10% | §7 |
 | Devices on plans | Counted when drawn, as symbols or keynotes | §9.8 |
+| Book price vs. the price on a sent workup | The book is the generic price; a job can use a vendor quote instead | §6 |
 
 ### Measured or decided during the build
 
 3. **Price book join.** Validated against the 61 filled workups, gaps listed.
 4. **Plan-evidence coverage.** The share of jobs that draw devices on plans, measured by
-   the harness — it decides how much weight priority 1 of §10.3 carries.
+   the scoreboard — it decides how much weight priority 1 of §10.3 carries.
 5. **Brick dependency vs. vendored table** (§13).
 6. **Job-class coverage.** The six classes in `decision_model_v2` came from 7 jobs;
    checked against the 268.
