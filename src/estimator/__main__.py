@@ -8,10 +8,13 @@ from __future__ import annotations
 
 import argparse
 import os
+import re
 import sys
 from pathlib import Path
 
 import docx
+from docx.opc.exceptions import PackageNotFoundError
+from pydantic import ValidationError
 
 from estimator.price_sheet.check import price_check
 from estimator.price_sheet.price_book import PriceBook
@@ -19,6 +22,8 @@ from estimator.price_sheet.write import check_fit, write_price_sheet
 from estimator.proposal.write import check_template, write_proposal
 from estimator.scope import Job
 from estimator.sent import job_from_sent
+
+_INVALID_FILENAME_CHARS = re.compile(r'[<>:"/\\|?*]')
 
 ROOT = Path(__file__).resolve().parents[2]
 ASSETS = ROOT / "assets"
@@ -51,6 +56,12 @@ def _parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _safe_filename(text: str) -> str:
+    """A quote number used in a file name: a "/" would silently create a subfolder, and
+    none of <>:"/\\|?* are allowed in a Windows file name at all."""
+    return _INVALID_FILENAME_CHARS.sub("-", text)
+
+
 def _build(job: Job, template: Path, workup_template: Path, book: PriceBook, out: Path) -> tuple[Path, Path]:
     """Write the proposal and the price sheet as one unit: check the job fits both templates
     before writing anything, then write both under temporary names and rename them into place
@@ -59,7 +70,7 @@ def _build(job: Job, template: Path, workup_template: Path, book: PriceBook, out
     check_template(docx.Document(str(template)))
     check_fit(job)
     out.mkdir(parents=True, exist_ok=True)
-    quote = job.header.quote_number
+    quote = _safe_filename(job.header.quote_number)
     proposal_path, sheet_path = out / f"{quote} Proposal.docx", out / f"{quote} Price Sheet.xlsx"
     tmp_proposal, tmp_sheet = out / f".{proposal_path.name}.tmp", out / f".{sheet_path.name}.tmp"
     try:
@@ -73,10 +84,30 @@ def _build(job: Job, template: Path, workup_template: Path, book: PriceBook, out
     return proposal_path, sheet_path
 
 
-def main(argv: list[str] | None = None) -> int:
-    if hasattr(sys.stdout, "reconfigure"):
-        sys.stdout.reconfigure(encoding="utf-8")
-    args = _parser().parse_args(argv)
+def _job_validation_message(error: ValidationError) -> str:
+    """pydantic's own dump — Field required [type=missing, input_value={}, ...] For further
+    information visit https://errors.pydantic.dev/... — is not something an estimator reads.
+    Say instead which field, in plain words, and drop pydantic's own "Value error, " prefix."""
+    errors = error.errors()
+    if len(errors) == 1 and errors[0]["type"] == "json_invalid":
+        match = re.search(r"line (\d+)", errors[0]["msg"])
+        return f"the job file isn't valid: line {match.group(1)}" if match else "the job file isn't valid"
+    lines = []
+    for err in errors:
+        path = " → ".join(str(step) for step in err["loc"])
+        msg = err["msg"]
+        if msg.startswith("Value error, "):
+            msg = msg[len("Value error, "):]
+        lines.append(f"{path}: {msg}" if path else msg)
+    return "the job file isn't valid:\n" + "\n".join(f"    {line}" for line in lines)
+
+
+def _missing_package_path(error: PackageNotFoundError) -> str:
+    match = re.search(r"at '(.+)'", str(error))
+    return match.group(1) if match else str(error)
+
+
+def _run(args: argparse.Namespace) -> int:
     if args.command == "build":
         job = Job.model_validate_json(args.job.read_text(encoding="utf-8"))
         book = PriceBook.load(PRICE_BOOK, ALIASES)
@@ -106,6 +137,27 @@ def main(argv: list[str] | None = None) -> int:
         args.out.write_text(price_check(args.generated, args.sent, book, args.generated.stem), encoding="utf-8")
         print(f"Wrote {args.out}")
     return 0
+
+
+def main(argv: list[str] | None = None) -> int:
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8")
+    args = _parser().parse_args(argv)
+    try:
+        return _run(args)
+    except ValidationError as error:
+        print(f"Stopped: {_job_validation_message(error)}", file=sys.stderr)
+    except PackageNotFoundError as error:
+        print(f"Stopped: can't find {_missing_package_path(error)}", file=sys.stderr)
+    except FileNotFoundError as error:
+        print(f"Stopped: can't find {error.filename}", file=sys.stderr)
+    except PermissionError as error:
+        print(f"Stopped: {error.filename} is open in Word or Excel — close it and run again", file=sys.stderr)
+    except ValueError as error:
+        # TemplateError, ProposalFormatError, PriceSheetError, and the price book's own
+        # ValueError are all plain-words already — nothing more to translate.
+        print(f"Stopped: {error}", file=sys.stderr)
+    return 1
 
 
 if __name__ == "__main__":
