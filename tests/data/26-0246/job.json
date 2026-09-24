@@ -1,0 +1,3345 @@
+{
+  "header": {
+    "to": "All Bidders",
+    "date": "2026-06-08",
+    "quote_number": "26-0246",
+    "reference": "PS Q517, 1 Beach 39th St, Queens NY - New Bldg",
+    "mep_engineer": "SCA",
+    "based_on": [
+      "M001.00 Thru M505.00 Dated: 03/31/2026"
+    ]
+  },
+  "scope_heading_suffix": "PREWAILING WAGE",
+  "front_end": {
+    "mode": "new-system",
+    "existing_system_name": null,
+    "items": [
+      {
+        "kind": "line",
+        "depth": 1,
+        "runs": [
+          {
+            "text": "Furnish Network Level Control Panel",
+            "bold": true
+          }
+        ],
+        "quantity": 1,
+        "tech_hours": null
+      },
+      {
+        "kind": "line",
+        "depth": 1,
+        "runs": [
+          {
+            "text": "Furnish PC Workstation (School Operator Console )",
+            "bold": true
+          }
+        ],
+        "quantity": 1,
+        "tech_hours": null
+      },
+      {
+        "kind": "line",
+        "depth": 1,
+        "runs": [
+          {
+            "text": "Furnish BMS Server",
+            "bold": true
+          }
+        ],
+        "quantity": 1,
+        "tech_hours": null
+      },
+      {
+        "kind": "line",
+        "depth": 1,
+        "runs": [
+          {
+            "text": "Furnish POT (Laptop or Tablet)",
+            "bold": true
+          }
+        ],
+        "quantity": 1,
+        "tech_hours": null
+      },
+      {
+        "kind": "line",
+        "depth": 1,
+        "runs": [
+          {
+            "text": "Furnish UPS",
+            "bold": true
+          }
+        ],
+        "quantity": 1,
+        "tech_hours": null
+      },
+      {
+        "kind": "line",
+        "depth": 1,
+        "runs": [
+          {
+            "text": "Furnish 3-D Graphics",
+            "bold": true
+          }
+        ],
+        "quantity": 1,
+        "tech_hours": null
+      },
+      {
+        "kind": "line",
+        "depth": 1,
+        "runs": [
+          {
+            "text": "Furnish Necessary Training on New Controls",
+            "bold": true
+          }
+        ],
+        "quantity": null,
+        "tech_hours": null
+      },
+      {
+        "kind": "note",
+        "depth": 1,
+        "runs": [
+          {
+            "text": "*INTEGRATION AND SOFTWARE FOR NYCDOE CENTRALISED HOST CONTROL STATION BY OTHERS – M406.00",
+            "bold": true
+          }
+        ],
+        "quantity": null,
+        "tech_hours": null
+      },
+      {
+        "kind": "note",
+        "depth": 1,
+        "runs": [
+          {
+            "text": "*CONNECTION TO NYCDOE WAN BY OTHERS – M406.00",
+            "bold": true
+          }
+        ],
+        "quantity": null,
+        "tech_hours": null
+      },
+      {
+        "kind": "note",
+        "depth": 1,
+        "runs": [
+          {
+            "text": "*AME WILL PROVIDE HORIZONTAL MS/TP BACNET AND LOW VOLTAGE WIRING FROM THE ITC BACNET WALL DATA ENCLOSURES TO BACNET FIELD TERMINAL DEVICES – M406.00",
+            "bold": true
+          }
+        ],
+        "quantity": null,
+        "tech_hours": null
+      },
+      {
+        "kind": "note",
+        "depth": 1,
+        "runs": [
+          {
+            "text": "*AME SHALL TEST ALL HORIZONTAL CAT-6 CABLE RUNS AND PROVIDE TEST REPORT TO THE AUTHORITY – 15970-106",
+            "bold": true
+          }
+        ],
+        "quantity": null,
+        "tech_hours": null
+      },
+      {
+        "kind": "note",
+        "depth": 1,
+        "runs": [
+          {
+            "text": "*THE DIVISION 16 ELECTRICAL SHALL PROVIDE ETHERNET CAT 6 BACNET CABLING PER THE REQUIREMENTS OF SPECIFICATION 16727 (DATA CABLING SYSTEM). THE DIVISION 16 ELECTRICAL CONTRACTOR SHALL TERMINATE CAT 6 WIRING TO PATCH PANEL IN BACNET DATA CABINET IN MAIN TELECOMMUNICATIONS ROOM AND IN BACNET WALL DATA ENCLOSURES IN EACH INTERMEDIATE TELECOMMUNICATION CLOSET LOCATED CENTRALLY AND STACKED ON EACH FLOOR.",
+            "bold": true
+          }
+        ],
+        "quantity": null,
+        "tech_hours": null
+      }
+    ],
+    "tech_hours": 140.0
+  },
+  "blocks": [
+    {
+      "header": "*Qty (1) BACnet Data Cabinet",
+      "items": [
+        {
+          "kind": "line",
+          "depth": 1,
+          "runs": [
+            {
+              "text": "Furnish and Install UPS",
+              "bold": false
+            }
+          ],
+          "quantity": 1,
+          "tech_hours": null
+        },
+        {
+          "kind": "line",
+          "depth": 1,
+          "runs": [
+            {
+              "text": "Furnish and Install ",
+              "bold": false
+            },
+            {
+              "text": "(Rack Mounted) ",
+              "bold": true
+            },
+            {
+              "text": "BACnet Server",
+              "bold": false
+            }
+          ],
+          "quantity": 1,
+          "tech_hours": null
+        },
+        {
+          "kind": "line",
+          "depth": 1,
+          "runs": [
+            {
+              "text": "Furnish and Install LCD Display",
+              "bold": false
+            }
+          ],
+          "quantity": 1,
+          "tech_hours": null
+        },
+        {
+          "kind": "line",
+          "depth": 2,
+          "runs": [
+            {
+              "text": "Keyboard",
+              "bold": false
+            }
+          ],
+          "quantity": null,
+          "tech_hours": null
+        },
+        {
+          "kind": "line",
+          "depth": 2,
+          "runs": [
+            {
+              "text": "Mouse",
+              "bold": false
+            }
+          ],
+          "quantity": null,
+          "tech_hours": null
+        },
+        {
+          "kind": "line",
+          "depth": 1,
+          "runs": [
+            {
+              "text": "Install Cisco 24 Port Switch ",
+              "bold": false
+            },
+            {
+              "text": "(Switch Furnished by Others)",
+              "bold": true
+            }
+          ],
+          "quantity": null,
+          "tech_hours": null
+        },
+        {
+          "kind": "note",
+          "depth": 1,
+          "runs": [
+            {
+              "text": "*24 PORT PATCH PANEL BY OTHERS",
+              "bold": true
+            }
+          ],
+          "quantity": null,
+          "tech_hours": null
+        },
+        {
+          "kind": "note",
+          "depth": 1,
+          "runs": [
+            {
+              "text": "*ENCLOSURE BY OTHERS",
+              "bold": true
+            }
+          ],
+          "quantity": null,
+          "tech_hours": null
+        }
+      ],
+      "tech_hours": 10.0,
+      "joined": false,
+      "numbered": true
+    },
+    {
+      "header": "Qty (5) Multiple BACnet Router Data Cabinet",
+      "items": [
+        {
+          "kind": "line",
+          "depth": 1,
+          "runs": [
+            {
+              "text": "Furnish NEMA 12K Enclosure ",
+              "bold": false
+            },
+            {
+              "text": "– (Qty. 5 Total) Installation by Others",
+              "bold": true
+            }
+          ],
+          "quantity": 5,
+          "tech_hours": null
+        },
+        {
+          "kind": "line",
+          "depth": 1,
+          "runs": [
+            {
+              "text": "Furnish and Install ",
+              "bold": false
+            },
+            {
+              "text": "BACnet IP Router – (Qty. 7 Total)",
+              "bold": true
+            }
+          ],
+          "quantity": 7,
+          "tech_hours": null
+        },
+        {
+          "kind": "line",
+          "depth": 1,
+          "runs": [
+            {
+              "text": "Furnish and Install 7AMP Circuit Breaker ",
+              "bold": false
+            },
+            {
+              "text": "– (Qty. 5 Total)",
+              "bold": true
+            }
+          ],
+          "quantity": 5,
+          "tech_hours": null
+        },
+        {
+          "kind": "line",
+          "depth": 1,
+          "runs": [
+            {
+              "text": "Furnish and Install Control Transformer ",
+              "bold": false
+            },
+            {
+              "text": "– (Qty. 5 Total)",
+              "bold": true
+            }
+          ],
+          "quantity": 5,
+          "tech_hours": null
+        }
+      ],
+      "tech_hours": 25.0,
+      "joined": false,
+      "numbered": true
+    },
+    {
+      "header": "Qty (4) Power Distribution Panel LVCP-1, 2, 4, 5",
+      "items": [
+        {
+          "kind": "line",
+          "depth": 1,
+          "runs": [
+            {
+              "text": "Furnish ",
+              "bold": false
+            },
+            {
+              "text": "24V",
+              "bold": true
+            },
+            {
+              "text": " Power Distribution Panel for ",
+              "bold": false
+            },
+            {
+              "text": "Installation by Others",
+              "bold": true
+            }
+          ],
+          "quantity": 4,
+          "tech_hours": null
+        },
+        {
+          "kind": "line",
+          "depth": 2,
+          "runs": [
+            {
+              "text": "Transformer w/ Circuit Breaker",
+              "bold": false
+            }
+          ],
+          "quantity": 4,
+          "tech_hours": null
+        },
+        {
+          "kind": "line",
+          "depth": 2,
+          "runs": [
+            {
+              "text": "Enclosure",
+              "bold": false
+            }
+          ],
+          "quantity": 4,
+          "tech_hours": null
+        },
+        {
+          "kind": "line",
+          "depth": 1,
+          "runs": [
+            {
+              "text": "Furnish and Install 7AMP Circuit Breaker",
+              "bold": false
+            }
+          ],
+          "quantity": 4,
+          "tech_hours": null
+        },
+        {
+          "kind": "note",
+          "depth": 1,
+          "runs": [
+            {
+              "text": "*ASSUMED AS PER STANDARD PRACTICE",
+              "bold": true
+            }
+          ],
+          "quantity": null,
+          "tech_hours": null
+        }
+      ],
+      "tech_hours": 20.0,
+      "joined": false,
+      "numbered": true
+    },
+    {
+      "header": "Qty (1) Global Points",
+      "items": [
+        {
+          "kind": "line",
+          "depth": 1,
+          "runs": [
+            {
+              "text": "Furnish and Install Outside Air Temperature",
+              "bold": false
+            }
+          ],
+          "quantity": 1,
+          "tech_hours": null
+        },
+        {
+          "kind": "line",
+          "depth": 1,
+          "runs": [
+            {
+              "text": "Furnish and Install Outside Air Humidity",
+              "bold": false
+            }
+          ],
+          "quantity": 1,
+          "tech_hours": null
+        },
+        {
+          "kind": "line",
+          "depth": 1,
+          "runs": [
+            {
+              "text": "Furnish and Install Outside Air CO2",
+              "bold": false
+            }
+          ],
+          "quantity": 1,
+          "tech_hours": null
+        }
+      ],
+      "tech_hours": 6.0,
+      "joined": false,
+      "numbered": true
+    },
+    {
+      "header": "Qty (4) Packaged Air Handling Unit AHU-1, 2, 3, 4",
+      "items": [
+        {
+          "kind": "line",
+          "depth": 1,
+          "runs": [
+            {
+              "text": "Install and wire Space Temperature / Humidity Sensor (Furnished by Unit Mfr.)",
+              "bold": false
+            }
+          ],
+          "quantity": null,
+          "tech_hours": null
+        },
+        {
+          "kind": "line",
+          "depth": 1,
+          "runs": [
+            {
+              "text": "Install and wire Duct Static Pressure Sensor (Furnished by Unit Mfr.)",
+              "bold": false
+            }
+          ],
+          "quantity": null,
+          "tech_hours": null
+        },
+        {
+          "kind": "line",
+          "depth": 1,
+          "runs": [
+            {
+              "text": "Tie-in Fire Alarm Shutdown Signal from Fire Alarm Control Panel",
+              "bold": false
+            }
+          ],
+          "quantity": null,
+          "tech_hours": null
+        },
+        {
+          "kind": "line",
+          "depth": 1,
+          "runs": [
+            {
+              "text": "Furnish BMS Communication Wiring to Factory Controls ",
+              "bold": false
+            },
+            {
+              "text": "– (Qty. 4 Total)",
+              "bold": true
+            }
+          ],
+          "quantity": null,
+          "tech_hours": null
+        },
+        {
+          "kind": "line",
+          "depth": 1,
+          "runs": [
+            {
+              "text": "Map Available Points Via Mfr. Provided BMS Interface",
+              "bold": false
+            }
+          ],
+          "quantity": null,
+          "tech_hours": null
+        },
+        {
+          "kind": "line",
+          "depth": 2,
+          "runs": [
+            {
+              "text": "AME Requires Mfr. Rep to Assist in Integration, cost to be Incurred by Mech Contractor",
+              "bold": false
+            }
+          ],
+          "quantity": null,
+          "tech_hours": null
+        },
+        {
+          "kind": "line",
+          "depth": 1,
+          "runs": [
+            {
+              "text": "Furnish BMS Communication Wiring to ",
+              "bold": false
+            },
+            {
+              "text": "VFD ",
+              "bold": true
+            },
+            {
+              "text": "Factory Controls ",
+              "bold": false
+            },
+            {
+              "text": "– (Qty. 8 Total)",
+              "bold": true
+            }
+          ],
+          "quantity": null,
+          "tech_hours": null
+        },
+        {
+          "kind": "line",
+          "depth": 1,
+          "runs": [
+            {
+              "text": "Map Available Points Via Mfr. Provided BMS Interface",
+              "bold": false
+            }
+          ],
+          "quantity": null,
+          "tech_hours": null
+        },
+        {
+          "kind": "line",
+          "depth": 2,
+          "runs": [
+            {
+              "text": "AME Requires Mfr. Rep to Assist in Integration, cost to be Incurred by Mech Contractor",
+              "bold": false
+            }
+          ],
+          "quantity": null,
+          "tech_hours": null
+        },
+        {
+          "kind": "line",
+          "depth": 1,
+          "runs": [
+            {
+              "text": "Furnish BMS Communication Wiring to Enthalpy Wheel VFD Controls ",
+              "bold": false
+            },
+            {
+              "text": "– (Qty. 4 Total)",
+              "bold": true
+            }
+          ],
+          "quantity": null,
+          "tech_hours": null
+        },
+        {
+          "kind": "line",
+          "depth": 1,
+          "runs": [
+            {
+              "text": "Map Available Points Via Mfr. Provided BMS Interface",
+              "bold": false
+            }
+          ],
+          "quantity": null,
+          "tech_hours": null
+        },
+        {
+          "kind": "line",
+          "depth": 2,
+          "runs": [
+            {
+              "text": "AME Requires Mfr. Rep to Assist in Integration, cost to be Incurred by Mech Contractor",
+              "bold": false
+            }
+          ],
+          "quantity": null,
+          "tech_hours": null
+        },
+        {
+          "kind": "note",
+          "depth": 1,
+          "runs": [
+            {
+              "text": "*AFMS, A2L REFRIGERANT LEAK DETECTION SYSTEM BY UNIT MFR.",
+              "bold": true
+            }
+          ],
+          "quantity": null,
+          "tech_hours": null
+        }
+      ],
+      "tech_hours": 64.0,
+      "joined": false,
+      "numbered": true
+    },
+    {
+      "header": "Qty (1) Packaged Air Handling Unit AHU-5",
+      "items": [
+        {
+          "kind": "line",
+          "depth": 1,
+          "runs": [
+            {
+              "text": "Install and wire Space Temperature / Humidity / CO2 Sensor (Furnished by Unit Mfr.)",
+              "bold": false
+            }
+          ],
+          "quantity": null,
+          "tech_hours": null
+        },
+        {
+          "kind": "line",
+          "depth": 1,
+          "runs": [
+            {
+              "text": "Tie-in Fire Alarm Shutdown Signal from Fire Alarm Control Panel",
+              "bold": false
+            }
+          ],
+          "quantity": null,
+          "tech_hours": null
+        },
+        {
+          "kind": "line",
+          "depth": 1,
+          "runs": [
+            {
+              "text": "Furnish BMS Communication Wiring to Factory Controls",
+              "bold": false
+            }
+          ],
+          "quantity": null,
+          "tech_hours": null
+        },
+        {
+          "kind": "line",
+          "depth": 1,
+          "runs": [
+            {
+              "text": "Map Available Points Via Mfr. Provided BMS Interface",
+              "bold": false
+            }
+          ],
+          "quantity": null,
+          "tech_hours": null
+        },
+        {
+          "kind": "line",
+          "depth": 2,
+          "runs": [
+            {
+              "text": "AME Requires Mfr. Rep to Assist in Integration, cost to be Incurred by Mech Contractor",
+              "bold": false
+            }
+          ],
+          "quantity": null,
+          "tech_hours": null
+        },
+        {
+          "kind": "line",
+          "depth": 1,
+          "runs": [
+            {
+              "text": "Furnish BMS Communication Wiring to ",
+              "bold": false
+            },
+            {
+              "text": "VFD ",
+              "bold": true
+            },
+            {
+              "text": "Factory Controls ",
+              "bold": false
+            },
+            {
+              "text": "– (Qty. 2 Total)",
+              "bold": true
+            }
+          ],
+          "quantity": null,
+          "tech_hours": null
+        },
+        {
+          "kind": "line",
+          "depth": 1,
+          "runs": [
+            {
+              "text": "Map Available Points Via Mfr. Provided BMS Interface",
+              "bold": false
+            }
+          ],
+          "quantity": null,
+          "tech_hours": null
+        },
+        {
+          "kind": "line",
+          "depth": 2,
+          "runs": [
+            {
+              "text": "AME Requires Mfr. Rep to Assist in Integration, cost to be Incurred by Mech Contractor",
+              "bold": false
+            }
+          ],
+          "quantity": null,
+          "tech_hours": null
+        },
+        {
+          "kind": "line",
+          "depth": 1,
+          "runs": [
+            {
+              "text": "Furnish BMS Communication Wiring to Enthalpy Wheel VFD Controls",
+              "bold": false
+            }
+          ],
+          "quantity": null,
+          "tech_hours": null
+        },
+        {
+          "kind": "line",
+          "depth": 1,
+          "runs": [
+            {
+              "text": "Map Available Points Via Mfr. Provided BMS Interface",
+              "bold": false
+            }
+          ],
+          "quantity": null,
+          "tech_hours": null
+        },
+        {
+          "kind": "line",
+          "depth": 2,
+          "runs": [
+            {
+              "text": "AME Requires Mfr. Rep to Assist in Integration, cost to be Incurred by Mech Contractor",
+              "bold": false
+            }
+          ],
+          "quantity": null,
+          "tech_hours": null
+        },
+        {
+          "kind": "note",
+          "depth": 1,
+          "runs": [
+            {
+              "text": "*AFMS, A2L REFRIGERANT LEAK DETECTION SYSTEM BY UNIT MFR.",
+              "bold": true
+            }
+          ],
+          "quantity": null,
+          "tech_hours": null
+        }
+      ],
+      "tech_hours": 16.0,
+      "joined": false,
+      "numbered": true
+    },
+    {
+      "header": "Qty (1) Packaged Air Handling Unit AHU-6",
+      "items": [
+        {
+          "kind": "line",
+          "depth": 1,
+          "runs": [
+            {
+              "text": "Install and wire Space Temperature / Humidity / CO2 Sensor (Furnished by Unit Mfr.)",
+              "bold": false
+            }
+          ],
+          "quantity": null,
+          "tech_hours": null
+        },
+        {
+          "kind": "line",
+          "depth": 1,
+          "runs": [
+            {
+              "text": "Tie-in Fire Alarm Shutdown Signal from Fire Alarm Control Panel",
+              "bold": false
+            }
+          ],
+          "quantity": null,
+          "tech_hours": null
+        },
+        {
+          "kind": "line",
+          "depth": 1,
+          "runs": [
+            {
+              "text": "Furnish BMS Communication Wiring to Factory Controls",
+              "bold": false
+            }
+          ],
+          "quantity": null,
+          "tech_hours": null
+        },
+        {
+          "kind": "line",
+          "depth": 1,
+          "runs": [
+            {
+              "text": "Map Available Points Via Mfr. Provided BMS Interface",
+              "bold": false
+            }
+          ],
+          "quantity": null,
+          "tech_hours": null
+        },
+        {
+          "kind": "line",
+          "depth": 2,
+          "runs": [
+            {
+              "text": "AME Requires Mfr. Rep to Assist in Integration, cost to be Incurred by Mech Contractor",
+              "bold": false
+            }
+          ],
+          "quantity": null,
+          "tech_hours": null
+        },
+        {
+          "kind": "line",
+          "depth": 1,
+          "runs": [
+            {
+              "text": "Furnish BMS Communication Wiring to ",
+              "bold": false
+            },
+            {
+              "text": "VFD ",
+              "bold": true
+            },
+            {
+              "text": "Factory Controls ",
+              "bold": false
+            },
+            {
+              "text": "– (Qty. 2 Total)",
+              "bold": true
+            }
+          ],
+          "quantity": null,
+          "tech_hours": null
+        },
+        {
+          "kind": "line",
+          "depth": 1,
+          "runs": [
+            {
+              "text": "Map Available Points Via Mfr. Provided BMS Interface",
+              "bold": false
+            }
+          ],
+          "quantity": null,
+          "tech_hours": null
+        },
+        {
+          "kind": "line",
+          "depth": 2,
+          "runs": [
+            {
+              "text": "AME Requires Mfr. Rep to Assist in Integration, cost to be Incurred by Mech Contractor",
+              "bold": false
+            }
+          ],
+          "quantity": null,
+          "tech_hours": null
+        },
+        {
+          "kind": "note",
+          "depth": 1,
+          "runs": [
+            {
+              "text": "*AFMS, A2L REFRIGERANT LEAK DETECTION SYSTEM BY UNIT MFR.",
+              "bold": true
+            }
+          ],
+          "quantity": null,
+          "tech_hours": null
+        }
+      ],
+      "tech_hours": 16.0,
+      "joined": false,
+      "numbered": true
+    },
+    {
+      "header": "Qty (58) Variable Air Volume Box – VAV",
+      "items": [
+        {
+          "kind": "line",
+          "depth": 1,
+          "runs": [
+            {
+              "text": "Furnish DDC Controller to the Factory for Installation",
+              "bold": false
+            }
+          ],
+          "quantity": 58,
+          "tech_hours": null
+        },
+        {
+          "kind": "line",
+          "depth": 1,
+          "runs": [
+            {
+              "text": "Furnish and Install Space Temperature / CO2 Sensor",
+              "bold": false
+            }
+          ],
+          "quantity": 58,
+          "tech_hours": null
+        },
+        {
+          "kind": "line",
+          "depth": 1,
+          "runs": [
+            {
+              "text": "24V Transformer by Unit Mfr.",
+              "bold": true
+            }
+          ],
+          "quantity": null,
+          "tech_hours": null
+        }
+      ],
+      "tech_hours": 174.0,
+      "joined": false,
+      "numbered": true
+    },
+    {
+      "header": "Qty (19) Constant Air Volume Box CAV-## (NO CONTROL INFORMATION PROVIDED)",
+      "items": [
+        {
+          "kind": "line",
+          "depth": 1,
+          "runs": [
+            {
+              "text": "Furnish DDC Controller to the Factory for Installation",
+              "bold": false
+            }
+          ],
+          "quantity": 19,
+          "tech_hours": null
+        },
+        {
+          "kind": "line",
+          "depth": 1,
+          "runs": [
+            {
+              "text": "24V Transformer by Unit Mfr.",
+              "bold": true
+            }
+          ],
+          "quantity": null,
+          "tech_hours": null
+        }
+      ],
+      "tech_hours": 57.0,
+      "joined": false,
+      "numbered": true
+    },
+    {
+      "header": "Qty (4) Fan Powered Variable Air Volume Box w/ Heating Coil – FPVAV",
+      "items": [
+        {
+          "kind": "line",
+          "depth": 1,
+          "runs": [
+            {
+              "text": "Furnish DDC Controller to the Factory for Installation",
+              "bold": false
+            }
+          ],
+          "quantity": 4,
+          "tech_hours": null
+        },
+        {
+          "kind": "line",
+          "depth": 1,
+          "runs": [
+            {
+              "text": "Furnish and Install Space Temperature / CO2 Sensor",
+              "bold": false
+            }
+          ],
+          "quantity": 4,
+          "tech_hours": null
+        },
+        {
+          "kind": "line",
+          "depth": 1,
+          "runs": [
+            {
+              "text": "Furnish Fan Start / Stop and Status",
+              "bold": false
+            }
+          ],
+          "quantity": 4,
+          "tech_hours": null
+        },
+        {
+          "kind": "line",
+          "depth": 1,
+          "runs": [
+            {
+              "text": "Furnish and Install Discharge Air Temperature Sensor",
+              "bold": false
+            }
+          ],
+          "quantity": 4,
+          "tech_hours": null
+        },
+        {
+          "kind": "line",
+          "depth": 1,
+          "runs": [
+            {
+              "text": "Furnish Electric Heat SCR Control",
+              "bold": false
+            }
+          ],
+          "quantity": 4,
+          "tech_hours": null
+        },
+        {
+          "kind": "line",
+          "depth": 1,
+          "runs": [
+            {
+              "text": "24V Transformer by Unit Mfr.",
+              "bold": true
+            }
+          ],
+          "quantity": null,
+          "tech_hours": null
+        }
+      ],
+      "tech_hours": 24.0,
+      "joined": false,
+      "numbered": true
+    },
+    {
+      "header": "Qty (10) Split System Indoor Unit AC-## | Qty (10) Outdoor Unit ACCU-##",
+      "items": [
+        {
+          "kind": "line",
+          "depth": 1,
+          "runs": [
+            {
+              "text": "Install and wire Programmable Thermostat (Furnished by Unit Mfr.)",
+              "bold": false
+            }
+          ],
+          "quantity": null,
+          "tech_hours": null
+        },
+        {
+          "kind": "line",
+          "depth": 1,
+          "runs": [
+            {
+              "text": "Furnish and Install Space Temperature / Humidity Sensor (BMS Monitoring)",
+              "bold": false
+            }
+          ],
+          "quantity": 10,
+          "tech_hours": null
+        },
+        {
+          "kind": "line",
+          "depth": 1,
+          "runs": [
+            {
+              "text": "Furnish and Install Leak Sensor",
+              "bold": false
+            }
+          ],
+          "quantity": 10,
+          "tech_hours": null
+        },
+        {
+          "kind": "line",
+          "depth": 1,
+          "runs": [
+            {
+              "text": "Tie-in Condensate Pump Float Switch (Furnished by Mfr.) ",
+              "bold": false
+            },
+            {
+              "text": "– As per Detail 5 (M504)",
+              "bold": true
+            }
+          ],
+          "quantity": null,
+          "tech_hours": null
+        },
+        {
+          "kind": "line",
+          "depth": 1,
+          "runs": [
+            {
+              "text": "Low Voltage Interlock Wiring between Indoor and Outdoor Unit",
+              "bold": false
+            }
+          ],
+          "quantity": null,
+          "tech_hours": null
+        },
+        {
+          "kind": "line",
+          "depth": 1,
+          "runs": [
+            {
+              "text": "Furnish BMS Communication Wiring to Factory Controls",
+              "bold": false
+            }
+          ],
+          "quantity": null,
+          "tech_hours": null
+        },
+        {
+          "kind": "line",
+          "depth": 1,
+          "runs": [
+            {
+              "text": "Map Available Points Via Mfr. Provided BMS Interface",
+              "bold": false
+            }
+          ],
+          "quantity": null,
+          "tech_hours": null
+        },
+        {
+          "kind": "line",
+          "depth": 2,
+          "runs": [
+            {
+              "text": "AME requires mfr. Rep to assist in integration, cost to be incurred by mech contractor",
+              "bold": false
+            }
+          ],
+          "quantity": null,
+          "tech_hours": null
+        }
+      ],
+      "tech_hours": 20.0,
+      "joined": false,
+      "numbered": true
+    },
+    {
+      "header": "Qty (1) Split System Indoor Unit AC-502 | Qty (1) Outdoor Unit ACCU-502",
+      "items": [],
+      "tech_hours": 10.0,
+      "joined": false,
+      "numbered": true
+    },
+    {
+      "header": "Qty (1) Energy Recovery Ventilator Unit ERV-502",
+      "items": [],
+      "tech_hours": null,
+      "joined": true,
+      "numbered": true
+    },
+    {
+      "header": "Qty (2) Gravity Ventilator GV-502-IN, EX",
+      "items": [],
+      "tech_hours": null,
+      "joined": true,
+      "numbered": true
+    },
+    {
+      "header": "Qty (1) Electric Duct Heater EDH-502",
+      "items": [
+        {
+          "kind": "line",
+          "depth": 1,
+          "runs": [
+            {
+              "text": "Install and wire Programmable Thermostat (Furnished by Unit Mfr.) ",
+              "bold": false
+            },
+            {
+              "text": "(For Split System)",
+              "bold": true
+            }
+          ],
+          "quantity": null,
+          "tech_hours": null
+        },
+        {
+          "kind": "line",
+          "depth": 1,
+          "runs": [
+            {
+              "text": "Furnish and Install Space Temperature / Humidity Sensor (BMS Monitoring)",
+              "bold": false
+            }
+          ],
+          "quantity": 1,
+          "tech_hours": null
+        },
+        {
+          "kind": "line",
+          "depth": 1,
+          "runs": [
+            {
+              "text": "Furnish and Install Gravity Ventilator Damper Actuator ",
+              "bold": false
+            },
+            {
+              "text": "– (Qty. 2 Total)",
+              "bold": true
+            }
+          ],
+          "quantity": 2,
+          "tech_hours": null
+        },
+        {
+          "kind": "line",
+          "depth": 1,
+          "runs": [
+            {
+              "text": "Furnish and Install Leak Sensor",
+              "bold": false
+            }
+          ],
+          "quantity": 1,
+          "tech_hours": null
+        },
+        {
+          "kind": "line",
+          "depth": 1,
+          "runs": [
+            {
+              "text": "Tie-in Condensate Pump Float Switch (Furnished by Mfr.) ",
+              "bold": false
+            },
+            {
+              "text": "– As per Detail 5 (M504)",
+              "bold": true
+            }
+          ],
+          "quantity": null,
+          "tech_hours": null
+        },
+        {
+          "kind": "line",
+          "depth": 1,
+          "runs": [
+            {
+              "text": "Necessary Low Voltage Interlock Wiring between ERV Unit and Split Indoor Unit Operation",
+              "bold": false
+            }
+          ],
+          "quantity": null,
+          "tech_hours": null
+        },
+        {
+          "kind": "line",
+          "depth": 1,
+          "runs": [
+            {
+              "text": "Necessary Low Voltage Interlock Wiring between EDH and Split Indoor Unit Operation",
+              "bold": false
+            }
+          ],
+          "quantity": null,
+          "tech_hours": null
+        },
+        {
+          "kind": "line",
+          "depth": 1,
+          "runs": [
+            {
+              "text": "Necessary Low Voltage Control Wiring between ERV Unit Factory Relay Module for Damper Control and Split Indoor Unit",
+              "bold": false
+            }
+          ],
+          "quantity": null,
+          "tech_hours": null
+        },
+        {
+          "kind": "line",
+          "depth": 1,
+          "runs": [
+            {
+              "text": "Low Voltage Interlock Wiring between Split Indoor and Outdoor Unit",
+              "bold": false
+            }
+          ],
+          "quantity": null,
+          "tech_hours": null
+        },
+        {
+          "kind": "line",
+          "depth": 1,
+          "runs": [
+            {
+              "text": "Furnish BMS Communication Wiring to ",
+              "bold": false
+            },
+            {
+              "text": "Split ",
+              "bold": true
+            },
+            {
+              "text": "Factory Controls",
+              "bold": false
+            }
+          ],
+          "quantity": null,
+          "tech_hours": null
+        },
+        {
+          "kind": "line",
+          "depth": 1,
+          "runs": [
+            {
+              "text": "Map Available Points Via Mfr. Provided BMS Interface",
+              "bold": false
+            }
+          ],
+          "quantity": null,
+          "tech_hours": null
+        },
+        {
+          "kind": "line",
+          "depth": 2,
+          "runs": [
+            {
+              "text": "AME requires mfr. Rep to assist in integration, cost to be incurred by mech contractor",
+              "bold": false
+            }
+          ],
+          "quantity": null,
+          "tech_hours": null
+        },
+        {
+          "kind": "line",
+          "depth": 1,
+          "runs": [
+            {
+              "text": "Furnish BMS Communication Wiring to ",
+              "bold": false
+            },
+            {
+              "text": "Energy Recovery Ventilator",
+              "bold": true
+            },
+            {
+              "text": " Factory Controls",
+              "bold": false
+            }
+          ],
+          "quantity": null,
+          "tech_hours": null
+        },
+        {
+          "kind": "line",
+          "depth": 1,
+          "runs": [
+            {
+              "text": "Map Available Points Via Mfr. Provided BMS Interface",
+              "bold": false
+            }
+          ],
+          "quantity": null,
+          "tech_hours": null
+        },
+        {
+          "kind": "line",
+          "depth": 2,
+          "runs": [
+            {
+              "text": "AME requires mfr. Rep to assist in integration, cost to be incurred by mech contractor",
+              "bold": false
+            }
+          ],
+          "quantity": null,
+          "tech_hours": null
+        }
+      ],
+      "tech_hours": null,
+      "joined": true,
+      "numbered": true
+    },
+    {
+      "header": "Qty (3) Toilet Exhaust Fan TEF-1, 2, 3",
+      "items": [
+        {
+          "kind": "line",
+          "depth": 1,
+          "runs": [
+            {
+              "text": "Furnish and Install DDC Controller",
+              "bold": false
+            }
+          ],
+          "quantity": 3,
+          "tech_hours": null
+        },
+        {
+          "kind": "line",
+          "depth": 1,
+          "runs": [
+            {
+              "text": "Furnish Fan Start / Stop and Status",
+              "bold": false
+            }
+          ],
+          "quantity": 3,
+          "tech_hours": null
+        },
+        {
+          "kind": "line",
+          "depth": 1,
+          "runs": [
+            {
+              "text": "Furnish and Install Exhaust Fan Damper Actuator ",
+              "bold": false
+            },
+            {
+              "text": "– (Qty. 3 Total)",
+              "bold": true
+            }
+          ],
+          "quantity": 3,
+          "tech_hours": null
+        }
+      ],
+      "tech_hours": 12.0,
+      "joined": false,
+      "numbered": true
+    },
+    {
+      "header": "Qty (1) Electric Room Exhaust Fan EF-1",
+      "items": [
+        {
+          "kind": "line",
+          "depth": 1,
+          "runs": [
+            {
+              "text": "Furnish and Install DDC Controller",
+              "bold": false
+            }
+          ],
+          "quantity": 1,
+          "tech_hours": 4.0
+        },
+        {
+          "kind": "line",
+          "depth": 1,
+          "runs": [
+            {
+              "text": "Furnish and Install Space Temperature Sensor",
+              "bold": false
+            }
+          ],
+          "quantity": 1,
+          "tech_hours": null
+        },
+        {
+          "kind": "line",
+          "depth": 1,
+          "runs": [
+            {
+              "text": "Furnish Fan Start / Stop and Status",
+              "bold": false
+            }
+          ],
+          "quantity": 1,
+          "tech_hours": null
+        },
+        {
+          "kind": "line",
+          "depth": 1,
+          "runs": [
+            {
+              "text": "Furnish and Install Exhaust Fan Damper Actuator",
+              "bold": false
+            }
+          ],
+          "quantity": 1,
+          "tech_hours": null
+        }
+      ],
+      "tech_hours": null,
+      "joined": false,
+      "numbered": true
+    },
+    {
+      "header": "Qty (1) Shower Room Exhaust Fan EF-2",
+      "items": [],
+      "tech_hours": 4.0,
+      "joined": false,
+      "numbered": true
+    },
+    {
+      "header": "Qty (2) Storage Room Exhaust Fan EF-3, 8",
+      "items": [],
+      "tech_hours": 8.0,
+      "joined": true,
+      "numbered": true
+    },
+    {
+      "header": "Qty (1) Water Service Room Exhaust Fan EF-5",
+      "items": [],
+      "tech_hours": 4.0,
+      "joined": true,
+      "numbered": true
+    },
+    {
+      "header": "Qty (2) Locker Room Exhaust Fan EF-6, 10",
+      "items": [
+        {
+          "kind": "line",
+          "depth": 1,
+          "runs": [
+            {
+              "text": "Furnish and Install DDC Controller",
+              "bold": false
+            }
+          ],
+          "quantity": 6,
+          "tech_hours": null
+        },
+        {
+          "kind": "line",
+          "depth": 1,
+          "runs": [
+            {
+              "text": "Furnish Fan Start / Stop and Status",
+              "bold": false
+            }
+          ],
+          "quantity": 6,
+          "tech_hours": null
+        },
+        {
+          "kind": "line",
+          "depth": 1,
+          "runs": [
+            {
+              "text": "Furnish and Install Exhaust Fan Damper Actuator ",
+              "bold": false
+            },
+            {
+              "text": "– (Qty. 6 Total)",
+              "bold": true
+            }
+          ],
+          "quantity": 6,
+          "tech_hours": null
+        }
+      ],
+      "tech_hours": 8.0,
+      "joined": true,
+      "numbered": true
+    },
+    {
+      "header": "Qty (1) Art Storage Room Kiln Exhaust Fan EF-7",
+      "items": [
+        {
+          "kind": "line",
+          "depth": 1,
+          "runs": [
+            {
+              "text": "Interlock Wiring with Associated Unit Operation",
+              "bold": false
+            }
+          ],
+          "quantity": null,
+          "tech_hours": null
+        },
+        {
+          "kind": "line",
+          "depth": 1,
+          "runs": [
+            {
+              "text": "Furnish and Install CT for Fan Status; Connect to Nearby DDC",
+              "bold": false
+            }
+          ],
+          "quantity": 1,
+          "tech_hours": null
+        },
+        {
+          "kind": "line",
+          "depth": 1,
+          "runs": [
+            {
+              "text": "Furnish and Install Damper Actuator",
+              "bold": false
+            }
+          ],
+          "quantity": 1,
+          "tech_hours": null
+        }
+      ],
+      "tech_hours": 4.0,
+      "joined": false,
+      "numbered": true
+    },
+    {
+      "header": "*Qty (1) Can Wash Kitchen Exhaust Fan EF-9 (SEE AME ADD ALT)",
+      "items": [
+        {
+          "kind": "line",
+          "depth": 1,
+          "runs": [
+            {
+              "text": "Connect to Nearby DDC",
+              "bold": false
+            }
+          ],
+          "quantity": null,
+          "tech_hours": null
+        },
+        {
+          "kind": "line",
+          "depth": 1,
+          "runs": [
+            {
+              "text": "Furnish and Install CT for Fan Status",
+              "bold": false
+            }
+          ],
+          "quantity": 1,
+          "tech_hours": null
+        },
+        {
+          "kind": "line",
+          "depth": 1,
+          "runs": [
+            {
+              "text": "Furnish and Install Damper Actuator",
+              "bold": false
+            }
+          ],
+          "quantity": 1,
+          "tech_hours": null
+        },
+        {
+          "kind": "note",
+          "depth": 1,
+          "runs": [
+            {
+              "text": "*CONTINUOUS OPERATION – AS PER CONTROL DIAGRAM (M412.00)",
+              "bold": true
+            }
+          ],
+          "quantity": null,
+          "tech_hours": null
+        }
+      ],
+      "tech_hours": 4.0,
+      "joined": false,
+      "numbered": true
+    },
+    {
+      "header": "Qty (1) MEP Storage Room Exhaust Fan EF-11 | Qty (1) Motorized Damper MD-2",
+      "items": [
+        {
+          "kind": "line",
+          "depth": 1,
+          "runs": [
+            {
+              "text": "Furnish and Install DDC Controller",
+              "bold": false
+            }
+          ],
+          "quantity": 1,
+          "tech_hours": null
+        },
+        {
+          "kind": "line",
+          "depth": 1,
+          "runs": [
+            {
+              "text": "Furnish Fan Start / Stop and Status",
+              "bold": false
+            }
+          ],
+          "quantity": 1,
+          "tech_hours": null
+        },
+        {
+          "kind": "line",
+          "depth": 1,
+          "runs": [
+            {
+              "text": "Furnish and Install Exhaust Fan Damper Actuator",
+              "bold": false
+            }
+          ],
+          "quantity": 1,
+          "tech_hours": null
+        },
+        {
+          "kind": "line",
+          "depth": 1,
+          "runs": [
+            {
+              "text": "Furnish and Install Make-up Air Damper Actuator",
+              "bold": false
+            }
+          ],
+          "quantity": 1,
+          "tech_hours": null
+        }
+      ],
+      "tech_hours": 4.0,
+      "joined": false,
+      "numbered": true
+    },
+    {
+      "header": "Qty (3) Post-Fire Smoke Purge Fans SPF-1, 2A, B | Qty (1) Motorized Damper MD-1",
+      "items": [
+        {
+          "kind": "line",
+          "depth": 1,
+          "runs": [
+            {
+              "text": "Furnish and Install Damper Actuator ",
+              "bold": false
+            },
+            {
+              "text": "– (Qty. 4 Total)",
+              "bold": true
+            }
+          ],
+          "quantity": 4,
+          "tech_hours": null
+        },
+        {
+          "kind": "note",
+          "depth": 1,
+          "runs": [
+            {
+              "text": "*FANS ARE CONTROLLED VIA SMOKE PURGE PANEL FIRE ALARM SYSTEM",
+              "bold": true
+            }
+          ],
+          "quantity": null,
+          "tech_hours": null
+        }
+      ],
+      "tech_hours": 6.0,
+      "joined": false,
+      "numbered": true
+    },
+    {
+      "header": "Qty (1) General Kitchen Exhaust Fan KEF-1",
+      "items": [
+        {
+          "kind": "line",
+          "depth": 1,
+          "runs": [
+            {
+              "text": "Furnish and Install DDC Controller",
+              "bold": false
+            }
+          ],
+          "quantity": 1,
+          "tech_hours": null
+        },
+        {
+          "kind": "line",
+          "depth": 1,
+          "runs": [
+            {
+              "text": "Furnish and Install Space Temperature Sensor",
+              "bold": false
+            }
+          ],
+          "quantity": 1,
+          "tech_hours": null
+        },
+        {
+          "kind": "line",
+          "depth": 1,
+          "runs": [
+            {
+              "text": "Furnish Fan Start / Stop and Status",
+              "bold": false
+            }
+          ],
+          "quantity": 1,
+          "tech_hours": null
+        },
+        {
+          "kind": "line",
+          "depth": 1,
+          "runs": [
+            {
+              "text": "Furnish and Install Damper Actuator",
+              "bold": false
+            }
+          ],
+          "quantity": 1,
+          "tech_hours": null
+        },
+        {
+          "kind": "note",
+          "depth": 1,
+          "runs": [
+            {
+              "text": "*AS PER CONTROL DIAGRAM (M412.00)",
+              "bold": true
+            }
+          ],
+          "quantity": null,
+          "tech_hours": null
+        }
+      ],
+      "tech_hours": 4.0,
+      "joined": false,
+      "numbered": true
+    },
+    {
+      "header": "Kitchen Exhaust System",
+      "items": [],
+      "tech_hours": 10.0,
+      "joined": false,
+      "numbered": false
+    },
+    {
+      "header": "Qty (1) Kitchen Exhaust Fan KEF-2",
+      "items": [],
+      "tech_hours": null,
+      "joined": true,
+      "numbered": true
+    },
+    {
+      "header": "Qty (2) Kitchen Hood",
+      "items": [
+        {
+          "kind": "line",
+          "depth": 1,
+          "runs": [
+            {
+              "text": "Interlock wiring b/w AHU and Kitchen Exhaust Fan Operation",
+              "bold": false
+            }
+          ],
+          "quantity": null,
+          "tech_hours": null
+        },
+        {
+          "kind": "line",
+          "depth": 1,
+          "runs": [
+            {
+              "text": "Interlock wiring w/ Dietician’s HOA Switch at Kitchen Hood Control Panel Operation",
+              "bold": false
+            }
+          ],
+          "quantity": null,
+          "tech_hours": null
+        },
+        {
+          "kind": "line",
+          "depth": 1,
+          "runs": [
+            {
+              "text": "Furnish and Install CT for Fan Status",
+              "bold": false
+            }
+          ],
+          "quantity": 1,
+          "tech_hours": null
+        },
+        {
+          "kind": "line",
+          "depth": 1,
+          "runs": [
+            {
+              "text": "Furnish and Install Damper Actuator (Exhaust Fan)",
+              "bold": false
+            }
+          ],
+          "quantity": 1,
+          "tech_hours": null
+        }
+      ],
+      "tech_hours": null,
+      "joined": true,
+      "numbered": true
+    },
+    {
+      "header": "Qty (1) Canopy Area Supply Fan SF-100B | Qty (1) Electric Duct Heater EDH-1",
+      "items": [
+        {
+          "kind": "line",
+          "depth": 1,
+          "runs": [
+            {
+              "text": "Furnish and Install DDC Controller",
+              "bold": false
+            }
+          ],
+          "quantity": 1,
+          "tech_hours": null
+        },
+        {
+          "kind": "line",
+          "depth": 1,
+          "runs": [
+            {
+              "text": "Furnish and Install Space Temperature Sensor",
+              "bold": false
+            }
+          ],
+          "quantity": 1,
+          "tech_hours": null
+        },
+        {
+          "kind": "line",
+          "depth": 1,
+          "runs": [
+            {
+              "text": "Furnish Supply Fan Start / Stop and Status",
+              "bold": false
+            }
+          ],
+          "quantity": 1,
+          "tech_hours": null
+        },
+        {
+          "kind": "line",
+          "depth": 1,
+          "runs": [
+            {
+              "text": "Furnish EDH Enable / Disable, Status",
+              "bold": false
+            }
+          ],
+          "quantity": 1,
+          "tech_hours": null
+        },
+        {
+          "kind": "line",
+          "depth": 1,
+          "runs": [
+            {
+              "text": "Furnish and Install EDH Discharge Air Temperature Sensor",
+              "bold": false
+            }
+          ],
+          "quantity": 1,
+          "tech_hours": null
+        }
+      ],
+      "tech_hours": 6.0,
+      "joined": false,
+      "numbered": true
+    },
+    {
+      "header": "Qty (1) Roof Storage Room Exhaust Fan EX-R03 | Qty (2) Motorized Damper MD-3, 4",
+      "items": [
+        {
+          "kind": "line",
+          "depth": 1,
+          "runs": [
+            {
+              "text": "Furnish and Install DDC Controller",
+              "bold": false
+            }
+          ],
+          "quantity": 1,
+          "tech_hours": null
+        },
+        {
+          "kind": "line",
+          "depth": 1,
+          "runs": [
+            {
+              "text": "Furnish Fan Start / Stop and Status",
+              "bold": false
+            }
+          ],
+          "quantity": 1,
+          "tech_hours": null
+        },
+        {
+          "kind": "line",
+          "depth": 1,
+          "runs": [
+            {
+              "text": "Furnish and Install Exhaust Fan Damper Actuator",
+              "bold": false
+            }
+          ],
+          "quantity": 1,
+          "tech_hours": null
+        },
+        {
+          "kind": "line",
+          "depth": 1,
+          "runs": [
+            {
+              "text": "Furnish and Install Make-up Air Damper Actuator",
+              "bold": false
+            }
+          ],
+          "quantity": 1,
+          "tech_hours": null
+        }
+      ],
+      "tech_hours": 4.0,
+      "joined": false,
+      "numbered": true
+    },
+    {
+      "header": "Qty (2) Electric Air Curtain ARC-1.1, 1.2",
+      "items": [
+        {
+          "kind": "line",
+          "depth": 1,
+          "runs": [
+            {
+              "text": "Interlock w/ Door Switch (Furnished by Unit Mfr.) ",
+              "bold": false
+            },
+            {
+              "text": "– (Qty. 4 Total) 2 per Unit (As per Schedule)",
+              "bold": true
+            }
+          ],
+          "quantity": null,
+          "tech_hours": null
+        },
+        {
+          "kind": "note",
+          "depth": 1,
+          "runs": [
+            {
+              "text": "*INTEGRAL THERMOSTAT",
+              "bold": true
+            }
+          ],
+          "quantity": null,
+          "tech_hours": null
+        }
+      ],
+      "tech_hours": 4.0,
+      "joined": false,
+      "numbered": true
+    },
+    {
+      "header": "Qty (4) Recessed Wall Electric Cabinet Unit Heater CBH-A",
+      "items": [
+        {
+          "kind": "line",
+          "depth": 1,
+          "runs": [
+            {
+              "text": "Furnish and Install BACnet Thermostat ",
+              "bold": false
+            },
+            {
+              "text": "– (Qty. 1 Total)",
+              "bold": true
+            }
+          ],
+          "quantity": 1,
+          "tech_hours": null
+        }
+      ],
+      "tech_hours": 4.0,
+      "joined": false,
+      "numbered": true
+    },
+    {
+      "header": "Qty (43) Electric Cabinet Unit Heater ECUH-##",
+      "items": [
+        {
+          "kind": "line",
+          "depth": 1,
+          "runs": [
+            {
+              "text": "Furnish and Install BACnet Thermostat ",
+              "bold": false
+            },
+            {
+              "text": "– (Qty. 42 Total)",
+              "bold": true
+            }
+          ],
+          "quantity": 42,
+          "tech_hours": null
+        }
+      ],
+      "tech_hours": 86.0,
+      "joined": false,
+      "numbered": true
+    },
+    {
+      "header": "Qty (11) Electric Unit Heater EUH-##",
+      "items": [
+        {
+          "kind": "line",
+          "depth": 1,
+          "runs": [
+            {
+              "text": "Furnish and Install BACnet Thermostat ",
+              "bold": false
+            },
+            {
+              "text": "– (Qty. 11 Total)",
+              "bold": true
+            }
+          ],
+          "quantity": 11,
+          "tech_hours": null
+        }
+      ],
+      "tech_hours": 22.0,
+      "joined": false,
+      "numbered": true
+    },
+    {
+      "header": "Qty (105) Electric Baseboard Heater",
+      "items": [
+        {
+          "kind": "line",
+          "depth": 1,
+          "runs": [
+            {
+              "text": "Interlock with Associated VAV Unit Operation",
+              "bold": false
+            }
+          ],
+          "quantity": null,
+          "tech_hours": null
+        }
+      ],
+      "tech_hours": 52.5,
+      "joined": false,
+      "numbered": true
+    },
+    {
+      "header": "Qty (8) Electric Baseboard Heater",
+      "items": [
+        {
+          "kind": "line",
+          "depth": 1,
+          "runs": [
+            {
+              "text": "Furnish and Install BACnet Thermostat ",
+              "bold": false
+            },
+            {
+              "text": "– (Qty. 5 Total)",
+              "bold": true
+            }
+          ],
+          "quantity": 5,
+          "tech_hours": null
+        }
+      ],
+      "tech_hours": 10.0,
+      "joined": false,
+      "numbered": true
+    },
+    {
+      "header": "*Qty (3) Heat Pump Water Heater HPWH-1, 2, 3 | Qty (2) Recirculating Pump HWCP-1, 2 – As per Control Diagram 1 (M413.00)",
+      "items": [
+        {
+          "kind": "line",
+          "depth": 1,
+          "runs": [
+            {
+              "text": "Furnish and Install DDC Controller",
+              "bold": false
+            }
+          ],
+          "quantity": 1,
+          "tech_hours": null
+        },
+        {
+          "kind": "line",
+          "depth": 1,
+          "runs": [
+            {
+              "text": "Furnish and Install Hot Water Supply / Return Temperature Sensor ",
+              "bold": false
+            },
+            {
+              "text": "– (Qty. 4 Total)",
+              "bold": true
+            }
+          ],
+          "quantity": 4,
+          "tech_hours": null
+        },
+        {
+          "kind": "line",
+          "depth": 1,
+          "runs": [
+            {
+              "text": "Furnish and Install CT for Recirculating Pump Status ",
+              "bold": false
+            },
+            {
+              "text": "– (Qty. 2 Total)",
+              "bold": true
+            }
+          ],
+          "quantity": 2,
+          "tech_hours": null
+        },
+        {
+          "kind": "line",
+          "depth": 1,
+          "runs": [
+            {
+              "text": "Electrical Power Meter (Furnished and Installed by Others) ",
+              "bold": false
+            },
+            {
+              "text": "– (Qty. 3 Total)",
+              "bold": true
+            }
+          ],
+          "quantity": null,
+          "tech_hours": null
+        },
+        {
+          "kind": "line",
+          "depth": 2,
+          "runs": [
+            {
+              "text": "BMS Communication Wiring to Mfr. Provided BMS Interface",
+              "bold": false
+            }
+          ],
+          "quantity": null,
+          "tech_hours": null
+        },
+        {
+          "kind": "line",
+          "depth": 1,
+          "runs": [
+            {
+              "text": "Furnish BMS Communication Wiring to ",
+              "bold": false
+            },
+            {
+              "text": "HWHP Factory",
+              "bold": true
+            },
+            {
+              "text": " Controls ",
+              "bold": false
+            },
+            {
+              "text": "– (Qty. 3 Total)",
+              "bold": true
+            }
+          ],
+          "quantity": null,
+          "tech_hours": null
+        },
+        {
+          "kind": "line",
+          "depth": 1,
+          "runs": [
+            {
+              "text": "Map Available Points Via Mfr. Provided BMS Interface",
+              "bold": false
+            }
+          ],
+          "quantity": null,
+          "tech_hours": null
+        },
+        {
+          "kind": "line",
+          "depth": 2,
+          "runs": [
+            {
+              "text": "AME requires mfr. Rep to assist in integration, cost to be incurred by mech contractor",
+              "bold": false
+            }
+          ],
+          "quantity": null,
+          "tech_hours": null
+        },
+        {
+          "kind": "line",
+          "depth": 1,
+          "runs": [
+            {
+              "text": "Furnish BMS Communication Wiring ",
+              "bold": false
+            },
+            {
+              "text": "Domestic HW Control Panel ",
+              "bold": true
+            },
+            {
+              "text": "Controls ",
+              "bold": false
+            },
+            {
+              "text": "– As per Note 2 (M413)",
+              "bold": true
+            }
+          ],
+          "quantity": null,
+          "tech_hours": null
+        },
+        {
+          "kind": "line",
+          "depth": 1,
+          "runs": [
+            {
+              "text": "Map Available Points Via Mfr. Provided BMS Interface",
+              "bold": false
+            }
+          ],
+          "quantity": null,
+          "tech_hours": null
+        },
+        {
+          "kind": "line",
+          "depth": 2,
+          "runs": [
+            {
+              "text": "AME requires mfr. Rep to assist in integration, cost to be incurred by mech contractor",
+              "bold": false
+            }
+          ],
+          "quantity": null,
+          "tech_hours": null
+        },
+        {
+          "kind": "note",
+          "depth": 1,
+          "runs": [
+            {
+              "text": "*MIXING VALVE BY OTHERS",
+              "bold": true
+            }
+          ],
+          "quantity": null,
+          "tech_hours": null
+        }
+      ],
+      "tech_hours": 12.0,
+      "joined": false,
+      "numbered": true
+    },
+    {
+      "header": "Qty (1) Emergency Generator",
+      "items": [
+        {
+          "kind": "line",
+          "depth": 1,
+          "runs": [
+            {
+              "text": "Furnish Control Wiring b/w Generator and Remote-control Panel",
+              "bold": false
+            }
+          ],
+          "quantity": 1,
+          "tech_hours": null
+        },
+        {
+          "kind": "line",
+          "depth": 1,
+          "runs": [
+            {
+              "text": "Furnish Belly Fuel Tank Alarm Via Common Alarm Output",
+              "bold": false
+            }
+          ],
+          "quantity": 1,
+          "tech_hours": null
+        },
+        {
+          "kind": "line",
+          "depth": 2,
+          "runs": [
+            {
+              "text": "High Level Alarm",
+              "bold": false
+            }
+          ],
+          "quantity": null,
+          "tech_hours": null
+        },
+        {
+          "kind": "line",
+          "depth": 2,
+          "runs": [
+            {
+              "text": "Low Level Alarm",
+              "bold": false
+            }
+          ],
+          "quantity": null,
+          "tech_hours": null
+        },
+        {
+          "kind": "line",
+          "depth": 2,
+          "runs": [
+            {
+              "text": "Leak Alarm",
+              "bold": false
+            }
+          ],
+          "quantity": null,
+          "tech_hours": null
+        },
+        {
+          "kind": "line",
+          "depth": 1,
+          "runs": [
+            {
+              "text": "Furnish and Install Horn and Strobe Sensor ",
+              "bold": false
+            },
+            {
+              "text": "– As per 15985 - 86",
+              "bold": true
+            }
+          ],
+          "quantity": 1,
+          "tech_hours": null
+        },
+        {
+          "kind": "line",
+          "depth": 1,
+          "runs": [
+            {
+              "text": "Furnish and Install Damper Actuator ",
+              "bold": false
+            },
+            {
+              "text": "– As per 15985 - 91",
+              "bold": true
+            }
+          ],
+          "quantity": 1,
+          "tech_hours": null
+        },
+        {
+          "kind": "line",
+          "depth": 1,
+          "runs": [
+            {
+              "text": "Furnish BMS Communication Wiring to ",
+              "bold": false
+            },
+            {
+              "text": "Generator Factory",
+              "bold": true
+            },
+            {
+              "text": " Controls",
+              "bold": false
+            }
+          ],
+          "quantity": null,
+          "tech_hours": null
+        },
+        {
+          "kind": "line",
+          "depth": 1,
+          "runs": [
+            {
+              "text": "Map Available Points Via Mfr. Provided BMS Interface",
+              "bold": false
+            }
+          ],
+          "quantity": null,
+          "tech_hours": null
+        },
+        {
+          "kind": "line",
+          "depth": 2,
+          "runs": [
+            {
+              "text": "AME requires mfr. Rep to assist in integration, cost to be incurred by mech contractor",
+              "bold": false
+            }
+          ],
+          "quantity": null,
+          "tech_hours": null
+        },
+        {
+          "kind": "line",
+          "depth": 1,
+          "runs": [
+            {
+              "text": "Furnish BMS Communication Wiring to ",
+              "bold": false
+            },
+            {
+              "text": "Alarm Panel",
+              "bold": true
+            }
+          ],
+          "quantity": null,
+          "tech_hours": null
+        },
+        {
+          "kind": "line",
+          "depth": 1,
+          "runs": [
+            {
+              "text": "Map Available Points Via Mfr. Provided BMS Interface",
+              "bold": false
+            }
+          ],
+          "quantity": null,
+          "tech_hours": null
+        },
+        {
+          "kind": "line",
+          "depth": 2,
+          "runs": [
+            {
+              "text": "AME requires mfr. Rep to assist in integration, cost to be incurred by mech contractor",
+              "bold": false
+            }
+          ],
+          "quantity": null,
+          "tech_hours": null
+        },
+        {
+          "kind": "note",
+          "depth": 1,
+          "runs": [
+            {
+              "text": "*Remote Annunciator Panel in the Custodian’s Office by Others",
+              "bold": true
+            }
+          ],
+          "quantity": null,
+          "tech_hours": null
+        }
+      ],
+      "tech_hours": 6.0,
+      "joined": false,
+      "numbered": true
+    },
+    {
+      "header": "Qty (2) Sub-Slab Depressurization System SF-1, 2 (H205.00)",
+      "items": [
+        {
+          "kind": "line",
+          "depth": 1,
+          "runs": [
+            {
+              "text": "Furnish and Install Interposing relay for Mfr. Provided DP Switch for BMS Connection ",
+              "bold": false
+            },
+            {
+              "text": "– As per H205.00",
+              "bold": true
+            }
+          ],
+          "quantity": 2,
+          "tech_hours": null
+        },
+        {
+          "kind": "line",
+          "depth": 1,
+          "runs": [
+            {
+              "text": "Furnish BMS Communication Wiring to ",
+              "bold": false
+            },
+            {
+              "text": "Factory ",
+              "bold": true
+            },
+            {
+              "text": "Controls",
+              "bold": false
+            }
+          ],
+          "quantity": 2,
+          "tech_hours": null
+        },
+        {
+          "kind": "line",
+          "depth": 1,
+          "runs": [
+            {
+              "text": "Map Available Points Via Mfr. Provided BMS Interface",
+              "bold": false
+            }
+          ],
+          "quantity": null,
+          "tech_hours": null
+        },
+        {
+          "kind": "line",
+          "depth": 2,
+          "runs": [
+            {
+              "text": "AME requires mfr. rep to assist in integration, cost to be incurred by Mech Contractor",
+              "bold": false
+            }
+          ],
+          "quantity": null,
+          "tech_hours": null
+        }
+      ],
+      "tech_hours": 4.0,
+      "joined": false,
+      "numbered": true
+    },
+    {
+      "header": "Qty (1) Refrigerant Shaft Leak Detection – As per Keynote 7 (M101.00)",
+      "items": [
+        {
+          "kind": "line",
+          "depth": 1,
+          "runs": [
+            {
+              "text": "Furnish and Install Refrigerant Leak Detection Sensor",
+              "bold": false
+            }
+          ],
+          "quantity": 1,
+          "tech_hours": null
+        },
+        {
+          "kind": "line",
+          "depth": 1,
+          "runs": [
+            {
+              "text": "Furnish and Install Damper Actuator",
+              "bold": false
+            }
+          ],
+          "quantity": 1,
+          "tech_hours": null
+        },
+        {
+          "kind": "line",
+          "depth": 1,
+          "runs": [
+            {
+              "text": "Necessary Interlock Wiring with Fire Alarm System",
+              "bold": false
+            }
+          ],
+          "quantity": null,
+          "tech_hours": null
+        }
+      ],
+      "tech_hours": 4.0,
+      "joined": false,
+      "numbered": true
+    },
+    {
+      "header": "Misc Monitoring Systems",
+      "items": [
+        {
+          "kind": "line",
+          "depth": 1,
+          "runs": [
+            {
+              "text": "Map Available Points Via Mfr. Provided BMS Interface or Connect to Nearby DDC Controller",
+              "bold": false
+            }
+          ],
+          "quantity": null,
+          "tech_hours": null
+        },
+        {
+          "kind": "line",
+          "depth": 2,
+          "runs": [
+            {
+              "text": "Main Electrical Meter (Furnished and Installed by Others) ",
+              "bold": false
+            },
+            {
+              "text": "– (Qty. 1 Total)",
+              "bold": true
+            }
+          ],
+          "quantity": null,
+          "tech_hours": 2.0
+        },
+        {
+          "kind": "line",
+          "depth": 3,
+          "runs": [
+            {
+              "text": "Mfr. to Provide ",
+              "bold": false
+            },
+            {
+              "text": "Pulse Output",
+              "bold": true
+            },
+            {
+              "text": " for Monitoring at BMS",
+              "bold": false
+            }
+          ],
+          "quantity": null,
+          "tech_hours": null
+        },
+        {
+          "kind": "line",
+          "depth": 2,
+          "runs": [
+            {
+              "text": "Utility Electrical Meter (Furnished and Installed by Others) ",
+              "bold": false
+            },
+            {
+              "text": "– (Qty. 2 Total)",
+              "bold": true
+            }
+          ],
+          "quantity": null,
+          "tech_hours": 2.0
+        },
+        {
+          "kind": "line",
+          "depth": 3,
+          "runs": [
+            {
+              "text": "Mfr. to Provide ",
+              "bold": false
+            },
+            {
+              "text": "Pulse Output",
+              "bold": true
+            },
+            {
+              "text": " for Monitoring at BMS",
+              "bold": false
+            }
+          ],
+          "quantity": null,
+          "tech_hours": null
+        },
+        {
+          "kind": "line",
+          "depth": 2,
+          "runs": [
+            {
+              "text": "Main Switchboard Meter (Furnished and Installed by Others) ",
+              "bold": false
+            },
+            {
+              "text": "– (Qty. 2 Total)",
+              "bold": true
+            }
+          ],
+          "quantity": null,
+          "tech_hours": 2.0
+        },
+        {
+          "kind": "line",
+          "depth": 3,
+          "runs": [
+            {
+              "text": "Mfr. to Provide ",
+              "bold": false
+            },
+            {
+              "text": "Pulse Output",
+              "bold": true
+            },
+            {
+              "text": " for Monitoring at BMS",
+              "bold": false
+            }
+          ],
+          "quantity": null,
+          "tech_hours": null
+        },
+        {
+          "kind": "line",
+          "depth": 2,
+          "runs": [
+            {
+              "text": "Panel Electric meter for Below Mentioned Panels (Furnished and Installed by Others) ",
+              "bold": false
+            },
+            {
+              "text": "– (Qty. 43 Total)",
+              "bold": true
+            }
+          ],
+          "quantity": null,
+          "tech_hours": 43.0
+        },
+        {
+          "kind": "line",
+          "depth": 3,
+          "runs": [
+            {
+              "text": "PP-## – (Qty. 16 Total)",
+              "bold": true
+            }
+          ],
+          "quantity": null,
+          "tech_hours": null
+        },
+        {
+          "kind": "line",
+          "depth": 4,
+          "runs": [
+            {
+              "text": "ELP-## – (Qty. 7 Total)",
+              "bold": true
+            }
+          ],
+          "quantity": null,
+          "tech_hours": null
+        },
+        {
+          "kind": "line",
+          "depth": 4,
+          "runs": [
+            {
+              "text": "EPP-## – (Qty. 6 Total)",
+              "bold": true
+            }
+          ],
+          "quantity": null,
+          "tech_hours": null
+        },
+        {
+          "kind": "line",
+          "depth": 4,
+          "runs": [
+            {
+              "text": "LP-## – (Qty. 6 Total)",
+              "bold": true
+            }
+          ],
+          "quantity": null,
+          "tech_hours": null
+        },
+        {
+          "kind": "line",
+          "depth": 4,
+          "runs": [
+            {
+              "text": "RP-## – (Qty. 6 Total)",
+              "bold": true
+            }
+          ],
+          "quantity": null,
+          "tech_hours": null
+        },
+        {
+          "kind": "line",
+          "depth": 4,
+          "runs": [
+            {
+              "text": "DIM-AUD – (Qty. 1 Total)",
+              "bold": true
+            }
+          ],
+          "quantity": null,
+          "tech_hours": null
+        },
+        {
+          "kind": "line",
+          "depth": 4,
+          "runs": [
+            {
+              "text": "DB-ELEV – (Qty. 1 Total)",
+              "bold": true
+            }
+          ],
+          "quantity": null,
+          "tech_hours": null
+        },
+        {
+          "kind": "line",
+          "depth": 3,
+          "runs": [
+            {
+              "text": "BMS Communication Wiring to Mfr. Provided BMS Interface",
+              "bold": false
+            }
+          ],
+          "quantity": null,
+          "tech_hours": null
+        },
+        {
+          "kind": "line",
+          "depth": 2,
+          "runs": [
+            {
+              "text": "Electric meter for Feeder Serving Each Roof top Unit (Furnished and Installed by Others) ",
+              "bold": false
+            },
+            {
+              "text": "– (Qty. 6 Total) As per Energy Metering Detail (M407.00)",
+              "bold": true
+            }
+          ],
+          "quantity": null,
+          "tech_hours": 6.0
+        },
+        {
+          "kind": "line",
+          "depth": 2,
+          "runs": [
+            {
+              "text": "Electric meter for Air Cooled Condensing Unit (Furnished and Installed by Others) ",
+              "bold": false
+            },
+            {
+              "text": "– (Qty. 11 Total) As per Energy Metering Detail (M407.00)",
+              "bold": true
+            }
+          ],
+          "quantity": null,
+          "tech_hours": 11.0
+        },
+        {
+          "kind": "line",
+          "depth": 2,
+          "runs": [
+            {
+              "text": "Elevator Sump Pump ",
+              "bold": false
+            },
+            {
+              "text": "EVP-1 (Qty. 1 Total)",
+              "bold": true
+            }
+          ],
+          "quantity": null,
+          "tech_hours": 2.0
+        },
+        {
+          "kind": "line",
+          "depth": 3,
+          "runs": [
+            {
+              "text": "Pump Status",
+              "bold": false
+            }
+          ],
+          "quantity": null,
+          "tech_hours": null
+        },
+        {
+          "kind": "line",
+          "depth": 3,
+          "runs": [
+            {
+              "text": "High Level Alarm",
+              "bold": false
+            }
+          ],
+          "quantity": null,
+          "tech_hours": null
+        },
+        {
+          "kind": "line",
+          "depth": 2,
+          "runs": [
+            {
+              "text": "Domestic Water Incoming Water Filter",
+              "bold": false
+            },
+            {
+              "text": " F1 (Qty. 1 Total)",
+              "bold": true
+            }
+          ],
+          "quantity": null,
+          "tech_hours": 2.0
+        },
+        {
+          "kind": "line",
+          "depth": 3,
+          "runs": [
+            {
+              "text": "Head of Serv Common Alarm",
+              "bold": false
+            }
+          ],
+          "quantity": null,
+          "tech_hours": null
+        },
+        {
+          "kind": "line",
+          "depth": 3,
+          "runs": [
+            {
+              "text": "Head of Serv Backwash Status",
+              "bold": false
+            }
+          ],
+          "quantity": null,
+          "tech_hours": null
+        },
+        {
+          "kind": "line",
+          "depth": 2,
+          "runs": [
+            {
+              "text": "Domestic Water Booster Pump Panel ",
+              "bold": false
+            },
+            {
+              "text": "WBP-1 (Qty. 1 Total)",
+              "bold": true
+            }
+          ],
+          "quantity": null,
+          "tech_hours": 2.0
+        },
+        {
+          "kind": "line",
+          "depth": 3,
+          "runs": [
+            {
+              "text": "Booster Pump Set General Fault Alarm",
+              "bold": false
+            }
+          ],
+          "quantity": null,
+          "tech_hours": null
+        },
+        {
+          "kind": "line",
+          "depth": 3,
+          "runs": [
+            {
+              "text": "Tie-in Mfr. Provided Watt Meter into BMS via Mfr. Provided BACnet Interface",
+              "bold": false
+            }
+          ],
+          "quantity": null,
+          "tech_hours": null
+        },
+        {
+          "kind": "line",
+          "depth": 3,
+          "runs": [
+            {
+              "text": "Furnish BMS Communication Wiring to ",
+              "bold": false
+            },
+            {
+              "text": "VFD ",
+              "bold": true
+            },
+            {
+              "text": "Factory Controls ",
+              "bold": false
+            },
+            {
+              "text": "– As per Note 5 (M407.00)",
+              "bold": true
+            }
+          ],
+          "quantity": null,
+          "tech_hours": null
+        },
+        {
+          "kind": "line",
+          "depth": 3,
+          "runs": [
+            {
+              "text": "Map Available Points Via Mfr. Provided BMS Interface",
+              "bold": false
+            }
+          ],
+          "quantity": null,
+          "tech_hours": null
+        },
+        {
+          "kind": "line",
+          "depth": 4,
+          "runs": [
+            {
+              "text": "AME requires mfr. Rep to assist in integration, cost to be incurred by mech contractor",
+              "bold": false
+            }
+          ],
+          "quantity": null,
+          "tech_hours": null
+        },
+        {
+          "kind": "line",
+          "depth": 2,
+          "runs": [
+            {
+              "text": "Intrusion Alarm",
+              "bold": false
+            }
+          ],
+          "quantity": null,
+          "tech_hours": 2.0
+        }
+      ],
+      "tech_hours": null,
+      "joined": false,
+      "numbered": true
+    },
+    {
+      "header": "Provide 2 Year Full Preventive Maintenance contract including all labor, materials and equipment necessary for the successful operation of the entire BACnet BMS/DDC Temperature Control System as provided by the TCC – 15970-42",
+      "items": [],
+      "tech_hours": null,
+      "joined": false,
+      "numbered": true
+    },
+    {
+      "header": "Guarantee / Warranty",
+      "items": [
+        {
+          "kind": "line",
+          "depth": 1,
+          "runs": [
+            {
+              "text": "2 Year Workmanship and Material Guarantee for all work of this Section starting from completion of the commissioning of the system. ",
+              "bold": false
+            },
+            {
+              "text": "– As per 15970-40",
+              "bold": true
+            }
+          ],
+          "quantity": null,
+          "tech_hours": null
+        },
+        {
+          "kind": "line",
+          "depth": 1,
+          "runs": [
+            {
+              "text": "Provide a 4-year manufacturer’s warranty for the Supervisor Station, SOC, and POT. ",
+              "bold": false
+            },
+            {
+              "text": "– As per 15970-41",
+              "bold": true
+            }
+          ],
+          "quantity": null,
+          "tech_hours": null
+        },
+        {
+          "kind": "line",
+          "depth": 1,
+          "runs": [
+            {
+              "text": "Provide a 5-year software subscription service for the application software for the Tridium Supervisor Server. ",
+              "bold": false
+            },
+            {
+              "text": "– As per 15970-30",
+              "bold": true
+            }
+          ],
+          "quantity": null,
+          "tech_hours": null
+        }
+      ],
+      "tech_hours": null,
+      "joined": false,
+      "numbered": true
+    },
+    {
+      "header": "Provide 2 Year Guarantee for Workmanship and Material – 15970-49",
+      "items": [],
+      "tech_hours": null,
+      "joined": false,
+      "numbered": true
+    }
+  ],
+  "add_alternates": [
+    {
+      "label": "ALT 1: Controls As per Sequence of operation 15985 – 18",
+      "blocks": [
+        {
+          "header": "*Qty (1) Can Wash Kitchen Exhaust Fan EF-9",
+          "items": [
+            {
+              "kind": "line",
+              "depth": 1,
+              "runs": [
+                {
+                  "text": "Furnish and Install DDC Controller",
+                  "bold": false
+                }
+              ],
+              "quantity": 1,
+              "tech_hours": null
+            },
+            {
+              "kind": "line",
+              "depth": 1,
+              "runs": [
+                {
+                  "text": "Furnish Fan Start / Stop and Status",
+                  "bold": false
+                }
+              ],
+              "quantity": 1,
+              "tech_hours": null
+            }
+          ],
+          "tech_hours": 4.0,
+          "joined": false,
+          "numbered": true
+        }
+      ]
+    }
+  ],
+  "deduct_alternates": [
+    {
+      "label": "ALT #:",
+      "blocks": [
+        {
+          "header": "Qty (1) Shower Room Exhaust Fan EF-2",
+          "items": [
+            {
+              "kind": "line",
+              "depth": 1,
+              "runs": [
+                {
+                  "text": "Furnish and Install CT for Fan Status; Connect to Nearby DDC",
+                  "bold": false
+                }
+              ],
+              "quantity": 1,
+              "tech_hours": null
+            },
+            {
+              "kind": "line",
+              "depth": 1,
+              "runs": [
+                {
+                  "text": "Furnish and Install Damper Actuator",
+                  "bold": false
+                }
+              ],
+              "quantity": 1,
+              "tech_hours": null
+            },
+            {
+              "kind": "note",
+              "depth": 1,
+              "runs": [
+                {
+                  "text": "*CONTROLLED THROUGH LOCAL MANUAL SWITCH – AS PER SEQUENCE OF OPERATION (15985 – 18)",
+                  "bold": true
+                }
+              ],
+              "quantity": null,
+              "tech_hours": null
+            }
+          ],
+          "tech_hours": 4.0,
+          "joined": true,
+          "numbered": true
+        }
+      ]
+    }
+  ],
+  "named_exceptions": [
+    "EXCEPTION TO ANY WORK WITH EXHAUST FAN EF-4 (24/7 OPERATION)"
+  ]
+}

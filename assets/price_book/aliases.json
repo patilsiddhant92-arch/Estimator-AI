@@ -1,0 +1,4 @@
+{
+  "about": "Tells the tool which price book item a scope line means, when the names differ. The key is the scope line; the tool ignores its bullet, its leading verb (Furnish, Furnish and Install, Install and wire, ...) and any '(Qty. N Total)'. The value is the price book item's name exactly as the price book writes it. Add an entry only when an estimator has confirmed the match.",
+  "aliases": {}
+}
