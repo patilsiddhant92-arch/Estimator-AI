@@ -69,11 +69,18 @@ def _date(text: str) -> dt.date:
 # --- the exclusions ---------------------------------------------------------------
 
 def _exclusions(document: DocxDocument) -> list[str]:
-    texts = [squash(p.text) for p in document.paragraphs if p.text.strip()]
+    # visible_text, not p.text: a paragraph whose only text sits inside a tracked insertion (or
+    # any other container p.text can't see) must still be found here, so it can be refused below
+    # rather than silently missing from the list entirely.
+    paragraphs = [p for p in document.paragraphs if visible_text(p).strip()]
+    texts = [squash(p.text) for p in paragraphs]
     start = next((i for i, t in enumerate(texts) if t.startswith(layout.EXCLUSIONS)), None)
     end = next((i for i, t in enumerate(texts) if t.startswith(layout.BASE_PRICE)), None)
     if start is None or end is None or end <= start:
         raise ProposalFormatError("can't find the exclusions list")
+    _refuse_foreign_children(document, paragraphs[start], paragraphs[end])
+    for paragraph in paragraphs[start + 1 : end]:
+        _refuse_hidden_text(paragraph)
     return texts[start + 1 : end]
 
 
@@ -113,7 +120,7 @@ def read_scope(document: DocxDocument):
     paragraphs = [p for p in full if visible_text(p).strip()]
     start = _find(paragraphs, layout.SCOPE_HEADING)
     end = _find(paragraphs, layout.CLARIFICATIONS)
-    _refuse_tables_between(document, paragraphs[start], paragraphs[end])
+    _refuse_foreign_children(document, paragraphs[start], paragraphs[end])
     _refuse_hidden_text(paragraphs[start])
     _refuse_hidden_text(paragraphs[start + 1])
     suffix = squash(paragraphs[start].text)[len(layout.SCOPE_HEADING):].strip()
@@ -180,26 +187,52 @@ def _find(paragraphs: list[Paragraph], heading: str) -> int:
     raise ProposalFormatError(f"can't find {heading!r}")
 
 
-def _refuse_tables_between(document: DocxDocument, first: Paragraph, last: Paragraph) -> None:
+# Body-level elements the reader is safe to skip over — a bookmark or a comment range marker
+# carries no text of its own, so it can sit between two paragraphs without hiding anything.
+_HARMLESS_BODY_CHILDREN = (qn("w:p"), qn("w:bookmarkStart"), qn("w:bookmarkEnd"),
+                          qn("w:commentRangeStart"), qn("w:commentRangeEnd"))
+_FOREIGN_BODY_CHILD_NAMES = {
+    qn("w:tbl"): "a table", qn("w:sdt"): "a content control", qn("w:customXml"): "custom XML",
+    qn("w:altChunk"): "embedded content",
+}
+
+
+def _refuse_foreign_children(document: DocxDocument, first: Paragraph, last: Paragraph) -> None:
+    """Anything between the two headings that isn't an ordinary paragraph — a table, a content
+    control, custom XML, embedded (altChunk) content — can carry text of its own that the reader,
+    which only ever walks document.paragraphs, would never see at all."""
     inside = False
     for element in document.element.body.iterchildren():
         if element is first._p:
             inside = True
         elif element is last._p:
             return
-        elif inside and element.tag == qn("w:tbl"):
-            raise ProposalFormatError("a table sits inside the scope of work; the reader doesn't handle tables yet")
+        elif inside and element.tag not in _HARMLESS_BODY_CHILDREN:
+            name = _FOREIGN_BODY_CHILD_NAMES.get(element.tag, f"a {element.tag.split('}')[-1]}")
+            raise ProposalFormatError(f"{name} sits inside the scope of work; the reader doesn't handle it")
 
 
 def _refuse_hidden_text(paragraph: Paragraph) -> None:
     """A tracked insertion, a content control or a text box can hide text from every reader that
     only looks at ordinary runs. Compare what the ordinary runs say against every character Word
-    actually draws, so a paragraph like that is refused rather than silently read short."""
+    actually draws, so a paragraph like that is refused rather than silently read short. Hidden
+    (vanish) text and unaccepted tracked deletions or moves need their own check: both leave the
+    ordinary runs and the visible text agreeing with each other, just agreeing on the wrong thing."""
     stretches = merged_runs(paragraph)
     if re.sub(r"\s+", "", "".join(t for t, _ in stretches)) != re.sub(r"\s+", "", visible_text(paragraph)):
         raise ProposalFormatError(
             f"part of {squash(paragraph.text)!r} sits inside something the reader doesn't handle yet "
             "(a tracked change, a content control or a text box)")
+    if _has(paragraph, "w:vanish") or _has(paragraph, "w:webHidden"):
+        raise ProposalFormatError(f"{squash(paragraph.text)!r} has hidden text, which the reader can't tell apart "
+                                  "from ordinary text")
+    if _has(paragraph, "w:del") or _has(paragraph, "w:moveFrom"):
+        raise ProposalFormatError(f"{squash(paragraph.text)!r} has an unaccepted tracked deletion or move; "
+                                  "accept or reject the tracked changes before this proposal is read")
+
+
+def _has(paragraph: Paragraph, tag: str) -> bool:
+    return next(paragraph._p.iter(qn(tag)), None) is not None
 
 
 def _front_end_mode(heading: str) -> tuple[str, str | None]:

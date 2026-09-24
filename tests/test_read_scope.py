@@ -1,3 +1,4 @@
+import copy
 from collections import Counter
 
 import docx
@@ -148,4 +149,124 @@ def test_a_line_indented_past_the_depth_limit_is_refused(tmp_path, target_text, 
     edited = tmp_path / "too-deep.docx"
     document.save(str(edited))
     with pytest.raises(ProposalFormatError, match="depth"):
+        read_proposal(edited, PROPOSAL_TEMPLATE)
+
+
+# --- I4: anything between the headings that isn't a plain paragraph --------------------------
+
+@pytest.mark.parametrize("tag, match", [
+    ("w:sdt", "content control"),
+    ("w:customXml", "custom XML"),
+    ("w:altChunk", "embedded content"),
+])
+def test_a_foreign_body_element_inside_the_scope_is_refused(tmp_path, tag, match):
+    document = docx.Document(str(SENT_PROPOSAL))
+    heading = next(p for p in document.paragraphs if squash(p.text).startswith("SCOPE OF WORK"))
+    heading._p.addnext(OxmlElement(tag))
+    edited = tmp_path / f"with-{tag.split(':')[1]}.docx"
+    document.save(str(edited))
+    with pytest.raises(ProposalFormatError, match=match):
+        read_proposal(edited, PROPOSAL_TEMPLATE)
+
+
+@pytest.mark.parametrize("tag", ["w:bookmarkStart", "w:bookmarkEnd", "w:commentRangeStart", "w:commentRangeEnd"])
+def test_a_bookmark_or_comment_marker_inside_the_scope_is_not_refused(tmp_path, tag):
+    document = docx.Document(str(SENT_PROPOSAL))
+    heading = next(p for p in document.paragraphs if squash(p.text).startswith("SCOPE OF WORK"))
+    marker = OxmlElement(tag)
+    marker.set(qn("w:id"), "1")
+    heading._p.addnext(marker)
+    edited = tmp_path / f"with-{tag.split(':')[1]}.docx"
+    document.save(str(edited))
+    read_proposal(edited, PROPOSAL_TEMPLATE)   # does not raise
+
+
+def test_a_foreign_body_element_inside_the_exclusions_is_refused(tmp_path):
+    document = docx.Document(str(SENT_PROPOSAL))
+    heading = next(p for p in document.paragraphs if squash(p.text).startswith("Exceptions and Exclusions"))
+    heading._p.addnext(OxmlElement("w:sdt"))
+    edited = tmp_path / "with-sdt-in-exclusions.docx"
+    document.save(str(edited))
+    with pytest.raises(ProposalFormatError, match="content control"):
+        read_proposal(edited, PROPOSAL_TEMPLATE)
+
+
+# --- I5: hidden text, and tracked deletions and moves --------------------------------------
+
+def test_hidden_vanish_text_is_refused(tmp_path):
+    document = docx.Document(str(SENT_PROPOSAL))
+    paragraph = next(p for p in document.paragraphs if squash(p.text) == "Furnish and Install UPS")
+    for run in paragraph.runs:
+        run.font.hidden = True
+    edited = tmp_path / "vanish.docx"
+    document.save(str(edited))
+    with pytest.raises(ProposalFormatError, match="hidden"):
+        read_proposal(edited, PROPOSAL_TEMPLATE)
+
+
+def test_web_hidden_text_is_refused(tmp_path):
+    document = docx.Document(str(SENT_PROPOSAL))
+    paragraph = next(p for p in document.paragraphs if squash(p.text) == "Furnish and Install UPS")
+    for run in paragraph._p.findall(qn("w:r")):
+        run.get_or_add_rPr().append(OxmlElement("w:webHidden"))
+    edited = tmp_path / "web-hidden.docx"
+    document.save(str(edited))
+    with pytest.raises(ProposalFormatError, match="hidden"):
+        read_proposal(edited, PROPOSAL_TEMPLATE)
+
+
+def test_a_paragraph_with_an_unaccepted_deletion_is_refused(tmp_path):
+    """A paragraph that keeps some ordinary, visible text (so it's not simply dropped as blank)
+    but also carries an unaccepted tracked deletion — resolve the tracked change first."""
+    document = docx.Document(str(SENT_PROPOSAL))
+    paragraph = next(p for p in document.paragraphs if squash(p.text) == "Furnish and Install UPS")
+    extra = copy.deepcopy(paragraph._p.findall(qn("w:r"))[-1])
+    for t in extra.findall(qn("w:t")):
+        t.tag = qn("w:delText")
+    deletion = OxmlElement("w:del")
+    deletion.set(qn("w:id"), "903")
+    deletion.set(qn("w:author"), "test")
+    deletion.append(extra)
+    paragraph._p.append(deletion)
+    edited = tmp_path / "partial-deletion.docx"
+    document.save(str(edited))
+    with pytest.raises(ProposalFormatError, match="deletion"):
+        read_proposal(edited, PROPOSAL_TEMPLATE)
+
+
+def test_a_paragraph_with_an_unaccepted_move_is_refused(tmp_path):
+    document = docx.Document(str(SENT_PROPOSAL))
+    paragraph = next(p for p in document.paragraphs if squash(p.text) == "Furnish and Install UPS")
+    extra = copy.deepcopy(paragraph._p.findall(qn("w:r"))[-1])
+    for t in extra.findall(qn("w:t")):
+        t.tag = qn("w:delText")
+    moved = OxmlElement("w:moveFrom")
+    moved.set(qn("w:id"), "904")
+    moved.set(qn("w:author"), "test")
+    moved.append(extra)
+    paragraph._p.append(moved)
+    edited = tmp_path / "moved-from.docx"
+    document.save(str(edited))
+    with pytest.raises(ProposalFormatError, match="deletion"):
+        read_proposal(edited, PROPOSAL_TEMPLATE)
+
+
+def test_a_wholly_inserted_exclusion_is_refused(tmp_path):
+    """A named exception whose paragraph sits wholly inside a tracked insertion has no text
+    python-docx's ordinary run access can see at all — it must still be refused, not silently
+    read as no exception."""
+    document = docx.Document(str(SENT_PROPOSAL))
+    heading = next(p for p in document.paragraphs if squash(p.text).startswith("Exceptions and Exclusions"))
+    new_paragraph = copy.deepcopy(heading._p)
+    for run in new_paragraph.findall(qn("w:r")):
+        run.remove(run.find(qn("w:t")))
+        t = OxmlElement("w:t")
+        t.text = "A WHOLLY NEW EXCEPTION"
+        run.append(t)
+    heading._p.addnext(new_paragraph)
+    wrapped = docx.text.paragraph.Paragraph(new_paragraph, heading._parent)
+    _hide_runs_in_tracked_insertion(wrapped, new_paragraph.findall(qn("w:r")))
+    edited = tmp_path / "wholly-inserted-exclusion.docx"
+    document.save(str(edited))
+    with pytest.raises(ProposalFormatError):
         read_proposal(edited, PROPOSAL_TEMPLATE)
