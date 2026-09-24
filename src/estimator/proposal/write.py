@@ -201,11 +201,22 @@ def _delete_between(first: Paragraph, last: Paragraph) -> None:
 
 
 def _delete_from_until(first: Paragraph, stop: Paragraph) -> None:
+    """Delete first and everything up to (not including) stop.
+
+    Walks once to validate before deleting anything, so a refusal — stop never
+    reached, or a table in the way — leaves the in-memory document untouched.
+    """
+    elements = []
     element = first._p
     while element is not None and element is not stop._p:
-        following = element.getnext()
+        if element.tag == qn("w:tbl"):
+            raise TemplateError("a table sits inside the front-end block of the template")
+        elements.append(element)
+        element = element.getnext()
+    if element is None:
+        raise TemplateError("the front-end block runs to the end of the template")
+    for element in elements:
         element.getparent().remove(element)
-        element = following
 
 
 def _set_existing_name(heading: Paragraph, name: str) -> None:

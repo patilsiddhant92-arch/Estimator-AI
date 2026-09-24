@@ -6,7 +6,7 @@ from docx.oxml.ns import qn
 from docx.table import _Cell
 
 from estimator.proposal import layout
-from estimator.proposal.write import TemplateError, check_template, write_proposal
+from estimator.proposal.write import TemplateError, _delete_from_until, check_template, write_proposal
 from estimator.scope import FrontEnd
 from estimator.text import squash
 
@@ -96,3 +96,10 @@ def test_the_rest_of_the_template_is_untouched(bare_job, proposal_template, tmp_
 def test_scope_content_waits_for_the_next_task(small_job, proposal_template, tmp_path):
     with pytest.raises(NotImplementedError):
         write_proposal(small_job, proposal_template, tmp_path / "p.docx")
+
+
+def test_delete_from_until_refuses_a_stop_before_first(proposal_template):
+    document = docx.Document(str(proposal_template))
+    openings = [p for p in document.paragraphs if squash(p.text).startswith(layout.OPENING)]
+    with pytest.raises(TemplateError, match="runs to the end"):
+        _delete_from_until(openings[1], openings[0])
