@@ -19,7 +19,7 @@ from docx.text.paragraph import Paragraph
 
 from estimator.files import open_docx
 from estimator.proposal import layout
-from estimator.proposal.word import WordLists, field_result_text, merged_runs, visible_text
+from estimator.proposal.word import WordLists, deleted_text, field_result_text, merged_runs, visible_text
 from estimator.scope import Alternate, Block, FrontEnd, Header, Item, Job, Run
 from estimator.text import squash
 
@@ -79,6 +79,7 @@ def _exclusions(document: DocxDocument) -> list[str]:
     if start is None or end is None or end <= start:
         raise ProposalFormatError("can't find the exclusions list")
     _refuse_foreign_children(document, paragraphs[start], paragraphs[end])
+    _refuse_deleted_paragraphs(document.paragraphs, paragraphs[start], paragraphs[end])
     for paragraph in paragraphs[start + 1 : end]:
         _refuse_hidden_text(paragraph)
     return texts[start + 1 : end]
@@ -121,6 +122,7 @@ def read_scope(document: DocxDocument):
     start = _find(paragraphs, layout.SCOPE_HEADING)
     end = _find(paragraphs, layout.CLARIFICATIONS)
     _refuse_foreign_children(document, paragraphs[start], paragraphs[end])
+    _refuse_deleted_paragraphs(full, paragraphs[start], paragraphs[end])
     _refuse_hidden_text(paragraphs[start])
     _refuse_hidden_text(paragraphs[start + 1])
     suffix = squash(paragraphs[start].text)[len(layout.SCOPE_HEADING):].strip()
@@ -210,6 +212,26 @@ def _refuse_foreign_children(document: DocxDocument, first: Paragraph, last: Par
         elif inside and element.tag not in _HARMLESS_BODY_CHILDREN:
             name = _FOREIGN_BODY_CHILD_NAMES.get(element.tag, f"a {element.tag.split('}')[-1]}")
             raise ProposalFormatError(f"{name} sits inside the scope of work; the reader doesn't handle it")
+
+
+def _refuse_deleted_paragraphs(full: list[Paragraph], first: Paragraph, last: Paragraph) -> None:
+    """A paragraph that is entirely a tracked deletion has no ordinary run text at all — its
+    words live only in <w:delText> — so it has no visible text and never reaches the paragraph
+    lists read_scope and _exclusions filter down to. Left unchecked, it would simply vanish from
+    the Job with no complaint, the same failure _refuse_hidden_text exists to catch on a paragraph
+    that keeps some visible text."""
+    inside = False
+    for paragraph in full:
+        if paragraph._p is first._p:
+            inside = True
+            continue
+        if paragraph._p is last._p:
+            return
+        if inside and not visible_text(paragraph).strip():
+            removed = deleted_text(paragraph)
+            if removed.strip():
+                raise ProposalFormatError(
+                    f"{squash(removed)!r} is a tracked deletion — accept or reject tracked changes in Word first")
 
 
 def _refuse_hidden_text(paragraph: Paragraph) -> None:

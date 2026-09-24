@@ -151,6 +151,12 @@ def visible_text(paragraph: Paragraph) -> str:
     return "".join(parts)
 
 
+def deleted_text(paragraph: Paragraph) -> str:
+    """The words a tracked deletion removed from this paragraph — stored as <w:delText>, which
+    neither python-docx's own p.text nor visible_text() ever look at."""
+    return "".join(element.text or "" for element in paragraph._p.iter(qn("w:delText")))
+
+
 def field_result_text(paragraph: Paragraph, instruction: str) -> str | None:
     """The text Word last displayed for a field such as DATE, or None if there is none."""
     state, code, shown = None, "", []

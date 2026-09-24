@@ -251,6 +251,52 @@ def test_a_paragraph_with_an_unaccepted_move_is_refused(tmp_path):
         read_proposal(edited, PROPOSAL_TEMPLATE)
 
 
+def _wrap_in_deletion(paragraph, runs) -> None:
+    """Turn the given <w:r> children into a <w:del> (an unaccepted tracked deletion): each run's
+    <w:t> becomes <w:delText> — the words a real Word "Reject" would put back — and the runs move
+    inside <w:del>, leaving no ordinary run text on the paragraph at all."""
+    deletion = OxmlElement("w:del")
+    deletion.set(qn("w:id"), "905")
+    deletion.set(qn("w:author"), "test")
+    for run in runs:
+        for t in run.findall(qn("w:t")):
+            t.tag = qn("w:delText")
+        paragraph._p.remove(run)
+        deletion.append(run)
+    paragraph._p.append(deletion)
+
+
+def test_a_wholly_deleted_item_is_refused(tmp_path):
+    """A paragraph whose entire text sits inside a tracked deletion has no visible text at all —
+    it has to be caught by name, not silently dropped as though it were just a blank line."""
+    document = docx.Document(str(SENT_PROPOSAL))
+    paragraph = next(p for p in document.paragraphs if squash(p.text) == "Furnish and Install UPS")
+    _wrap_in_deletion(paragraph, paragraph._p.findall(qn("w:r")))
+    edited = tmp_path / "wholly-deleted-item.docx"
+    document.save(str(edited))
+    with pytest.raises(ProposalFormatError, match=r"Furnish and Install UPS.*tracked deletion"):
+        read_proposal(edited, PROPOSAL_TEMPLATE)
+
+
+def test_a_wholly_deleted_paragraph_in_the_exclusions_is_refused(tmp_path):
+    """The same check has to run in the exclusions region too, not only the scope of work."""
+    document = docx.Document(str(SENT_PROPOSAL))
+    heading = next(p for p in document.paragraphs if squash(p.text).startswith("Exceptions and Exclusions"))
+    new_paragraph = copy.deepcopy(heading._p)
+    for run in new_paragraph.findall(qn("w:r")):
+        run.remove(run.find(qn("w:t")))
+        t = OxmlElement("w:t")
+        t.text = "A WHOLLY DELETED EXCEPTION"
+        run.append(t)
+    heading._p.addnext(new_paragraph)
+    wrapped = docx.text.paragraph.Paragraph(new_paragraph, heading._parent)
+    _wrap_in_deletion(wrapped, new_paragraph.findall(qn("w:r")))
+    edited = tmp_path / "wholly-deleted-exclusion.docx"
+    document.save(str(edited))
+    with pytest.raises(ProposalFormatError, match=r"A WHOLLY DELETED EXCEPTION.*tracked deletion"):
+        read_proposal(edited, PROPOSAL_TEMPLATE)
+
+
 def test_a_wholly_inserted_exclusion_is_refused(tmp_path):
     """A named exception whose paragraph sits wholly inside a tracked insertion has no text
     python-docx's ordinary run access can see at all — it must still be refused, not silently
