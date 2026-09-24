@@ -59,6 +59,23 @@ def test_kitchen_exhaust_system_is_an_unnumbered_group_heading(sent_scope):
     assert blocks["Qty (1) Kitchen Exhaust Fan KEF-2"].joined
 
 
+def test_a_non_bold_unnumbered_pr2_paragraph_is_not_a_group_heading(tmp_path):
+    """_is_group_heading's own docstring says the paragraph mark must be bold, like a block
+    header's — a same-sized but non-bold mark must be read the way the reader treated an
+    unnumbered PR2 paragraph before the group-heading feature existed: as a plain note under
+    whatever block is open, not as a heading that starts a new (unnumbered) block of its own."""
+    document = docx.Document(str(SENT_PROPOSAL))
+    heading = next(p for p in document.paragraphs if squash(p.text) == "Kitchen Exhaust System")
+    rPr = heading._p.pPr.find(qn("w:rPr"))
+    rPr.remove(rPr.find(qn("w:b")))
+    edited = tmp_path / "kitchen-not-bold.docx"
+    document.save(str(edited))
+    job = read_proposal(edited, PROPOSAL_TEMPLATE)
+    assert "Kitchen Exhaust System" not in [b.header for b in job.blocks]
+    note = next(item for block in job.blocks for item in block.items if item.text == "Kitchen Exhaust System")
+    assert note.kind == "note"
+
+
 def test_nesting_is_read_from_the_indent(sent_scope):
     misc = next(b for b in sent_scope[2] if b.header == "Misc Monitoring Systems")
     assert [item.depth for item in misc.items] == MISC_MONITORING_DEPTHS

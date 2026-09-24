@@ -288,12 +288,22 @@ def _mark_size_pt(paragraph: Paragraph) -> float | None:
     return int(sz.get(qn("w:val"))) / 2 if sz is not None else None
 
 
+def _mark_bold(paragraph: Paragraph) -> bool:
+    """Whether the paragraph mark's own run properties are bold — what Word draws a list number
+    or bullet in. A bare <w:b/> (no w:val) means bold; a w:val of 0/false/off turns it back off."""
+    pPr = paragraph._p.pPr
+    rPr = pPr.find(qn("w:rPr")) if pPr is not None else None
+    b = rPr.find(qn("w:b")) if rPr is not None else None
+    return b is not None and b.get(qn("w:val")) not in ("0", "false", "off")
+
+
 def _is_group_heading(paragraph: Paragraph) -> bool:
     """An unnumbered group heading such as "Kitchen Exhaust System": PR2, numbering explicitly
     switched off (list 0), with the paragraph mark bold and sized like a block header's — unlike
     a note, which also sits at list 0 but never carries that mark formatting."""
     return (WordLists.written_numbering(paragraph) == (0, 0)
-            and _mark_size_pt(paragraph) == layout.GROUP_HEADING.size)
+            and _mark_size_pt(paragraph) == layout.GROUP_HEADING.size
+            and _mark_bold(paragraph))
 
 
 def _is_block_header(paragraph: Paragraph) -> bool:
