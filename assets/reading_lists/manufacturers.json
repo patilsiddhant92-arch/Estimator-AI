@@ -31,5 +31,5 @@
   "not_controls_words": ["access\\s+control", "card\\s+readers?", "\\bsecurity\\b", "intrusion", "video\\s+surveillance", "\\bCCTV\\b", "fire\\s+alarm"],
   "list_words": ["acceptable\\s+manufacturers?", "approved\\s+manufacturers?", "available\\s+manufacturers?", "manufacturers?\\s*:", "one\\s+of\\s+the\\s+following", "subject\\s+to\\s+compliance"],
   "sole_words": ["no\\s+substitutions?", "sole[- ]source", "no\\s+exceptions", "shall\\s+be\\s+unacceptable", "only\\s+systems\\s+that", "no\\s+other\\s+(?:manufacturer|system|vendor)s?", "substitutions\\s+will\\s+not\\s+be\\s+(?:accepted|permitted|considered)", "\\bonly\\s*\\."],
-  "basis_words": ["basis\\s+of\\s+design", "or\\s+approved\\s+equal"]
+  "basis_words": ["basis\\s+of\\s+design"]
 }

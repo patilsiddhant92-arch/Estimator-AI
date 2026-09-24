@@ -179,6 +179,16 @@ def test_c2_a_separate_basis_of_design_article_beats_an_approved_list_elsewhere(
     assert "Honeywell" in bid.reason and "Siemens" in bid.reason and "basis of design" in bid.reason
 
 
+def test_c2_or_approved_equal_alone_on_a_minor_component_does_not_block():
+    # 26-0246: a duct humidity sensor names Siemens with "or approved equal" — that's a
+    # component brand, not the BAS platform, and must not turn a real Qualifies into Open.
+    pages = _pages("2.1 SYSTEM\nA. The BMS shall be built on the Tridium Niagara 4 Framework.",
+                   "2.7 SENSORS\nA. Duct RH/T Sensor: Siemens Model Number 538-896 or Kele GEH series "
+                   "or approved equal.")
+    bid = check_bid(pages, [CONTROLS])
+    assert bid.finding == "Qualifies"
+
+
 def test_c2_johnson_controls_metasys_does_not_read_as_the_approved_list_item():
     pages = _pages("Acceptable manufacturers: 1. Johnson Controls Metasys. 2. Siemens Desigo.")
     bid = check_bid(pages, [CONTROLS])
