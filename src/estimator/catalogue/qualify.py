@@ -31,6 +31,7 @@ REACH = 350        # characters either side of a manufacturer's name that make u
 class Named:
     name: str
     patterns: tuple[re.Pattern, ...]
+    note: str = ""   # e.g. "not WEBs" — shown when this name is recorded only "in passing" (I9)
 
     def found_in(self, text: str) -> bool:
         return any(p.search(text) for p in self.patterns)
@@ -44,6 +45,7 @@ class ReadingList:
     controls_words: re.Pattern
     list_words: re.Pattern
     sole_words: re.Pattern
+    basis_words: re.Pattern
     not_controls_words: re.Pattern
 
     @classmethod
@@ -51,14 +53,15 @@ class ReadingList:
         data = json.loads(Path(path).read_text(encoding="utf-8"))
 
         def named(key):
-            return tuple(Named(e["name"], tuple(re.compile(p, 0 if e.get("exact_case") else re.I) for p in e["patterns"]))
-                         for e in data[key])
+            return tuple(Named(e["name"], tuple(re.compile(p, 0 if e.get("exact_case") else re.I) for p in e["patterns"]),
+                               e.get("not_ours", "")) for e in data[key])
 
         def words(key):
             return re.compile("|".join(f"(?:{w})" for w in data[key]), re.I)
 
         return cls(named("platforms_we_bid"), named("on_an_approved_list"), named("other_manufacturers"),
-                   words("controls_words"), words("list_words"), words("sole_words"), words("not_controls_words"))
+                   words("controls_words"), words("list_words"), words("sole_words"), words("basis_words"),
+                   words("not_controls_words"))
 
     def all_names(self) -> tuple[Named, ...]:
         return self.ours + self.listed + self.others
@@ -73,7 +76,19 @@ class Mention:
     listed: tuple[str, ...]
     others: tuple[str, ...]
     sole: bool
-    sheet: str | None = None    # the sheet number, when the passage is on a drawing sheet
+    sheet: str | None = None            # the sheet number, when the passage is on a drawing sheet
+    passing: tuple[tuple[str, str], ...] = ()   # (name, note) — Honeywell/JCI named outside a list (I9)
+    basis: bool = False                 # the passage names another manufacturer as basis of design / approved equal
+
+    @property
+    def named(self) -> str:
+        """The "Manufacturers named" column: AME's own lines marked, so they aren't mistaken
+        for another manufacturer's (M10)."""
+        parts = [f"{n} (a line AME bids)" for n in self.ours]
+        parts += list(self.listed)
+        parts += list(self.others)
+        parts += [f"{n} (not on a list, {note})" for n, note in self.passing]
+        return ", ".join(parts)
 
 
 @dataclass(frozen=True)
@@ -134,12 +149,19 @@ def _mentions(record: PageRecord, controls: Sequence[SpecSection], sheet: Sheet 
         if not in_controls and reading.not_controls_words.search(passage):
             continue
         ours = tuple(n.name for n in reading.ours if n.found_in(passage))
-        listed = tuple(n.name for n in reading.listed if n.found_in(passage)) if reading.list_words.search(passage) else ()
+        approved = [n for n in reading.listed if n.found_in(passage)]
+        is_list = bool(reading.list_words.search(passage))
+        listed = tuple(n.name for n in approved) if is_list else ()
+        # Honeywell or Johnson Controls named outside a list is never one of AME's own lines
+        # (that's "ours"), but it's still worth recording — "named in passing" — rather than
+        # vanishing without a trace (I9).
+        passing = () if is_list else tuple((n.name, n.note) for n in approved)
         others = tuple(n.name for n in reading.others if n.found_in(passage))
-        if ours or listed or others:
+        if ours or listed or others or passing:
             found.append(Mention(record.document, record.page, " ".join(passage.split()),
                                  ours, listed, others, bool(reading.sole_words.search(passage)),
-                                 sheet.number if sheet is not None else None))
+                                 sheet.number if sheet is not None else None, passing,
+                                 bool(reading.basis_words.search(passage))))
     return found
 
 
@@ -150,20 +172,45 @@ def _where(mention: Mention) -> str:
 
 def _judge(mentions: Sequence[Mention], others: tuple[str, ...]) -> tuple[str, str]:
     qualifying = [m for m in mentions if m.ours or m.listed]
-    blocking = [m for m in mentions if m.sole and m.others and not m.ours]
-    if qualifying and blocking:
-        return ("Open", f"The spec says two different things: it names {', '.join(qualifying[0].ours or qualifying[0].listed)} "
-                        f"({_where(qualifying[0])}) but also requires {', '.join(blocking[0].others)} with no substitutions "
-                        f"({_where(blocking[0])}). The US team decides.")
+    # A passage with a sole-source word and another manufacturer is a contrary requirement even
+    # when it also names one of AME's own lines — "Niagara or Honeywell WEBs shall be
+    # unacceptable ... BAS shall be Siemens" still means Open, not Qualifies (C2).
+    sole_blocking = [m for m in mentions if m.sole and m.others]
+    # "Basis of design: Siemens, or approved equal" is a softer contrary requirement — it doesn't
+    # rule AME out on its own ("or approved equal" leaves the door open), but it still keeps a
+    # would-be Qualifies from winning outright.
+    basis_blocking = [m for m in mentions if m.basis and m.others and m not in sole_blocking]
+    # Honeywell/Johnson Controls named with sole-source wording, but not on any list: the US team
+    # must see this even though it never counts toward Qualifies (I9).
+    passing_sole = [m for m in mentions if m.sole and m.passing and not m.ours and not m.listed and not m.others]
+    contrary = sole_blocking or basis_blocking
+    if qualifying and contrary:
+        first = next((m for m in qualifying if m.ours), qualifying[0])
+        name = ', '.join(first.ours or first.listed)
+        against = sole_blocking[0] if sole_blocking else basis_blocking[0]
+        if against.sole:
+            return ("Open", f"The spec says two different things: it names {name} ({_where(first)}) but also requires "
+                            f"{', '.join(against.others)} with no substitutions ({_where(against)}). The US team decides.")
+        return ("Open", f"The spec says two different things: it names {name} ({_where(first)}) but also names "
+                        f"{', '.join(against.others)} as the basis of design, or approved equal ({_where(against)}). "
+                        f"The US team decides.")
     if qualifying:
         first = next((m for m in qualifying if m.ours), qualifying[0])
         if first.ours:
             return "Qualifies", f"The spec names {', '.join(first.ours)} ({_where(first)})."
         verb = "is" if len(first.listed) == 1 else "are"
         return "Qualifies", f"{' and '.join(first.listed)} {verb} on the spec's list of acceptable manufacturers ({_where(first)})."
-    if blocking:
-        return ("Does not qualify", f"The spec requires {', '.join(blocking[0].others)} with no substitutions "
-                                    f"({_where(blocking[0])}). The US team decides.")
+    if sole_blocking:
+        return ("Does not qualify", f"The spec requires {', '.join(sole_blocking[0].others)} with no substitutions "
+                                    f"({_where(sole_blocking[0])}). The US team decides.")
+    if passing_sole:
+        first = passing_sole[0]
+        names = ', '.join(name for name, _ in first.passing)
+        return ("Open", f"The spec requires {names}, which is not a line AME bids ({_where(first)}). The US team decides.")
+    if basis_blocking:
+        first = basis_blocking[0]
+        return ("Open", f"The spec names {', '.join(first.others)} as the basis of design, or approved equal "
+                        f"({_where(first)}). The US team decides.")
     if others:
         return "Open", f"The spec names {', '.join(others)}, and none of the lines AME bids ({_where(mentions[0])}). The US team decides."
     return "Open", "The spec names no controls manufacturer at all. The US team decides."

@@ -68,7 +68,7 @@ def _bid_check(ws, catalogue: Catalogue) -> None:
     for cell in ws[ws.max_row]:
         cell.font, cell.fill = _BOLD, _HEADING
     for m in bid.mentions:
-        ws.append([m.document, m.page, ", ".join(m.ours + m.listed + m.others), m.quote])
+        ws.append([m.document, m.page, m.named, m.quote])
         ws.cell(ws.max_row, 4).alignment = Alignment(wrap_text=True, vertical="top")
     for row in range(3, 7):
         ws.cell(row, 1).font = _BOLD

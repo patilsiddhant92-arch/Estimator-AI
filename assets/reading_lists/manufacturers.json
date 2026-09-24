@@ -6,8 +6,8 @@
     {"name": "Niagara N4", "patterns": ["\\bNiagara\\b", "\\bTridium\\b", "\\bN4\\s+Framework\\b"]}
   ],
   "on_an_approved_list": [
-    {"name": "Honeywell", "patterns": ["\\bHoneywell\\b"]},
-    {"name": "Johnson Controls", "patterns": ["\\bJohnson\\s+Controls\\b", "\\bJCI\\b"]}
+    {"name": "Honeywell", "patterns": ["\\bHoneywell\\b"], "not_ours": "not WEBs"},
+    {"name": "Johnson Controls", "patterns": ["\\bJohnson\\s+Controls\\b(?![^\\n]{0,30}Metasys)", "\\bJCI\\b"], "not_ours": "not FX"}
   ],
   "other_manufacturers": [
     {"name": "Siemens", "patterns": ["\\bSiemens\\b"]},
@@ -30,5 +30,6 @@
   "controls_words": ["\\bBMS\\b", "\\bBAS\\b", "\\bDDC\\b", "building\\s+automation", "building\\s+management", "temperature\\s+control", "control\\s+system", "controls\\s+contractor", "direct\\s+digital", "\\bBACnet\\b", "energy\\s+management", "\\bEMS\\b", "\\bSCADA\\b", "front[- ]end"],
   "not_controls_words": ["access\\s+control", "card\\s+readers?", "\\bsecurity\\b", "intrusion", "video\\s+surveillance", "\\bCCTV\\b", "fire\\s+alarm"],
   "list_words": ["acceptable\\s+manufacturers?", "approved\\s+manufacturers?", "available\\s+manufacturers?", "manufacturers?\\s*:", "one\\s+of\\s+the\\s+following", "subject\\s+to\\s+compliance"],
-  "sole_words": ["no\\s+substitutions?", "sole[- ]source", "no\\s+exceptions", "shall\\s+be\\s+unacceptable", "only\\s+systems\\s+that", "no\\s+other\\s+(?:manufacturer|system|vendor)s?"]
+  "sole_words": ["no\\s+substitutions?", "sole[- ]source", "no\\s+exceptions", "shall\\s+be\\s+unacceptable", "only\\s+systems\\s+that", "no\\s+other\\s+(?:manufacturer|system|vendor)s?", "substitutions\\s+will\\s+not\\s+be\\s+(?:accepted|permitted|considered)", "\\bonly\\s*\\."],
+  "basis_words": ["basis\\s+of\\s+design", "or\\s+approved\\s+equal"]
 }

@@ -150,3 +150,71 @@ def test_the_same_access_control_passage_inside_a_controls_section_still_counts(
     bid = check_bid(pages, [CONTROLS])
     assert bid.finding == "Qualifies"
     assert bid.mentions != ()
+
+
+# C2: "Qualifies" must never win over a contrary requirement in the same passage, a component
+# list, or a Metasys list.
+
+def test_c2_unacceptable_ours_with_another_manufacturer_required_is_open():
+    pages = _pages("Systems based on Tridium Niagara or Honeywell WEBs shall be unacceptable. "
+                   "The BAS shall be Siemens Desigo. No substitutions.")
+    bid = check_bid(pages, [CONTROLS])
+    assert bid.finding == "Open" and "two" in bid.reason
+    assert "Siemens" in bid.reason
+
+
+def test_c2_existing_ours_system_to_be_removed_and_replaced_is_open():
+    pages = _pages("The existing building automation system is Honeywell WEBs and shall be removed. "
+                   "The new BAS shall be Siemens Desigo. No substitutions.")
+    bid = check_bid(pages, [CONTROLS])
+    assert bid.finding == "Open" and "two" in bid.reason
+
+
+def test_c2_a_separate_basis_of_design_article_beats_an_approved_list_elsewhere():
+    pages = _pages("2.1 BAS\nA. Basis of design: Siemens Desigo CC, or approved equal.",
+                   "2.3 CONTROL VALVES\nA. Manufacturers: Subject to compliance, provide products by one "
+                   "of the following: Belimo, Honeywell.")
+    bid = check_bid(pages, [CONTROLS])
+    assert bid.finding == "Open"
+    assert "Honeywell" in bid.reason and "Siemens" in bid.reason and "basis of design" in bid.reason
+
+
+def test_c2_johnson_controls_metasys_does_not_read_as_the_approved_list_item():
+    pages = _pages("Acceptable manufacturers: 1. Johnson Controls Metasys. 2. Siemens Desigo.")
+    bid = check_bid(pages, [CONTROLS])
+    assert bid.finding == "Open"
+    assert bid.others == ("Johnson Controls Metasys", "Siemens")
+
+
+# I9: Honeywell/Johnson Controls named outside a list is recorded, never counted toward
+# Qualifies, and a sole-source word beside it gives Open.
+
+def test_i9_honeywell_named_in_passing_is_recorded_not_dropped():
+    pages = _pages("A. Coordinate with the owner's existing Honeywell system for tie-ins.")
+    bid = check_bid(pages, [CONTROLS])
+    assert bid.finding != "Qualifies"
+    [mention] = bid.mentions
+    assert mention.passing == (("Honeywell", "not WEBs"),)
+    assert mention.named == "Honeywell (not on a list, not WEBs)"
+
+
+def test_i9_honeywell_named_in_passing_with_sole_source_wording_is_open():
+    pages = _pages("The BAS shall be Honeywell Enterprise Buildings Integrator (EBI). No substitutions.")
+    bid = check_bid(pages, [CONTROLS])
+    assert bid.finding == "Open"
+    assert "Honeywell" in bid.reason and "not a line AME bids" in bid.reason
+
+
+# M6: more sole-source wordings.
+
+def test_m6_substitutions_will_not_be_accepted_is_sole_source():
+    pages = _pages("A. The building automation system shall be Automated Logic WebCTRL. "
+                   "Substitutions will not be accepted.")
+    bid = check_bid(pages, [CONTROLS])
+    assert bid.finding == "Does not qualify" and "Automated Logic" in bid.reason
+
+
+def test_m6_only_at_the_end_of_a_sentence_is_sole_source():
+    pages = _pages("A. The building automation system shall be Automated Logic WebCTRL only.")
+    bid = check_bid(pages, [CONTROLS])
+    assert bid.finding == "Does not qualify" and "Automated Logic" in bid.reason

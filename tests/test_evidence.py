@@ -45,7 +45,7 @@ def test_the_bid_check_comes_first_and_quotes_the_spec(tmp_path):
     assert rows[0][0] == "Bid check — 26-9999"
     assert ["Finding", "Qualifies"] == rows[2][:2]
     assert ["Other controls manufacturers named (for the US team)", "Siemens"] == rows[4][:2]
-    assert ["2. Takeoffs/1. Base Takeoff/15970.pdf", 1, "Niagara N4",
+    assert ["2. Takeoffs/1. Base Takeoff/15970.pdf", 1, "Niagara N4 (a line AME bids)",
             "The BMS shall be built on the Niagara 4 Framework."] in rows
 
 
