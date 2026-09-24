@@ -19,6 +19,11 @@ def _money(value: float | None) -> str:
     return "—" if value is None else f"${value:,.2f}"
 
 
+def _cell(text: str) -> str:
+    """Escape a "|" so it doesn't get read as a table column break."""
+    return text.replace("|", "\\|")
+
+
 def price_check(generated: Path, sent: Path, book: PriceBook, title: str) -> str:
     ours_by_sheet, theirs_by_sheet = read_sent_rows(generated), read_sent_rows(sent)
     differs, same, pending, unpriced_sent, questioned = [], 0, [], [], []
@@ -67,29 +72,30 @@ def price_check(generated: Path, sent: Path, book: PriceBook, title: str) -> str
         "",
         "| Line | Qty | Price book | Sent workup |",
         "|---|---|---|---|",
-        *[f"| {line} | {qty} | {_money(book_price)} | {_money(sent_price)} |" for line, qty, book_price, sent_price in differs],
+        *[f"| {_cell(line)} | {qty} | {_money(book_price)} | {_money(sent_price)} |" for line, qty, book_price, sent_price in differs],
         "",
         "## No price book match yet",
         "",
-        "Each of these needs an estimator to say which price book item it is, if any. A confirmed "
-        "match goes in `assets/price_book/aliases.json`, and the line is priced from then on.",
+        "Each of these needs an estimator to say which price book item it is, if any. Once confirmed, "
+        "the pairing is added to the tool's list of confirmed matches (assets/price_book/aliases.json), "
+        "and the line is priced from then on.",
         "",
         "| Line | Qty | Sent workup price | Closest price book items |",
         "|---|---|---|---|",
-        *[f"| {line} | {qty} | {_money(sent_price)} | {', '.join(i.name for i in near) or '—'} |"
+        *[f"| {_cell(line)} | {qty} | {_money(sent_price)} | {', '.join(_cell(i.name) for i in near) or '—'} |"
           for line, qty, sent_price, near in pending],
         "",
         "## Priced by the book, but the sent workup had no price",
         "",
         "| Line | Qty | Price book |",
         "|---|---|---|",
-        *[f"| {line} | {qty} | {_money(book_price)} |" for line, qty, book_price in unpriced_sent],
+        *[f"| {_cell(line)} | {qty} | {_money(book_price)} |" for line, qty, book_price in unpriced_sent],
         "",
         "## Priced, but the price book itself marks the price as needing review",
         "",
         "| Line | Qty | Price book |",
         "|---|---|---|",
-        *[f"| {line} | {qty} | {_money(book_price)} |" for line, qty, book_price in questioned],
+        *[f"| {_cell(line)} | {qty} | {_money(book_price)} |" for line, qty, book_price in questioned],
         "",
     ]
     return "\n".join(out)
