@@ -62,3 +62,23 @@ def test_the_command_writes_the_evidence_package(job, tmp_path, capsys):
 def test_a_missing_job_folder_is_plain(tmp_path, capsys):
     assert main(["catalogue", str(tmp_path / "nowhere"), "--out", str(tmp_path / "out")]) == 1
     assert capsys.readouterr().err.strip() == f"Stopped: can't find {tmp_path / 'nowhere'}"
+
+
+def test_an_addendum_of_drawing_sheets_still_gets_a_sheet_number(tmp_path):
+    # I5: a reissued sheet in "Addendum 1.pdf" is a large page, whatever the document's kind.
+    root = tmp_path / "26-9999"
+    base = root / "2. Takeoffs" / "1. Base Takeoff"
+    reissue = Page(width=3024, height=2160, texts=((200, 300, FILLER, 12), (2640, 1860, "REVISED ROOF PLAN", 20),
+                                                   (2800, 2000, "M-101", 40)))
+    make_pdf(base / "Addendum 1.pdf", reissue)
+    result = catalogue_job(root, tmp_path / "cache")
+    [sheet] = result.sheets
+    assert sheet.number == "M-101" and sheet.document.endswith("Addendum 1.pdf")
+
+
+def test_a_blank_drawing_sheet_is_flagged(tmp_path):
+    root = tmp_path / "26-9999"
+    base = root / "2. Takeoffs" / "1. Base Takeoff"
+    make_pdf(base / "Mech.pdf", Page(width=3024, height=2160))
+    result = catalogue_job(root, tmp_path / "cache")
+    assert any("Mech.pdf" in f and "blank drawing page" in f for f in result.flags)

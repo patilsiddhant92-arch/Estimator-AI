@@ -42,6 +42,42 @@ def test_a_scanned_page_without_ocr_is_unreadable_not_skipped(tmp_path, monkeypa
     assert (record.status, record.text.strip()) == ("unreadable", "")
 
 
+def test_a_vector_only_page_is_ocrd_not_called_blank(tmp_path, monkeypatch):
+    # SHX-exported CAD text is drawn as lines, not a text run — get_images() alone misses it.
+    calls = []
+    monkeypatch.setattr(register, "ocr_textpage", lambda page, dpi=300: calls.append(dpi) or None)
+    job = _job(tmp_path, ("drawing.pdf", [Page(lines=((10, 10, 100, 100), (10, 100, 100, 10)))]))
+    [record] = read_document(job.documents[0])
+    assert calls, "OCR was never attempted on a page with drawn objects and no text"
+    assert record.status == "unreadable"
+
+
+def test_a_page_with_neither_text_images_nor_drawings_is_blank(tmp_path, monkeypatch):
+    monkeypatch.setattr(register, "ocr_textpage", lambda page, dpi=300: pytest.fail("OCR should not run"))
+    job = _job(tmp_path, ("blank.pdf", [Page()]))
+    [record] = read_document(job.documents[0])
+    assert record.status == "blank"
+
+
+@pytest.mark.skipif(tessdata() is None, reason="Tesseract's tessdata folder isn't on this computer")
+def test_a_stamped_scan_keeps_the_text_layer_and_adds_the_ocr_text(tmp_path):
+    stamp = ("ISSUED FOR BID -- ADDENDUM 3 -- REVISED PER OWNER COMMENTS DATED JANUARY 5 2026 "
+             "-- SEE THE ATTACHED NARRATIVE FOR THE FULL SCOPE OF CHANGES")
+    job = _job(tmp_path, ("scan.pdf", [Page(texts=((72, 700, stamp, 10),), scanned="HOT WATER PUMP SCHEDULE")]))
+    [record] = read_document(job.documents[0])
+    assert record.status == "ocr"
+    assert "ISSUED FOR BID" in record.text and "HOT WATER PUMP SCHEDULE" in record.text
+
+
+def test_large_sheet_is_recorded_whatever_the_document_kind(tmp_path):
+    cover = Page(texts=((72, 72, "TRANSMITTAL COVER SHEET", 12),))
+    sheet = Page(width=3024, height=2160, texts=((200, 300, FILLER, 12), (2800, 2000, "M-101", 40)))
+    job = _job(tmp_path, ("Mech Set.pdf", [cover, sheet]))
+    records = read_document(job.documents[0])
+    assert [r.large_sheet for r in records] == [False, True]
+    assert records[1].edge_spans and records[1].edge_spans[0].text == "M-101"
+
+
 def test_drawings_keep_the_text_at_the_right_and_bottom_edges(tmp_path):
     sheet = Page(width=3024, height=2160, texts=((200, 300, FILLER, 12), (1500, 1000, "SUPPLY AIR DUCT", 12),
                                                  (2800, 2000, "M101", 40)))

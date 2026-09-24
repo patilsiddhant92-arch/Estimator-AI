@@ -34,7 +34,7 @@ def catalogue_job(root: Path, cache_dir: Path | None = None, workers: int = 1) -
     pages = tuple(register_job(job, cache_dir, workers))
     kinds = {d.relative: d.kind for d in job.documents}
     sheets = tuple(classify_sheet(record, read_title_block(record.edge_spans))
-                   for record in pages if kinds[record.document] == "drawings")
+                   for record in pages if record.large_sheet)
     written = [record for record in pages if kinds[record.document] != "drawings"]
     sections = tuple(index_sections(written))
     bid = check_bid(written, sections)
@@ -73,6 +73,12 @@ def _flags(catalogue: Catalogue) -> list[str]:
     why = "OCR found no words on them" if tessdata() is not None else "OCR isn't set up on this computer"
     flags += [f"{_name(doc)}: {_plural(len(p), 'page')} could not be read ({'page' if len(p) == 1 else 'pages'} {_ranges(p)}) — {why}"
               for doc, p in unreadable.items()]
+    blank_sheets: dict[str, list[int]] = defaultdict(list)
+    for record in catalogue.pages:
+        if record.status == "blank" and record.large_sheet:
+            blank_sheets[record.document].append(record.page)
+    flags += [f"{_name(doc)}: {_plural(len(p), 'blank drawing page')} ({'page' if len(p) == 1 else 'pages'} {_ranges(p)})"
+              for doc, p in blank_sheets.items()]
     per_document: dict[str, list] = defaultdict(list)
     for sheet in catalogue.sheets:
         per_document[sheet.document].append(sheet)
