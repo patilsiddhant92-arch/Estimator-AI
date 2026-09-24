@@ -29,11 +29,23 @@ class PriceSheetError(ValueError):
     """The job doesn't fit the price workup template."""
 
 
-def write_price_sheet(job: Job, template_path: Path, book: PriceBook, out_path: Path) -> Path:
-    workbook = openpyxl.load_workbook(str(template_path))    # formulas kept as formulas
+def check_fit(job: Job) -> list[Sheet]:
+    """Refuse a job that doesn't fit the price workup template — too many sheets, or too many
+    rows on one of them — before anything is written. Returns the sheet plan, so a caller that
+    already checked doesn't have to compute it twice."""
     plan = sheet_plan(job)
     if len(plan) > MAX_SHEETS:
         raise PriceSheetError(f"the job needs {len(plan)} price sheets; the template has {MAX_SHEETS}")
+    room = LAST_ROW - FIRST_ROW + 1
+    for sheet in plan:
+        if len(sheet.rows) > room:
+            raise PriceSheetError(f"{sheet.title} needs {len(sheet.rows)} rows; the template has room for {room}")
+    return plan
+
+
+def write_price_sheet(job: Job, template_path: Path, book: PriceBook, out_path: Path) -> Path:
+    plan = check_fit(job)
+    workbook = openpyxl.load_workbook(str(template_path))    # formulas kept as formulas
     pending = 0
     for index, sheet in enumerate(plan):
         template_title = f"Price Sheet {index + 1}"
@@ -48,9 +60,6 @@ def write_price_sheet(job: Job, template_path: Path, book: PriceBook, out_path: 
 
 
 def _fill(ws, sheet: Sheet, book: PriceBook) -> int:
-    room = LAST_ROW - FIRST_ROW + 1
-    if len(sheet.rows) > room:
-        raise PriceSheetError(f"{sheet.title} needs {len(sheet.rows)} rows; the template has room for {room}")
     pending = 0
     for offset, row in enumerate(sheet.rows):
         r = FIRST_ROW + offset

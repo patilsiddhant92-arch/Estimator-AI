@@ -1,10 +1,14 @@
 import openpyxl
+import pytest
 
 from conftest import TEST_JOB_FILE
+from estimator.__main__ import _build as build_job
 from estimator.__main__ import main
 from estimator.price_sheet.rows import read_sent_rows
+from estimator.price_sheet.write import PriceSheetError
 from estimator.proposal.read import read_proposal
 from estimator.proposal.sections import closing_texts, cover_lines, opening_texts, scope_blank_pattern, scope_texts
+from estimator.scope import Alternate
 from estimator.text import strip_list_marker
 
 
@@ -57,3 +61,16 @@ def test_the_alternates_are_numbered_as_the_proposal_numbers_them(tmp_path):
     wb = openpyxl.load_workbook(str(sheet))
     assert "45.  *Qty (1) Can Wash Kitchen Exhaust Fan EF-9" in [c.value for c in wb["ADD ALT"]["D"]]
     assert "46.  Qty (1) Shower Room Exhaust Fan EF-2" in [c.value for c in wb["DEDUCT ALT"]["D"]]
+
+
+def test_a_job_that_does_not_fit_leaves_no_proposal_behind(tmp_path, small_job, proposal_template,
+                                                            workup_template, price_book):
+    """I2: the fit is checked before anything is written, and both files are written under
+    temporary names and only renamed into place together — so a job that needs more price
+    sheets than the template has never leaves a proposal on disk with no price sheet beside it."""
+    too_many = small_job.model_copy(update={
+        "add_alternates": tuple(Alternate(label=f"ALT {i}: x", blocks=small_job.add_alternates[0].blocks)
+                                for i in range(1, 11))})
+    with pytest.raises(PriceSheetError):
+        build_job(too_many, proposal_template, workup_template, price_book, tmp_path)
+    assert list(tmp_path.iterdir()) == []

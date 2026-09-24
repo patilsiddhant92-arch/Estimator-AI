@@ -7,13 +7,16 @@
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 from pathlib import Path
 
+import docx
+
 from estimator.price_sheet.check import price_check
 from estimator.price_sheet.price_book import PriceBook
-from estimator.price_sheet.write import write_price_sheet
-from estimator.proposal.write import write_proposal
+from estimator.price_sheet.write import check_fit, write_price_sheet
+from estimator.proposal.write import check_template, write_proposal
 from estimator.scope import Job
 from estimator.sent import job_from_sent
 
@@ -48,6 +51,28 @@ def _parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _build(job: Job, template: Path, workup_template: Path, book: PriceBook, out: Path) -> tuple[Path, Path]:
+    """Write the proposal and the price sheet as one unit: check the job fits both templates
+    before writing anything, then write both under temporary names and rename them into place
+    together, so a job that doesn't fit never leaves a proposal behind with no price sheet, or a
+    stale price sheet beside a freshly written proposal."""
+    check_template(docx.Document(str(template)))
+    check_fit(job)
+    out.mkdir(parents=True, exist_ok=True)
+    quote = job.header.quote_number
+    proposal_path, sheet_path = out / f"{quote} Proposal.docx", out / f"{quote} Price Sheet.xlsx"
+    tmp_proposal, tmp_sheet = out / f".{proposal_path.name}.tmp", out / f".{sheet_path.name}.tmp"
+    try:
+        write_proposal(job, template, tmp_proposal)
+        write_price_sheet(job, workup_template, book, tmp_sheet)
+        os.replace(tmp_proposal, proposal_path)
+        os.replace(tmp_sheet, sheet_path)
+    finally:
+        tmp_proposal.unlink(missing_ok=True)
+        tmp_sheet.unlink(missing_ok=True)
+    return proposal_path, sheet_path
+
+
 def main(argv: list[str] | None = None) -> int:
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8")
@@ -55,9 +80,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "build":
         job = Job.model_validate_json(args.job.read_text(encoding="utf-8"))
         book = PriceBook.load(PRICE_BOOK, ALIASES)
-        quote = job.header.quote_number
-        proposal = write_proposal(job, args.template, args.out / f"{quote} Proposal.docx")
-        sheet = write_price_sheet(job, args.workup_template, book, args.out / f"{quote} Price Sheet.xlsx")
+        proposal, sheet = _build(job, args.template, args.workup_template, book, args.out)
         print(f"Wrote {proposal}")
         print(f"Wrote {sheet}")
     elif args.command == "import-sent":
