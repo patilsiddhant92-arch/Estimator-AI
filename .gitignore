@@ -31,3 +31,6 @@ build/
 desktop.ini
 Thumbs.db
 .DS_Store
+
+# Generated documents
+out/
