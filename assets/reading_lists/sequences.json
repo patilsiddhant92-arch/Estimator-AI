@@ -1,0 +1,10 @@
+{
+  "about": "How the sequence of operation and points list are found, per job (design §9.8, §10.2). Number patterns are matched, whole, against the section number after estimator.catalogue.spec_sections.section_number has formatted it (a six-digit code spaced in pairs, e.g. '23 09 93'; an old five-digit code left as digits, e.g. '15985'), with any '.suffix' dropped first. Title patterns are searched, case-insensitively, against the section or sheet title. Extend here, never in code.",
+  "sequence_numbers": ["^23 09 93$", "^15985$", "^25 9\\d \\d{2}$"],
+  "points_numbers": ["^25 60 \\d{2}$"],
+  "sequence_title": "\\bSEQUENCE\\b",
+  "points_title": "\\bPOINTS?\\s+LIST\\b|\\bPOINTS\\s+SCHEDULE\\b",
+  "sequence_heading": "^[ \\t]*SEQUENCE\\s+OF\\s+OPERATIONS?\\b.{0,40}$",
+  "no_sequence_flag": "No sequence of operation found — step 5 has no backbone for this job; scope comes from the drawings",
+  "no_points_flag": "No points list found — the sequence is not cross-checked"
+}
