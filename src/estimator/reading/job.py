@@ -59,7 +59,7 @@ def read_job(catalogue, page_opener=None, cache_dir: Path | None = None) -> JobR
     notes = read_notes(catalogue, pages)
     backbone, backbone_flags = find_backbone(catalogue)
     flags = page_flags + [f"Equipment: {line[0].upper()}{line[1:]}" for line in inventory_flags]
-    flags += device_flags + revision_flags + backbone_flags
+    flags += [t.note for t in typicals] + device_flags + revision_flags + backbone_flags
     return JobReading(tuple(schedules), tuple(items), tuple(totals), tuple(devices), tuple(legend), tuple(typicals),
                       tuple(notes), tuple(versions), tuple(supersessions), tuple(backbone), tuple(flags))
 

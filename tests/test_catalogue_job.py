@@ -2,7 +2,7 @@ import openpyxl
 import pytest
 
 from estimator.__main__ import main
-from estimator.catalogue.job import catalogue_job, summary_lines
+from estimator.catalogue.job import catalogue_job, repeated_plans, summary_lines
 from pdfs import FILLER, Page, make_pdf
 
 SCHEDULE = Page(width=3024, height=2160, texts=((200, 300, FILLER, 12), (300, 400, "AIR HANDLING UNIT SCHEDULE", 18),
@@ -137,6 +137,20 @@ def test_m2_a_marked_up_copy_gets_one_flag_not_one_per_sheet(tmp_path):
     result = catalogue_job(root, tmp_path / "cache")
     assert any(f == "Marked_Mech.pdf repeats 5 sheets of Mech.pdf — probably a marked-up copy" for f in result.flags)
     assert not [f for f in result.flags if f.startswith("Sheet M-10")]
+
+
+def test_a_plan_printed_once_per_floor_is_left_to_the_floor_rule_not_flagged_per_sheet(tmp_path):
+    """The same plan on several pages of one document is one plan per floor: the reading multiplies what is
+    on it, and says so there. Any other sheet on several pages is still flagged."""
+    root = tmp_path / "26-9999"
+    base = root / "2. Takeoffs" / "1. Base Takeoff"
+    details = Page(width=3024, height=2160, texts=((200, 300, FILLER, 12), (2640, 1860, "MECHANICAL DETAILS", 20),
+                                                   (2800, 2000, "M-501", 40)))
+    make_pdf(base / "Mech.pdf", _sheet("M-113"), _sheet("M-113"), _sheet("M-113"), details, details)
+    result = catalogue_job(root, tmp_path / "cache")
+    assert repeated_plans(result) == {"M-113": ("2. Takeoffs/1. Base Takeoff/Mech.pdf", (1, 2, 3))}
+    assert not [f for f in result.flags if f.startswith("Sheet M-113")]
+    assert any(f.startswith("Sheet M-501 is on 2 pages") for f in result.flags)
 
 
 def test_m4_the_summary_names_controls_scope_not_a_discipline_list(tmp_path):
