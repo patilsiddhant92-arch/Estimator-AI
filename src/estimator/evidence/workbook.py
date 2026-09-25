@@ -24,6 +24,8 @@ TABS = ("Bid check", "Spec overview", "Flags", "Documents", "Pages", "Sheets", "
 READING_TABS = ("Equipment", "Schedules", "Devices on plans", "Notes", "Changes", "Sequence and points")
 # The written scope (build step 5), right after the bid check when the systems are given.
 ESTIMATE_TABS = ("Review list", "Scope lines")
+# The whole-job method: every system the AI planned, with its quantity checked against the counts.
+PLAN_TAB = "Plan"
 _GREEN = PatternFill("solid", fgColor="C6EFCE")
 _AMBER = PatternFill("solid", fgColor="FFEB9C")
 _GREY = PatternFill("solid", fgColor="D9D9D9")
@@ -48,10 +50,11 @@ def _append(ws, row: list) -> None:
 
 
 def write_evidence(path: Path, catalogue: Catalogue, reading: JobReading | None = None,
-                   systems=None, review_flags=()) -> Path:
+                   systems=None, review_flags=(), plan=None) -> Path:
     """The Evidence Package. With the written systems (build step 5), the review list and every
     scope line come right after the bid check; `review_flags` are the review items that belong to
-    no system (a family on the drawings but on no schedule)."""
+    no system: a family on the drawings but on no schedule, as a flag's text, or a ReviewItem (the
+    whole-job method). `plan` is the whole-job plan's checked systems (PlanCheck), for the Plan tab."""
     workbook = Workbook()
     workbook.remove(workbook.active)
     _bid_check(workbook.create_sheet(TABS[0]), catalogue)
@@ -59,6 +62,8 @@ def write_evidence(path: Path, catalogue: Catalogue, reading: JobReading | None 
         flags = list(catalogue.flags) + list(reading.flags if reading is not None else ())
         _review_list(workbook.create_sheet(ESTIMATE_TABS[0]), systems, review_flags, flags)
         _scope_lines(workbook.create_sheet(ESTIMATE_TABS[1]), systems)
+    if plan is not None:
+        _plan(workbook.create_sheet(PLAN_TAB), plan)
     _spec_overview(workbook.create_sheet(TABS[1]), catalogue)
     if reading is not None:
         _write_reading(workbook, reading)
@@ -434,6 +439,9 @@ def _review_list(ws, systems, review_flags, flags) -> None:
         for item in system.review:
             rows.append([item.system, item.category, item.decide, item.evidence or None, item.action or None])
     for flag in review_flags:
+        if not isinstance(flag, str):          # a ReviewItem that belongs to no system
+            rows.append([flag.system, flag.category, flag.decide, flag.evidence or None, flag.action or None])
+            continue
         decide, _, action = flag.partition(" — ")
         found = _FLAG_CATEGORY.search(decide)
         rows.append(["Not on a schedule", found.group(1) if found else "", decide, None, action or None])
@@ -471,3 +479,32 @@ def _scope_lines(ws, systems) -> None:
             ws.cell(ws.max_row, 8).alignment = Alignment(wrap_text=True, vertical="top")
     ws.auto_filter.ref = ws.dimensions
     _widths(ws, [26, 60, 10, 11, 13, 11, 44, 70, 16])
+
+
+_PLAN_FILL = {"CONFIRMED": _GREEN, "ASSUMPTION": _AMBER, "DISCREPANCY": _RED, "PENDING": _RED}
+_PLAN_COUNTS = ("schedule_rows", "quantity_column", "distinct_tags", "plan_placements", "riser")
+
+
+def _plan(ws, checks) -> None:
+    """Every system the AI planned: its quantity, where it comes from and the words that state it,
+    the counts it was checked against, and its category."""
+    _headings(ws, ["Key", "System", "Kind", "Tags", "Quantity", "Category", "Quantity source", "Where",
+                   "The words that state it", "Schedule rows", "QUANTITY column", "Distinct tags",
+                   "Placements on the plans", "Riser", "Group", "Alternate", "Exception", "Goes in", "Why"])
+    ws.freeze_panes = "A2"
+    for check in checks:
+        s = check.system
+        tags = ", ".join(s.tags) if not isinstance(s.tags, str) else s.tags
+        _append(ws, [s.key, s.header, s.kind, tags or None, s.quantity, check.category, s.quantity_source or None,
+                     check.where or None, s.quantity_quote or None,
+                     *[check.columns.get(c) for c in _PLAN_COUNTS],
+                     s.group or None, s.alternate or None, s.exception or None, check.goes, s.why or None])
+        fill = _PLAN_FILL.get(check.category)
+        if fill is not None:
+            ws.cell(ws.max_row, 6).fill = fill
+        for column in (2, 9, 19):
+            ws.cell(ws.max_row, column).alignment = Alignment(wrap_text=True, vertical="top")
+    if not checks:
+        _append(ws, ["", "The AI planned no system."])
+    ws.auto_filter.ref = ws.dimensions
+    _widths(ws, [12, 44, 26, 30, 10, 14, 14, 40, 50, 10, 10, 10, 12, 8, 20, 10, 40, 20, 50])

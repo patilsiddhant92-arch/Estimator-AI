@@ -5,10 +5,17 @@
     python -m estimator price-check GENERATED.xlsx SENT.xlsx --out REPORT.md
     python -m estimator catalogue JOB_FOLDER --out FOLDER
     python -m estimator estimate JOB_FOLDER --out FOLDER [--workers N] [--ai chat|api|off] [--cache FOLDER]
+                                 [--method whole-job|rules]
 
---ai picks who judges the template lines: "api" (Claude through the Anthropic API, the default when
-ANTHROPIC_API_KEY is set), "chat" (the questions are written to a requests folder for Claude to answer
-in the Claude Code chat, the default otherwise) or "off". --no-ai is the same as --ai off.
+--ai picks who answers: "api" (Claude through the Anthropic API, the default when ANTHROPIC_API_KEY is
+set), "chat" (the questions are written to a requests folder for Claude to answer in the Claude Code
+chat, the default otherwise) or "off". --no-ai is the same as --ai off.
+
+--method picks how the scope is written. "whole-job" (the default): the job's documents are gathered
+into one dossier (saved beside the proposal), the AI reads it whole and plans every system, then writes
+each one, and the plan and every line are checked against the counts and the house style. With the AI
+off it writes the dossier and the Evidence Package only. "rules": the older path, each system written
+from its Master Template entry by rules, the AI judging the lines they leave open.
 """
 from __future__ import annotations
 
@@ -32,10 +39,16 @@ from estimator.proposal.write import check_template, write_proposal
 from estimator.reading.job import read_job, reading_lines
 from estimator.scope import Job
 from estimator.sent import job_from_sent
+from estimator.writing.assemble import (assemble_job, checklist_text, plan_checks, system_evidence,
+                                        system_examples, system_images, template_options)
+from estimator.writing.front_end import job_header
 from estimator.writing.judge import API, CHAT, KEY_VARIABLE, Judge
+from estimator.writing.style import load_house_style
+from estimator.writing.templates import load_templates
 from estimator.writing.write import build_job
 
 OFF = "off"
+WHOLE_JOB, RULES = "whole-job", "rules"
 _INVALID_FILENAME_CHARS = re.compile(r'[<>:"/\\|?*]')
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -83,6 +96,9 @@ def _parser() -> argparse.ArgumentParser:
                          "(default: api when ANTHROPIC_API_KEY is set, otherwise chat)")
     ai.add_argument("--no-ai", action="store_true", help="the same as --ai off: its lines stay PENDING")
     estimate.add_argument("--cache", type=Path, help="where to keep what was read (default: OUT/.cache)")
+    estimate.add_argument("--method", choices=(WHOLE_JOB, RULES), default=WHOLE_JOB,
+                          help="whole-job: the AI reads the whole job and writes every system, and the counts "
+                               "check it (the default); rules: each system from its Master Template entry")
     return parser
 
 
@@ -229,7 +245,115 @@ def _run(args: argparse.Namespace) -> int:
     return 0
 
 
+def build_dossier(catalogue, reading, cache_dir):
+    """The job's dossier (estimator.writing.dossier): everything controls-relevant, every paragraph citable."""
+    from estimator.writing.dossier import build_dossier as build
+    return build(catalogue, reading, cache_dir)
+
+
 def _estimate(args: argparse.Namespace) -> None:
+    if getattr(args, "method", WHOLE_JOB) == RULES:
+        _estimate_rules(args)
+    else:
+        _estimate_whole_job(args)
+
+
+def _estimate_whole_job(args: argparse.Namespace) -> None:
+    """The whole-job method: catalogue, read, gather the dossier, the AI plans every system and
+    writes each one, the cross-checks, then the job. The dossier and the Evidence Package are
+    written first, so they are there even when the AI has not answered yet."""
+    workers = max(1, min(args.workers, 61, os.cpu_count() or 1))
+    cache = args.cache or args.out / ".cache"
+    catalogue = catalogue_job(args.job, cache, workers)
+    reading = read_job(catalogue, cache_dir=cache)
+    today = dt.date.today()
+    header, _ = job_header(catalogue, reading, today)
+    quote = _safe_filename(header.quote_number)
+    args.out.mkdir(parents=True, exist_ok=True)
+    dossier = build_dossier(catalogue, reading, cache)
+    dossier_path = args.out / f"{quote} Dossier.txt"
+    dossier_path.write_text(dossier.text, encoding="utf-8")
+    print(f"Wrote {dossier_path}")
+    package_path = args.out / f"{quote} Evidence Package.xlsx"
+
+    mode = ai_mode(args)
+    if mode == OFF:
+        package = write_evidence(package_path, catalogue, reading)
+        print("AI: not used (--ai off) — the AI writes the scope; run with --ai chat or api. No proposal was written.")
+        print(f"Wrote {package}")
+        return
+    judge = Judge(cache, mode=mode)
+    templates, style = load_templates(), load_house_style()
+    plan = judge.plan_job(dossier.text, dossier.images, checklist_text(templates), style.prompt_text())
+    if plan is None:
+        package = write_evidence(package_path, catalogue, reading)
+        for line in whole_job_lines(None, [], [], judge):
+            print(line)
+        print(f"Wrote {package}")
+        return
+
+    scopes = {}
+    for system in plan.systems:
+        if system.exception:
+            continue
+        scopes[system.key] = judge.write_system(system, system_evidence(system, dossier),
+                                                system_images(system, dossier), template_options(system, templates),
+                                                system_examples(system), style.prompt_text())
+    job, systems, review = assemble_job(catalogue, reading, dossier, plan, scopes, today, templates)
+    checks, _ = plan_checks(plan, dossier, reading)
+    package = write_evidence(package_path, catalogue, reading, systems=systems, review_flags=review, plan=checks)
+    for line in whole_job_lines(plan, systems, review, judge, len(catalogue.flags) + len(reading.flags)):
+        print(line)
+    print(f"Wrote {package}")
+    if getattr(judge, "mode", API) == CHAT and judge.waiting:
+        return                                   # the proposal waits for the chat's answers
+    book = PriceBook.load(PRICE_BOOK, ALIASES)
+    proposal, sheet = _build(job, PROPOSAL_TEMPLATE, WORKUP_TEMPLATE, book, args.out)
+    print(f"Wrote {proposal}")
+    print(f"Wrote {sheet}")
+
+
+def whole_job_lines(plan, systems, review, judge, reading_flags: int = 0) -> list[str]:
+    """The whole-job run's summary, in plain words."""
+    summary = []
+    if plan is not None:
+        planned = list(plan.systems)
+        excepted = sum(1 for s in planned if s.exception)
+        pending = sum(1 for s in planned if not s.exception and s.quantity is None)
+        written = [s for s in systems if s.bundle_key != "Front end" and s.blocks]
+        printed = sum(1 for s in written if s.printed)
+        lines = [line for s in systems for line in s.lines]
+        in_proposal = sum(1 for line in lines if line.client)
+        count = sum(len(s.review) for s in systems) + len(review)
+        summary.append(f"Systems planned: {len(planned)}; {printed} written in the proposal"
+                       + (f", {pending} pending (no quantity)" if pending else "")
+                       + (f", {excepted} put in the exceptions" if excepted else "")
+                       + (f", {len(written) - printed} left out until written" if len(written) > printed else "")
+                       + ".")
+        summary.append(f"Lines: {in_proposal} in the proposal; {count} {'item' if count == 1 else 'items'} on the "
+                       "review list" + (f", then {reading_flags} {'flag' if reading_flags == 1 else 'flags'} from "
+                                        "reading the job." if reading_flags else "."))
+    if getattr(judge, "mode", API) == CHAT:
+        answered = judge.answered_in_chat + judge.cached
+        line = f"AI: answered in the chat {answered} {'time' if answered == 1 else 'times'}; "
+        if judge.waiting:
+            line += (f"{judge.waiting} {'request' if judge.waiting == 1 else 'requests'} waiting — requests in "
+                     f"{judge.requests_dir}. Answer them, then run estimate again. No proposal was written yet.")
+        else:
+            line += "none waiting."
+        summary.append(line)
+    elif not judge.available and not judge.cached:
+        summary.append("AI: not used — no AI key set (ANTHROPIC_API_KEY); the AI writes the scope, so no proposal "
+                       "was written.")
+    else:
+        summary.append(f"AI: {judge.calls} {'call' if judge.calls == 1 else 'calls'} to {judge.model}, "
+                       f"{judge.cached} answered from the cache at no cost.")
+        if plan is None:
+            summary.append(f"The AI gave no plan — {judge.last_error or 'no answer'}. No proposal was written.")
+    return summary
+
+
+def _estimate_rules(args: argparse.Namespace) -> None:
     """From a job folder to the draft proposal, the price sheet and the Evidence Package. The
     Evidence Package is written first, so the review list is there even when the proposal can't be."""
     workers = max(1, min(args.workers, 61, os.cpu_count() or 1))
