@@ -1,7 +1,7 @@
 {
-  "about": "Every manufacturer the Spec overview lists, by category. A maker is listed once, under its category here. Add makers here, never in code. Names match as written or in capitals; not_before / not_after stop false hits such as 'New York'.",
+  "about": "Every manufacturer the Spec overview lists, by category. A maker is listed once, under its category here. Add makers here, never in code. Names match as written or in capitals; priced: false marks a category that isn't a device to price (the controls platform is the bid check's business); not_before / not_after stop false hits such as 'New York'.",
   "categories": [
-    {"category": "Controls platform", "ask_if_missing": false, "makers": [
+    {"category": "Controls platform", "ask_if_missing": false, "priced": false, "makers": [
       {"name": "Honeywell", "names": ["Honeywell"]},
       {"name": "Johnson Controls", "names": ["Johnson Controls", "JCI"]},
       {"name": "Tridium / Niagara", "names": ["Tridium", "Niagara"], "not_after": ["Falls"]},

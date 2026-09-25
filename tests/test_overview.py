@@ -199,3 +199,12 @@ def test_start_ups_is_not_a_ups():
     overview = build_overview([no_hit_lower, no_hit_caps, hit], [], sections)
     ups = _found(overview, "Network and front end", "UPS")
     assert [p.page for p in ups.places] == [3]
+
+
+def test_a_controls_platform_maker_is_not_a_device_to_price():
+    page = _page("The BAS shall be Honeywell WEBs N4.")
+    sections = (SpecSection("23 09 23", "INSTRUMENTATION AND CONTROL FOR HVAC", DOC, 1, 1),)
+    overview = build_overview([page], [], sections)
+    honeywell = next(m for m in overview.makers if m.maker == "Honeywell")
+    assert honeywell.priced is False
+    assert honeywell.ame_quotes is False and honeywell.vendors == () and honeywell.email_draft == ""

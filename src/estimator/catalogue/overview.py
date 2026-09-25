@@ -76,6 +76,7 @@ class MakerRow:
     ame_quotes: bool
     vendors: tuple[str, ...]    # "Broudy Precision — jchandler@…; tsanroman@…", one per matching vendor
     email_draft: str            # the template filled in, only when ame_quotes; else ""
+    priced: bool = True         # False for a category that isn't a device to price (the controls platform)
 
 
 @dataclass(frozen=True)
@@ -108,6 +109,7 @@ class _Category:
     category: str
     ask_if_missing: bool
     makers: tuple[_Maker, ...]
+    priced: bool = True
 
 
 @dataclass(frozen=True)
@@ -149,7 +151,7 @@ def _load_manufacturers(path: str) -> tuple[_Category, ...]:
             patterns = tuple(_name_pattern(form) for form in sorted(forms))
             makers.append(_Maker(c["category"], m["name"], tuple(m["names"]), patterns,
                                  tuple(m.get("not_before", ())), tuple(m.get("not_after", ()))))
-        categories.append(_Category(c["category"], c["ask_if_missing"], tuple(makers)))
+        categories.append(_Category(c["category"], c["ask_if_missing"], tuple(makers), c.get("priced", True)))
     return tuple(categories)
 
 
@@ -365,12 +367,12 @@ def build_overview(pages, sheets, sections) -> SpecOverview:
                 continue
             places = tuple(pq[0] for pq in entries)
             quote = entries[0][1]
-            vendor_list = _vendors_for(maker, category.category, vendors)
+            vendor_list = _vendors_for(maker, category.category, vendors) if category.priced else ()
             ame_quotes = bool(vendor_list)
             email_draft = (vendors.email_draft.format(maker=maker.name, category=category.category)
                           if ame_quotes else "")
             category_rows.append(MakerRow(category.category, maker.name, places, quote, _terms(quote),
-                                          ame_quotes, vendor_list, email_draft))
+                                          ame_quotes, vendor_list, email_draft, category.priced))
         makers_out.extend(category_rows)
         if category.ask_if_missing and not category_rows:
             not_found.append(f"No {category.category.lower()} maker named — ask the engineer if the job needs one")

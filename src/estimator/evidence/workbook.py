@@ -122,8 +122,13 @@ def _spec_overview(ws, catalogue: Catalogue) -> None:
     for cell in ws[ws.max_row]:
         cell.font, cell.fill = _BOLD, _HEADING
     for maker in overview.makers:
-        ask_for = "\n".join(maker.vendors) if maker.ame_quotes else "Not on AME's list — the estimator decides"
-        _append(ws, [maker.category, maker.maker, "Yes" if maker.ame_quotes else "No", short_place(maker.places),
+        if not maker.priced:
+            ame, ask_for = "—", "A controls platform, not a device to price — see the Bid check tab"
+        elif maker.ame_quotes:
+            ame, ask_for = "Yes", "\n".join(maker.vendors)
+        else:
+            ame, ask_for = "No", "Not on AME's list — the estimator decides"
+        _append(ws, [maker.category, maker.maker, ame, short_place(maker.places),
                     maker.places[0].strength if maker.places else None, maker.quote, maker.terms, ask_for,
                     maker.email_draft])
         row = ws.max_row
