@@ -168,6 +168,13 @@ def test_thru_and_comma_lists_expand_into_separate_tags():
     assert expand_tags("OFFICE 101") == []
 
 
+def test_a_tag_cell_with_words_before_the_number_is_one_unit():
+    assert expand_tags("AC-EMR-1") == ["AC-EMR-1"]
+    assert expand_tags("ACCU-LOBBY-2") == ["ACCU-LOBBY-2"]
+    assert expand_tags("AC-ATS-1.2") == ["AC-ATS-1.2"]
+    assert expand_tags("AC-POWER") == []
+
+
 def test_a_thru_row_gives_one_row_per_unit(tmp_path):
     lines, texts = grid(200, 200, [120, 120, 70], [["TAG", "SERVES", "CFM"], ["VAV-1 THRU VAV-3", "OFFICES", "600"],
                                                    ["EF-1,2", "TOILETS", "300"]])

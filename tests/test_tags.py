@@ -23,10 +23,31 @@ def test_tag_shapes(text, tags):
     assert find_tags(text, EQUIPMENT) == tags
 
 
+@pytest.mark.parametrize("text, tags", [("AC-EMR-1", ["AC-EMR-1"]), ("ACCU-LOBBY-2", ["ACCU-LOBBY-2"]),
+                                        ("AC-LAUNDRY-1", ["AC-LAUNDRY-1"]), ("AC-ATS-1.1", ["AC-ATS-1.1"]),
+                                        ("AC-ATS-1.2 AND AC-ATS-1.1", ["AC-ATS-1.2", "AC-ATS-1.1"]),
+                                        ("VAV-EAST-WING-3", ["VAV-EAST-WING-3"]), ("AC-IT-1", ["AC-IT-1"])])
+def test_a_tag_can_have_word_segments_before_its_number(text, tags):
+    assert find_tags(f"SERVES {text} IN THE ROOM", EQUIPMENT) == tags
+
+
+@pytest.mark.parametrize("text, tags", [("AC-3.0", ["AC-3.0"]), ("HRU-4.0", ["HRU-4.0"]), ("EF-1.", ["EF-1"]),
+                                        ("RTU-2.5X", ["RTU-2"])])
+def test_a_decimal_type_suffix_stays_on_the_tag(text, tags):
+    assert find_tags(f"{text} ", EQUIPMENT) == tags
+
+
 @pytest.mark.parametrize("text", ["SEE M-101", "FLOOR 14", "SUITE 310", "SECTION 230900", "R454B", "ACME CORP",
-                                  "EFFICIENCY 2", "ahu-1 in lower case"])
+                                  "EFFICIENCY 2", "ahu-1 in lower case", "AC-POWER", "AC-POWER TO PANEL",
+                                  "AS-BUILT DRAWINGS", "AC-ELEVATOR-MACHINE-ROOM-1", "AC-EMERGENCYPOWER-1"])
 def test_look_alikes_are_not_tags(text):
     assert find_tags(text, EQUIPMENT) == []
+
+
+def test_a_sheet_number_with_a_decimal_is_not_a_tag_either_way():
+    pages = [_record("plumb.pdf", 1, "SEE P-101 AND P-101.00 FOR PUMP P-1")]
+    sheets = {("plumb.pdf", 1): Sheet("plumb.pdf", 1, "P-101.00", "PUMP SCHEDULE", "Plumbing", ("Schedules",))}
+    assert [e.tag for e in index_tags(pages, sheets, EQUIPMENT)] == ["P-1"]
 
 
 def test_the_jobs_own_sheet_numbers_are_not_tags():

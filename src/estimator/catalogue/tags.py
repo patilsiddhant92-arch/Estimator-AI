@@ -37,10 +37,14 @@ class Equipment:
 @lru_cache
 def _compiled_patterns(prefixes: tuple[str, ...], names: tuple[str, ...]) -> tuple[re.Pattern, re.Pattern]:
     codes = "|".join(re.escape(p) for p in sorted(prefixes, key=len, reverse=True))
-    rest = rf"\d[A-Z0-9]*(?:[{_DASH}][A-Z0-9]+)*"
+    decimal = r"(?:\.\d{1,2})?"     # a size or type written with a decimal: AC-3.0, HRU-4.0, AC-ATS-1.1
+    rest = rf"\d[A-Z0-9]*(?:[{_DASH}][A-Z0-9]+)*{decimal}"
+    # One or two words between the prefix and the number: AC-EMR-1, ACCU-LOBBY-2, AC-ATS-1.1.
+    word_rest = rf"(?:[A-Z]{{2,8}}[{_DASH}]){{1,2}}\d[A-Z0-9]*(?:[{_DASH}]\d[A-Z0-9]*)*{decimal}"
     letter_rest = rf"[A-Z]{{1,2}}\d*(?:[{_DASH}][A-Z0-9]+)*"
     sep = rf"(?:\s*(?:[{_DASH}#]|No\.?)\s*|\s)"
-    by_code = re.compile(rf"(?<![A-Za-z0-9])({codes})(?:{sep}?({rest})|[{_DASH}]({letter_rest}))(?![A-Za-z0-9])")
+    by_code = re.compile(rf"(?<![A-Za-z0-9])({codes})(?:{sep}?({rest})|[{_DASH}]({word_rest})|[{_DASH}]({letter_rest}))"
+                         rf"(?![A-Za-z0-9])")
     names_pat = "|".join(re.escape(n) for n in sorted(names, key=len, reverse=True))
     by_name = re.compile(rf"(?<![A-Za-z])({names_pat})\s*(?:No\.?|#)\s*(\d[A-Z0-9]*)(?![A-Za-z0-9])", re.I)
     return by_code, by_name
@@ -52,9 +56,16 @@ def _canonical(prefix: str, rest: str) -> str:
 
 def find_tags(text: str, equipment: Equipment, exclude: frozenset[str] = frozenset()) -> list[str]:
     by_code, by_name = equipment.patterns()
-    found = [(m.start(), _canonical(m.group(1), m.group(2) or m.group(3))) for m in by_code.finditer(text)]
+    found = [(m.start(), _canonical(m.group(1), m.group(2) or m.group(3) or m.group(4))) for m in by_code.finditer(text)]
     found += [(m.start(), _canonical(equipment.names[m.group(1).upper()], m.group(2))) for m in by_name.finditer(text)]
     return [tag for _, tag in sorted(found) if tag not in exclude]
+
+
+def sheet_number_tags(numbers: Iterable[str | None], equipment: Equipment) -> frozenset[str]:
+    """What the job's own sheet numbers would read as, with and without their decimals ("P-101.00" and
+    "P-101"), so neither spelling of a sheet number in the text is taken for a unit."""
+    tags = {tag for number in numbers if number for tag in find_tags(number, equipment)}
+    return frozenset(tags | {re.sub(r"\.\d+$", "", tag) for tag in tags})
 
 
 @dataclass(frozen=True)
@@ -79,8 +90,7 @@ def _natural(tag: str) -> list:
 def index_tags(pages: Sequence[PageRecord], sheets: Mapping[tuple[str, int], Sheet],
                equipment: Equipment | None = None) -> list[TagEntry]:
     equipment = equipment or Equipment.load()
-    numbers = [s.number for s in sheets.values() if s.number]
-    exclude = frozenset(tag for n in numbers for tag in find_tags(n, equipment))
+    exclude = sheet_number_tags((s.number for s in sheets.values()), equipment)
     on_schedules: dict[str, list[str]] = defaultdict(list)
     elsewhere: dict[str, list[str]] = defaultdict(list)
     times: Counter = Counter()

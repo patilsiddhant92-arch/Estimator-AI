@@ -20,7 +20,7 @@ import pymupdf
 
 from estimator.catalogue.job import CONTROLS_DISCIPLINES
 from estimator.catalogue.pdf import clean_text
-from estimator.catalogue.tags import Equipment, find_tags
+from estimator.catalogue.tags import Equipment, find_tags, sheet_number_tags
 from estimator.reading.pages import unreadable_page
 
 ASSETS = Path(__file__).resolve().parents[3] / "assets"
@@ -631,7 +631,7 @@ def read_schedules(catalogue, page_opener: PageOpener, pages: Collection[tuple[s
     vocab = vocabulary()
     equipment = Equipment.load()
     records = {(p.document, p.page): p for p in catalogue.pages}
-    sheet_numbers = frozenset(tag for s in catalogue.sheets if s.number for tag in find_tags(s.number, equipment))
+    sheet_numbers = sheet_number_tags((s.number for s in catalogue.sheets), equipment)
     schedules: list[Schedule] = []
     for sheet in catalogue.sheets:
         if pages is not None and (sheet.document, sheet.page) not in pages:
