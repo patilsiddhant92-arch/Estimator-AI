@@ -54,6 +54,15 @@ def test_a_vector_only_page_is_ocrd_not_called_blank(tmp_path, monkeypatch):
     assert record.status == "unreadable"
 
 
+@pytest.mark.skipif(tessdata() is None, reason="Tesseract's tessdata folder isn't on this computer")
+def test_a_near_empty_page_of_ruled_lines_is_blank_not_unreadable(tmp_path):
+    # N7: a few drawn lines, no image, and OCR genuinely finds nothing — that's blank, not a
+    # flag-worthy "could not be read".
+    job = _job(tmp_path, ("manual.pdf", [Page(lines=((72, 700, 540, 700),))]))
+    [record] = read_document(job.documents[0])
+    assert record.status == "blank"
+
+
 def test_a_page_with_neither_text_images_nor_drawings_is_blank(tmp_path, monkeypatch):
     monkeypatch.setattr(register, "ocr_textpage", lambda page, dpi=300: pytest.fail("OCR should not run"))
     job = _job(tmp_path, ("blank.pdf", [Page()]))

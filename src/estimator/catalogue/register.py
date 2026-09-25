@@ -97,7 +97,15 @@ def _read_page(document: Document, number: int, page: pymupdf.Page) -> PageRecor
                 status = "unreadable"
             else:
                 text = clean_text(page.get_text("text", textpage=textpage))
-                status = "ocr" if len(text.strip()) >= MIN_OCR_TEXT else "unreadable"
+                if len(text.strip()) >= MIN_OCR_TEXT:
+                    status = "ocr"
+                elif page.get_images():
+                    # An image OCR couldn't read is a genuine scan gone wrong — unreadable, a flag.
+                    status = "unreadable"
+                else:
+                    # Nothing but a few ruled lines (a border rule, a table grid) and OCR confirms
+                    # there's no text hiding in them — this page is blank, not unreadable (N7).
+                    status = "blank"
     elif len(stripped) < IMAGE_TEXT and _image_covers_half(page):
         # A scanned page can carry a thin digital text layer over it (an "ISSUED FOR BID" stamp, a
         # cover sheet's typed title) — read that layer, but OCR the image behind it too.
