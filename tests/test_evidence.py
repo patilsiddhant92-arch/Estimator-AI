@@ -43,8 +43,10 @@ def test_the_bid_check_comes_first_and_quotes_the_spec(tmp_path):
     ws = openpyxl.load_workbook(write_evidence(tmp_path / "e.xlsx", _catalogue()))["Bid check"]
     rows = _values(ws)
     assert rows[0][0] == "Bid check — 26-9999"
-    assert ["Finding", "Qualifies"] == rows[2][:2]
-    assert ["Other controls manufacturers named (for the US team)", "Siemens"] == rows[4][:2]
+    assert rows[1][0] == ("This is the tool's first reading of the spec. Every passage it found is "
+                         "quoted below; the US team reads them and makes the call.")
+    assert ["Finding", "Qualifies"] == rows[3][:2]
+    assert ["Other controls manufacturers named (for the US team)", "Siemens"] == rows[5][:2]
     assert ["15970.pdf, page 1", "Niagara N4 (a line AME bids)",
             "The BMS shall be built on the Niagara 4 Framework."] in rows
 

@@ -65,10 +65,12 @@ def _bid_check(ws, catalogue: Catalogue) -> None:
     bid = catalogue.bid
     _append(ws, [f"Bid check — {catalogue.job.name}"])
     ws["A1"].font = Font(bold=True, size=14)
+    _append(ws, ["This is the tool's first reading of the spec. Every passage it found is quoted "
+                "below; the US team reads them and makes the call."])
     _append(ws, [])
     _append(ws, ["Finding", bid.finding])
-    ws["B3"].fill = PatternFill("solid", fgColor=_FINDING.get(bid.finding, "FFFFFF"))
-    ws["B3"].font = _BOLD
+    ws["B4"].fill = PatternFill("solid", fgColor=_FINDING.get(bid.finding, "FFFFFF"))
+    ws["B4"].font = _BOLD
     _append(ws, ["Why", bid.reason])
     _append(ws, ["Other controls manufacturers named (for the US team)", ", ".join(bid.others) or "none"])
     _append(ws, ["Controls sections in the specs", "; ".join(bid.controls_sections) or "none found"])
@@ -80,7 +82,7 @@ def _bid_check(ws, catalogue: Catalogue) -> None:
     for m in bid.mentions:
         _append(ws, [where(m), m.named, m.quote])
         ws.cell(ws.max_row, 3).alignment = Alignment(wrap_text=True, vertical="top")
-    for row in range(3, 7):
+    for row in range(4, 8):
         ws.cell(row, 1).font = _BOLD
     ws.column_dimensions["A"].width = 52
     ws.column_dimensions["B"].width = 30
