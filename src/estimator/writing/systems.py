@@ -480,13 +480,15 @@ def build_bundles(catalogue, reading) -> list[SystemBundle]:
 
 
 def unbundled_flags(reading) -> list[str]:
-    """The families with tags on the drawings but no unit on a schedule (only EXTRA or ORPHANED):
-    they make no system, so they are reported here for the review list."""
+    """What makes no system, for the review list: each type-only schedule (its "tag" is a list of
+    type codes and its kind the schedule title, not a unit), and the families with tags on the
+    drawings but no unit on a schedule (only EXTRA or ORPHANED)."""
+    flags = [f"Type-only schedule {item.kind} — count from the plans"
+             for item in reading.inventory if item.category == "TYPE ONLY"]
     by_prefix: dict[str, list] = {}
     for item in reading.inventory:
         if item.category != "TYPE ONLY":
             by_prefix.setdefault(_prefix(item.tag), []).append(item)
-    flags = []
     for prefix, items in by_prefix.items():
         categories = Counter(i.category for i in items)
         if set(categories) <= {"EXTRA", "ORPHANED"}:
