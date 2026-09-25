@@ -153,3 +153,18 @@ def test_no_labels_on_any_plan_is_flagged(opener):
     assert counts == []
     assert flags == ["No device labels found on the plan sheets (1 sheet searched) — "
                      "device quantities will come from the sequence and point list"]
+
+
+def test_only_sheets_that_carry_controls_scope_are_counted(opener):
+    """An architectural or electrical plan carries its own T and OCC labels (lighting sensors,
+    thermostats by others) — noise for the controls count. Only the controls disciplines count."""
+    from dataclasses import replace
+
+    build, open_page = opener
+    catalogue = build([(PLAN, "M-201", "MECHANICAL SECOND FLOOR PLAN", ("Plans",)),
+                       (PLAN, "E-201", "ELECTRICAL SECOND FLOOR PLAN", ("Plans",)),
+                       (PLAN, "A-201", "ARCHITECTURAL SECOND FLOOR PLAN", ("Plans",))])
+    disciplines = {"M-201": "Mechanical", "E-201": "Electrical", "A-201": "Architectural"}
+    catalogue.sheets = tuple(replace(s, discipline=disciplines[s.number]) for s in catalogue.sheets)
+    counts, _ = count_devices(catalogue, open_page, [], [])
+    assert {c.sheet for c in counts} == {"M-201"}

@@ -5,7 +5,9 @@ labels and what they mean are the reading list in assets/reading_lists/devices.j
 label is counted where it stands as a whole word, exact-case, in the page's own text:
 the estimator's markup annotations are never in it. Words in the title-block strip (the
 right and bottom fifth of the sheet as viewed) are left out, and a legend sheet is not
-counted at all — its labels explain the symbols, they aren't devices.
+counted at all — its labels explain the symbols, they aren't devices. Only the sheets of the
+disciplines that carry controls scope are counted: an architectural or electrical plan's T or
+OCC is that trade's own.
 
 A typical plan stands for several floors. Its title names the range ("10TH-16TH ... TYPICAL"),
 and each label on it counts once per floor in that range. A set often repeats such a sheet
@@ -24,6 +26,7 @@ from pathlib import Path
 
 import pymupdf
 
+from estimator.catalogue.job import CONTROLS_DISCIPLINES
 from estimator.catalogue.pdf import clean_text
 from estimator.catalogue.register import EDGE
 from estimator.catalogue.sheet_types import SHEET_TYPES
@@ -263,6 +266,8 @@ def count_devices(catalogue, page_opener: PageOpener, legend: Sequence[LegendEnt
     for sheet in catalogue.sheets:
         if not _is_plan(sheet, reading) or _is_legend(sheet, reading):
             continue
+        if sheet.discipline not in CONTROLS_DISCIPLINES:
+            continue    # an architectural or electrical plan's labels are its own trade's, not controls devices
         if sheet.number:
             # The same sheet on several pages of one document with identical text (a typical plan
             # printed once per floor) is one sheet.
