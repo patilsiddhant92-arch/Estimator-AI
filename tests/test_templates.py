@@ -10,6 +10,7 @@ from estimator.writing.templates import (
     SystemTemplate,
     integration_trio,
     load_templates,
+    nearest_templates,
     template_for,
 )
 
@@ -218,6 +219,27 @@ def test_prefixes_are_upper_case_and_mostly_known():
             assert prefix == prefix.upper()
     missing = {p for t in TEMPLATES for p in t.prefixes} - known
     assert not missing, f"prefixes the template needs that equipment.json doesn't list: {sorted(missing)}"
+
+
+def _nearest(kind, prefix, k=3):
+    return [t.name for t in nearest_templates(kind, prefix, TEMPLATES, k=k)]
+
+
+def test_the_nearest_templates_to_an_electric_duct_heater_are_the_heaters_and_the_electric_heat_lines():
+    nearest = _nearest("Electric Duct Heater", "EDH")
+    assert nearest[0] == "EUH / CUH / UH"                 # "Electric" in its kinds
+    assert "VAV / Fan VAV" in nearest                      # its electric heat lines
+    assert _nearest("Electric Duct Heater", "EDH") == nearest   # the same every time
+
+
+def test_the_nearest_templates_follow_the_words_and_the_prefix():
+    assert _nearest("Occupancy Sensor", "OCC")[0] == "VAV / Fan VAV"
+    assert _nearest("Chilled Water Pump", "CHWP")[0] == "Chilled Water System"
+    assert _nearest("Hot Water Heater", "EWH")[0] == "Hot Water System"
+    assert _nearest("Motorized Damper", "MD")[0] == "Fire / Smoke Dampers"
+    assert _nearest("", "VAV") == ["VAV / Fan VAV"]       # only the prefix to go on
+    assert _nearest("Xyzzy", "QQ") == []                  # nothing shared: none chosen
+    assert len(_nearest("Electric Heater", "EH", k=2)) == 2
 
 
 def test_a_packaged_unit_is_sixteen_tech_hours_each():

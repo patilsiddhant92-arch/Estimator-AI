@@ -8,6 +8,13 @@ it. A template default that nothing in the job decides goes in as an ASSUMPTION.
 be checked, because the evidence it needs isn't there, is PENDING: it is never printed, and it goes
 on the review list. The optional AI judge can settle an ASSUMPTION or a PENDING line with a quote;
 when it disagrees with a rule that has evidence, the rule's answer is kept and the review list says so.
+It may also add a line the evidence calls for that no template option covers: that line is ADDED,
+never surer than 0.7, with a review line.
+
+A system with no Master Template entry is written by the AI from its evidence, in the house style,
+like its nearest templates and the phrasing bank's examples: every line ADDED (at most 0.7), with a
+review line to check the wording, and the AI's tech hours as an ASSUMPTION when they follow a real
+template. Without the AI it stays a PENDING block, kept out of the proposal.
 
 The client sees only the Block (estimator.scope). Categories, confidence, sources and evidence stay
 in the ScopeLines, for the Evidence Package.
@@ -23,9 +30,12 @@ from estimator.catalogue.overview import FOUND, short_place
 from estimator.scope import Block, FrontEnd, Item, Job, Run
 from estimator.writing.front_end import front_end, job_header
 from estimator.writing.judge import NO_KEY
+from estimator.writing.phrasing import examples_for, load_bank
+from estimator.writing.style import load_house_style
 from estimator.writing.systems import SystemBundle, build_bundles, unbundled_flags
-from estimator.writing.templates import (TEMPLATES_FILE, Condition, SystemTemplate, TemplateLine, TechHours,
-                                         integration_trio, load_templates, template_for)
+from estimator.writing.templates import (HARDWARE_VERBS, TEMPLATES_FILE, Condition, SystemTemplate, TemplateLine,
+                                         TechHours, integration_trio, load_templates, nearest_templates,
+                                         template_for)
 
 HOLDS, NO, UNKNOWN = "holds", "no", "unknown"
 CONFIRMED, ADDED, ASSUMPTION, PENDING = "CONFIRMED", "ADDED", "ASSUMPTION", "PENDING"
@@ -34,7 +44,9 @@ _RULE_CONFIDENCE = {"schedule": 0.8, "sequence": 0.8, "prefix": 0.8, "spec_overv
 _RULE_CATEGORY = {"notes": ADDED}
 COUNTED_CONFIDENCE, DEFAULT_CONFIDENCE, AI_SEQUENCE, AI_OTHER = 0.9, 0.5, 0.9, 0.7
 AI_THRESHOLD = 0.7
+AI_WRITTEN_CAP = 0.7        # a line the AI wrote itself is never surer than this
 NO_AI = "judgement pending — the AI was not asked on this run"
+WAITING_FOR_AI = "waiting for the AI to write this system (no Master Template entry)"
 _BLANK_CELLS = {"", "-", "--", "—", "–", "N/A", "NA", "NONE", "0", "0.0", "0.00", "X"}
 _PLACE_WORDS = {"schedule": "the schedule", "sequence": "the sequence", "notes": "the notes",
                 "prefix": "the tag prefixes", "spec_overview": "the Spec overview"}
@@ -300,6 +312,9 @@ class _Reading:
             label = f"{row.sheet} {row.title}" if row.sheet else row.title
             if wanted in _plain(" ".join([row.title, *row.headers, *row.cells.values()])):
                 return "schedule", label
+        for device in self.bundle.devices:
+            if wanted in _plain(f"{device.label} {device.device}"):
+                return "plans", f"{device.sheet or device.document} ({device.label} counted on the plans)"
         return None
 
 
@@ -325,6 +340,7 @@ class _State:
     words: str = ""              # what the rule looked for, for a disagreement
     specific: int = 0            # how many conditions the line needs (a choice prefers the most)
     counted: str = ""            # the device count behind the quantity, for the review list
+    stated: int | None = None    # a count the AI quoted from the evidence (a line it wrote itself)
 
     @property
     def open(self) -> bool:
@@ -467,6 +483,9 @@ def _evidence_text(bundle: SystemBundle, reading: _Reading) -> str:
     if reading.notes:
         parts.append("Notes:")
         parts += [f"- [{where}] {_squash(text)}" for where, text in reading.notes]
+    if bundle.devices:
+        parts.append("Devices counted on the plans where this system's tags are:")
+        parts += [f"- [{d.sheet or d.document}] {d.label} ({d.device}): {d.total}" for d in bundle.devices]
     if bundle.passages:
         parts.append("Passages from the sequence of operation and points list:")
         for passage in bundle.passages:
@@ -531,6 +550,49 @@ def _apply_ai(states, judgement, reading: _Reading, system: str, review: list[Re
     if judgement.dropped:
         review.append(ReviewItem(system, "", "The AI answered lines that are not in the Master Template; they were "
                                  "thrown away", "; ".join(judgement.dropped), "Nothing to do unless a line is missing"))
+    _refused_review(system, getattr(judgement, "refused", ()), review)
+
+
+def _refused_review(system: str, refused, review: list[ReviewItem]) -> None:
+    if refused:
+        review.append(ReviewItem(system, "", "The AI wrote lines or notes that break the house style; they were "
+                                 "thrown away", "; ".join(refused), "Nothing to do unless a line is missing"))
+
+
+def _hardware(text: str) -> bool:
+    verb = load_house_style().verb(text)
+    not_points = [s.lower() for s in _settings().get("not_hardware_points_containing", ())]
+    return (verb is not None and verb.lower() in HARDWARE_VERBS
+            and not any(s in text.lower() for s in not_points))
+
+
+def _quoted(reading: _Reading, quote: str) -> str | None:
+    """Where the AI's quote is in the job's documents, with the quote; None when it is not there."""
+    located = reading.locate(quote) if quote else None
+    return f"{located[1]}: “{quote}”" if located else None
+
+
+def _extra_lines(states: list[_State], judgement, reading: _Reading, system: str,
+                 review: list[ReviewItem]) -> None:
+    """Lines the evidence calls for that no template option covers: ADDED, never surer than 0.7,
+    each with a review line. One whose quote is not in the job's documents is only reviewed."""
+    have = {s.text.lower() for s in states}
+    for extra in getattr(judgement, "extra_lines", ()):
+        if extra.text.lower() in have:
+            continue
+        have.add(extra.text.lower())
+        quoted = _quoted(reading, extra.quote)
+        if quoted is None:
+            review.append(ReviewItem(system, "", f"The AI adds “{extra.text}”, but its quote is not in the job's "
+                                     "documents", f"“{extra.quote}” — {extra.why}", "Add the line by hand if the job "
+                                     "needs it"))
+            continue
+        states.append(_State(extra.text, extra.depth, "ai", (), _hardware(extra.text), include=True,
+                             category=ADDED, confidence=min(extra.confidence, AI_WRITTEN_CAP),
+                             source=f"AI: {extra.why}", evidence=quoted, decided="ai-extra", listed=True,
+                             stated=extra.quantity))
+        review.append(ReviewItem(system, ADDED, "Line added beyond the Master Template",
+                                 f"“{extra.text}” — {quoted}", "check"))
 
 
 # --- quantities and hours -------------------------------------------------------------------------------
@@ -549,8 +611,27 @@ def _counted_labels(text: str) -> tuple[str, ...]:
     return tuple(max(matches)[1]) if matches else ()
 
 
+def _ai_quantity(text: str, stated: int | None, bundle: SystemBundle) -> tuple[int | None, str]:
+    """A line the AI wrote: counted on the plans when the device maps, else the count the evidence
+    states (the AI quoted it), else one per unit. With the note behind a plan count."""
+    labels = _counted_labels(text)
+    found = [d for d in bundle.devices if d.label in labels]
+    total = sum(d.total for d in found)
+    if total:
+        places = ", ".join(sorted({d.sheet or d.document for d in found}))
+        return total, (f"{total} × {', '.join(sorted({d.label for d in found}))} counted on the plans where "
+                       f"this system's tags are ({places})")
+    if stated is not None:
+        return stated, ""
+    return _count(bundle.families, ()), ""
+
+
 def _quantity(s: _State, bundle: SystemBundle) -> None:
-    if s.quantity_rule == "one":
+    if s.quantity_rule == "ai":
+        s.quantity, s.counted = _ai_quantity(s.text, s.stated, bundle)
+        if s.counted:
+            s.evidence += f" (quantity: {s.counted})"
+    elif s.quantity_rule == "one":
         s.quantity = 1
     elif s.quantity_rule == "none":
         s.quantity = None
@@ -645,7 +726,9 @@ def _headers(template: SystemTemplate, bundle: SystemBundle) -> list[str]:
     return headers
 
 
-def _no_template(bundle: SystemBundle) -> WrittenSystem:
+def _no_template(catalogue, bundle: SystemBundle, templates, judge) -> WrittenSystem:
+    """A system the Master Template has no entry for: the AI writes it from the evidence when it
+    can; otherwise a PENDING block waits for it, kept out of the proposal."""
     name = bundle.name
     review = [_review_flag(name, f) for f in bundle.flags]
     tags = ", ".join(tag_list(f.tags) for f in bundle.families)
@@ -654,10 +737,150 @@ def _no_template(bundle: SystemBundle) -> WrittenSystem:
         review.insert(0, ReviewItem(name, "EXISTING", f"{name} ({tags}) is marked existing — no system is written",
                                     "", "Add scope by hand if the job reuses, relocates or removes them"))
         return WrittenSystem(bundle.key, (Block(header=header),), (), tuple(review), printed=False)
-    header = f"No Master Template entry for {name} — write this system by hand"
-    line = ScopeLine(name, header, 1, None, None, PENDING, 0.0, "no template", f"Tags: {tags}", False)
-    review.insert(0, ReviewItem(name, PENDING, header, f"Tags: {tags}", "Write the block by hand and price it"))
+    reason = _pending_reason(judge)
+    if judge is not None and getattr(judge, "available", False) and hasattr(judge, "compose"):
+        written, reason = _compose_system(catalogue, bundle, templates, judge, review)
+        if written is not None:
+            return written
+    header = f"{name} — {WAITING_FOR_AI}"
+    evidence = f"Tags: {tags}; {reason}"
+    line = ScopeLine(name, header, 1, None, None, PENDING, 0.0, "no template", evidence, False)
+    review.insert(0, ReviewItem(name, PENDING, header, evidence,
+                                "Run the estimate with the AI (--ai chat or --ai api), or write the block by hand "
+                                "and price it"))
     return WrittenSystem(bundle.key, (Block(header=header),), (line,), tuple(review), printed=False)
+
+
+def _units_text(bundle: SystemBundle) -> str:
+    parts = [f"{f.kind} ({f.prefix}): {tag_list(f.tags)}"
+             + (f" — {f.quantity} scheduled" if f.quantity is not None else " — not counted yet")
+             for f in bundle.families]
+    return "Units: " + "; ".join(parts)
+
+
+def _template_named(name: str, templates) -> SystemTemplate | None:
+    wanted = " ".join((name or "").split()).lower()
+    return next((t for t in templates if t.name.lower() == wanted), None) if wanted else None
+
+
+def _hint_hours(hint, bundle: SystemBundle, printed: list[tuple]) -> float | None:
+    """The AI's suggested tech hours for the whole system. `printed` holds (text, quantity, hardware)."""
+    if hint.per == "fixed":
+        return hint.hours
+    if hint.per == "hardware_point":
+        return hint.hours * sum(q or 0 for _, q, hardware in printed if hardware)
+    if hint.per == "line":
+        return hint.hours * sum(q or 0 for _, q, _ in printed)
+    n = _count(bundle.families, ())
+    return None if n is None else hint.hours * n
+
+
+def _compose_system(catalogue, bundle: SystemBundle, templates, judge,
+                    review: list[ReviewItem]) -> tuple[WrittenSystem | None, str]:
+    """The block the AI writes for a system with no template: every line ADDED, never surer than
+    0.7, like its nearest template; the tech hours the AI suggests when they follow a real template
+    (an ASSUMPTION). None, with the reason, when the AI gives no usable block."""
+    name = bundle.name
+    reading = _Reading(bundle, catalogue)
+    kind = name if bundle.group or len(bundle.families) != 1 else bundle.families[0].kind
+    prefix = bundle.families[0].prefix if bundle.families else ""
+    analogs = nearest_templates(kind, prefix, templates)
+    examples = examples_for([f.prefix for f in bundle.families], kind, load_bank())
+    evidence = _units_text(bundle) + "\n" + _evidence_text(bundle, reading)
+    composition = judge.compose(name, evidence, examples, load_house_style(), analogs)
+    if composition is None:
+        error = getattr(judge, "last_error", None) or "the AI gave no answer"
+        return None, error if error.startswith("judgement pending") else f"judgement pending — {error}"
+    _refused_review(name, composition.refused, review)
+    if not composition.lines:
+        return None, "the AI wrote no line that follows the house style"
+
+    hint = composition.tech_hours
+    like = _template_named(hint.like, templates) if hint is not None else None
+    analog = like.name if like is not None else (analogs[0].name if analogs else None)
+    source = f"written from the evidence (like {analog})" if analog else "written from the evidence"
+    style = load_house_style()
+
+    lines: list[tuple] = []          # (text, depth, quantity, confidence, evidence, hardware, counted)
+    previous = 0
+    for written in composition.lines:
+        depth = max(1, min(written.depth, previous + 1))
+        previous = depth
+        quoted = _quoted(reading, written.quote)
+        confidence = min(written.confidence, AI_WRITTEN_CAP)
+        stated = written.quantity
+        if quoted is None:
+            quoted = f"“{written.quote}” — not found word for word in the job's documents"
+            confidence, stated = min(confidence, DEFAULT_CONFIDENCE), None
+        if style.is_trio(written.text) and not style.verb(written.text):
+            quantity, counted = None, ""                 # "Map Available Points …", "AME requires …"
+        else:
+            quantity, counted = _ai_quantity(written.text, stated, bundle)
+        lines.append((written.text, depth, quantity, confidence, f"{quoted} ({written.why})",
+                      _hardware(written.text), counted))
+
+    counted_units = bool(bundle.families) and all(f.quantity is not None for f in bundle.families)
+    headers = []
+    for family in bundle.families:
+        if family.quantity is None:
+            continue
+        family_kind = composition.header if len(bundle.families) == 1 and composition.header else family.kind
+        headers.append(_squash(f"Qty ({family.quantity}) {family_kind} {tag_list(family.tags)}"))
+    is_printed = bool(headers) and counted_units
+    if not headers:
+        headers = [_squash(f"Qty (?) {composition.header or name} "
+                           f"{', '.join(tag_list(f.tags) for f in bundle.families)}")]
+
+    notes = []
+    for note in composition.client_notes:
+        if _note_is_borne_out(note, evidence):
+            notes.append(note)
+        else:
+            review.append(ReviewItem(name, "", f"The AI suggests the client note “{note}”, but the evidence does "
+                                     "not bear it out", "", "Add it by hand if it applies"))
+
+    printed = [(text, quantity, hardware) for text, _, quantity, _, _, hardware, _ in lines]
+    hours = None
+    if like is not None and counted_units:
+        hours = _hint_hours(hint, bundle, printed)
+    items = [Item(kind="line", depth=depth, runs=(Run(text=text),), quantity=quantity)
+             for text, depth, quantity, *_ in lines]
+    items += [Item(kind="note", runs=(Run(text=n),)) for n in notes]
+    blocks = [Block(header=h, joined=i > 0) for i, h in enumerate(headers)]
+    blocks[0] = blocks[0].model_copy(update={"tech_hours": hours})
+    blocks[-1] = blocks[-1].model_copy(update={"items": tuple(items)})
+
+    category = ADDED if is_printed else PENDING
+    scope_lines = [ScopeLine(name, text, depth, quantity, None, category, confidence if is_printed else 0.0,
+                             source, where, is_printed)
+                   for text, depth, quantity, confidence, where, _, _ in lines]
+    scope_lines += [ScopeLine(name, n, 1, None, None, category, AI_OTHER if is_printed else 0.0,
+                              "AI: a clarification the evidence bears out", "the job's documents", is_printed)
+                    for n in notes]
+
+    review.insert(0, ReviewItem(name, ADDED, "New system written from the evidence",
+                                f"No Master Template entry; written like {analog or 'no template'}, "
+                                f"{len(lines)} {'line' if len(lines) == 1 else 'lines'}", "check the wording"))
+    if not counted_units:
+        missing = [f.prefix for f in bundle.families if f.quantity is None]
+        review.insert(0, ReviewItem(name, PENDING, f"The {', '.join(missing)} units could not be counted from the "
+                                    "schedule, so this system is left out of the proposal",
+                                    ", ".join(tag_list(f.tags) for f in bundle.families if f.quantity is None),
+                                    "Count them by eye, then add the block"))
+    elif like is not None and hours is not None:
+        review.append(ReviewItem(name, ASSUMPTION, f"Tech hours taken from {like.name}",
+                                 f"{hint.hours:g} h per {hint.per.replace('_', ' ')}, {hours:g} h in all", "confirm"))
+    else:
+        suggested = f"the AI suggested {hint.hours:g} h per {hint.per.replace('_', ' ')} like “{hint.like}”, " \
+                    "which is not a Master Template entry" if hint is not None else "the AI suggested none"
+        review.append(ReviewItem(name, "", f"No tech hours for {name} (no Master Template entry) — enter them",
+                                 suggested, "Type the hours on the block's header row of the price sheet"))
+    for text, _, quantity, _, _, _, counted in lines:
+        if counted:
+            review.append(ReviewItem(name, "", f"Check the count for “{text}”: {quantity}", counted,
+                                     "A sheet can carry devices of other systems — correct the quantity if so"))
+    return WrittenSystem(bundle.key, tuple(blocks), tuple(scope_lines), tuple(review), printed=is_printed,
+                         template=None, tech_hours=hours), ""
 
 
 def _pending_reason(judge) -> str:
@@ -712,7 +935,7 @@ def _follow_parents(states: list[_State]) -> None:
 def write_system(catalogue, bundle: SystemBundle, templates, judge=None) -> WrittenSystem:
     template = _choose_template(bundle, templates)
     if template is None:
-        return _no_template(bundle)
+        return _no_template(catalogue, bundle, templates, judge)
     name = bundle.name
     reading = _Reading(bundle, catalogue)
     review: list[ReviewItem] = [_review_flag(name, f) for f in bundle.flags]
@@ -739,6 +962,7 @@ def write_system(catalogue, bundle: SystemBundle, templates, judge=None) -> Writ
                     s.evidence = s.evidence.replace(pending_reason, reason)
         else:
             _apply_ai(states, judgement, reading, name, review)
+            _extra_lines(states, judgement, reading, name, review)
             for note in judgement.client_notes:
                 if _note_is_borne_out(note, evidence):
                     ai_notes.append(note)
@@ -748,7 +972,7 @@ def write_system(catalogue, bundle: SystemBundle, templates, judge=None) -> Writ
 
     for s in states:
         _quantity(s, bundle)
-        if s.include and s.quantity is None and s.quantity_rule in ("per_unit", "counted"):
+        if s.include and s.quantity is None and s.quantity_rule in ("per_unit", "counted", "ai"):
             s.include, s.category, s.confidence, s.decided = False, PENDING, 0.0, "pending"
             s.evidence = (s.evidence + "; " if s.evidence else "") + "the number of units could not be counted"
     _follow_parents(states)

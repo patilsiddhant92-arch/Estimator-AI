@@ -1,0 +1,7290 @@
+{
+ "about": "How systems were actually written in the Learn jobs' issued proposals: one entry per block. Built by tools/build_phrasing_bank.py; no tech hours or prices. The test jobs 26-0478 and 26-0193 are left out.",
+ "sources": [
+  {
+   "job": "26-0246",
+   "file": "tests/data/26-0246/sent-proposal.docx",
+   "reader": "read_scope",
+   "blocks": 37
+  },
+  {
+   "job": "26-0328",
+   "file": "26-0328+SP.docx",
+   "reader": "read_scope",
+   "blocks": 17
+  },
+  {
+   "job": "26-0334",
+   "file": "26-0334.docx",
+   "reader": "read_scope",
+   "blocks": 12
+  },
+  {
+   "job": "26-0339",
+   "file": "26-0339_K.docx",
+   "reader": "read_scope",
+   "blocks": 20
+  },
+  {
+   "job": "26-0344",
+   "file": "26-0344.docx",
+   "reader": "read_scope",
+   "blocks": 22
+  },
+  {
+   "job": "26-0352",
+   "file": "26-0352.docx",
+   "reader": "(xN) fallback",
+   "blocks": 5
+  },
+  {
+   "job": "26-0356",
+   "file": "26-0356.docx",
+   "reader": "(xN) fallback",
+   "blocks": 7
+  },
+  {
+   "job": "26-0436",
+   "file": "26-0436.docx",
+   "reader": "read_scope",
+   "blocks": 10
+  },
+  {
+   "job": "26-0445",
+   "file": "Sid revision comment26-0445 2.docx",
+   "reader": "read_scope",
+   "blocks": 30
+  }
+ ],
+ "skipped": [],
+ "blocks": [
+  {
+   "job": "26-0246",
+   "header": "*Qty (1) BACnet Data Cabinet",
+   "prefixes": [],
+   "kind_words": [
+    "BACnet",
+    "Data",
+    "Cabinet"
+   ],
+   "lines": [
+    {
+     "text": "Furnish and Install UPS",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install (Rack Mounted) BACnet Server",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install LCD Display",
+     "depth": 1
+    },
+    {
+     "text": "Keyboard",
+     "depth": 2
+    },
+    {
+     "text": "Mouse",
+     "depth": 2
+    },
+    {
+     "text": "Install Cisco 24 Port Switch (Switch Furnished by Others)",
+     "depth": 1
+    }
+   ],
+   "notes": [
+    "*24 PORT PATCH PANEL BY OTHERS",
+    "*ENCLOSURE BY OTHERS"
+   ]
+  },
+  {
+   "job": "26-0246",
+   "header": "Qty (5) Multiple BACnet Router Data Cabinet",
+   "prefixes": [],
+   "kind_words": [
+    "Multiple",
+    "BACnet",
+    "Router",
+    "Data",
+    "Cabinet"
+   ],
+   "lines": [
+    {
+     "text": "Furnish NEMA 12K Enclosure – (Qty. 5 Total) Installation by Others",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install BACnet IP Router – (Qty. 7 Total)",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install 7AMP Circuit Breaker – (Qty. 5 Total)",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install Control Transformer – (Qty. 5 Total)",
+     "depth": 1
+    }
+   ],
+   "notes": []
+  },
+  {
+   "job": "26-0246",
+   "header": "Qty (4) Power Distribution Panel LVCP-1, 2, 4, 5",
+   "prefixes": [
+    "LVCP"
+   ],
+   "kind_words": [
+    "Power",
+    "Distribution",
+    "Panel"
+   ],
+   "lines": [
+    {
+     "text": "Furnish 24V Power Distribution Panel for Installation by Others",
+     "depth": 1
+    },
+    {
+     "text": "Transformer w/ Circuit Breaker",
+     "depth": 2
+    },
+    {
+     "text": "Enclosure",
+     "depth": 2
+    },
+    {
+     "text": "Furnish and Install 7AMP Circuit Breaker",
+     "depth": 1
+    }
+   ],
+   "notes": [
+    "*ASSUMED AS PER STANDARD PRACTICE"
+   ]
+  },
+  {
+   "job": "26-0246",
+   "header": "Qty (1) Global Points",
+   "prefixes": [],
+   "kind_words": [
+    "Global",
+    "Points"
+   ],
+   "lines": [
+    {
+     "text": "Furnish and Install Outside Air Temperature",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install Outside Air Humidity",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install Outside Air CO2",
+     "depth": 1
+    }
+   ],
+   "notes": []
+  },
+  {
+   "job": "26-0246",
+   "header": "Qty (4) Packaged Air Handling Unit AHU-1, 2, 3, 4",
+   "prefixes": [
+    "AHU"
+   ],
+   "kind_words": [
+    "Packaged",
+    "Air",
+    "Handling",
+    "Unit"
+   ],
+   "lines": [
+    {
+     "text": "Install and wire Space Temperature / Humidity Sensor (Furnished by Unit Mfr.)",
+     "depth": 1
+    },
+    {
+     "text": "Install and wire Duct Static Pressure Sensor (Furnished by Unit Mfr.)",
+     "depth": 1
+    },
+    {
+     "text": "Tie-in Fire Alarm Shutdown Signal from Fire Alarm Control Panel",
+     "depth": 1
+    },
+    {
+     "text": "Furnish BMS Communication Wiring to Factory Controls – (Qty. 4 Total)",
+     "depth": 1
+    },
+    {
+     "text": "Map Available Points Via Mfr. Provided BMS Interface",
+     "depth": 1
+    },
+    {
+     "text": "AME Requires Mfr. Rep to Assist in Integration, cost to be Incurred by Mech Contractor",
+     "depth": 2
+    },
+    {
+     "text": "Furnish BMS Communication Wiring to VFD Factory Controls – (Qty. 8 Total)",
+     "depth": 1
+    },
+    {
+     "text": "Map Available Points Via Mfr. Provided BMS Interface",
+     "depth": 1
+    },
+    {
+     "text": "AME Requires Mfr. Rep to Assist in Integration, cost to be Incurred by Mech Contractor",
+     "depth": 2
+    },
+    {
+     "text": "Furnish BMS Communication Wiring to Enthalpy Wheel VFD Controls – (Qty. 4 Total)",
+     "depth": 1
+    },
+    {
+     "text": "Map Available Points Via Mfr. Provided BMS Interface",
+     "depth": 1
+    },
+    {
+     "text": "AME Requires Mfr. Rep to Assist in Integration, cost to be Incurred by Mech Contractor",
+     "depth": 2
+    }
+   ],
+   "notes": [
+    "*AFMS, A2L REFRIGERANT LEAK DETECTION SYSTEM BY UNIT MFR."
+   ]
+  },
+  {
+   "job": "26-0246",
+   "header": "Qty (1) Packaged Air Handling Unit AHU-5",
+   "prefixes": [
+    "AHU"
+   ],
+   "kind_words": [
+    "Packaged",
+    "Air",
+    "Handling",
+    "Unit"
+   ],
+   "lines": [
+    {
+     "text": "Install and wire Space Temperature / Humidity / CO2 Sensor (Furnished by Unit Mfr.)",
+     "depth": 1
+    },
+    {
+     "text": "Tie-in Fire Alarm Shutdown Signal from Fire Alarm Control Panel",
+     "depth": 1
+    },
+    {
+     "text": "Furnish BMS Communication Wiring to Factory Controls",
+     "depth": 1
+    },
+    {
+     "text": "Map Available Points Via Mfr. Provided BMS Interface",
+     "depth": 1
+    },
+    {
+     "text": "AME Requires Mfr. Rep to Assist in Integration, cost to be Incurred by Mech Contractor",
+     "depth": 2
+    },
+    {
+     "text": "Furnish BMS Communication Wiring to VFD Factory Controls – (Qty. 2 Total)",
+     "depth": 1
+    },
+    {
+     "text": "Map Available Points Via Mfr. Provided BMS Interface",
+     "depth": 1
+    },
+    {
+     "text": "AME Requires Mfr. Rep to Assist in Integration, cost to be Incurred by Mech Contractor",
+     "depth": 2
+    },
+    {
+     "text": "Furnish BMS Communication Wiring to Enthalpy Wheel VFD Controls",
+     "depth": 1
+    },
+    {
+     "text": "Map Available Points Via Mfr. Provided BMS Interface",
+     "depth": 1
+    },
+    {
+     "text": "AME Requires Mfr. Rep to Assist in Integration, cost to be Incurred by Mech Contractor",
+     "depth": 2
+    }
+   ],
+   "notes": [
+    "*AFMS, A2L REFRIGERANT LEAK DETECTION SYSTEM BY UNIT MFR."
+   ]
+  },
+  {
+   "job": "26-0246",
+   "header": "Qty (1) Packaged Air Handling Unit AHU-6",
+   "prefixes": [
+    "AHU"
+   ],
+   "kind_words": [
+    "Packaged",
+    "Air",
+    "Handling",
+    "Unit"
+   ],
+   "lines": [
+    {
+     "text": "Install and wire Space Temperature / Humidity / CO2 Sensor (Furnished by Unit Mfr.)",
+     "depth": 1
+    },
+    {
+     "text": "Tie-in Fire Alarm Shutdown Signal from Fire Alarm Control Panel",
+     "depth": 1
+    },
+    {
+     "text": "Furnish BMS Communication Wiring to Factory Controls",
+     "depth": 1
+    },
+    {
+     "text": "Map Available Points Via Mfr. Provided BMS Interface",
+     "depth": 1
+    },
+    {
+     "text": "AME Requires Mfr. Rep to Assist in Integration, cost to be Incurred by Mech Contractor",
+     "depth": 2
+    },
+    {
+     "text": "Furnish BMS Communication Wiring to VFD Factory Controls – (Qty. 2 Total)",
+     "depth": 1
+    },
+    {
+     "text": "Map Available Points Via Mfr. Provided BMS Interface",
+     "depth": 1
+    },
+    {
+     "text": "AME Requires Mfr. Rep to Assist in Integration, cost to be Incurred by Mech Contractor",
+     "depth": 2
+    }
+   ],
+   "notes": [
+    "*AFMS, A2L REFRIGERANT LEAK DETECTION SYSTEM BY UNIT MFR."
+   ]
+  },
+  {
+   "job": "26-0246",
+   "header": "Qty (58) Variable Air Volume Box – VAV",
+   "prefixes": [
+    "VAV"
+   ],
+   "kind_words": [
+    "Variable",
+    "Air",
+    "Volume",
+    "Box",
+    "VAV"
+   ],
+   "lines": [
+    {
+     "text": "Furnish DDC Controller to the Factory for Installation",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install Space Temperature / CO2 Sensor",
+     "depth": 1
+    },
+    {
+     "text": "24V Transformer by Unit Mfr.",
+     "depth": 1
+    }
+   ],
+   "notes": []
+  },
+  {
+   "job": "26-0246",
+   "header": "Qty (19) Constant Air Volume Box CAV-## (NO CONTROL INFORMATION PROVIDED)",
+   "prefixes": [
+    "CAV"
+   ],
+   "kind_words": [
+    "Constant",
+    "Air",
+    "Volume",
+    "Box",
+    "NO",
+    "CONTROL",
+    "INFORMATION",
+    "PROVIDED"
+   ],
+   "lines": [
+    {
+     "text": "Furnish DDC Controller to the Factory for Installation",
+     "depth": 1
+    },
+    {
+     "text": "24V Transformer by Unit Mfr.",
+     "depth": 1
+    }
+   ],
+   "notes": []
+  },
+  {
+   "job": "26-0246",
+   "header": "Qty (4) Fan Powered Variable Air Volume Box w/ Heating Coil – FPVAV",
+   "prefixes": [],
+   "kind_words": [
+    "Fan",
+    "Powered",
+    "Variable",
+    "Air",
+    "Volume",
+    "Box",
+    "Heating",
+    "Coil",
+    "FPVAV"
+   ],
+   "lines": [
+    {
+     "text": "Furnish DDC Controller to the Factory for Installation",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install Space Temperature / CO2 Sensor",
+     "depth": 1
+    },
+    {
+     "text": "Furnish Fan Start / Stop and Status",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install Discharge Air Temperature Sensor",
+     "depth": 1
+    },
+    {
+     "text": "Furnish Electric Heat SCR Control",
+     "depth": 1
+    },
+    {
+     "text": "24V Transformer by Unit Mfr.",
+     "depth": 1
+    }
+   ],
+   "notes": []
+  },
+  {
+   "job": "26-0246",
+   "header": "Qty (10) Split System Indoor Unit AC-## | Qty (10) Outdoor Unit ACCU-##",
+   "prefixes": [
+    "AC",
+    "ACCU"
+   ],
+   "kind_words": [
+    "Split",
+    "System",
+    "Indoor",
+    "Unit",
+    "Outdoor",
+    "Unit"
+   ],
+   "lines": [
+    {
+     "text": "Install and wire Programmable Thermostat (Furnished by Unit Mfr.)",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install Space Temperature / Humidity Sensor (BMS Monitoring)",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install Leak Sensor",
+     "depth": 1
+    },
+    {
+     "text": "Tie-in Condensate Pump Float Switch (Furnished by Mfr.) – As per Detail 5 (M504)",
+     "depth": 1
+    },
+    {
+     "text": "Low Voltage Interlock Wiring between Indoor and Outdoor Unit",
+     "depth": 1
+    },
+    {
+     "text": "Furnish BMS Communication Wiring to Factory Controls",
+     "depth": 1
+    },
+    {
+     "text": "Map Available Points Via Mfr. Provided BMS Interface",
+     "depth": 1
+    },
+    {
+     "text": "AME requires mfr. Rep to assist in integration, cost to be incurred by mech contractor",
+     "depth": 2
+    }
+   ],
+   "notes": []
+  },
+  {
+   "job": "26-0246",
+   "header": "Qty (1) Electric Duct Heater EDH-502",
+   "prefixes": [
+    "EDH"
+   ],
+   "kind_words": [
+    "Electric",
+    "Duct",
+    "Heater"
+   ],
+   "lines": [
+    {
+     "text": "Install and wire Programmable Thermostat (Furnished by Unit Mfr.) (For Split System)",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install Space Temperature / Humidity Sensor (BMS Monitoring)",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install Gravity Ventilator Damper Actuator – (Qty. 2 Total)",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install Leak Sensor",
+     "depth": 1
+    },
+    {
+     "text": "Tie-in Condensate Pump Float Switch (Furnished by Mfr.) – As per Detail 5 (M504)",
+     "depth": 1
+    },
+    {
+     "text": "Necessary Low Voltage Interlock Wiring between ERV Unit and Split Indoor Unit Operation",
+     "depth": 1
+    },
+    {
+     "text": "Necessary Low Voltage Interlock Wiring between EDH and Split Indoor Unit Operation",
+     "depth": 1
+    },
+    {
+     "text": "Necessary Low Voltage Control Wiring between ERV Unit Factory Relay Module for Damper Control and Split Indoor Unit",
+     "depth": 1
+    },
+    {
+     "text": "Low Voltage Interlock Wiring between Split Indoor and Outdoor Unit",
+     "depth": 1
+    },
+    {
+     "text": "Furnish BMS Communication Wiring to Split Factory Controls",
+     "depth": 1
+    },
+    {
+     "text": "Map Available Points Via Mfr. Provided BMS Interface",
+     "depth": 1
+    },
+    {
+     "text": "AME requires mfr. Rep to assist in integration, cost to be incurred by mech contractor",
+     "depth": 2
+    },
+    {
+     "text": "Furnish BMS Communication Wiring to Energy Recovery Ventilator Factory Controls",
+     "depth": 1
+    },
+    {
+     "text": "Map Available Points Via Mfr. Provided BMS Interface",
+     "depth": 1
+    },
+    {
+     "text": "AME requires mfr. Rep to assist in integration, cost to be incurred by mech contractor",
+     "depth": 2
+    }
+   ],
+   "notes": []
+  },
+  {
+   "job": "26-0246",
+   "header": "Qty (3) Toilet Exhaust Fan TEF-1, 2, 3",
+   "prefixes": [
+    "TEF"
+   ],
+   "kind_words": [
+    "Toilet",
+    "Exhaust",
+    "Fan"
+   ],
+   "lines": [
+    {
+     "text": "Furnish and Install DDC Controller",
+     "depth": 1
+    },
+    {
+     "text": "Furnish Fan Start / Stop and Status",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install Exhaust Fan Damper Actuator – (Qty. 3 Total)",
+     "depth": 1
+    }
+   ],
+   "notes": []
+  },
+  {
+   "job": "26-0246",
+   "header": "Qty (1) Electric Room Exhaust Fan EF-1",
+   "prefixes": [
+    "EF"
+   ],
+   "kind_words": [
+    "Electric",
+    "Room",
+    "Exhaust",
+    "Fan"
+   ],
+   "lines": [
+    {
+     "text": "Furnish and Install DDC Controller",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install Space Temperature Sensor",
+     "depth": 1
+    },
+    {
+     "text": "Furnish Fan Start / Stop and Status",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install Exhaust Fan Damper Actuator",
+     "depth": 1
+    }
+   ],
+   "notes": []
+  },
+  {
+   "job": "26-0246",
+   "header": "Qty (2) Locker Room Exhaust Fan EF-6, 10",
+   "prefixes": [
+    "EF"
+   ],
+   "kind_words": [
+    "Locker",
+    "Room",
+    "Exhaust",
+    "Fan"
+   ],
+   "lines": [
+    {
+     "text": "Furnish and Install DDC Controller",
+     "depth": 1
+    },
+    {
+     "text": "Furnish Fan Start / Stop and Status",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install Exhaust Fan Damper Actuator – (Qty. 6 Total)",
+     "depth": 1
+    }
+   ],
+   "notes": []
+  },
+  {
+   "job": "26-0246",
+   "header": "Qty (1) Art Storage Room Kiln Exhaust Fan EF-7",
+   "prefixes": [
+    "EF"
+   ],
+   "kind_words": [
+    "Art",
+    "Storage",
+    "Room",
+    "Kiln",
+    "Exhaust",
+    "Fan"
+   ],
+   "lines": [
+    {
+     "text": "Interlock Wiring with Associated Unit Operation",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install CT for Fan Status; Connect to Nearby DDC",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install Damper Actuator",
+     "depth": 1
+    }
+   ],
+   "notes": []
+  },
+  {
+   "job": "26-0246",
+   "header": "*Qty (1) Can Wash Kitchen Exhaust Fan EF-9 (SEE AME ADD ALT)",
+   "prefixes": [
+    "EF"
+   ],
+   "kind_words": [
+    "Can",
+    "Wash",
+    "Kitchen",
+    "Exhaust",
+    "Fan",
+    "SEE",
+    "AME",
+    "ADD",
+    "ALT"
+   ],
+   "lines": [
+    {
+     "text": "Connect to Nearby DDC",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install CT for Fan Status",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install Damper Actuator",
+     "depth": 1
+    }
+   ],
+   "notes": [
+    "*CONTINUOUS OPERATION – AS PER CONTROL DIAGRAM (M412.00)"
+   ]
+  },
+  {
+   "job": "26-0246",
+   "header": "Qty (1) MEP Storage Room Exhaust Fan EF-11 | Qty (1) Motorized Damper MD-2",
+   "prefixes": [
+    "EF",
+    "MD"
+   ],
+   "kind_words": [
+    "MEP",
+    "Storage",
+    "Room",
+    "Exhaust",
+    "Fan",
+    "Motorized",
+    "Damper"
+   ],
+   "lines": [
+    {
+     "text": "Furnish and Install DDC Controller",
+     "depth": 1
+    },
+    {
+     "text": "Furnish Fan Start / Stop and Status",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install Exhaust Fan Damper Actuator",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install Make-up Air Damper Actuator",
+     "depth": 1
+    }
+   ],
+   "notes": []
+  },
+  {
+   "job": "26-0246",
+   "header": "Qty (3) Post-Fire Smoke Purge Fans SPF-1, 2A, B | Qty (1) Motorized Damper MD-1",
+   "prefixes": [
+    "SPF",
+    "MD",
+    "B"
+   ],
+   "kind_words": [
+    "Post-Fire",
+    "Smoke",
+    "Purge",
+    "Fans",
+    "Motorized",
+    "Damper"
+   ],
+   "lines": [
+    {
+     "text": "Furnish and Install Damper Actuator – (Qty. 4 Total)",
+     "depth": 1
+    }
+   ],
+   "notes": [
+    "*FANS ARE CONTROLLED VIA SMOKE PURGE PANEL FIRE ALARM SYSTEM"
+   ]
+  },
+  {
+   "job": "26-0246",
+   "header": "Qty (1) General Kitchen Exhaust Fan KEF-1",
+   "prefixes": [
+    "KEF"
+   ],
+   "kind_words": [
+    "General",
+    "Kitchen",
+    "Exhaust",
+    "Fan"
+   ],
+   "lines": [
+    {
+     "text": "Furnish and Install DDC Controller",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install Space Temperature Sensor",
+     "depth": 1
+    },
+    {
+     "text": "Furnish Fan Start / Stop and Status",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install Damper Actuator",
+     "depth": 1
+    }
+   ],
+   "notes": [
+    "*AS PER CONTROL DIAGRAM (M412.00)"
+   ]
+  },
+  {
+   "job": "26-0246",
+   "header": "Qty (2) Kitchen Hood",
+   "prefixes": [],
+   "kind_words": [
+    "Kitchen",
+    "Hood"
+   ],
+   "lines": [
+    {
+     "text": "Interlock wiring b/w AHU and Kitchen Exhaust Fan Operation",
+     "depth": 1
+    },
+    {
+     "text": "Interlock wiring w/ Dietician’s HOA Switch at Kitchen Hood Control Panel Operation",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install CT for Fan Status",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install Damper Actuator (Exhaust Fan)",
+     "depth": 1
+    }
+   ],
+   "notes": []
+  },
+  {
+   "job": "26-0246",
+   "header": "Qty (1) Canopy Area Supply Fan SF-100B | Qty (1) Electric Duct Heater EDH-1",
+   "prefixes": [
+    "SF",
+    "EDH"
+   ],
+   "kind_words": [
+    "Canopy",
+    "Area",
+    "Supply",
+    "Fan",
+    "Electric",
+    "Duct",
+    "Heater"
+   ],
+   "lines": [
+    {
+     "text": "Furnish and Install DDC Controller",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install Space Temperature Sensor",
+     "depth": 1
+    },
+    {
+     "text": "Furnish Supply Fan Start / Stop and Status",
+     "depth": 1
+    },
+    {
+     "text": "Furnish EDH Enable / Disable, Status",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install EDH Discharge Air Temperature Sensor",
+     "depth": 1
+    }
+   ],
+   "notes": []
+  },
+  {
+   "job": "26-0246",
+   "header": "Qty (1) Roof Storage Room Exhaust Fan EX-R03 | Qty (2) Motorized Damper MD-3, 4",
+   "prefixes": [
+    "MD",
+    "EX"
+   ],
+   "kind_words": [
+    "Roof",
+    "Storage",
+    "Room",
+    "Exhaust",
+    "Fan",
+    "Motorized",
+    "Damper"
+   ],
+   "lines": [
+    {
+     "text": "Furnish and Install DDC Controller",
+     "depth": 1
+    },
+    {
+     "text": "Furnish Fan Start / Stop and Status",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install Exhaust Fan Damper Actuator",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install Make-up Air Damper Actuator",
+     "depth": 1
+    }
+   ],
+   "notes": []
+  },
+  {
+   "job": "26-0246",
+   "header": "Qty (2) Electric Air Curtain ARC-1.1, 1.2",
+   "prefixes": [
+    "ARC"
+   ],
+   "kind_words": [
+    "Electric",
+    "Air",
+    "Curtain"
+   ],
+   "lines": [
+    {
+     "text": "Interlock w/ Door Switch (Furnished by Unit Mfr.) – (Qty. 4 Total) 2 per Unit (As per Schedule)",
+     "depth": 1
+    }
+   ],
+   "notes": [
+    "*INTEGRAL THERMOSTAT"
+   ]
+  },
+  {
+   "job": "26-0246",
+   "header": "Qty (4) Recessed Wall Electric Cabinet Unit Heater CBH-A",
+   "prefixes": [
+    "CBH"
+   ],
+   "kind_words": [
+    "Recessed",
+    "Wall",
+    "Electric",
+    "Cabinet",
+    "Unit",
+    "Heater"
+   ],
+   "lines": [
+    {
+     "text": "Furnish and Install BACnet Thermostat – (Qty. 1 Total)",
+     "depth": 1
+    }
+   ],
+   "notes": []
+  },
+  {
+   "job": "26-0246",
+   "header": "Qty (43) Electric Cabinet Unit Heater ECUH-##",
+   "prefixes": [
+    "ECUH"
+   ],
+   "kind_words": [
+    "Electric",
+    "Cabinet",
+    "Unit",
+    "Heater"
+   ],
+   "lines": [
+    {
+     "text": "Furnish and Install BACnet Thermostat – (Qty. 42 Total)",
+     "depth": 1
+    }
+   ],
+   "notes": []
+  },
+  {
+   "job": "26-0246",
+   "header": "Qty (11) Electric Unit Heater EUH-##",
+   "prefixes": [
+    "EUH"
+   ],
+   "kind_words": [
+    "Electric",
+    "Unit",
+    "Heater"
+   ],
+   "lines": [
+    {
+     "text": "Furnish and Install BACnet Thermostat – (Qty. 11 Total)",
+     "depth": 1
+    }
+   ],
+   "notes": []
+  },
+  {
+   "job": "26-0246",
+   "header": "Qty (105) Electric Baseboard Heater",
+   "prefixes": [],
+   "kind_words": [
+    "Electric",
+    "Baseboard",
+    "Heater"
+   ],
+   "lines": [
+    {
+     "text": "Interlock with Associated VAV Unit Operation",
+     "depth": 1
+    }
+   ],
+   "notes": []
+  },
+  {
+   "job": "26-0246",
+   "header": "Qty (8) Electric Baseboard Heater",
+   "prefixes": [],
+   "kind_words": [
+    "Electric",
+    "Baseboard",
+    "Heater"
+   ],
+   "lines": [
+    {
+     "text": "Furnish and Install BACnet Thermostat – (Qty. 5 Total)",
+     "depth": 1
+    }
+   ],
+   "notes": []
+  },
+  {
+   "job": "26-0246",
+   "header": "*Qty (3) Heat Pump Water Heater HPWH-1, 2, 3 | Qty (2) Recirculating Pump HWCP-1, 2 – As per Control Diagram 1 (M413.00)",
+   "prefixes": [
+    "HPWH",
+    "HWCP"
+   ],
+   "kind_words": [
+    "Heat",
+    "Pump",
+    "Water",
+    "Heater",
+    "Recirculating",
+    "Pump",
+    "As",
+    "per",
+    "Control",
+    "Diagram"
+   ],
+   "lines": [
+    {
+     "text": "Furnish and Install DDC Controller",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install Hot Water Supply / Return Temperature Sensor – (Qty. 4 Total)",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install CT for Recirculating Pump Status – (Qty. 2 Total)",
+     "depth": 1
+    },
+    {
+     "text": "Electrical Power Meter (Furnished and Installed by Others) – (Qty. 3 Total)",
+     "depth": 1
+    },
+    {
+     "text": "BMS Communication Wiring to Mfr. Provided BMS Interface",
+     "depth": 2
+    },
+    {
+     "text": "Furnish BMS Communication Wiring to HWHP Factory Controls – (Qty. 3 Total)",
+     "depth": 1
+    },
+    {
+     "text": "Map Available Points Via Mfr. Provided BMS Interface",
+     "depth": 1
+    },
+    {
+     "text": "AME requires mfr. Rep to assist in integration, cost to be incurred by mech contractor",
+     "depth": 2
+    },
+    {
+     "text": "Furnish BMS Communication Wiring Domestic HW Control Panel Controls – As per Note 2 (M413)",
+     "depth": 1
+    },
+    {
+     "text": "Map Available Points Via Mfr. Provided BMS Interface",
+     "depth": 1
+    },
+    {
+     "text": "AME requires mfr. Rep to assist in integration, cost to be incurred by mech contractor",
+     "depth": 2
+    }
+   ],
+   "notes": [
+    "*MIXING VALVE BY OTHERS"
+   ]
+  },
+  {
+   "job": "26-0246",
+   "header": "Qty (1) Emergency Generator",
+   "prefixes": [],
+   "kind_words": [
+    "Emergency",
+    "Generator"
+   ],
+   "lines": [
+    {
+     "text": "Furnish Control Wiring b/w Generator and Remote-control Panel",
+     "depth": 1
+    },
+    {
+     "text": "Furnish Belly Fuel Tank Alarm Via Common Alarm Output",
+     "depth": 1
+    },
+    {
+     "text": "High Level Alarm",
+     "depth": 2
+    },
+    {
+     "text": "Low Level Alarm",
+     "depth": 2
+    },
+    {
+     "text": "Leak Alarm",
+     "depth": 2
+    },
+    {
+     "text": "Furnish and Install Horn and Strobe Sensor – As per 15985 - 86",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install Damper Actuator – As per 15985 - 91",
+     "depth": 1
+    },
+    {
+     "text": "Furnish BMS Communication Wiring to Generator Factory Controls",
+     "depth": 1
+    },
+    {
+     "text": "Map Available Points Via Mfr. Provided BMS Interface",
+     "depth": 1
+    },
+    {
+     "text": "AME requires mfr. Rep to assist in integration, cost to be incurred by mech contractor",
+     "depth": 2
+    },
+    {
+     "text": "Furnish BMS Communication Wiring to Alarm Panel",
+     "depth": 1
+    },
+    {
+     "text": "Map Available Points Via Mfr. Provided BMS Interface",
+     "depth": 1
+    },
+    {
+     "text": "AME requires mfr. Rep to assist in integration, cost to be incurred by mech contractor",
+     "depth": 2
+    }
+   ],
+   "notes": [
+    "*Remote Annunciator Panel in the Custodian’s Office by Others"
+   ]
+  },
+  {
+   "job": "26-0246",
+   "header": "Qty (2) Sub-Slab Depressurization System SF-1, 2 (H205.00)",
+   "prefixes": [
+    "SF"
+   ],
+   "kind_words": [
+    "Sub-Slab",
+    "Depressurization",
+    "System"
+   ],
+   "lines": [
+    {
+     "text": "Furnish and Install Interposing relay for Mfr. Provided DP Switch for BMS Connection – As per H205.00",
+     "depth": 1
+    },
+    {
+     "text": "Furnish BMS Communication Wiring to Factory Controls",
+     "depth": 1
+    },
+    {
+     "text": "Map Available Points Via Mfr. Provided BMS Interface",
+     "depth": 1
+    },
+    {
+     "text": "AME requires mfr. rep to assist in integration, cost to be incurred by Mech Contractor",
+     "depth": 2
+    }
+   ],
+   "notes": []
+  },
+  {
+   "job": "26-0246",
+   "header": "Qty (1) Refrigerant Shaft Leak Detection – As per Keynote 7 (M101.00)",
+   "prefixes": [],
+   "kind_words": [
+    "Refrigerant",
+    "Shaft",
+    "Leak",
+    "Detection",
+    "As",
+    "per",
+    "Keynote"
+   ],
+   "lines": [
+    {
+     "text": "Furnish and Install Refrigerant Leak Detection Sensor",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install Damper Actuator",
+     "depth": 1
+    },
+    {
+     "text": "Necessary Interlock Wiring with Fire Alarm System",
+     "depth": 1
+    }
+   ],
+   "notes": []
+  },
+  {
+   "job": "26-0246",
+   "header": "Misc Monitoring Systems",
+   "prefixes": [],
+   "kind_words": [
+    "Misc",
+    "Monitoring",
+    "Systems"
+   ],
+   "lines": [
+    {
+     "text": "Map Available Points Via Mfr. Provided BMS Interface or Connect to Nearby DDC Controller",
+     "depth": 1
+    },
+    {
+     "text": "Main Electrical Meter (Furnished and Installed by Others) – (Qty. 1 Total)",
+     "depth": 2
+    },
+    {
+     "text": "Mfr. to Provide Pulse Output for Monitoring at BMS",
+     "depth": 3
+    },
+    {
+     "text": "Utility Electrical Meter (Furnished and Installed by Others) – (Qty. 2 Total)",
+     "depth": 2
+    },
+    {
+     "text": "Mfr. to Provide Pulse Output for Monitoring at BMS",
+     "depth": 3
+    },
+    {
+     "text": "Main Switchboard Meter (Furnished and Installed by Others) – (Qty. 2 Total)",
+     "depth": 2
+    },
+    {
+     "text": "Mfr. to Provide Pulse Output for Monitoring at BMS",
+     "depth": 3
+    },
+    {
+     "text": "Panel Electric meter for Below Mentioned Panels (Furnished and Installed by Others) – (Qty. 43 Total)",
+     "depth": 2
+    },
+    {
+     "text": "PP-## – (Qty. 16 Total)",
+     "depth": 3
+    },
+    {
+     "text": "ELP-## – (Qty. 7 Total)",
+     "depth": 4
+    },
+    {
+     "text": "EPP-## – (Qty. 6 Total)",
+     "depth": 4
+    },
+    {
+     "text": "LP-## – (Qty. 6 Total)",
+     "depth": 4
+    },
+    {
+     "text": "RP-## – (Qty. 6 Total)",
+     "depth": 4
+    },
+    {
+     "text": "DIM-AUD – (Qty. 1 Total)",
+     "depth": 4
+    },
+    {
+     "text": "DB-ELEV – (Qty. 1 Total)",
+     "depth": 4
+    },
+    {
+     "text": "BMS Communication Wiring to Mfr. Provided BMS Interface",
+     "depth": 3
+    },
+    {
+     "text": "Electric meter for Feeder Serving Each Roof top Unit (Furnished and Installed by Others) – (Qty. 6 Total) As per Energy Metering Detail (M407.00)",
+     "depth": 2
+    },
+    {
+     "text": "Electric meter for Air Cooled Condensing Unit (Furnished and Installed by Others) – (Qty. 11 Total) As per Energy Metering Detail (M407.00)",
+     "depth": 2
+    },
+    {
+     "text": "Elevator Sump Pump EVP-1 (Qty. 1 Total)",
+     "depth": 2
+    },
+    {
+     "text": "Pump Status",
+     "depth": 3
+    },
+    {
+     "text": "High Level Alarm",
+     "depth": 3
+    },
+    {
+     "text": "Domestic Water Incoming Water Filter F1 (Qty. 1 Total)",
+     "depth": 2
+    },
+    {
+     "text": "Head of Serv Common Alarm",
+     "depth": 3
+    },
+    {
+     "text": "Head of Serv Backwash Status",
+     "depth": 3
+    },
+    {
+     "text": "Domestic Water Booster Pump Panel WBP-1 (Qty. 1 Total)",
+     "depth": 2
+    },
+    {
+     "text": "Booster Pump Set General Fault Alarm",
+     "depth": 3
+    },
+    {
+     "text": "Tie-in Mfr. Provided Watt Meter into BMS via Mfr. Provided BACnet Interface",
+     "depth": 3
+    },
+    {
+     "text": "Furnish BMS Communication Wiring to VFD Factory Controls – As per Note 5 (M407.00)",
+     "depth": 3
+    },
+    {
+     "text": "Map Available Points Via Mfr. Provided BMS Interface",
+     "depth": 3
+    },
+    {
+     "text": "AME requires mfr. Rep to assist in integration, cost to be incurred by mech contractor",
+     "depth": 4
+    },
+    {
+     "text": "Intrusion Alarm",
+     "depth": 2
+    }
+   ],
+   "notes": []
+  },
+  {
+   "job": "26-0246",
+   "header": "Guarantee / Warranty",
+   "prefixes": [],
+   "kind_words": [
+    "Guarantee",
+    "Warranty"
+   ],
+   "lines": [
+    {
+     "text": "2 Year Workmanship and Material Guarantee for all work of this Section starting from completion of the commissioning of the system. – As per 15970-40",
+     "depth": 1
+    },
+    {
+     "text": "Provide a 4-year manufacturer’s warranty for the Supervisor Station, SOC, and POT. – As per 15970-41",
+     "depth": 1
+    },
+    {
+     "text": "Provide a 5-year software subscription service for the application software for the Tridium Supervisor Server. – As per 15970-30",
+     "depth": 1
+    }
+   ],
+   "notes": []
+  },
+  {
+   "job": "26-0246",
+   "header": "*Qty (1) Can Wash Kitchen Exhaust Fan EF-9",
+   "prefixes": [
+    "EF"
+   ],
+   "kind_words": [
+    "Can",
+    "Wash",
+    "Kitchen",
+    "Exhaust",
+    "Fan"
+   ],
+   "lines": [
+    {
+     "text": "Furnish and Install DDC Controller",
+     "depth": 1
+    },
+    {
+     "text": "Furnish Fan Start / Stop and Status",
+     "depth": 1
+    }
+   ],
+   "notes": []
+  },
+  {
+   "job": "26-0246",
+   "header": "Qty (1) Shower Room Exhaust Fan EF-2",
+   "prefixes": [
+    "EF"
+   ],
+   "kind_words": [
+    "Shower",
+    "Room",
+    "Exhaust",
+    "Fan"
+   ],
+   "lines": [
+    {
+     "text": "Furnish and Install CT for Fan Status; Connect to Nearby DDC",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install Damper Actuator",
+     "depth": 1
+    }
+   ],
+   "notes": [
+    "*CONTROLLED THROUGH LOCAL MANUAL SWITCH – AS PER SEQUENCE OF OPERATION (15985 – 18)"
+   ]
+  },
+  {
+   "job": "26-0328",
+   "header": "Qty (4) Heat Trace Panel",
+   "prefixes": [],
+   "kind_words": [
+    "Heat",
+    "Trace",
+    "Panel"
+   ],
+   "lines": [
+    {
+     "text": "Furnish and Install Chiller Lineup PLC Control Panel – Qty. 70 Total",
+     "depth": 1
+    },
+    {
+     "text": "Network Switch - Qty. 20 Total",
+     "depth": 2
+    },
+    {
+     "text": "Furnish and Install CAT6 Cabling between Chiller SCPs",
+     "depth": 2
+    },
+    {
+     "text": "Furnish and Install CAT6 Cabling between Chiller SCPs and Remote IO Panels (Qty. 40Total)",
+     "depth": 2
+    },
+    {
+     "text": "Furnish and Install Primary Chiller Manager – (Qty. 2 Total)",
+     "depth": 1
+    },
+    {
+     "text": "Network Switches – Qty. 6 Total",
+     "depth": 2
+    },
+    {
+     "text": "Furnish and Install CAT6 Cabling between Chiller SCPs and Plant Managers",
+     "depth": 2
+    },
+    {
+     "text": "Furnish and Install CAT6 Cabling between Plant Managers and DCIM Cabinets",
+     "depth": 2
+    },
+    {
+     "text": "Furnish and Install Redundant Chiller Manager – (Qty. 2 Total)",
+     "depth": 1
+    },
+    {
+     "text": "Network Switches – Qty. 6 Total",
+     "depth": 2
+    },
+    {
+     "text": "Furnish and Install CAT6 Cabling between Plant Managers and DCIM Cabinets",
+     "depth": 2
+    },
+    {
+     "text": "Furnish and Install Chiller Chilled Water Supply Temperature Sensor -(Qty. 70 Total)",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install Chiller Chilled Water Return Temperature Sensor -(Qty. 70 Total)",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install Chilled Water Riser Temperature Sensor – (Qty. 40 Total)",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install End of Loop CHW Differential Pressure Transmitter– (Qty. 40 Total)",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install Level 1 CHW Differential Pressure Transmitter – (Qty. 5 Total)",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install Level 2 CHW Differential Pressure Transmitter – (Qty. 5 Total)",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install Level 1 CHW Supply / Return Temperature Sensor – (Qty. 10 Total)",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install Level 2 CHW Supply / Return Temperature Sensor – (Qty. 10 Total)",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install Chiller Chilled Water Supply Flow Meter -(Qty. 70 Total)",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install Chilled Water Flow Meter @ TES-(Qty. 140 Total) @ TES",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install End of Loop CHW Flow Meter – (Qty. 40 Total)",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install Riser Chilled Water Supply Flow Meter – (Qty. 40 Total)",
+     "depth": 1
+    },
+    {
+     "text": "Furnish Chiller Start/Stop – (Qty. 70 Total)",
+     "depth": 1
+    },
+    {
+     "text": "Furnish Chiller Status – (Qty. 70 Total)",
+     "depth": 1
+    },
+    {
+     "text": "Furnish Chiller General Alarm – (Qty. 70 Total)",
+     "depth": 1
+    },
+    {
+     "text": "Furnish Pump Start/ Stop and Status – (Qty. 70 Total)",
+     "depth": 1
+    },
+    {
+     "text": "Furnish Pump VFD Speed Command – (Qty. 70 Total)",
+     "depth": 1
+    },
+    {
+     "text": "Furnish Pump VFD Feedback – (Qty. 70 Total)",
+     "depth": 1
+    },
+    {
+     "text": "Furnish Pump Alarm – (Qty. 70 Total)",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Wire #” TES Valve and Actuator – (Qty. 70 Total)",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Wire #” TES Recharge Valve and Actuator – (Qty. 70 Total)",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Wire #” TES Discharge Valve and Actuator – (Qty. 70 Total)",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Wire End of Loop CHW Bypass Valve and Actuator – (Qty. 40 Total)",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Wire 3” TW CHW Bypass Valve and Actuator – (Qty. 120 Total)",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Wire 6” Chiller Bypass Valve and Actuator (Qty. 70 Total)",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Wire Chiller Lineup Isolation Valve and Actuator w/ End Switch – (Qty. 70 Total) – as per Sequence",
+     "depth": 1
+    },
+    {
+     "text": "Tie-in Chiller Mfr. Provided Thermal Dispersion Flow Switch – (Qty. 70 Total)",
+     "depth": 1
+    },
+    {
+     "text": "Furnish BMS Communication Wiring from Chiller Factory Controls",
+     "depth": 1
+    },
+    {
+     "text": "Map Available Points Via Mfr. Provided BMS Interface",
+     "depth": 1
+    },
+    {
+     "text": "AME requires mfr. Rep to assist in integration, cost to be incurred by mech contractor",
+     "depth": 2
+    },
+    {
+     "text": "Furnish BMS Communication Wiring to VFD Controls",
+     "depth": 1
+    },
+    {
+     "text": "Map Available Points Via Mfr. Provided BMS Interface",
+     "depth": 1
+    },
+    {
+     "text": "AME requires mfr. Rep to assist in integration, cost to be incurred by mech contractor",
+     "depth": 2
+    },
+    {
+     "text": "Qty (10) Data Halls",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install Data Hall PLC Control Panel -– (Qty. 24 Total)",
+     "depth": 1
+    },
+    {
+     "text": "DCIM Cabinets in IDF Cabinets BY QTS as per Responsibility Matrix– (Qty. 40 Total)",
+     "depth": 1
+    },
+    {
+     "text": "QTS BMS /EPMS Network Switch Provided by Owner",
+     "depth": 2
+    },
+    {
+     "text": "Furnish and Install CAT6 Cabling Including Pathway, Testing and Termination from BMS/EPMS Switch to Each Electrical Skid Network Switches – (AME Sub EC or Base EC)",
+     "depth": 2
+    },
+    {
+     "text": "Furnish and Install Fiber Optic Cabling per “A and B” Link to the Head End, Electrical Contractor to Provide Pathway – (AME Sub EC or Base EC)",
+     "depth": 2
+    },
+    {
+     "text": "Furnish and Install Data Hall to Corridor Differential Pressure Sensor – Qty. 20 (Keynote (9)",
+     "depth": 1
+    },
+    {
+     "text": "Qty (10) Cold Aisle",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install Cold Aisle RIO Panel (Qty. 40 Total)",
+     "depth": 1
+    },
+    {
+     "text": "Install and Wire? Cold Aisle Temperature / Humidity Sensor – (Qty. 640+40) (Furnished by I&C Contractor)",
+     "depth": 1
+    },
+    {
+     "text": "Install and Wire? Cold Aisle Dew Point Sensor – (Qty. 40) (Furnished by I&C Contractor)",
+     "depth": 1
+    },
+    {
+     "text": "Cold Aisle Temperature / Humidity Sensor by Furnish and Installed by Others",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install CAT6 Cabling Including Pathway, Testing and Termination from RIO Panel to Data Hall Manager Panel; Including Redundancy Cabling to the Different",
+     "depth": 2
+    }
+   ],
+   "notes": []
+  },
+  {
+   "job": "26-0328",
+   "header": "Data Hall Electrical Skids",
+   "prefixes": [],
+   "kind_words": [
+    "Data",
+    "Hall",
+    "Electrical",
+    "Skids"
+   ],
+   "lines": [
+    {
+     "text": "Qty (240) PDU",
+     "depth": 1
+    },
+    {
+     "text": "Qty (60) COD",
+     "depth": 1
+    },
+    {
+     "text": "Qty (240) STS",
+     "depth": 1
+    },
+    {
+     "text": "QTS BMS /EPMS Network Switch Provided by Owner",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install CAT6 Cabling Including Pathway, Testing and Termination from BMS/EPMS Switch to Each PDU, COD, , STS.",
+     "depth": 1
+    },
+    {
+     "text": "(2) CAT6 Cables for PDU and COD",
+     "depth": 1
+    },
+    {
+     "text": "Qty (140) MOD-#",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install CAT6 Cabling Including Pathway, Testing and Termination from BMS/EPMS Switch to Each MOD",
+     "depth": 1
+    },
+    {
+     "text": "Qty (10) MVG-#",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install CAT6 Cabling Including Pathway, Testing and Termination from BMS/EPMS Switch to Each MVG",
+     "depth": 1
+    },
+    {
+     "text": "Qty (280) CRAH - Data Hall",
+     "depth": 1
+    },
+    {
+     "text": "Install and Wire Supply Air Temperature Sensor (Furnished by Unit Mfr.) (Qty. 280 Total)",
+     "depth": 1
+    },
+    {
+     "text": "Install and Wire Return Air Temperature and Humidity Sensor (Furnished by Unit Mfr.) (Qty. 280 Total)",
+     "depth": 1
+    },
+    {
+     "text": "Install and Wire Unit Rope Leak Detection Sensing Cable (Furnished by Unit Mfr.) (Qty. 280 Total)",
+     "depth": 1
+    },
+    {
+     "text": "Install and Wire Return Air Smoke Detector (Qty. 280 Total) Furnished by Unit Mfr.)",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install Cold Aisle Temperature and Humidity Sensor (Qty. #) (Wireless Sensor with Wireless Gateway) -Tenant Fitout Scope",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install Wireless Network Gateway (Qty. #) Tenant Fitout Scope",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install Data Hall Temperature Sensor (Qty. #) – as per Sequence of Operation",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install Data Hall Humidity Sensor (Qty. #) – as per Sequence of Operation",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install Data Hall Dew Point Sensor (Qty. #) – as per Sequence of Operation",
+     "depth": 1
+    },
+    {
+     "text": "Wire Chilled Water Control Valve and Actuator (Qty. 280) (Furnished by Unit Mfr.)",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install CAT6 Cabling Including Pathway, Testing and Termination from BMS/EPMS Switch to Each CRAH",
+     "depth": 1
+    },
+    {
+     "text": "Map Available Points Via Mfr. Provided BMS Interface",
+     "depth": 1
+    },
+    {
+     "text": "Controls Contractor requires mfr. rep to assist in integration, cost to be incurred by mech contractor",
+     "depth": 2
+    },
+    {
+     "text": "Qty (54) CRAH – Electrical Gallery",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install CRAH PLC Controller – (Qty. 54 Total)",
+     "depth": 1
+    },
+    {
+     "text": "Install and Wire Supply Air Temperature Sensor (Furnished by Unit Mfr.) (Qty. 54 Total)",
+     "depth": 1
+    },
+    {
+     "text": "Install and Wire Unit Return Air Temperature and Humidity Sensor (Furnished by Unit Mfr.) (Qty. 192 Total)",
+     "depth": 1
+    },
+    {
+     "text": "Install and Wire Unit Rope Leak Detection Sensing Cable (Furnished by Unit Mfr.) (Qty. 54 Total)",
+     "depth": 1
+    },
+    {
+     "text": "Install and Wire Return Air Smoke Detector (Qty. 54 Total) Furnished by Unit Mfr.)",
+     "depth": 1
+    },
+    {
+     "text": "Wire Chilled Water Control Valve and Actuator (Furnished by Unit Mfr.)",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install CAT6 Cabling Including Pathway, Testing and Termination from BMS/EPMS Switch to Each CRAH– (AME Sub EC or Base EC)",
+     "depth": 1
+    },
+    {
+     "text": "Map Available Points Via Mfr. Provided BMS Interface",
+     "depth": 1
+    },
+    {
+     "text": "Controls Contractor requires mfr. rep to assist in integration, cost to be incurred by mech contractor",
+     "depth": 2
+    },
+    {
+     "text": "Qty (24) Rooftop Unit RTU-#-#",
+     "depth": 1
+    },
+    {
+     "text": "Install and Wire Building Pressure Sensor (Furnished by Unit Mfr.)",
+     "depth": 1
+    },
+    {
+     "text": "Install and Wire Supply Duct Static Pressure Sensor (Furnished by Unit Mfr.)",
+     "depth": 1
+    },
+    {
+     "text": "Install and Wire Supply Temperature Sensor (Furnished by Unit Mfr.)",
+     "depth": 1
+    },
+    {
+     "text": "Install and Wire Space Temperature / Humidity Sensor (Furnished by Unit Mfr.)",
+     "depth": 1
+    },
+    {
+     "text": "Wire Smoke Detection Alarm to Factory Controller (Relay/Module Furnished by FA)",
+     "depth": 1
+    },
+    {
+     "text": "Wire Fire Alarm Smoke Isolation Damper DDC Override (Relay Furnished by FA)",
+     "depth": 1
+    },
+    {
+     "text": "Furnish BMS Communication Wiring to Factory Controls",
+     "depth": 1
+    },
+    {
+     "text": "Map Available Points Via Mfr. Provided BMS Interface",
+     "depth": 1
+    },
+    {
+     "text": "Controls Contractor requires mfr. rep to assist in integration, cost to be incurred by mech contractor",
+     "depth": 2
+    },
+    {
+     "text": "Qty (14) HUH-#",
+     "depth": 1
+    },
+    {
+     "text": "Install and Wire Space Thermostat (Furnished by Unit Mfr.)",
+     "depth": 1
+    },
+    {
+     "text": "Qty (20) Humidifier HUM-#-#",
+     "depth": 1
+    },
+    {
+     "text": "Install and Wire Local Humidity Sensor (Furnished by Unit Mfr.)",
+     "depth": 1
+    },
+    {
+     "text": "Install and Wire Local High Humidity Shutoff Sensor (Furnished by Unit Mfr.)",
+     "depth": 1
+    },
+    {
+     "text": "Install and Wire Local Airflow Switch (Furnished by Unit Mfr.)",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install High Relative Humidity Cutoff- as per Detail",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install Supply Air Temperature / Humidity Sensor",
+     "depth": 1
+    },
+    {
+     "text": "Install and Wire Remote Temperature / Humidity Sensor (Furnished by Unit Mfr.)",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install Leak Sensor",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install CAT6 Cabling Including Pathway, Testing and Termination from BMS/EPMS Switch to Each Humidifiers",
+     "depth": 1
+    },
+    {
+     "text": "Map Available Points Via Mfr. Provided BMS Interface",
+     "depth": 1
+    },
+    {
+     "text": "Controls Contractor requires mfr. rep to assist in integration, cost to be incurred by mech contractor",
+     "depth": 2
+    }
+   ],
+   "notes": [
+    "* CRAH Chilled Water Control Valve and Actuator Provided By Unit Mfr",
+    "* CRAH Chilled Water Control Valve and Actuator Provided By Unit Mfr."
+   ]
+  },
+  {
+   "job": "26-0328",
+   "header": "Qty (7) VAV Cooling Only",
+   "prefixes": [
+    "VAV"
+   ],
+   "kind_words": [
+    "VAV",
+    "Cooling",
+    "Only"
+   ],
+   "lines": [
+    {
+     "text": "Furnish DDC Controller to the Factory for Installation",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install Space Temperature Sensor",
+     "depth": 1
+    },
+    {
+     "text": "24V Transformer by Unit Mfr.",
+     "depth": 1
+    }
+   ],
+   "notes": []
+  },
+  {
+   "job": "26-0328",
+   "header": "Qty (41) VAV with Electric Reheat-#",
+   "prefixes": [
+    "VAV"
+   ],
+   "kind_words": [
+    "VAV",
+    "with",
+    "Electric"
+   ],
+   "lines": [
+    {
+     "text": "Furnish DDC Controller to the Factory for Installation",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install Space Temperature Sensor",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install Discharge Air Temperature Sensor",
+     "depth": 1
+    },
+    {
+     "text": "Furnish Electric Heat SCR Control",
+     "depth": 1
+    },
+    {
+     "text": "24V Transformer by Unit Mfr.",
+     "depth": 1
+    }
+   ],
+   "notes": []
+  },
+  {
+   "job": "26-0328",
+   "header": "Qty (67) FPT-#",
+   "prefixes": [
+    "FPT"
+   ],
+   "kind_words": [],
+   "lines": [
+    {
+     "text": "Furnish DDC Controller to the Factory for Installation",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install Space Temperature Sensor",
+     "depth": 1
+    },
+    {
+     "text": "Furnish Fan Enable",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install Discharge Air Temperature Sensor",
+     "depth": 1
+    },
+    {
+     "text": "Furnish Electric Heat SCR Control",
+     "depth": 1
+    },
+    {
+     "text": "24V Transformer by Unit Mfr.",
+     "depth": 1
+    }
+   ],
+   "notes": []
+  },
+  {
+   "job": "26-0328",
+   "header": "Qty (2) Supply Fan SF-#",
+   "prefixes": [
+    "SF"
+   ],
+   "kind_words": [
+    "Supply",
+    "Fan"
+   ],
+   "lines": [
+    {
+     "text": "Furnish and Install DDC Controller",
+     "depth": 1
+    },
+    {
+     "text": "Furnish Fan Start / Stop and Status",
+     "depth": 1
+    }
+   ],
+   "notes": []
+  },
+  {
+   "job": "26-0328",
+   "header": "Qty (3) Emergency Elec Exhaust Fan EXF-#",
+   "prefixes": [
+    "EXF"
+   ],
+   "kind_words": [
+    "Emergency",
+    "Elec",
+    "Exhaust",
+    "Fan"
+   ],
+   "lines": [
+    {
+     "text": "Furnish and Install DDC Controller",
+     "depth": 1
+    },
+    {
+     "text": "Furnish Fan Start / Stop and Status",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install Hydrogen Gas Detection Control Panel – (Qty. 3 Total)",
+     "depth": 1
+    },
+    {
+     "text": "Hydrogen Gas Sensor",
+     "depth": 2
+    },
+    {
+     "text": "Horn and Strobe Sensor",
+     "depth": 2
+    }
+   ],
+   "notes": []
+  },
+  {
+   "job": "26-0328",
+   "header": "Qty (92) Outdoor Unit CU-#",
+   "prefixes": [
+    "CU"
+   ],
+   "kind_words": [
+    "Outdoor",
+    "Unit"
+   ],
+   "lines": [
+    {
+     "text": "Install and wire Programmable Thermostat (Furnished by Unit Mfr.)",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install Leak Sensor (mfr. RLE SEAHAWK SD-R01)",
+     "depth": 1
+    },
+    {
+     "text": "Furnish Condensate Pump Run Status, High Level (Hardwired Points_ as per",
+     "depth": 1
+    },
+    {
+     "text": "Low Voltage Interlock Wiring between Indoor and Outdoor Unit",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install CAT6 Cabling Including Pathway, Testing and Termination from BMS/EPMS Switch to Each Split– (AME Sub EC or Base EC)",
+     "depth": 1
+    },
+    {
+     "text": "Map Available Points Via Mfr. Provided BMS Interface",
+     "depth": 1
+    },
+    {
+     "text": "AME requires mfr. Rep to assist in integration, cost to be incurred by mech contractor",
+     "depth": 2
+    },
+    {
+     "text": "Qty (240) CDU-#",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install Rope Leak Detection Sensor – (Qty. 240 Total)",
+     "depth": 1
+    },
+    {
+     "text": "Install and Wire Temperature / Humidity Sensor (Furnished by Unit Mfr.) (Qty. 240?? Total)",
+     "depth": 1
+    },
+    {
+     "text": "Install and Wire Rope Leak Detection Sensing Cable (Qty. 240)",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install CAT6 Cabling Including Pathway, Testing and Termination from BMS/EPMS Switch to Each CDU– (AME Sub EC or Base EC)",
+     "depth": 1
+    },
+    {
+     "text": "Map Available Points Via Mfr. Provided BMS Interface (covered under DCIM Cabinet Scope)",
+     "depth": 1
+    },
+    {
+     "text": "Controls Contractor requires mfr. rep to assist in integration, cost to be incurred by mech contractor",
+     "depth": 2
+    }
+   ],
+   "notes": [
+    "* CDU Chilled Water Control Valve and Actuator Provided By Unit Mfr.",
+    "* Each CDU is equipped with Facility Chilled water supply and return temperatures, Technology Water supply and return temperatures, Ambient temperature and humidity at the unit"
+   ]
+  },
+  {
+   "job": "26-0328",
+   "header": "Qty (33) Furnish and Install Space Differential Pressure Sensor",
+   "prefixes": [],
+   "kind_words": [
+    "Furnish",
+    "Install",
+    "Space",
+    "Differential",
+    "Pressure",
+    "Sensor"
+   ],
+   "lines": [
+    {
+     "text": "Qty (2) Front of House",
+     "depth": 1
+    },
+    {
+     "text": "Qty (2) Back of House",
+     "depth": 1
+    },
+    {
+     "text": "Qty (2) Middle of House",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install PLC Control Panel -– (Qty. 8 Total)",
+     "depth": 1
+    },
+    {
+     "text": "Network Switch",
+     "depth": 2
+    },
+    {
+     "text": "DCIM Cabinets in IDF Cabinets BY QTS as per Responsibility Matrix– (Qty. 3 Total)",
+     "depth": 1
+    },
+    {
+     "text": "QTS BMS /EPMS Network Switch Provided by Owner",
+     "depth": 2
+    },
+    {
+     "text": "Furnish and Install Fiber Optic Cabling per “A and B” Link to the Head End, Electrical Contractor to Provide Pathway – (AME Sub EC or Base EC)",
+     "depth": 2
+    },
+    {
+     "text": "Qty (3) House Generator GEN-HSE-",
+     "depth": 1
+    },
+    {
+     "text": "Hardwired Connection from Generator to Electrical Switchgear (Keynote#16/IC00-21)",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install (3) CAT6 Cabling Including Pathway, Testing and Termination from PLC Panel to Generator iFuel System (Generator, Fuel HMI, PLC)",
+     "depth": 1
+    },
+    {
+     "text": "Qty (3) House Transformer XFMR-HSE",
+     "depth": 1
+    },
+    {
+     "text": "Hardwired Connection from Generator to Electrical Room EPMS Panel (Keynote#15/IC00-27)",
+     "depth": 1
+    },
+    {
+     "text": "House Elec Room",
+     "depth": 1
+    }
+   ],
+   "notes": []
+  },
+  {
+   "job": "26-0328",
+   "header": "Qty (3) House Switchboard SWD-HSE-",
+   "prefixes": [],
+   "kind_words": [
+    "House",
+    "Switchboard"
+   ],
+   "lines": [
+    {
+     "text": "Furnish and Install (3) CAT6 Cabling Including Pathway, Testing and Termination from PLC Panel to (1) PLC, (1) PQM, (1) TVSS",
+     "depth": 1
+    }
+   ],
+   "notes": []
+  },
+  {
+   "job": "26-0328",
+   "header": "Qty (4) UPS-HSE-",
+   "prefixes": [],
+   "kind_words": [],
+   "lines": [
+    {
+     "text": "Furnish and Install (3) CAT6 Cabling Including Pathway, Testing and Termination from PLC Panel to (1) PLC, (1) PQM, (1) TVSS",
+     "depth": 1
+    }
+   ],
+   "notes": []
+  },
+  {
+   "job": "26-0328",
+   "header": "Qty (4) STS-HSE-",
+   "prefixes": [],
+   "kind_words": [],
+   "lines": [
+    {
+     "text": "Furnish and Install (3) CAT6 Cabling Including Pathway, Testing and Termination from PLC Panel to (1) PLC, (1) PQM, (1) TVSS",
+     "depth": 1
+    },
+    {
+     "text": "Emergency Elec Room",
+     "depth": 1
+    }
+   ],
+   "notes": []
+  },
+  {
+   "job": "26-0328",
+   "header": "Qty (3) Batteries",
+   "prefixes": [],
+   "kind_words": [
+    "Batteries"
+   ],
+   "lines": [
+    {
+     "text": "Furnish and Install CAT6 Cabling Including Pathway, Testing and Termination from PLC Panel to Batteries",
+     "depth": 1
+    }
+   ],
+   "notes": []
+  },
+  {
+   "job": "26-0328",
+   "header": "Qty (3) Emergency Lighting Inverter ELI-1A",
+   "prefixes": [
+    "ELI"
+   ],
+   "kind_words": [
+    "Emergency",
+    "Lighting",
+    "Inverter"
+   ],
+   "lines": [
+    {
+     "text": "Furnish and Install (3) CAT6 Cabling Including Pathway, Testing and Termination from PLC Panel to ELI",
+     "depth": 1
+    }
+   ],
+   "notes": []
+  },
+  {
+   "job": "26-0328",
+   "header": "Qty (3) Furnish and Install Battery Gas Detection Panel",
+   "prefixes": [],
+   "kind_words": [
+    "Furnish",
+    "Install",
+    "Battery",
+    "Gas",
+    "Detection",
+    "Panel"
+   ],
+   "lines": [
+    {
+     "text": "Furnish and Install CAT6 Cabling Including Pathway, Testing and Termination from BMS/EPMS Switch to Gas Detection Panel",
+     "depth": 1
+    }
+   ],
+   "notes": []
+  },
+  {
+   "job": "26-0328",
+   "header": "Qty (4) EX-RT-02 (Location Not Available Plans)",
+   "prefixes": [
+    "EX"
+   ],
+   "kind_words": [
+    "Location",
+    "Not",
+    "Available",
+    "Plans"
+   ],
+   "lines": [
+    {
+     "text": "Furnish and Install DDC Controller",
+     "depth": 1
+    },
+    {
+     "text": "Furnish Fan Start/Stop and Status",
+     "depth": 1
+    },
+    {
+     "text": "Interlock with Gas Detection Panel",
+     "depth": 1
+    },
+    {
+     "text": "Scope As per Responsibility Matrix",
+     "depth": 1
+    }
+   ],
+   "notes": []
+  },
+  {
+   "job": "26-0328",
+   "header": "Qty (70) POD (IC00-00)",
+   "prefixes": [],
+   "kind_words": [
+    "POD"
+   ],
+   "lines": [
+    {
+     "text": "Map Available Points Via Mfr. Provided BMS Interface or Connect to Nearby DDC Controller",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install CAT6 Cabling Including Pathway, Testing and Termination from Electrical Equipment to DCIM Cabinet",
+     "depth": 1
+    },
+    {
+     "text": "CAT6 Cabling Within Electrical POD to Electrical POD PLC by Others",
+     "depth": 1
+    },
+    {
+     "text": "Qty (70) UPS",
+     "depth": 2
+    },
+    {
+     "text": "Furnish and Install (2) CAT6 Cables",
+     "depth": 3
+    },
+    {
+     "text": "Qty (70) XFMR",
+     "depth": 2
+    },
+    {
+     "text": "Furnish and Install 18AWG Wiring between Transformer and PLC",
+     "depth": 3
+    },
+    {
+     "text": "Qty (70) GEN",
+     "depth": 2
+    },
+    {
+     "text": "Furnish and Install 14AWG Wiring between Generator and SWD Cabinet",
+     "depth": 3
+    },
+    {
+     "text": "RS 485 Wiring",
+     "depth": 3
+    },
+    {
+     "text": "Qty (105) MBB",
+     "depth": 2
+    },
+    {
+     "text": "Furnish and Install (2) CAT6 Cables",
+     "depth": 3
+    },
+    {
+     "text": "Qty (105) SWR",
+     "depth": 2
+    },
+    {
+     "text": "Furnish and Install (2) CAT6 Cables",
+     "depth": 3
+    },
+    {
+     "text": "Misc Monitoring Systems",
+     "depth": 1
+    },
+    {
+     "text": "Map Available Points Via Mfr. Provided BMS Interface or Connect to Nearby DDC Controller",
+     "depth": 1
+    },
+    {
+     "text": "EPMS",
+     "depth": 2
+    },
+    {
+     "text": "Sump Pumps (5)",
+     "depth": 2
+    },
+    {
+     "text": "Furnish and Install Power Meter (Qty. ##)",
+     "depth": 2
+    },
+    {
+     "text": "ETUS (Qty. ##) (IC05-06)",
+     "depth": 2
+    },
+    {
+     "text": "Domestic Water Meter (#) (P02-01A2)",
+     "depth": 2
+    },
+    {
+     "text": "Fire Alarm Controller",
+     "depth": 2
+    }
+   ],
+   "notes": []
+  },
+  {
+   "job": "26-0334",
+   "header": "Qty (1) Dedicated Outside Air System DOAS-#",
+   "prefixes": [
+    "DOAS"
+   ],
+   "kind_words": [
+    "Dedicated",
+    "Outside",
+    "Air",
+    "System"
+   ],
+   "lines": [
+    {
+     "text": "Install and wire mfr. Provided sensors shipped loose w/ unit",
+     "depth": 1
+    },
+    {
+     "text": "Interlock With Refrigeration Leak Detection Panel",
+     "depth": 1
+    },
+    {
+     "text": "Furnish BMS Communication Wiring to Factory Controls",
+     "depth": 1
+    },
+    {
+     "text": "Map Available Points Via Mfr. Provided BMS Interface",
+     "depth": 1
+    },
+    {
+     "text": "AME Requires Mfr. Rep to Assist in Integration, cost to be Incurred by Mech Contractor",
+     "depth": 2
+    }
+   ],
+   "notes": []
+  },
+  {
+   "job": "26-0334",
+   "header": "Qty (1) Branch Selector BC-1",
+   "prefixes": [
+    "BC"
+   ],
+   "kind_words": [
+    "Branch",
+    "Selector"
+   ],
+   "lines": [
+    {
+     "text": "Install and wire Space Temperature / Humidity Sensor (Furnished by Unit Mfr.)",
+     "depth": 1
+    },
+    {
+     "text": "Wire Mfr. Provided Refrigerant Shutoff Valves",
+     "depth": 1
+    },
+    {
+     "text": "Furnish BMS Communication Wiring to Factory Controls",
+     "depth": 1
+    },
+    {
+     "text": "Map Available Points Via Mfr. Provided BMS Interface",
+     "depth": 1
+    },
+    {
+     "text": "AME requires mfr. Rep to assist in integration, cost to be incurred by mech contractor",
+     "depth": 2
+    }
+   ],
+   "notes": [
+    "*Refrigerant Leak Detector for All Indoor Unit by Unit Mfr.",
+    "*Branch Controller Shall be Provided with the Refrigerant Gas Detection System (MVR-300)"
+   ]
+  },
+  {
+   "job": "26-0334",
+   "header": "Qty (6) Hot Water Reheat Coil RH-#",
+   "prefixes": [
+    "RH"
+   ],
+   "kind_words": [
+    "Hot",
+    "Water",
+    "Reheat",
+    "Coil"
+   ],
+   "lines": [
+    {
+     "text": "Furnish and Install Space Thermostat",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Wire Hot Water Control Valve and Actuator (2-Way) – Qty. 5 Total",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Wire Hot Water Control Valve and Actuator (3-Way) – Qty. 1 Total",
+     "depth": 1
+    }
+   ],
+   "notes": []
+  },
+  {
+   "job": "26-0334",
+   "header": "Qty (1) Hot Water Cabinet Heater HWCH-1",
+   "prefixes": [
+    "HWCH"
+   ],
+   "kind_words": [
+    "Hot",
+    "Water",
+    "Cabinet",
+    "Heater"
+   ],
+   "lines": [
+    {
+     "text": "Install and Wire Mfr. Provided Space Thermostat",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Wire Hot Water Control Valve and Actuator",
+     "depth": 1
+    }
+   ],
+   "notes": []
+  },
+  {
+   "job": "26-0334",
+   "header": "Qty (1) Hot Water Baseboard HWBB-1",
+   "prefixes": [
+    "HWBB"
+   ],
+   "kind_words": [
+    "Hot",
+    "Water",
+    "Baseboard"
+   ],
+   "lines": [
+    {
+     "text": "Install and Wire Mfr. Provided Space Thermostat",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Wire Hot Water Control Valve and Actuator",
+     "depth": 1
+    }
+   ],
+   "notes": []
+  },
+  {
+   "job": "26-0334",
+   "header": "Qty (2) Hot Water Unit Heater HWUH-1, 2",
+   "prefixes": [
+    "HWUH"
+   ],
+   "kind_words": [
+    "Hot",
+    "Water",
+    "Unit",
+    "Heater"
+   ],
+   "lines": [
+    {
+     "text": "Install and Wire Mfr. Provided Space Thermostat – Qty. 1 Total",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Wire Hot Water Control Valve and Actuator",
+     "depth": 1
+    }
+   ],
+   "notes": []
+  },
+  {
+   "job": "26-0334",
+   "header": "Qty (1) Electric Baseboard EBB-1",
+   "prefixes": [
+    "EBB"
+   ],
+   "kind_words": [
+    "Electric",
+    "Baseboard"
+   ],
+   "lines": [
+    {
+     "text": "Install and Wire Mfr. Provided Space Thermostat",
+     "depth": 1
+    }
+   ],
+   "notes": []
+  },
+  {
+   "job": "26-0334",
+   "header": "Qty (1) EF-3",
+   "prefixes": [
+    "EF"
+   ],
+   "kind_words": [],
+   "lines": [
+    {
+     "text": "Interlock Fan with Refrigeration Leak Detection Panel",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install Damper Actuator",
+     "depth": 1
+    }
+   ],
+   "notes": []
+  },
+  {
+   "job": "26-0334",
+   "header": "Qty (1) EF-1",
+   "prefixes": [
+    "EF"
+   ],
+   "kind_words": [],
+   "lines": [
+    {
+     "text": "Furnish and Install DDC Controller",
+     "depth": 1
+    },
+    {
+     "text": "Furnish Fan Start/Stop and Status",
+     "depth": 1
+    }
+   ],
+   "notes": []
+  },
+  {
+   "job": "26-0334",
+   "header": "Qty (2) Secondary Hot Water Pump P-3, 4",
+   "prefixes": [
+    "P"
+   ],
+   "kind_words": [
+    "Secondary",
+    "Hot",
+    "Water",
+    "Pump"
+   ],
+   "lines": [
+    {
+     "text": "Furnish and Install DDC Controller",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install Secondary Hot Water Supply / Return Temperature Sensor – (Qty. 2 Total)",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install Boiler Hot Water Supply / Return Temperature Sensor – (Qty. 4 Total)",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install Secondary Hot Water Differential Pressure Transmitter",
+     "depth": 1
+    },
+    {
+     "text": "Furnish Boiler Enable (Qty. 2 Total)",
+     "depth": 1
+    },
+    {
+     "text": "Furnish Boiler Status (Qty. 2 Total)",
+     "depth": 1
+    },
+    {
+     "text": "Furnish Boiler Alarm (Qty. 2 Total)",
+     "depth": 1
+    },
+    {
+     "text": "Furnish Boiler Low Water Level Status (Qty. 2 Total)",
+     "depth": 1
+    },
+    {
+     "text": "Furnish Boiler Setpoint (Qty. 2 Total)",
+     "depth": 1
+    },
+    {
+     "text": "Furnish Boiler Circulation Pump Start/Stop and Status (Qty. 2 Total)",
+     "depth": 1
+    },
+    {
+     "text": "Furnish Boiler Circulation Pump VFD Control (Qty. 2 Total)",
+     "depth": 1
+    },
+    {
+     "text": "Furnish Secondary Hot Water Pump Start/Stop Status (Qty. 2 Total)",
+     "depth": 1
+    },
+    {
+     "text": "Furnish Secondary Hot Water Pump VFD Control (Qty. 2 Total)",
+     "depth": 1
+    },
+    {
+     "text": "Boiler Trim Wiring",
+     "depth": 1
+    },
+    {
+     "text": "Furnish BMS Communication Wiring to VFD Controls",
+     "depth": 1
+    },
+    {
+     "text": "Map Available Points Via Mfr. Provided BMS Interface",
+     "depth": 1
+    },
+    {
+     "text": "Controls Contractor requires mfr. rep to assist in integration, cost to be incurred by mech contractor",
+     "depth": 2
+    },
+    {
+     "text": "Furnish BMS Communication Wiring to Factory Controls (Boiler)",
+     "depth": 1
+    },
+    {
+     "text": "Map Available Points Via Mfr. Provided BMS Interface",
+     "depth": 1
+    },
+    {
+     "text": "Controls Contractor requires mfr. rep to assist in integration, cost to be incurred by mech contractor",
+     "depth": 2
+    }
+   ],
+   "notes": []
+  },
+  {
+   "job": "26-0334",
+   "header": "Qty (2) Snow Melt Hot Water Pump P-5, 6",
+   "prefixes": [
+    "P"
+   ],
+   "kind_words": [
+    "Snow",
+    "Melt",
+    "Hot",
+    "Water",
+    "Pump"
+   ],
+   "lines": [
+    {
+     "text": "Furnish and Install DDC Controller",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install Snow Melt Supply / Return Water Temperature Sensor",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install Slab Temperature Sensor",
+     "depth": 1
+    },
+    {
+     "text": "Furnish Pump Start/Stop and Status (Qty. 2 Total)",
+     "depth": 1
+    },
+    {
+     "text": "Furnish Pump VFD Control (Qty. 2 Total)",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Wire 3-Way Mixing Valve and Actuator",
+     "depth": 1
+    },
+    {
+     "text": "Furnish BMS Communication Wiring to Factory Controls",
+     "depth": 1
+    },
+    {
+     "text": "Map Available Points Via Mfr. Provided BMS Interface",
+     "depth": 1
+    },
+    {
+     "text": "Controls Contractor requires mfr. rep to assist in integration, cost to be incurred by mech contractor",
+     "depth": 2
+    }
+   ],
+   "notes": []
+  },
+  {
+   "job": "26-0334",
+   "header": "Qty (1) Glycol Makeup Unit GMU-1",
+   "prefixes": [
+    "GMU"
+   ],
+   "kind_words": [
+    "Glycol",
+    "Makeup",
+    "Unit"
+   ],
+   "lines": [
+    {
+     "text": "Furnish Alarm thru Mfr. Provided Dry Contact",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install Pressure Switch",
+     "depth": 1
+    }
+   ],
+   "notes": []
+  },
+  {
+   "job": "26-0339",
+   "header": "Qty (1) Global Points",
+   "prefixes": [],
+   "kind_words": [
+    "Global",
+    "Points"
+   ],
+   "lines": [
+    {
+     "text": "Furnish and Install Outside Air Temperature",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install Outside Air Humidity",
+     "depth": 1
+    }
+   ],
+   "notes": []
+  },
+  {
+   "job": "26-0339",
+   "header": "Qty (1) Glycol Water Makeup Unit GMU-C-1",
+   "prefixes": [
+    "GMU"
+   ],
+   "kind_words": [
+    "Glycol",
+    "Water",
+    "Makeup",
+    "Unit"
+   ],
+   "lines": [
+    {
+     "text": "Furnish and Install DDC Controller",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install Primary Condenser Water Supply / Return Temperature Sensor (Qty. 2 Total)",
+     "depth": 1
+    },
+    {
+     "text": "Furnish Basin Heater Enable / Disable – As per Schedule Note M-400",
+     "depth": 1
+    },
+    {
+     "text": "Furnish Basin Heater Status – As per Schedule Note M-400",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install Basin Water Temperature Sensor",
+     "depth": 1
+    },
+    {
+     "text": "Furnish Fluid Cooler Fan Start/ Stop",
+     "depth": 1
+    },
+    {
+     "text": "Furnish Fluid Cooler Fan Status",
+     "depth": 1
+    },
+    {
+     "text": "Furnish Fluid Cooler Setpoint",
+     "depth": 1
+    },
+    {
+     "text": "Furnish Fluid Cooler Fan VFD Bypass Status",
+     "depth": 1
+    },
+    {
+     "text": "Furnish Spray Pump Start/ Stop and Status – As per 230993 - 11",
+     "depth": 1
+    },
+    {
+     "text": "Furnish Pump Start/ Stop and Status – (Qty. 2 Total)",
+     "depth": 1
+    },
+    {
+     "text": "Furnish Pump VFD Control – (Qty. 2 Total)",
+     "depth": 1
+    },
+    {
+     "text": "Furnish Pump Common Alarm – (Qty. 2 Total)",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install Differential Pressure Transmitter",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install Differential Pressure Switch",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install Fluid Cooler Flow Switch",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install HX Flow Switch – (Qty. 2 Total)",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install Primary Condenser Water Flow Meter – As per 230993-9",
+     "depth": 1
+    },
+    {
+     "text": "Tie in Mfr. High / Low Level Switch",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Wire 6” HX Primary Isolation Valve and Actuator w/ End Switch (Qty. 2 Total)",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Wire 6” HX Secondary Isolation Valve and Actuator w/ End Switch (Qty. 2 Total)",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Wire 6” Bypass Control Valve and Actuator w/ End Switch",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install CT for Heat Trace Status",
+     "depth": 1
+    },
+    {
+     "text": "Wire Glycol Water Makeup Unit Low Pressure Switch",
+     "depth": 1
+    },
+    {
+     "text": "Monitor Glycol Water Makeup Unit Low Level Alarm",
+     "depth": 1
+    },
+    {
+     "text": "Furnish BMS Communication Wiring to VFD Controls - (2) Pumps",
+     "depth": 1
+    },
+    {
+     "text": "Map Available Points Via Mfr. Provided BMS Interface",
+     "depth": 1
+    },
+    {
+     "text": "AME requires mfr. Rep to assist in integration, cost to be incurred by mech contractor",
+     "depth": 2
+    },
+    {
+     "text": "Furnish BMS Communication Wiring to Factory Controls (Fluid Cooler) FC-3-1",
+     "depth": 1
+    },
+    {
+     "text": "Map Available Points Via Mfr. Provided BMS Interface",
+     "depth": 1
+    },
+    {
+     "text": "AME requires mfr. Rep to assist in integration, cost to be incurred by mech contractor",
+     "depth": 2
+    }
+   ],
+   "notes": [
+    "**Dry Cooler Damper/Actuator internal by Unit Manufacturer"
+   ]
+  },
+  {
+   "job": "26-0339",
+   "header": "Qty (1) Hot Condensate Pump CP-C-1",
+   "prefixes": [
+    "CP"
+   ],
+   "kind_words": [
+    "Hot",
+    "Condensate",
+    "Pump"
+   ],
+   "lines": [
+    {
+     "text": "Furnish and Install DDC Controller",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install Secondary Condenser Water Supply/Return Temperature Sensor - (Qty. 2 Total)",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install Heat Injection Loop Supply / Return Temperature Sensor – (Qty. 2 Total)",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install Heat Exchanger Supply / Return Temperature Sensor – (Qty. 2 Total)",
+     "depth": 1
+    },
+    {
+     "text": "Furnish Pump Start/ Stop and Status – (Qty. 4 Total)",
+     "depth": 1
+    },
+    {
+     "text": "Furnish Pump VFD Control – (Qty. 4 Total)",
+     "depth": 1
+    },
+    {
+     "text": "Furnish Pump Common Alarm – (Qty. 4 Total)",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install Differential Pressure Transmitter",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install Heat Injection HX Flow Switch",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install Thermal Dispersion Flow Switch",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install Hot Water Flow Meter (Qty 1)",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install LPS Steam Flow Meter (Qty 1)",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Wire 4” HX Steam Control Valve and Actuator (1/3rd-2/3rd) w/ End Switch – (Qty. 4 Total)",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Wire 4” Heat Injection HX Steam Control Valve and Actuator w/ End Switch",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Wire 3” Heat Injection HX Isolation Valve and Actuator w/ End Switch – (Qty. 2 Total)",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Wire 6” Differential Pressure Bypass Control Valve and Actuator",
+     "depth": 1
+    },
+    {
+     "text": "Furnish Hot Condensate Pump Status – As per Schedule Note (M-500.00)",
+     "depth": 1
+    },
+    {
+     "text": "Furnish Hot Condensate Pump Alarm – As per Schedule Note (M-500.00)",
+     "depth": 1
+    },
+    {
+     "text": "Furnish BMS Communication Wiring to VFD Controls - (4) Pumps, (2) SCWP, (2) HWP",
+     "depth": 1
+    },
+    {
+     "text": "Map Available Points Via Mfr. Provided BMS Interface",
+     "depth": 1
+    },
+    {
+     "text": "AME requires mfr. Rep to assist in integration, cost to be incurred by mech contractor",
+     "depth": 2
+    }
+   ],
+   "notes": [
+    "***HPS Steam Meters for PRV Station by Others"
+   ]
+  },
+  {
+   "job": "26-0339",
+   "header": "Qty (2) Packaged Roof Top Air Handling Unit RTU-R-1, 2",
+   "prefixes": [
+    "RTU"
+   ],
+   "kind_words": [
+    "Packaged",
+    "Roof",
+    "Top",
+    "Air",
+    "Handling",
+    "Unit"
+   ],
+   "lines": [
+    {
+     "text": "Install and wire Duct Static Pressure Sensor (Furnished by Unit Mfr.)",
+     "depth": 1
+    },
+    {
+     "text": "Install and wire mfr. Provided sensors shipped loose w/ unit",
+     "depth": 1
+    },
+    {
+     "text": "Furnish BMS Communication Wiring to Factory Controls",
+     "depth": 1
+    },
+    {
+     "text": "Map Available Points Via Mfr. Provided BMS Interface",
+     "depth": 1
+    },
+    {
+     "text": "AME Requires Mfr. Rep to Assist in Integration, cost to be Incurred by Mech Contractor",
+     "depth": 2
+    },
+    {
+     "text": "Furnish BMS Communication Wiring to VFD Controls – (2) Supply Fans",
+     "depth": 1
+    },
+    {
+     "text": "Map Available Points Via Mfr. Provided BMS Interface",
+     "depth": 1
+    },
+    {
+     "text": "AME requires mfr. Rep to assist in integration, cost to be incurred by mech contractor",
+     "depth": 2
+    }
+   ],
+   "notes": []
+  },
+  {
+   "job": "26-0339",
+   "header": "Qty (1) Packaged Energy Recovery Unit ERU-3-1",
+   "prefixes": [
+    "ERU"
+   ],
+   "kind_words": [
+    "Packaged",
+    "Energy",
+    "Recovery",
+    "Unit"
+   ],
+   "lines": [
+    {
+     "text": "Install and wire Discharge Air Temperature Sensor (Furnished by Unit Mfr.)",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install Leak Sensor",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install Outside Air Damper Actuator w/ End Switch",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install Exhaust Air Damper Actuator w/ End Switch",
+     "depth": 1
+    },
+    {
+     "text": "Install and wire mfr. Provided sensors shipped loose w/ unit",
+     "depth": 1
+    },
+    {
+     "text": "Furnish BMS Communication Wiring to Factory Controls",
+     "depth": 1
+    },
+    {
+     "text": "Map Available Points Via Mfr. Provided BMS Interface",
+     "depth": 1
+    },
+    {
+     "text": "AME Requires Mfr. Rep to Assist in Integration, cost to be Incurred by Mech Contractor",
+     "depth": 2
+    },
+    {
+     "text": "Furnish BMS Communication Wiring to VFD Controls – (2) Supply, Exhaust Fans",
+     "depth": 1
+    },
+    {
+     "text": "Map Available Points Via Mfr. Provided BMS Interface",
+     "depth": 1
+    },
+    {
+     "text": "AME requires mfr. Rep to assist in integration, cost to be incurred by mech contractor",
+     "depth": 2
+    }
+   ],
+   "notes": []
+  },
+  {
+   "job": "26-0339",
+   "header": "Qty (2) Packaged Energy Recovery Unit ERU-1-1, R-1",
+   "prefixes": [
+    "ERU"
+   ],
+   "kind_words": [
+    "Packaged",
+    "Energy",
+    "Recovery",
+    "Unit"
+   ],
+   "lines": [
+    {
+     "text": "Furnish ERV Unit Enable / Disable",
+     "depth": 1
+    },
+    {
+     "text": "Install and wire mfr. Provided sensors shipped loose w/ unit",
+     "depth": 1
+    },
+    {
+     "text": "Furnish BMS Communication Wiring to Factory Controls",
+     "depth": 1
+    },
+    {
+     "text": "Map Available Points Via Mfr. Provided BMS Interface",
+     "depth": 1
+    },
+    {
+     "text": "AME Requires Mfr. Rep to Assist in Integration, cost to be Incurred by Mech Contractor",
+     "depth": 2
+    }
+   ],
+   "notes": []
+  },
+  {
+   "job": "26-0339",
+   "header": "Qty (2) Heating and Ventilating Units HV-C-1, B-1",
+   "prefixes": [
+    "B",
+    "HV"
+   ],
+   "kind_words": [
+    "Heating",
+    "Ventilating",
+    "Units"
+   ],
+   "lines": [
+    {
+     "text": "Furnish and Install DDC Controller",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install Space Temperature / Humidity Sensor",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install Discharge Air Temperature Sensor",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install Heating Coil Discharge Air Temperature Sensor",
+     "depth": 1
+    },
+    {
+     "text": "Furnish Supply Fan Start/Stop and Status",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install Supply Fan High Static Pressure Switch",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install Freezestat",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Wire Filter DP Switch",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Wire Steam Control Valve and Actuator",
+     "depth": 1
+    }
+   ],
+   "notes": []
+  },
+  {
+   "job": "26-0339",
+   "header": "Qty (2) Branch Selector HRU-2-1, 2",
+   "prefixes": [
+    "HRU"
+   ],
+   "kind_words": [
+    "Branch",
+    "Selector"
+   ],
+   "lines": [
+    {
+     "text": "Install and wire Programmable Thermostat (Furnished by Unit Mfr.)",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install Leak Sensor",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install Differential Pressure Switch – for WCCU",
+     "depth": 1
+    },
+    {
+     "text": "VRF Communication Wiring",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Wire Condenser Water Isolation Valve and Actuator – for WCCU",
+     "depth": 1
+    },
+    {
+     "text": "Install Central Controller by Unit Mfr. Tie into BMS",
+     "depth": 1
+    },
+    {
+     "text": "AME requires mfr. Rep to assist in integration, cost to be incurred by mech contractor",
+     "depth": 2
+    }
+   ],
+   "notes": []
+  },
+  {
+   "job": "26-0339",
+   "header": "Qty (2) Branch Selector HRU-35-1, 2",
+   "prefixes": [
+    "HRU"
+   ],
+   "kind_words": [
+    "Branch",
+    "Selector"
+   ],
+   "lines": [
+    {
+     "text": "Install and wire Programmable Thermostat (Furnished by Unit Mfr.)",
+     "depth": 1
+    },
+    {
+     "text": "VRF Communication Wiring",
+     "depth": 1
+    },
+    {
+     "text": "Install Central Controller by Unit Mfr. Tie into BMS",
+     "depth": 1
+    },
+    {
+     "text": "AME requires mfr. Rep to assist in integration, cost to be incurred by mech contractor",
+     "depth": 2
+    }
+   ],
+   "notes": []
+  },
+  {
+   "job": "26-0339",
+   "header": "Qty (38) Water Source Heat Pump WSHP",
+   "prefixes": [
+    "WSHP"
+   ],
+   "kind_words": [
+    "Water",
+    "Source",
+    "Heat",
+    "Pump",
+    "WSHP"
+   ],
+   "lines": [
+    {
+     "text": "Install and wire Programmable Thermostat (Furnished by Unit Mfr.)",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install Leak Sensor",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Wire Condenser Water Differential Pressure Switch",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Wire Condenser Water Supply Isolation Valve and Actuator",
+     "depth": 1
+    },
+    {
+     "text": "Furnish BMS Communication Wiring to Factory Controls",
+     "depth": 1
+    },
+    {
+     "text": "Map Available Points Via Mfr. Provided BMS Interface",
+     "depth": 1
+    },
+    {
+     "text": "AME requires mfr. Rep to assist in integration, cost to be incurred by mech contractor",
+     "depth": 2
+    }
+   ],
+   "notes": []
+  },
+  {
+   "job": "26-0339",
+   "header": "Qty (3) Water Source Heat Pump Serving Lobby WSHP",
+   "prefixes": [
+    "WSHP"
+   ],
+   "kind_words": [
+    "Water",
+    "Source",
+    "Heat",
+    "Pump",
+    "Serving",
+    "Lobby",
+    "WSHP"
+   ],
+   "lines": [
+    {
+     "text": "Install and wire Programmable Thermostat (Furnished by Unit Mfr.)",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install Leak Sensor",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Wire Condenser Water Differential Pressure Switch",
+     "depth": 1
+    },
+    {
+     "text": "Tie-in Condensate Pump Float Switch (Furnished by Mfr.)",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Wire Condenser Water Supply Isolation Valve and Actuator W/ End Switch",
+     "depth": 1
+    },
+    {
+     "text": "Furnish BMS Communication Wiring to Factory Controls",
+     "depth": 1
+    },
+    {
+     "text": "Map Available Points Via Mfr. Provided BMS Interface",
+     "depth": 1
+    },
+    {
+     "text": "AME requires mfr. Rep to assist in integration, cost to be incurred by mech contractor",
+     "depth": 2
+    }
+   ],
+   "notes": []
+  },
+  {
+   "job": "26-0339",
+   "header": "Qty (960) Apartment Single Package Heat Pump SPHP-A, B",
+   "prefixes": [
+    "B"
+   ],
+   "kind_words": [
+    "Apartment",
+    "Single",
+    "Package",
+    "Heat",
+    "Pump"
+   ],
+   "lines": [
+    {
+     "text": "Install and Wire Programmable Thermostat (Furnished by Unit Mfr.)",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install Leak Sensor",
+     "depth": 1
+    },
+    {
+     "text": "Tie-in Condensate Pump Float Switch (Furnished by Mfr.)",
+     "depth": 1
+    }
+   ],
+   "notes": []
+  },
+  {
+   "job": "26-0339",
+   "header": "Qty (1) Make-Up Air Fan F-C-1 w/ Steam Heating Coil SC-C-1",
+   "prefixes": [
+    "SC"
+   ],
+   "kind_words": [
+    "Make-Up",
+    "Air",
+    "Fan",
+    "Steam",
+    "Heating",
+    "Coil"
+   ],
+   "lines": [
+    {
+     "text": "Furnish and Install DDC Controller",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install Supply Air Temperature Sensor",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install Door Switch – Qty. 1 Assumed",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Wire Filter DP Transmitter",
+     "depth": 1
+    },
+    {
+     "text": "Furnish Fan Start / Stop and Status",
+     "depth": 1
+    },
+    {
+     "text": "Furnish Fan VFD Control",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Wire Steam Control Valve and Actuator",
+     "depth": 1
+    },
+    {
+     "text": "Furnish BMS Communication Wiring to VFD Controls",
+     "depth": 1
+    },
+    {
+     "text": "Map Available Points Via Mfr. Provided BMS Interface",
+     "depth": 1
+    },
+    {
+     "text": "AME requires mfr. rep to assist in integration, cost to be incurred by Mech Contractor",
+     "depth": 2
+    }
+   ],
+   "notes": []
+  },
+  {
+   "job": "26-0339",
+   "header": "Qty (3) General Exhaust Fan GX-2-1, B-1, C-1",
+   "prefixes": [
+    "B",
+    "GX"
+   ],
+   "kind_words": [
+    "General",
+    "Exhaust",
+    "Fan"
+   ],
+   "lines": [
+    {
+     "text": "Furnish and Install DDC Controller",
+     "depth": 1
+    },
+    {
+     "text": "Furnish Fan Start / Stop and Status",
+     "depth": 1
+    },
+    {
+     "text": "Furnish Fan VFD Control – for GX-2-1",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install Damper Actuator",
+     "depth": 1
+    },
+    {
+     "text": "Furnish BMS Communication Wiring to VFD Controls – for GX-2-1",
+     "depth": 1
+    },
+    {
+     "text": "Map Available Points Via Mfr. Provided BMS Interface",
+     "depth": 1
+    },
+    {
+     "text": "AME requires mfr. rep to assist in integration, cost to be incurred by Mech Contractor",
+     "depth": 2
+    }
+   ],
+   "notes": []
+  },
+  {
+   "job": "26-0339",
+   "header": "*Qty (3) Exhaust Fan GX-B-2, TX-B-1, TX-R-1",
+   "prefixes": [
+    "B",
+    "TX",
+    "GX"
+   ],
+   "kind_words": [
+    "Exhaust",
+    "Fan"
+   ],
+   "lines": [
+    {
+     "text": "Furnish and Install DDC Controller",
+     "depth": 1
+    },
+    {
+     "text": "Furnish Fan Start / Stop and Status",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install Damper Actuator – for TX-B-1, GX-B-2 – Qty. 2 Total",
+     "depth": 1
+    }
+   ],
+   "notes": []
+  },
+  {
+   "job": "26-0339",
+   "header": "Qty (1) Kitchen Exhaust Fans KX-R-1",
+   "prefixes": [
+    "KX"
+   ],
+   "kind_words": [
+    "Kitchen",
+    "Exhaust",
+    "Fans"
+   ],
+   "lines": [
+    {
+     "text": "Furnish and Install DDC Controller",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install Duct Static Pressure Sensor – (Qty. # Total) Multiple As per Sequence of operation (230993-21)",
+     "depth": 1
+    },
+    {
+     "text": "Furnish Exhaust Fan Start / Stop and Status",
+     "depth": 1
+    },
+    {
+     "text": "Furnish Exhaust Fan VFD Speed Control",
+     "depth": 1
+    },
+    {
+     "text": "Furnish Exhaust fan VFD common alarm",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install Low Suction Pressure Switch",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install Damper Actuator w/ End Switch",
+     "depth": 1
+    },
+    {
+     "text": "Furnish BMS Communication Wiring to Exhaust Fan VFD Factory Controls",
+     "depth": 1
+    },
+    {
+     "text": "Map Available Points Via Mfr. Provided BMS Interface",
+     "depth": 1
+    },
+    {
+     "text": "AME requires mfr. Rep to assist in integration, cost to be incurred by mech contractor",
+     "depth": 2
+    }
+   ],
+   "notes": []
+  },
+  {
+   "job": "26-0339",
+   "header": "Qty (23) Electric Floor Heater EFH-A, B, C",
+   "prefixes": [
+    "B"
+   ],
+   "kind_words": [
+    "Electric",
+    "Floor",
+    "Heater"
+   ],
+   "lines": [
+    {
+     "text": "Install and wire Space Thermostat (Furnished by Unit Mfr.) – (Qty. 5 Total)",
+     "depth": 1
+    },
+    {
+     "text": "Furnish BMS Communication Wiring to Factory Controls",
+     "depth": 1
+    },
+    {
+     "text": "Map Available Points Via Mfr. Provided BMS Interface",
+     "depth": 1
+    },
+    {
+     "text": "AME requires mfr. Rep to assist in integration, cost to be incurred by mech contractor",
+     "depth": 2
+    }
+   ],
+   "notes": [
+    "***Thermostat Furnished by Unit Manufacturer."
+   ]
+  },
+  {
+   "job": "26-0339",
+   "header": "Qty (16) Electric Baseboard Heater EBH-#-#",
+   "prefixes": [
+    "EBH"
+   ],
+   "kind_words": [
+    "Electric",
+    "Baseboard",
+    "Heater"
+   ],
+   "lines": [
+    {
+     "text": "Furnish and Install BACnet Thermostat",
+     "depth": 1
+    },
+    {
+     "text": "Qty (2) Electric Unit Heater EUH-1-1, 1-2",
+     "depth": 1
+    },
+    {
+     "text": "Qty (63) Electric Unit Heater EUH-A",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install Space Thermostat",
+     "depth": 1
+    }
+   ],
+   "notes": []
+  },
+  {
+   "job": "26-0339",
+   "header": "Qty (1) Condensate Cooler CC-C-1",
+   "prefixes": [
+    "CC"
+   ],
+   "kind_words": [
+    "Condensate",
+    "Cooler"
+   ],
+   "lines": [
+    {
+     "text": "Furnish Low Water Level Alarm",
+     "depth": 1
+    },
+    {
+     "text": "Necessary Low Voltage Wiring between Temperature Controller and Domestic Water Control Valve – As per Detail 1 (M-603.00)",
+     "depth": 1
+    },
+    {
+     "text": "Qty (5) Domestic Water Heater",
+     "depth": 1
+    },
+    {
+     "text": "Tie into Nearby DDC Controller or Furnish and Install DDC Controller",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install Domestic Water Supply Temperature Sensor",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install Domestic Water Return Temperature Sensor",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install Domestic Water Make-Up Temperature Sensor",
+     "depth": 1
+    },
+    {
+     "text": "Furnish Domestic Heater Status",
+     "depth": 1
+    },
+    {
+     "text": "Wire Temperature Control Valve and Actuator (Furnished by Others)- Detail / M-603",
+     "depth": 1
+    }
+   ],
+   "notes": []
+  },
+  {
+   "job": "26-0339",
+   "header": "Qty (1) Smoke Damper SD",
+   "prefixes": [
+    "SD"
+   ],
+   "kind_words": [
+    "Smoke",
+    "Damper",
+    "SD"
+   ],
+   "lines": [
+    {
+     "text": "Necessary Low Voltage Interlock Wiring",
+     "depth": 1
+    },
+    {
+     "text": "Furnish Open / Close Status to BMS via FSD End Switch (End switch provided w damper by others)",
+     "depth": 1
+    },
+    {
+     "text": "Misc Monitoring Systems",
+     "depth": 1
+    },
+    {
+     "text": "Map Available Points Via Mfr. Provided BMS Interface or Connect to Nearby DDC Controller",
+     "depth": 1
+    },
+    {
+     "text": "booster pump monitoring – Qty. 4",
+     "depth": 2
+    },
+    {
+     "text": "Fire Reserve Tanks",
+     "depth": 2
+    },
+    {
+     "text": "Furnish and Install leak sensor – Qty. 2",
+     "depth": 3
+    },
+    {
+     "text": "Plumbing Water Meter Monitoring (F/I by Others) – Qty. 4",
+     "depth": 2
+    },
+    {
+     "text": "Furnish and Install Domestic Hot Water BTU Meter; Supply / Return Temperature Sensor, Flow Meter",
+     "depth": 2
+    },
+    {
+     "text": "Emergency Generator",
+     "depth": 2
+    },
+    {
+     "text": "Status - Hardwired",
+     "depth": 3
+    },
+    {
+     "text": "Monitoring via Interface",
+     "depth": 3
+    },
+    {
+     "text": "Steam Pressure Reducing Station PRV-C-1",
+     "depth": 2
+    },
+    {
+     "text": "Steam PRV Panel Monitoring (F/I by Unit Mfr.) – via Interface",
+     "depth": 3
+    },
+    {
+     "text": "Necessary Low Voltage Wiring to Mfr. Provided Controls",
+     "depth": 3
+    },
+    {
+     "text": "Furnish and Install Electric Meter – Qty. 14 Total - 230993-35, E-500",
+     "depth": 2
+    },
+    {
+     "text": "Furnish and Install Tenant Condenser Water Flow Meter – Qty. 2 – M-401",
+     "depth": 2
+    }
+   ],
+   "notes": [
+    "***for Steam PRV Station, our scope is limited to providing low voltage control wiring. All valves, meters and devices are F&I by others"
+   ]
+  },
+  {
+   "job": "26-0344",
+   "header": "Qty (1) Global Points",
+   "prefixes": [],
+   "kind_words": [
+    "Global",
+    "Points"
+   ],
+   "lines": [
+    {
+     "text": "Furnish and Install Outside Air Temperature",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install Outside Air Humidity",
+     "depth": 1
+    }
+   ],
+   "notes": []
+  },
+  {
+   "job": "26-0344",
+   "header": "Qty (2) Packaged RTU-CO-1, 2",
+   "prefixes": [
+    "RTU"
+   ],
+   "kind_words": [
+    "Packaged"
+   ],
+   "lines": [
+    {
+     "text": "Furnish and Install Damper Actuator – Qty. 4 Total",
+     "depth": 1
+    },
+    {
+     "text": "Install and wire mfr. Provided sensors shipped loose w/ unit",
+     "depth": 1
+    },
+    {
+     "text": "Furnish BMS Communication Wiring to Factory Controls",
+     "depth": 1
+    },
+    {
+     "text": "Map Available Points Via Mfr. Provided BMS Interface",
+     "depth": 1
+    },
+    {
+     "text": "AME Requires Mfr. Rep to Assist in Integration, cost to be Incurred by Mech Contractor",
+     "depth": 2
+    }
+   ],
+   "notes": []
+  },
+  {
+   "job": "26-0344",
+   "header": "Qty (2) Heating Coil HC-1, 2",
+   "prefixes": [
+    "HC"
+   ],
+   "kind_words": [
+    "Heating",
+    "Coil"
+   ],
+   "lines": [
+    {
+     "text": "Furnish and Install DDC Controller",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install Pool Water Temperature Sensors",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install Discharge Air Temperature Sensor",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install Mixed Air Temperature Sensor",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install Return Air Temperature Sensor",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install Return Air Humidity Sensor",
+     "depth": 1
+    },
+    {
+     "text": "Furnish Supply Fan Start/Stop and Status",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install Freezestat",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Wire Filter DP Switch",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install Outside Air Damper Actuator",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install Exhaust Air Damper Actuator",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Wire Hot Water Control Valve and Actuator",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Wire Cooling Coil Water Control Valve and Actuator",
+     "depth": 1
+    },
+    {
+     "text": "Furnish Compressor Enable / Disable",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install Aquastat",
+     "depth": 1
+    }
+   ],
+   "notes": []
+  },
+  {
+   "job": "26-0344",
+   "header": "Qty (28) Energy Recovery Unit ERV-#-# (Qty. as per Schedule)",
+   "prefixes": [
+    "ERV"
+   ],
+   "kind_words": [
+    "Energy",
+    "Recovery",
+    "Unit",
+    "as",
+    "per",
+    "Schedule"
+   ],
+   "lines": [
+    {
+     "text": "Install and wire mfr. Provided sensors shipped loose w/ unit",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install Damper Actuator – Qty. 56 Total",
+     "depth": 1
+    },
+    {
+     "text": "Furnish BMS Communication Wiring to Factory Controls",
+     "depth": 1
+    },
+    {
+     "text": "Map Available Points Via Mfr. Provided BMS Interface",
+     "depth": 1
+    },
+    {
+     "text": "AME Requires Mfr. Rep to Assist in Integration, cost to be Incurred by Mech Contractor",
+     "depth": 2
+    }
+   ],
+   "notes": []
+  },
+  {
+   "job": "26-0344",
+   "header": "Qty (1) Heat Exchanger System PFHX-2 | SCWP-1, 2, 3",
+   "prefixes": [
+    "PFHX",
+    "SCWP"
+   ],
+   "kind_words": [
+    "Heat",
+    "Exchanger",
+    "System"
+   ],
+   "lines": [
+    {
+     "text": "Furnish and Install DDC Controller",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install System Condenser Water Supply / Return Temperature Sensor (Qty. 2 Total)",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install HX Primary Supply /Return Water Temperature Sensor (Qty. 4 Total)",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install HX Secondary Supply /Return Water Temperature Sensor (Qty. 4 Total)",
+     "depth": 1
+    },
+    {
+     "text": "Furnish Pump Start/ Stop and Status (Qty. 3 Total)",
+     "depth": 1
+    },
+    {
+     "text": "Furnish Pump VFD Speed Command (Qty. 3 Total)",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install Differential Pressure Transmitter (Qty. 1 Total)",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Wire 10” HX Primary Control Valve and Actuator (Qty. 2 Total)",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Wire 10” HX Secondary Control Valve and Actuator (Qty. 2 Total)",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Wire 6” System DP Bypass Valve and Actuator",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install Expansion Tank Pressure Sensor",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install BTU Meter - as per Point list",
+     "depth": 1
+    },
+    {
+     "text": "Furnish BMS Communication Wiring to VFD Controls",
+     "depth": 1
+    },
+    {
+     "text": "Map Available Points Via Mfr. Provided BMS Interface",
+     "depth": 1
+    },
+    {
+     "text": "Controls Contractor requires mfr. rep to assist in integration, cost to be incurred by mech contractor",
+     "depth": 2
+    }
+   ],
+   "notes": []
+  },
+  {
+   "job": "26-0344",
+   "header": "Heat Exchanger System STHX-2 | HWP-1, 2",
+   "prefixes": [
+    "HWP",
+    "STHX"
+   ],
+   "kind_words": [
+    "Heat",
+    "Exchanger",
+    "System"
+   ],
+   "lines": [
+    {
+     "text": "Furnish and Install DDC Controller",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install System Hot Water Supply / Return Temperature Sensor (Qty. 2 Total)",
+     "depth": 1
+    },
+    {
+     "text": "Furnish Pump Start/ Stop and Status (Qty. 2 Total)",
+     "depth": 1
+    },
+    {
+     "text": "Furnish Pump VFD Speed Command (Qty. 2 Total)",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install Differential Pressure Transmitter (Qty. 1 Total)",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Wire 12” HX Steam Control Valve and Actuator (1/3rd-2/3rd) (Qty. 4 Total)",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Wire 4” System DP Bypass Valve and Actuator",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install Expansion Tank Pressure Sensor",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install BTU Meter - as per Point list",
+     "depth": 1
+    },
+    {
+     "text": "Furnish BMS Communication Wiring to VFD Controls",
+     "depth": 1
+    },
+    {
+     "text": "Map Available Points Via Mfr. Provided BMS Interface",
+     "depth": 1
+    },
+    {
+     "text": "Controls Contractor requires mfr. rep to assist in integration, cost to be incurred by mech contractor",
+     "depth": 2
+    }
+   ],
+   "notes": []
+  },
+  {
+   "job": "26-0344",
+   "header": "Qty (33) Water Source Heat Pump WSHP-#",
+   "prefixes": [
+    "WSHP"
+   ],
+   "kind_words": [
+    "Water",
+    "Source",
+    "Heat",
+    "Pump"
+   ],
+   "lines": [
+    {
+     "text": "Install and wire Programmable Thermostat (Furnished by Unit Mfr.)",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install Leak Sensor",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install Local RAM Module",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install CW DP Switch",
+     "depth": 1
+    },
+    {
+     "text": "Furnish BMS Communication Wiring to Factory Controls",
+     "depth": 1
+    },
+    {
+     "text": "Map Available Points Via Mfr. Provided BMS Interface",
+     "depth": 1
+    },
+    {
+     "text": "AME requires mfr. Rep to assist in integration, cost to be incurred by mech contractor",
+     "depth": 2
+    }
+   ],
+   "notes": [
+    "*All Control Valves are Coming with The Unit as per Equipment Schedule"
+   ]
+  },
+  {
+   "job": "26-0344",
+   "header": "Qty (16) Toilet Exhaust Fan TX-#-# (Qty. as per Schedule)",
+   "prefixes": [
+    "TX"
+   ],
+   "kind_words": [
+    "Toilet",
+    "Exhaust",
+    "Fan",
+    "as",
+    "per",
+    "Schedule"
+   ],
+   "lines": [
+    {
+     "text": "Furnish and Install DDC Controller",
+     "depth": 1
+    },
+    {
+     "text": "Furnish Fan Start/ Stop and Status, ECM Speed",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install Damper Actuator",
+     "depth": 1
+    }
+   ],
+   "notes": []
+  },
+  {
+   "job": "26-0344",
+   "header": "Qty (4) Kitchen Exhaust Fan KX-#-#",
+   "prefixes": [
+    "KX"
+   ],
+   "kind_words": [
+    "Kitchen",
+    "Exhaust",
+    "Fan"
+   ],
+   "lines": [
+    {
+     "text": "Furnish and Install DDC Controller",
+     "depth": 1
+    },
+    {
+     "text": "Furnish Fan Start/ Stop and Status, ECM Speed",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install Damper Actuator",
+     "depth": 1
+    }
+   ],
+   "notes": []
+  },
+  {
+   "job": "26-0344",
+   "header": "Qty (2) Commercial Kitchen Exhaust Fan KX-35-2, 3 (Standard Control Assumed)",
+   "prefixes": [
+    "KX"
+   ],
+   "kind_words": [
+    "Commercial",
+    "Kitchen",
+    "Exhaust",
+    "Fan",
+    "Standard",
+    "Control",
+    "Assumed"
+   ],
+   "lines": [
+    {
+     "text": "Interlock with Kitchen Hood Operation",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install Commercial Kitchen Exhaust Make Up Damper Actuator",
+     "depth": 1
+    },
+    {
+     "text": "Furnish BMS Communication Wiring to VFD Controls",
+     "depth": 1
+    },
+    {
+     "text": "Map Available Points Via Mfr. Provided BMS Interface",
+     "depth": 1
+    },
+    {
+     "text": "Controls Contractor requires mfr. rep to assist in integration, cost to be incurred by mech contractor",
+     "depth": 2
+    }
+   ],
+   "notes": []
+  },
+  {
+   "job": "26-0344",
+   "header": "Qty (6) Pool Makeup Fan MA-#-#",
+   "prefixes": [
+    "MA"
+   ],
+   "kind_words": [
+    "Pool",
+    "Makeup",
+    "Fan"
+   ],
+   "lines": [
+    {
+     "text": "Furnish and Install DDC Controller",
+     "depth": 1
+    },
+    {
+     "text": "Furnish Fan Start/ Stop and Status",
+     "depth": 1
+    },
+    {
+     "text": "Furnish ECM Speed – Qty. 5 Total",
+     "depth": 1
+    },
+    {
+     "text": "Furnish Fan VFD Control – Qty. 7 Total",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install Damper Actuator",
+     "depth": 1
+    },
+    {
+     "text": "Furnish BMS Communication Wiring to VFD Controls",
+     "depth": 1
+    },
+    {
+     "text": "Map Available Points Via Mfr. Provided BMS Interface",
+     "depth": 1
+    },
+    {
+     "text": "Controls Contractor requires mfr. rep to assist in integration, cost to be incurred by mech contractor",
+     "depth": 2
+    }
+   ],
+   "notes": []
+  },
+  {
+   "job": "26-0344",
+   "header": "Qty (1) MUA-#-#",
+   "prefixes": [
+    "MUA"
+   ],
+   "kind_words": [],
+   "lines": [
+    {
+     "text": "Interlock wiring to Differential Pressure Controller (Furnished by Unit Mfr.)",
+     "depth": 1
+    },
+    {
+     "text": "Interlock Wiring between MUA and DRX Operation",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install CT for Dryer – Qty. 8 Total",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install Dryer Make up air Damper Actuator",
+     "depth": 1
+    },
+    {
+     "text": "Furnish BMS Communication Wiring to Factory Controls",
+     "depth": 1
+    },
+    {
+     "text": "Map Available Points Via Mfr. Provided BMS Interface",
+     "depth": 1
+    },
+    {
+     "text": "AME requires mfr. Rep to assist in integration, cost to be incurred by mech contractor",
+     "depth": 2
+    }
+   ],
+   "notes": []
+  },
+  {
+   "job": "26-0344",
+   "header": "Qty (3) Public Toilet Exhaust Fan TX-#-#",
+   "prefixes": [
+    "TX"
+   ],
+   "kind_words": [
+    "Public",
+    "Toilet",
+    "Exhaust",
+    "Fan"
+   ],
+   "lines": [
+    {
+     "text": "Furnish and Install DDC Controller",
+     "depth": 1
+    },
+    {
+     "text": "Furnish Fan Start/ Stop and Status, ECM Speed",
+     "depth": 1
+    }
+   ],
+   "notes": []
+  },
+  {
+   "job": "26-0344",
+   "header": "Qty (1) OA-R-1",
+   "prefixes": [
+    "OA"
+   ],
+   "kind_words": [],
+   "lines": [
+    {
+     "text": "Furnish and Install DDC Controller",
+     "depth": 1
+    },
+    {
+     "text": "Furnish Fan Start/ Stop and Status, ECM Speed",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install Damper Actuator",
+     "depth": 1
+    }
+   ],
+   "notes": []
+  },
+  {
+   "job": "26-0344",
+   "header": "Qty (1) EX-R-1",
+   "prefixes": [
+    "EX"
+   ],
+   "kind_words": [],
+   "lines": [
+    {
+     "text": "Furnish and Install DDC Controller",
+     "depth": 1
+    },
+    {
+     "text": "Furnish Fan Start/ Stop and Status, ECM Speed",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install Damper Actuator",
+     "depth": 1
+    }
+   ],
+   "notes": []
+  },
+  {
+   "job": "26-0344",
+   "header": "Relocate Existing Chiller and Pumps",
+   "prefixes": [],
+   "kind_words": [
+    "Relocate",
+    "Existing",
+    "Chiller",
+    "Pumps"
+   ],
+   "lines": [
+    {
+     "text": "Demo and safe-off existing control wiring prior to relocation of unit",
+     "depth": 1
+    },
+    {
+     "text": "Extend control wiring for relocated Controls",
+     "depth": 1
+    },
+    {
+     "text": "Extend communication bus to new unit location",
+     "depth": 1
+    },
+    {
+     "text": "Re-commission unit to ensure proper operation",
+     "depth": 1
+    }
+   ],
+   "notes": []
+  },
+  {
+   "job": "26-0344",
+   "header": "Pumps (2) Assume",
+   "prefixes": [],
+   "kind_words": [
+    "Pumps",
+    "Assume"
+   ],
+   "lines": [
+    {
+     "text": "Furnish and Install DDC Controller",
+     "depth": 1
+    },
+    {
+     "text": "Furnish Pump Start/Stop and Status",
+     "depth": 1
+    },
+    {
+     "text": "Furnish Pump VFD Controls",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Wire HX Supply Side Control Valve and Actuator – Qty. 2 Total",
+     "depth": 1
+    },
+    {
+     "text": "Consider 10 DDC Points",
+     "depth": 1
+    }
+   ],
+   "notes": []
+  },
+  {
+   "job": "26-0344",
+   "header": "Qty (2) Cooling Tower CT-1, 2 (M-501)(M-138)",
+   "prefixes": [
+    "CT"
+   ],
+   "kind_words": [
+    "Cooling",
+    "Tower"
+   ],
+   "lines": [
+    {
+     "text": "Furnish and Wire Winter Bypass Valve and Actuator (3-Way)",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install CT for Fan Status – Qty. 2 Total",
+     "depth": 1
+    },
+    {
+     "text": "Tie into Existing DDC Controller",
+     "depth": 1
+    }
+   ],
+   "notes": []
+  },
+  {
+   "job": "26-0344",
+   "header": "Qty (3) Existing Condenser Water Pump CWP (M-137)",
+   "prefixes": [
+    "CWP"
+   ],
+   "kind_words": [
+    "Existing",
+    "Condenser",
+    "Water",
+    "Pump",
+    "CWP"
+   ],
+   "lines": [
+    {
+     "text": "Furnish and Install DDC Controller",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install System DP Transmitter",
+     "depth": 1
+    },
+    {
+     "text": "Tie in All Existing Points to New DDC Controller – Consider (10)",
+     "depth": 1
+    }
+   ],
+   "notes": []
+  },
+  {
+   "job": "26-0344",
+   "header": "Qty (3) Smoke Purge Fan SP-1, 2, 3 (FIRE ALARM CONTROL)",
+   "prefixes": [
+    "SP"
+   ],
+   "kind_words": [
+    "Smoke",
+    "Purge",
+    "Fan",
+    "FIRE",
+    "ALARM",
+    "CONTROL"
+   ],
+   "lines": [
+    {
+     "text": "Furnish and Install CT For Fan Status",
+     "depth": 1
+    }
+   ],
+   "notes": []
+  },
+  {
+   "job": "26-0344",
+   "header": "Qty (2) Stair vent",
+   "prefixes": [],
+   "kind_words": [
+    "Stair",
+    "vent"
+   ],
+   "lines": [
+    {
+     "text": "Furnish and Install Damper Actuator",
+     "depth": 1
+    }
+   ],
+   "notes": []
+  },
+  {
+   "job": "26-0344",
+   "header": "Misc Monitoring Systems",
+   "prefixes": [],
+   "kind_words": [
+    "Misc",
+    "Monitoring",
+    "Systems"
+   ],
+   "lines": [
+    {
+     "text": "Map Available Points Via Mfr. Provided BMS Interface or Connect to Nearby DDC Controller",
+     "depth": 1
+    },
+    {
+     "text": "Generator",
+     "depth": 2
+    },
+    {
+     "text": "Ejector Pump",
+     "depth": 2
+    },
+    {
+     "text": "Domestic Hot Water System",
+     "depth": 2
+    },
+    {
+     "text": "EWH-1, 2, 3, 4, 5",
+     "depth": 3
+    },
+    {
+     "text": "Domestic Water Pump HWCP-1 thru 10",
+     "depth": 3
+    },
+    {
+     "text": "Furnish and Install DP Transmitter",
+     "depth": 4
+    },
+    {
+     "text": "Furnish and Install Entering and Leaving Water Temperature Sensor",
+     "depth": 4
+    },
+    {
+     "text": "Domestic Water Booster Pump BP-1, 2, 3 (P-402)",
+     "depth": 2
+    },
+    {
+     "text": "Main Electric Meter",
+     "depth": 2
+    },
+    {
+     "text": "Main DEP Meter",
+     "depth": 2
+    },
+    {
+     "text": "Makeup Water Meters",
+     "depth": 2
+    },
+    {
+     "text": "Heat Trace Alarm",
+     "depth": 2
+    },
+    {
+     "text": "Steam Fired Water Heater SFWH-1",
+     "depth": 2
+    },
+    {
+     "text": "Building intrusion detection system specified in Division 28 Section \"Intrusion Detection.\"",
+     "depth": 2
+    },
+    {
+     "text": "Building clock control system specified in Division 27 Section \"Clock Systems.\"",
+     "depth": 2
+    },
+    {
+     "text": "Building lighting control system specified in Division 26 Section \"Network Lighting Controls.\"",
+     "depth": 2
+    },
+    {
+     "text": "Fire alarm system specified in Division 28 Section \"Fire Detection and Alarm.\"",
+     "depth": 2
+    }
+   ],
+   "notes": []
+  },
+  {
+   "job": "26-0352",
+   "header": "(x12) VAV-21-01 thru 12",
+   "prefixes": [
+    "VAV"
+   ],
+   "kind_words": [],
+   "lines": [
+    {
+     "text": "Furnish for Factory Installation DDC Controller",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install Space Temperature Sensor",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install Space Temperature / CO2 Sensor",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install Occupancy",
+     "depth": 1
+    },
+    {
+     "text": "24V Transformer is Coming with the Unit as per Schedule",
+     "depth": 1
+    }
+   ],
+   "notes": []
+  },
+  {
+   "job": "26-0352",
+   "header": "(x1) EF-21-IT",
+   "prefixes": [
+    "EF"
+   ],
+   "kind_words": [],
+   "lines": [
+    {
+     "text": "Furnish and Install DDC Controller",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install Exhaust Fan Start/Stop",
+     "depth": 1
+    },
+    {
+     "text": "Furnish Exhaust Fan Status",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install Space Temperature Sensor",
+     "depth": 1
+    }
+   ],
+   "notes": []
+  },
+  {
+   "job": "26-0352",
+   "header": "(x2) Existing Fire / Smoke Dampers FSD",
+   "prefixes": [
+    "FSD"
+   ],
+   "kind_words": [
+    "Existing",
+    "Fire",
+    "Smoke",
+    "Dampers",
+    "FSD"
+   ],
+   "lines": [
+    {
+     "text": "Low Voltage Interlock Wiring with Unit Starter via Base Building Relay",
+     "depth": 1
+    }
+   ],
+   "notes": []
+  },
+  {
+   "job": "26-0352",
+   "header": "(x28) Existing Perimeter FTR",
+   "prefixes": [
+    "FTR"
+   ],
+   "kind_words": [
+    "Existing",
+    "Perimeter",
+    "FTR"
+   ],
+   "lines": [
+    {
+     "text": "Furnish and Wire Hot Water Control Valve and Actuator",
+     "depth": 1
+    },
+    {
+     "text": "Interlock with Associated VAV Operation",
+     "depth": 1
+    }
+   ],
+   "notes": []
+  },
+  {
+   "job": "26-0352",
+   "header": "(x2) Hot Water Heater EWH-1, 2",
+   "prefixes": [
+    "EWH"
+   ],
+   "kind_words": [
+    "Hot",
+    "Water",
+    "Heater"
+   ],
+   "lines": [
+    {
+     "text": "Furnish and Install Leak Sensor",
+     "depth": 1
+    },
+    {
+     "text": "Interlock with Solenoid Valve (Valve by Others)",
+     "depth": 1
+    }
+   ],
+   "notes": []
+  },
+  {
+   "job": "26-0356",
+   "header": "(x2) AC-1 & AC-2 Packaged Air Conditioning Unit",
+   "prefixes": [
+    "AC"
+   ],
+   "kind_words": [
+    "Packaged",
+    "Air",
+    "Conditioning",
+    "Unit"
+   ],
+   "lines": [
+    {
+     "text": "Install and wire mfr. Provided sensors shipped loose w/ unit [No Name]",
+     "depth": 1
+    },
+    {
+     "text": "Install and Wire Manufacturer Provided Discharge Air Temperature Sensor",
+     "depth": 1
+    },
+    {
+     "text": "Furnish BMS Communication Wiring to Factory Controls",
+     "depth": 1
+    },
+    {
+     "text": "Map Available Points via Manufacturer Provided BMS Interface",
+     "depth": 1
+    },
+    {
+     "text": "AME Requires Mfr. Rep to Assist in Integration, cost to be Incurred by Mech Contractor",
+     "depth": 1
+    },
+    {
+     "text": "Outside Airflow and Supply Airflow Measuring Station by Unit Mfr. as per Schedule",
+     "depth": 1
+    }
+   ],
+   "notes": []
+  },
+  {
+   "job": "26-0356",
+   "header": "(x2) AC-2 & AC-3 Packaged Air Conditioning Unit",
+   "prefixes": [
+    "AC"
+   ],
+   "kind_words": [
+    "Packaged",
+    "Air",
+    "Conditioning",
+    "Unit"
+   ],
+   "lines": [
+    {
+     "text": "Install and wire mfr. Provided sensors shipped loose w/ unit [No Name]",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install Duct Static Pressure Sensor",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install Return Air Temperature Sensor",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install Return Air Damper Actuator",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install Outdoor Air Damper Actuator",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install Exhaust Air Damper Actuator",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install Supply Air Temperature Sensor",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install Return Air Humidity Sensor",
+     "depth": 1
+    },
+    {
+     "text": "Furnish BMS Communication Wiring to Factory Controls",
+     "depth": 1
+    },
+    {
+     "text": "Map Available Points via Manufacturer Provided BMS Interface",
+     "depth": 1
+    },
+    {
+     "text": "AME Requires Mfr. Rep to Assist in Integration, cost to be Incurred by Mech Contractor",
+     "depth": 2
+    },
+    {
+     "text": "Outside Airflow and Supply Airflow Measuring Station by Unit Mfr. as per Schedule",
+     "depth": 1
+    }
+   ],
+   "notes": []
+  },
+  {
+   "job": "26-0356",
+   "header": "(x7) VAV - Cooling Only",
+   "prefixes": [
+    "VAV"
+   ],
+   "kind_words": [
+    "VAV",
+    "Cooling",
+    "Only"
+   ],
+   "lines": [
+    {
+     "text": "Furnish for Factory Installation DDC Controller",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install Space Temperature Sensor",
+     "depth": 1
+    }
+   ],
+   "notes": [
+    "*24V Transformer is Coming with the Unit as per Equipment Schedule"
+   ]
+  },
+  {
+   "job": "26-0356",
+   "header": "(x5) Exhaust Fans / (x1) TX-1 / (x4) EF-1 thru 4",
+   "prefixes": [
+    "TX",
+    "EF"
+   ],
+   "kind_words": [
+    "Exhaust",
+    "Fans"
+   ],
+   "lines": [
+    {
+     "text": "Furnish and Install DDC Controller",
+     "depth": 1
+    },
+    {
+     "text": "Furnish Fan Start / Stop",
+     "depth": 1
+    },
+    {
+     "text": "Furnish Fan ECM Speed",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install Damper Actuator w/ End Switch",
+     "depth": 1
+    },
+    {
+     "text": "Furnish Fan Status",
+     "depth": 1
+    }
+   ],
+   "notes": []
+  },
+  {
+   "job": "26-0356",
+   "header": "(x1) Split System AC-1-1 / ACCU-1",
+   "prefixes": [
+    "AC",
+    "ACCU"
+   ],
+   "kind_words": [
+    "Split",
+    "System"
+   ],
+   "lines": [
+    {
+     "text": "Install and Wire Manufacturer Provided Programmable Thermostat",
+     "depth": 1
+    },
+    {
+     "text": "Low Voltage Interlock Wiring between Indoor and Outdoor Unit",
+     "depth": 1
+    },
+    {
+     "text": "Furnish BMS Communication Wiring to Factory Controls",
+     "depth": 1
+    },
+    {
+     "text": "Map Available Points via Manufacturer Provided BMS Interface AME requires manufacturer representative to assist in integration. Cost to be incurred by mechanical contractor.",
+     "depth": 1
+    },
+    {
+     "text": "AME Requires Mfr. Rep to Assist in Integration, cost to be Incurred by Mech Contractor",
+     "depth": 2
+    },
+    {
+     "text": "Kitchen Exhaust Fan and Makeup Air Fan System",
+     "depth": 1
+    }
+   ],
+   "notes": [
+    "* Leak Detector Coming with the Unit As per Equipment Schedule"
+   ]
+  },
+  {
+   "job": "26-0356",
+   "header": "(x1) Kitchen Exhaust Air Fan is Existing to Remain",
+   "prefixes": [],
+   "kind_words": [
+    "Kitchen",
+    "Exhaust",
+    "Air",
+    "Fan",
+    "is",
+    "Existing",
+    "to",
+    "Remain"
+   ],
+   "lines": [
+    {
+     "text": "Furnish and Install DDC Controller",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install Space Temperature Sensor (EDH)",
+     "depth": 1
+    },
+    {
+     "text": "Furnish Kitchen Exhaust Fan Status",
+     "depth": 1
+    },
+    {
+     "text": "Furnish Make Up Air Fan Status",
+     "depth": 1
+    },
+    {
+     "text": "Furnish Kitchen Exhaust Fan VFD Common Alarm",
+     "depth": 1
+    },
+    {
+     "text": "Furnish Kitchen Exhaust Fan VFD Speed Feedback (VFD)",
+     "depth": 1
+    },
+    {
+     "text": "Furnish Kitchen Exhaust Fan VFD Control (Kitchen Hood Controller)",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install Kitchen Exhaust Fan Isolation Damper Actuator w/ End Switches",
+     "depth": 1
+    },
+    {
+     "text": "Furnish Make Up Air Fan VFD Control",
+     "depth": 1
+    },
+    {
+     "text": "Furnish Make Up Air Fan VFD Common Alarm",
+     "depth": 1
+    },
+    {
+     "text": "Furnish Make Up Air Fan VFD Speed Feedback",
+     "depth": 1
+    },
+    {
+     "text": "Furnish Kitchen Hood Status Input",
+     "depth": 1
+    },
+    {
+     "text": "Furnish EDH Enable / Disable",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Wire Filter DP Switch",
+     "depth": 1
+    },
+    {
+     "text": "Tie in Grease Hood Exhaust Heat Sensor into Kitchen Hood Controls [No Name]",
+     "depth": 1
+    },
+    {
+     "text": "Interlock Wiring between Kitchen Hood Controls and Makeup Air Fan [No Name]",
+     "depth": 1
+    },
+    {
+     "text": "Interlock Wiring between Kitchen Hood Controls and Existing Kitchen Exhaust Fan]",
+     "depth": 1
+    },
+    {
+     "text": "Low Voltage Control Interlock w/ Kitchen Hood Operation [No Name]",
+     "depth": 1
+    },
+    {
+     "text": "Furnish BMS Communication Wiring to VFD Controls",
+     "depth": 1
+    },
+    {
+     "text": "Map Available Points Via Mfr. Provided BMS Interface",
+     "depth": 1
+    },
+    {
+     "text": "Controls Contractor requires mfr. rep to assist in integration, cost to be incurred by mech contractor",
+     "depth": 2
+    },
+    {
+     "text": "Furnish BMS Communication Wiring to Factory Controls [No Name]",
+     "depth": 1
+    },
+    {
+     "text": "Map Available Points Via Mfr. Provided BMS Interface [No Name]",
+     "depth": 1
+    },
+    {
+     "text": "Controls Contractor requires mfr. rep to assist in integration, cost to be incurred by mech contractor",
+     "depth": 2
+    }
+   ],
+   "notes": []
+  },
+  {
+   "job": "26-0356",
+   "header": "(x1) Misc Monitoring Systems",
+   "prefixes": [],
+   "kind_words": [
+    "Misc",
+    "Monitoring",
+    "Systems"
+   ],
+   "lines": [
+    {
+     "text": "Heat Trace Control Panel; Tie into BMS via Mfr. Provided BMS Interface (E-101)(P-600)",
+     "depth": 1
+    }
+   ],
+   "notes": []
+  },
+  {
+   "job": "26-0436",
+   "header": "Qty (51) Buffer Tank",
+   "prefixes": [],
+   "kind_words": [
+    "Buffer",
+    "Tank"
+   ],
+   "lines": [
+    {
+     "text": "IBX Network Switch by Owner (Qty. 2 Total)",
+     "depth": 1
+    },
+    {
+     "text": "Furnish Fiber Communication Wiring b/w IBX Network Switch and PCP01 and PCP02",
+     "depth": 2
+    },
+    {
+     "text": "Furnish and Install PLC Controller with Redundancy (PCP_01, 02)",
+     "depth": 1
+    },
+    {
+     "text": "Furnish Fiber Communication Wiring b/w PCPs",
+     "depth": 2
+    },
+    {
+     "text": "Furnish and Install Ring Supervisor Device Level Ring (DLR1 ETAP1, ETAP2) Devices",
+     "depth": 1
+    },
+    {
+     "text": "Furnish Fiber Communication Wiring b/w PCPs and Ring Supervisor ETAPs",
+     "depth": 2
+    },
+    {
+     "text": "Furnish and Install RIOs (Qty. 3 Total)",
+     "depth": 1
+    },
+    {
+     "text": "Furnish Fiber Communication Wiring b/w RIOs",
+     "depth": 2
+    },
+    {
+     "text": "Furnish Fiber Communication Wiring b/w RIOs and ETAPs",
+     "depth": 2
+    },
+    {
+     "text": "Furnish and Install Ring Supervisor Device Level Ring (DLR2 ETAP1, ETAP2) Devices",
+     "depth": 1
+    },
+    {
+     "text": "Furnish Fiber Communication Wiring b/w PCPs and Ring Supervisor ETAPs",
+     "depth": 2
+    },
+    {
+     "text": "Furnish Fiber Communication Wiring b/w ETAPs and ACCs",
+     "depth": 2
+    },
+    {
+     "text": "Furnish Fiber Communication Wiring b/w ACCs (Qty. 51 Total)",
+     "depth": 2
+    },
+    {
+     "text": "Furnish and Install Ring Supervisor Device Level Ring (DLR3 ETAP1, ETAP2) Devices",
+     "depth": 1
+    },
+    {
+     "text": "Furnish Fiber Communication Wiring b/w PCPs and Ring Supervisor ETAPs",
+     "depth": 2
+    },
+    {
+     "text": "Furnish Fiber Communication Wiring b/w ETAPs and Chillers",
+     "depth": 2
+    },
+    {
+     "text": "Furnish Fiber Communication Wiring ACCs",
+     "depth": 2
+    },
+    {
+     "text": "Furnish and Install RIOs for Chiller (Qty. 51 Total) OR by OEM",
+     "depth": 1
+    },
+    {
+     "text": "Furnish Chiller Status",
+     "depth": 1
+    },
+    {
+     "text": "Furnish Chiller Fault",
+     "depth": 1
+    },
+    {
+     "text": "Furnish Chiller HOA",
+     "depth": 1
+    },
+    {
+     "text": "Furnish Chiller Command",
+     "depth": 1
+    },
+    {
+     "text": "Furnish Chiller Setpoint",
+     "depth": 1
+    },
+    {
+     "text": "Furnish Chilled Water Pump VFD Fault",
+     "depth": 1
+    },
+    {
+     "text": "Furnish Chilled Water Pump VFD Status",
+     "depth": 1
+    },
+    {
+     "text": "Furnish Chilled Water Pump HOA",
+     "depth": 1
+    },
+    {
+     "text": "Furnish Chilled Water Pump Command",
+     "depth": 1
+    },
+    {
+     "text": "Furnish Chilled Water Pump Speed Setpoint",
+     "depth": 1
+    },
+    {
+     "text": "Furnish Primary Power Status",
+     "depth": 1
+    },
+    {
+     "text": "Furnish Chilled Water String Voltage Loss",
+     "depth": 1
+    },
+    {
+     "text": "Tie in Mfr. Provided Chiller Minimum Flow Switch",
+     "depth": 1
+    },
+    {
+     "text": "Furnish Alternate Power Supply Status",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install Chilled Water",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install Chilled Water Supply Temperature Transmitter (Qty. 51 Total)",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install Chilled Water Return Temperature Transmitter (Qty. 51 Total)",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install Chilled Water Buffer Tank Bypass Temperature Transmitter (Qty. 51 Total)",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install Chilled Water Buffer Tank Chilled Water Temperature Transmitter (Qty. 51 Total)",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install Buffer Tank Inlet Temperature Sensor (Qty. 51 Total)",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install Riser Three Redundant Array - Qty. 8 Total (IC018) & M400s",
+     "depth": 1
+    },
+    {
+     "text": "Riser Supply Water Temperature Sensor - Qty. 8 Total",
+     "depth": 2
+    },
+    {
+     "text": "Riser Return Water Temperature Sensor - Qty. 24 Total",
+     "depth": 2
+    },
+    {
+     "text": "Riser Flow Meter - Qty. 24 Total",
+     "depth": 2
+    },
+    {
+     "text": "Furnish and Install Riser Differential Pressure Transmitter -Qty. 8 Total (IC014)",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install Chiller Flow Meter (Qty. 51 Total)",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Wire 6” Buffer Tank Bypass Valve and Actuator CV01 w/ End Switches (Qty. 51 Total)",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Wire 6” Buffer Tank Discharge Valve and Actuator CV02 w/ End Switches (Qty. 51 Total)",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Wire 6” Buffer Tank Recharge Valve and Actuator CV03 (Qty. 51 Total)",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Wire Freeze Protection Valve and Actuator w/ End Switch CV04 (Qty. 51 Total)",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Wire Chiller Isolation Valve and Actuator w. End Switch (Qty. 51 Total) as per Sequence",
+     "depth": 1
+    },
+    {
+     "text": "Furnish BMS Communication Wiring to Chiller Factory Controls (Rockwell I/O Rack) (Qty. 51 Total)",
+     "depth": 1
+    },
+    {
+     "text": "Map Available Points Via Mfr. Provided BMS Interface",
+     "depth": 1
+    },
+    {
+     "text": "AME requires mfr. Rep to assist in integration, cost to be incurred by mech contractor",
+     "depth": 2
+    },
+    {
+     "text": "Furnish BMS Communication Wiring to Pump VFD Controls",
+     "depth": 1
+    },
+    {
+     "text": "Map Available Points Via Mfr. Provided BMS Interface",
+     "depth": 1
+    },
+    {
+     "text": "AME requires mfr. Rep to assist in integration, cost to be incurred by mech contractor",
+     "depth": 2
+    },
+    {
+     "text": "Furnish BMS Communication Wiring to Pump Room Control Panel",
+     "depth": 1
+    },
+    {
+     "text": "Map Available Points Via Mfr. Provided BMS Interface",
+     "depth": 1
+    },
+    {
+     "text": "AME requires mfr. Rep to assist in integration, cost to be incurred by mech contractor",
+     "depth": 2
+    },
+    {
+     "text": "Qty (4) Heat Trace Panel 1HT_1, 2, 3 – Qty. as per ZSK-025",
+     "depth": 1
+    },
+    {
+     "text": "Furnish BMS Communication Wiring to Factory Controls",
+     "depth": 1
+    },
+    {
+     "text": "Map Available Points Via Mfr. Provided BMS Interface",
+     "depth": 1
+    },
+    {
+     "text": "AME requires mfr. Rep to assist in integration, cost to be incurred by mech contractor",
+     "depth": 2
+    },
+    {
+     "text": "Qty (3) Furnish and Install RIO Panel for MUW Monitoring",
+     "depth": 1
+    },
+    {
+     "text": "Qty (184) Data Hall CRAH-#",
+     "depth": 1
+    },
+    {
+     "text": "Install and Wire Mfr. Provided Shipped Loose Sensor",
+     "depth": 1
+    },
+    {
+     "text": "Furnish BMS Communication Wiring to Factory Controls",
+     "depth": 1
+    },
+    {
+     "text": "Map Available Points Via Mfr. Provided BMS Interface",
+     "depth": 1
+    },
+    {
+     "text": "AME requires mfr. Rep to assist in integration, cost to be incurred by mech contractor",
+     "depth": 2
+    },
+    {
+     "text": "Data Hall",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install Data Hall Manager (Qty. 4 Total) (1DCOS_GW_###)",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install WiNG wireless manager (Qty. 4 Total)",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install WiNG wireless range extender (Qty. 16 Total)",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install WiNG wireless temperature sensor (Qty. 648 Total)",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install WiNG Wireless temperature and humidity Sensor (Qty. 96 Total)",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install WiNG wireless leak detection puck sensor (Qty. 426 Total)",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install Leak Detection Sensing Cable (Qty. 70 Total)",
+     "depth": 1
+    }
+   ],
+   "notes": [
+    "*QTY. 3 AS PER SCHEDULE",
+    "*Condensate Overflow Switch by Unit Mfr. as per Schedule",
+    "*Control Valve by Unit Mfr. as per Schedule"
+   ]
+  },
+  {
+   "job": "26-0436",
+   "header": "Qty (2) Make-Up Air Unit 1MAU-T-01, 02",
+   "prefixes": [],
+   "kind_words": [
+    "Make-Up",
+    "Air",
+    "Unit"
+   ],
+   "lines": [
+    {
+     "text": "Install and Wire Mfr. Provided Ship Loose End Devices",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Wire Pressure Independent Chilled Water Control Valve and Actuator",
+     "depth": 1
+    },
+    {
+     "text": "Furnish BMS Communication Wiring to Factory Controls",
+     "depth": 1
+    },
+    {
+     "text": "Map Available Points Via Mfr. Provided BMS Interface",
+     "depth": 1
+    },
+    {
+     "text": "AME requires mfr. rep to assist in integration, cost to be incurred by Mech Contractor",
+     "depth": 2
+    }
+   ],
+   "notes": []
+  },
+  {
+   "job": "26-0436",
+   "header": "Qty (31) Branch Controller BC-#-# - Qty. as per Plans",
+   "prefixes": [
+    "BC"
+   ],
+   "kind_words": [
+    "Branch",
+    "Controller",
+    "as",
+    "per",
+    "Plans"
+   ],
+   "lines": [
+    {
+     "text": "Install and wire Programmable Thermostat (Furnished by Unit Mfr.)",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install Leak Sensor",
+     "depth": 1
+    },
+    {
+     "text": "VRF Communication Wiring",
+     "depth": 1
+    },
+    {
+     "text": "Furnish BMS Communication Wiring to Factory Controls",
+     "depth": 1
+    },
+    {
+     "text": "Map Available Points Via Mfr. Provided BMS Interface",
+     "depth": 1
+    },
+    {
+     "text": "AME requires mfr. rep to assist in integration, cost to be incurred by Mech Contractor",
+     "depth": 2
+    }
+   ],
+   "notes": [
+    "*INDOOR UNIT QTY. 98 AS PER SCHEDULE"
+   ]
+  },
+  {
+   "job": "26-0436",
+   "header": "Qty (62) Condensing Unit 1CU-#-#",
+   "prefixes": [],
+   "kind_words": [
+    "Condensing",
+    "Unit"
+   ],
+   "lines": [
+    {
+     "text": "Install and wire Programmable Thermostat (Furnished by Unit Mfr.)",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install Leak Sensor",
+     "depth": 1
+    },
+    {
+     "text": "VRF Communication Wiring",
+     "depth": 1
+    },
+    {
+     "text": "Furnish BMS Communication Wiring to Factory Controls",
+     "depth": 1
+    },
+    {
+     "text": "Map Available Points Via Mfr. Provided BMS Interface",
+     "depth": 1
+    },
+    {
+     "text": "AME requires mfr. rep to assist in integration, cost to be incurred by Mech Contractor",
+     "depth": 2
+    }
+   ],
+   "notes": []
+  },
+  {
+   "job": "26-0436",
+   "header": "Qty (2) Dedicated Outside Air Unit 1RTU-1, 2",
+   "prefixes": [],
+   "kind_words": [
+    "Dedicated",
+    "Outside",
+    "Air",
+    "Unit"
+   ],
+   "lines": [
+    {
+     "text": "Install and Wire Mfr. Provided Ship Loose End Devices",
+     "depth": 1
+    },
+    {
+     "text": "Furnish BMS Communication Wiring to Factory Controls",
+     "depth": 1
+    },
+    {
+     "text": "Map Available Points Via Mfr. Provided BMS Interface",
+     "depth": 1
+    },
+    {
+     "text": "AME requires mfr. rep to assist in integration, cost to be incurred by Mech Contractor",
+     "depth": 2
+    }
+   ],
+   "notes": []
+  },
+  {
+   "job": "26-0436",
+   "header": "Qty (228) Electrical Room CRAH-#-# - Qty. as per Schedule",
+   "prefixes": [
+    "CRAH"
+   ],
+   "kind_words": [
+    "Electrical",
+    "Room",
+    "as",
+    "per",
+    "Schedule"
+   ],
+   "lines": [
+    {
+     "text": "Install and Wire Mfr. Provided Ship Loose End Devices",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install Leak Sensor",
+     "depth": 1
+    },
+    {
+     "text": "Furnish BMS Communication Wiring to Factory Controls",
+     "depth": 1
+    },
+    {
+     "text": "Map Available Points Via Mfr. Provided BMS Interface",
+     "depth": 1
+    },
+    {
+     "text": "AME requires mfr. rep to assist in integration, cost to be incurred by Mech Contractor",
+     "depth": 2
+    }
+   ],
+   "notes": [
+    "*QTY. 58 AS PER FLOOR PLANS"
+   ]
+  },
+  {
+   "job": "26-0436",
+   "header": "Qty (21) MV Room – Heat Pump WSHP-#-# - Qty. as per Schedule",
+   "prefixes": [
+    "WSHP"
+   ],
+   "kind_words": [
+    "MV",
+    "Room",
+    "Heat",
+    "Pump",
+    "as",
+    "per",
+    "Schedule"
+   ],
+   "lines": [
+    {
+     "text": "Install and Wire Mfr. Provided Ship Loose End Devices",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Wire Chilled Water Control Valve and Actuator - Assumed",
+     "depth": 1
+    },
+    {
+     "text": "Furnish BMS Communication Wiring to Factory Controls",
+     "depth": 1
+    },
+    {
+     "text": "Map Available Points Via Mfr. Provided BMS Interface",
+     "depth": 1
+    },
+    {
+     "text": "AME requires mfr. rep to assist in integration, cost to be incurred by Mech Contractor",
+     "depth": 2
+    }
+   ],
+   "notes": [
+    "*BATTERY ROOM WSHP-QTY. 44 AS PER SCHEDULE",
+    "*MV ROOM WSHP QTY. 20 AS PER FLOOR PLANS"
+   ]
+  },
+  {
+   "job": "26-0436",
+   "header": "Qty (32) Battery Room Exhaust Fan 1EF-X-01 – Qty. as per Schedule",
+   "prefixes": [],
+   "kind_words": [
+    "Battery",
+    "Room",
+    "Exhaust",
+    "Fan",
+    "as",
+    "per",
+    "Schedule"
+   ],
+   "lines": [
+    {
+     "text": "Furnish and Install DDC Controller",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install Gateway w/ Enclosure (1DOS-GWP-###)",
+     "depth": 1
+    },
+    {
+     "text": "Furnish Fan Status",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install Louver Damper Actuator – Qty. 64 Total",
+     "depth": 1
+    },
+    {
+     "text": "Interlock Wiring w/ Associated Battery Monitoring System and Fire Alarm System",
+     "depth": 1
+    }
+   ],
+   "notes": [
+    "OR",
+    "*EF QTY. 29 AS PER FLOOR PLANS"
+   ]
+  },
+  {
+   "job": "26-0436",
+   "header": "Qty (13) Generator",
+   "prefixes": [],
+   "kind_words": [
+    "Generator"
+   ],
+   "lines": [
+    {
+     "text": "Necessary Control Wiring to / from Fuel Oil Management Panel",
+     "depth": 1
+    },
+    {
+     "text": "Necessary Control Wiring to / From Generator Panel",
+     "depth": 1
+    },
+    {
+     "text": "Furnish BMS Communication Wiring to Factory Controls (Fuel Oil Panel, Generator Panel)",
+     "depth": 1
+    },
+    {
+     "text": "Map Available Points Via Mfr. Provided BMS Interface",
+     "depth": 1
+    },
+    {
+     "text": "AME requires mfr. rep to assist in integration, cost to be incurred by Mech Contractor",
+     "depth": 2
+    },
+    {
+     "text": "Miscellaneous Monitoring System",
+     "depth": 1
+    },
+    {
+     "text": "Fire Alarm Panel",
+     "depth": 1
+    },
+    {
+     "text": "Make-Up Water Storage Tank Monitoring- 221220",
+     "depth": 1
+    },
+    {
+     "text": "Electric Meter Monitoring (F/I by Others)– Qty. ## - 262713-3",
+     "depth": 1
+    },
+    {
+     "text": "Integrated Power Monitoring System – 260913-7",
+     "depth": 1
+    },
+    {
+     "text": "Qty (#) Fiber Patch Panel",
+     "depth": 1
+    },
+    {
+     "text": "EPMS",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install Data Hall Manager (Qty. 4 Total) (1DCOS_GW_###)",
+     "depth": 1
+    },
+    {
+     "text": "Substations",
+     "depth": 1
+    },
+    {
+     "text": "Generators (28)",
+     "depth": 1
+    },
+    {
+     "text": "Medium Voltage Switchgear",
+     "depth": 1
+    },
+    {
+     "text": "Secondary Utility Service Panel 1SUPS (12)",
+     "depth": 2
+    },
+    {
+     "text": "MV Transfer Board (MV Ring) 1MVTB (32)",
+     "depth": 2
+    },
+    {
+     "text": "Transformer (34)",
+     "depth": 2
+    },
+    {
+     "text": "Low Voltage Switchgear",
+     "depth": 1
+    },
+    {
+     "text": "1MSB (32)",
+     "depth": 2
+    },
+    {
+     "text": "Fuel Monitoring",
+     "depth": 1
+    },
+    {
+     "text": "Power Distribution Unit (182)",
+     "depth": 1
+    },
+    {
+     "text": "Uninterruptible Power Supply (96)",
+     "depth": 1
+    },
+    {
+     "text": "Static Transfer Switch (180)",
+     "depth": 1
+    },
+    {
+     "text": "UPS Distribution Panel (112)",
+     "depth": 1
+    },
+    {
+     "text": "Remote Power Panels (1080)",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install Branch Monitoring Gateway – (Qty. 85 Total) (BCM_RPP)",
+     "depth": 2
+    },
+    {
+     "text": "ALT #: Poinst reference only on IC081",
+     "depth": 1
+    },
+    {
+     "text": "Chilled Water System",
+     "depth": 1
+    }
+   ],
+   "notes": [
+    "AME ADD ALTERNATES:"
+   ]
+  },
+  {
+   "job": "26-0436",
+   "header": "Qty (51) Buffer Tank",
+   "prefixes": [],
+   "kind_words": [
+    "Buffer",
+    "Tank"
+   ],
+   "lines": [
+    {
+     "text": "Furnish and Wire Chiller Evaporator Isolation Valve and Actuator (Qty. 51 Total)",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Wire Chiller Evaporator Bypass Valve and Actuator (Qty. 51 Total)",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install Buffer Tank Bypass Temperature Sensor (Qty. 51 Total)",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install Buffer Tank Chilled Water Temperature Sensor (Qty. 51 Total)",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install Buffer Tank Recharge Temperature Sensor (Qty. 51 Total)",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install Chiller Chilled Water Return Temperature Sensor (Qty. 51 Total)",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install Skid Enclosure Temperature Sensor (Qty. 51 Total)",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install Outside Air Temperature Sensor (Qty. 51 Total)",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install Outside Air Humidity Sensor (Qty. 51 Total)",
+     "depth": 1
+    },
+    {
+     "text": "Furnish Chiller Ready Signal (Qty. 51 Total)",
+     "depth": 1
+    },
+    {
+     "text": "Furnish Lakos Solid Separator Status (Qty. 51 Total)",
+     "depth": 1
+    },
+    {
+     "text": "Furnish Refrigerant Monitor Alarm (Qty. 51 Total)",
+     "depth": 1
+    },
+    {
+     "text": "Furnish Safety Relay Status (Qty. 51 Total)",
+     "depth": 1
+    },
+    {
+     "text": "Furnish Emergency Stop Status (Qty. 51 Total)",
+     "depth": 1
+    },
+    {
+     "text": "Furnish Chiller Temperature Offset (Qty. 51 Total)",
+     "depth": 1
+    }
+   ],
+   "notes": []
+  },
+  {
+   "job": "26-0445",
+   "header": "Qty (6) Data Halls",
+   "prefixes": [],
+   "kind_words": [
+    "Data",
+    "Halls"
+   ],
+   "lines": [
+    {
+     "text": "IDF Cabinet by Others (Qty. 24 Total)",
+     "depth": 1
+    },
+    {
+     "text": "QTS Fiber Cassete by Others",
+     "depth": 2
+    },
+    {
+     "text": "QTS BMS / EPMS Switch by Others",
+     "depth": 2
+    },
+    {
+     "text": "Furnish and Install “A and B” Fiber Optic Cabling Link to the Head End",
+     "depth": 2
+    },
+    {
+     "text": "Furnish and Install Data Hall PLC Control Panel – (Qty. 12 Total)",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install Gateways (IC01-03)",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install Ethernet Communication Modules (EN4TR) – (Qty. 108 Total)",
+     "depth": 2
+    },
+    {
+     "text": "Furnish and Install CAT6 Cabling between EN4TRs",
+     "depth": 2
+    },
+    {
+     "text": "Furnish and Install CAT6 Cabling between Managers",
+     "depth": 2
+    },
+    {
+     "text": "Furnish and Install Fiber Cabling between PLCs of Data Managers",
+     "depth": 2
+    },
+    {
+     "text": "Furnish and Install CAT6 Cabling between EN4TR Modules of Data Managers",
+     "depth": 2
+    },
+    {
+     "text": "Furnish and Install CAT6 Cabling between Manager to IDF Cabinet",
+     "depth": 2
+    },
+    {
+     "text": "QTS BMS / EPMS Switch by Owner",
+     "depth": 3
+    },
+    {
+     "text": "QTS Fiber Cassette by Owner",
+     "depth": 3
+    },
+    {
+     "text": "Furnish and Install Data Hall Master RIO Blocks – (Qty. 108 Total)",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install Data Hall HUB RIO Blocks –(Qty. 228 Total)",
+     "depth": 2
+    },
+    {
+     "text": "Furnish and Install CTA6 Cabling between Master Blocks",
+     "depth": 2
+    },
+    {
+     "text": "Furnish and Install Cabling between Hub and Master Block",
+     "depth": 2
+    },
+    {
+     "text": "Furnish and Install CAT6 Cabling between Master RIO Blocks and Data Hall Managers",
+     "depth": 2
+    },
+    {
+     "text": "Furnish and Install Data Hall Temperature / Humidity Sensor (Qty. 450 Total) (IC01-09)",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install Data Hall DP Sensor (Qty. 42 Total) (IC01-09)",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install Rope Leak Sensor for a Rack Row (Qty. 108 Total) (18 Rack Rows per Data Hall)",
+     "depth": 1
+    }
+   ],
+   "notes": []
+  },
+  {
+   "job": "26-0445",
+   "header": "Qty (72) Thermal Storage Tank TES-#-#",
+   "prefixes": [
+    "TES"
+   ],
+   "kind_words": [
+    "Thermal",
+    "Storage",
+    "Tank"
+   ],
+   "lines": [
+    {
+     "text": "Furnish and Install Chiller Manager – (Qty. 2 Total) (SCP-CHW1101-01, SCP-CHW1101-02)",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install Ethernet Communication Modules (EN4TR) – (Qty. 14 Total)",
+     "depth": 2
+    },
+    {
+     "text": "Furnish and Install ETAP Stratix 4100 – (Qty. 12 Total) (IC01-07)",
+     "depth": 2
+    },
+    {
+     "text": "Furnish and Install CAT6 Cabling between EN4TR of Data Managers",
+     "depth": 2
+    },
+    {
+     "text": "Furnish and Install Fiber Cabling between ETAP of Data Managers",
+     "depth": 2
+    },
+    {
+     "text": "Furnish and Install CAT6 Cabling between Managers",
+     "depth": 2
+    },
+    {
+     "text": "Furnish and Install Fiber Cabling between PLCs of Data Managers",
+     "depth": 2
+    },
+    {
+     "text": "Furnish and Install CAT6 Cabling between EN4TR Module to ETAPs",
+     "depth": 2
+    },
+    {
+     "text": "Furnish and Install CAT6 Cabling between Manager to IDF Cabinet",
+     "depth": 2
+    },
+    {
+     "text": "QTS BMS / EPMS Switch by Owner",
+     "depth": 3
+    },
+    {
+     "text": "QTS Fiber Cassette by Owner",
+     "depth": 3
+    },
+    {
+     "text": "Furnish and Install Chiller Lineup PLC Control Panel – Qty. 72 Total",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install ETAP Stratix 4100 – (Qty. 144 Total) (IC01-07)",
+     "depth": 2
+    },
+    {
+     "text": "Furnish and Install Gateway to Integrate Chiller OEM Controls – (Qty. 72 Total) (IC01-07)",
+     "depth": 2
+    },
+    {
+     "text": "Furnish and Install Gateway for Integrate Pump VFD – (Qty. 72 Total) (IC01-07)",
+     "depth": 2
+    },
+    {
+     "text": "Furnish and Install CAT6 Cabling to and From Chiller Riser & Power Panel Ring (IC01-05)",
+     "depth": 2
+    },
+    {
+     "text": "Furnish and Install Fiber Communication Wiring from Chiller Manager (6 Rings) (IC01-05)",
+     "depth": 2
+    },
+    {
+     "text": "Furnish and Install CAT6 Cabiling from ETAP and PLC and VFD Gateway (IC01-05)",
+     "depth": 2
+    },
+    {
+     "text": "Furnish and Install CAT6 Cabling between Chiller SCPs (IC01-05)",
+     "depth": 2
+    },
+    {
+     "text": "Furnish and Install CHW Master RIO Blocks – (Master A, D, E, F, J) –(Qty. 30 Total)",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install CHW Hub RIO Blocks – (Hub 1) –(Qty. 30 Total)",
+     "depth": 2
+    },
+    {
+     "text": "Furnish and Install CTA6 Cabling between Master Blocks",
+     "depth": 2
+    },
+    {
+     "text": "Furnish and Install Cabling between Hub and Master Block",
+     "depth": 2
+    },
+    {
+     "text": "Furnish and Install Power Panel – (PWR_DH*) –(Qty. 12 Total)",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install CHW RIO Blocks – (– (Master B, C, G, H)) –(Qty. 24 Total)",
+     "depth": 2
+    },
+    {
+     "text": "Furnish and Install CTA6 Cabling between Master Blocks",
+     "depth": 2
+    },
+    {
+     "text": "Furnish and Install Chiller Chilled Water Supply Temperature Sensor -(Qty. 72 Total)",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install Chiller Chilled Water Return Temperature Sensor -(Qty. 72 Total)",
+     "depth": 1
+    },
+    {
+     "text": "Furnish Chiller Start/Stop – (Qty. 72 Total)",
+     "depth": 1
+    },
+    {
+     "text": "Furnish Chiller Status – (Qty. 72 Total)",
+     "depth": 1
+    },
+    {
+     "text": "Furnish Chiller General Alarm – (Qty. 72 Total)",
+     "depth": 1
+    },
+    {
+     "text": "Furnish Pump Start/ Stop and Status – (Qty. 72 Total)",
+     "depth": 1
+    },
+    {
+     "text": "Furnish Pump VFD Speed Command – (Qty. 72 Total)",
+     "depth": 1
+    },
+    {
+     "text": "Furnish Pump VFD Feedback – (Qty. 72 Total)",
+     "depth": 1
+    },
+    {
+     "text": "Furnish Pump Alarm – (Qty. 72 Total)",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install Chiller Chilled Water Flow Meter – (Qty. 72 Total)",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install TES Tank Temperature Sensor – (Qty. 288 Total) (4*72)",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and install TES Tank Bypass Flow Meter – (Qty. 72 Total)",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install TES Tank Discharge Temperature Sensor – (Qty. 72 Total)",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install TES Tank Recharge Temperature Sensor – (Qty. 72 Total)",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and install TES Tank Discharge Flow Meter – (Qty. 72 Total)",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Wire Chiller Bypass Valve and Actuator – (Qty. 72 Total)",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Wire TES Tank Bypass Valve and Actuator – (Qty. 72 Total)",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Wire TES Tank Discharge Valve and Actuator – (Qty. 72 Total)",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Wire TES Tank Recharge Wall and Actuator – (Qty. 72 Total)",
+     "depth": 1
+    },
+    {
+     "text": "Install and Wire Thermal Dispersion Flow Switch (Furnished by Unit Mfr.) – (Qty. 72 Total)",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install Chilled Water Bypass Loop DP Transmitter – (Qty. 24 Total) (M06-00) (2/M05-08)",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install Chilled Water Bypass Loop Flow Meter – (Qty. 24 Total) (M06-00) (2/M05-08)",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Wire 3” Chilled Water Bypass Loop Valve and Actuator – (Qty. 24 Total) (M06-00) (2/M05-08)",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install Chilled Water Loop Temperature Transmitter –(Qty. 36 Total) (M06-00)",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install Chilled Water Loop Differential Temperature Transmitter (DT) –(Qty. 12 Total) (M06-00)",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install Chilled Water Loop Differential Pressure Transmitter–(Qty. 12 Total) (M06-00)",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install Chilled Water Loop Flow Meter –(Qty. 12 Total) (M06-00)",
+     "depth": 1
+    },
+    {
+     "text": "Furnish BMS Communication Wiring from Chiller Factory Controls",
+     "depth": 1
+    },
+    {
+     "text": "Map Available Points Via Mfr. Provided BMS Interface",
+     "depth": 1
+    },
+    {
+     "text": "AME requires mfr. Rep to assist in integration, cost to be incurred by mech contractor",
+     "depth": 2
+    },
+    {
+     "text": "Furnish BMS Communication Wiring to VFD Controls",
+     "depth": 1
+    },
+    {
+     "text": "Map Available Points Via Mfr. Provided BMS Interface",
+     "depth": 1
+    },
+    {
+     "text": "AME requires mfr. Rep to assist in integration, cost to be incurred by mech contractor",
+     "depth": 2
+    },
+    {
+     "text": "Qty (1) Front of House",
+     "depth": 1
+    },
+    {
+     "text": "Qty (1) Back of House",
+     "depth": 1
+    },
+    {
+     "text": "Qty (1) Middle of House",
+     "depth": 1
+    },
+    {
+     "text": "IDF Cabinet by Others (Qty. 3 Total)",
+     "depth": 1
+    },
+    {
+     "text": "QTS Fiber Cassete by Others",
+     "depth": 2
+    },
+    {
+     "text": "QTS BMS / EPMS Switch by Others",
+     "depth": 2
+    },
+    {
+     "text": "Furnish and Install “A and B” Fiber Optic Cabling Link to the Head End",
+     "depth": 2
+    },
+    {
+     "text": "Furnish and Install PLC Control Panel -– (Qty. 3 Total)",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install Communication Gateway – (Qty. 11 Total)",
+     "depth": 2
+    },
+    {
+     "text": "Furnish and Install CAT6 Cabling to QTS BMS/EPMS Switch",
+     "depth": 2
+    },
+    {
+     "text": "House Elec Room 0129, 1807, 1307",
+     "depth": 1
+    }
+   ],
+   "notes": []
+  },
+  {
+   "job": "26-0445",
+   "header": "Qty (3) XFMR-UPS-HSE-1B1, XFMR-UPS-HSE-1A1, XFMR-UPS-HSE-1C1",
+   "prefixes": [
+    "XFMR"
+   ],
+   "kind_words": [],
+   "lines": [
+    {
+     "text": "Furnish and Install 18AWG Hardwired Wiring to Associated PLC Control Panel",
+     "depth": 1
+    }
+   ],
+   "notes": []
+  },
+  {
+   "job": "26-0445",
+   "header": "Qty (3) UPS-HSE-1B1, UPS-HSE-1A1, UPS-HSE-1C1",
+   "prefixes": [
+    "UPS"
+   ],
+   "kind_words": [],
+   "lines": [
+    {
+     "text": "Furnish and Install CAT6 Cabling to BMS/EPMS Switch",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install 18AWG Hardwired Wiring to GEN-HSE for Generator Start Signal",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install 18AWG Hardwired Wiring between TVSS and PQM",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install CAT6 Cabling from PQM to BMS/EPMS Switch",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install CAT6 Cabling from PLC to BMS/EPMS Switch",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install CAT6 Cabling from IFE to BMS/EPMS Switch",
+     "depth": 1
+    },
+    {
+     "text": "ELI 0130, 1806, 1308",
+     "depth": 1
+    }
+   ],
+   "notes": [
+    "Qty (3) STS-HSE-1B1, STS-HSE-1A1, STS-HSE-1C1",
+    "Qty (3) SWD-HSE-1B-MAIN, SWD-HSE-1A-MAIN, , SWD-HSE-1C-MAIN"
+   ]
+  },
+  {
+   "job": "26-0445",
+   "header": "Qty (3) MTS-ELI-1B, MTS-ELI-1A, MTS-ELI-1C",
+   "prefixes": [
+    "MTS"
+   ],
+   "kind_words": [],
+   "lines": [
+    {
+     "text": "Furnish and Install CAT6 Cabling to BMS/EPMS Switch",
+     "depth": 1
+    }
+   ],
+   "notes": []
+  },
+  {
+   "job": "26-0445",
+   "header": "Qty (3) STS-HSE-1B2, STS-HSE-1A2, STS-HSE-1C2",
+   "prefixes": [
+    "STS"
+   ],
+   "kind_words": [],
+   "lines": [
+    {
+     "text": "Furnish and Install CAT6 Cabling to BMS/EPMS Switch",
+     "depth": 1
+    },
+    {
+     "text": "Yard",
+     "depth": 1
+    }
+   ],
+   "notes": []
+  },
+  {
+   "job": "26-0445",
+   "header": "Qty (3) GEN-HSE-BOH, GEN-HSE-FOH, GEN-HSE-MOH",
+   "prefixes": [],
+   "kind_words": [],
+   "lines": [
+    {
+     "text": "Furnish and Install CAT6 Cabling to BMS/EPMS Switch",
+     "depth": 1
+    },
+    {
+     "text": "ER Skid – All Quantities from E00-02B",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install PLC Controller – Sid add this in the revision",
+     "depth": 1
+    },
+    {
+     "text": "QTS BMS / EPMS Switch by Others",
+     "depth": 2
+    },
+    {
+     "text": "Furnish and Install “A” Fiber Optic Cabling Link to the Head End",
+     "depth": 2
+    }
+   ],
+   "notes": []
+  },
+  {
+   "job": "26-0445",
+   "header": "Qty (72) Batteries",
+   "prefixes": [],
+   "kind_words": [
+    "Batteries"
+   ],
+   "lines": [
+    {
+     "text": "Furnish and Install CAT6 Cabling to BMS/EPMS Switch",
+     "depth": 1
+    }
+   ],
+   "notes": []
+  },
+  {
+   "job": "26-0445",
+   "header": "Qty (144) UPS",
+   "prefixes": [],
+   "kind_words": [
+    "UPS"
+   ],
+   "lines": [
+    {
+     "text": "Furnish and Install CAT6 Cabling to BMS/EPMS Switch",
+     "depth": 1
+    }
+   ],
+   "notes": []
+  },
+  {
+   "job": "26-0445",
+   "header": "Qty (72) MBB",
+   "prefixes": [],
+   "kind_words": [
+    "MBB"
+   ],
+   "lines": [
+    {
+     "text": "Furnish and Install CAT6 Cabling to BMS/EPMS Switch",
+     "depth": 1
+    }
+   ],
+   "notes": []
+  },
+  {
+   "job": "26-0445",
+   "header": "Qty (84) SWD",
+   "prefixes": [],
+   "kind_words": [
+    "SWD"
+   ],
+   "lines": [
+    {
+     "text": "Furnish and Install 18AWG Hardwired Wiring to GEN-X# for Generator Start Signal",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install 18AWG Hardwired Wiring between TVSS and PQM",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install CAT6 Cabling from (2) PQM to BMS/EPMS Switch",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install CAT6 Cabling from PLC to BMS/EPMS Switch",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install CAT6 Cabling from IFE to BMS/EPMS Switch",
+     "depth": 1
+    }
+   ],
+   "notes": []
+  },
+  {
+   "job": "26-0445",
+   "header": "Qty (72) GEN-####",
+   "prefixes": [
+    "GEN"
+   ],
+   "kind_words": [],
+   "lines": [
+    {
+     "text": "Furnish and Install (3) CAT6 Cabling from GEN to BMS/EPMS Network Switch",
+     "depth": 1
+    }
+   ],
+   "notes": []
+  },
+  {
+   "job": "26-0445",
+   "header": "Qty (75) XFMR-####",
+   "prefixes": [
+    "XFMR"
+   ],
+   "kind_words": [],
+   "lines": [
+    {
+     "text": "Furnish and Install (6) 18AWG Hardwired Wiring to PLC Control Panel from XFMR",
+     "depth": 1
+    }
+   ],
+   "notes": []
+  },
+  {
+   "job": "26-0445",
+   "header": "Qty (144) MOD-#",
+   "prefixes": [
+    "MOD"
+   ],
+   "kind_words": [],
+   "lines": [
+    {
+     "text": "Furnish and Install CAT6 Cabling from IFE to BMS/EPMS Switch",
+     "depth": 1
+    }
+   ],
+   "notes": []
+  },
+  {
+   "job": "26-0445",
+   "header": "Qty (10) MVG-#",
+   "prefixes": [
+    "MVG"
+   ],
+   "kind_words": [],
+   "lines": [
+    {
+     "text": "Furnish and Install CAT6 Cabling from IFE to BMS/EPMS Switch",
+     "depth": 1
+    }
+   ],
+   "notes": []
+  },
+  {
+   "job": "26-0445",
+   "header": "PDU Skid – All Quantities from E00-02B",
+   "prefixes": [],
+   "kind_words": [
+    "PDU",
+    "Skid",
+    "All",
+    "Quantities",
+    "from"
+   ],
+   "lines": [
+    {
+     "text": "QTS BMS / EPMS Switch by Others",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install “A” Fiber Optic Cabling Link to the Head End",
+     "depth": 2
+    }
+   ],
+   "notes": []
+  },
+  {
+   "job": "26-0445",
+   "header": "Qty (60) COD",
+   "prefixes": [],
+   "kind_words": [
+    "COD"
+   ],
+   "lines": [
+    {
+     "text": "Furnish and Install CAT6 Cabling to BMS/EPMS Switch",
+     "depth": 1
+    }
+   ],
+   "notes": []
+  },
+  {
+   "job": "26-0445",
+   "header": "Qty (240) CDU-#",
+   "prefixes": [
+    "CDU"
+   ],
+   "kind_words": [],
+   "lines": [
+    {
+     "text": "Install and Wire Unit Mounted Temperature / Humidity Sensor (Furnished by Unit Mfr.)",
+     "depth": 1
+    },
+    {
+     "text": "Install and Wire Rope Leak Detection Sensing Cable (Furnished by Unit Mfr.)",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install CANBUS and 18AWG Cabling between CDUs",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install CAT6 Cabling Between BMS/EPMS Switch to Each CDU (HOMERUN)",
+     "depth": 1
+    },
+    {
+     "text": "Map Available Points Via Mfr. Provided BMS Interface",
+     "depth": 1
+    },
+    {
+     "text": "Controls Contractor requires mfr. rep to assist in integration, cost to be incurred by mech contractor",
+     "depth": 2
+    }
+   ],
+   "notes": [
+    "* Chilled Water Control Valve and Actuator Provided by Unit Mfr."
+   ]
+  },
+  {
+   "job": "26-0445",
+   "header": "Qty (64) Electrical Gallery CRAH-#",
+   "prefixes": [
+    "CRAH"
+   ],
+   "kind_words": [
+    "Electrical",
+    "Gallery"
+   ],
+   "lines": [
+    {
+     "text": "Install and Wire Supply Air Temperature Sensor (Furnished by Unit Mfr.)",
+     "depth": 1
+    },
+    {
+     "text": "Install and Wire Return Temperature / Humidity Sensor (Furnished by Unit Mfr.)",
+     "depth": 1
+    },
+    {
+     "text": "Install and Wire Rope Leak Detection Sensing Cable",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install CAT6 Cabling Between BMS/EPMS Switch to Each CRAH (HOMERUN)",
+     "depth": 1
+    },
+    {
+     "text": "Map Available Points Via Mfr. Provided BMS Interface",
+     "depth": 1
+    },
+    {
+     "text": "Controls Contractor requires mfr. rep to assist in integration, cost to be incurred by mech contractor",
+     "depth": 2
+    }
+   ],
+   "notes": [
+    "* Chilled Water Control Valve and Actuator Provided by Unit Mfr."
+   ]
+  },
+  {
+   "job": "26-0445",
+   "header": "Qty (5) Office Rooftop Unit RTU-RT-01 thru 05",
+   "prefixes": [
+    "RTU"
+   ],
+   "kind_words": [
+    "Office",
+    "Rooftop",
+    "Unit"
+   ],
+   "lines": [
+    {
+     "text": "Install and Wire Building Pressure Sensor (Furnished by Unit Mfr.)",
+     "depth": 1
+    },
+    {
+     "text": "Install and Wire Supply Duct Static Pressure Sensor (Furnished by Unit Mfr.)",
+     "depth": 1
+    },
+    {
+     "text": "Install and Wire Supply Temperature Sensor (Furnished by Unit Mfr.)",
+     "depth": 1
+    },
+    {
+     "text": "Install and Wire Space Temperature / Humidity Sensor (Furnished by Unit Mfr.)",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install Pneumatic Tubing as Required",
+     "depth": 1
+    },
+    {
+     "text": "Install and Wire Remote NOx Sensor (Furnished by Unit Mfr.)",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install Communication Cabling to Integrate into BMS.",
+     "depth": 2
+    },
+    {
+     "text": "Furnish and Install CAT6 Cabling Between BMS/EPMS Switch to Each CRAH",
+     "depth": 1
+    },
+    {
+     "text": "Map Available Points Via Mfr. Provided BMS Interface",
+     "depth": 1
+    },
+    {
+     "text": "Controls Contractor requires mfr. rep to assist in integration, cost to be incurred by mech contractor",
+     "depth": 2
+    }
+   ],
+   "notes": [
+    "* AFMS, Refrigerant Detection Provided with the Unit-by-Unit Mfr."
+   ]
+  },
+  {
+   "job": "26-0445",
+   "header": "Qty (12) Data Hall Makeup Air Rooftop Unit RTU-#",
+   "prefixes": [
+    "RTU"
+   ],
+   "kind_words": [
+    "Data",
+    "Hall",
+    "Makeup",
+    "Air",
+    "Rooftop",
+    "Unit"
+   ],
+   "lines": [
+    {
+     "text": "Install and Wire Space Pressure Sensor (Furnished by Unit Mfr.) – (Qty. 12 Total)",
+     "depth": 1
+    },
+    {
+     "text": "Install and Wire Supply Duct Static Pressure Sensor (Furnished by Unit Mfr.)",
+     "depth": 1
+    },
+    {
+     "text": "Install and Wire Supply Temperature Sensor (Furnished by Unit Mfr.)",
+     "depth": 1
+    },
+    {
+     "text": "Install and Wire Outside Air Temperature / Humidity Sensor (Furnished by Unit Mfr.)",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install Pneumatic Tubing as Required",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install CAT6 Cabling Between BMS/EPMS Switch to Each CRAH",
+     "depth": 1
+    },
+    {
+     "text": "Map Available Points Via Mfr. Provided BMS Interface",
+     "depth": 1
+    },
+    {
+     "text": "Controls Contractor requires mfr. rep to assist in integration, cost to be incurred by mech contractor",
+     "depth": 2
+    }
+   ],
+   "notes": [
+    "* AFMS, Refrigerant Detection Provided with the by Unit Mfr."
+   ]
+  },
+  {
+   "job": "26-0445",
+   "header": "Qty (68) Outdoor Unit CU-#",
+   "prefixes": [
+    "CU"
+   ],
+   "kind_words": [
+    "Outdoor",
+    "Unit"
+   ],
+   "lines": [
+    {
+     "text": "Install and wire Programmable Thermostat (Furnished by Unit Mfr.)",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install Leak Sensor (RLE-SEAHAWK SD-R01) *If not Provided by Unit Mfr.",
+     "depth": 1
+    },
+    {
+     "text": "Furnish Condensate Pump Run Status, Healthy Status, Condensate Pump Alarm",
+     "depth": 1
+    },
+    {
+     "text": "Low Voltage Interlock Wiring between Indoor and Outdoor Unit",
+     "depth": 1
+    },
+    {
+     "text": "Furnish BMS Communication Wiring to Factory Controls",
+     "depth": 1
+    },
+    {
+     "text": "Map Available Points Via Mfr. Provided BMS Interface",
+     "depth": 1
+    },
+    {
+     "text": "AME requires mfr. Rep to assist in integration, cost to be incurred by mech contractor",
+     "depth": 2
+    }
+   ],
+   "notes": []
+  },
+  {
+   "job": "26-0445",
+   "header": "Qty (2) Supply Fan SF-0100-01, 02",
+   "prefixes": [
+    "SF"
+   ],
+   "kind_words": [
+    "Supply",
+    "Fan"
+   ],
+   "lines": [
+    {
+     "text": "Furnish and Install DDC Controller",
+     "depth": 1
+    },
+    {
+     "text": "Furnish Fan Start / Stop and Status",
+     "depth": 1
+    },
+    {
+     "text": "Furnish Fan Speed",
+     "depth": 1
+    },
+    {
+     "text": "Furnish Fan Fault",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install Space Temperature Sensor",
+     "depth": 1
+    }
+   ],
+   "notes": []
+  },
+  {
+   "job": "26-0445",
+   "header": "Qty (11) Rooftop Exhaust Fan EF-RT-01 thru 11",
+   "prefixes": [
+    "EF"
+   ],
+   "kind_words": [
+    "Rooftop",
+    "Exhaust",
+    "Fan"
+   ],
+   "lines": [
+    {
+     "text": "Furnish and Install DDC Controller",
+     "depth": 1
+    },
+    {
+     "text": "Furnish Fan Start / Stop and Status",
+     "depth": 1
+    },
+    {
+     "text": "Furnish Fan Speed",
+     "depth": 1
+    },
+    {
+     "text": "Furnish Fan Fault",
+     "depth": 1
+    }
+   ],
+   "notes": []
+  },
+  {
+   "job": "26-0445",
+   "header": "Qty (44) VAV-#",
+   "prefixes": [
+    "VAV"
+   ],
+   "kind_words": [],
+   "lines": [
+    {
+     "text": "Furnish DDC Controller to the Factory for Installation",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install Space Temperature Sensor",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install Discharge Air Temperature Sensor",
+     "depth": 1
+    },
+    {
+     "text": "Furnish Electric Heat SCR Control",
+     "depth": 1
+    },
+    {
+     "text": "24V Transformer by Unit Mfr.",
+     "depth": 1
+    }
+   ],
+   "notes": []
+  },
+  {
+   "job": "26-0445",
+   "header": "Qty (58) FPT-#",
+   "prefixes": [
+    "FPT"
+   ],
+   "kind_words": [],
+   "lines": [
+    {
+     "text": "Furnish DDC Controller to the Factory for Installation",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install Space Temperature Sensor",
+     "depth": 1
+    },
+    {
+     "text": "Furnish Fan Enable",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install Discharge Air Temperature Sensor",
+     "depth": 1
+    },
+    {
+     "text": "Furnish Electric Heat SCR Control",
+     "depth": 1
+    },
+    {
+     "text": "24V Transformer by Unit Mfr.",
+     "depth": 1
+    }
+   ],
+   "notes": []
+  },
+  {
+   "job": "26-0445",
+   "header": "Qty (12) Humidifier HUM-#-#",
+   "prefixes": [
+    "HUM"
+   ],
+   "kind_words": [
+    "Humidifier"
+   ],
+   "lines": [
+    {
+     "text": "Install and Wire Local Humidity Sensor (Furnished by Unit Mfr.)",
+     "depth": 1
+    },
+    {
+     "text": "Install and Wire Local High Humidity Shutoff Sensor (Furnished by Unit Mfr.)",
+     "depth": 1
+    },
+    {
+     "text": "Install and Wire Local Airflow Switch (Furnished by Unit Mfr.)",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install Airflow Switch - as per Detail",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install High Relative Humidity Cutoff -as per detail 8 / M05-03",
+     "depth": 1
+    },
+    {
+     "text": "Install and Wire Space Humidity Sensor (Furnished by Unit Mfr.)",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install Leak Sensor -as per detail 8 / M05-03",
+     "depth": 1
+    },
+    {
+     "text": "Interlock with Associated RTU Operation",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install CAT6 Cabling from BMS/EPMS Switch to Each Humidifiers",
+     "depth": 1
+    },
+    {
+     "text": "Map Available Points Via Mfr. Provided BMS Interface",
+     "depth": 1
+    },
+    {
+     "text": "Controls Contractor requires mfr. rep to assist in integration, cost to be incurred by mech contractor",
+     "depth": 2
+    }
+   ],
+   "notes": []
+  },
+  {
+   "job": "26-0445",
+   "header": "Qty (3) Furnish and Install Hydrogen Detection Monitoring System",
+   "prefixes": [],
+   "kind_words": [
+    "Furnish",
+    "Install",
+    "Hydrogen",
+    "Detection",
+    "Monitoring",
+    "System"
+   ],
+   "lines": [
+    {
+     "text": "Remote Hydrogen Sensor",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install Fiber Communication Wiring to BMS / EPMS Network Switch",
+     "depth": 2
+    }
+   ],
+   "notes": []
+  },
+  {
+   "job": "26-0445",
+   "header": "Qty (30) Heat Trace Panel HTCP",
+   "prefixes": [
+    "HTCP"
+   ],
+   "kind_words": [
+    "Heat",
+    "Trace",
+    "Panel",
+    "HTCP"
+   ],
+   "lines": [
+    {
+     "text": "Furnish and Install CAT6 Cabling Between BMS/EPMS Switch to Each Heat Trace Panel",
+     "depth": 1
+    },
+    {
+     "text": "Map Available Points Via Mfr. Provided BMS Interface",
+     "depth": 1
+    },
+    {
+     "text": "Controls Contractor requires mfr. rep to assist in integration, cost to be incurred by mech contractor",
+     "depth": 2
+    },
+    {
+     "text": "Qty (13) HUH-#-#",
+     "depth": 1
+    },
+    {
+     "text": "Install and Wire Mfr. Provided Space Thermostat",
+     "depth": 1
+    },
+    {
+     "text": "Qty (12) Expansion Tank",
+     "depth": 1
+    },
+    {
+     "text": "Qty (6) CHF",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install Expansion Tank Flow Meter – Qty. 12 Total – as per detail 7 / M05-03",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install Flow Switch for CHF",
+     "depth": 1
+    }
+   ],
+   "notes": []
+  },
+  {
+   "job": "26-0445",
+   "header": "Misc Monitoring Systems",
+   "prefixes": [],
+   "kind_words": [
+    "Misc",
+    "Monitoring",
+    "Systems"
+   ],
+   "lines": [
+    {
+     "text": "Map Available Points Via Mfr. Provided BMS Interface or Connect to Nearby DDC Controller",
+     "depth": 1
+    },
+    {
+     "text": "Furnish and Install Domestic Water Meter – (Qty. 3 Total)",
+     "depth": 2
+    },
+    {
+     "text": "Lift Station – (Qty. ## Total)",
+     "depth": 2
+    },
+    {
+     "text": "Pump Status, Alarm",
+     "depth": 3
+    },
+    {
+     "text": "Reverse Osmosis System – (Qty. 3 Total)",
+     "depth": 2
+    },
+    {
+     "text": "Sump Pump Control Panel",
+     "depth": 2
+    },
+    {
+     "text": "Sump Pump Running",
+     "depth": 3
+    },
+    {
+     "text": "Sump Pump Oil Alarm",
+     "depth": 3
+    },
+    {
+     "text": "Sump Pump High Liquid Alarm",
+     "depth": 3
+    },
+    {
+     "text": "Sump Pump Fault Status",
+     "depth": 3
+    },
+    {
+     "text": "Glycol Pump Skid",
+     "depth": 2
+    },
+    {
+     "text": "Glycol Leak Detection",
+     "depth": 3
+    },
+    {
+     "text": "Glycol Pump 1 Running",
+     "depth": 3
+    },
+    {
+     "text": "Glycol Pump 1 Fault",
+     "depth": 3
+    },
+    {
+     "text": "Glycol Pump 2 Running",
+     "depth": 3
+    },
+    {
+     "text": "Glycol Pump 2 Fault",
+     "depth": 3
+    },
+    {
+     "text": "Glycol Tank Level",
+     "depth": 3
+    },
+    {
+     "text": "Glycol Tank Low Level Alarm",
+     "depth": 3
+    },
+    {
+     "text": "ATS (1) E01-07",
+     "depth": 2
+    }
+   ],
+   "notes": []
+  }
+ ]
+}

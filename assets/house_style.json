@@ -1,0 +1,52 @@
+{
+  "about": "How AME writes a system's scope, as data: for the AI when it writes a system the Master Template has no entry for, or adds a line beyond the template's options, and for checking what it writes. Taken from the Master Template's 'Scope of Work Format' and 'How to use this template' sections and from system_templates.json. Edit here, never in code.",
+  "header": "Qty ({n}) {kind} {tags}",
+  "verbs": ["Furnish and Install", "Furnish", "Furnish and Wire", "Install and Wire", "Install", "Wire"],
+  "no_verb_starts": {
+    "about": "Line openings the Master Template itself writes without a verb (its no_verb lines): an interlock, a tie-in, low-voltage wiring.",
+    "starts": ["Interlock", "Tie-in", "Tie in", "Tie into", "Low Voltage", "Necessary Low Voltage", "Necessary Control Wiring"]
+  },
+  "trailing_forms": [
+    "(Furnished by Unit Mfr.)",
+    "(Furnished by Others)",
+    "(Qty. N Total)",
+    "– as per <sheet> Keynote #n",
+    "(as per sequence)",
+    "(Location: …)"
+  ],
+  "integration_trio": {
+    "lines": ["Furnish BMS Communication Wiring to {what} Factory Controls",
+              "Map Available Points Via Mfr. Provided BMS Interface",
+              "AME requires mfr. Rep to assist in integration, cost to be incurred by mech contractor"],
+    "depths": [1, 1, 2],
+    "applies_when": [
+      "the unit comes with the manufacturer's own (factory) controls",
+      "the manufacturer provides a gateway or BMS interface (BACnet, Modbus, LonWorks)",
+      "the evidence says to map the unit's points through the manufacturer's interface"
+    ],
+    "rule": "The three lines go together, in this order; {what} names the equipment (Chiller, Pump VFD, …) or is left out for plain factory controls. They replace the lines that name a DDC controller."
+  },
+  "notes": {
+    "start": "**",
+    "rule": "A note starting with \"**\" is only for a clarification to the client that the evidence supports, such as \"**Start/Stop via Fire Alarm System\" or \"**Refrigeration Leak Detection system is coming with the unit per equipment schedule\". Never an estimating hint (where to look, how to decide), tech hours or prices.",
+    "examples": ["**Start/Stop via Fire Alarm System",
+                 "**Refrigeration Leak Detection system is coming with the unit per equipment schedule"]
+  },
+  "forbidden": {
+    "about": "Never in a line, a header or a note: the client sees these. Words are matched ignoring case; category words as whole words in capitals; patterns ignoring case.",
+    "words": ["$", "confidence", "rule:", "AI:", "tech hour", "price"],
+    "category_words": ["CONFIRMED", "ADDED", "ASSUMPTION", "PENDING", "DISCREPANCY", "EXTRA", "MISSING", "ORPHANED",
+                       "CONFLICT", "EXISTING"],
+    "patterns": ["\\d\\s*-?\\s*(?:hours?|hrs?)\\b"]
+  },
+  "max_line_length": 160,
+  "guide": [
+    "Each system is a block: a header \"Qty (#) System Header\" (the count, the kind of equipment, then the tags), then its scope lines.",
+    "Each scope line starts with a verb: Furnish and Install ABC; Furnish ABC; Furnish and Wire ABC; Install and Wire ABC (Furnished by Unit Mfr.); Install ABC (Furnished by Unit Mfr.); Wire ABC (Furnished by Unit Mfr.).",
+    "Details go after the device in brackets: (Qty. ## Total), (as per sequence), (Location: 3rd Floor), (Furnished by Unit Mfr.).",
+    "A clarification for the client is a note starting with \"**\", such as \"**Start/Stop via Fire Alarm System\".",
+    "When the unit comes with factory controls, the three integration lines go together: Furnish BMS Communication Wiring to Factory Controls; Map Available Points Via Mfr. Provided BMS Interface; and, one level in, AME requires mfr. Rep to assist in integration, cost to be incurred by mech contractor.",
+    "This is guidance, not a bible: it shows how a system is presented.",
+    "The points under a system are written from the control information the job gives. It is never a mandatory point list: in a real job the points follow that job's own control information."
+  ]
+}
