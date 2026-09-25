@@ -176,3 +176,19 @@ def test_a_document_that_fails_partway_is_flagged_in_plain_words(tmp_path, monke
     monkeypatch.setattr(register, "_read_page", _flaky)
     result = catalogue_job(root, tmp_path / "cache")
     assert any(f == "Specs.pdf could not be read from page 2 on — truncated stream" for f in result.flags)
+
+
+def test_a_sheet_whose_title_block_gives_no_title_takes_it_from_the_drawing_index(tmp_path):
+    root = tmp_path / "26-9999"
+    base = root / "2. Takeoffs" / "1. Base Takeoff"
+    lines = ["DRAWING INDEX", "H001", "HVAC LEGEND AND NOTES", "H101", "HVAC NEW WORK FLOOR PLAN",
+             "H111", "HVAC NEW WORK ROOF PLAN", "H501", "HVAC DETAILS", "H601", "HVAC SCHEDULES"]
+    cover = Page(width=3024, height=2160, texts=tuple((300, 300 + 30 * n, line, 14) for n, line in enumerate(lines))
+                 + ((2800, 2000, "G001", 40),))
+    # No title in H601's title block that the reader can find: only small labels and the number.
+    schedules = Page(width=3024, height=2160, texts=((200, 300, FILLER, 12), (2750, 1900, "Drawing Number:", 8),
+                                                     (2800, 2000, "H601", 40)))
+    make_pdf(base / "HVAC.pdf", cover, schedules)
+    result = catalogue_job(root, tmp_path / "cache")
+    sheet = next(s for s in result.sheets if s.number == "H601")
+    assert (sheet.title, sheet.title_source, sheet.types) == ("HVAC SCHEDULES", "drawing index", ("Schedules",))

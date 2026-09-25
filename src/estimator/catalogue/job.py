@@ -13,7 +13,7 @@ from estimator.catalogue.register import PageRecord, register_job
 from estimator.catalogue.sheet_types import Sheet, classify_sheet
 from estimator.catalogue.spec_sections import SpecSection, index_sections
 from estimator.catalogue.tags import TagEntry, index_tags
-from estimator.catalogue.title_block import read_title_block
+from estimator.catalogue.title_block import read_drawing_index, read_title_block
 
 
 @dataclass(frozen=True)
@@ -35,7 +35,9 @@ def catalogue_job(root: Path, cache_dir: Path | None = None, workers: int = 1) -
     job = find_documents(root)
     pages = tuple(register_job(job, cache_dir, workers))
     kinds = {d.relative: d.kind for d in job.documents}
-    sheets = tuple(classify_sheet(record, read_title_block(record.edge_spans))
+    # A sheet whose title block gives no title takes it from the drawing index, wherever the job lists one.
+    index = read_drawing_index(record.text for record in pages if record.status in ("text", "ocr"))
+    sheets = tuple(classify_sheet(record, read_title_block(record.edge_spans, index))
                    for record in pages if record.large_sheet)
     by_sheet = {(s.document, s.page): s for s in sheets}
     written = [record for record in pages if kinds[record.document] != "drawings"]

@@ -132,3 +132,65 @@ def test_a_rotated_sheet_read_from_the_pdf(tmp_path):
     make_pdf(tmp_path / "26-9999" / "2. Takeoffs" / "1. Base Takeoff" / "mech.pdf", sheet)
     [record] = read_document(find_documents(tmp_path / "26-9999").documents[0])
     assert read_title_block(record.edge_spans) == TitleBlock("M001.00", "HVAC GENERAL NOTES")
+
+
+# --- the drawing index, and the line beside the number, when the title block gives no title ----------
+
+from estimator.catalogue.title_block import index_key, read_drawing_index   # noqa: E402
+
+_INDEX_PAGE = """DRAWING INDEX
+GENERAL
+G001
+TITLE SHEET
+G002
+GENERAL NOTES, ABBREVIATIONS, & LEGENDS
+HVAC
+H001
+LEGEND, ABBREVIATIONS, GENERAL NOTES
+H101
+HVAC NEW WORK FLOOR PLAN
+H601
+HVAC SCHEDULES
+E-201 ELECTRICAL NEW WORK
+E-202 ELECTRICAL NEW WORK - ROOF POWER
+"""
+
+
+def test_the_drawing_index_pairs_each_number_with_its_title():
+    index = read_drawing_index([_INDEX_PAGE])
+    assert index[index_key("H601")] == "HVAC SCHEDULES"
+    assert index[index_key("H101")] == "HVAC NEW WORK FLOOR PLAN"
+    assert index[index_key("E201")] == "ELECTRICAL NEW WORK"            # "<number> <title>" on one line, too
+    assert index[index_key("E-202")] == "ELECTRICAL NEW WORK - ROOF POWER"
+    assert index_key("GENERAL") not in index
+
+
+def test_a_page_with_a_few_number_lines_is_not_an_index():
+    plan = "RTU-1\nGYMNASIUM\nRTU-2\nWEIGHT ROOM\nM-101\nSEE PLAN FOR CONTINUATION\n"
+    assert read_drawing_index([plan]) == {}
+
+
+def test_a_sheet_with_no_title_in_its_title_block_takes_the_index_title():
+    spans = [_span("Drawing Name", 8.7, 0.913, 0.754), _span("HVAC SCHEDULES", 17.4, 0.915, 0.763),
+             _span("Revisions", 8.7, 0.913, 0.867), _span("H601", 46, 0.923, 0.957, h=0.03)]
+    block = read_title_block(spans, {index_key("H601"): "HVAC SCHEDULES"})
+    assert (block.number, block.title, block.source) == ("H601", "HVAC SCHEDULES", "drawing index")
+
+
+def test_with_no_index_the_capitalised_line_before_the_number_is_the_title():
+    spans = [_span("AS NOTED", 17.4, 0.915, 0.736), _span("HVAC SCHEDULES", 17.4, 0.915, 0.763),
+             _span("H601", 46, 0.923, 0.957, h=0.03), _span("Drawing Number:", 8.7, 0.913, 0.943)]
+    block = read_title_block(spans)
+    assert (block.number, block.title, block.source) == ("H601", "HVAC SCHEDULES", "beside the sheet number")
+
+
+@pytest.mark.parametrize("before", ["Drawing Number:", "SCALE: AS NOTED", "08/27/2026", "Checked By",
+                                    "A VERY LONG LINE OF CAPITALS THAT IS A NOTE AND NOT A TITLE AT ALL, SURELY"])
+def test_a_label_or_a_long_line_before_the_number_is_not_a_title(before):
+    spans = [_span(before, 9, 0.915, 0.94), _span("H601", 46, 0.923, 0.957, h=0.03)]
+    assert read_title_block(spans) == TitleBlock("H601", None)
+
+
+def test_a_title_block_title_is_marked_as_such():
+    spans = [_span("HVAC SCHEDULES SHEET 3", 20.4, 0.91, 0.851, w=0.07), _span("M006.00", 41, 0.935, 0.92, h=0.02)]
+    assert read_title_block(spans).source == "title block"

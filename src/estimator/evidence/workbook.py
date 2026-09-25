@@ -73,8 +73,10 @@ def write_evidence(path: Path, catalogue: Catalogue, reading: JobReading | None 
     numbers = {(s.document, s.page): s.number for s in catalogue.sheets}
     _table(workbook.create_sheet(TABS[4]), ["Document", "Page", "Read by", "Sheet number"],
            [[p.document, p.page, _READ_BY[p.status], numbers.get((p.document, p.page))] for p in catalogue.pages])
-    _table(workbook.create_sheet(TABS[5]), ["Sheet number", "Title", "Discipline", "Type", "Document", "Page"],
-           [[s.number, s.title, s.discipline, ", ".join(s.types) or None, s.document, s.page] for s in catalogue.sheets])
+    _table(workbook.create_sheet(TABS[5]), ["Sheet number", "Title", "Discipline", "Type", "Document", "Page",
+                                            "Title read from"],
+           [[s.number, s.title, s.discipline, ", ".join(s.types) or None, s.document, s.page,
+             _TITLE_FROM.get(s.title_source, s.title_source)] for s in catalogue.sheets])
     _table(workbook.create_sheet(TABS[6]), ["Section", "Title", "Controls section", "Document", "First page", "Last page"],
            [[s.number, s.title, "yes" if s.controls else "no", s.document, s.first_page, s.last_page]
             for s in catalogue.sections])
@@ -97,6 +99,8 @@ _LINE_HEADINGS = ["AME's line (word for word)", "Status", "Where", "How strong",
 _WHO_HEADINGS = ["Who does it (the job's words)", "Status", "Where", "How strong", "What the job says (word for word)"]
 _SYSTEM_HEADINGS = ["System", "Status", "Protocol named in the same sentence", "Where", "How strong",
                     "What the job says (word for word)"]
+_TITLE_FROM = {"title block": "the title block", "drawing index": "the drawing index",
+               "beside the sheet number": "the line beside the sheet number"}
 _SERVICE_HEADINGS = ["Service", "Status", "Amount stated", "Where", "How strong", "What the job says (word for word)"]
 _MAKER_HEADINGS = ["Category", "Manufacturer", "AME gets prices for it?", "Where", "How strong",
                    "What the job says (word for word)", "Basis of design / or equal", "Ask for a price from",

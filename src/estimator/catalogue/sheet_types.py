@@ -30,6 +30,7 @@ class Sheet:
     title: str | None
     discipline: str
     types: tuple[str, ...]
+    title_source: str | None = None     # "title block", "drawing index" or "beside the sheet number"
 
 
 @dataclass(frozen=True)
@@ -71,4 +72,5 @@ def discipline_of(number: str | None, title: str | None, reading: SheetTypes) ->
 def classify_sheet(record: PageRecord, block: TitleBlock, reading: SheetTypes | None = None) -> Sheet:
     reading = reading or SheetTypes.load()
     return Sheet(record.document, record.page, block.number, block.title,
-                 discipline_of(block.number, block.title, reading), types_of(block.title, reading))
+                 discipline_of(block.number, block.title, reading), types_of(block.title, reading),
+                 block.source if block.title else None)

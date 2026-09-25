@@ -67,7 +67,8 @@ def test_flags_documents_pages_sheets_sections_and_tags(tmp_path):
     assert _values(wb["Pages"])[2] == ["2. Takeoffs/1. Base Takeoff/Mech.pdf", 2, "could not be read", None]
     assert _values(wb["Pages"])[1][3] == "M-601"
     assert _values(wb["Sheets"])[1] == ["M-601", "HVAC SCHEDULES", "Mechanical", "Schedules",
-                                        "2. Takeoffs/1. Base Takeoff/Mech.pdf", 1]
+                                        "2. Takeoffs/1. Base Takeoff/Mech.pdf", 1, None]
+    assert _values(wb["Sheets"])[0][-1] == "Title read from"
     assert _values(wb["Spec sections"])[1] == ["15970", "TEMPERATURE CONTROL", "yes", "2. Takeoffs/1. Base Takeoff/15970.pdf", 1, 1]
     assert _values(wb["Equipment tags"])[1] == ["AHU-1", "Air Handling Unit", "M-601", None, 1]
 
