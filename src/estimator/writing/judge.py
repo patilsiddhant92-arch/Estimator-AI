@@ -387,6 +387,98 @@ class Judge:
             raise _Unusable("the AI answer could not be read")
         return answer, getattr(response, "model", None) or self.model
 
+    # -- the whole-job questions (plan_job, write_system): see whole_job.py ----------------------------
+    # Added for the whole-job method; the questions above are unchanged. The shapes, prompts, schemas
+    # and checks live in whole_job.py (imported here, not at the top, as it imports this module).
+
+    def plan_job(self, dossier_text: str, images, checklist, style_text: str):
+        """Plan every system of the job from its whole dossier: a `whole_job.JobPlan`, or None with
+        `last_error` set. `checklist` is the Master Template checklist's text (or the templates);
+        `images` are the dossier's pictures (path, what, sheet, document, page). A dossier over
+        `whole_job.SPLIT_LIMIT` characters is asked in parts and the plans merged by key."""
+        from estimator.writing import whole_job as wj
+        images = list(images or ())
+        known = wj.known_ids(dossier_text, images)
+        parts = wj.split_dossier(dossier_text, wj.SPLIT_LIMIT)
+        plans, failed = [], None
+        for part in parts:     # every part is asked, so the chat gets all its requests in one run
+            part_images = images if part.has_schedules else []
+            prompt = wj.plan_prompt(part.text, part_images, checklist, style_text, part)
+            name = "the whole job" if part.of == 1 else f"the whole job (part {part.number} of {part.of})"
+            extra = {"images": wj.images_listing(part_images)}
+            if part.of > 1:
+                extra["part"] = f"{part.number} of {part.of}"
+            got = self._answer_with_images(PLAN_JOB, name, wj.PLAN_PROMPT, prompt, wj.plan_schema(),
+                                           extra, part_images)
+            if got is None:
+                failed = self.last_error
+                continue
+            plans.append(wj.parse_plan(got[0], got[1], self.style, known))
+        if failed is not None or not plans:
+            self.last_error = failed
+            return None
+        return plans[0] if len(parts) == 1 else wj.merge_plans(plans, len(dossier_text or ""))
+
+    def write_system(self, system, evidence_text: str, images, options, examples, style_text: str):
+        """Write one planned system's scope (a `whole_job.WrittenScope`) from its evidence, with the
+        nearest Master Template's lines as a checklist (`options`: a template, its lines or plain
+        texts) and up to 4 phrasing-bank `examples`. None, with `last_error` set, on any failure."""
+        from estimator.writing import whole_job as wj
+        images = list(images or ())
+        known = wj.known_ids(evidence_text, images)
+        if known:
+            plan_ids = (system.quantity_source, *system.sequence_sources, *system.schedule_sources)
+            known = known | {wj.source_key(s) for s in plan_ids if s}
+        prompt = wj.write_prompt(system, evidence_text, images, options, examples, style_text)
+        got = self._answer_with_images(WRITE_SYSTEM, system.header, wj.WRITE_PROMPT, prompt, wj.write_schema(),
+                                       {"plan_key": system.key, "images": wj.images_listing(images)}, images)
+        if got is None:
+            return None
+        answer, model = got
+        return wj.parse_scope(answer, model, self.style, known)
+
+    def _answer_with_images(self, kind: str, name: str, system_prompt: str, prompt: str, schema: dict,
+                            extra: dict, images) -> tuple[dict, str] | None:
+        """As `_answer`, for a long question that may carry pictures: the pictures' contents are part
+        of the cache key, the API gets them as image blocks and the chat request lists their paths."""
+        from estimator.writing import whole_job as wj
+        key = _key(self.model, prompt + wj.images_fingerprint(images), system_prompt)
+        cache_file = self.cache_dir / f"{key}.json"
+        cached = _read_cache(cache_file, kind)
+        if cached is not None:
+            self.last_error = None
+            self.cached += 1
+            return cached["answer"], cached["model"]
+        if self.mode == CHAT:
+            return self._from_chat(kind, key, name, system_prompt, prompt, schema, extra, cache_file)
+        if not self.available:
+            self.last_error = NO_KEY
+            return None
+        try:
+            answer, model = self._ask_long(kind, system_prompt, wj.content_blocks(prompt, images), schema)
+        except Exception as error:  # the judge never raises into the pipeline
+            self.last_error = _plain(error)
+            return None
+        _write_cache(cache_file, {"version": CACHE_VERSION, "kind": kind, "model": model, "answer": answer})
+        self.calls += 1
+        self.last_error = None
+        return answer, model
+
+    def _ask_long(self, kind: str, system_prompt: str, content, schema: dict) -> tuple[dict, str]:
+        """A long question with a long answer: streamed (so a big answer never meets the HTTP
+        timeout) when the client can, with room for the model's thinking."""
+        params = dict(model=self.model, max_tokens=WHOLE_JOB_MAX_TOKENS, system=system_prompt,
+                      messages=[{"role": "user", "content": content}],
+                      output_config={"format": {"type": "json_schema", "schema": schema}},
+                      timeout=WHOLE_JOB_TIMEOUT_SECONDS)
+        messages = self._get_client().messages
+        if hasattr(messages, "stream"):
+            with messages.stream(**params) as stream:
+                response = stream.get_final_message()
+        else:
+            response = messages.create(**params)
+        return _read_response(response, kind, self.model)
+
 
 class _Unusable(Exception):
     """A reply came back but cannot be used; the message is already in plain words."""
@@ -794,3 +886,29 @@ def _plain(error: Exception) -> str:
     if isinstance(error, anthropic.APIStatusError):
         return f"the AI service returned an error ({error.status_code})"
     return f"the AI call failed: {error}"
+
+
+# --- the whole-job questions: request kinds "plan_job" and "write_system" (see whole_job.py) --------------
+
+PLAN_JOB, WRITE_SYSTEM = "plan_job", "write_system"
+KINDS = KINDS + (PLAN_JOB, WRITE_SYSTEM)
+_MAIN_LIST.update({PLAN_JOB: "systems", WRITE_SYSTEM: "lines"})
+WHOLE_JOB_MAX_TOKENS = 64000       # a whole job's plan, plus the thinking; streamed
+WHOLE_JOB_TIMEOUT_SECONDS = 600.0
+
+
+def _read_response(response, kind: str, model: str) -> tuple[dict, str]:
+    """The JSON answer in a reply, as `Judge._ask` reads it; `_Unusable` when it cannot be used."""
+    stop = getattr(response, "stop_reason", None)
+    if stop == "max_tokens":
+        raise _Unusable("the AI answer was cut off before it finished")
+    if stop == "refusal":
+        raise _Unusable("the AI declined to answer for this system")
+    text = "".join(block.text for block in response.content if getattr(block, "type", None) == "text")
+    try:
+        answer = json.loads(text)
+    except ValueError:
+        raise _Unusable("the AI answer could not be read") from None
+    if not _fits(answer, kind):
+        raise _Unusable("the AI answer could not be read")
+    return answer, getattr(response, "model", None) or model
