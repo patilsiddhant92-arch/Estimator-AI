@@ -10,7 +10,28 @@
   "placeholders": {"{what}": "the equipment named in the first integration line (Chiller, Pump VFD, ...); empty for plain factory controls", "{unit}": "the unit an alarm is watched at (HVAC alarm panel)"},
   "not_hardware_points_containing": ["DDC Controller"],
   "client_note_examples": ["**Start/Stop via Fire Alarm System", "**Refrigeration Leak Detection system is coming with the unit per equipment schedule"],
-  "prefixes_missing_from_equipment_list": ["FPT", "PCHWP", "SCHWP", "GDP", "PCU", "HGP", "FOP", "SS", "IU"],
+  "factory_controls": {
+    "about": "When the unit comes with the manufacturer's own controls, the three integration lines replace the lines that name a DDC controller. The words are looked for, whole and ignoring case, in the schedule's who-provides-the-controller notes, its other notes and its cells.",
+    "words": ["factory control package", "factory controls", "factory mounted controls", "factory-mounted controls", "factory mounted DDC controls", "controls by unit manufacturer", "controls by the unit manufacturer", "controls by unit mfr", "controls by the equipment manufacturer", "unit manufacturer's controls", "manufacturer's controls", "packaged controls", "furnished with factory controls", "integral controls"]
+  },
+  "counted_devices": {
+    "about": "For a line whose quantity is counted, the device labels on the plans that count it (the labels are in reading_lists/devices.json). The line matches when it contains the words on the left, ignoring case; the longest match wins. A line with no match, or no label counted on the system's sheets, falls back to one per unit, as an assumption.",
+    "lines": {
+      "Space Temperature Sensor": ["T", "TS"],
+      "Stairwell Pressure Sensor": ["SP"],
+      "Differential Pressure Transmitter": ["DP"],
+      "Differential Pressure Sensor": ["DP"],
+      "Flow Meter": ["FM"],
+      "Flow Switch": ["FS"],
+      "Leak Sensor": ["LD"],
+      "CO/NO2 Sensor": ["CO", "NO2"],
+      "CO Sensor": ["CO"],
+      "Weather Station": ["WS"],
+      "Domestic Water Meter": ["DWM"],
+      "Humidity Sensor": ["H", "RH"],
+      "CO2 Sensor": ["CO2"]
+    }
+  },
   "systems": [
     {
       "name": "VAV / Fan VAV",

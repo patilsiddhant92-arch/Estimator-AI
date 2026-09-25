@@ -217,5 +217,4 @@ def test_prefixes_are_upper_case_and_mostly_known():
         for prefix in template.prefixes:
             assert prefix == prefix.upper()
     missing = {p for t in TEMPLATES for p in t.prefixes} - known
-    # the prefixes the template needs that equipment.json doesn't list yet (Task 5 adds them)
-    assert missing == set(RAW["prefixes_missing_from_equipment_list"])
+    assert not missing, f"prefixes the template needs that equipment.json doesn't list: {sorted(missing)}"
