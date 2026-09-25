@@ -34,6 +34,28 @@ class JobResult:
     others: tuple[str, ...]
     tags: int
     blank_sheets: int       # blank pages on a large sheet — always worth a look (T3)
+    unlisted_files: tuple[str, ...] = ()   # non-PDF files under the job that never reached the Documents tab (T3)
+
+
+def missing_from_documents_tab(job) -> tuple[str, ...]:
+    """A second, independent walk of the job folder: every non-PDF file that find_documents
+    didn't account for — as a document, a duplicate, or an "other file" on the Documents tab —
+    would otherwise be invisible, the same failure I2 fixed for files find_documents never even
+    looked at (T3)."""
+    accounted = set(job.other_files) | {d.relative for d in job.documents}
+    excluded = job.left_out + job.nested_jobs
+    missing = []
+    for path in sorted(job.root.rglob("*")):
+        if path.is_dir() or path.suffix.lower() == ".pdf":
+            continue
+        try:
+            relative = path.relative_to(job.root).as_posix()
+        except ValueError:
+            continue
+        if relative in accounted or any(relative == folder or relative.startswith(f"{folder}/") for folder in excluded):
+            continue
+        missing.append(relative)
+    return tuple(missing)
 
 
 def measure(catalogue) -> JobResult:
@@ -47,7 +69,8 @@ def measure(catalogue) -> JobResult:
         relevant=len(relevant), typed=sum(1 for s in relevant if s.types),
         controls_sections=sum(1 for s in catalogue.sections if s.controls),
         bid=catalogue.bid.finding, others=catalogue.bid.others, tags=len(catalogue.tags),
-        blank_sheets=sum(1 for p in pages if p.status == "blank" and p.large_sheet))
+        blank_sheets=sum(1 for p in pages if p.status == "blank" and p.large_sheet),
+        unlisted_files=missing_from_documents_tab(catalogue.job))
 
 
 def misses(result: JobResult, expected: dict) -> list[str]:
@@ -74,6 +97,13 @@ def misses(result: JobResult, expected: dict) -> list[str]:
     if result.blank_sheets:
         word = "page" if result.blank_sheets == 1 else "pages"
         found.append(f"{result.blank_sheets} blank drawing {word} found — check whether they should have been read")
+    at_most = expected.get("unreadable_at_most")
+    if at_most is not None and result.unreadable > at_most:
+        found.append(f"{result.unreadable} pages could not be read, expected at most {at_most}")
+    if result.unlisted_files:
+        word = "file" if len(result.unlisted_files) == 1 else "files"
+        found.append(f"{len(result.unlisted_files)} non-PDF {word} under the job never reached the Documents tab "
+                     f"({', '.join(result.unlisted_files[:5])}{', …' if len(result.unlisted_files) > 5 else ''})")
     return found
 
 

@@ -10,7 +10,7 @@ _spec.loader.exec_module(learn_check)
 
 def _result(**changes):
     base = dict(job="26-9999", pages=10, ocr=0, unreadable=0, sheets=10, numbered=10, relevant=10, typed=9,
-                controls_sections=1, bid="Qualifies", others=(), tags=5, blank_sheets=0)
+                controls_sections=1, bid="Qualifies", others=(), tags=5, blank_sheets=0, unlisted_files=())
     return learn_check.JobResult(**{**base, **changes})
 
 
@@ -61,3 +61,43 @@ def test_finding_a_job_folder_by_its_number(tmp_path):
     nested.mkdir(parents=True)
     assert learn_check.find_job(tmp_path, "26-0352") == tmp_path / "26-0352, Tishman Speyer, 45 Rockefeller"
     assert learn_check.find_job(tmp_path, "26-0437") == nested
+
+
+# T3: a non-PDF file the job's own catalogue never accounted for, and too many unreadable pages.
+
+def test_unreadable_at_most_is_checked():
+    assert learn_check.misses(_result(unreadable=3), {**EXPECTED, "unreadable_at_most": 5}) == []
+    found = learn_check.misses(_result(unreadable=8), {**EXPECTED, "unreadable_at_most": 5})
+    assert found == ["8 pages could not be read, expected at most 5"]
+
+
+def test_unreadable_at_most_is_optional():
+    assert learn_check.misses(_result(unreadable=1000), EXPECTED) == []
+
+
+def test_a_file_missing_from_the_documents_tab_is_a_miss():
+    found = learn_check.misses(_result(unlisted_files=("2. Takeoffs/notes.xlsx",)), EXPECTED)
+    assert found == ["1 non-PDF file under the job never reached the Documents tab (2. Takeoffs/notes.xlsx)"]
+    assert learn_check.misses(_result(), EXPECTED) == []
+
+
+def test_missing_from_documents_tab_finds_a_file_find_documents_did_not_account_for(tmp_path):
+    from estimator.catalogue.documents import Document, JobFolder
+    root = tmp_path / "26-9999"
+    (root / "2. Takeoffs").mkdir(parents=True)
+    (root / "2. Takeoffs" / "notes.xlsx").write_text("x")
+    (root / "2. Takeoffs" / "spec.pdf").write_text("x")
+    (root / "3. Proposal").mkdir()
+    (root / "3. Proposal" / "quote.docx").write_text("x")
+    document = Document(root / "2. Takeoffs" / "spec.pdf", "2. Takeoffs/spec.pdf", "specs", "base", 1)
+    job = JobFolder("26-9999", root, (document,), (), ("3. Proposal",), (), ())
+    assert learn_check.missing_from_documents_tab(job) == ("2. Takeoffs/notes.xlsx",)
+
+
+def test_missing_from_documents_tab_is_empty_once_a_file_is_on_it(tmp_path):
+    from estimator.catalogue.documents import JobFolder
+    root = tmp_path / "26-9999"
+    (root / "2. Takeoffs").mkdir(parents=True)
+    (root / "2. Takeoffs" / "notes.xlsx").write_text("x")
+    job = JobFolder("26-9999", root, (), (), (), (), ("2. Takeoffs/notes.xlsx",))
+    assert learn_check.missing_from_documents_tab(job) == ()
