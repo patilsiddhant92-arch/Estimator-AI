@@ -32,5 +32,6 @@
   "legend_title_words": ["\\bLEGENDS?\\b", "\\bSYMBOLS?\\b"],
   "typical_words": ["\\bTYP(?:ICAL)?\\b"],
   "floor_range": "\\b(\\d{1,3})\\s*(?:ST|ND|RD|TH)\\s*(?:-|–|—|THRU|THROUGH|TO)\\s*(\\d{1,3})\\s*(?:ST|ND|RD|TH)\\b",
+  "level_range": "\\b(?:LEVELS?|FLOORS?|FLRS?\\.?)\\s*(\\d{1,3})\\s*(?:-|–|—|THRU|THROUGH|TO)\\s*(?:LEVEL\\s*|FLOOR\\s*)?(\\d{1,3})\\b",
   "unlucky_floor": 13
 }

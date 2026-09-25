@@ -26,7 +26,7 @@ from pathlib import Path
 from estimator.catalogue.job import repeats
 from estimator.catalogue.pdf import Span, clean_text
 from estimator.catalogue.register import PageRecord
-from estimator.catalogue.tags import Equipment, find_tags
+from estimator.catalogue.tags import Equipment, find_tags, sheet_number_tags
 
 ASSETS = Path(__file__).resolve().parents[3] / "assets"
 REVISIONS = ASSETS / "reading_lists" / "revisions.json"
@@ -366,7 +366,7 @@ def supersede(catalogue, versions: Sequence[SheetVersion],
     kinds = {d.relative: d.kind for d in catalogue.job.documents}
     records = {(p.document, p.page): p for p in catalogue.pages}
     schedules = {(s.document, s.page) for s in catalogue.sheets if "Schedules" in s.types}
-    exclude = frozenset(tag for s in catalogue.sheets if s.number for tag in find_tags(s.number, _equipment()))
+    exclude = sheet_number_tags((s.number for s in catalogue.sheets), _equipment())
     # A marked-up copy of the set (a document repeating most of another's sheets) is not a competing version.
     copies = {(_sheet_number(number), document) for number, document in repeats(catalogue)[1]}
     by_sheet: dict[str, dict[str, SheetVersion]] = defaultdict(dict)

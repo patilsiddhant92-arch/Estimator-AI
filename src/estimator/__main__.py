@@ -235,9 +235,9 @@ def _estimate(args: argparse.Namespace) -> None:
     workers = max(1, min(args.workers, 61, os.cpu_count() or 1))
     cache = args.cache or args.out / ".cache"
     catalogue = catalogue_job(args.job, cache, workers)
-    reading = read_job(catalogue, cache_dir=cache)
     mode = ai_mode(args)
     judge = None if mode == OFF else Judge(cache, mode=mode)
+    reading = read_job(catalogue, cache_dir=cache, judge=judge)   # the judge also reads schedules that are pictures
     job, systems, review_flags = build_job(catalogue, reading, judge, dt.date.today())
     args.out.mkdir(parents=True, exist_ok=True)
     package = write_evidence(args.out / f"{_safe_filename(job.header.quote_number)} Evidence Package.xlsx",

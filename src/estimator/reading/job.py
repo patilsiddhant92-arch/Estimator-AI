@@ -16,7 +16,7 @@ from estimator.reading.schedules import Schedule, read_schedules
 from estimator.reading.sequences import POINTS, SEQUENCE, Backbone, find_backbone
 
 # The categories that need the estimator's eye before pricing; CONFIRMED doesn't.
-NEEDS_A_LOOK = ("DISCREPANCY", "MISSING", "EXTRA", "ORPHANED", "PENDING", "TYPE ONLY", "EXISTING")
+NEEDS_A_LOOK = ("DISCREPANCY", "MISSING", "CONFIRMED-on-plans", "EXTRA", "ORPHANED", "PENDING", "TYPE ONLY", "EXISTING")
 
 
 @dataclass(frozen=True)
@@ -34,14 +34,15 @@ class JobReading:
     flags: tuple[str, ...]
 
 
-def read_job(catalogue, page_opener=None, cache_dir: Path | None = None) -> JobReading:
+def read_job(catalogue, page_opener=None, cache_dir: Path | None = None, judge=None) -> JobReading:
     """Every reading of the job. With no page opener, the job's own PDFs are opened (each once),
     and with a cache folder what was read from each page is kept there for the next run.
 
     Which issue of each sheet governs is decided first, and the schedules, devices and notes are
     read from the governing page of each sheet number only (a typical sheet from its first page),
     so a sheet in both the base set and an addendum, or in a marked-up copy, is counted once. A
-    page that can't be read is skipped and flagged; it never stops the run."""
+    page that can't be read is skipped and flagged; it never stops the run. With the AI judge, a schedule
+    sheet whose schedules are pictures is read by eye, its pictures kept in the cache's schedule-images folder."""
     versions = sheet_versions(catalogue)
     supersessions, revision_flags = supersede(catalogue, versions)
     typicals = typical_sheets(catalogue)
@@ -49,8 +50,10 @@ def read_job(catalogue, page_opener=None, cache_dir: Path | None = None) -> JobR
     page_flags: list[str] = []
     opener = page_opener or PageOpener(catalogue, cache_dir)
     try:
-        schedules = read_schedules(catalogue, opener, pages, page_flags)
-        items, totals, inventory_flags = build_inventory(catalogue, schedules)
+        images = (Path(cache_dir) if cache_dir is not None else Path(judge.cache_dir).parent) / "schedule-images" \
+            if judge is not None else None
+        schedules = read_schedules(catalogue, opener, pages, page_flags, judge, images)
+        items, totals, inventory_flags = build_inventory(catalogue, schedules, typicals, pages)
         legend = read_legend(catalogue, opener, flags=page_flags)
         devices, device_flags = count_devices(catalogue, opener, legend, typicals, pages=pages)
     finally:
@@ -59,7 +62,7 @@ def read_job(catalogue, page_opener=None, cache_dir: Path | None = None) -> JobR
     notes = read_notes(catalogue, pages)
     backbone, backbone_flags = find_backbone(catalogue)
     flags = page_flags + [f"Equipment: {line[0].upper()}{line[1:]}" for line in inventory_flags]
-    flags += device_flags + revision_flags + backbone_flags
+    flags += [t.note for t in typicals] + device_flags + revision_flags + backbone_flags
     return JobReading(tuple(schedules), tuple(items), tuple(totals), tuple(devices), tuple(legend), tuple(typicals),
                       tuple(notes), tuple(versions), tuple(supersessions), tuple(backbone), tuple(flags))
 

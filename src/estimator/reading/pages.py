@@ -142,6 +142,14 @@ class CachedPage:
         tables = self._part("tables", lambda page: [_table_data(t) for t in page.find_tables().tables])
         return SimpleNamespace(tables=[_table(t) for t in tables])
 
+    def get_image_info(self, **kwargs):
+        if kwargs:
+            return self._real().get_image_info(**kwargs)
+        return self._part("images", lambda page: [{"bbox": list(info["bbox"])} for info in page.get_image_info()])
+
+    def get_pixmap(self, **kwargs):
+        return self._real().get_pixmap(**kwargs)
+
 
 class PageOpener:
     """`opener(document, page)` for a catalogued job: each document opened once, and only when a
@@ -170,14 +178,18 @@ class PageOpener:
                 raise RuntimeError(self._failed[document]) from error
         return self._open[document][page - 1]
 
-    def cache_file(self, document: str, page: int, part: str) -> Path | None:
-        if self._cache_dir is None:
-            return None
+    def digest(self, document: str) -> str:
+        """The document's content hash (sha1): what names its cache files and its schedule pictures."""
         if document not in self._digests:
             with open(self._paths[document], "rb") as handle:
                 self._digests[document] = hashlib.file_digest(handle, "sha1").hexdigest()
+        return self._digests[document]
+
+    def cache_file(self, document: str, page: int, part: str) -> Path | None:
+        if self._cache_dir is None:
+            return None
         return (self._cache_dir
-                / f"reading-v{CACHE_VERSION}-pymupdf{_PYMUPDF}-{self._digests[document]}-p{page}-{part}.json")
+                / f"reading-v{CACHE_VERSION}-pymupdf{_PYMUPDF}-{self.digest(document)}-p{page}-{part}.json")
 
     def close(self) -> None:
         for pdf in self._open.values():

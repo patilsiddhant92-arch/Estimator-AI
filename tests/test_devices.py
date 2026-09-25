@@ -146,6 +146,43 @@ def test_a_typical_sheet_on_one_page_says_nothing_about_pages():
     assert typical.note == "Typical plan M-110.00 → floors 10–16: 7 floors. Floor 13 may not exist — check the floor list."
 
 
+def test_a_plan_printed_on_one_page_per_floor_is_counted_once_and_multiplied(opener):
+    """26-0193: M-113.00 "LEVEL 13 TO 22 MECHANICAL PLAN" is the same page ten times, one per floor."""
+    build, open_page = opener
+    title = "LEVEL 13 TO 15 MECHANICAL PLAN"
+    catalogue = build([(PLAN, "M-113.00", title, ("Plans",))] * 3, texts=["same plan"] * 3)
+    [typical] = typical_sheets(catalogue)
+    assert typical.sheet == "M-113.00" and typical.floors == ("13", "14", "15")
+    assert "on 3 pages" in typical.note and "multiplied by 3" in typical.note
+    assert "may not exist" not in typical.note      # a page for floor 13 is there
+    counts, _ = count_devices(catalogue, open_page, [], [typical])
+    [t] = [c for c in counts if c.label == "T"]
+    assert (t.page, t.count, t.floors, t.total) == (1, 3, 3, 9)
+
+
+def test_a_plan_repeated_with_no_floor_range_is_multiplied_by_its_pages(opener):
+    build, open_page = opener
+    catalogue = build([(PLAN, "M-104.00", "MECHANICAL PLAN", ("Plans",))] * 2, texts=["same plan"] * 2)
+    [typical] = typical_sheets(catalogue)
+    assert len(typical.floors) == 2 and "on 2 pages" in typical.note and "multiplied by 2" in typical.note
+    counts, _ = count_devices(catalogue, open_page, [], [typical])
+    assert [c.total for c in counts if c.label == "T"] == [6]
+
+
+def test_a_sheet_number_on_pages_with_different_text_is_not_a_repeated_plan(opener):
+    build, _ = opener
+    catalogue = build([(PLAN, "M-104.00", "MECHANICAL PLAN", ("Plans",))] * 2, texts=["part A", "part B"])
+    assert typical_sheets(catalogue) == []
+
+
+def test_a_typical_plan_can_name_its_floors_as_levels():
+    sheets = (Sheet(DOC, 1, "M-113.00", "LEVEL 13 TO 22 TYPICAL MECHANICAL PLAN", "Mechanical", ("Plans",)),
+              Sheet(DOC, 2, "M-130.00", "LEVELS 30 - 32 MECHANICAL PLAN", "Mechanical", ("Plans",)))
+    pages = tuple(PageRecord(DOC, i, "text", "x", 0, True) for i in (1, 2))
+    found = {t.sheet: t for t in typical_sheets(SimpleNamespace(pages=pages, sheets=sheets))}
+    assert set(found) == {"M-113.00"} and len(found["M-113.00"].floors) == 10
+
+
 def test_no_labels_on_any_plan_is_flagged(opener):
     build, open_page = opener
     catalogue = build([(EMPTY_PLAN, "M-201", "MECHANICAL SECOND FLOOR PLAN", ("Plans",))])

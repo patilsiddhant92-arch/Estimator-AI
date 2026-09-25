@@ -53,6 +53,17 @@ def test_the_job_is_read_end_to_end(job, tmp_path):
     assert "No points list found — the sequence is not cross-checked" in reading.flags
 
 
+def test_a_plan_printed_once_per_floor_multiplies_its_devices_and_says_so(tmp_path):
+    root = tmp_path / "26-9999, 1 Test Street"
+    make_pdf(root / "2. Takeoffs" / "1. Base Takeoff" / "Mech.pdf", _schedule_sheet(), PLAN, PLAN, PLAN)
+    catalogue = catalogue_job(root, tmp_path / "cache")
+    assert not [f for f in catalogue.flags if f.startswith("Sheet M-201")]
+    reading = read_job(catalogue)
+    assert {(d.label, d.total) for d in reading.devices} == {("T", 6), ("OCC", 3)}
+    [typical] = reading.typicals
+    assert typical.note in reading.flags and "multiplied by 3" in typical.note
+
+
 def test_the_reading_lines_are_plain(job, tmp_path):
     lines = reading_lines(read_job(catalogue_job(job, tmp_path / "cache")))
     assert lines[0] == "Equipment: 3 units on the schedules (VAV 3), from 1 schedule; to look at: MISSING 1."
