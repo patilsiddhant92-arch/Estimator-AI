@@ -44,6 +44,15 @@ def test_look_alikes_are_not_tags(text):
     assert find_tags(text, EQUIPMENT) == []
 
 
+def test_a_tag_runs_over_a_line_break_only_in_a_bubble():
+    """26-0193's room labels: "648 SF" on one line and the unit number "01" on the next are not SF-01; a tag
+    bubble, "CU" alone over "1", is CU-1."""
+    assert find_tags("1BR\n648 SF\n01\n2BR\n", EQUIPMENT) == []
+    assert find_tags("ROOF\nCU\n1\nCU \n 2\nEF\n3 TONS", EQUIPMENT) == ["CU-1", "CU-2"]
+    assert find_tags("RISE\nVAV\n5-7\nVAV\n4-2\n", EQUIPMENT) == ["VAV-5-7", "VAV-4-2"]
+    assert find_tags("AHU 1 and EF - 2", EQUIPMENT) == ["AHU-1", "EF-2"]
+
+
 def test_a_sheet_number_with_a_decimal_is_not_a_tag_either_way():
     pages = [_record("plumb.pdf", 1, "SEE P-101 AND P-101.00 FOR PUMP P-1")]
     sheets = {("plumb.pdf", 1): Sheet("plumb.pdf", 1, "P-101.00", "PUMP SCHEDULE", "Plumbing", ("Schedules",))}

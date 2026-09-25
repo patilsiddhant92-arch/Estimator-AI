@@ -16,7 +16,7 @@ from estimator.reading.schedules import Schedule, read_schedules
 from estimator.reading.sequences import POINTS, SEQUENCE, Backbone, find_backbone
 
 # The categories that need the estimator's eye before pricing; CONFIRMED doesn't.
-NEEDS_A_LOOK = ("DISCREPANCY", "MISSING", "EXTRA", "ORPHANED", "PENDING", "TYPE ONLY", "EXISTING")
+NEEDS_A_LOOK = ("DISCREPANCY", "MISSING", "CONFIRMED-on-plans", "EXTRA", "ORPHANED", "PENDING", "TYPE ONLY", "EXISTING")
 
 
 @dataclass(frozen=True)

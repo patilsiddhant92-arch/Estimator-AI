@@ -42,12 +42,21 @@ def _compiled_patterns(prefixes: tuple[str, ...], names: tuple[str, ...]) -> tup
     # One or two words between the prefix and the number: AC-EMR-1, ACCU-LOBBY-2, AC-ATS-1.1.
     word_rest = rf"(?:[A-Z]{{2,8}}[{_DASH}]){{1,2}}\d[A-Z0-9]*(?:[{_DASH}]\d[A-Z0-9]*)*{decimal}"
     letter_rest = rf"[A-Z]{{1,2}}\d*(?:[{_DASH}][A-Z0-9]+)*"
-    sep = rf"(?:\s*(?:[{_DASH}#]|No\.?)\s*|\s)"
+    space = r"[^\S\r\n]"             # a line break only in a tag bubble (below): "648 SF" over room "01" is not SF-01
+    sep = rf"(?:\s*(?:[{_DASH}#]|No\.?)\s*|{space})"
     by_code = re.compile(rf"(?<![A-Za-z0-9])({codes})(?:{sep}?({rest})|[{_DASH}]({word_rest})|[{_DASH}]({letter_rest}))"
                          rf"(?![A-Za-z0-9])")
     names_pat = "|".join(re.escape(n) for n in sorted(names, key=len, reverse=True))
     by_name = re.compile(rf"(?<![A-Za-z])({names_pat})\s*(?:No\.?|#)\s*(\d[A-Z0-9]*)(?![A-Za-z0-9])", re.I)
     return by_code, by_name
+
+
+@lru_cache
+def _bubble_pattern(prefixes: tuple[str, ...]) -> re.Pattern:
+    """A tag drawn in a bubble: the prefix alone on one line, its number alone on the next ("CU" over "1")."""
+    codes = "|".join(re.escape(p) for p in sorted(prefixes, key=len, reverse=True))
+    rest = rf"\d[A-Z0-9]*(?:[{_DASH}][A-Z0-9]+)*(?:\.\d{{1,2}})?"
+    return re.compile(rf"(?m)^[^\S\r\n]*({codes})[^\S\r\n]*\r?\n[^\S\r\n]*({rest})[^\S\r\n]*$")
 
 
 def _canonical(prefix: str, rest: str) -> str:
@@ -58,6 +67,9 @@ def find_tags(text: str, equipment: Equipment, exclude: frozenset[str] = frozens
     by_code, by_name = equipment.patterns()
     found = [(m.start(), _canonical(m.group(1), m.group(2) or m.group(3) or m.group(4))) for m in by_code.finditer(text)]
     found += [(m.start(), _canonical(equipment.names[m.group(1).upper()], m.group(2))) for m in by_name.finditer(text)]
+    if "\n" in text:
+        found += [(m.start(1), _canonical(m.group(1), m.group(2)))
+                  for m in _bubble_pattern(tuple(sorted(equipment.prefixes))).finditer(text)]
     return [tag for _, tag in sorted(found) if tag not in exclude]
 
 

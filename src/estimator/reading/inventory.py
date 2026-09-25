@@ -20,10 +20,13 @@ from estimator.catalogue.tags import Equipment
 from estimator.reading.revisions import governing_pages
 from estimator.reading.schedules import EQUIPMENT, Schedule, header_key, kind_from_title, quantity_header, vocabulary
 
-COUNTED = ("CONFIRMED", "MISSING", "DISCREPANCY")
+ON_PLANS = "CONFIRMED-on-plans"   # a tag series the trade plans show, on no readable schedule: priced, "check"
+ON_PLANS_WHY = "not on a readable schedule — counted from the plans, check"
+COUNTED = ("CONFIRMED", "MISSING", "DISCREPANCY", ON_PLANS)
+TRADE_DISCIPLINES = ("Mechanical", "Controls", "Plumbing")
 FROM_TEXT = "counted from the schedule sheet's text; the table itself couldn't be read — check the count"
 TYPE_PLACED = 3        # labels on the plans (floors counted) that make a scheduled tag a type ...
-TYPE_ON_ONE_SHEET = 2  # ... when one sheet alone holds this many (floors counted): a unit is labelled once a sheet
+TYPE_ON_ONE_SHEET = 3  # ... when one sheet alone holds this many (floors counted): a unit is labelled once or twice
 _DECIMAL_TYPE = re.compile(r"^[A-Z]+-\d+\.\d+$")   # AC-3.0, HRU-4.0: a size, not a unit number
 _A_TYPE = "A type, not one unit"
 _RISER = re.compile(r"\bRISERS?\b", re.I)
@@ -184,8 +187,16 @@ def placements(catalogue, tags: Iterable[str], typicals: Sequence = (),
             continue
         place = sheet.number or f"{_name(record.document)} p.{record.page}"
         bucket = on_risers if riser else on_plans
-        for line in record.text.splitlines():
+        lines = record.text.splitlines()
+        skip = False
+        for n, line in enumerate(lines):
+            if skip:
+                skip = False
+                continue
             tag = keys.get(_label_key(line))
+            if tag is None and n + 1 < len(lines) and re.fullmatch(r"\s*[A-Z]{1,6}\s*", line):
+                tag = keys.get(_label_key(line + lines[n + 1]))      # a tag bubble: "VAV" over "5-7"
+                skip = tag is not None
             if tag is not None:
                 bucket[tag][place] += 1
     return {tag: Placements(dict(on_plans.get(tag, {})), {s: floors.get(s, 1) for s in on_plans.get(tag, {})},
@@ -202,7 +213,8 @@ def _count_in(cell: str | None) -> int | None:
 def _as_type(tag: str, kind: str, schedule: Schedule, row, placed: Placements | None, label: str,
              seen: tuple[str, ...]) -> InventoryItem | None:
     """The row as a type, counted (1.3), or None when it is one unit. It is a type when its tag has a decimal
-    size, when its schedule has a QUANTITY column, or when the plans label it more than once a sheet."""
+    size, when its schedule has a QUANTITY column, or when the plans label it three or more times on one sheet
+    (floors counted)."""
     column = quantity_header(schedule)
     if _DECIMAL_TYPE.match(tag):
         why = f"its tag has a decimal size, {tag}"
@@ -329,6 +341,10 @@ def build_inventory(catalogue, schedules: list[Schedule], typicals: Sequence = (
 
     mentioned: list[str] = []
     placed = placements(catalogue, listings, typicals, pages)
+    on_plans, not_equipment = _plan_families(catalogue, [e for e in catalogue.tags if e.tag not in listings
+                                                         and e.tag not in spec_only and not e.on_schedules],
+                                             scheduled_prefixes)
+    never: list[str] = []
 
     items: list[InventoryItem] = []
     for tag in sorted(set(listings) | set(entries), key=_natural):
@@ -375,6 +391,11 @@ def build_inventory(catalogue, schedules: list[Schedule], typicals: Sequence = (
             items.append(InventoryItem(tag, kind, "PENDING", None, None, seen,
                                        f"On schedule sheet {_list(entry.on_schedules)} but not read from a schedule "
                                        f"table — check the count by eye", "confirm"))
+        elif tag in not_equipment:
+            never.append(tag)
+        elif tag in on_plans:
+            items.append(InventoryItem(tag, kind, ON_PLANS, 1, None, seen, f"Shown on {_list(seen)} — {ON_PLANS_WHY}",
+                                       "confirm"))
         elif entry.times == 1:
             items.append(InventoryItem(tag, kind, "ORPHANED", None, None, seen,
                                        f"Appears only once in the whole set ({_list(seen)}) and on no schedule — "
@@ -406,7 +427,39 @@ def build_inventory(catalogue, schedules: list[Schedule], typicals: Sequence = (
              f"units, so this may be right" for a, b in vocabulary().pairs
              if counts.get(a) and counts.get(b) and counts[a] != counts[b]]
     return (items, totals, pairs + dropped + _new_prefix_flags(schedules) + _from_text_flags(from_text)
-            + _left_out(spec_only, mentioned))
+            + _left_out(spec_only, mentioned, sorted(never, key=_natural)))
+
+
+def _plan_like(sheet) -> bool:
+    """A plan (or a sheet no type was found for, such as 26-0478's P101 "WATER"), never a schedule, detail,
+    diagram or demolition sheet."""
+    return not sheet.types or ("Plans" in sheet.types and not {"Schedules", "Demolition"} & set(sheet.types))
+
+
+def _plan_families(catalogue, entries, scheduled_prefixes) -> tuple[set[str], set[str]]:
+    """Of the tags on no schedule, in families no readable schedule lists (1.5):
+    - on the plans: the tags of a family that the mechanical, controls or plumbing plans show as a series (two or
+      more distinct tags) or on two or more sheets: counted from the plans, to check;
+    - not equipment: every tag of a family seen on no sheet of the trades that carry controls scope, only on
+      architectural, electrical, technology or AV sheets (26-0478's SF-, CH- and CT- tags)."""
+    place = {s.number or f"{_name(s.document)} p.{s.page}": s for s in catalogue.sheets}
+    trade_plans = {p for p, s in place.items() if s.discipline in TRADE_DISCIPLINES and _plan_like(s)}
+    controls = {p for p, s in place.items() if s.discipline in CONTROLS_DISCIPLINES}
+    families: dict[str, list] = defaultdict(list)
+    for entry in entries:
+        prefix = entry.tag.split("-", 1)[0]
+        if prefix not in scheduled_prefixes:
+            families[prefix].append(entry)
+    on_plans: set[str] = set()
+    not_equipment: set[str] = set()
+    for family in families.values():
+        shown = {e.tag: [p for p in e.elsewhere if p in trade_plans] for e in family}
+        shown = {tag: where for tag, where in shown.items() if where}
+        if len(shown) >= 2 or any(len(where) >= 2 for where in shown.values()):
+            on_plans |= set(shown)
+        if not any(p in controls for e in family for p in e.elsewhere):
+            not_equipment |= {e.tag for e in family if any(p in place for p in e.elsewhere)}
+    return on_plans, not_equipment
 
 
 def _from_text_flags(from_text: dict[str, str]) -> list[str]:
@@ -422,7 +475,7 @@ def _compact(text: str) -> str:
     return re.sub(r"[\s\-‐‑–—#.]", "", text).upper()
 
 
-def _left_out(spec_only: list[str], mentioned: list[str], limit: int = 20) -> list[str]:
+def _left_out(spec_only: list[str], mentioned: list[str], never: list[str] = (), limit: int = 20) -> list[str]:
     def shown(tags: list[str]) -> str:
         return ", ".join(tags[:limit]) + (f" … ({len(tags)} in all)" if len(tags) > limit else "")
 
@@ -432,6 +485,9 @@ def _left_out(spec_only: list[str], mentioned: list[str], limit: int = 20) -> li
     if mentioned:
         flags.append("named on a schedule sheet but not as a unit (inside a model number or a note, or a one-letter "
                      f"prefix outside a tag column): {shown(mentioned)}")
+    if never:
+        flags.append(f"named only on architectural, electrical, technology or AV sheets, so not equipment: "
+                     f"{shown(list(never))}")
     return flags
 
 
@@ -510,6 +566,7 @@ def _totals(items: list[InventoryItem], schedules: list[Schedule], equipment: Eq
             "EXISTING": "existing — not new work, not counted",
             "PENDING": "on a schedule sheet but not read from its table — check by eye, not counted",
             "TYPE PENDING": "a type the plans don't label — count by eye, not counted",
+            ON_PLANS: ON_PLANS_WHY,
         }
         for category, text in wording.items():
             n = len(groups.get(category, []))
