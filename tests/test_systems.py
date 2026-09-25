@@ -301,4 +301,4 @@ def test_a_type_only_row_makes_no_system_and_is_flagged_to_count_from_the_plans(
     catalogue, reading = _job(items, schedules, tags=[_tag("VAV-1")])
     assert [b.key for b in build_bundles(catalogue, reading)] == ["VAV"]
     flags = unbundled_flags(reading)
-    assert len(flags) == 1 and flags[0].startswith("Type-only schedule") and flags[0].endswith("count from the plans")
+    assert flags == ["Type-only schedule M-601 DIFFUSER SCHEDULE — count from the plans"]
