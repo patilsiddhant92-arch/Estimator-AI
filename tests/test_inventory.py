@@ -238,8 +238,8 @@ def _type_job():
     from estimator.catalogue.register import PageRecord
     from estimator.reading.devices import TypicalSheet
     places = [("M-701", "MECHANICAL SCHEDULES", ("Schedules",), "SCHEDULES"),
-              ("M-100", "CELLAR PLAN", ("Plans",), "GCF-A\nGCF\nA\nGCF-A\nEUH-1\nTO EUH-1\nRTU-1 ABOVE\nAHU-1"),
-              ("M-101", "LEVEL 01 PLAN", ("Plans",), "AC-3.0\nAC-3.0\nRTU-1\nEUH-1\nEUH-1 (TYP.)\nAHU-1\nAHU-1"),
+              ("M-100", "CELLAR PLAN", ("Plans",), "GCF-A\nGCF\nA\nGCF-A\nGCF-A\nEUH-1\nTO EUH-1\nRTU-1 ABOVE\nAHU-1"),
+              ("M-101", "LEVEL 01 PLAN", ("Plans",), "AC-3.0\nAC-3.0\nRTU-1\nEUH-1\nEUH-1 (TYP.)\nAHU-1\nAHU-1\nAHU-1"),
               ("M-113", "LEVEL 13 TO 22 PLAN", ("Plans",), "AC-3.0\nEUH-1"),
               ("M-611", "REFRIGERANT RISER DIAGRAM", ("Water riser", "Diagrams"), "AC-3.0\nAC-3.0\nAC-3.0"),
               ("E-101", "LEVEL 01 POWER PLAN", ("Plans",), "EUH-1\nEUH-1\nEUH-1")]
@@ -278,18 +278,18 @@ def test_a_type_row_is_counted_from_its_placements_on_the_plans_times_the_floors
     assert got["AC-3.0"].action == "confirm"
     # AC-4.0: a type placed nowhere on the plans: PENDING, never 1.
     assert (got["AC-4.0"].category, got["AC-4.0"].quantity) == ("PENDING", None)
-    # GCF-A is labelled 3 times on one plan: 3 fans of that type.
-    assert (got["GCF-A"].category, got["GCF-A"].quantity) == ("CONFIRMED", 3)
-    assert "labelled 3 times" in got["GCF-A"].reason
+    # GCF-A is labelled 4 times on one plan: 4 fans of that type.
+    assert (got["GCF-A"].category, got["GCF-A"].quantity) == ("CONFIRMED", 4)
+    assert "labelled 4 times" in got["GCF-A"].reason
     # EUH-1: 1 on M-100 ("TO EUH-1" is a note, not a label), 2 on M-101, 1 on M-113 x 10; an electrical plan's
     # labels are that trade's own.
     assert got["EUH-1"].quantity == 13
     # RTU-1 is labelled once per plan: one unit.
     assert (got["RTU-1"].category, got["RTU-1"].quantity) == ("CONFIRMED", 1)
-    # AHU-1 is labelled three times, but twice at most on one sheet (a plan and its enlarged plan): one unit.
+    # AHU-1 is labelled four times, but three at most on one sheet (by its symbol and its thermostats): one unit.
     assert (got["AHU-1"].category, got["AHU-1"].quantity) == ("CONFIRMED", 1)
     scheduled = {t.prefix: t.scheduled for t in totals}
-    assert scheduled == {"AC": 12, "GCF": 3, "EUH": 13, "RTU": 1, "AHU": 1}
+    assert scheduled == {"AC": 12, "GCF": 4, "EUH": 13, "RTU": 1, "AHU": 1}
 
 
 def test_a_schedules_quantity_column_gives_a_types_count():

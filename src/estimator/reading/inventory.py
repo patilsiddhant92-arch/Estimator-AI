@@ -28,7 +28,8 @@ TRADE_DISCIPLINES = ("Mechanical", "Controls", "Plumbing")
 FROM_TEXT = "counted from the schedule sheet's text; the table itself couldn't be read — check the count"
 READ_BY_EYE = "read by eye from a picture of the schedule — check the count"
 TYPE_PLACED = 3        # labels on the plans (floors counted) that make a scheduled tag a type ...
-TYPE_ON_ONE_SHEET = 3  # ... when one sheet alone holds this many (floors counted): a unit is labelled once or twice
+TYPE_ON_ONE_SHEET = 4  # ... when one sheet alone holds this many (floors counted): a unit's tag can sit by its
+                       # symbol and by its thermostat too (26-0478's UH-1, three times on H101)
 _DECIMAL_TYPE = re.compile(r"^[A-Z]+-\d+\.\d+$")   # AC-3.0, HRU-4.0: a size, not a unit number
 _A_TYPE = "A type, not one unit"
 _RISER = re.compile(r"\bRISERS?\b", re.I)
@@ -215,7 +216,7 @@ def _count_in(cell: str | None) -> int | None:
 def _as_type(tag: str, kind: str, schedule: Schedule, row, placed: Placements | None, label: str,
              seen: tuple[str, ...]) -> InventoryItem | None:
     """The row as a type, counted (1.3), or None when it is one unit. It is a type when its tag has a decimal
-    size, when its schedule has a QUANTITY column, or when the plans label it three or more times on one sheet
+    size, when its schedule has a QUANTITY column, or when the plans label it four or more times on one sheet
     (floors counted)."""
     column = quantity_header(schedule)
     if _DECIMAL_TYPE.match(tag):
