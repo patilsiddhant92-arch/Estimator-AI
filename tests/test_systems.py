@@ -170,7 +170,7 @@ def test_type_only_schedules_make_no_bundle_and_are_flagged():
     bundles = build_bundles(catalogue, reading)
     assert [(b.key, b.families[0].tags) for b in bundles] == [("VAV", ("VAV-1",))]
     assert bundles[0].families[0].categories == {"CONFIRMED": 1}
-    assert unbundled_flags(reading) == ["Type-only schedule VAV TYPE SCHEDULE — count from the plans"]
+    assert unbundled_flags(reading) == ["Type-only schedule M-601 VAV TYPE SCHEDULE — count from the plans"]
 
 
 def test_pending_tags_make_a_bundle_with_no_quantity():
