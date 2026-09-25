@@ -1,0 +1,40 @@
+{
+  "about": "The bid check's reading list (design §8). Everything is matched ignoring case, except a name marked exact_case (because in lower case it is an ordinary word). not_controls_words mark a passage as being about security, life-safety or another non-HVAC system — outside a controls spec section, a passage matching one of these doesn't count as a controls mention, even if it also uses a controls word like BMS. Add a manufacturer here, never in code.",
+  "platforms_we_bid": [
+    {"name": "Honeywell WEBs", "patterns": ["\\bWEBs(?:[- ]?N4)?\\b", "\\bWEBStation\\b"]},
+    {"name": "Johnson Controls FX", "patterns": ["\\bJohnson\\s+Controls\\b[^\\n]{0,60}?\\bFX\\b", "\\bFX\\s?(?:Server|Supervisory|Supervisor|Workbench|PCG|PCX|PCV|PCA|80|90)\\b", "\\bFacility\\s+Explorer\\b"]},
+    {"name": "Niagara N4", "patterns": ["\\bNiagara\\b", "\\bTridium\\b", "\\bN4\\s+Framework\\b"]}
+  ],
+  "on_an_approved_list": [
+    {"name": "Honeywell", "patterns": ["\\bHoneywell\\b"], "not_ours": "not WEBs"},
+    {"name": "Johnson Controls", "patterns": ["\\bJohnson\\s+Controls\\b", "\\bJCI\\b"], "not_ours": "not FX"}
+  ],
+  "other_manufacturers": [
+    {"name": "Siemens", "patterns": ["\\bSiemens\\b"]},
+    {"name": "Automated Logic", "patterns": ["\\bAutomated\\s+Logic\\b"]},
+    {"name": "Distech Controls", "patterns": ["\\bDistech\\b"]},
+    {"name": "Delta Controls", "patterns": ["\\bDelta\\s+Controls\\b"]},
+    {"name": "Alerton", "patterns": ["\\bAlerton\\b"]},
+    {"name": "KMC Controls", "patterns": ["\\bKMC\\b"]},
+    {"name": "Trane", "patterns": ["\\bTrane\\b"]},
+    {"name": "Carrier", "patterns": ["\\bCarrier\\b(?!\\s+Sense)"], "exact_case": true},
+    {"name": "Schneider Electric", "patterns": ["\\bSchneider\\b", "\\bAndover\\b", "\\bEcoStruxure\\b"]},
+    {"name": "Reliable Controls", "patterns": ["\\bReliable\\s+Controls\\b"], "exact_case": true},
+    {"name": "Johnson Controls Metasys", "patterns": ["\\bMetasys\\b"]},
+    {"name": "Rockwell Automation (Allen-Bradley)", "patterns": ["\\bRockwell\\b", "\\bAllen[- ]Bradley\\b"]},
+    {"name": "American Auto-Matrix", "patterns": ["\\bAuto-?Matrix\\b"]},
+    {"name": "Carel", "patterns": ["\\bCarel\\b"]},
+    {"name": "Crestron", "patterns": ["\\bCrestron\\b"]},
+    {"name": "Emerson", "patterns": ["\\bEmerson\\b"]}
+  ],
+  "controls_words": ["\\bBMS\\b", "\\bBAS\\b", "\\bDDC\\b", "(?-i:\\bPLC\\b)", "building\\s+automation", "building\\s+management", "temperature\\s+control(?!ler)", "direct\\s+digital", "controls\\s+work"],
+  "not_controls_words": ["access\\s+control", "card\\s+readers?", "\\bsecurity\\b", "intrusion", "video\\s+surveillance", "\\bCCTV\\b", "fire\\s+alarm"],
+  "list_words": ["acceptable\\s+manufacturers?", "approved\\s+manufacturers?", "available\\s+manufacturers?", "manufacturers?\\s*:", "one\\s+of\\s+the\\s+following", "subject\\s+to\\s+compliance"],
+  "sole_words": ["no\\s+substitutions?", "sole[- ]source", "no\\s+other\\s+(?:manufacturer|system|vendor)s?", "substitutions\\s+will\\s+not\\s+be\\s+(?:accepted|permitted|considered)", "substitutions?\\s+(?:are|is)\\s+not\\s+permitted", "proprietary\\s+specification"],
+  "basis_words": ["basis[\\s-]+of[\\s-]+design"],
+  "unacceptable_words": ["\\bunacceptable\\b", "not\\s+acceptable"],
+  "requires_words": ["shall\\s+be(?!\\s+(?:removed|replaced|demolished|relocated|discontinued|decommissioned|abandoned|reused|turned\\s+over|capable))", "extension\\s+of\\s+the\\s+existing"],
+  "system_heading_words": ["control\\s+system", "\\bBAS\\b", "\\bBMS\\b", "building\\s+automation", "DDC\\s+system", "system\\s+manufacturers?"],
+  "plc_context_words": ["\\bBMS\\b", "\\bBAS\\b", "(?-i:\\bPLC\\b)", "\\bDDC\\b", "building\\s+automation"],
+  "component_heading_words": ["sensors?", "transmitters?", "\\bvalves?\\b", "dampers?", "actuators?", "meters?", "\\bwire\\b", "\\bcable\\b", "access\\s+control", "card\\s+readers?", "\\bsecurity\\b", "\\bvideo\\b", "intrusion", "fire\\s+alarm"]
+}

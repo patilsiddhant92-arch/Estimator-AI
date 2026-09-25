@@ -3,6 +3,7 @@
     python -m estimator build JOB.json --out FOLDER
     python -m estimator import-sent PROPOSAL.docx WORKUP.xlsx --out JOB.json
     python -m estimator price-check GENERATED.xlsx SENT.xlsx --out REPORT.md
+    python -m estimator catalogue JOB_FOLDER --out FOLDER
 """
 from __future__ import annotations
 
@@ -15,6 +16,8 @@ from pathlib import Path
 from docx.opc.exceptions import PackageNotFoundError
 from pydantic import ValidationError
 
+from estimator.catalogue.job import catalogue_job, summary_lines
+from estimator.evidence.workbook import write_evidence
 from estimator.files import open_docx
 from estimator.price_sheet.check import price_check
 from estimator.price_sheet.price_book import PriceBook
@@ -53,6 +56,11 @@ def _parser() -> argparse.ArgumentParser:
     check.add_argument("generated", type=Path)
     check.add_argument("sent", type=Path)
     check.add_argument("--out", type=Path, required=True)
+
+    catalogue = commands.add_parser("catalogue", help="check the job can be bid, and catalogue every page")
+    catalogue.add_argument("job", type=Path)
+    catalogue.add_argument("--out", type=Path, required=True)
+    catalogue.add_argument("--workers", type=int, default=min(4, os.cpu_count() or 1))
     return parser
 
 
@@ -177,6 +185,13 @@ def _run(args: argparse.Namespace) -> int:
         args.out.parent.mkdir(parents=True, exist_ok=True)
         args.out.write_text(price_check(args.generated, args.sent, book, args.generated.stem), encoding="utf-8")
         print(f"Wrote {args.out}")
+    elif args.command == "catalogue":
+        workers = max(1, min(args.workers, 61, os.cpu_count() or 1))
+        result = catalogue_job(args.job, args.out / ".cache", workers)
+        package = write_evidence(args.out / f"{_safe_filename(result.job.name)} Evidence Package.xlsx", result)
+        for line in summary_lines(result):
+            print(line)
+        print(f"Wrote {package}")
     return 0
 
 
@@ -197,6 +212,8 @@ def main(argv: list[str] | None = None) -> int:
     except ValueError as error:
         # TemplateError, ProposalFormatError, PriceSheetError, and the price book's own
         # ValueError are all plain-words already — nothing more to translate.
+        print(f"Stopped: {error}", file=sys.stderr)
+    except Exception as error:  # last resort: a plain word or two, never a Python traceback
         print(f"Stopped: {error}", file=sys.stderr)
     return 1
 
