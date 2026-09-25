@@ -44,6 +44,14 @@ class JobResult:
     scope_systems: int = 0                 # other systems to connect to
     scope_who: int = 0                     # who-does-what lines
     scope_rows: tuple[tuple[str, str, str, str], ...] = ()   # every Found scope review row: section, item, quote, sheet
+    units: int = 0                                          # Reading: units on the schedules
+    families: tuple[tuple[str, int], ...] = ()              # (tag prefix, units scheduled)
+    needing_a_look: tuple[tuple[str, int], ...] = ()        # (category, items), every category but CONFIRMED
+    device_labels: tuple[tuple[str, int], ...] = ()         # (label, total on the plans), most first
+    typicals: int = 0
+    controls_notes: int = 0
+    supersessions: int = 0
+    backbone: str = "none / none"                           # sequence / points list: where each was found, by kind
 
 
 def missing_from_documents_tab(job) -> tuple[str, ...]:
@@ -67,7 +75,35 @@ def missing_from_documents_tab(job) -> tuple[str, ...]:
     return tuple(missing)
 
 
-def measure(catalogue) -> JobResult:
+def _reading_fields(reading) -> dict:
+    if reading is None:
+        return {}
+    from estimator.reading.job import device_labels, families, needing_a_look
+    from estimator.reading.sequences import POINTS, SEQUENCE
+
+    def kinds(what: str) -> str:
+        found = list(dict.fromkeys(b.kind for b in reading.backbone if b.what == what and not b.duplicate_of))
+        return ", ".join(found) or "none"
+
+    fam = tuple(families(reading))
+    return dict(units=sum(n for _, n in fam), families=fam, needing_a_look=tuple(needing_a_look(reading)),
+                device_labels=tuple(device_labels(reading)), typicals=len(reading.typicals),
+                controls_notes=sum(1 for n in reading.notes if n.controls), supersessions=len(reading.supersessions),
+                backbone=f"{kinds(SEQUENCE)} / {kinds(POINTS)}")
+
+
+def _pairs(pairs, limit: int = 8) -> str:
+    pairs = list(pairs)
+    return ", ".join(f"{a} {n}" for a, n in pairs[:limit]) + (" …" if len(pairs) > limit else "") if pairs else "—"
+
+
+def reading_row(key: str, result: JobResult) -> str:
+    return (f"| {key} | {result.units} | {_pairs(result.families)} | {_pairs(result.needing_a_look)} "
+            f"| {_pairs(result.device_labels)} | {result.typicals} | {result.controls_notes} | {result.supersessions} "
+            f"| {result.backbone} |")
+
+
+def measure(catalogue, reading=None) -> JobResult:
     from estimator.catalogue.job import CONTROLS_DISCIPLINES, scope_review_counts
     pages, sheets = catalogue.pages, catalogue.sheets
     relevant = [s for s in sheets if s.discipline in CONTROLS_DISCIPLINES]
@@ -90,7 +126,8 @@ def measure(catalogue) -> JobResult:
         overview_makers=len(overview.makers), overview_ame=sum(1 for m in overview.makers if m.ame_quotes),
         overview_protocols=protocols, overview_not_found=len(overview.not_found),
         overview_maker_names=tuple(m.maker for m in overview.makers),
-        scope_exclusions=exclusions, scope_systems=systems, scope_who=who, scope_rows=scope_rows)
+        scope_exclusions=exclusions, scope_systems=systems, scope_who=who, scope_rows=scope_rows,
+        **_reading_fields(reading))
 
 
 def _has_scope_row(rows, want: dict) -> bool:
@@ -135,6 +172,12 @@ def misses(result: JobResult, expected: dict) -> list[str]:
         if not _has_scope_row(result.scope_rows, want):
             found.append(f"{want['section']}: {_scope_row_words(want)} was expected in the Spec overview, "
                          f"but the check didn't find it")
+    scheduled = dict(result.families)
+    for prefix, want in expected.get("families_include", {}).items():
+        got = scheduled.get(prefix)
+        if got != want:
+            found.append(f"{want} {prefix} units were expected on the schedules, but the reading found "
+                         f"{got if got else 'none'}")
     if result.sheets:
         share = result.numbered / result.sheets
         if share < expected["sheet_numbers_at_least"]:
@@ -175,6 +218,7 @@ def main(argv: list[str] | None = None) -> int:
     from estimator.catalogue.job import catalogue_job, summary_lines
     from estimator.catalogue.tags import Equipment, unlisted_prefixes
     from estimator.evidence.workbook import write_evidence
+    from estimator.reading.job import read_job, reading_lines
 
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8")
@@ -189,16 +233,20 @@ def main(argv: list[str] | None = None) -> int:
              "| Bid check | Other manufacturers | Tags | Misses |", "|" + "---|" * 12]
     overview_lines = ["| Job | Manufacturers named | AME gets prices for | Protocols found | Not found (count) "
                       "| Exclusions asked for | Systems to connect | Who-does-what lines |", "|" + "---|" * 8]
+    reading_table = ["| Job | Scheduled units | Families | Categories needing a look | Device labels counted "
+                     "| Typical sheets | Controls notes | Supersessions | Sequence / points |", "|" + "---|" * 9]
     total_misses, unlisted = 0, {}
     equipment = Equipment.load()
     for key in keys:
         folder = find_job(learn, key)
         print(f"Cataloguing {key} …", flush=True)
         catalogue = catalogue_job(folder, OUT / ".cache", args.workers)
-        write_evidence(OUT / key / f"{key} Evidence Package.xlsx", catalogue)
-        for line in summary_lines(catalogue):
+        reading = read_job(catalogue, cache_dir=OUT / ".cache")
+        write_evidence(OUT / key / f"{key} Evidence Package.xlsx", catalogue, reading)
+        for line in summary_lines(catalogue) + reading_lines(reading):
             print("   " + line)
-        result = measure(catalogue)
+        result = measure(catalogue, reading)
+        reading_table.append(reading_row(key, result))
         found = misses(result, expectations["jobs"][key])
         total_misses += len(found)
         for prefix, n in unlisted_prefixes((p.text for p in catalogue.pages), equipment).items():
@@ -213,6 +261,7 @@ def main(argv: list[str] | None = None) -> int:
                               f"| {result.scope_exclusions} | {result.scope_systems} | {result.scope_who} |")
     common = sorted(unlisted.items(), key=lambda kv: -kv[1])[:25]
     lines += ["", "Spec overview", ""] + overview_lines
+    lines += ["", "Reading", ""] + reading_table
     lines += ["", "Tag-shaped codes whose prefix isn't in assets/reading_lists/equipment.json yet (most common first):",
               ", ".join(f"{p} ×{n}" for p, n in common) or "none"]
     report = "\n".join(lines) + "\n"

@@ -161,3 +161,88 @@ def test_the_standard_exclusions_the_job_asks_for_are_on_the_tab(tmp_path):
     assert flow[1].value == "Found" and flow[1].fill.fgColor.rgb == "00C6EFCE"
     assert flow[3].value == "Controls spec"
     assert flow[4].value.startswith("The BMS contractor shall furnish and install all water flow meters")
+
+
+# The reading of the job (build step 4): its tabs follow the Spec overview.
+
+def _reading():
+    from datetime import date
+
+    from estimator.reading.devices import DeviceCount, LegendEntry, TypicalSheet
+    from estimator.reading.inventory import FamilyTotal, InventoryItem
+    from estimator.reading.job import JobReading
+    from estimator.reading.keynotes import Note
+    from estimator.reading.revisions import Change, Issue, SheetVersion, Supersession
+    from estimator.reading.schedules import Schedule, ScheduleRow
+    from estimator.reading.sequences import Backbone
+
+    doc = "2. Takeoffs/1. Base Takeoff/Mech.pdf"
+    rows = (ScheduleRow("VAV-1", {"TAG": "VAV-1"}, "TITUS", "DESV"), ScheduleRow("VAV-2", {"TAG": "VAV-2"}, "TITUS", "DESV"))
+    schedule = Schedule(doc, 1, "M-601", "VAV BOX SCHEDULE", ("TAG",), rows, False, ("1. DDC BY TCC.",), ("DDC BY TCC.",))
+    items = (InventoryItem("VAV-1", "Variable Air Volume Box", "CONFIRMED", 1, "M-601 VAV BOX SCHEDULE", ("M-201",),
+                           "On the schedule (M-601) and on 1 other drawing sheet (M-201)", ""),
+             InventoryItem("VAV-2", "Variable Air Volume Box", "MISSING", 1, "M-601 VAV BOX SCHEDULE", (),
+                           "On the schedule only; no plan shows it — confirm before pricing", "confirm"),
+             InventoryItem("AHU-9", "Air Handling Unit", "EXISTING", 0, "M-601 AHU SCHEDULE", (), "Marked existing", "confirm"))
+    totals = (FamilyTotal("Variable Air Volume Box", "VAV", 2, "VAV-1, VAV-2", ("1 on the schedule only; no plan shows it",)),)
+    devices = (DeviceCount("M-201", doc, 2, "Occupancy sensor", "OCC", 3, 7, 21, True),)
+    legend = (LegendEntry("OCC", "OCCUPANCY SENSOR", "M-002"),)
+    typicals = (TypicalSheet("M-201", "10TH-16TH FLOOR PLAN TYPICAL", tuple(str(n) for n in range(10, 17)),
+                             "Typical plan M-201 → floors 10–16: 7 floors. Floor 13 may not exist — check the floor list."),)
+    notes = (Note("M-201", doc, 2, "KEY NOTES", "2", "DUCT DOWN TO UNIT.", False, ""),
+             Note("M-201", doc, 2, "KEY NOTES", "1", "PROVIDE STATIC PRESSURE SENSOR BY OTHERS.", True, "by others"))
+    old = SheetVersion("M-201", doc, 2, (Issue("3", "ISSUED FOR BID", date(2025, 2, 12)),), date(2025, 2, 12), "title block")
+    new = SheetVersion("M-201", "Addendum 1.pdf", 1, (Issue("4", "ADDENDUM #1", date(2025, 2, 26)),), date(2025, 2, 26),
+                       "title block")
+    change = Change("M-201", "tag added", "", "VAV-3", True)
+    supersession = Supersession("M-201", new, (old,), (change,), "M-201: ADDENDUM #1 (02/26/25) replaces ISSUED FOR BID "
+                                                                 "(02/12/25) — 1 change, 1 affects controls")
+    backbone = (Backbone("Sequence of operation", "23 09 93 SEQUENCE OF OPERATIONS (Specs.pdf, pages 40–75)",
+                         "Specs.pdf", 40, 75, "spec section"),)
+    return JobReading((schedule,), items, totals, devices, legend, typicals, notes, (old, new), (supersession,), backbone,
+                      ("No points list found — the sequence is not cross-checked",))
+
+
+def test_the_reading_tabs_follow_the_spec_overview(tmp_path):
+    from estimator.evidence.workbook import READING_TABS
+    out = write_evidence(tmp_path / "e.xlsx", _catalogue(), _reading())
+    names = openpyxl.load_workbook(out).sheetnames
+    assert names == [TABS[0], TABS[1], *READING_TABS, *TABS[2:]]
+    assert READING_TABS == ("Equipment", "Schedules", "Devices on plans", "Notes", "Changes", "Sequence and points")
+
+
+def test_the_equipment_tab_shows_the_totals_then_every_item_coloured(tmp_path):
+    ws = openpyxl.load_workbook(write_evidence(tmp_path / "e.xlsx", _catalogue(), _reading()))["Equipment"]
+    rows = _values(ws)
+    total = rows.index(next(r for r in rows if r[0] == "Variable Air Volume Box"))
+    item = rows.index(next(r for r in rows if r[0] == "VAV-2"))
+    assert total < item
+    assert rows[total][:3] == ["Variable Air Volume Box", "VAV", 2]
+    fills = {r[0].value: r[2].fill.fgColor.rgb for r in ws.iter_rows() if r[0].value in ("VAV-1", "VAV-2", "AHU-9")}
+    assert fills == {"VAV-1": "00C6EFCE", "VAV-2": "00FFEB9C", "AHU-9": "00D9D9D9"}
+    vav2 = next(r for r in rows if r[0] == "VAV-2")
+    assert vav2[1:7] == ["Variable Air Volume Box", "MISSING", "On the schedule only; no plan shows it — confirm before pricing",
+                         "M-601 VAV BOX SCHEDULE", None, "confirm"]
+
+
+def test_the_other_reading_tabs(tmp_path):
+    wb = openpyxl.load_workbook(write_evidence(tmp_path / "e.xlsx", _catalogue(), _reading()))
+    schedules = _values(wb["Schedules"])
+    assert schedules[1][:4] == ["VAV BOX SCHEDULE", "M-601", 2, "DDC BY TCC."]
+    devices = _values(wb["Devices on plans"])
+    assert ["M-201", "Occupancy sensor", "OCC", 3, 7, 21, "yes"] in [r[:7] for r in devices]
+    assert any(r[0] == "OCC" and r[1] == "OCCUPANCY SENSOR" for r in devices)
+    assert any(str(r[0]).startswith("Typical plan M-201") for r in devices)
+    notes = _values(wb["Notes"])
+    assert notes[1][4] == "PROVIDE STATIC PRESSURE SENSOR BY OTHERS." and notes[2][4] == "DUCT DOWN TO UNIT."
+    changes = _values(wb["Changes"])
+    assert any(str(r[0]).startswith("M-201: ADDENDUM #1") for r in changes)
+    assert any(r[:5] == ["M-201", "tag added", None, "VAV-3", "yes"] for r in changes)
+    sequence = _values(wb["Sequence and points"])
+    assert sequence[1][:2] == ["Sequence of operation", "23 09 93 SEQUENCE OF OPERATIONS (Specs.pdf, pages 40–75)"]
+    flags = [r[0] for r in _values(wb["Flags"])]
+    assert "No points list found — the sequence is not cross-checked" in flags
+
+
+def test_without_a_reading_the_workbook_is_as_before(tmp_path):
+    assert openpyxl.load_workbook(write_evidence(tmp_path / "e.xlsx", _catalogue())).sheetnames == list(TABS)

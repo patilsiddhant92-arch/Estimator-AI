@@ -202,3 +202,22 @@ def test_the_quote_number_is_sanitised_for_the_file_name(small_job, tmp_path):
     assert (out / "26-04-7 Proposal.docx").exists()
     assert (out / "26-04-7 Price Sheet.xlsx").exists()
     assert list(out.iterdir()) == sorted(out.iterdir())   # no stray subfolder from the "/"
+
+
+def test_the_catalogue_command_reads_the_job_and_prints_the_reading(tmp_path, capsys):
+    import openpyxl
+
+    from pdfs import FILLER, Page, make_pdf
+
+    root = tmp_path / "26-9999, 1 Test Street"
+    plan = Page(width=3024, height=2160, texts=((200, 300, FILLER, 12), (900, 900, "OCC", 12),
+                                                (2640, 1860, "FLOOR PLAN", 20), (2800, 2000, "M-101", 40)))
+    make_pdf(root / "2. Takeoffs" / "1. Base Takeoff" / "Mech.pdf", plan)
+    out = tmp_path / "out"
+    assert main(["catalogue", str(root), "--out", str(out), "--workers", "1"]) == 0
+    printed = capsys.readouterr().out
+    assert "Devices on the plans: OCC 1;" in printed
+    assert "Sequence and points list — sequence of operation: none found" in printed
+    names = openpyxl.load_workbook(out / "26-9999 Evidence Package.xlsx").sheetnames
+    assert names[2] == "Equipment"
+    assert list((out / ".cache").glob("reading-v*-words.json"))

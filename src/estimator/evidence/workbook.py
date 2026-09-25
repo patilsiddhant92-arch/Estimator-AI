@@ -16,10 +16,15 @@ from estimator.catalogue.job import Catalogue
 from estimator.catalogue.overview import (FOUND, RULED_OUT, STANDARD_CLARIFICATION, STANDARD_EXCLUSION,
                                           short_place)
 from estimator.catalogue.qualify import where
+from estimator.reading.job import JobReading
 
 TABS = ("Bid check", "Spec overview", "Flags", "Documents", "Pages", "Sheets", "Spec sections", "Equipment tags")
+# The reading of the job (build step 4), written after the Spec overview when a reading is given.
+READING_TABS = ("Equipment", "Schedules", "Devices on plans", "Notes", "Changes", "Sequence and points")
 _GREEN = PatternFill("solid", fgColor="C6EFCE")
 _AMBER = PatternFill("solid", fgColor="FFEB9C")
+_GREY = PatternFill("solid", fgColor="D9D9D9")
+_CATEGORY_FILL = {"CONFIRMED": _GREEN, "EXISTING": _GREY}   # every other category needs a look: amber
 _STATUS_FILL = {FOUND: _GREEN, RULED_OUT: _AMBER}
 _KIND = {"drawings": "Drawings", "specs": "Specs", "addendum": "Addendum", "rfi": "RFI", "other": "Other",
          "unreadable": "Could not be opened", "password": "Password-protected"}
@@ -39,12 +44,15 @@ def _append(ws, row: list) -> None:
             cell.data_type = "s"
 
 
-def write_evidence(path: Path, catalogue: Catalogue) -> Path:
+def write_evidence(path: Path, catalogue: Catalogue, reading: JobReading | None = None) -> Path:
     workbook = Workbook()
     workbook.remove(workbook.active)
     _bid_check(workbook.create_sheet(TABS[0]), catalogue)
     _spec_overview(workbook.create_sheet(TABS[1]), catalogue)
-    _table(workbook.create_sheet(TABS[2]), ["What to look at"], [[f] for f in catalogue.flags] or [["Nothing to flag."]])
+    if reading is not None:
+        _write_reading(workbook, reading)
+    flags = list(catalogue.flags) + list(reading.flags if reading is not None else ())
+    _table(workbook.create_sheet(TABS[2]), ["What to look at"], [[f] for f in flags] or [["Nothing to flag."]])
     _table(workbook.create_sheet(TABS[3]), ["Document", "What it is", "Revision", "Pages", "Same file as"],
            [[d.relative, _KIND[d.kind], d.revision, d.pages, d.duplicate_of] for d in catalogue.job.documents]
            + [[folder, "Left out — AME's own work, not a bid document", None, None, None] for folder in catalogue.job.left_out]
@@ -281,3 +289,114 @@ def _table(ws, headings: list[str], rows: list[list]) -> None:
     for index, heading in enumerate(headings, start=1):
         longest = max([len(heading)] + [len(str(r[index - 1])) for r in rows if r[index - 1] is not None])
         ws.column_dimensions[get_column_letter(index)].width = min(longest + 2, _WIDEST)
+
+
+# ---- the reading of the job (build step 4) --------------------------------------------------------
+
+def _yes(value: bool) -> str:
+    return "yes" if value else "no"
+
+
+def _widths(ws, widths: list[int]) -> None:
+    for index, width in enumerate(widths, start=1):
+        ws.column_dimensions[get_column_letter(index)].width = width
+
+
+def _write_reading(workbook, reading: JobReading) -> None:
+    _equipment(workbook.create_sheet(READING_TABS[0]), reading)
+    _table(workbook.create_sheet(READING_TABS[1]),
+           ["Schedule", "Sheet", "Units listed", "Who provides the unit controller (the schedule's notes)",
+            "Types only, no unit tags", "Document", "Page"],
+           [[s.title, s.sheet, len(s.rows), "\n".join(s.controls_by) or None, _yes(s.type_only), s.document, s.page]
+            for s in reading.schedules] or [["No schedule read from the drawings", None, None, None, None, None, None]])
+    _devices(workbook.create_sheet(READING_TABS[2]), reading)
+    notes = sorted(reading.notes, key=lambda n: not n.controls)
+    _table(workbook.create_sheet(READING_TABS[3]),
+           ["Sheet", "Notes block", "Number", "Adds controls scope", "Note", "Who does it", "Placements on the plan",
+            "Document", "Page"],
+           [[n.sheet, n.block, n.number, _yes(n.controls), n.text, n.who or None, "not counted", n.document, n.page]
+            for n in notes] or [["No keyed or general notes found on the drawings"] + [None] * 8])
+    _changes(workbook.create_sheet(READING_TABS[4]), reading)
+    _table(workbook.create_sheet(READING_TABS[5]),
+           ["What", "Where", "Kind", "Document", "First page", "Last page", "Same text as"],
+           [[b.what, b.where, b.kind, b.document, b.first_page, b.last_page, b.duplicate_of] for b in reading.backbone]
+           or [["Nothing found", "No sequence of operation or points list in the specs or on the drawings",
+                None, None, None, None, None]])
+
+
+def _equipment(ws, reading: JobReading) -> None:
+    _section_heading(ws, "Units on the schedules, by kind")
+    _append(ws, ["The schedule is the source of quantities: one row per unit. The other drawing sheets check it; "
+                "a unit they don't confirm is flagged, never counted silently."])
+    _headings(ws, ["What it is", "Tag prefix", "Units scheduled", "Tags", "To look at"])
+    for total in reading.totals:
+        _append(ws, [total.kind, total.prefix, total.scheduled, total.tags, "\n".join(total.flags) or None])
+    if not reading.totals:
+        _append(ws, ["No units read from a schedule."])
+    _append(ws, [])
+    _section_heading(ws, "Every item")
+    _headings(ws, ["Tag", "What it is", "Category", "Why", "Schedule", "Also appears on", "Action", "Quantity"])
+    for item in reading.inventory:
+        _append(ws, [item.tag, item.kind, item.category, item.reason, item.schedule, ", ".join(item.seen_on) or None,
+                    item.action or None, item.quantity])
+        ws.cell(ws.max_row, 3).fill = _CATEGORY_FILL.get(item.category, _AMBER)
+        ws.cell(ws.max_row, 4).alignment = Alignment(wrap_text=True, vertical="top")
+    if not reading.inventory:
+        _append(ws, ["No equipment tags found."])
+    _widths(ws, [30, 14, 16, 60, 34, 34, 16, 10])
+
+
+def _devices(ws, reading: JobReading) -> None:
+    _section_heading(ws, "Device labels counted on the plans")
+    _append(ws, ["Each label counted where it stands on a plan sheet of the trades that carry controls scope, "
+                "outside the title block; a typical plan counts once per floor."])
+    _headings(ws, ["Sheet", "Device", "Label", "Count on the sheet", "Floors", "Total", "In the job's legend",
+                   "Document", "Page"])
+    has_legend = bool(reading.legend)
+    for d in reading.devices:
+        _append(ws, [d.sheet, d.device, d.label, d.count, d.floors, d.total,
+                    _yes(d.in_legend) if has_legend else "no legend in the set", d.document, d.page])
+    if not reading.devices:
+        _append(ws, ["No device labels found on the plans."])
+    _append(ws, [])
+    _section_heading(ws, "The job's legend")
+    _headings(ws, ["Code", "What it means", "Sheet"])
+    for entry in reading.legend:
+        _append(ws, [entry.code, entry.meaning, entry.sheet])
+    if not has_legend:
+        _append(ws, ["No legend sheet found."])
+    _append(ws, [])
+    _section_heading(ws, "Typical floor plans")
+    _headings(ws, ["What it says", "Sheet", "Title", "Floors"])
+    for typical in reading.typicals:
+        _append(ws, [typical.note, typical.sheet, typical.title, len(typical.floors)])
+    if not reading.typicals:
+        _append(ws, ["No typical floor plan found."])
+    _widths(ws, [44, 34, 12, 18, 10, 10, 22, 50, 8])
+
+
+_READ_FROM = {"title block": "the title block", "document is an addendum": "the document is an addendum",
+              "unknown": "not found"}
+
+
+def _changes(ws, reading: JobReading) -> None:
+    _section_heading(ws, "Sheets replaced by a later issue — the latest date governs")
+    if not reading.supersessions:
+        _append(ws, ["No sheet is in more than one issue — nothing replaced."])
+    for supersession in reading.supersessions:
+        _append(ws, [supersession.note])
+        ws.cell(ws.max_row, 1).font = _BOLD
+        _headings(ws, ["Sheet", "What changed", "Was", "Now", "Affects controls"])
+        for change in supersession.changes:
+            _append(ws, [change.sheet, change.what, change.old or None, change.new or None,
+                        _yes(change.affects_controls)])
+        _append(ws, [])
+    _append(ws, [])
+    _section_heading(ws, "The issues each sheet's title block lists")
+    _headings(ws, ["Sheet", "Latest issue", "Latest date", "Read from", "Document", "Page"])
+    for version in reading.versions:
+        last = version.issues[-1] if version.issues else None
+        _append(ws, [version.sheet, last.description if last else None,
+                    version.latest.strftime("%m/%d/%Y") if version.latest else None,
+                    _READ_FROM.get(version.source, version.source), version.document, version.page])
+    _widths(ws, [30, 28, 60, 60, 16, 50])

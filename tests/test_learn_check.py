@@ -186,3 +186,36 @@ def test_measure_reads_the_scope_review(tmp_path):
     result = learn_check.measure(catalogue_job(root, tmp_path / "cache"))
     assert result.scope_exclusions >= 1 and result.scope_systems >= 1 and result.scope_who >= 1
     assert ("Standard exclusion", "All water flow meters.") in [row[:2] for row in result.scope_rows]
+
+
+# The reading of the job (build step 4).
+
+def test_families_include_is_checked():
+    expected = {**EXPECTED, "families_include": {"VAV": 58, "CAV": 19}}
+    result = _result(families=(("VAV", 57), ("EF", 2)))
+    assert learn_check.misses(result, expected) == [
+        "58 VAV units were expected on the schedules, but the reading found 57",
+        "19 CAV units were expected on the schedules, but the reading found none"]
+    assert learn_check.misses(_result(families=(("VAV", 58), ("CAV", 19))), expected) == []
+
+
+def test_families_include_is_optional():
+    assert learn_check.misses(_result(families=()), EXPECTED) == []
+
+
+def test_measure_reads_the_reading(tmp_path):
+    from estimator.catalogue.job import catalogue_job
+    from estimator.reading.job import read_job
+    from pdfs import FILLER, Page, make_pdf
+
+    root = tmp_path / "26-9999"
+    plan = Page(width=3024, height=2160, texts=((200, 300, FILLER, 12), (900, 900, "OCC", 12), (1000, 900, "OCC", 12),
+                                                (2640, 1860, "FLOOR PLAN", 20), (2800, 2000, "M-101", 40)))
+    make_pdf(root / "2. Takeoffs" / "1. Base Takeoff" / "Mech.pdf", plan)
+    catalogue = catalogue_job(root, tmp_path / "cache")
+    result = learn_check.measure(catalogue, read_job(catalogue))
+    assert result.device_labels == (("OCC", 2),)
+    assert result.units == 0 and result.families == ()
+    assert result.backbone == "none / none"
+    row = learn_check.reading_row("26-9999", result)
+    assert row == "| 26-9999 | 0 | — | — | OCC 2 | 0 | 0 | 0 | none / none |"

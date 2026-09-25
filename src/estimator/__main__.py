@@ -23,6 +23,7 @@ from estimator.price_sheet.check import price_check
 from estimator.price_sheet.price_book import PriceBook
 from estimator.price_sheet.write import check_fit, write_price_sheet
 from estimator.proposal.write import check_template, write_proposal
+from estimator.reading.job import read_job, reading_lines
 from estimator.scope import Job
 from estimator.sent import job_from_sent
 
@@ -188,8 +189,9 @@ def _run(args: argparse.Namespace) -> int:
     elif args.command == "catalogue":
         workers = max(1, min(args.workers, 61, os.cpu_count() or 1))
         result = catalogue_job(args.job, args.out / ".cache", workers)
-        package = write_evidence(args.out / f"{_safe_filename(result.job.name)} Evidence Package.xlsx", result)
-        for line in summary_lines(result):
+        reading = read_job(result, cache_dir=args.out / ".cache")
+        package = write_evidence(args.out / f"{_safe_filename(result.job.name)} Evidence Package.xlsx", result, reading)
+        for line in summary_lines(result) + reading_lines(reading):
             print(line)
         print(f"Wrote {package}")
     return 0
