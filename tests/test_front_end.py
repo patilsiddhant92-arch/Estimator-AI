@@ -219,6 +219,21 @@ def test_approved_by_the_owner_is_not_provided_by_the_owner():
     assert "Furnish BMS Server" in _texts(fe) and "**BMS Server by Owner" not in _texts(fe)
 
 
+def test_a_location_determined_by_the_owner_is_not_furnished_by_the_owner():
+    # test1-fixes.md 3.4: "Installed at a location determined by the owner" isn't enough — the server
+    # is still furnished by the controls contractor.
+    who = ["The server shall be installed at a location determined by the Owner."]
+    fe, _, _ = front_end(_catalogue(_overview(ALL_FOUND, who=who)))
+    assert "Furnish BMS Server" in _texts(fe) and "**BMS Server by Owner" not in _texts(fe)
+
+
+def test_owner_furnished_is_enough_for_the_server_note():
+    for phrase in ("provided by the owner", "owner furnished", "furnished by owner"):
+        who = [f"The BMS server shall be {phrase}."]
+        fe, _, _ = front_end(_catalogue(_overview(ALL_FOUND, who=who)))
+        assert "**BMS Server by Owner" in _texts(fe), phrase
+
+
 # --- the IT infrastructure lines --------------------------------------------------
 
 def test_the_it_lines_need_bacnet_ip_found():
