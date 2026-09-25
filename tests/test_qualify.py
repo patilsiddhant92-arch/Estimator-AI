@@ -679,6 +679,28 @@ def test_26_0352_shaped_rockwell_motor_starters_are_not_an_other_controls_manufa
     assert bid.others == ()
 
 
+def test_26_0334_shaped_capable_of_interfacing_with_an_existing_carrier_system_is_not_a_requirement():
+    # 26-0334: "shall be capable of interfacing with" an existing Carrier energy-management
+    # system is an integration capability, not a requirement that the new system be Carrier.
+    pages = _pages("A. The BAS shall be built on the Tridium Niagara N4 Framework.\n"
+                   "B. The ATC system shall be capable of interfacing with the existing Morris "
+                   "County energy management system, which is an iVu CCN (Carrier Comfort "
+                   "Network) Plus system. Integration is not required as part of this project.")
+    bid = check_bid(pages, [CONTROLS])
+    assert bid.finding == "Qualifies"
+
+
+def test_26_0445_shaped_a_lowercase_plc_corporate_suffix_is_not_a_controls_word():
+    # 26-0445: "Johnson Controls International plc" (the corporate suffix, lower case) is not a
+    # PLC (programmable logic controller) — a components list in an unrelated piping section must
+    # not reach the check just because of it.
+    pages = _pages("Grooved-Joint Piping Systems: Available Manufacturers: 1) Victaulic Company. "
+                   "2) Tyco Fire Products; brand of Johnson Controls International plc, Building "
+                   "Solutions North America/Grinnell Grooved Products.")
+    bid = check_bid(pages, [])
+    assert bid.mentions == ()
+
+
 def test_d5_a_passing_honeywell_on_a_sensor_list_is_worded_names_not_requires():
     pages = _pages("2.5 SENSORS\nA. Manufacturers: one of the following: 1. Honeywell. 2. Vaisala.")
     bid = check_bid(pages, [CONTROLS])
@@ -723,3 +745,52 @@ def test_a18_an_ame_line_limited_to_ebi_is_open_not_qualifies():
                    "integrated with the existing Honeywell EBI front end).")
     bid = check_bid(pages, [CONTROLS])
     assert bid.finding == "Open"
+
+
+# --- The remaining re-review passages that were already right, and stay right ---
+
+def test_a4_the_building_automation_system_shall_be_honeywell_webs_n4_or_approved_equal_qualifies():
+    pages = _pages("The building automation system shall be Honeywell WEBs N4, or approved equal.")
+    bid = check_bid(pages, [CONTROLS])
+    assert bid.finding == "Qualifies"
+
+
+def test_a5_extension_of_the_existing_metasys_system_with_no_substitutions_does_not_qualify():
+    pages = _pages("The BAS shall be an extension of the existing Johnson Controls Metasys system. "
+                   "No substitutions.")
+    bid = check_bid(pages, [CONTROLS])
+    assert bid.finding == "Does not qualify"
+
+
+def test_a6_jci_fx_or_siemens_with_a_siemens_basis_of_design_is_open():
+    pages = _pages("Johnson Controls FX or Siemens Desigo. Basis of design: Siemens Desigo CC.")
+    bid = check_bid(pages, [CONTROLS])
+    assert bid.finding == "Open"
+
+
+def test_a7b_the_same_controls_work_note_on_a_mechanical_general_notes_sheet_is_open():
+    pages = (_pages("2.1 ACCEPTABLE MANUFACTURERS\nA. Available Manufacturers: Honeywell, Siemens, "
+                    "Automated Logic.")
+            + _pages("MECHANICAL GENERAL NOTES\nALL CONTROLS WORK SHALL BE BY SIEMENS INDUSTRY TO "
+                     "MATCH THE EXISTING CAMPUS SYSTEM. NO SUBSTITUTIONS.", document="Marked_Mech.pdf"))
+    sheet = Sheet("Marked_Mech.pdf", 1, "M-001", "MECHANICAL GENERAL NOTES", "Mechanical", ("Notes and legends",))
+    bid = check_bid(pages, [CONTROLS], {("Marked_Mech.pdf", 1): sheet})
+    assert bid.finding == "Open"
+
+
+def test_a8_rooftop_units_shall_be_trane_no_substitutions_is_open_not_does_not_qualify():
+    # A8: Trane rooftop units, not the control system, and reached only through a DDC/BMS word two
+    # sentences later — must not read as Does not qualify.
+    pages = _pages("ROOFTOP UNITS SHALL BE TRANE VOYAGER, NO SUBSTITUTIONS. 6. PROVIDE "
+                   "FACTORY-MOUNTED DDC CONTROLLER FOR BMS INTEGRATION.", document="Marked_Mech.pdf")
+    sheet = Sheet("Marked_Mech.pdf", 1, "M-001", "MECHANICAL GENERAL NOTES", "Mechanical", ("Notes and legends",))
+    bid = check_bid(pages, [], {("Marked_Mech.pdf", 1): sheet}, has_spec_book=False)
+    assert bid.finding != "Does not qualify"
+
+
+def test_a11_switchboards_shall_be_siemens_no_substitutions_is_open_not_does_not_qualify():
+    pages = _pages("SWITCHBOARDS SHALL BE SIEMENS, NO SUBSTITUTIONS. 4. PROVIDE BMS MONITORING "
+                   "CONTACTS AT EACH MAIN BREAKER.", document="Marked_Elec.pdf")
+    sheet = Sheet("Marked_Elec.pdf", 1, "E-001", "ELECTRICAL NOTES", "Electrical", ("Notes and legends",))
+    bid = check_bid(pages, [], {("Marked_Elec.pdf", 1): sheet}, has_spec_book=False)
+    assert bid.finding != "Does not qualify"

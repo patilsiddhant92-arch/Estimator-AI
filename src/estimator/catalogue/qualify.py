@@ -175,19 +175,26 @@ def _plc_context_eligible(named: Named, passage: str, sentence_bounds: list[int]
 def _bind(bindable: list[tuple[int, int, str]], start: int, end: int,
          sentence_bounds: list[int], clause_bounds: list[int]) -> list[str]:
     """Which name(s) a sole-source/basis-of-design/rejection phrase belongs to: whichever
-    manufacturer's name shares its sentence; failing that, whichever name is nearest to it (the
-    one right before it, or else the first one) in the same clause; failing that, none at all."""
+    manufacturer's name shares its sentence; failing that, a bare fragment ("No substitutions.")
+    still binds to the name in the sentence immediately before it, provided that sentence is in
+    the same clause — never reaching back further, across other sentences about something else
+    entirely, to a name several sentences earlier in a long unlettered paragraph."""
     s_lo, s_hi = _span_at(sentence_bounds, start, end)
     in_sentence = sorted({n for a, b, n in bindable if s_lo <= a < s_hi})
     if in_sentence:
         return in_sentence
-    c_lo, c_hi = _span_at(clause_bounds, start, end)
-    in_clause = [(a, n) for a, b, n in bindable if c_lo <= a < c_hi]
-    if not in_clause:
-        return []
-    before = [(a, n) for a, n in in_clause if a < start]
-    _, name = max(before, key=lambda x: x[0]) if before else min(in_clause, key=lambda x: x[0])
-    return [name]
+    c_lo, _ = _span_at(clause_bounds, start, end)
+    if s_lo <= c_lo:
+        return []   # the trigger's sentence opens its clause — no earlier sentence here to bind to
+    index = bisect.bisect_left(sentence_bounds, s_lo)
+    prev_lo = sentence_bounds[index - 1]
+    if prev_lo < c_lo:
+        return []   # the previous sentence belongs to an earlier clause
+    in_previous = sorted({n for a, b, n in bindable if prev_lo <= a < s_lo})
+    # A bare fragment can only sensibly continue a single antecedent — when the sentence before it
+    # names several different manufacturers (a list of alternatives), which one it means is
+    # genuinely ambiguous, so it binds to none of them rather than all of them.
+    return in_previous if len(in_previous) == 1 else []
 
 
 @dataclass(frozen=True)
@@ -458,19 +465,29 @@ def _mentions(record: PageRecord, text: str, controls: Sequence[SpecSection], sh
         bindable = _name_occurrences(reading.ours, passage) + _name_occurrences(reading.others, passage)
         clause_bounds = _clause_boundaries(passage)
         own_names, other_names = set(ours), set(others)
-        # A genuine controls section or controls-sheet is already read on its own terms (above) —
-        # everywhere else, a bare "shall be <maker>", sole-source or basis-of-design phrase counts
-        # against Qualifies only when its own sentence is plainly about the control system (a
-        # BMS/BAS/DDC/building-automation word, or the literal word "system"), not whichever
-        # equipment happens to sit in the same 350-character window (D1: A8's Trane rooftop units,
-        # A11's Siemens switchboards, reached only through a nearby "BMS"/"DDC" elsewhere).
-        system_context = in_controls_section or in_controls_sheet
+        # A genuine controls section, or a genuinely spec-like sheet (typed Specifications or
+        # Control diagrams), is already read on its own terms — everywhere else, including a
+        # Notes-and-legends or Network-riser sheet that's merely promoted for reachability, a bare
+        # "shall be <maker>", sole-source or basis-of-design phrase counts against Qualifies only
+        # when its own sentence is plainly about the control system (a BMS/BAS/DDC/building-
+        # automation word, or the literal word "system"), not whichever equipment happens to sit
+        # in the same 350-character window (D1: A8's Trane rooftop units on an M- notes sheet,
+        # A11's Siemens switchboards on an E- sheet, each reached only through a nearby "BMS"/"DDC"
+        # two sentences later).
+        system_context = in_controls_section or (sheet is not None and sheet.discipline in CONTROLS_SHEET_DISCIPLINES
+                                                 and any(t in sheet.types for t in ("Specifications", "Control diagrams")))
 
         def _about_the_system(start: int, end: int) -> bool:
-            if system_context:
-                return True
             s_lo, s_hi = _span_at(sentence_bounds, start, end)
             sentence = passage[s_lo:s_hi]
+            # A sentence naming several manufacturers as alternatives ("Sensor models shall be
+            # Distech..., JCI... or Schneider... or approved equal") is a components list, not a
+            # requirement for any one of them — whatever section it sits in. Only a sentence that
+            # names a single candidate can be a genuine requirement for the system.
+            if len({n.name for n in reading.all_names() if n.found_in(sentence)}) > 1:
+                return False
+            if system_context:
+                return True
             return bool(reading.controls_words.search(sentence) or re.search(r"\bsystem\b", sentence, re.I))
 
         sole_for, basis_for, rejected_ours, requires_for = set(), set(), set(), set()
