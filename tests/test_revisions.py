@@ -145,12 +145,12 @@ def test_the_change_log():
     [s], _ = supersede(catalogue, sheet_versions(catalogue))
     changes = {(c.what, c.old, c.new): c.affects_controls for c in s.changes}
     assert changes == {
-        ("tag added", "", "VAV-2"): False,
+        ("tag added", "", "VAV-2"): True,
         ("note added", "", "PROVIDE SPACE TEMPERATURE SENSOR BY CONTROLS CONTRACTOR."): True,
         ("note removed", "COORDINATE DUCT ROUTING WITH ARCHITECT.", ""): False,
     }
     assert all(c.sheet == "M-201" for c in s.changes)
-    assert s.note == "M-201: ADDENDUM #1 (02/26/25) replaces ISSUED FOR BID (02/12/25) — 3 changes, 1 affects controls"
+    assert s.note == "M-201: ADDENDUM #1 (02/26/25) replaces ISSUED FOR BID (02/12/25) — 3 changes, 2 affect controls"
 
 
 def test_a_changed_schedule_row_is_logged_as_one_change():
@@ -164,3 +164,35 @@ def test_a_changed_schedule_row_is_logged_as_one_change():
     [s], _ = supersede(catalogue, sheet_versions(catalogue))
     assert [(c.what, c.old, c.new) for c in s.changes] == [
         ("schedule row changed", "VAV-1 400 CFM 8 INCH INLET", "VAV-1 450 CFM 8 INCH INLET")]
+
+
+def test_a_tag_added_or_removed_always_affects_controls():
+    """Every unit needs controls, so a unit that comes or goes changes the controls scope."""
+    old_table = _table(("3", "ISSUED FOR BID", "02/12/25"))
+    new_table = _table(("4", "ADDENDUM #1", "02/26/25"), ("3", "ISSUED FOR BID", "02/12/25"))
+    catalogue = _catalogue((BASE, 1, "M-201", "EF-1 ON ROOF", old_table), (ADDENDUM, 1, "M-201", "P-2 IN BASEMENT", new_table),
+                           kinds={ADDENDUM: "addendum"})
+    [s], _ = supersede(catalogue, sheet_versions(catalogue))
+    tags = {(c.what, c.old or c.new): c.affects_controls for c in s.changes if c.what.startswith("tag")}
+    assert tags == {("tag added", "P-2"): True, ("tag removed", "EF-1"): True}
+
+
+def test_a_marked_up_copy_of_the_set_is_not_a_competing_version():
+    """A document that repeats most of another's sheets is a marked-up copy: its sheets at the same
+    date aren't a question of which governs, even though the markup changes their text."""
+    table = _table(("3", "ISSUED FOR BID", "02/12/25"))
+    marked = "2. Takeoffs/1. Base Takeoff/Marked_Mech.pdf"
+    pages = []
+    for page, number in enumerate(("M-201", "M-202", "M-203"), start=1):
+        pages.append((BASE, page, number, f"PLAN {number}", table))
+        pages.append((marked, page, number, f"PLAN {number}\nCHECK THIS DAMPER - ESTIMATOR", table))
+    catalogue = _catalogue(*pages)
+    assert supersede(catalogue, sheet_versions(catalogue)) == ([], [])
+
+
+def test_two_different_sets_at_the_same_date_still_ask():
+    table = _table(("3", "ISSUED FOR BID", "02/12/25"))
+    catalogue = _catalogue((BASE, 1, "M-201", "OLD PLAN TEXT HERE", table), (OTHER, 1, "M-201", "NEW PLAN TEXT HERE", table),
+                           (OTHER, 2, "M-301", "ANOTHER SHEET", table), (OTHER, 3, "M-302", "AND ANOTHER", table))
+    _, flags = supersede(catalogue, sheet_versions(catalogue))
+    assert flags == ["Sheet M-201 is in two documents with the same date (02/12/25) — check which governs"]

@@ -66,7 +66,7 @@ def _plural(n: int, word: str) -> str:
     return f"{n} {word}" if n == 1 else f"{n} {word}s"
 
 
-def _repeats(catalogue: Catalogue) -> tuple[list[str], set[tuple[str, str]]]:
+def repeats(catalogue: Catalogue) -> tuple[list[str], set[tuple[str, str]]]:
     """One document's sheet numbers can be almost entirely a repeat of another's — a marked-up
     copy of the same set. One line says so, instead of an "is on N pages" flag per sheet (M2)."""
     numbers: dict[str, set[str]] = defaultdict(set)
@@ -135,7 +135,7 @@ def _flags(catalogue: Catalogue) -> list[str]:
         unique = list(dict.fromkeys(s.number for s in untyped))   # each number named once, even from copies
         names = ", ".join(unique[:20]) + (" …" if len(unique) > 20 else "")
         flags.append(f"{_plural(len(untyped), 'drawing sheet')} could not be sorted by type — {names}")
-    repeat_lines, repeat_covered = _repeats(catalogue)
+    repeat_lines, repeat_covered = repeats(catalogue)
     flags += repeat_lines
     places: dict[str, dict[str, list[int]]] = defaultdict(lambda: defaultdict(list))
     for sheet in catalogue.sheets:

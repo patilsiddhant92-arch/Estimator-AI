@@ -23,6 +23,7 @@ from datetime import date
 from functools import lru_cache
 from pathlib import Path
 
+from estimator.catalogue.job import repeats
 from estimator.catalogue.pdf import Span, clean_text
 from estimator.catalogue.register import PageRecord
 from estimator.catalogue.tags import Equipment, find_tags
@@ -281,11 +282,9 @@ def _content(record: PageRecord | None, schedule: bool, exclude: frozenset[str],
 def _changes(sheet: str, new: _Content, old: _Content, reading: Revisions) -> list[Change]:
     equipment = _equipment()
 
-    def tag_controls(tag: str) -> bool:
-        return reading.is_controls(f"{tag} {equipment.prefixes.get(tag.split('-', 1)[0], '')}")
-
-    changes = [Change(sheet, "tag added", "", t, tag_controls(t)) for t in new.tags if t not in old.tags]
-    changes += [Change(sheet, "tag removed", t, "", tag_controls(t)) for t in old.tags if t not in new.tags]
+    # Every unit needs controls: a unit that comes or goes always changes the controls scope.
+    changes = [Change(sheet, "tag added", "", t, True) for t in new.tags if t not in old.tags]
+    changes += [Change(sheet, "tag removed", t, "", True) for t in old.tags if t not in new.tags]
     added = [line for line in new.lines if line not in old.lines]
     removed = [line for line in old.lines if line not in new.lines]
     if new.schedule:
@@ -342,6 +341,8 @@ def supersede(catalogue, versions: Sequence[SheetVersion],
     records = {(p.document, p.page): p for p in catalogue.pages}
     schedules = {(s.document, s.page) for s in catalogue.sheets if "Schedules" in s.types}
     exclude = frozenset(tag for s in catalogue.sheets if s.number for tag in find_tags(s.number, _equipment()))
+    # A marked-up copy of the set (a document repeating most of another's sheets) is not a competing version.
+    copies = {(_sheet_number(number), document) for number, document in repeats(catalogue)[1]}
     by_sheet: dict[str, dict[str, SheetVersion]] = defaultdict(dict)
     for version in versions:
         by_sheet[version.sheet].setdefault(version.document, version)   # a page repeated in one document is not a version
@@ -369,6 +370,8 @@ def supersede(catalogue, versions: Sequence[SheetVersion],
         if len(distinct) < 2:
             continue
         current = _governing(distinct, kinds)
+        if current is None and len([v for v in distinct if (v.sheet, v.document) not in copies]) < 2:
+            continue    # the only rival is a marked-up copy of the same set: nothing to decide
         if current is None:
             count = _COUNT_WORDS.get(len(distinct), str(len(distinct)))
             dates = {v.latest for v in distinct}
