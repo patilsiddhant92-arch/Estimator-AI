@@ -620,6 +620,61 @@ def test_a19_pre_bid_minutes_naming_niagara_with_no_controls_word_still_blocks_d
     assert bid.finding == "Open"
 
 
+def test_a7_a_plans_sheet_controls_work_note_beats_a_spec_approved_list():
+    # A7: the M-101 Plans sheet's "ALL CONTROLS WORK..." note has no BMS/BAS/DDC word of its own,
+    # but "controls work" is now recognised too, so the spec's own Honeywell/Siemens/ALC list no
+    # longer qualifies the job on its own.
+    pages = (_pages("2.1 ACCEPTABLE MANUFACTURERS\nA. Available Manufacturers: Honeywell, Siemens, "
+                    "Automated Logic.")
+            + _pages("FIRST FLOOR HVAC PLAN\nALL CONTROLS WORK SHALL BE BY SIEMENS INDUSTRY TO MATCH "
+                     "THE EXISTING CAMPUS SYSTEM. NO SUBSTITUTIONS.", document="Marked_Mech.pdf"))
+    sheet = Sheet("Marked_Mech.pdf", 1, "M-101", "FIRST FLOOR HVAC PLAN", "Mechanical", ("Plans",))
+    bid = check_bid(pages, [CONTROLS], {("Marked_Mech.pdf", 1): sheet})
+    assert bid.finding == "Open"
+
+
+def test_a9b_a_tc_control_schedule_sole_source_clause_beats_a_spec_honeywell_list():
+    # A9b (D4, a regression this fix reverses): a TC- "BAS CONTROL SCHEDULES" sheet is a controls
+    # schedule (its number starts TC) — it must not be dropped just because it's typed Schedules.
+    pages = (_pages("2.1 ACCEPTABLE MANUFACTURERS\nA. Available Manufacturers: Honeywell, Siemens.")
+            + _pages("BAS CONTROL SCHEDULES\nTHE BAS SHALL BE SIEMENS APOGEE. NO SUBSTITUTIONS.",
+                     document="Marked_Ctrl.pdf"))
+    sheet = Sheet("Marked_Ctrl.pdf", 1, "TC-501", "BAS CONTROL SCHEDULES", "Controls",
+                 ("Schedules", "Control diagrams"))
+    bid = check_bid(pages, [CONTROLS], {("Marked_Ctrl.pdf", 1): sheet})
+    assert bid.finding == "Open"
+
+
+def test_a_transformer_temperature_controller_alone_is_not_a_controls_word():
+    pages = _pages("49T TRANSFORMER TEMPERATURE CONTROLLER SHALL BE PROVIDED PER MANUFACTURER "
+                   "STANDARD.", document="Marked_Elec.pdf")
+    sheet = Sheet("Marked_Elec.pdf", 1, "E501.06", "TRANSFORMER DETAILS", "Electrical", ("Details",))
+    bid = check_bid(pages, [], {("Marked_Elec.pdf", 1): sheet}, has_spec_book=True)
+    assert bid.mentions == ()
+
+
+def test_26_0436_shaped_transformer_and_switchgear_note_is_not_does_not_qualify():
+    # 26-0436's E501.06: "TRANSFORMER TEMPERATURE CONTROLLER" is not a controls word (it's a
+    # transformer accessory), and Schneider switchgear here has no BMS/BAS/PLC/DDC word beside it
+    # — this passage must not read as Does not qualify.
+    pages = _pages("49T TRANSFORMER TEMPERATURE CONTROLLER. SWITCHGEAR SHALL BE SCHNEIDER. NO "
+                   "SUBSTITUTIONS.", document="Marked_Elec.pdf")
+    sheet = Sheet("Marked_Elec.pdf", 1, "E501.06", "TRANSFORMER DETAILS", "Electrical", ("Details",))
+    bid = check_bid(pages, [], {("Marked_Elec.pdf", 1): sheet}, has_spec_book=True)
+    assert bid.finding != "Does not qualify"
+
+
+def test_26_0352_shaped_rockwell_motor_starters_are_not_an_other_controls_manufacturer():
+    # D7: motor starters have no BMS/BAS/PLC/DDC word beside Rockwell/Allen-Bradley — it never
+    # reaches "other controls manufacturers named".
+    pages = _pages("MOTOR STARTERS SHALL BE CUTLER HAMMER, WESTINGHOUSE OR ALLEN-BRADLEY.",
+                   document="Marked_Mech.pdf")
+    sheet = Sheet("Marked_Mech.pdf", 1, "M-600.00", "MECHANICAL SPECIFICATIONS", "Mechanical",
+                 ("Specifications",))
+    bid = check_bid(pages, [], {("Marked_Mech.pdf", 1): sheet}, has_spec_book=False)
+    assert bid.others == ()
+
+
 def test_a18_an_ame_line_limited_to_ebi_is_open_not_qualifies():
     # A18: Honeywell is on a genuine acceptable-manufacturers list, but limited to EBI (not the
     # WEBs line AME bids) — an AME line with a limit is uncertain, so Open, never Qualifies.

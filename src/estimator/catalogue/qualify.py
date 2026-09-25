@@ -40,6 +40,11 @@ SHEET_TYPES_LIKE_CONTROLS = ("Specifications", "Control diagrams", "Network rise
 # to AME (N5) — so it's dropped from that passage.
 SAME_MAKER_OURS = {"Honeywell": "Honeywell WEBs", "Johnson Controls": "Johnson Controls FX"}
 
+# D7: Rockwell/Allen-Bradley and Schneider make plenty of things that are not controls systems
+# (motor starters, medium-voltage switchgear) — they count as controls manufacturers only in a
+# sentence that also carries a BMS/BAS/PLC/DDC/building-automation word of its own.
+PLC_GATED_OTHERS = {"Rockwell Automation (Allen-Bradley)", "Schneider Electric"}
+
 # D3: before any "Does not qualify", every page of every document is searched for one of AME's
 # lines, unfiltered by controls context — an addendum item or pre-bid answer with no controls word
 # of its own still counts, where the ordinary controls-context gate in _mentions would drop it.
@@ -114,6 +119,20 @@ def _list_eligible(named: Named, passage: str, reading: "ReadingList") -> bool:
               for pattern in named.patterns for match in pattern.finditer(passage))
 
 
+def _plc_context_eligible(named: Named, passage: str, sentence_bounds: list[int], reading: "ReadingList") -> bool:
+    """Rockwell/Allen-Bradley and Schneider only count as controls manufacturers in a sentence
+    that also carries a BMS/BAS/PLC/DDC/building-automation word of its own (D7) — otherwise
+    they're just motor starters or switchgear, named for something else entirely."""
+    if named.name not in PLC_GATED_OTHERS:
+        return True
+    for pattern in named.patterns:
+        for match in pattern.finditer(passage):
+            s_lo, s_hi = _span_at(sentence_bounds, match.start(), match.end())
+            if reading.plc_context_words.search(passage[s_lo:s_hi]):
+                return True
+    return False
+
+
 def _bind(bindable: list[tuple[int, int, str]], start: int, end: int,
          sentence_bounds: list[int], clause_bounds: list[int]) -> list[str]:
     """Which name(s) a sole-source/basis-of-design/rejection phrase belongs to: whichever
@@ -156,6 +175,7 @@ class ReadingList:
     requires_words: re.Pattern
     system_heading_words: re.Pattern
     component_heading_words: re.Pattern
+    plc_context_words: re.Pattern
 
     @classmethod
     def load(cls, path: Path = MANUFACTURERS) -> "ReadingList":
@@ -171,7 +191,7 @@ class ReadingList:
         return cls(named("platforms_we_bid"), named("on_an_approved_list"), named("other_manufacturers"),
                    words("controls_words"), words("list_words"), words("sole_words"), words("basis_words"),
                    words("not_controls_words"), words("unacceptable_words"), words("requires_words"),
-                   words("system_heading_words"), words("component_heading_words"))
+                   words("system_heading_words"), words("component_heading_words"), words("plc_context_words"))
 
     def all_names(self) -> tuple[Named, ...]:
         return self.ours + self.listed + self.others
@@ -317,10 +337,19 @@ def _dedupe(mentions: list[Mention]) -> list[Mention]:
     return merged
 
 
+_CONTROLS_SCHEDULE_PREFIXES = ("TC", "IC", "BMS", "BAS", "ATC")
+
+
 def _mentions(record: PageRecord, text: str, controls: Sequence[SpecSection], sheet: Sheet | None,
              reading: ReadingList) -> list[Mention]:
-    if sheet is not None and "Schedules" in sheet.types:
-        return []   # a sheet typed Schedules never carries the controls system's own scope (N6)
+    # A sheet typed Schedules never carries the controls system's own scope (N6) — the equipment
+    # maker and a "BASIS OF DESIGN" column on a fan-coil or unit-heater schedule are not the
+    # controls system. But a schedule that is itself a controls schedule — its discipline is
+    # Controls, or its sheet number starts TC, IC, BMS, BAS or ATC — still counts (D4): dropping
+    # every Schedules-typed sheet let a TC- control-schedule sole-source clause go unseen.
+    if (sheet is not None and "Schedules" in sheet.types and sheet.discipline != "Controls"
+       and not (sheet.number or "").startswith(_CONTROLS_SCHEDULE_PREFIXES)):
+        return []
     in_controls_section = any(s.document == record.document and s.first_page <= record.page <= s.last_page
                               for s in controls)
     in_controls_sheet = (sheet is not None and sheet.discipline in CONTROLS_SHEET_DISCIPLINES
@@ -372,13 +401,18 @@ def _mentions(record: PageRecord, text: str, controls: Sequence[SpecSection], sh
         # be an approved-manufacturers list at all — is never one of AME's own lines, but it's
         # still worth recording, "named in passing", rather than vanishing without a trace (I9).
         passing = tuple((n.name, n.note) for n in approved if n.name not in listed)
-        others = tuple(n.name for n in reading.others if n.found_in(passage))
+        sentence_bounds = _sentence_boundaries(passage)
+        # Rockwell/Allen-Bradley and Schneider are named for all sorts of things besides a
+        # controls system (motor starters, medium-voltage switchgear) — they only count as
+        # "other controls manufacturers" in a sentence that also carries its own BMS/BAS/PLC/DDC/
+        # building-automation word (D7).
+        others = tuple(n.name for n in reading.others
+                       if n.found_in(passage) and _plc_context_eligible(n, passage, sentence_bounds, reading))
         # D2/D6: sole-source, basis-of-design and rejection wording only count for the specific
         # manufacturer named in the same sentence (or, for a bare fragment like "No substitutions.",
         # the nearest name still in the same clause) — never for whichever name merely sits
         # somewhere in the same 350-character passage.
         bindable = _name_occurrences(reading.ours, passage) + _name_occurrences(reading.others, passage)
-        sentence_bounds = _sentence_boundaries(passage)
         clause_bounds = _clause_boundaries(passage)
         own_names, other_names = set(ours), set(others)
         # A genuine controls section or controls-sheet is already read on its own terms (above) —
