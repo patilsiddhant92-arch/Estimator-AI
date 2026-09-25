@@ -1,9 +1,11 @@
+from dataclasses import replace
 from pathlib import Path
 
 import openpyxl
 
 from estimator.catalogue.documents import Document, JobFolder
 from estimator.catalogue.job import Catalogue
+from estimator.catalogue.overview import build_overview
 from estimator.catalogue.qualify import BidCheck, Mention
 from estimator.catalogue.register import PageRecord
 from estimator.catalogue.sheet_types import Sheet
@@ -90,3 +92,45 @@ def test_a_flag_starting_with_equals_is_kept_as_plain_text(tmp_path):
 def test_headings_are_bold_and_frozen(tmp_path):
     ws = openpyxl.load_workbook(write_evidence(tmp_path / "e.xlsx", _catalogue()))["Sheets"]
     assert ws["A1"].font.bold and ws.freeze_panes == "A2"
+
+
+def _catalogue_with_overview() -> Catalogue:
+    doc = "2. Takeoffs/1. Base Takeoff/Specs.pdf"
+    page = PageRecord(doc, 1, "text", "Actuators shall be Belimo or approved equal. Provide BACnet MS/TP.", 0)
+    sections = (SpecSection("23 09 23", "INSTRUMENTATION AND CONTROL FOR HVAC", doc, 1, 1),)
+    overview = build_overview([page], [], sections)
+    return replace(_catalogue(), overview=overview)
+
+
+def test_the_spec_overview_tab_is_the_second_tab(tmp_path):
+    out = write_evidence(tmp_path / "e.xlsx", _catalogue_with_overview())
+    assert openpyxl.load_workbook(out).sheetnames == list(TABS)
+    assert TABS[1] == "Spec overview"
+
+
+def test_the_spec_overview_shows_found_and_not_found(tmp_path):
+    ws = openpyxl.load_workbook(write_evidence(tmp_path / "e.xlsx", _catalogue_with_overview()))["Spec overview"]
+    rows = _values(ws)
+    assert rows[0][0] == "Spec overview — 26-9999"
+    assert any(row[0] == "BACnet MS/TP" and row[1] == "Yes" for row in rows)
+    assert any(row[0] == "Modbus" and row[1] == "Not found" for row in rows)
+    assert any(row[0] == "Actuators and dampers" and row[1] == "Belimo" and row[2] == "Yes" for row in rows)
+    assert any("Modbus" in str(row[0]) and "not found" in str(row[0]) for row in rows)
+
+
+def test_a_yes_cell_is_green_and_a_not_found_cell_is_not(tmp_path):
+    ws = openpyxl.load_workbook(write_evidence(tmp_path / "e.xlsx", _catalogue_with_overview()))["Spec overview"]
+    for row in ws.iter_rows():
+        values = [c.value for c in row]
+        if values[0] == "BACnet MS/TP" and values[1] == "Yes":
+            assert row[1].fill.fgColor.rgb == "00C6EFCE"
+        if values[0] == "Modbus" and values[1] == "Not found":
+            assert row[1].fill.fgColor.rgb in (None, "00000000")
+
+
+def test_ame_makers_get_vendors_and_an_email_draft(tmp_path):
+    ws = openpyxl.load_workbook(write_evidence(tmp_path / "e.xlsx", _catalogue_with_overview()))["Spec overview"]
+    rows = _values(ws)
+    belimo = next(row for row in rows if row[0] == "Actuators and dampers" and row[1] == "Belimo")
+    assert "Broudy Precision" in str(belimo[7])
+    assert str(belimo[8]).startswith("Could you please provide the pricing for the Belimo - Actuators and dampers?")

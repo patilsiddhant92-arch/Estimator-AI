@@ -13,9 +13,11 @@ from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
 
 from estimator.catalogue.job import Catalogue
+from estimator.catalogue.overview import short_place
 from estimator.catalogue.qualify import where
 
-TABS = ("Bid check", "Flags", "Documents", "Pages", "Sheets", "Spec sections", "Equipment tags")
+TABS = ("Bid check", "Spec overview", "Flags", "Documents", "Pages", "Sheets", "Spec sections", "Equipment tags")
+_GREEN = PatternFill("solid", fgColor="C6EFCE")
 _KIND = {"drawings": "Drawings", "specs": "Specs", "addendum": "Addendum", "rfi": "RFI", "other": "Other",
          "unreadable": "Could not be opened", "password": "Password-protected"}
 _READ_BY = {"text": "its text", "ocr": "OCR", "blank": "blank page", "unreadable": "could not be read"}
@@ -38,27 +40,111 @@ def write_evidence(path: Path, catalogue: Catalogue) -> Path:
     workbook = Workbook()
     workbook.remove(workbook.active)
     _bid_check(workbook.create_sheet(TABS[0]), catalogue)
-    _table(workbook.create_sheet(TABS[1]), ["What to look at"], [[f] for f in catalogue.flags] or [["Nothing to flag."]])
-    _table(workbook.create_sheet(TABS[2]), ["Document", "What it is", "Revision", "Pages", "Same file as"],
+    _spec_overview(workbook.create_sheet(TABS[1]), catalogue)
+    _table(workbook.create_sheet(TABS[2]), ["What to look at"], [[f] for f in catalogue.flags] or [["Nothing to flag."]])
+    _table(workbook.create_sheet(TABS[3]), ["Document", "What it is", "Revision", "Pages", "Same file as"],
            [[d.relative, _KIND[d.kind], d.revision, d.pages, d.duplicate_of] for d in catalogue.job.documents]
            + [[folder, "Left out — AME's own work, not a bid document", None, None, None] for folder in catalogue.job.left_out]
            + [[folder, "Left out — another job, catalogue it on its own", None, None, None] for folder in catalogue.job.nested_jobs]
            + [[f, f"Not read — not a PDF ({Path(f).suffix or 'no extension'})", None, None, None]
               for f in catalogue.job.other_files])
     numbers = {(s.document, s.page): s.number for s in catalogue.sheets}
-    _table(workbook.create_sheet(TABS[3]), ["Document", "Page", "Read by", "Sheet number"],
+    _table(workbook.create_sheet(TABS[4]), ["Document", "Page", "Read by", "Sheet number"],
            [[p.document, p.page, _READ_BY[p.status], numbers.get((p.document, p.page))] for p in catalogue.pages])
-    _table(workbook.create_sheet(TABS[4]), ["Sheet number", "Title", "Discipline", "Type", "Document", "Page"],
+    _table(workbook.create_sheet(TABS[5]), ["Sheet number", "Title", "Discipline", "Type", "Document", "Page"],
            [[s.number, s.title, s.discipline, ", ".join(s.types) or None, s.document, s.page] for s in catalogue.sheets])
-    _table(workbook.create_sheet(TABS[5]), ["Section", "Title", "Controls section", "Document", "First page", "Last page"],
+    _table(workbook.create_sheet(TABS[6]), ["Section", "Title", "Controls section", "Document", "First page", "Last page"],
            [[s.number, s.title, "yes" if s.controls else "no", s.document, s.first_page, s.last_page]
             for s in catalogue.sections])
-    _table(workbook.create_sheet(TABS[6]), ["Tag", "What it is", "On schedules", "Also appears on", "Times found"],
+    _table(workbook.create_sheet(TABS[7]), ["Tag", "What it is", "On schedules", "Also appears on", "Times found"],
            [[t.tag, t.kind, ", ".join(t.on_schedules) or None, ", ".join(t.elsewhere) or None, t.times]
             for t in catalogue.tags])
     path.parent.mkdir(parents=True, exist_ok=True)
     workbook.save(str(path))
     return path
+
+
+def _section_heading(ws, text: str) -> None:
+    _append(ws, [text])
+    for cell in ws[ws.max_row]:
+        cell.font, cell.fill = _BOLD, _HEADING
+
+
+_TOPIC_HEADINGS = ["What", "Found?", "Where", "How strong", "What the job says (word for word)"]
+_MAKER_HEADINGS = ["Category", "Manufacturer", "AME gets prices for it?", "Where", "How strong",
+                   "What the job says (word for word)", "Basis of design / or equal", "Ask for a price from",
+                   "Email draft"]
+
+
+def _found_row(ws, item: str, found) -> None:
+    _append(ws, [item, "Yes" if found.places else "Not found", short_place(found.places),
+                found.places[0].strength if found.places else None, found.quote])
+    if found.places:
+        ws.cell(ws.max_row, 2).fill = _GREEN
+    ws.cell(ws.max_row, 5).alignment = Alignment(wrap_text=True, vertical="top")
+
+
+def _topic_table(ws, catalogue: Catalogue, heading: str, section: str) -> None:
+    _section_heading(ws, heading)
+    _append(ws, _TOPIC_HEADINGS)
+    for cell in ws[ws.max_row]:
+        cell.font, cell.fill = _BOLD, _HEADING
+    for found in catalogue.overview.topics:
+        if found.section == section:
+            _found_row(ws, found.item, found)
+    _append(ws, [])
+
+
+def _spec_overview(ws, catalogue: Catalogue) -> None:
+    overview = catalogue.overview
+    bid = catalogue.bid
+    _append(ws, [f"Spec overview — {catalogue.job.name}"])
+    ws["A1"].font = Font(bold=True, size=14)
+    _append(ws, ["What the job says, found word for word. Nothing here is guessed: a row either quotes the "
+                "job or says it wasn't found."])
+    _append(ws, [])
+    _section_heading(ws, "1. Controls platform")
+    _append(ws, ["Bid check", bid.finding])
+    ws.cell(ws.max_row, 1).font = _BOLD
+    _append(ws, ["Why", bid.reason])
+    ws.cell(ws.max_row, 1).font = _BOLD
+    _append(ws, ["Other controls manufacturers named", ", ".join(bid.others) or "none"])
+    ws.cell(ws.max_row, 1).font = _BOLD
+    _append(ws, ["Controls sections in the specs", "; ".join(bid.controls_sections) or "none found"])
+    ws.cell(ws.max_row, 1).font = _BOLD
+    _append(ws, ["See the Bid check tab for every passage."])
+    _append(ws, [])
+    _topic_table(ws, catalogue, "2. Protocols", "Protocols")
+    _topic_table(ws, catalogue, "3. Network and front end", "Network and front end")
+    _topic_table(ws, catalogue, "4. Electrical and conduit", "Electrical and conduit")
+    _section_heading(ws, "5. Manufacturers named on this job")
+    _append(ws, _MAKER_HEADINGS)
+    for cell in ws[ws.max_row]:
+        cell.font, cell.fill = _BOLD, _HEADING
+    for maker in overview.makers:
+        ask_for = "\n".join(maker.vendors) if maker.ame_quotes else "Not on AME's list — the estimator decides"
+        _append(ws, [maker.category, maker.maker, "Yes" if maker.ame_quotes else "No", short_place(maker.places),
+                    maker.places[0].strength if maker.places else None, maker.quote, maker.terms, ask_for,
+                    maker.email_draft])
+        row = ws.max_row
+        ws.cell(row, 2).font = _BOLD
+        if maker.ame_quotes:
+            ws.cell(row, 2).fill = _GREEN
+        for column in (6, 8, 9):
+            ws.cell(row, column).alignment = Alignment(wrap_text=True, vertical="top")
+    _append(ws, [])
+    _section_heading(ws, "6. Searched for but not found")
+    for line in overview.not_found or ["Nothing to report — everything on the reading lists was found."]:
+        _append(ws, [line])
+    ws.column_dimensions["A"].width = 40
+    ws.column_dimensions["B"].width = 30
+    ws.column_dimensions["C"].width = 34
+    ws.column_dimensions["D"].width = 20
+    ws.column_dimensions["E"].width = 60
+    ws.column_dimensions["F"].width = 60
+    ws.column_dimensions["G"].width = 60
+    ws.column_dimensions["H"].width = 26
+    ws.column_dimensions["I"].width = 40
 
 
 def _bid_check(ws, catalogue: Catalogue) -> None:

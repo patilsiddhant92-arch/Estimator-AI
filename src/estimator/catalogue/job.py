@@ -2,10 +2,11 @@
 from __future__ import annotations
 
 from collections import Counter, defaultdict
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from estimator.catalogue.documents import JobFolder, find_documents
+from estimator.catalogue.overview import SpecOverview, build_overview
 from estimator.catalogue.pdf import tessdata
 from estimator.catalogue.qualify import BidCheck, check_bid
 from estimator.catalogue.register import PageRecord, register_job
@@ -24,6 +25,7 @@ class Catalogue:
     bid: BidCheck
     tags: tuple[TagEntry, ...]
     flags: tuple[str, ...]
+    overview: SpecOverview = field(default_factory=SpecOverview)
 
 
 CONTROLS_DISCIPLINES = ("Mechanical", "Controls", "Plumbing", "Fire protection", "Unknown")
@@ -41,8 +43,9 @@ def catalogue_job(root: Path, cache_dir: Path | None = None, workers: int = 1) -
     has_spec_book = any(d.kind == "specs" for d in job.documents)
     bid = check_bid(pages, sections, by_sheet, has_spec_book)
     tags = tuple(index_tags(pages, by_sheet))
-    catalogue = Catalogue(job, pages, sheets, sections, bid, tags, ())
-    return Catalogue(job, pages, sheets, sections, bid, tags, tuple(_flags(catalogue)))
+    overview = build_overview(pages, sheets, sections)
+    catalogue = Catalogue(job, pages, sheets, sections, bid, tags, (), overview)
+    return Catalogue(job, pages, sheets, sections, bid, tags, tuple(_flags(catalogue)), overview)
 
 
 def _name(relative: str) -> str:
@@ -154,11 +157,16 @@ def summary_lines(catalogue: Catalogue) -> list[str]:
     bid = catalogue.bid
     sheets = catalogue.sheets
     controls = list(dict.fromkeys(f"{s.number} {s.title}".strip() for s in catalogue.sections if s.controls))
+    overview = catalogue.overview
+    protocols = [t.item for t in overview.topics if t.section == "Protocols" and t.places]
+    ame_count = sum(1 for m in overview.makers if m.ame_quotes)
     return [
         f"{catalogue.job.name} — {len(catalogue.job.documents)} documents, {len(pages)} pages: "
         f"{count['ocr']} read by OCR, {count['blank']} blank, {count['unreadable']} could not be read.",
         f"Bid check: {bid.finding} — {bid.reason}",
         f"Other controls manufacturers named, for the US team: {', '.join(bid.others) or 'none'}.",
+        f"Spec overview: {len(overview.makers)} manufacturers named ({ame_count} AME gets prices for); "
+        f"protocols: {', '.join(protocols) or 'none stated'}.",
         f"Drawing sheets: {len(sheets)}; {sum(1 for s in sheets if s.number)} with a sheet number; "
         f"{sum(1 for s in sheets if s.number and not s.types and s.discipline in CONTROLS_DISCIPLINES)} "
         f"sheets that carry controls scope not sorted by type.",
