@@ -125,3 +125,32 @@ def test_sequence_and_points_together_raise_no_flag():
     found, flags = find_backbone(catalogue)
     assert {b.what for b in found} == {SEQUENCE, POINTS}
     assert flags == []
+
+
+POINTS_HEADER = ("QTS CAMPUS\n26061 Issue for Construction\nV1.0\n05.29.26\n\"X\"\nfor Macro\nSorting\n"
+                 "Point List Group ID\nfor Macro Sorting\nPOINT DESCRIPTION\nX\nCDU\nFacility Water Flowrate\nAI\n")
+
+
+def test_points_list_pages_between_sections_with_no_heading_are_found():
+    """A points list exported from a spreadsheet and bound into the spec book between two sections
+    carries no SECTION heading and no page footer. Its column headings name it; the pages after it,
+    up to the next section or a blank page, carry on the same list."""
+    before = SpecSection("25 08 00", "INTEGRATED AUTOMATION COMMISSIONING", "Specs.pdf", 1, 2)
+    after = SpecSection("26 05 00", "COMMON WORK RESULTS FOR ELECTRICAL", "Specs.pdf", 7, 8)
+    pages = (page("Specs.pdf", 1, FILLER), page("Specs.pdf", 2, FILLER),
+             PageRecord("Specs.pdf", 3, "blank", "This page intentionally left blank.", 0),
+             page("Specs.pdf", 4, POINTS_HEADER), page("Specs.pdf", 5, "X\nUPS\nInput Real Power A\nkW\n15 min\n"),
+             page("Specs.pdf", 6, "X\nUPS\nOutput Real Power A\nkW\n15 min\n"),
+             page("Specs.pdf", 7, FILLER), page("Specs.pdf", 8, FILLER))
+    catalogue = FakeCatalogue(sections=(before, after), pages=pages)
+    found, _ = find_backbone(catalogue)
+    assert found == [Backbone(POINTS, "Points list pages with no section heading (Specs.pdf, pages 4–6)",
+                              "Specs.pdf", 4, 6, "spec pages", None)]
+
+
+def test_a_contents_page_naming_the_points_list_section_is_not_the_list():
+    before = SpecSection("25 08 00", "INTEGRATED AUTOMATION COMMISSIONING", "Specs.pdf", 2, 2)
+    contents = "TABLE OF CONTENTS\nDIVISION 25\n25 08 00 COMMISSIONING\n25 60 10 MECHANICAL EQUIPMENT POINTS LIST\n"
+    catalogue = FakeCatalogue(sections=(before,), pages=(page("Specs.pdf", 1, contents), page("Specs.pdf", 2, FILLER)))
+    found, _ = find_backbone(catalogue)
+    assert [b.what for b in found] == []

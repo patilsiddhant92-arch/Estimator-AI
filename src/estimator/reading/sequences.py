@@ -43,7 +43,7 @@ class Backbone:
     document: str
     first_page: int
     last_page: int
-    kind: str              # "spec section" | "drawing sheet"
+    kind: str              # "spec section" | "spec pages" (no section heading) | "drawing sheet"
     duplicate_of: str | None = None   # the same text carried in another document
 
 
@@ -54,6 +54,9 @@ class _Rules:
     sequence_title: re.Pattern
     points_title: re.Pattern
     sequence_heading: re.Pattern
+    points_page_heading: re.Pattern
+    points_page_top_lines: int
+    points_page_not_heading: re.Pattern
     no_sequence_flag: str
     no_points_flag: str
 
@@ -66,6 +69,9 @@ class _Rules:
             re.compile(data["sequence_title"], re.I),
             re.compile(data["points_title"], re.I),
             re.compile(data["sequence_heading"], re.M | re.I),
+            re.compile(data["points_page_heading"], re.I),
+            int(data["points_page_top_lines"]),
+            re.compile(data["points_page_not_heading"]),
             data["no_sequence_flag"],
             data["no_points_flag"],
         )
@@ -148,6 +154,46 @@ def _spec_backbones(sections: Sequence[SpecSection], pages_by_doc: dict[str, lis
     return found
 
 
+def _names_points_list(text: str, rules: _Rules) -> bool:
+    top = [line for line in text.splitlines() if line.strip()][:rules.points_page_top_lines]
+    return any(rules.points_page_heading.search(line) and not rules.points_page_not_heading.search(line)
+               for line in top)
+
+
+def _unheaded_points(sections: Sequence[SpecSection], pages_by_doc: dict[str, list[PageRecord]],
+                     rules: _Rules) -> list[Backbone]:
+    """A points list bound into a spec book as a spreadsheet export, between two sections, has no
+    SECTION heading or page footer, so no section covers it. Its column headings name it; the pages
+    after it carry on the list until the next section or a blank page."""
+    covered: dict[str, set[int]] = defaultdict(set)
+    for section in sections:
+        covered[section.document].update(range(section.first_page, section.last_page + 1))
+    found: list[Backbone] = []
+    for document, pages in pages_by_doc.items():
+        if document not in covered:
+            continue                        # not a spec book
+        run: list[int] = []
+        for record in sorted(pages, key=lambda r: r.page):
+            free = (record.page not in covered[document] and not record.large_sheet
+                    and record.status in ("text", "ocr"))
+            if free and run and record.page == run[-1] + 1:
+                run.append(record.page)
+                continue
+            if run:
+                found.append(_pages_backbone(document, run))
+                run = []
+            if free and _names_points_list(record.text, rules):
+                run = [record.page]
+        if run:
+            found.append(_pages_backbone(document, run))
+    return found
+
+
+def _pages_backbone(document: str, run: list[int]) -> Backbone:
+    where = f"Points list pages with no section heading ({_name(document)}, {_pages_desc(run[0], run[-1])})"
+    return Backbone(POINTS, where, document, run[0], run[-1], "spec pages")
+
+
 def _runs(sheets: list[Sheet]) -> list[list[Sheet]]:
     ordered = sorted(sheets, key=lambda s: (s.document, s.page))
     runs: list[list[Sheet]] = []
@@ -185,6 +231,7 @@ def find_backbone(catalogue: _Catalogue) -> tuple[list[Backbone], list[str]]:
         pages_by_doc[record.document].append(record)
         pages_by_key[(record.document, record.page)] = record.text
     found = _spec_backbones(catalogue.sections, pages_by_doc, pages_by_key, rules)
+    found += _unheaded_points(catalogue.sections, pages_by_doc, rules)
     found += _sheet_backbones(catalogue.sheets, rules)
     has_sequence = any(b.what == SEQUENCE for b in found)
     has_points = any(b.what == POINTS for b in found)
