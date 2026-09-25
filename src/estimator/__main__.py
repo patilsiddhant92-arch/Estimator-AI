@@ -4,10 +4,12 @@
     python -m estimator import-sent PROPOSAL.docx WORKUP.xlsx --out JOB.json
     python -m estimator price-check GENERATED.xlsx SENT.xlsx --out REPORT.md
     python -m estimator catalogue JOB_FOLDER --out FOLDER
+    python -m estimator estimate JOB_FOLDER --out FOLDER [--workers N] [--no-ai] [--cache FOLDER]
 """
 from __future__ import annotations
 
 import argparse
+import datetime as dt
 import os
 import re
 import sys
@@ -26,6 +28,8 @@ from estimator.proposal.write import check_template, write_proposal
 from estimator.reading.job import read_job, reading_lines
 from estimator.scope import Job
 from estimator.sent import job_from_sent
+from estimator.writing.judge import Judge
+from estimator.writing.write import build_job
 
 _INVALID_FILENAME_CHARS = re.compile(r'[<>:"/\\|?*]')
 
@@ -62,6 +66,14 @@ def _parser() -> argparse.ArgumentParser:
     catalogue.add_argument("job", type=Path)
     catalogue.add_argument("--out", type=Path, required=True)
     catalogue.add_argument("--workers", type=int, default=min(4, os.cpu_count() or 1))
+
+    estimate = commands.add_parser("estimate", help="write the proposal, price sheet and Evidence Package "
+                                                    "from a job folder")
+    estimate.add_argument("job", type=Path)
+    estimate.add_argument("--out", type=Path, required=True)
+    estimate.add_argument("--workers", type=int, default=min(4, os.cpu_count() or 1))
+    estimate.add_argument("--no-ai", action="store_true", help="don't ask the AI; its lines stay PENDING")
+    estimate.add_argument("--cache", type=Path, help="where to keep what was read (default: OUT/.cache)")
     return parser
 
 
@@ -194,7 +206,57 @@ def _run(args: argparse.Namespace) -> int:
         for line in summary_lines(result) + reading_lines(reading):
             print(line)
         print(f"Wrote {package}")
+    elif args.command == "estimate":
+        _estimate(args)
     return 0
+
+
+def _estimate(args: argparse.Namespace) -> None:
+    """From a job folder to the draft proposal, the price sheet and the Evidence Package. The
+    Evidence Package is written first, so the review list is there even when the proposal can't be."""
+    workers = max(1, min(args.workers, 61, os.cpu_count() or 1))
+    cache = args.cache or args.out / ".cache"
+    catalogue = catalogue_job(args.job, cache, workers)
+    reading = read_job(catalogue, cache_dir=cache)
+    judge = None if args.no_ai else Judge(cache)
+    job, systems, review_flags = build_job(catalogue, reading, judge, dt.date.today())
+    args.out.mkdir(parents=True, exist_ok=True)
+    package = write_evidence(args.out / f"{_safe_filename(job.header.quote_number)} Evidence Package.xlsx",
+                             catalogue, reading, systems=systems, review_flags=review_flags)
+    reading_flags = len(catalogue.flags) + len(reading.flags)
+    for line in estimate_lines(systems, review_flags, judge, args.no_ai, reading_flags):
+        print(line)
+    print(f"Wrote {package}")
+    book = PriceBook.load(PRICE_BOOK, ALIASES)
+    proposal, sheet = _build(job, PROPOSAL_TEMPLATE, WORKUP_TEMPLATE, book, args.out)
+    print(f"Wrote {proposal}")
+    print(f"Wrote {sheet}")
+
+
+def estimate_lines(systems, review_flags, judge, no_ai: bool, reading_flags: int = 0) -> list[str]:
+    """The run's summary, in plain words."""
+    written = [s for s in systems if s.bundle_key != "Front end"]
+    printed = [s for s in written if s.printed]
+    lines = [line for s in systems for line in s.lines]
+    in_proposal = sum(1 for line in lines if line.client)
+    pending = sum(1 for line in lines if line.category == "PENDING")
+    review = sum(len(s.review) for s in systems) + len(review_flags)
+    held = len(written) - len(printed)
+    summary = [f"Systems written: {len(printed)} in the proposal"
+               + (f", {held} left out until the estimator writes {'it' if held == 1 else 'them'}" if held else "")
+               + ".",
+               f"Lines: {in_proposal} in the proposal; {pending} PENDING (kept out); "
+               f"{review} {'item' if review == 1 else 'items'} on the review list"
+               + (f", then {reading_flags} {'flag' if reading_flags == 1 else 'flags'} from reading the job."
+                  if reading_flags else ".")]
+    if no_ai:
+        summary.append("AI: not used (--no-ai); lines it would judge are PENDING.")
+    elif judge is not None and not judge.available and not judge.cached:
+        summary.append("AI: not used — no AI key set (ANTHROPIC_API_KEY); lines it would judge are PENDING.")
+    elif judge is not None:
+        summary.append(f"AI: {judge.calls} {'call' if judge.calls == 1 else 'calls'} to {judge.model}, "
+                       f"{judge.cached} answered from the cache at no cost.")
+    return summary
 
 
 def main(argv: list[str] | None = None) -> int:

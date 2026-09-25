@@ -85,6 +85,8 @@ class Judge:
         self.model = model or os.environ.get(MODEL_VARIABLE) or DEFAULT_MODEL
         self._client = client
         self.last_error: str | None = None
+        self.calls = 0          # answers the AI service gave on this run
+        self.cached = 0         # answers taken from the cache, at no cost
 
     @property
     def available(self) -> bool:
@@ -99,6 +101,7 @@ class Judge:
         cached = _read_cache(cache_file)
         if cached is not None:
             self.last_error = None
+            self.cached += 1
             return _judgement(cached["answer"], options, cached["model"])
         if not self.available:
             self.last_error = NO_KEY
@@ -109,6 +112,7 @@ class Judge:
             self.last_error = _plain(error)
             return None
         _write_cache(cache_file, {"version": CACHE_VERSION, "model": model, "answer": answer})
+        self.calls += 1
         self.last_error = None
         return _judgement(answer, options, model)
 

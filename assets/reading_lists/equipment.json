@@ -1,5 +1,5 @@
 {
-  "about": "Equipment tag prefixes the tag index recognises (design §9.3). The Learn check lists tag-shaped codes whose prefix isn't here yet — add them here, never in code. Single-letter prefixes count only when the tag is on a schedule.",
+  "about": "Equipment tag prefixes the tag index recognises (design §9.3). The Learn check lists tag-shaped codes whose prefix isn't here yet — add them here, never in code. Single-letter prefixes, and SS and IU (which drawings also use for other things), count only when the tag is on a schedule.",
   "prefixes": {
     "AHU": "Air Handling Unit", "RTU": "Rooftop Unit", "MAU": "Makeup Air Unit", "ERU": "Energy Recovery Unit",
     "ERV": "Energy Recovery Ventilator", "DOAS": "Dedicated Outdoor Air System", "HRU": "Heat Recovery Unit",
@@ -19,7 +19,10 @@
     "GWP": "Glycol Water Pump", "BP": "Boiler Pump", "HX": "Heat Exchanger", "PFHX": "Plate Frame Heat Exchanger",
     "ET": "Expansion Tank", "AS": "Air Separator", "FSD": "Fire/Smoke Damper", "SD": "Smoke Damper", "MD": "Motorized Damper",
     "VFD": "Variable Frequency Drive", "HTCP": "Heat Trace Control Panel", "HUM": "Humidifier", "DHU": "Dehumidifier",
-    "EVP": "Elevator Sump Pump", "SP": "Sump Pump", "WBP": "Water Booster Pump", "WH": "Water Heater", "DWH": "Domestic Water Heater"
+    "EVP": "Elevator Sump Pump", "SP": "Sump Pump", "WBP": "Water Booster Pump", "WH": "Water Heater", "DWH": "Domestic Water Heater",
+    "FPT": "Fan Powered Terminal", "PCHWP": "Primary Chilled Water Pump", "SCHWP": "Secondary Chilled Water Pump",
+    "GDP": "Gas Detection Panel", "PCU": "Pollution Control Unit", "HGP": "Hot Glycol Pump", "FOP": "Fuel Oil Pump",
+    "SS": "Split System", "IU": "Indoor Unit"
   },
   "names": {
     "AIR HANDLING UNIT": "AHU", "ROOFTOP UNIT": "RTU", "MAKEUP AIR UNIT": "MAU", "MAKE-UP AIR UNIT": "MAU",
@@ -27,5 +30,5 @@
     "SUPPLY FAN": "SF", "RETURN FAN": "RF", "UNIT HEATER": "UH", "CABINET UNIT HEATER": "CUH", "UNIT VENTILATOR": "UV",
     "CHILLER": "CH", "COOLING TOWER": "CT", "BOILER": "B", "PUMP": "P", "HEAT EXCHANGER": "HX", "EXPANSION TANK": "ET"
   },
-  "schedule_only": ["B", "P"]
+  "schedule_only": ["B", "P", "SS", "IU"]
 }

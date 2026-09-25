@@ -134,6 +134,7 @@ def test_the_same_question_is_answered_from_the_cache(tmp_path):
     second = judge.judge("VAV", EVIDENCE, OPTIONS, RULES)
 
     assert len(fake.calls) == 1
+    assert (judge.calls, judge.cached) == (1, 1)     # counted apart, for the run's summary
     assert second == first
     assert list((tmp_path / "cache" / "judge").glob("*.json"))
     assert not list((tmp_path / "cache" / "judge").glob("*.tmp"))
