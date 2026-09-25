@@ -45,6 +45,7 @@ def test_the_bid_check_comes_first_and_quotes_the_spec(tmp_path):
     assert rows[0][0] == "Bid check — 26-9999"
     assert rows[1][0] == ("This is the tool's first reading of the spec. Every passage it found is "
                          "quoted below; the US team reads them and makes the call.")
+    assert sum("makes the" in str(r[0]) for r in rows) == 1
     assert ["Finding", "Qualifies"] == rows[3][:2]
     assert ["Other controls manufacturers named (for the US team)", "Siemens"] == rows[5][:2]
     assert ["15970.pdf, page 1", "Niagara N4 (a line AME bids)",

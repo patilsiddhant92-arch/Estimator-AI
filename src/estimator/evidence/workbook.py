@@ -74,7 +74,6 @@ def _bid_check(ws, catalogue: Catalogue) -> None:
     _append(ws, ["Why", bid.reason])
     _append(ws, ["Other controls manufacturers named (for the US team)", ", ".join(bid.others) or "none"])
     _append(ws, ["Controls sections in the specs", "; ".join(bid.controls_sections) or "none found"])
-    _append(ws, ["The US team makes the final call. Every passage the check found is quoted below, word for word."])
     _append(ws, [])
     _append(ws, ["Where (every place it was found)", "Manufacturers named", "What the spec says (word for word)"])
     for cell in ws[ws.max_row]:
