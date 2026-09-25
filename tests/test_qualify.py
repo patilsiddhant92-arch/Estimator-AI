@@ -332,21 +332,22 @@ def test_b1_a_formal_sole_source_list_naming_only_another_manufacturer_does_not_
     assert bid.finding == "Does not qualify" and "Siemens" in bid.reason
 
 
-def test_b1b_a_valves_list_naming_honeywell_without_controls_words_does_not_rescue_the_block():
-    # 26-0445-shaped: the valves list is about control valves, not the controls system, and has
-    # no strong HVAC-controls words — it never counts, so it can't turn Does not qualify into
-    # Qualifies (and Honeywell was never named anywhere, so it stays Does not qualify).
+def test_b1b_a_valves_list_naming_honeywell_without_controls_words_is_open_not_does_not_qualify():
+    # 26-0445-shaped: the valves list is about control valves, not the controls system, and has no
+    # strong HVAC-controls words — it never counts as qualifying evidence. But bid check fix round
+    # 2 (D3) searches every page unfiltered for an AME line before ruling Does not qualify, and
+    # Honeywell turns up here — so the sole-sourced Siemens clause elsewhere only reaches Open.
     pages = _pages("Acceptable manufacturers: 1. Siemens. No substitutions.",
                    "2.9 CONTROL VALVES\nA. Manufacturers: one of the following: Belimo, Honeywell.")
     bid = check_bid(pages, [NARROW_CONTROLS])
-    assert bid.finding == "Does not qualify"
+    assert bid.finding == "Open" and "Siemens" in bid.reason
 
 
-def test_b1c_only_beside_a_sole_source_phrase_still_blocks_on_the_phrase_alone():
+def test_b1c_only_beside_a_sole_source_phrase_reaches_open_not_does_not_qualify():
     pages = _pages("Manufacturers: Siemens Industry only. No substitutions.",
                    "2.9 CONTROL VALVES\nA. Manufacturers: one of the following: Belimo, Honeywell.")
     bid = check_bid(pages, [NARROW_CONTROLS])
-    assert bid.finding == "Does not qualify" and "Siemens" in bid.reason
+    assert bid.finding == "Open" and "Siemens" in bid.reason
 
 
 def test_b2_basis_of_design_for_the_bas_and_a_separate_valves_list_is_open():
@@ -428,13 +429,17 @@ def test_s1_a_security_network_riser_of_another_discipline_is_not_a_controls_men
     assert bid.mentions == () and bid.finding != "Qualifies"
 
 
-def test_s2_the_security_riser_plus_a_real_sole_source_spec_does_not_qualify():
+def test_s2_the_security_riser_plus_a_real_sole_source_spec_reaches_open_not_does_not_qualify():
+    # D3: Honeywell on the security riser never counts as qualifying evidence (it's dropped by the
+    # security exclusion before it ever becomes a mention), but the unfiltered "AME line anywhere"
+    # search still finds it — so the sole-sourced Automated Logic clause reaches Open, not Does
+    # not qualify.
     pages = (_pages("A. The building automation system shall be Automated Logic WebCTRL. No substitutions.")
             + _pages("SECURITY SYSTEM NETWORK RISER. ACCESS CONTROL: APPROVED MANUFACTURERS: "
                      "HONEYWELL PRO-WATCH, LENEL.", document="Marked_Sec.pdf"))
     sheet = Sheet("Marked_Sec.pdf", 1, "TY-501", "SECURITY SYSTEM NETWORK RISER", "Technology", ("Network riser",))
     bid = check_bid(pages, [CONTROLS], {("Marked_Sec.pdf", 1): sheet})
-    assert bid.finding == "Does not qualify"
+    assert bid.finding == "Open" and "Automated Logic" in bid.reason
 
 
 def test_s3_an_electrical_specifications_sheet_does_not_block_a_real_qualifies():
@@ -593,6 +598,24 @@ def test_26_0328_shaped_rockwell_plc_with_a_far_off_honeywell_sensor_row_is_open
     pages = _pages("Manufacturers: Subject to compliance, one of the following: a. Acceptable PLC "
                    "Manufacturer 1) Rockwell Automation/Allen-Bradley\nb. Air Duct Pressure Sensor "
                    "1. Kele 2. Honeywell 3. Setra")
+    bid = check_bid(pages, [CONTROLS])
+    assert bid.finding == "Open"
+
+
+def test_a14_an_addendum_adding_honeywell_with_no_controls_word_still_blocks_does_not_qualify():
+    # A14: the addendum item has no controls word of its own, so it never becomes a mention — but
+    # the unfiltered "AME line anywhere" search (D3) still finds it and keeps this at Open.
+    pages = (_pages("The BAS shall be Automated Logic WebCTRL. No substitutions.")
+            + _pages("ADDENDUM 2 ITEM 7: Specification Section 23 09 23, Paragraph 2.1.A: Add "
+                     "Honeywell WEBs N4 as an acceptable product.", document="Addendum 2.pdf"))
+    bid = check_bid(pages, [CONTROLS])
+    assert bid.finding == "Open"
+
+
+def test_a19_pre_bid_minutes_naming_niagara_with_no_controls_word_still_blocks_does_not_qualify():
+    pages = (_pages("The BAS shall be Siemens Desigo CC. No substitutions.")
+            + _pages("Will Tridium Niagara N4 be considered? Answer: Yes, Niagara N4 systems will "
+                     "be reviewed as an equal.", document="Pre-Bid Minutes.pdf"))
     bid = check_bid(pages, [CONTROLS])
     assert bid.finding == "Open"
 

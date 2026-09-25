@@ -40,6 +40,13 @@ SHEET_TYPES_LIKE_CONTROLS = ("Specifications", "Control diagrams", "Network rise
 # to AME (N5) — so it's dropped from that passage.
 SAME_MAKER_OURS = {"Honeywell": "Honeywell WEBs", "Johnson Controls": "Johnson Controls FX"}
 
+# D3: before any "Does not qualify", every page of every document is searched for one of AME's
+# lines, unfiltered by controls context — an addendum item or pre-bid answer with no controls word
+# of its own still counts, where the ordinary controls-context gate in _mentions would drop it.
+_AME_ANYWHERE = re.compile(r"\bWEBs(?:[- ]?N4)?\b|\bWEBStation\b|\bNiagara\b|\bTridium\b|\bJACE\b|"
+                           r"\bJohnson\s+Controls\b[^\n]{0,60}?\bFX\b|\bFacility\s+Explorer\b|\bHoneywell\b", re.I)
+_QUOTE_REACH = 150   # characters either side of the match, for the quote cited alongside it
+
 ASSETS = Path(__file__).resolve().parents[3] / "assets"
 MANUFACTURERS = ASSETS / "reading_lists" / "manufacturers.json"
 REACH = 350        # characters either side of a manufacturer's name that make up its passage
@@ -242,7 +249,7 @@ def check_bid(pages: Sequence[PageRecord], sections: Sequence[SpecSection],
     mentions = _dedupe(raw)
     others = tuple(sorted({name for m in mentions for name in m.others}))
     section_names = tuple(dict.fromkeys(f"{s.number} {s.title}".strip() for s in controls))   # each named once
-    finding, reason = _judge(mentions, others)
+    finding, reason = _judge(mentions, others, _ame_anywhere(pages))
     if not controls:
         if has_spec_book:
             reason += (" The specs have no controls section (23 09 xx, 159xx or Division 25) — the whole spec, "
@@ -272,6 +279,19 @@ def _carried_texts(pages: Sequence[PageRecord]) -> dict[tuple[str, int], str]:
             texts[(record.document, record.page)] = record.text
         previous = record
     return texts
+
+
+def _ame_anywhere(pages: Sequence[PageRecord]) -> str | None:
+    """Every page of every document, unfiltered — an AME line found here, however it's worded or
+    wherever it sits, quoted alongside where it turned up (D3)."""
+    for record in pages:
+        match = _AME_ANYWHERE.search(record.text)
+        if match:
+            start = record.text.rfind("\n", 0, max(0, match.start() - _QUOTE_REACH)) + 1
+            end = record.text.find("\n", min(len(record.text), match.end() + _QUOTE_REACH))
+            quote = " ".join(record.text[start:len(record.text) if end == -1 else end].split())
+            return f"{_place(record.document, record.page, None, False)}: \"{quote}\""
+    return None
 
 
 def _page_ranges(numbers: list[int]) -> str:
@@ -425,7 +445,7 @@ def _deciding(qualifying: Sequence[Mention]) -> Mention:
             or qualifying[0])
 
 
-def _judge(mentions: Sequence[Mention], others: tuple[str, ...]) -> tuple[str, str]:
+def _judge(mentions: Sequence[Mention], others: tuple[str, ...], ame_anywhere: str | None = None) -> tuple[str, str]:
     qualifying = [m for m in mentions if m.ours or m.listed]
     # Another manufacturer sole-sourced in its own sentence — list wording no longer excuses it
     # (N3): "Acceptable manufacturers: 1. Siemens. No substitutions." blocks. D2/D6: the wording
@@ -449,8 +469,10 @@ def _judge(mentions: Sequence[Mention], others: tuple[str, ...]) -> tuple[str, s
     contrary = sole_blocking or basis_blocking or unacceptable_blocking or requires_blocking
     # Whether an AME line was named anywhere at all, qualifying or not — this is what keeps a
     # sole-source clause for another manufacturer from reading as "Does not qualify" when Honeywell
-    # or Johnson Controls also turns up somewhere, even off an approved list (B1b/B1c).
-    ame_named_anywhere = any(m.ours or m.listed or m.passing for m in mentions)
+    # or Johnson Controls also turns up somewhere, even off an approved list (B1b/B1c). D3: this
+    # also covers a page the controls-context filter dropped entirely — an addendum item or
+    # pre-bid answer naming an AME line with no controls word of its own still counts.
+    ame_named_anywhere = any(m.ours or m.listed or m.passing for m in mentions) or ame_anywhere is not None
 
     if qualifying and contrary:
         first = _deciding(qualifying)
@@ -485,7 +507,12 @@ def _judge(mentions: Sequence[Mention], others: tuple[str, ...]) -> tuple[str, s
     if sole_blocking:
         first = sole_blocking[0]
         passing_names = sorted({name for m in mentions for name, _ in m.passing})
-        extra = f" The spec also names {', '.join(passing_names)}, which is not a line AME bids." if passing_names else ""
+        if passing_names:
+            extra = f" The spec also names {', '.join(passing_names)}, which is not a line AME bids."
+        elif ame_anywhere is not None:
+            extra = f" An AME line also turns up elsewhere in the documents, at {ame_anywhere}."
+        else:
+            extra = ""
         return ("Open", f"The spec requires {', '.join(first.sole_for)} with no substitutions ({where(first)})."
                         f"{extra} The US team decides.")
     if requires_blocking:
