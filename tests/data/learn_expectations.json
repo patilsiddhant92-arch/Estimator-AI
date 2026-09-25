@@ -1,5 +1,5 @@
 {
-  "about": "What the estimator concluded for each Learn job (docs/superpowers/plans/step-3-facts.md). bid null = report the result, don't check it. sheet_numbers_at_least / typed_at_least = share of drawing sheets whose sheet number must be found / that must be sorted by type. others_include (optional) = other controls manufacturers the bid check must name for the US team. overview_makers_include (optional) = manufacturers the Spec overview tab must name, confirmed by hand in the quote. unreadable_at_most = the most pages that may come back unreadable, set from a recorded run — a rise is a regression worth a look.",
+  "about": "What the estimator concluded for each Learn job (docs/superpowers/plans/step-3-facts.md). bid null = report the result, don't check it. sheet_numbers_at_least / typed_at_least = share of drawing sheets whose sheet number must be found / that must be sorted by type. others_include (optional) = other controls manufacturers the bid check must name for the US team. overview_makers_include (optional) = manufacturers the Spec overview tab must name, confirmed by hand in the quote. unreadable_at_most = the most pages that may come back unreadable, set from a recorded run — a rise is a regression worth a look. scope_review_includes (optional) = Spec overview scope review rows that must be Found: section, and item_starts (one line, or a list of which any will do) and/or says (words the quote must all carry), and optionally the sheet the first place must be on.",
   "learn_folder": "D:\\Estimation Assistant\\Learn",
   "jobs": {
     "26-0246": {"bid": "Qualifies", "sheet_numbers_at_least": 0.99, "typed_at_least": 0.90, "controls_sections": true,
@@ -23,6 +23,28 @@
     "26-0437": {"bid": "Qualifies", "sheet_numbers_at_least": 0.95, "typed_at_least": 0.80, "controls_sections": true,
                 "unreadable_at_most": 0},
     "26-0445": {"bid": "Open", "sheet_numbers_at_least": 0.90, "typed_at_least": 0.70, "controls_sections": true,
-                "unreadable_at_most": 0}
+                "unreadable_at_most": 0,
+                "scope_review_includes": [
+                  {"section": "Standard exclusion", "item_starts": ["All water flow meters", "The installation of dampers, valves, wells, water flow meters"]},
+                  {"section": "Standard exclusion", "item_starts": "All electric power meters"},
+                  {"section": "Standard exclusion", "item_starts": "EMT or RGS conduit (if specified)", "says": ["blue"]},
+                  {"section": "Standard exclusion", "item_starts": "All equipment manufacturer integration/communication devices", "says": ["gateways"]},
+                  {"section": "Standard exclusion", "item_starts": "Any gas detection system or components", "says": ["hydrogen"]},
+                  {"section": "Who does what", "says": ["The Owner will provide", "Servers"]},
+                  {"section": "Who does what", "says": ["The Owner will provide", "Switches"]},
+                  {"section": "Who does what", "item_starts": "A responsibility matrix", "sheet": "IC00-00"},
+                  {"section": "Who does what", "item_starts": "The job splits controls between several contractors"},
+                  {"section": "Other systems to connect to", "item_starts": "UPS"},
+                  {"section": "Other systems to connect to", "item_starts": "Generators"},
+                  {"section": "Other systems to connect to", "item_starts": "Switchgear"},
+                  {"section": "Other systems to connect to", "item_starts": "Chillers"},
+                  {"section": "Other systems to connect to", "item_starts": "Leak detection"},
+                  {"section": "Services that cost hours", "item_starts": "Training"},
+                  {"section": "Services that cost hours", "item_starts": "Commissioning"},
+                  {"section": "Services that cost hours", "item_starts": "Software licences"},
+                  {"section": "Special systems", "item_starts": "Cybersecurity"},
+                  {"section": "Special systems", "item_starts": "Panels built to UL 508A"},
+                  {"section": "Special systems", "item_starts": "SCADA"},
+                  {"section": "Special systems", "item_starts": "Redundant controllers"}]}
   }
 }

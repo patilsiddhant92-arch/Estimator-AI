@@ -133,3 +133,56 @@ def test_measure_reads_the_spec_overview(tmp_path):
     assert result.overview_ame >= 1
     assert "BACnet MS/TP" in result.overview_protocols
     assert result.overview_not_found > 0
+
+
+# The scope review in the Learn check.
+
+ROWS = (("Other systems to connect to", "UPS (uninterruptible power supply)", "The UPS shall be monitored.", ""),
+        ("Who does what", "A responsibility matrix", "BMS CONTRACTOR RESPONSIBILITY MATRIX", "IC00-00"),
+        ("Who does what", "The Owner will provide", "The Owner will provide the following: 1. Servers 2. Switches", ""),
+        ("Standard exclusion", "All water flow meters.", "Provide flow meters.", ""))
+
+
+def test_scope_review_includes_is_checked():
+    expected = {**EXPECTED, "scope_review_includes": [
+        {"section": "Other systems to connect to", "item_starts": "UPS"},
+        {"section": "Who does what", "item_starts": "A responsibility matrix", "sheet": "IC00-00"},
+        {"section": "Who does what", "says": ["The Owner will provide", "Servers"]},
+        {"section": "Standard exclusion", "item_starts": ["All water flow meters", "The installation of dampers"]}]}
+    assert learn_check.misses(_result(scope_rows=ROWS), expected) == []
+
+
+def test_a_missing_scope_review_row_is_said_in_plain_words():
+    expected = {**EXPECTED, "scope_review_includes": [
+        {"section": "Other systems to connect to", "item_starts": "Chillers"},
+        {"section": "Who does what", "item_starts": "A responsibility matrix", "sheet": "IC01-01"},
+        {"section": "Who does what", "says": ["The Owner will provide", "Firewalls"]},
+        {"section": "Standard exclusion", "item_starts": ["All gas meters", "All motor starters"]}]}
+    assert learn_check.misses(_result(scope_rows=ROWS), expected) == [
+        "Other systems to connect to: a row for “Chillers” was expected in the Spec overview, but the check didn't "
+        "find it",
+        "Who does what: a row for “A responsibility matrix” on sheet IC01-01 was expected in the Spec overview, but "
+        "the check didn't find it",
+        "Who does what: a row saying “The Owner will provide … Firewalls” was expected in the Spec overview, but the "
+        "check didn't find it",
+        "Standard exclusion: a row for “All gas meters” or “All motor starters” was expected in the Spec overview, "
+        "but the check didn't find it"]
+
+
+def test_scope_review_includes_is_optional():
+    assert learn_check.misses(_result(), EXPECTED) == []
+
+
+def test_measure_reads_the_scope_review(tmp_path):
+    from estimator.catalogue.job import catalogue_job
+    from pdfs import make_pdf, Page
+
+    root = tmp_path / "26-9999"
+    base = root / "2. Takeoffs" / "1. Base Takeoff"
+    spec = Page(texts=((72, 72, "SECTION 23 09 23 - INSTRUMENTATION AND CONTROL FOR HVAC\n"
+                                "The BMS contractor shall furnish all water flow meters. The UPS shall be monitored "
+                                "by the BMS. IDF cabinet by others.\n23 09 23 - 1", 10),))
+    make_pdf(base / "Marked_230923.pdf", spec)
+    result = learn_check.measure(catalogue_job(root, tmp_path / "cache"))
+    assert result.scope_exclusions >= 1 and result.scope_systems >= 1 and result.scope_who >= 1
+    assert ("Standard exclusion", "All water flow meters.") in [row[:2] for row in result.scope_rows]

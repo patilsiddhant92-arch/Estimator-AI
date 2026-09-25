@@ -40,6 +40,10 @@ class JobResult:
     overview_protocols: tuple[str, ...] = ()   # Spec overview: protocol items found
     overview_not_found: int = 0            # Spec overview: topics/categories searched for but not found
     overview_maker_names: tuple[str, ...] = ()   # every manufacturer named, for others_include-style checks
+    scope_exclusions: int = 0              # Spec overview: standard exclusions the job asks for
+    scope_systems: int = 0                 # other systems to connect to
+    scope_who: int = 0                     # who-does-what lines
+    scope_rows: tuple[tuple[str, str, str, str], ...] = ()   # every Found scope review row: section, item, quote, sheet
 
 
 def missing_from_documents_tab(job) -> tuple[str, ...]:
@@ -64,11 +68,16 @@ def missing_from_documents_tab(job) -> tuple[str, ...]:
 
 
 def measure(catalogue) -> JobResult:
-    from estimator.catalogue.job import CONTROLS_DISCIPLINES
+    from estimator.catalogue.job import CONTROLS_DISCIPLINES, scope_review_counts
     pages, sheets = catalogue.pages, catalogue.sheets
     relevant = [s for s in sheets if s.discipline in CONTROLS_DISCIPLINES]
     overview = catalogue.overview
     protocols = tuple(t.item for t in overview.topics if t.section == "Protocols" and t.status == "Found")
+    exclusions, systems, who = scope_review_counts(overview)
+    scope = (overview.standard_lines + overview.who_does_what + overview.integrations + overview.services
+             + overview.special_systems + overview.conditions)
+    scope_rows = tuple((f.section, f.item, f.quote, (f.places[0].sheet or "") if f.places else "")
+                       for f in scope if f.status == "Found")
     return JobResult(
         job=catalogue.job.name, pages=len(pages),
         ocr=sum(1 for p in pages if p.status == "ocr"), unreadable=sum(1 for p in pages if p.status == "unreadable"),
@@ -80,7 +89,36 @@ def measure(catalogue) -> JobResult:
         unlisted_files=missing_from_documents_tab(catalogue.job),
         overview_makers=len(overview.makers), overview_ame=sum(1 for m in overview.makers if m.ame_quotes),
         overview_protocols=protocols, overview_not_found=len(overview.not_found),
-        overview_maker_names=tuple(m.maker for m in overview.makers))
+        overview_maker_names=tuple(m.maker for m in overview.makers),
+        scope_exclusions=exclusions, scope_systems=systems, scope_who=who, scope_rows=scope_rows)
+
+
+def _has_scope_row(rows, want: dict) -> bool:
+    starts = want.get("item_starts")
+    starts = [starts] if isinstance(starts, str) else list(starts or ())
+    for section, item, quote, sheet in rows:
+        if section != want["section"]:
+            continue
+        if starts and not any(item.lower().startswith(s.lower()) for s in starts):
+            continue
+        if not all(words.lower() in quote.lower() for words in want.get("says", ())):
+            continue
+        if want.get("sheet") and sheet != want["sheet"]:
+            continue
+        return True
+    return False
+
+
+def _scope_row_words(want: dict) -> str:
+    starts = want.get("item_starts")
+    starts = [starts] if isinstance(starts, str) else list(starts or ())
+    if starts:
+        words = "a row for " + " or ".join(f"“{s}”" for s in starts)
+    else:
+        words = "a row saying “" + " … ".join(want["says"]) + "”"
+    if want.get("sheet"):
+        words += f" on sheet {want['sheet']}"
+    return words
 
 
 def misses(result: JobResult, expected: dict) -> list[str]:
@@ -93,6 +131,10 @@ def misses(result: JobResult, expected: dict) -> list[str]:
     for name in expected.get("overview_makers_include", ()):
         if name not in result.overview_maker_names:
             found.append(f"{name} was expected among the Spec overview manufacturers, but the check didn't find it")
+    for want in expected.get("scope_review_includes", ()):
+        if not _has_scope_row(result.scope_rows, want):
+            found.append(f"{want['section']}: {_scope_row_words(want)} was expected in the Spec overview, "
+                         f"but the check didn't find it")
     if result.sheets:
         share = result.numbered / result.sheets
         if share < expected["sheet_numbers_at_least"]:
@@ -145,7 +187,8 @@ def main(argv: list[str] | None = None) -> int:
     keys = args.jobs or list(expectations["jobs"])
     lines = ["| Job | Pages | OCR | Could not read | Drawing sheets | With number | Mech/controls/plumbing sorted by type | Controls sections "
              "| Bid check | Other manufacturers | Tags | Misses |", "|" + "---|" * 12]
-    overview_lines = ["| Job | Manufacturers named | AME gets prices for | Protocols found | Not found (count) |", "|" + "---|" * 5]
+    overview_lines = ["| Job | Manufacturers named | AME gets prices for | Protocols found | Not found (count) "
+                      "| Exclusions asked for | Systems to connect | Who-does-what lines |", "|" + "---|" * 8]
     total_misses, unlisted = 0, {}
     equipment = Equipment.load()
     for key in keys:
@@ -166,7 +209,8 @@ def main(argv: list[str] | None = None) -> int:
                      f"| {result.controls_sections} | {result.bid} | {', '.join(result.others) or '—'} "
                      f"| {result.tags} | {'; '.join(found) or 'none'} |")
         overview_lines.append(f"| {key} | {result.overview_makers} | {result.overview_ame} "
-                              f"| {', '.join(result.overview_protocols) or '—'} | {result.overview_not_found} |")
+                              f"| {', '.join(result.overview_protocols) or '—'} | {result.overview_not_found} "
+                              f"| {result.scope_exclusions} | {result.scope_systems} | {result.scope_who} |")
     common = sorted(unlisted.items(), key=lambda kv: -kv[1])[:25]
     lines += ["", "Spec overview", ""] + overview_lines
     lines += ["", "Tag-shaped codes whose prefix isn't in assets/reading_lists/equipment.json yet (most common first):",
