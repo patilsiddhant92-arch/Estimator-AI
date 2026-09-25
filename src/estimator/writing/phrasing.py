@@ -24,17 +24,29 @@ STOP_WORDS = frozenset({"qty", "and", "the", "of", "for", "to", "with", "w", "by
                         "thru", "system", "systems", "new", "typ", "typical", "all", "per"})
 
 
-def words(text: str) -> set[str]:
-    """The meaningful words of a kind or a header, lower case and singular."""
+def stem(word: str) -> str:
+    """A rough stem, so "Heaters", "Heater" and "Heating" all meet "heat"."""
+    word = _singular(word)
+    for ending in ("ing", "er"):
+        if len(word) > len(ending) + 3 and word.endswith(ending):
+            return word[: -len(ending)]
+    return word
+
+
+def words(text: str, stemmed: bool = False) -> set[str]:
+    """The meaningful words of a kind or a header, lower case and singular (and roughly stemmed,
+    "heater" to "heat", when asked)."""
     found = set()
     for word in re.findall(r"[A-Za-z]+", text or ""):
         word = word.lower()
         if word in STOP_WORDS or len(word) < 2:
             continue
-        if len(word) > 3 and word.endswith("s") and not word.endswith("ss"):
-            word = word[:-1]
-        found.add(word)
+        found.add(stem(word) if stemmed else _singular(word))
     return found
+
+
+def _singular(word: str) -> str:
+    return word[:-1] if len(word) > 3 and word.endswith("s") and not word.endswith("ss") else word
 
 
 @lru_cache(maxsize=2)

@@ -217,6 +217,41 @@ def template_for(prefix: str, kind: str, templates) -> SystemTemplate | None:
     return (alone or matches or [None])[0]
 
 
+_NAME_WEIGHT, _LINE_WEIGHT, _PREFIX_WEIGHT, _LETTER_WEIGHT = 3.0, 0.5, 5.0, 0.25
+
+
+def _words(text: str, stemmed: bool = False) -> set[str]:
+    from estimator.writing.phrasing import words
+    return words(text, stemmed)
+
+
+def nearest_templates(kind: str, prefix: str, templates, k: int = 3) -> list[SystemTemplate]:
+    """The k templates most like a system the Master Template has no entry for, best first.
+
+    Scored by the words the kind shares with a template's name and its applies_to kinds (most
+    weight), with the words of its lines (a little: "Electric Duct Heater" meets the VAV's electric
+    heat lines), and by the tag prefix: the same prefix counts most, shared letters a little.
+    Deterministic: ties keep the templates' order. A template sharing nothing is never chosen."""
+    wanted, wanted_stems = _words(kind), _words(kind, stemmed=True)
+    code = (prefix or "").strip().upper()
+    scored = []
+    for order, template in enumerate(templates):
+        names = _words(" ".join((template.name, *template.kinds)))
+        lines = _words(" ".join(line.text for line in template.lines), stemmed=True)
+        in_lines = wanted_stems & lines
+        score = _NAME_WEIGHT * len(wanted & names) + _LINE_WEIGHT * len(in_lines)
+        if code:
+            if code in template.prefixes:
+                score += _PREFIX_WEIGHT
+            else:
+                letters = max((len(set(code) & set(p)) for p in template.prefixes), default=0)
+                score += _LETTER_WEIGHT * letters
+        if wanted & names or in_lines or code in template.prefixes:     # shared letters alone are not enough
+            scored.append((-score, order, template))
+    scored.sort(key=lambda item: item[:2])
+    return [template for _, _, template in scored[:k]]
+
+
 def integration_trio(what: str) -> tuple[str, str, str]:
     """The three integration lines that go together, for "Chiller", "Rooftop Unit", or "" (plain factory controls)."""
     first, second, third = _raw(TEMPLATES_FILE.resolve())["integration_trio"]

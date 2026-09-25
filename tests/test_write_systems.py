@@ -11,7 +11,9 @@ from estimator.reading.inventory import InventoryItem
 from estimator.reading.keynotes import Note
 from estimator.reading.schedules import Schedule, ScheduleRow
 from estimator.scope import Job
-from estimator.writing.judge import Choice, Judgement
+import pytest
+
+from estimator.writing.judge import Choice, Composition, Judgement, TechHoursHint, WrittenLine
 from estimator.writing.systems import BundleRow, Family, Passage, SystemBundle
 from estimator.writing.templates import integration_trio, load_templates
 from estimator.writing.write import build_job, tag_list, write_systems
@@ -207,7 +209,7 @@ class FakeJudge:
     def judge(self, system, evidence, options, rules):
         self.asked.append((system, evidence, options, rules))
         return Judgement(tuple(c for c in self.choices if c.line in options), tuple(self.notes), "fake",
-                         tuple(self.dropped))
+                         tuple(self.dropped), extra_lines=tuple(getattr(self, "extra", ())))
 
 
 def test_the_ai_overrides_an_assumption_and_a_disagreement_makes_a_review_line():
@@ -278,11 +280,205 @@ def test_with_no_ai_key_the_pending_lines_say_so_once(tmp_path, monkeypatch):
 
 # --- no template, existing, flags -----------------------------------------------------------------
 
-def test_a_missing_template_gives_a_pending_block_that_is_not_printed():
+WAITING = "waiting for the AI to write this system (no Master Template entry)"
+
+
+def test_with_no_ai_a_missing_template_gives_a_pending_block_that_is_not_printed():
     system = _write(_bundle("GV", "Gravity Ventilator", ["GV-1"]))
     assert not system.printed
-    assert system.blocks[0].header == "No Master Template entry for Gravity Ventilator — write this system by hand"
-    assert any(item.category == "PENDING" and "No Master Template entry for Gravity Ventilator" in item.decide
+    assert system.blocks[0].header == f"Gravity Ventilator — {WAITING}"
+    assert any(item.category == "PENDING" and WAITING in item.decide and "Gravity Ventilator" in item.decide
+               for item in system.review)
+    [line] = system.lines
+    assert line.category == "PENDING" and not line.client
+
+
+# --- writing a system the Master Template has no entry for -----------------------------------------
+
+HEATER_TAGS = ["EDH-1", "EDH-2"]
+HEATER_ROWS = _rows(HEATER_TAGS, ("TAG", "KW", "CONTROL"), {"KW": "5", "CONTROL": "SCR"},
+                    title="ELECTRIC DUCT HEATER SCHEDULE")
+HEATER_SEQUENCE = Passage("23 09 93, page 12", "Specs.pdf", 12,
+                          "Electric duct heaters: the heater shall modulate by SCR to hold the discharge air "
+                          "temperature. Provide two high limit switches at each heater.")
+
+
+def _heater(**kw):
+    return _bundle("EDH", "Electric Duct Heater", HEATER_TAGS, rows=HEATER_ROWS,
+                   passages=kw.pop("passages", (HEATER_SEQUENCE,)), **kw)
+
+
+def _written(text, quote, confidence=0.9, quantity=None, depth=1):
+    return WrittenLine(text, depth, quantity, "The evidence calls for it.", quote, confidence)
+
+
+def _composition(lines=None, notes=(), hours=TechHoursHint("unit", 2.0, "EUH / CUH / UH"), refused=()):
+    lines = lines if lines is not None else [
+        _written("Furnish Electric Heat SCR Control (AO)", "modulate by SCR"),
+        _written("Furnish and Install Discharge Air Temperature Sensor", "hold the discharge air temperature", 0.6),
+        _written("Furnish and Install High Limit Switch", "two high limit switches at each heater", quantity=4),
+    ]
+    return Composition("Electric Duct Heater", tuple(lines), tuple(notes), hours, "fake", tuple(refused))
+
+
+class FakeWriter(FakeJudge):
+    """A fake judge that also writes systems with no template."""
+
+    def __init__(self, composition, choices=()):
+        super().__init__(list(choices))
+        self.composition = composition
+        self.composed = []
+
+    def compose(self, system, evidence, examples, style, analogs):
+        self.composed.append((system, evidence, examples, style, analogs))
+        return self.composition
+
+
+def test_a_system_with_no_template_is_written_from_the_evidence_as_added():
+    judge = FakeWriter(_composition(notes=["**Heaters modulate by SCR to hold the discharge air temperature",
+                                           "**Heaters mounted in the ceiling"]))
+    system = _write(_heater(), judge=judge)
+    [(name, evidence, examples, style, analogs)] = judge.composed
+    assert name == "Electric Duct Heater"
+    assert "ELECTRIC DUCT HEATER SCHEDULE" in evidence and "modulate by SCR" in evidence and "EDH-1" in evidence
+    assert [a.name for a in analogs][0] == "EUH / CUH / UH" and len(analogs) <= 3
+    assert examples and len(examples) <= 4 and all("EDH" in e["prefixes"] or e["kind_words"] for e in examples)
+    assert "Furnish and Install" in style.verbs
+
+    assert system.printed
+    [block] = system.blocks
+    assert block.header == "Qty (2) Electric Duct Heater EDH-1, 2"
+    assert [(i.text, i.quantity) for i in block.items if i.kind == "line"] == [
+        ("Furnish Electric Heat SCR Control (AO)", 2),
+        ("Furnish and Install Discharge Air Temperature Sensor", 2),
+        ("Furnish and Install High Limit Switch", 4),                 # the count the evidence states
+    ]
+    for line in (l for l in system.lines if l.text.startswith("Furnish")):
+        assert line.category == "ADDED" and line.client and line.confidence <= 0.7
+        assert line.source == "written from the evidence (like EUH / CUH / UH)"
+        assert "23 09 93, page 12" in line.evidence
+    assert _line(system, "Furnish and Install Discharge Air Temperature Sensor").confidence == 0.6
+
+    assert block.tech_hours == 4 and system.tech_hours == 4               # 2 h a unit, like the unit heaters
+    review = [str(item) for item in system.review]
+    assert review.count("Electric Duct Heater: New system written from the evidence — check the wording") == 1
+    assert "Electric Duct Heater: Tech hours taken from EUH / CUH / UH — confirm" in review
+    assert any(i.category == "ASSUMPTION" and i.decide == "Tech hours taken from EUH / CUH / UH"
+               for i in system.review)
+
+    notes = [i.text for i in block.items if i.kind == "note"]
+    assert notes == ["**Heaters modulate by SCR to hold the discharge air temperature"]   # the evidence bears it out
+    assert any("Heaters mounted in the ceiling" in str(i) for i in system.review)
+
+
+def test_tech_hours_like_no_real_template_are_left_for_the_estimator():
+    system = _write(_heater(), judge=FakeWriter(_composition(hours=TechHoursHint("unit", 2.0, "Space Heaters"))))
+    assert system.printed and system.tech_hours is None and system.blocks[0].tech_hours is None
+    assert any("No tech hours" in item.decide and "Electric Duct Heater" in item.decide for item in system.review)
+    assert all(line.source == "written from the evidence (like EUH / CUH / UH)"
+               for line in system.lines if line.text.startswith("Furnish"))     # the nearest template
+
+
+def test_a_stated_quantity_without_its_quote_in_the_job_is_not_trusted():
+    lines = [_written("Furnish and Install High Limit Switch", "six limit switches per heater", quantity=12)]
+    system = _write(_heater(), judge=FakeWriter(_composition(lines=lines)))
+    line = _line(system, "Furnish and Install High Limit Switch")
+    assert line.quantity == 2                         # one a unit: the quote is not in the documents
+    assert line.confidence <= 0.5 and "not found" in line.evidence
+
+
+def test_the_ais_refused_lines_reach_the_review_list():
+    refused = ["“Occupancy Sensor” — it does not start with a house verb"]
+    system = _write(_heater(), judge=FakeWriter(_composition(refused=refused)))
+    assert any("break the house style" in item.decide and "Occupancy Sensor" in item.evidence
+               for item in system.review)
+
+
+def test_an_ai_that_cannot_write_it_leaves_the_pending_block_with_its_reason():
+    class Waiting(FakeWriter):
+        def compose(self, *args):
+            self.last_error = "judgement pending — waiting for an answer in the chat (requests folder: X)"
+            return None
+    system = _write(_heater(), judge=Waiting(None))
+    assert not system.printed
+    assert system.blocks[0].header == f"Electric Duct Heater — {WAITING}"
+    assert any("waiting for an answer in the chat" in item.evidence for item in system.review)
+
+
+def test_a_composition_with_no_usable_line_is_not_printed():
+    system = _write(_heater(), judge=FakeWriter(_composition(lines=[])))
+    assert not system.printed
+    assert any("no line" in item.evidence for item in system.review if item.category == "PENDING")
+
+
+def test_a_judge_that_cannot_compose_still_leaves_the_pending_block():
+    system = _write(_heater(), judge=FakeJudge([]))           # an older judge: choose only
+    assert not system.printed and WAITING in system.blocks[0].header
+
+
+def test_the_chat_writes_a_compose_request_and_picks_up_its_answer(tmp_path, monkeypatch):
+    import json
+    from estimator.writing.judge import Judge
+    monkeypatch.setattr("anthropic.Anthropic", lambda *a, **k: pytest.fail("the chat never calls the API"))
+    system = _write(_heater(), judge=Judge(tmp_path, mode="chat"))
+    assert not system.printed
+    [request_file] = (tmp_path / "judge-chat" / "requests").glob("*.json")
+    request = json.loads(request_file.read_text(encoding="utf-8"))
+    assert request["kind"] == "compose" and request["system"] == "Electric Duct Heater"
+    assert request["analogs"][0] == "EUH / CUH / UH"
+    assert set(request["schema"]["required"]) == {"header", "lines", "client_notes", "tech_hours"}
+    answer = {"header": "Electric Duct Heater",
+              "lines": [{"text": "Furnish Electric Heat SCR Control (AO)", "depth": 1, "quantity": None,
+                         "why": "The sequence modulates by SCR.", "quote": "modulate by SCR", "confidence": 0.9}],
+              "client_notes": [], "tech_hours": {"per": "unit", "hours": 2, "like": "EUH / CUH / UH"}}
+    answers = tmp_path / "judge-chat" / "answers"
+    answers.mkdir(parents=True)
+    (answers / request_file.name).write_text(json.dumps(answer), encoding="utf-8")
+
+    system = _write(_heater(), judge=Judge(tmp_path, mode="chat"))
+    assert system.printed and system.blocks[0].header == "Qty (2) Electric Duct Heater EDH-1, 2"
+    line = _line(system, "Furnish Electric Heat SCR Control (AO)")
+    assert (line.category, line.quantity, line.confidence) == ("ADDED", 2, 0.7)
+    assert system.tech_hours == 4
+
+
+# --- lines beyond the Master Template on a templated system ---------------------------------------------
+
+OCC_DEVICES = (DeviceCount("M-101", DWG, 3, "Occupancy sensor", "OCC", 5, 1, 5, True),)
+
+
+def test_an_extra_line_on_a_templated_system_is_added_and_reviewed():
+    judge = FakeJudge([])
+    judge.extra = (WrittenLine("Furnish and Install Occupancy Sensor", 1, None,
+                               "The plans show occupancy sensors in the offices.", "OCC", 0.9),)
+    system = _write(_vav(devices=OCC_DEVICES), judge=judge)
+    [(_, evidence, _, _)] = judge.asked
+    assert "OCC" in evidence and "Occupancy sensor" in evidence          # the device counts reach the AI
+    line = _line(system, "Furnish and Install Occupancy Sensor")
+    assert (line.category, line.client, line.quantity) == ("ADDED", True, 5)   # counted on the plans
+    assert line.confidence <= 0.7 and line.source.startswith("AI:")
+    assert "M-101" in line.evidence
+    assert "Furnish and Install Occupancy Sensor" in _printed(system)
+    assert any(str(item) == "Variable Air Volume Box: Line added beyond the Master Template — check"
+               and "Occupancy Sensor" in item.evidence for item in system.review)
+
+
+def test_an_extra_line_with_no_device_count_is_one_a_unit():
+    passage = Passage("23 09 93, page 45", "Specs.pdf", 45, "Each VAV box zone shall have an occupancy sensor.")
+    judge = FakeJudge([])
+    judge.extra = (WrittenLine("Furnish and Install Occupancy Sensor", 1, None, "The sequence asks for one.",
+                               "shall have an occupancy sensor", 0.9),)
+    system = _write(_vav(passages=(SEQUENCE, passage)), judge=judge)
+    line = _line(system, "Furnish and Install Occupancy Sensor")
+    assert (line.quantity, line.category, line.confidence) == (3, "ADDED", 0.7)
+
+
+def test_an_extra_line_whose_quote_is_not_in_the_job_is_only_reviewed():
+    judge = FakeJudge([])
+    judge.extra = (WrittenLine("Furnish and Install Occupancy Sensor", 1, None, "made up", "OCC-7 on M-999", 0.9),)
+    system = _write(_vav(), judge=judge)
+    assert "Furnish and Install Occupancy Sensor" not in _printed(system)
+    assert any("Occupancy Sensor" in item.decide and "not in the job's documents" in item.decide
                for item in system.review)
 
 
@@ -306,8 +502,13 @@ def test_bundle_flags_reach_the_review_list_with_their_category():
 def test_nothing_internal_reaches_the_client_blocks():
     judge = FakeJudge([Choice("Furnish DDC Controller to the Factory for Installation", True, None,
                               "The sequence names it.", "each VAV box shall maintain", 0.9)])
-    systems = [_write(_vav(), judge=judge), _write(_vav(passages=())),
-               _write(_bundle("RTU", "Rooftop Unit", ["RTU-1"], controls_by=("FACTORY CONTROL PACKAGE",)))]
+    judge.extra = (WrittenLine("Furnish and Install Occupancy Sensor", 1, None, "The plans show it.", "OCC", 0.9),)
+    composed = FakeWriter(_composition(notes=["**Heaters modulate by SCR to hold the discharge air temperature"]))
+    systems = [_write(_vav(devices=OCC_DEVICES), judge=judge), _write(_vav(passages=())),
+               _write(_bundle("RTU", "Rooftop Unit", ["RTU-1"], controls_by=("FACTORY CONTROL PACKAGE",))),
+               _write(_heater(), judge=composed)]
+    assert all(system.printed for system in systems)
+    assert "Furnish and Install Occupancy Sensor" in _printed(systems[0])
     hints = [hint for t in TEMPLATES for hint in t.hints]
     for system in systems:
         for block in system.blocks:
@@ -443,6 +644,37 @@ def test_the_proposal_prints_the_named_exception(proposal_template, tmp_path):
     out = write_proposal(job, proposal_template, tmp_path / "proposal.docx")
     texts = [p.text.strip() for p in Document(str(out)).paragraphs]
     assert AUTO_DIALER_EXCEPTION in texts
+
+
+def test_the_proposal_holds_nothing_internal_from_a_system_the_ai_wrote(proposal_template, tmp_path):
+    from docx import Document
+    from estimator.proposal.write import write_proposal
+    vav = Schedule(DWG, 5, "M-601", "VAV BOX SCHEDULE", ("TAG", "HW GPM"),
+                   tuple(ScheduleRow(t, {"TAG": t, "HW GPM": "1.5"}, None, None) for t in VAV_TAGS), False, (), ())
+    heaters = Schedule(DWG, 5, "M-601", "ELECTRIC DUCT HEATER SCHEDULE", ("TAG", "KW"),
+                       tuple(ScheduleRow(t, {"TAG": t, "KW": "5"}, None, None) for t in HEATER_TAGS), False, (), ())
+    items = tuple(InventoryItem(t, "Variable Air Volume Box", "CONFIRMED", 1, "M-601 VAV BOX SCHEDULE", ("M-101",),
+                                "", "") for t in VAV_TAGS)
+    items += tuple(InventoryItem(t, "Electric Duct Heater", "CONFIRMED", 1, "M-601 ELECTRIC DUCT HEATER SCHEDULE",
+                                 ("M-101",), "", "") for t in HEATER_TAGS)
+    catalogue = SimpleNamespace(job=SimpleNamespace(name="26-9999", root=Path("26-9999, 1 Test Street")),
+                                overview=SpecOverview(), pages=(), sheets=(), sections=(), tags=())
+    reading = SimpleNamespace(schedules=(vav, heaters), inventory=items, notes=(), backbone=(), devices=(),
+                              versions=(), flags=())
+    lines = [_written("Furnish Electric Heat Enable (DO)", "KW: 5")]
+    judge = FakeWriter(_composition(lines=lines, notes=["**KW 5 heaters"]))
+    judge.extra = (WrittenLine("Furnish and Install Occupancy Sensor", 1, None, "The schedule shows it.", "HW GPM",
+                               0.9),)
+    job, systems, _ = build_job(catalogue, reading, judge, dt.date(2026, 9, 25))
+    check_fit(job)
+    headers = [b.header for b in job.blocks]
+    assert "Qty (2) Electric Duct Heater EDH-1, 2" in headers
+    out = write_proposal(job, proposal_template, tmp_path / "proposal.docx")
+    whole = "\n".join(p.text for p in Document(str(out)).paragraphs)
+    assert "Furnish Electric Heat Enable (DO)" in whole and "Furnish and Install Occupancy Sensor" in whole
+    for word in ("confidence", "ASSUMPTION", "CONFIRMED", "ADDED", "PENDING", "rule:", "AI:", "tech hour",
+                 "written from the evidence", "Master Template", "The schedule shows it", "KW: 5"):
+        assert word not in whole, word
 
 
 def test_the_summary_counts_a_system_put_in_the_exceptions():

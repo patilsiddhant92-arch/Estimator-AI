@@ -29,7 +29,8 @@
       "Weather Station": ["WS"],
       "Domestic Water Meter": ["DWM"],
       "Humidity Sensor": ["H", "RH"],
-      "CO2 Sensor": ["CO2"]
+      "CO2 Sensor": ["CO2"],
+      "Occupancy Sensor": ["OCC"]
     }
   },
   "systems": [
