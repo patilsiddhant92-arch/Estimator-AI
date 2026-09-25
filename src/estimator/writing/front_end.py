@@ -24,7 +24,8 @@ from pathlib import Path
 from estimator.catalogue.overview import FOUND, Found, Place, short_place
 from estimator.catalogue.pdf import clean_text
 from estimator.reading.revisions import parse_date
-from estimator.scope import FrontEnd, Header, Item, Run
+from estimator.scope import Block, FrontEnd, Header, Item, Run
+from estimator.writing.templates import load_templates, template_for
 
 ASSETS = Path(__file__).resolve().parents[3] / "assets"
 FRONT_END_FILE = ASSETS / "front_end.json"
@@ -212,6 +213,30 @@ def _sentence(text: str, start: int, end: int) -> str:
     return quote if len(quote) <= _QUOTE_LIMIT else quote[:_QUOTE_LIMIT].rstrip() + "…"
 
 
+def _term(amount: str) -> str:
+    return re.sub(r"\s*-?\s*(year|month)s?\s*$", r"-\1", amount.strip().lower())
+
+
+def _warranty_rows(overview, found: Found) -> list[Found]:
+    services = {s.item: s for s in overview.services}
+    agreement = services.get(_SERVICE_AGREEMENT)
+    return [found] + ([agreement] if agreement is not None and agreement.status == FOUND else [])
+
+
+def _warranty_extension(rows: list[Found], warranty: dict) -> tuple[str, str, Found] | None:
+    """("found"|"missing_years", the extension line or "", the row it came from) for the first row
+    whose quote calls for a warranty or service contract longer than the standard year — None when
+    none does."""
+    for row in rows:
+        if not any(re.search(p, row.quote, re.I) for p in warranty["extension_words"]):
+            continue
+        years = re.search(warranty["extension_years"], row.quote, re.I)
+        if years is None:
+            return "missing_years", "", row
+        return "found", warranty["extension"].format(years=years.group(1).lower()), row
+    return None
+
+
 def _warranty(overview, warranty: dict, flags: list[str], evidence: list[Evidence]) -> list[Item]:
     services = {s.item: s for s in overview.services}
     found = services.get(_WARRANTY)
@@ -222,27 +247,100 @@ def _warranty(overview, warranty: dict, flags: list[str], evidence: list[Evidenc
         flags.append(f"Say how long the warranty is — the job asks for one but no length was read: "
                      f"“{found.quote}” ({where})")
         return []
-    term = re.sub(r"\s*-?\s*(year|month)s?\s*$", r"-\1", found.amount.strip().lower())
-    contract = warranty["contract"].format(term=term)
+    contract = warranty["contract"].format(term=_term(found.amount))
     items = [_line(warranty["heading"], 1, None), _line(contract, 2, None)]
     evidence.append(Evidence(warranty["heading"], where, found.quote, "CONFIRMED"))
     evidence.append(Evidence(contract, where, found.quote, "CONFIRMED"))
 
-    agreement = services.get(_SERVICE_AGREEMENT)
-    rows = [found] + ([agreement] if agreement is not None and agreement.status == FOUND else [])
-    for row in rows:
-        if not any(re.search(p, row.quote, re.I) for p in warranty["extension_words"]):
-            continue
-        years = re.search(warranty["extension_years"], row.quote, re.I)
-        if years is None:
+    extension = _warranty_extension(_warranty_rows(overview, found), warranty)
+    if extension is not None:
+        state, text, row = extension
+        if state == "missing_years":
             flags.append(f"Say for how many years the warranty is extended — the job asks for it but the years "
                          f"weren't read: “{row.quote}” ({short_place(row.places)})")
-            break
-        extension = warranty["extension"].format(years=years.group(1).lower())
-        items.append(_line(extension, 2, None))
-        evidence.append(Evidence(extension, short_place(row.places), row.quote, "CONFIRMED"))
-        break
+        else:
+            items.append(_line(text, 2, None))
+            evidence.append(Evidence(text, short_place(row.places), row.quote, "CONFIRMED"))
     return items
+
+
+def extended_warranty_block(catalogue, data: dict | None = None) -> tuple[Block | None, list[str], list[Evidence]]:
+    """The Master Template's standalone "Qty (1) Extended Warranty" block: printed only when the
+    job's warranty or service/maintenance agreement calls for a term longer than the standard year,
+    with that term quoted word for word.
+
+    Call this from estimator.writing.write.build_job, after the front end and the systems are
+    written, and — when it returns a block — append the block to Job.blocks and fold its evidence
+    and flags into the review list the same way apply_exceptions' systems are. None, with no flags
+    and no evidence, when the job never asks for an extension."""
+    data = data or _load(FRONT_END_FILE)
+    warranty = data["warranty"]
+    overview = catalogue.overview
+    services = {s.item: s for s in overview.services}
+    found = services.get(_WARRANTY)
+    if found is None or found.status != FOUND or not found.amount:
+        return None, [], []
+    extension = _warranty_extension(_warranty_rows(overview, found), warranty)
+    if extension is None:
+        return None, [], []
+    state, text, row = extension
+    if state == "missing_years":
+        flag = (f"Say for how many years the warranty is extended — the job asks for it but the years "
+               f"weren't read: “{row.quote}” ({short_place(row.places)})")
+        return None, [flag], []
+    where = short_place(found.places)
+    contract = warranty["contract"].format(term=_term(found.amount))
+    items = (_line(warranty["heading"], 1, None), _line(contract, 2, None), _line(text, 2, None))
+    evidence = [Evidence(warranty["heading"], where, found.quote, "CONFIRMED"),
+               Evidence(contract, where, found.quote, "CONFIRMED"),
+               Evidence(text, short_place(row.places), row.quote, "CONFIRMED")]
+    return Block(header=warranty["extended_header"], items=items), [], evidence
+
+
+_GLOBAL_POINTS = "Global Points"
+_GP_TEMPERATURE_LINE = "Furnish and Install Outside Air Temperature"
+_GP_HUMIDITY_LINE = "Furnish and Install Outside Air Humidity"
+
+
+def global_points_block(catalogue, data: dict | None = None, templates=None
+                        ) -> tuple[Block | None, list[Evidence]]:
+    """The Master Template's "Qty (1) Global Points" block, with the outside-air temperature and
+    humidity lines: printed only when the spec or sequence names an outside-air temperature or
+    humidity sensor, using the Master Template's own Global Points entry (assets/system_templates.json)
+    for the header and the lines' wording.
+
+    Call this from estimator.writing.write.build_job (templates is the same tuple load_templates()
+    already gives it), after the front end and the systems are written, and — when it returns a
+    block — append the block to Job.blocks and fold its evidence into the review list the same way
+    apply_exceptions' systems are. None, with no evidence, when neither is named."""
+    data = data or _load(FRONT_END_FILE)
+    templates = templates if templates is not None else load_templates()
+    template = template_for("", _GLOBAL_POINTS, templates)
+    if template is None:
+        return None, []
+    held = _Conditions(catalogue, data, {t.item: t for t in catalogue.overview.topics})
+    temperature = held.check("oa_temperature")
+    humidity = held.check("oa_humidity")
+    if temperature is None and humidity is None:
+        return None, []
+    lines = {line.text: line for line in template.lines}
+    items: list[Item] = []
+    evidence: list[Evidence] = []
+    temp_line = lines.get(_GP_TEMPERATURE_LINE)
+    if temp_line is not None:
+        items.append(_line(temp_line.text, 1, 1))
+        if temperature is not None:
+            where, quote = temperature
+            evidence.append(Evidence(temp_line.text, where, quote, "CONFIRMED"))
+        else:
+            evidence.append(Evidence(temp_line.text, _TEMPLATE_DEFAULT, "", "ASSUMPTION"))
+    humidity_line = lines.get(_GP_HUMIDITY_LINE)
+    if humidity_line is not None and humidity is not None:
+        where, quote = humidity
+        items.append(_line(humidity_line.text, 1, 1))
+        evidence.append(Evidence(humidity_line.text, where, quote, "CONFIRMED"))
+    header = " ".join(template.header.format(n=1).split())
+    return Block(header=header, items=tuple(items)), evidence
 
 
 # --- the header -------------------------------------------------------------------

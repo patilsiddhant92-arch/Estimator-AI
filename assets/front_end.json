@@ -31,6 +31,8 @@
     "ups": {"topic": "UPS"},
     "bacnet_ip": {"topic": "BACnet/IP"},
     "portable_terminal": {"words": ["\\blaptops?\\b", "\\btablets?\\b", "\\bportable\\s+operator"]},
+    "oa_temperature": {"words": ["\\boutside\\s+air\\s+temperature\\b", "\\boutdoor\\s+air\\s+temperature\\b"]},
+    "oa_humidity": {"words": ["\\boutside\\s+air\\s+humidity\\b", "\\boutdoor\\s+air\\s+humidity\\b", "\\benthalpy\\b"]},
     "server_by_owner": {"who": ["\\bservers?\\b(?!\\s*(?:rooms?|areas?))"], "party": "owner",
                         "also_topic": "Server"},
     "network_by_others": {"who": ["\\b(?:network|ethernet|LAN|IP|managed|floor)\\s+switch(?:es)?\\b", "@network_switches",
@@ -83,8 +85,9 @@
   },
 
   "warranty": {
-    "about": "Printed when the Spec overview's services find a warranty with its length stated. {term} is that length ('one-year' in the template). The second line needs a maintenance or service contract extended past the warranty, with the extra years stated.",
+    "about": "Printed when the Spec overview's services find a warranty with its length stated. {term} is that length ('one-year' in the template). The second line needs a maintenance or service contract extended past the warranty, with the extra years stated. extended_header names the standalone 'Qty (1) Extended Warranty' block written when the job calls for that extension (estimator.writing.front_end.extended_warranty_block).",
     "heading": "Warranty scope of work-",
+    "extended_header": "Qty (1) Extended Warranty",
     "contract": "a {term} preventative maintenance service contract covering all parts, materials, software, hardware, and all costs to provide software and hardware upgrades during the warranty period.",
     "extension": "extend the maintenance service contract and the warranty for {years} additional years following the warranty period.",
     "extension_words": ["\\badditional\\s+(?:\\w+\\s+)?(?:\\(\\d+\\)\\s+)?years?\\b", "\\bextend\\w*\\b[^.;]{0,60}\\b(?:warranty|service|maintenance)\\b"],

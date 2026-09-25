@@ -16,8 +16,10 @@ from estimator.proposal import layout
 from estimator.reading.revisions import SheetVersion
 from estimator.reading.schedules import Schedule
 from estimator.reading.sequences import SEQUENCE, Backbone
-from estimator.scope import FrontEnd, Header
-from estimator.writing.front_end import FRONT_END_FILE, Evidence, front_end, job_header
+from estimator.scope import Block, FrontEnd, Header
+from estimator.writing.front_end import (FRONT_END_FILE, Evidence, extended_warranty_block, front_end,
+                                         global_points_block, job_header)
+from estimator.writing.templates import load_templates
 
 SPEC = "Specs.pdf"
 MECH = "Mech.pdf"
@@ -292,6 +294,93 @@ def test_a_warranty_with_no_length_is_flagged_not_printed():
     fe, flags, _ = front_end(_catalogue(_overview(services=services)))
     assert not any("arrant" in t for t in _texts(fe))
     assert any("warranty" in flag.lower() for flag in flags)
+
+
+# --- Global Points and Extended Warranty blocks (test1-fixes.md 3.5) ---------------
+
+TEMPLATES = load_templates()
+_TEMP_LINE = "Furnish and Install Outside Air Temperature"
+_HUMIDITY_LINE = "Furnish and Install Outside Air Humidity"
+
+
+def _block_texts(block):
+    return [i.text for i in block.items]
+
+
+def test_global_points_needs_outside_air_temperature_or_humidity_named():
+    block, evidence = global_points_block(_catalogue(), templates=TEMPLATES)
+    assert block is None and evidence == []
+
+
+def test_global_points_with_outside_air_temperature_named():
+    texts = ["Furnish an outside air temperature sensor for the BMS."]
+    block, evidence = global_points_block(_catalogue(texts=texts), templates=TEMPLATES)
+    assert isinstance(block, Block)
+    assert block.header == "Qty (1) Global Points"
+    assert _block_texts(block) == [_TEMP_LINE]
+    assert block.items[0].quantity == 1
+    temp = next(e for e in evidence if e.line == _TEMP_LINE)
+    assert temp.status == "CONFIRMED" and "outside air temperature" in temp.quote.lower()
+
+
+def test_global_points_adds_the_humidity_line_when_named_too():
+    texts = ["Furnish an outside air temperature and outside air humidity sensor."]
+    block, evidence = global_points_block(_catalogue(texts=texts), templates=TEMPLATES)
+    assert _block_texts(block) == [_TEMP_LINE, _HUMIDITY_LINE]
+    humidity = next(e for e in evidence if e.line == _HUMIDITY_LINE)
+    assert humidity.status == "CONFIRMED" and "humidity" in humidity.quote.lower()
+
+
+def test_global_points_from_enthalpy_alone_still_gets_both_lines():
+    texts = ["Furnish an outside air enthalpy sensor for the economizer."]
+    block, evidence = global_points_block(_catalogue(texts=texts), templates=TEMPLATES)
+    assert _block_texts(block) == [_TEMP_LINE, _HUMIDITY_LINE]
+    temp = next(e for e in evidence if e.line == _TEMP_LINE)
+    assert temp.status == "ASSUMPTION"      # named for humidity, not temperature — the default line
+
+
+def test_global_points_words_outside_the_controls_documents_dont_count():
+    outside = PageRecord("Arch.pdf", 3, "text", "Outside air temperature sensor shown for reference.", 0)
+    block, evidence = global_points_block(_catalogue(pages=[outside]), templates=TEMPLATES)
+    assert block is None and evidence == []
+
+
+# --- extended warranty -------------------------------------------------------------
+
+def test_no_warranty_gives_no_extended_warranty_block():
+    block, flags, evidence = extended_warranty_block(_catalogue())
+    assert block is None and flags == [] and evidence == []
+
+
+def test_a_plain_warranty_with_no_extension_gives_no_block():
+    services = (_warranty("Provide a two (2) year warranty on all parts and labor.", "two (2) year"),)
+    block, flags, evidence = extended_warranty_block(_catalogue(_overview(services=services)))
+    assert block is None and flags == [] and evidence == []
+
+
+def test_the_extended_warranty_block_with_its_years_quoted():
+    services = (_warranty("The warranty is one year, then extend the maintenance service for four (4) additional "
+                          "years.", "one year"),)
+    block, flags, evidence = extended_warranty_block(_catalogue(_overview(services=services)))
+    assert isinstance(block, Block)
+    assert block.header == "Qty (1) Extended Warranty"
+    assert _block_texts(block) == [
+        "Warranty scope of work-",
+        "a one-year preventative maintenance service contract covering all parts, materials, software, "
+        "hardware, and all costs to provide software and hardware upgrades during the warranty period.",
+        "extend the maintenance service contract and the warranty for four additional years following the "
+        "warranty period."]
+    assert flags == []
+    assert evidence and all(e.status == "CONFIRMED" for e in evidence)
+    extension = next(e for e in evidence if e.line.startswith("extend the maintenance"))
+    assert "four (4) additional" in extension.quote
+
+
+def test_the_extended_warranty_block_flags_a_missing_year_count():
+    services = (_warranty("Extend the maintenance service for additional years.", "one year"),)
+    block, flags, evidence = extended_warranty_block(_catalogue(_overview(services=services)))
+    assert block is None and evidence == []
+    assert any("years" in f.lower() for f in flags)
 
 
 # --- the header -------------------------------------------------------------------
