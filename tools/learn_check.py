@@ -35,6 +35,11 @@ class JobResult:
     tags: int
     blank_sheets: int       # blank pages on a large sheet — always worth a look (T3)
     unlisted_files: tuple[str, ...] = ()   # non-PDF files under the job that never reached the Documents tab (T3)
+    overview_makers: int = 0               # Spec overview: manufacturers named
+    overview_ame: int = 0                  # of those, how many AME gets prices for
+    overview_protocols: tuple[str, ...] = ()   # Spec overview: protocol items found
+    overview_not_found: int = 0            # Spec overview: topics/categories searched for but not found
+    overview_maker_names: tuple[str, ...] = ()   # every manufacturer named, for others_include-style checks
 
 
 def missing_from_documents_tab(job) -> tuple[str, ...]:
@@ -62,6 +67,8 @@ def measure(catalogue) -> JobResult:
     from estimator.catalogue.job import CONTROLS_DISCIPLINES
     pages, sheets = catalogue.pages, catalogue.sheets
     relevant = [s for s in sheets if s.discipline in CONTROLS_DISCIPLINES]
+    overview = catalogue.overview
+    protocols = tuple(t.item for t in overview.topics if t.section == "Protocols" and t.places)
     return JobResult(
         job=catalogue.job.name, pages=len(pages),
         ocr=sum(1 for p in pages if p.status == "ocr"), unreadable=sum(1 for p in pages if p.status == "unreadable"),
@@ -70,7 +77,10 @@ def measure(catalogue) -> JobResult:
         controls_sections=sum(1 for s in catalogue.sections if s.controls),
         bid=catalogue.bid.finding, others=catalogue.bid.others, tags=len(catalogue.tags),
         blank_sheets=sum(1 for p in pages if p.status == "blank" and p.large_sheet),
-        unlisted_files=missing_from_documents_tab(catalogue.job))
+        unlisted_files=missing_from_documents_tab(catalogue.job),
+        overview_makers=len(overview.makers), overview_ame=sum(1 for m in overview.makers if m.ame_quotes),
+        overview_protocols=protocols, overview_not_found=len(overview.not_found),
+        overview_maker_names=tuple(m.maker for m in overview.makers))
 
 
 def misses(result: JobResult, expected: dict) -> list[str]:
@@ -80,6 +90,9 @@ def misses(result: JobResult, expected: dict) -> list[str]:
     for name in expected.get("others_include", ()):
         if name not in result.others:
             found.append(f"{name} was expected among the other manufacturers named, but the check didn't find it")
+    for name in expected.get("overview_makers_include", ()):
+        if name not in result.overview_maker_names:
+            found.append(f"{name} was expected among the Spec overview manufacturers, but the check didn't find it")
     if result.sheets:
         share = result.numbered / result.sheets
         if share < expected["sheet_numbers_at_least"]:
@@ -132,6 +145,7 @@ def main(argv: list[str] | None = None) -> int:
     keys = args.jobs or list(expectations["jobs"])
     lines = ["| Job | Pages | OCR | Could not read | Drawing sheets | With number | Mech/controls/plumbing sorted by type | Controls sections "
              "| Bid check | Other manufacturers | Tags | Misses |", "|" + "---|" * 12]
+    overview_lines = ["| Job | Manufacturers named | AME gets prices for | Protocols found | Not found (count) |", "|" + "---|" * 5]
     total_misses, unlisted = 0, {}
     equipment = Equipment.load()
     for key in keys:
@@ -151,7 +165,10 @@ def main(argv: list[str] | None = None) -> int:
                      f"| {share(result.numbered, result.sheets)} | {share(result.typed, result.relevant)} "
                      f"| {result.controls_sections} | {result.bid} | {', '.join(result.others) or '—'} "
                      f"| {result.tags} | {'; '.join(found) or 'none'} |")
+        overview_lines.append(f"| {key} | {result.overview_makers} | {result.overview_ame} "
+                              f"| {', '.join(result.overview_protocols) or '—'} | {result.overview_not_found} |")
     common = sorted(unlisted.items(), key=lambda kv: -kv[1])[:25]
+    lines += ["", "Spec overview", ""] + overview_lines
     lines += ["", "Tag-shaped codes whose prefix isn't in assets/reading_lists/equipment.json yet (most common first):",
               ", ".join(f"{p} ×{n}" for p, n in common) or "none"]
     report = "\n".join(lines) + "\n"

@@ -101,3 +101,35 @@ def test_missing_from_documents_tab_is_empty_once_a_file_is_on_it(tmp_path):
     (root / "2. Takeoffs" / "notes.xlsx").write_text("x")
     job = JobFolder("26-9999", root, (), (), (), (), ("2. Takeoffs/notes.xlsx",))
     assert learn_check.missing_from_documents_tab(job) == ()
+
+
+# Task 3: the Spec overview table in the Learn check.
+
+def test_overview_makers_include_is_checked():
+    assert learn_check.misses(_result(overview_maker_names=("Belimo", "Vaisala")),
+                              {**EXPECTED, "overview_makers_include": ["Belimo"]}) == []
+    found = learn_check.misses(_result(overview_maker_names=()),
+                               {**EXPECTED, "overview_makers_include": ["Belimo"]})
+    assert found == ["Belimo was expected among the Spec overview manufacturers, but the check didn't find it"]
+
+
+def test_overview_makers_include_is_optional():
+    assert learn_check.misses(_result(), EXPECTED) == []
+
+
+def test_measure_reads_the_spec_overview(tmp_path):
+    from estimator.catalogue.job import catalogue_job
+    from pdfs import make_pdf, Page
+
+    root = tmp_path / "26-9999"
+    base = root / "2. Takeoffs" / "1. Base Takeoff"
+    spec = Page(texts=((72, 72, "SECTION 23 09 23 - INSTRUMENTATION AND CONTROL FOR HVAC\n"
+                                "Actuators shall be Belimo or approved equal. Provide BACnet MS/TP.\n"
+                                "23 09 23 - 1", 10),))
+    make_pdf(base / "Marked_230923.pdf", spec)
+    catalogue = catalogue_job(root, tmp_path / "cache")
+    result = learn_check.measure(catalogue)
+    assert result.overview_makers >= 1 and "Belimo" in result.overview_maker_names
+    assert result.overview_ame >= 1
+    assert "BACnet MS/TP" in result.overview_protocols
+    assert result.overview_not_found > 0

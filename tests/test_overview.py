@@ -138,3 +138,64 @@ def test_clean_text_runs_before_matching():
     overview = build_overview([page], [], sections)
     tp = _found(overview, "Protocols", "BACnet MS/TP")
     assert tp.places
+
+
+# The Learn check (real jobs, D:\Estimation Assistant\Learn) surfaced these false hits; each fix
+# is a not_before/not_after word or a tighter pattern in the reading lists, never a job special-case.
+
+def test_armstrong_armaflex_insulation_is_not_the_pump_maker():
+    sections = (SpecSection("23 09 23", "INSTRUMENTATION AND CONTROL FOR HVAC", DOC, 1, 2),)
+    no_hit = _page("Provide two coats of Armstrong Armaflex insulation on all exposed piping.")
+    hit = _page("Pumps shall be Armstrong Series 4200 or approved equal.", page=2)
+    overview = build_overview([no_hit, hit], [], sections)
+    armstrong = [m for m in overview.makers if m.maker == "Armstrong"]
+    assert len(armstrong) == 1 and armstrong[0].places[0].page == 2
+
+
+def test_carrier_pipe_is_not_the_equipment_maker():
+    sections = (SpecSection("23 09 23", "INSTRUMENTATION AND CONTROL FOR HVAC", DOC, 1, 3),)
+    no_hit_singular = _page("Schedule 40 steel Carrier Pipe cleaned bare metal.")
+    no_hit_plural = _page("Weld Carrier Pipes together at the joint.", page=2)
+    hit = _page("Provide a Carrier chiller for the mechanical room.", page=3)
+    overview = build_overview([no_hit_singular, no_hit_plural, hit], [], sections)
+    carrier = [m for m in overview.makers if m.maker == "Carrier"]
+    assert len(carrier) == 1 and carrier[0].places[0].page == 3
+
+
+def test_price_based_on_and_price_as_are_not_price_industries():
+    sections = (SpecSection("23 09 23", "INSTRUMENTATION AND CONTROL FOR HVAC", DOC, 1, 4),)
+    no_hit_1 = _page("SUBMIT HIS PROPOSAL PRICE BASED ON SPECIFIED MANUFACTURER OR SUPPLIER.")
+    no_hit_2 = _page("RESTROOM MANAGEMENT SYSTEM (PRICE AS ADD ALTERNATE).", page=2)
+    no_hit_3 = _page("ADDITIONS OR DEDUCTIONS TO THE CONTRACT PROPOSAL PRICE; FOR ACCEPTANCE.", page=3)
+    hit = _page("PRICE SDV VAV BOX", page=4)
+    overview = build_overview([no_hit_1, no_hit_2, no_hit_3, hit], [], sections)
+    price = [m for m in overview.makers if m.maker == "Price Industries"]
+    assert len(price) == 1 and price[0].places[0].page == 4
+
+
+def test_above_air_flow_direction_is_not_the_equipment_maker():
+    sections = (SpecSection("23 09 23", "INSTRUMENTATION AND CONTROL FOR HVAC", DOC, 1, 2),)
+    no_hit = _page("Threaded rod to structure above air flow direction, no scale.")
+    hit = _page("Provide an Above Air PTHP unit at each mechanical closet.", page=2)
+    overview = build_overview([no_hit, hit], [], sections)
+    above_air = [m for m in overview.makers if m.maker == "Above Air"]
+    assert len(above_air) == 1 and above_air[0].places[0].page == 2
+
+
+def test_a_server_room_is_not_the_bms_server():
+    sections = (SpecSection("23 09 23", "INSTRUMENTATION AND CONTROL FOR HVAC", DOC, 1, 2),)
+    no_hit = _page("All exposed ducts in IT/server rooms shall be insulated.")
+    hit = _page("TCC to provide network cable and integration to the BACnet Server.", page=2)
+    overview = build_overview([no_hit, hit], [], sections)
+    server = _found(overview, "Network and front end", "Server")
+    assert [p.page for p in server.places] == [2]
+
+
+def test_start_ups_is_not_a_ups():
+    sections = (SpecSection("23 09 23", "INSTRUMENTATION AND CONTROL FOR HVAC", DOC, 1, 3),)
+    no_hit_lower = _page("The Contractor shall schedule preliminary start-ups and testing.")
+    no_hit_caps = _page("3.4 EQUIPMENT START-UPS", page=2)
+    hit = _page("Provide UPS backup power to the control panel.", page=3)
+    overview = build_overview([no_hit_lower, no_hit_caps, hit], [], sections)
+    ups = _found(overview, "Network and front end", "UPS")
+    assert [p.page for p in ups.places] == [3]
