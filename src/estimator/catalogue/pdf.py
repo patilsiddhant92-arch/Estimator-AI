@@ -65,3 +65,16 @@ def ocr_textpage(page: pymupdf.Page, dpi: int = 300) -> pymupdf.TextPage | None:
     if folder is None:
         return None
     return page.get_textpage_ocr(language="eng", dpi=dpi, full=True, tessdata=str(folder))
+
+
+def ocr_images_textpage(page: pymupdf.Page, dpi: int = 300) -> pymupdf.TextPage | None:
+    """Read the parts of a page its text layer doesn't cover — the pictures pasted onto a sheet — by OCR,
+    keeping the text layer as it is. None when OCR isn't set up.
+
+    pymupdf renders the page with its text taken out and OCRs that, so a picture's words are read
+    whole even where the picture was cut into tiles. The textpage it gives is of the page with its
+    rotation taken off: use it for the page's words, not their positions."""
+    folder = tessdata()
+    if folder is None:
+        return None
+    return page.get_textpage_ocr(language="eng", dpi=dpi, full=False, tessdata=str(folder))

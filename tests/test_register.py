@@ -210,3 +210,48 @@ def test_a_document_is_read_again_once_ocr_becomes_available(tmp_path, monkeypat
 def test_parallel_reading_gives_the_same_register(tmp_path):
     job = _job(tmp_path, *[(f"{n} spec.pdf", [Page(texts=((72, 72, SPEC_TEXT, 10),))]) for n in range(3)])
     assert register_job(job, workers=2) == register_job(job)
+
+
+# --- schedules drawn as pictures on a page that has a text layer -------------------------------------
+
+_SHEET_TEXT = tuple((200, 200 + 30 * n, FILLER, 12) for n in range(12)) + ((2800, 2000, "M601", 40),)
+_PICTURED = "EXHAUST FAN SCHEDULE\nEF-1  ROOF  1200 CFM\nEF-2  ROOF  800 CFM"
+
+
+@pytest.mark.skipif(tessdata() is None, reason="Tesseract's tessdata folder isn't on this computer")
+def test_a_picture_of_a_schedule_on_a_sheet_with_text_is_read_by_ocr(tmp_path):
+    # A sheet's title block is text, but its schedules were pasted in as pictures: the page has plenty of
+    # text, so it was never OCR'd, and the schedules were lost.
+    sheet = Page(width=3024, height=2160, texts=_SHEET_TEXT, picture=(1200, 300, 2400, 1300, _PICTURED))
+    job = _job(tmp_path, ("mech.pdf", [sheet]))
+    [record] = read_document(job.documents[0])
+    assert record.status == "ocr"
+    assert "EXHAUST FAN SCHEDULE" in record.text and "EF-2" in record.text
+    assert FILLER in record.text                                  # the text layer is kept
+    assert [s.text for s in record.edge_spans] == ["M601"]        # the title block comes from the text layer
+
+
+def test_a_small_picture_on_a_sheet_with_text_is_not_ocrd(tmp_path, monkeypatch):
+    monkeypatch.setattr(register, "ocr_images_textpage", lambda page, dpi=300: pytest.fail("OCR should not run"))
+    sheet = Page(width=3024, height=2160, texts=_SHEET_TEXT, picture=(1200, 300, 1500, 500, "LOGO"))
+    job = _job(tmp_path, ("mech.pdf", [sheet]))
+    [record] = read_document(job.documents[0])
+    assert record.status == "text"
+
+
+def test_a_picture_under_a_text_layer_is_not_ocrd_again(tmp_path, monkeypatch):
+    # A scan that already carries its own text layer over the picture needs no OCR.
+    monkeypatch.setattr(register, "ocr_images_textpage", lambda page, dpi=300: pytest.fail("OCR should not run"))
+    over = tuple((1250, 350 + 14 * n, FILLER, 10) for n in range(60))
+    sheet = Page(width=3024, height=2160, texts=_SHEET_TEXT + over, picture=(1200, 300, 2400, 1300, _PICTURED))
+    job = _job(tmp_path, ("mech.pdf", [sheet]))
+    [record] = read_document(job.documents[0])
+    assert record.status == "text"
+
+
+def test_a_picture_ocr_finds_nothing_in_keeps_the_page_as_text(tmp_path, monkeypatch):
+    monkeypatch.setattr(register, "ocr_images_textpage", lambda page, dpi=300: None)
+    sheet = Page(width=3024, height=2160, texts=_SHEET_TEXT, picture=(1200, 300, 2400, 1300, _PICTURED))
+    job = _job(tmp_path, ("mech.pdf", [sheet]))
+    [record] = read_document(job.documents[0])
+    assert record.status == "text" and FILLER in record.text

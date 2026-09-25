@@ -1,7 +1,9 @@
 """The page register: every page of every bid document, read.
 
 A page is read by its text layer. A page with no text layer but an image on it is read
-by OCR. A page with neither is blank. A page that OCR can't read — or every image page,
+by OCR. A page with text whose pictures cover a good share of it, and hold no text of their own
+(schedules pasted onto a sheet as images), has its pictures read by OCR as well. A page with
+neither text nor images is blank. A page that OCR can't read — or every image page,
 when OCR isn't set up — is "unreadable", and stays in the register as such: a page is
 never dropped because it couldn't be read (design §9.1).
 """
@@ -18,13 +20,17 @@ from pathlib import Path
 import pymupdf
 
 from estimator.catalogue.documents import LARGE_SHEET, Document, JobFolder
-from estimator.catalogue.pdf import Span, clean_text, ocr_textpage, tessdata, visual_spans
+from estimator.catalogue.pdf import Span, clean_text, ocr_images_textpage, ocr_textpage, tessdata, visual_spans
 
-CACHE_VERSION = 2
+CACHE_VERSION = 3
 MIN_TEXT = 50          # characters: fewer and the page is treated as having no text layer
 MIN_OCR_TEXT = 20      # characters OCR must recover for the page to count as read
 IMAGE_TEXT = 500       # characters: below this, a page more than half covered by an image is OCR'd too
 IMAGE_COVER = 0.5      # share of the page an image must cover for IMAGE_TEXT to apply
+PICTURES = 0.15        # share of the page pictures must cover, in all, for a page with text to have them OCR'd
+PICTURE_TEXT = 200     # characters: more text than this inside the pictures and they already have a text layer
+MIN_PICTURE = 0.005    # share of the page: smaller pictures (logos, stamps) aren't counted
+PICTURE_PIXELS = 120e6 # pictures are OCR'd at 300 dpi, or less on a sheet so big that would pass this many pixels
 TABLOID = 1224         # points: pages up to this size are OCR'd at 300 dpi, larger sheets at 150
 EDGE = 0.80            # title blocks sit in the right or bottom fifth of a drawing sheet
 _BLANK = re.compile(r"intentionally\s+left\s+blank", re.I)
@@ -79,6 +85,26 @@ def _image_covers_half(page: pymupdf.Page) -> bool:
     return covered / area > IMAGE_COVER
 
 
+def _pictures_without_text(page: pymupdf.Page) -> bool:
+    """The page's pictures cover at least PICTURES of it, and hardly any text sits over them."""
+    area = page.rect.width * page.rect.height
+    if area <= 0:
+        return False
+    # get_image_info's boxes are in the page's unrotated space, as get_text's clip is.
+    space = page.rect * page.derotation_matrix
+    boxes = [pymupdf.Rect(info["bbox"]) & space for info in page.get_image_info()]
+    boxes = [box for box in boxes if not box.is_empty and box.get_area() >= MIN_PICTURE * area]
+    if sum(box.get_area() for box in boxes) < PICTURES * area:
+        return False
+    inside = sum(len(page.get_text("text", clip=box).strip()) for box in boxes)
+    return inside <= PICTURE_TEXT
+
+
+def _picture_dpi(page: pymupdf.Page) -> int:
+    inches = (page.rect.width / 72) * (page.rect.height / 72)
+    return max(150, min(300, int((PICTURE_PIXELS / inches) ** 0.5)))
+
+
 def _read_page(document: Document, number: int, page: pymupdf.Page) -> PageRecord:
     text = clean_text(page.get_text())
     stripped = text.strip()
@@ -114,6 +140,15 @@ def _read_page(document: Document, number: int, page: pymupdf.Page) -> PageRecor
             ocr_text = clean_text(page.get_text("text", textpage=textpage))
             if len(ocr_text.strip()) >= MIN_OCR_TEXT:
                 text, status = f"{text}\n{ocr_text}".strip(), "ocr"
+    elif _pictures_without_text(page):
+        # Schedules pasted onto a sheet as pictures: the sheet's text layer is only its title block and
+        # notes. OCR reads the pictures; the text layer is kept as it is, and the title block is read from
+        # it, not from the OCR (whose positions are of the page with its rotation taken off).
+        pictures = ocr_images_textpage(page, _picture_dpi(page))
+        if pictures is not None:
+            read = clean_text(page.get_text("text", textpage=pictures))
+            if len(read.strip()) >= len(stripped) + MIN_OCR_TEXT:
+                text, status = read, "ocr"
     if len(text.strip()) < 200 and _BLANK.search(text):
         status = "blank"
     edge = ()

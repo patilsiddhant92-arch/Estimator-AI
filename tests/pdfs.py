@@ -19,6 +19,8 @@ class Page:
     scanned: str | None = None                                 # text drawn into an image only — no text layer
     scan_dpi: int = 150
     lines: tuple[tuple[float, float, float, float], ...] = ()  # (x0, y0, x1, y1) vector line segments, no text
+    picture: tuple[float, float, float, float, str] | None = None   # (x0, y0, x1, y1, text): text drawn into an
+                                                                    # image placed there, beside the text layer
 
 
 def make_pdf(path: Path, *pages: Page) -> Path:
@@ -34,6 +36,13 @@ def make_pdf(path: Path, *pages: Page) -> Path:
             drawn = source.new_page(width=spec.width, height=spec.height)
             drawn.insert_text((72, 200), spec.scanned, fontsize=36)
             page.insert_image(page.rect, pixmap=drawn.get_pixmap(dpi=spec.scan_dpi))
+        if spec.picture:
+            x0, y0, x1, y1, text = spec.picture
+            source = pymupdf.open()
+            drawn = source.new_page(width=x1 - x0, height=y1 - y0)
+            for n, line in enumerate(text.splitlines()):
+                drawn.insert_text((20, 40 + 30 * n), line, fontsize=20)
+            page.insert_image(pymupdf.Rect(x0, y0, x1, y1), pixmap=drawn.get_pixmap(dpi=200))
         if spec.rotation:
             page.set_rotation(spec.rotation)
     path.parent.mkdir(parents=True, exist_ok=True)
