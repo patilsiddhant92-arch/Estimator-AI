@@ -14,6 +14,7 @@ anywhere. Silent is Open.
 """
 from __future__ import annotations
 
+import bisect
 import json
 import re
 from collections import Counter
@@ -44,6 +45,57 @@ MANUFACTURERS = ASSETS / "reading_lists" / "manufacturers.json"
 REACH = 350        # characters either side of a manufacturer's name that make up its passage
 CARRY_LINES = 5    # lines of the previous page carried into this one's search text (I7): a list
                    # running over a page break keeps its heading
+
+# Sentence scope (build step 3, bid-check fix round 2, D2/D6): sole-source, basis-of-design and
+# rejection wording count only when they sit in the same sentence as a manufacturer's name. A
+# sentence ends at ". ", "; ", or a new list item ("B.", "2.", "a."); a list item ("clause") is the
+# coarser unit bounded only by a new list item, used when the wording's own sentence is a bare
+# fragment ("No substitutions.") naming nobody — it then binds to the nearest name still in the
+# same clause, not to a different clause's name (or a different page's) merely because both sit
+# within REACH of each other.
+_SENTENCE_END = re.compile(r"[.;]\s+")
+_LIST_ITEM = re.compile(r"(?:^|\n)[ \t]*([A-Za-z]{1,2}|\d{1,3})\.[ \t]+", re.M)
+
+
+def _clause_boundaries(text: str) -> list[int]:
+    points = {0, len(text)}
+    points.update(m.start(1) for m in _LIST_ITEM.finditer(text))
+    return sorted(points)
+
+
+def _sentence_boundaries(text: str) -> list[int]:
+    points = {0, len(text)}
+    points.update(m.end() for m in _SENTENCE_END.finditer(text))
+    points.update(m.start(1) for m in _LIST_ITEM.finditer(text))
+    return sorted(points)
+
+
+def _span_at(boundaries: list[int], start: int, end: int) -> tuple[int, int]:
+    lo = boundaries[max(bisect.bisect_right(boundaries, start) - 1, 0)]
+    hi = boundaries[min(bisect.bisect_left(boundaries, end), len(boundaries) - 1)]
+    return lo, hi
+
+
+def _name_occurrences(names: Sequence["Named"], text: str) -> list[tuple[int, int, str]]:
+    return [(m.start(), m.end(), n.name) for n in names for p in n.patterns for m in p.finditer(text)]
+
+
+def _bind(bindable: list[tuple[int, int, str]], start: int, end: int,
+         sentence_bounds: list[int], clause_bounds: list[int]) -> list[str]:
+    """Which name(s) a sole-source/basis-of-design/rejection phrase belongs to: whichever
+    manufacturer's name shares its sentence; failing that, whichever name is nearest to it (the
+    one right before it, or else the first one) in the same clause; failing that, none at all."""
+    s_lo, s_hi = _span_at(sentence_bounds, start, end)
+    in_sentence = sorted({n for a, b, n in bindable if s_lo <= a < s_hi})
+    if in_sentence:
+        return in_sentence
+    c_lo, c_hi = _span_at(clause_bounds, start, end)
+    in_clause = [(a, n) for a, b, n in bindable if c_lo <= a < c_hi]
+    if not in_clause:
+        return []
+    before = [(a, n) for a, n in in_clause if a < start]
+    _, name = max(before, key=lambda x: x[0]) if before else min(in_clause, key=lambda x: x[0])
+    return [name]
 
 
 @dataclass(frozen=True)
@@ -106,13 +158,13 @@ class Mention:
     ours: tuple[str, ...]
     listed: tuple[str, ...]
     others: tuple[str, ...]
-    sole: bool
     sheet: str | None = None            # the sheet number, when the passage is on a drawing sheet
     passing: tuple[tuple[str, str], ...] = ()   # (name, note) — Honeywell/JCI named outside a list (I9)
-    basis: bool = False                 # the passage names another manufacturer as basis of design / approved equal
     is_list: bool = False               # list wording ("acceptable manufacturers:") is in the passage
     also_at: tuple[tuple[str, int, str | None], ...] = ()   # (document, page, sheet) of the same quote elsewhere (M3)
-    ours_unacceptable: bool = False     # the passage calls one of AME's own lines unacceptable
+    sole_for: tuple[str, ...] = ()       # other manufacturer(s) sole-sourced in their own sentence (D2)
+    basis_for: tuple[str, ...] = ()      # other manufacturer(s) named basis of design in their own sentence
+    rejected_ours: tuple[str, ...] = ()  # AME's own line(s) called unacceptable in their own sentence
 
     @property
     def named(self) -> str:
@@ -253,14 +305,29 @@ def _mentions(record: PageRecord, text: str, controls: Sequence[SpecSection], sh
         # still worth recording, "named in passing", rather than vanishing without a trace (I9).
         passing = tuple((n.name, n.note) for n in approved if n.name not in listed)
         others = tuple(n.name for n in reading.others if n.found_in(passage))
-        sole = bool(reading.sole_words.search(passage))
-        basis = bool(reading.basis_words.search(passage))
-        ours_unacceptable = bool(ours) and bool(reading.unacceptable_words.search(passage))
+        # D2/D6: sole-source, basis-of-design and rejection wording only count for the specific
+        # manufacturer named in the same sentence (or, for a bare fragment like "No substitutions.",
+        # the nearest name still in the same clause) — never for whichever name merely sits
+        # somewhere in the same 350-character passage.
+        bindable = _name_occurrences(reading.ours, passage) + _name_occurrences(reading.others, passage)
+        sentence_bounds = _sentence_boundaries(passage)
+        clause_bounds = _clause_boundaries(passage)
+        own_names, other_names = set(ours), set(others)
+        sole_for, basis_for, rejected_ours = set(), set(), set()
+        for pattern, bucket, eligible in ((reading.sole_words, sole_for, other_names),
+                                          (reading.basis_words, basis_for, other_names),
+                                          (reading.unacceptable_words, rejected_ours, own_names)):
+            for match in pattern.finditer(passage):
+                for name in _bind(bindable, match.start(), match.end(), sentence_bounds, clause_bounds):
+                    if name in eligible:
+                        bucket.add(name)
         if ours or listed or others or passing:
-            found.append(Mention(record.document, record.page, " ".join(passage.split()),
-                                 ours, listed, others, sole,
-                                 sheet.number if sheet is not None else None, passing,
-                                 basis, is_list, (), ours_unacceptable))
+            found.append(Mention(document=record.document, page=record.page,
+                                 quote=" ".join(passage.split()), ours=ours, listed=listed, others=others,
+                                 sheet=sheet.number if sheet is not None else None,
+                                 passing=passing, is_list=is_list,
+                                 sole_for=tuple(sorted(sole_for)), basis_for=tuple(sorted(basis_for)),
+                                 rejected_ours=tuple(sorted(rejected_ours))))
     return found
 
 
@@ -286,24 +353,27 @@ _where = where
 def _deciding(qualifying: Sequence[Mention]) -> Mention:
     """Prefer a passage with list or sole-source wording as the one to cite — a casual mention
     naming AME's own product elsewhere (a programming tool, say) is not the approved list (M11)."""
-    return (next((m for m in qualifying if m.is_list or m.sole), None)
+    return (next((m for m in qualifying if m.is_list or m.sole_for), None)
             or next((m for m in qualifying if m.ours), None)
             or qualifying[0])
 
 
 def _judge(mentions: Sequence[Mention], others: tuple[str, ...]) -> tuple[str, str]:
     qualifying = [m for m in mentions if m.ours or m.listed]
-    # Another manufacturer named with sole-source wording in the same passage — list wording no
-    # longer excuses it (N3): "Acceptable manufacturers: 1. Siemens. No substitutions." blocks.
-    sole_blocking = [m for m in mentions if m.sole and m.others]
+    # Another manufacturer sole-sourced in its own sentence — list wording no longer excuses it
+    # (N3): "Acceptable manufacturers: 1. Siemens. No substitutions." blocks. D2/D6: the wording
+    # is bound to the specific name in its own sentence (or clause), so a sole-source clause about
+    # something else nearby (cable, rooftop units) never lands on a controls manufacturer it never
+    # named, and one that lands on AME's own line is never misread as requiring a competitor.
+    sole_blocking = [m for m in mentions if m.sole_for]
     # "Basis of design: Siemens, or approved equal" is a softer contrary requirement — it doesn't
     # rule AME out on its own, but it keeps a would-be Qualifies from winning outright. Exempt only
     # when the very same passage is a formal list that also names one of AME's own lines — AME's
     # own line being on that list is what the exemption is for (26-0334's "Vykon (Basis of Design)
     # ... Honeywell (WEBS) ... Johnson Controls (FX) ... Niagara N4 based ... are acceptable").
-    basis_blocking = [m for m in mentions if m.basis and m.others and not (m.is_list and m.ours)]
-    # The passage calls one of AME's own lines unacceptable outright.
-    unacceptable_blocking = [m for m in mentions if m.ours_unacceptable and m.others]
+    basis_blocking = [m for m in mentions if m.basis_for and not (m.is_list and m.ours)]
+    # The passage calls one of AME's own lines unacceptable outright, in its own sentence.
+    unacceptable_blocking = [m for m in mentions if m.rejected_ours]
     contrary = sole_blocking or basis_blocking or unacceptable_blocking
     # Whether an AME line was named anywhere at all, qualifying or not — this is what keeps a
     # sole-source clause for another manufacturer from reading as "Does not qualify" when Honeywell
@@ -315,11 +385,13 @@ def _judge(mentions: Sequence[Mention], others: tuple[str, ...]) -> tuple[str, s
         name = ", ".join(first.ours or first.listed)
         against = sole_blocking[0] if sole_blocking else (unacceptable_blocking[0] if unacceptable_blocking else basis_blocking[0])
         if against in sole_blocking:
-            clause = f"also requires {', '.join(against.others)} with no substitutions"
+            clause = f"also requires {', '.join(against.sole_for)} with no substitutions"
         elif against in unacceptable_blocking:
-            clause = f"also calls {', '.join(against.ours)} unacceptable, requiring {', '.join(against.others)} instead"
+            clause = (f"also calls {', '.join(against.rejected_ours)} unacceptable, requiring "
+                      f"{', '.join(against.others)} instead" if against.others
+                      else f"also calls {', '.join(against.rejected_ours)} unacceptable")
         else:
-            clause = f"also names {', '.join(against.others)} as the basis of design, or approved equal"
+            clause = f"also names {', '.join(against.basis_for)} as the basis of design, or approved equal"
         return ("Open", f"The spec says two different things: it names {name} ({where(first)}) but {clause} "
                         f"({where(against)}). The US team decides.")
     if qualifying:
@@ -332,21 +404,24 @@ def _judge(mentions: Sequence[Mention], others: tuple[str, ...]) -> tuple[str, s
         # Does not qualify only for explicit sole-source wording for another manufacturer, with no
         # AME line named anywhere — the principle's one exception to "the US team decides".
         first = sole_blocking[0]
-        return ("Does not qualify", f"The spec requires {', '.join(first.others)} with no substitutions "
+        return ("Does not qualify", f"The spec requires {', '.join(first.sole_for)} with no substitutions "
                                     f"({where(first)}). The US team decides.")
     if sole_blocking:
         first = sole_blocking[0]
         passing_names = sorted({name for m in mentions for name, _ in m.passing})
         extra = f" The spec also names {', '.join(passing_names)}, which is not a line AME bids." if passing_names else ""
-        return ("Open", f"The spec requires {', '.join(first.others)} with no substitutions ({where(first)})."
+        return ("Open", f"The spec requires {', '.join(first.sole_for)} with no substitutions ({where(first)})."
                         f"{extra} The US team decides.")
     if unacceptable_blocking:
         first = unacceptable_blocking[0]
-        return ("Open", f"The spec calls {', '.join(first.ours)} unacceptable and requires "
-                        f"{', '.join(first.others)} instead ({where(first)}). The US team decides.")
+        if first.others:
+            return ("Open", f"The spec calls {', '.join(first.rejected_ours)} unacceptable and requires "
+                            f"{', '.join(first.others)} instead ({where(first)}). The US team decides.")
+        return ("Open", f"The spec calls {', '.join(first.rejected_ours)} unacceptable ({where(first)})."
+                        f" The US team decides.")
     if basis_blocking:
         first = basis_blocking[0]
-        return ("Open", f"The spec names {', '.join(first.others)} as the basis of design, or approved equal "
+        return ("Open", f"The spec names {', '.join(first.basis_for)} as the basis of design, or approved equal "
                         f"({where(first)}). The US team decides.")
     # I9: Honeywell/Johnson Controls named — with or without sole-source wording — but never on a
     # real approved-manufacturers list: worth showing, never enough to qualify on its own.

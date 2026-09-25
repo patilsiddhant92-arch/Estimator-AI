@@ -479,3 +479,43 @@ def test_26_0328_a_trane_unit_heater_schedule_with_a_basis_of_design_column_has_
     sheet = Sheet("Marked_Mech.pdf", 1, "M07-03.00", "CABINET UNIT HEATER SCHEDULE", "Mechanical", ("Schedules",))
     bid = check_bid(pages, [], {("Marked_Mech.pdf", 1): sheet}, has_spec_book=True)
     assert bid.mentions == ()
+
+
+# --- Bid check fix round 2: sentence scope (D2, D6) and the 24 re-review passages ---
+
+def test_a1_a_no_substitutions_fragment_binds_to_ames_own_line_not_a_sensor_in_the_next_item():
+    # A1: "No substitutions." is its own sentence naming nobody, right after AME's own line —
+    # it binds there, in the same clause, not to Siemens two clauses later on a sensor item.
+    pages = _pages("A. The BAS shall be built on the Tridium Niagara N4 Framework. No substitutions.\n"
+                   "B. Space temperature sensors: Siemens QAA2012 or approved equal.")
+    bid = check_bid(pages, [CONTROLS])
+    assert bid.finding == "Qualifies"
+    assert "requires Siemens" not in bid.reason
+
+
+def test_a1b_a_no_substitutions_fragment_binds_to_honeywell_webs_not_a_removed_system():
+    pages = _pages("A. The BAS shall be Honeywell WEBs-N4. No substitutions.\n"
+                   "B. Existing Siemens Apogee controllers shall be removed and turned over to the Owner.")
+    bid = check_bid(pages, [CONTROLS])
+    assert bid.finding == "Qualifies"
+    assert "requires Siemens" not in bid.reason
+
+
+def test_a12_a_basis_of_design_with_or_approved_equal_is_open_not_a_false_sole_source():
+    # A12: "No substitutions" sits with Belden cable, a maker AME doesn't track — it never binds
+    # to Siemens's own basis-of-design sentence two clauses earlier.
+    pages = _pages("A. Basis of Design: Siemens Desigo CC, or approved equal.\n"
+                   "2.2 WIRE AND CABLE\nA. Communication cable shall be Belden 9841. No substitutions.")
+    bid = check_bid(pages, [CONTROLS])
+    assert bid.finding == "Open"
+    assert "Does not qualify" not in bid.finding
+    assert "basis of design" in bid.reason
+
+
+def test_a13_a_review_stamp_is_not_sole_source_wording():
+    # A13: "REVIEWED - NO EXCEPTIONS TAKEN" is a review stamp, not a sole-source phrase — "no
+    # exceptions" is no longer read as one at all.
+    pages = _pages("The existing Siemens Apogee field panels shall be replaced. REVIEWED - NO EXCEPTIONS TAKEN")
+    bid = check_bid(pages, [CONTROLS])
+    assert bid.finding == "Open"
+    assert "Siemens" in bid.reason and "none of the lines AME bids" in bid.reason
