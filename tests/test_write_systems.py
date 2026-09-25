@@ -704,6 +704,49 @@ def test_a_heading_with_no_template_goes_to_the_ai_to_write_and_waits_for_a_coun
     assert [b.header for b in job.blocks] == ["Qty (3) Variable Air Volume Box VAV-1 thru 3"]
 
 
+# --- a unit on its own thermostat or switch, with no BMS points, is a one-line exception ----------------
+
+FANS_TEXT = ("A. Fans:\n"
+             "1. EF-1, EF-2: Fans shall be interlocked with the space line-voltage thermostatic switch.\n"
+             "2. EF-3: Fan shall be manually engaged via the manufacturer-furnished ON/OFF switch.\n")
+
+
+def _fans_job(text=FANS_TEXT, remarks="-"):
+    catalogue, reading = _heading_job(text)
+    fans = Schedule(DWG, 6, "M-602", "FAN SCHEDULE", ("TAG", "CFM", "REMARKS"),
+                    tuple(ScheduleRow(t, {"TAG": t, "CFM": "800", "REMARKS": remarks}, None, None)
+                          for t in ("EF-1", "EF-2", "EF-3")), False, (), ())
+    reading.schedules = reading.schedules + (fans,)
+    reading.inventory = reading.inventory + tuple(
+        InventoryItem(t, "Exhaust Fan", "CONFIRMED", 1, "M-602 FAN SCHEDULE", ("M-101",), "", "")
+        for t in ("EF-1", "EF-2", "EF-3"))
+    return build_job(catalogue, reading, None, dt.date(2026, 9, 25))
+
+
+def test_fans_on_their_own_thermostat_or_switch_are_exceptions_not_blocks():
+    job, systems, _ = _fans_job()
+    assert job.named_exceptions == (
+        "EXCEPTION TO ANY WORK WITH Qty (2) EF-1, 2 - LINE-VOLTAGE THERMOSTAT",
+        "EXCEPTION TO ANY WORK WITH Qty (1) EF-3 - MANUFACTURER ON/OFF SWITCH")
+    assert not any("EF-" in block.header for block in job.blocks)
+    excepted = [s for s in systems if s.lines and s.lines[0].text.startswith("EXCEPTION TO ANY WORK")]
+    assert len(excepted) == 2 and all(s.blocks == () for s in excepted)
+    assert any("no BMS points" in item.decide and "line-voltage thermostatic switch" in item.evidence
+               for s in excepted for item in s.review)
+
+
+def test_a_unit_with_bms_points_is_priced():
+    text = FANS_TEXT.replace("ON/OFF switch.", "ON/OFF switch. The BMS shall monitor the fan status.")
+    job, _, _ = _fans_job(text)
+    assert job.named_exceptions == ("EXCEPTION TO ANY WORK WITH Qty (2) EF-1, 2 - LINE-VOLTAGE THERMOSTAT",)
+    assert any("EF-3" in block.header for block in job.blocks)
+
+
+def test_an_integral_thermostat_on_the_schedule_is_an_exception_when_the_sequence_gives_no_points():
+    job, _, _ = _fans_job("A. VAV Boxes:\n1. VAV-1 maintains the space temperature.\n", remarks="INTEGRAL THERMOSTAT")
+    assert job.named_exceptions == ("EXCEPTION TO ANY WORK WITH Qty (3) EF-1 thru 3 - INTEGRAL THERMOSTAT",)
+
+
 # --- a Sensaphone becomes an exception when the network control panel sends the alarms ---------------
 
 ALARM = "HVAC Alarm Panel w/ Auto Dialer"

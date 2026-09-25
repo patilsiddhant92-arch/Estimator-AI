@@ -33,6 +33,16 @@
        "note": "**AIRFLOW MEASURING STATION BY UNIT MFR."}
     ]
   },
+  "not_priced": {
+    "about": "A unit the evidence says runs on its own integral or line-voltage thermostat, or a manufacturer's on/off switch, with no BMS points, is not priced: it goes into the proposal's exceptions in the estimator's one-line form (26-0445: 'EXCEPTION TO ANY WORK WITH Qty (4) CUH-#-# - INTEGRAL THERMOSTAT'). The reasons' patterns (regular expressions, ignoring case) are looked for in the system's own sequence paragraphs (its heading's section, or the paragraphs its tags open) and its schedule; the BMS words, whole and ignoring case, in its own paragraphs (else the paragraphs naming it) and its schedule notes. One BMS word means it has BMS points, and it is priced.",
+    "reasons": [
+      {"patterns": ["integral (factory[- ]mounted |unit[- ]mounted )?thermostat", "built[- ]in thermostat", "unit[- ]mounted thermostat"], "reason": "INTEGRAL THERMOSTAT"},
+      {"patterns": ["line[- ]voltage (space |room )?thermostat"], "reason": "LINE-VOLTAGE THERMOSTAT"},
+      {"patterns": ["(manufacturer|mfr)[- ]?(furnished|provided|supplied)?[^.]{0,60}\\bon/off\\b[^.]{0,40}\\bswitch", "\\bmanually engaged\\b[^.]{0,60}\\bswitch"], "reason": "MANUFACTURER ON/OFF SWITCH"}
+    ],
+    "bms_words": ["BMS", "BAS", "EMS", "DDC", "ATC", "building management", "building automation", "controls contractor", "control contractor", "BMS contractor", "monitor", "monitored", "monitoring", "alarm", "alarmed", "status", "workstation", "front end", "front-end", "BACnet", "trend"],
+    "exception": "EXCEPTION TO ANY WORK WITH Qty ({n}) {tags} - {reason}"
+  },
   "counted_devices": {
     "about": "For a line whose quantity is counted, the device labels on the plans that count it (the labels are in reading_lists/devices.json). The line matches when it contains the words on the left, ignoring case; the longest match wins. A line with no match, or no label counted on the system's sheets, falls back to one per unit, as an assumption.",
     "lines": {

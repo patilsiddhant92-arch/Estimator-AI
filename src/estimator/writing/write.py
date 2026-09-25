@@ -1300,6 +1300,76 @@ def apply_exceptions(fe: FrontEnd, bundles, catalogue, templates
     return to_write, excepted, tuple(exceptions)
 
 
+@lru_cache(maxsize=1)
+def _not_priced_rules():
+    raw = _settings()["not_priced"]
+    reasons = tuple((tuple(re.compile(p, re.I) for p in r["patterns"]), r["reason"]) for r in raw["reasons"])
+    bms = tuple(_word(w) for w in raw["bms_words"])
+    return reasons, bms, raw["exception"]
+
+
+def _not_priced(bundle: SystemBundle, template: SystemTemplate | None) -> tuple[str, str, str] | None:
+    """(reason, where, quote) when the evidence says the unit runs on its own thermostat or switch
+    and gives it no BMS points; None otherwise."""
+    if bundle.group or bundle.existing or len(bundle.families) != 1:
+        return None
+    family = bundle.families[0]
+    if family.quantity is None or not family.tags:
+        return None
+    reasons, bms, _ = _not_priced_rules()
+    names = naming(bundle, (template.name, *template.kinds) if template is not None else ())
+    paragraphs = [(p.where, par) for p in bundle.passages for par in p.text.split("\n\n")]
+    own = [(p.where, p.text) for p in bundle.own] or [(w, t) for w, t in paragraphs if names(t) == OWN_TAGS]
+    schedule = [(f"{w}, {h} column" if h else w, t) for w, h, t in _schedule_texts(bundle)]
+    found = None
+    for patterns, reason in reasons:
+        for where, text in own + schedule:
+            m = next((m for p in patterns for m in [p.search(text)] if m), None)
+            if m:
+                found = (reason, where, _sentence(text, m.start(), m.end()))
+                break
+        if found:
+            break
+    if found is None:
+        return None
+    points = [t for _, t in own] or [t for _, t in paragraphs if names(t) >= 2]
+    points += [n for n in (*bundle.controls_by, *bundle.schedule_notes)]
+    if any(b.search(text) for b in bms for text in points):
+        return None
+    return found
+
+
+def apply_not_priced(bundles, templates) -> tuple[list[SystemBundle], list[WrittenSystem], tuple[str, ...]]:
+    """Units on their own integral or line-voltage thermostat, or a manufacturer's on/off switch,
+    with no BMS points, are not priced: each becomes a one-line exception in the house form,
+    with a review line. Returns the bundles still to write, the systems put in the exceptions
+    and the exceptions' text."""
+    _, _, form = _not_priced_rules()
+    to_write: list[SystemBundle] = []
+    excepted: list[WrittenSystem] = []
+    texts: list[str] = []
+    for bundle in bundles:
+        template = _choose_template(bundle, templates)
+        found = _not_priced(bundle, template)
+        if found is None:
+            to_write.append(bundle)
+            continue
+        reason, where, quote = found
+        family = bundle.families[0]
+        tags = tag_list(family.tags)
+        text = form.format(n=family.quantity, tags=tags, reason=reason)
+        texts.append(text)
+        evidence = f"{where}: “{quote}”"
+        line = ScopeLine(bundle.name, text, 1, None, None, CONFIRMED, _RULE_CONFIDENCE["sequence"],
+                         f"rule: {reason.lower()} and no BMS points ({where})", evidence, True)
+        review = [ReviewItem(bundle.name, "", f"{tags} not priced — {reason.lower()}, no BMS points; put in the "
+                             "exceptions", evidence, "Price it if the job wants the BMS to see it")]
+        review += [_review_flag(bundle.name, f) for f in bundle.flags]
+        excepted.append(WrittenSystem(bundle.key, (), (line,), tuple(review), printed=True,
+                                      template=template.name if template is not None else None))
+    return to_write, excepted, tuple(texts)
+
+
 def build_job(catalogue, reading, judge, today, templates=None) -> tuple[Job, list[WrittenSystem], list[str]]:
     """The whole scope: the cover header, the front end and every system, in the proposal's order.
 
@@ -1310,6 +1380,8 @@ def build_job(catalogue, reading, judge, today, templates=None) -> tuple[Job, li
     header, header_flags = job_header(catalogue, reading, today)
     fe, fe_flags, fe_evidence = front_end(catalogue)
     bundles, excepted, exceptions = apply_exceptions(fe, build_bundles(catalogue, reading), catalogue, templates)
+    bundles, not_priced, one_line = apply_not_priced(bundles, templates)
+    excepted, exceptions = excepted + not_priced, exceptions + one_line
     systems = write_systems(catalogue, reading, bundles, templates, judge) + excepted
     blocks = tuple(b for s in systems if s.printed for b in s.blocks)
     job = Job(header=header, front_end=fe, blocks=blocks, named_exceptions=exceptions)
