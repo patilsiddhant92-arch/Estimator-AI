@@ -552,9 +552,10 @@ def _heading(line: str, vocab: Vocabulary) -> str | None:
 def schedules_from_text(text: str, where: tuple[str, int, str | None], vocab: Vocabulary | None = None,
                         equipment: Equipment | None = None, exclude: Collection[str] = ()) -> list[Schedule]:
     """The units a schedule sheet lists, counted from its text when its tables can't be read (a picture read
-    by OCR): every distinct tag, under the nearest "… SCHEDULE" heading above it. A "THRU" range gives one
-    tag per unit. A one-letter prefix counts only written with its dash ("P-1", never the "P 212" of a phone
-    number)."""
+    by OCR): every distinct tag that starts a row, under the nearest "… SCHEDULE" heading above it. A tag
+    further along a row is a model number or a unit it serves, and a tag written with a space ("AS 100") is
+    words, not a unit; neither is counted. A "THRU" range gives one tag per unit. OCR's usual misreadings of
+    a tag's digits ("RTU-t", "VAVS-3") are put right."""
     vocab = vocab or vocabulary()
     equipment = equipment or Equipment.load()
     groups: dict[str, list[ScheduleRow]] = {}
@@ -567,16 +568,43 @@ def schedules_from_text(text: str, where: tuple[str, int, str | None], vocab: Vo
             continue
         line = raw.upper()
         existing = bool(vocab.existing.search(line))
-        for tag in expand_tags(line, equipment):
-            prefix, rest = tag.split("-", 1)
-            if tag in seen or (len(prefix) == 1 and not re.search(
-                    rf"(?<![A-Z0-9]){prefix}[{_DASH}]{re.escape(rest)}", line)):
+        cell = _first_cell(line, equipment)
+        tags = expand_tags(cell, equipment) if cell else []
+        if not tags or not _compact(cell).startswith(_compact(tags[0])):
+            continue
+        prefix = tags[0].split("-", 1)[0]
+        if cell[len(prefix):len(prefix) + 1].isspace() or (len(prefix) == 1 and not re.match(rf"{prefix}[{_DASH}]", cell)):
+            continue
+        for tag in tags:
+            if tag in seen:
                 continue
             seen.add(tag)
             groups.setdefault(title, []).append(ScheduleRow(tag, {}, None, None, existing))
     document, page, sheet = where
     return [Schedule(document, page, sheet, title, (), tuple(rows), False, (), (), from_text=True)
             for title, rows in groups.items()]
+
+
+_MISREAD = str.maketrans({"S": "5", "O": "0", "Q": "0", "I": "1", "L": "1", "T": "1", "|": "1", "!": "1"})
+
+
+def _first_cell(line: str, equipment: Equipment) -> str:
+    """A row's first cell: up to the first column rule or wide gap, at most four words, with OCR's misread
+    digits in a tag put right ("RTU-t" → "RTU-1") when what follows a known prefix already has a digit or dash."""
+    cell = re.split(r"[|\[\]]|\s{2,}", _EDGE_JUNK.sub("", line), maxsplit=1)[0]
+    words = cell.split()[:4]
+    if not words:
+        return ""
+    first = words[0]
+    known = sorted((p for p in equipment.prefixes if len(p) >= 2), key=len, reverse=True)
+    prefix = next((p for p in known if first.startswith(p)), None)
+    if prefix is None and (inner := next((p for p in known if len(p) >= 3 and first[1:].startswith(p)), None)):
+        first, prefix = first[1:], inner     # a table's rule read as a letter before the tag ("FRTU-3")
+        words[0] = first
+    rest = first[len(prefix):] if prefix else ""
+    if prefix and rest and re.search(rf"[\d{_DASH}]", rest) and re.fullmatch(rf"[\dSOQILT|!{_DASH}]+", rest):
+        words[0] = prefix + rest.translate(_MISREAD)
+    return " ".join(words)
 
 
 def _has_heading(text: str, vocab: Vocabulary) -> bool:

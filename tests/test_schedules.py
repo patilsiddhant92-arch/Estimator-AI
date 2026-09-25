@@ -295,8 +295,10 @@ ROOFTOP UNIT SCHEDULE (1 OF 2)
 TAG | AREA SERVED | CFM
 | RTU-1 | GYMNASIUM | 8000
 [RTu2 | GYMNASIUM | 8000
+| RTU-t | WEIGHT ROOM | 4800 | TRANE | SS-120VXMR
+PROVIDE AS 100 PERCENT OUTDOOR AIR
 EXHAUST FAN SCHEDULE
-EF-1 THRU 3 | ROOF | 400
+EF-1 THRU 3 | ROOF | 400 | GREENHECK | SP-A390
 NOTES:
 1. RTU-1 SHALL BE PROVIDED WITH A FACTORY CONTROLLER.
 2. CALL P 212.643.9055 FOR SERVICE.
@@ -306,8 +308,8 @@ NOTES:
 def test_units_are_counted_from_the_text_under_the_nearest_schedule_heading():
     schedules = schedules_from_text(_OCR_TEXT, ("Mech.pdf", 6, "H601"))
     assert [(s.title, [r.tag for r in s.rows]) for s in schedules] == [
-        ("ROOFTOP UNIT SCHEDULE (1 OF 2)", ["RTU-1", "RTU-2"]),
-        ("EXHAUST FAN SCHEDULE", ["EF-1", "EF-2", "EF-3"])]
+        ("ROOFTOP UNIT SCHEDULE (1 OF 2)", ["RTU-1", "RTU-2"]),       # "RTU-t" is RTU-1 again, misread
+        ("EXHAUST FAN SCHEDULE", ["EF-1", "EF-2", "EF-3"])]            # never the model number SP-A390
     assert all(s.from_text and not s.type_only for s in schedules)
 
 
