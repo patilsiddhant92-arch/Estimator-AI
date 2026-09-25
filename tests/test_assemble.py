@@ -2,14 +2,20 @@
 dossier (Part A) and the judge's plan and scope (Part B)."""
 from __future__ import annotations
 
+import datetime as dt
 from dataclasses import dataclass, field
+from types import SimpleNamespace
 
+from estimator.price_sheet.write import check_fit
 from estimator.reading.inventory import FamilyTotal, InventoryItem
+from estimator.scope import Job
 from estimator.writing.judge import TechHoursHint
-from estimator.writing.assemble import (check_plan, check_scope, checklist_text, cited_text, expand_tags,
-                                        plan_checks, quote_in_dossier, system_evidence, system_images,
+from estimator.writing.assemble import (assemble_job, check_plan, check_scope, checklist_text, cited_text,
+                                        expand_tags, plan_checks, quote_in_dossier, system_evidence, system_images,
                                         template_options, tech_hours)
 from estimator.writing.templates import load_templates
+from test_front_end import _catalogue as front_end_catalogue, _overview as front_end_overview, \
+    _warranty as front_end_warranty
 
 TEMPLATES = load_templates()
 
@@ -365,3 +371,143 @@ def test_the_request_pieces():
     checklist = checklist_text(TEMPLATES)
     assert "- VAV / Fan VAV (tags VAV" in checklist
     assert "tech hour" not in checklist.lower()
+
+
+# --- C2: the job from the plan ---------------------------------------------------------------------------------
+
+TODAY = dt.date(2026, 9, 26)
+JOB_READING = SimpleNamespace(inventory=(), versions=(), schedules=(), backbone=(), notes=(), devices=(), flags=())
+EF_SCOPE = WrittenScope((WrittenLine("Furnish and Wire Fan Start/Stop", quote="Exhaust fans EF-1 and EF-2",
+                                     source_id="S2"),))
+
+
+def _job_catalogue(**kw):
+    catalogue = front_end_catalogue(folder="26-9999, 1 Test Street", **kw)
+    catalogue.tags, catalogue.bid = (), None
+    return catalogue
+
+
+def _assemble(systems, scopes, catalogue=None, front_end=None, unresolved=()):
+    plan = JobPlan(tuple(systems), front_end or {}, tuple(unresolved))
+    return assemble_job(catalogue or _job_catalogue(), JOB_READING, _dossier(), plan, scopes, TODAY, TEMPLATES)
+
+
+def _headers(job):
+    return [b.header for b in job.blocks]
+
+
+def test_the_job_has_the_planned_blocks_in_order_and_fits_the_price_sheet():
+    job, systems, review = _assemble([_vav(), _ef()], {"VAV": WrittenScope(VAV_LINES), "EF": EF_SCOPE})
+    assert isinstance(job, Job)
+    check_fit(job)
+    assert _headers(job) == ["Qty (3) Variable Air Volume Box VAV-1 thru 3", "Qty (2) Exhaust Fan EF-1, 2"]
+    vav = job.blocks[0]
+    assert [i.text for i in vav.items] == [line.text for line in VAV_LINES]
+    assert all(i.quantity == 3 for i in vav.items)                 # one per unit when the quote states no count
+    assert vav.tech_hours == 12.0
+    assert systems[0].bundle_key == "Front end"
+    valve = next(line for s in systems for line in s.lines if "Hot Water Control Valve" in line.text)
+    assert valve.source == "AI (whole job) [S1]" and valve.category == "CONFIRMED" and valve.client
+    assert "23 09 93 SEQUENCE OF OPERATIONS" in valve.evidence
+    assert any(i.decide.startswith("Equipment on the drawings the plan didn't write") for i in review)
+
+
+def test_a_pending_quantity_is_qty_unknown_in_the_evidence_package_only():
+    job, systems, _ = _assemble([_vav(quantity=None, quantity_quote=""), _ef()],
+                                {"VAV": WrittenScope(VAV_LINES), "EF": EF_SCOPE})
+    assert _headers(job) == ["Qty (2) Exhaust Fan EF-1, 2"]
+    vav = next(s for s in systems if s.bundle_key == "VAV")
+    assert not vav.printed and vav.block.header == "Qty (?) Variable Air Volume Box VAV-1 thru 3"
+    assert all(line.category == "PENDING" and not line.client for line in vav.lines)
+    assert any(i.category == "PENDING" for i in vav.review)
+
+
+def test_a_system_the_ai_has_not_written_yet_is_left_out_and_reviewed():
+    job, systems, _ = _assemble([_vav(), _ef()], {"VAV": WrittenScope(VAV_LINES), "EF": None})
+    assert _headers(job) == ["Qty (3) Variable Air Volume Box VAV-1 thru 3"]
+    ef = next(s for s in systems if s.bundle_key == "EF")
+    assert not ef.printed and ef.review[0].category == "PENDING"
+
+
+def test_exceptions_and_alternates_go_where_the_plan_puts_them():
+    fans = _ef(exception="EXCEPTION TO ANY WORK WITH Qty (2) EF-1, 2 - LINE-VOLTAGE THERMOSTAT")
+    heaters = _cuh(alternate="add")
+    scopes = {"VAV": WrittenScope(VAV_LINES),
+              "CUH": WrittenScope((WrittenLine("Furnish and Install Space Temperature Sensor",
+                                               quote="CABINET UNIT HEATER SCHEDULE", source_id="S7"),))}
+    job, systems, _ = _assemble([_vav(), fans, heaters], scopes)
+    check_fit(job)
+    assert _headers(job) == ["Qty (3) Variable Air Volume Box VAV-1 thru 3"]
+    assert job.named_exceptions == ("EXCEPTION TO ANY WORK WITH Qty (2) EF-1, 2 - LINE-VOLTAGE THERMOSTAT",)
+    [alt] = job.add_alternates
+    assert alt.label == "ALT #1: Cabinet Unit Heater CUH-1"
+    assert [b.header for b in alt.blocks] == ["Qty (12) Cabinet Unit Heater CUH-1"]
+    assert job.deduct_alternates == ()
+    fan = next(s for s in systems if s.bundle_key == "EF")
+    assert fan.blocks == () and fan.lines[0].text.startswith("EXCEPTION TO ANY WORK")
+
+
+def test_a_group_stacks_its_headers_over_the_lines_they_share():
+    chillers = PlannedSystem("CH", "Chiller CH-1, 2", "Chiller", ("CH-1", "CH-2"), 2, "S9", "Job", ("S9",),
+                             group="Chilled Water System")
+    pumps = PlannedSystem("CHWP", "Chilled Water Pump CHWP-1, 2", "Chilled Water Pump", ("CHWP-1", "CHWP-2"), 2,
+                          "S9", "Job", ("S9",), group="Chilled Water System")
+    shared = WrittenLine("Furnish and Install Chilled Water Supply Temperature Sensor", quantity=1, quote="Job 26-9999")
+    scopes = {"CH": WrittenScope((WrittenLine("Furnish and Wire Chiller Enable", quote="Job 26-9999"), shared)),
+              "CHWP": WrittenScope((WrittenLine("Furnish and Wire Pump Start/Stop", quote="Job 26-9999"), shared))}
+    job, systems, _ = _assemble([chillers, _vav(), pumps], scopes | {"VAV": WrittenScope(VAV_LINES)})
+    assert _headers(job)[:2] == ["Qty (2) Chiller CH-1, 2", "Qty (2) Chilled Water Pump CHWP-1, 2"]
+    first, second = job.blocks[:2]
+    assert second.joined and not first.joined and first.items == ()
+    texts = [i.text for i in second.items]
+    assert texts.count(shared.text) == 1
+    assert next(i for i in second.items if i.text == shared.text).quantity == 2
+    group = next(s for s in systems if s.bundle_key == "Chilled Water System")
+    assert group.template == "Chilled Water System"
+
+
+def test_the_front_end_keeps_the_spec_overviews_reading_and_adds_only_a_sourced_line():
+    plan_front = {"mode": "extend-existing", "existing_name": "Siemens", "lines": ["Furnish BMS Server"],
+                  "notes": [], "sources": ["S9"]}
+    job, systems, _ = _assemble([_vav()], {"VAV": WrittenScope(VAV_LINES)}, front_end=plan_front)
+    assert job.front_end.mode == "new-system"
+    texts = [i.text for i in job.front_end.items]
+    assert "Furnish BMS Server" in texts
+    front = systems[0]
+    assert any("reads the front end as extend existing" in i.decide for i in front.review)
+    assert any(line.text == "Furnish BMS Server" and line.source == "AI (whole job) [S9]" for line in front.lines)
+    assert any("leaves out front-end lines" in i.decide for i in front.review)
+
+    unsourced = dict(plan_front, sources=[])
+    job, systems, _ = _assemble([_vav()], {"VAV": WrittenScope(VAV_LINES)}, front_end=unsourced)
+    assert "Furnish BMS Server" not in [i.text for i in job.front_end.items]
+    assert any("cites no source" in i.decide for i in systems[0].review)
+
+
+def test_global_points_and_the_extended_warranty_come_from_the_job_and_move_the_warranty_lines():
+    services = (front_end_warranty("The warranty is one year, then extend the maintenance service for four (4) "
+                                   "additional years.", "one year"),)
+    catalogue = _job_catalogue(overview=front_end_overview(services=services),
+                               texts=["Furnish an outside air temperature sensor for the BMS."])
+    job, systems, _ = _assemble([_vav()], {"VAV": WrittenScope(VAV_LINES)}, catalogue=catalogue)
+    check_fit(job)
+    assert _headers(job) == ["Qty (1) Global Points", "Qty (3) Variable Air Volume Box VAV-1 thru 3",
+                             "Qty (1) Extended Warranty"]
+    assert not any("arrant" in i.text for i in job.front_end.items)
+    assert [s.bundle_key for s in systems] == ["Front end", "Global Points", "VAV", "Extended Warranty"]
+    assert not any("arrant" in line.text for line in systems[0].lines)
+
+
+def test_the_plans_questions_reach_the_review_list():
+    _, _, review = _assemble([_vav()], {"VAV": WrittenScope(VAV_LINES)},
+                             unresolved=("Are the kitchen hoods by others?",))
+    assert any(i.decide == "Are the kitchen hoods by others?" for i in review)
+
+
+def test_a_client_note_the_evidence_does_not_bear_out_is_reviewed_not_printed():
+    scope = WrittenScope(VAV_LINES, client_notes=("**Space sensors by others", "**Maintain the CO2 setpoints"))
+    job, systems, _ = _assemble([_vav()], {"VAV": scope})
+    notes = [i.text for i in job.blocks[0].items if i.kind == "note"]
+    assert notes == ["**Maintain the CO2 setpoints"]
+    vav = next(s for s in systems if s.bundle_key == "VAV")
+    assert any("Space sensors by others" in i.decide for i in vav.review)
