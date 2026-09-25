@@ -126,7 +126,8 @@ def _plain(text: str) -> str:
 
 
 def _sentence(text: str, start: int, end: int) -> str:
-    lo = max(text.rfind(". ", 0, start) + 2, text.rfind("\n", 0, start) + 1, 0)
+    stop = text.rfind(". ", 0, start)
+    lo = max(stop + 2 if stop >= 0 else 0, text.rfind("\n", 0, start) + 1)
     ends = [i for i in (text.find(". ", end), text.find("\n", end)) if i != -1]
     hi = min(ends) + 1 if ends else len(text)
     quote = _squash(text[lo:hi])
@@ -941,6 +942,108 @@ def _factory(states: list[_State], lines, bundle: SystemBundle, factory: Hit) ->
     return kept[:at] + made + kept[at:]
 
 
+# --- schedule columns and notes beat the template's defaults -------------------------------------------
+
+@lru_cache(maxsize=1)
+def _override_rules() -> tuple[dict, ...]:
+    rules = []
+    for raw in _settings().get("schedule_overrides", {}).get("rules", ()):
+        rule = dict(raw)
+        rule["_patterns"] = tuple(re.compile(p, re.I) for p in raw["patterns"])
+        rule["_disagrees"] = tuple(re.compile(p, re.I) for p in raw.get("disagrees", ()))
+        rule["_prefer"] = re.compile(raw["prefer"], re.I) if raw.get("prefer") else None
+        rules.append(rule)
+    return tuple(rules)
+
+
+def _schedule_texts(bundle: SystemBundle) -> list[tuple[str, str, str]]:
+    """(where, column, text) for each schedule cell and note of the system's units; a note has no column."""
+    out = []
+    for row in bundle.schedule_rows:
+        label = f"{row.sheet} {row.title}" if row.sheet else row.title
+        for header, cell in row.cells.items():
+            if cell and _squash(cell) != row.tag:
+                out.append((f"{label}, {row.tag}", header or "", cell))
+    out += [("the schedule's notes", "", n) for n in dict.fromkeys((*bundle.controls_by, *bundle.schedule_notes))]
+    return out
+
+
+def _override_hit(rule: dict, texts) -> Hit | None:
+    columns = [c.upper() for c in rule.get("columns", ())]
+    for where, header, text in texts:
+        if columns and not any(re.search(rf"\b{re.escape(c)}\b", header.upper()) for c in columns):
+            continue
+        for pattern in rule["_patterns"]:
+            m = pattern.search(text)
+            if m:
+                if header:
+                    return Hit(rule["name"], "schedule", f"{where}, {header} column", f"{header}: {_squash(text)}")
+                return Hit(rule["name"], "schedule", where, _sentence(text, m.start(), m.end()))
+    return None
+
+
+def _use_line(states: list[_State], rule: dict, hit: Hit) -> bool:
+    """Put the rule's line in, in place of the lines it replaces. False when the template has no
+    place for it."""
+    use = rule["use"]
+    instead = [w.lower() for w in rule.get("instead_of", ())]
+    target = next((s for s in states if s.text.lower() == use.lower()), None)
+    if target is None and rule["_prefer"] is not None:
+        target = next((s for s in states if rule["_prefer"].search(s.text)), None)
+    replaced = [s for s in states if s is not target and any(w in s.text.lower() for w in instead)]
+    if target is None and replaced:
+        slot = replaced[0]
+        target = _State(use, slot.depth, rule.get("quantity", slot.quantity_rule), slot.of, _hardware(use),
+                        choice=slot.choice)
+        states.insert(states.index(slot), target)
+    elif target is None and rule.get("add_if_missing"):
+        target = _State(use, 1, rule.get("quantity", "per_unit"), (), _hardware(use))
+        states.append(target)
+    if target is None:
+        return False
+    target.include, target.decided, target.category = True, "override", CONFIRMED
+    target.confidence, target.listed = _RULE_CONFIDENCE["schedule"], False
+    target.source, target.evidence = f"schedule: {rule['name']} ({hit.where})", hit.text
+    if "quantity" in rule:
+        target.quantity_rule = rule["quantity"]
+    out = replaced + [s for s in states if target.choice and s.choice == target.choice and s is not target]
+    for s in out:
+        s.include, s.category, s.decided, s.listed = False, "", "override", False
+        s.words = f"the schedule decides it: {hit.text}"
+    return True
+
+
+def _apply_overrides(states: list[_State], lines, bundle: SystemBundle, name: str,
+                     review: list[ReviewItem]) -> tuple[list[_State], list[tuple]]:
+    """What the unit's schedule columns and notes say, applied over the template's defaults and
+    rules. Returns the states and the client notes the rules add."""
+    texts = _schedule_texts(bundle)
+    notes: list[tuple] = []
+    for rule in _override_rules():
+        hit = _override_hit(rule, texts)
+        if hit is None:
+            continue
+        if rule.get("trio"):
+            states = _factory(states, lines, bundle, hit)
+            for s in states:
+                if s.decided == "factory":
+                    s.decided = "override"
+        if rule.get("use") and not _use_line(states, rule, hit):
+            continue
+        if rule.get("note"):
+            notes.append((rule["note"], CONFIRMED, _RULE_CONFIDENCE["schedule"], f"schedule: {rule['name']}",
+                          hit.text))
+        for passage in bundle.passages:
+            m = next((m for p in rule["_disagrees"] for m in [p.search(passage.text)] if m), None)
+            if m:
+                review.append(ReviewItem(
+                    name, "CONFLICT", f"The schedule and the sequence disagree ({rule['name']}) — the schedule's "
+                    "reading is kept", f"{hit.text} vs {passage.where}: “{_sentence(passage.text, m.start(), m.end())}”",
+                    "Check with the engineer; change the block if the sequence is right"))
+                break
+    return states, notes
+
+
 def _follow_parents(states: list[_State]) -> None:
     """A sub-line is printed only under a printed line; under a PENDING line it is PENDING too."""
     last_at: dict[int, _State] = {}
@@ -975,6 +1078,7 @@ def write_system(catalogue, bundle: SystemBundle, templates, judge=None) -> Writ
     factory = reading.factory_controls(_settings()["factory_controls"]["words"])
     if factory is not None:
         states = _factory(states, lines, bundle, factory)
+    states, schedule_notes = _apply_overrides(states, lines, bundle, name, review)
 
     ai_notes: list[str] = []
     if judge is not None:
@@ -1014,8 +1118,10 @@ def write_system(catalogue, bundle: SystemBundle, templates, judge=None) -> Writ
     # The client notes: the template's own, then the AI's that the evidence bears out.
     notes = [(n, ASSUMPTION, DEFAULT_CONFIDENCE, "Master Template note", "Master Template note")
              for n in template.client_notes]
+    notes += [note for note in schedule_notes if note[0] not in template.client_notes]
+    have = {n for n, *_ in notes}
     notes += [(n, ADDED, AI_OTHER, "AI: a clarification the evidence bears out", "the job's documents")
-              for n in ai_notes if n not in template.client_notes]
+              for n in ai_notes if n not in have]
 
     headers = _headers(template, bundle)
     is_printed = bool(headers) and counted_units

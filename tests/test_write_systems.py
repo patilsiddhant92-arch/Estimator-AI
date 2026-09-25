@@ -547,6 +547,77 @@ def test_build_job_gives_a_job_that_fits_the_price_sheet():
     assert any("ZZ-1" in flag for flag in flags)            # a family on no schedule reaches the review list
 
 
+# --- schedule columns and notes beat the template's defaults ------------------------------------------
+
+def _heaters(cells, notes=(), passages=()):
+    rows = _rows(["UH-1", "UH-2"], ("TAG", *cells), cells, title="UNIT HEATER SCHEDULE")
+    return _bundle("UH", "Unit Heater", ["UH-1", "UH-2"], rows=rows, schedule_notes=notes, passages=passages)
+
+
+def test_an_scr_control_column_gives_the_scr_line():
+    system = _write(_heaters({"KW": "5", "CONTROL": "SCR"}))
+    line = _line(system, "Furnish Electric Heat SCR Control (AO)")
+    assert (line.category, line.client, line.quantity) == ("CONFIRMED", True, 2)
+    assert line.source.startswith("schedule:") and "CONTROL" in line.evidence
+
+
+def test_scr_in_another_column_is_not_the_control_column():
+    system = _write(_heaters({"KW": "5", "REMARKS": "SEE SCR NOTE ON E-101"}))
+    assert "Furnish Electric Heat SCR Control (AO)" not in _printed(system)
+
+
+def test_a_transformer_by_the_unit_manufacturer_replaces_the_vav_transformer():
+    system = _write(_vav(schedule_notes=("1. PROVIDE MANUFACTURER'S CONTROL POWER TRANSFORMER.",)))
+    printed = _printed(system)
+    assert "24V Transformer by Unit Mfr." in printed
+    assert "Furnish and Install VAV Transformer" not in printed and "Run 24V Power Loop to VAVs" not in printed
+    assert _line(system, "24V Transformer by Unit Mfr.").category == "CONFIRMED"
+
+
+def test_a_thermostat_by_the_manufacturer_takes_the_install_and_wire_form():
+    ddc = Passage("23 09 93, page 50", "Specs.pdf", 50, "Unit heaters UH-1 and UH-2: the DDC controller cycles the fan.")
+    system = _write(_heaters({"KW": "5", "REMARKS": "7-DAY PROGRAMMABLE THERMOSTAT FURNISHED BY MANUFACTURER"},
+                             passages=(ddc,)))
+    printed = _printed(system)
+    assert "Install and wire Space Thermostat (Furnished by Unit Mfr.)" in printed
+    assert "Furnish and Install DDC Controller or Communicating Thermostat" not in printed
+    assert _line(system, "Install and wire Space Thermostat (Furnished by Unit Mfr.)").category == "CONFIRMED"
+
+
+def test_a_bacnet_gateway_kit_gives_the_integration_trio():
+    system = _write(_vav(schedule_notes=("2. PROVIDE BACNET GATEWAY KIT FOR EACH UNIT.",)))
+    first, second, third = integration_trio("Variable Air Volume Box")
+    assert [first, second, third] == _printed(system)[:3]
+    assert "Furnish DDC Controller to the Factory for Installation" not in _printed(system)
+
+
+def test_leak_detection_by_the_unit_manufacturer_is_a_client_note():
+    system = _write(_heaters({"KW": "5"}, notes=("3. REFRIGERANT LEAK DETECTION SENSOR PROVIDED BY UNIT MFR.",)))
+    notes = [i.text for i in system.blocks[0].items if i.kind == "note"]
+    assert "**LEAK DETECTION BY UNIT MFR." in notes
+
+
+def test_the_schedule_note_beats_the_sequence_and_the_review_quotes_both():
+    rows = _rows(["ERV-1", "ERV-2"], ("TAG", "CFM"), {"CFM": "2000"}, title="ENERGY RECOVERY VENTILATOR SCHEDULE")
+    seq = Passage("23 09 93, page 2", "Specs.pdf", 2,
+                  "1. The ERV shall be furnished with factory DDC controls for complete stand-alone operation.")
+    bundle = _bundle("ERV", "Energy Recovery Ventilator", ["ERV-1", "ERV-2"], rows=rows, passages=(seq,),
+                     controls_by=("FURNISH AND INSTALL CONTROLLER FOR EACH ERV.",))
+    system = _write(bundle)
+    printed = _printed(system)
+    assert "Furnish and Install DDC Controller" in printed
+    assert not any("Factory Controls" in t or "Map Available Points" in t for t in printed)
+    [item] = [i for i in system.review if "disagree" in i.decide]
+    assert "FURNISH AND INSTALL CONTROLLER FOR EACH ERV" in item.evidence and "factory DDC controls" in item.evidence
+
+
+def test_an_ai_answer_does_not_undo_a_schedule_override():
+    judge = FakeJudge([Choice("24V Transformer by Unit Mfr.", False, None, "The sequence says nothing.",
+                              "each VAV box shall maintain", 0.9)])
+    system = _write(_vav(schedule_notes=("1. TRANSFORMER BY UNIT MFR.",)), judge=judge)
+    assert "24V Transformer by Unit Mfr." in _printed(system)
+
+
 # --- a system made from a sequence heading ------------------------------------------------------------
 
 def _heading_job(text):
