@@ -250,6 +250,9 @@ def job_header(catalogue, reading, today: dt.date, data: dict | None = None) -> 
 
 
 def _engineer(catalogue, settings: dict) -> str | None:
+    label = _label_engineer(catalogue, settings)
+    if label is not None:
+        return label
     firm = re.compile(settings["engineer_firm"], re.I)
     for discipline in settings["engineer_disciplines"]:
         pages = {(s.document, s.page) for s in catalogue.sheets if s.discipline == discipline}
@@ -261,7 +264,56 @@ def _engineer(catalogue, settings: dict) -> str | None:
             counts.update(name for name in names if firm.search(name))
         if counts:
             return counts.most_common(1)[0][0]
+    return _spec_footer_engineer(catalogue, firm)
+
+
+def _label_engineer(catalogue, settings: dict) -> str | None:
+    """The text beside the title block's ENGINEER / MEP ENGINEER / CONSULTING ENGINEER label — the
+    firm's own name, whatever it is, even one with no "engineer/consulting/associates" word of its
+    own ("GILLAN & HARTMANN, Inc.")."""
+    label = re.compile(settings["engineer_label"], re.I)
+    skip = {w.upper() for w in settings.get("engineer_label_skip", ())}
+    pages = {(s.document, s.page) for s in catalogue.sheets if s.discipline in settings["engineer_disciplines"]}
+    for record in catalogue.pages:
+        if (record.document, record.page) not in pages:
+            continue
+        ordered = sorted(record.edge_spans, key=lambda s: (round(s.y0, 3), s.x0))
+        texts = [" ".join(s.text.split()) for s in ordered]
+        for i, text in enumerate(texts):
+            if not label.match(text):
+                continue
+            for candidate in texts[i + 1:]:
+                if label.match(candidate) or candidate.rstrip(":").strip().upper() in skip:
+                    continue
+                return candidate
     return None
+
+
+def _spec_pages(catalogue) -> set[tuple[str, int]]:
+    pages: set[tuple[str, int]] = set()
+    for section in getattr(catalogue, "sections", ()):
+        for page in range(section.first_page, section.last_page + 1):
+            pages.add((section.document, page))
+    return pages
+
+
+def _footer_line(text: str) -> str:
+    lines = [line for line in clean_text(text).splitlines() if line.strip()]
+    return " ".join(lines[-1].split()) if lines else ""
+
+
+def _spec_footer_engineer(catalogue, firm: re.Pattern) -> str | None:
+    """Else the most common firm name in the spec's page footers — the last printed line of each
+    spec page, the same "engineer/consulting/associates" firm-name pattern the title blocks use."""
+    spec_pages = _spec_pages(catalogue)
+    counts: Counter[str] = Counter()
+    for record in catalogue.pages:
+        if (record.document, record.page) not in spec_pages:
+            continue
+        footer = _footer_line(record.text)
+        if firm.search(footer):
+            counts[footer] += 1
+    return counts.most_common(1)[0][0] if counts else None
 
 
 def _natural(number: str) -> tuple:

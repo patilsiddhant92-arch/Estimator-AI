@@ -263,6 +263,62 @@ def test_the_header_from_the_folder_name_sheets_and_versions():
     assert flags == []
 
 
+def test_the_engineer_label_in_the_title_block_wins_even_with_no_corporate_suffix_word():
+    # "GILLAN & HARTMANN, Inc." names no "engineer/consulting/associates" word of its own — only the
+    # label beside it says what it is (test1-fixes.md 3.1, 26-0478's H601).
+    pages = [PageRecord(MECH, 1, "text", "", 0, True, _title_block("ENGINEER", "GILLAN & HARTMANN, Inc."))]
+    catalogue = _catalogue(folder="26-0478, Somerville HS", sheets=[_sheet("M-001", 1)], pages=pages)
+    header, flags = job_header(catalogue, SimpleNamespace(versions=()), TODAY)
+    assert header.mep_engineer == "GILLAN & HARTMANN, Inc."
+    assert not any("engineer" in f.lower() for f in flags)
+
+
+def test_the_mep_engineer_and_consulting_engineer_labels_are_recognised_too():
+    for label in ("MEP ENGINEER", "MEP ENGINEER:", "CONSULTING ENGINEER"):
+        pages = [PageRecord(MECH, 1, "text", "", 0, True, _title_block(label, "Doyle & Shea"))]
+        catalogue = _catalogue(sheets=[_sheet("M-001", 1)], pages=pages)
+        header, _ = job_header(catalogue, SimpleNamespace(versions=()), TODAY)
+        assert header.mep_engineer == "Doyle & Shea", label
+
+
+def test_another_title_block_label_beside_the_engineer_label_is_skipped():
+    pages = [PageRecord(MECH, 1, "text", "", 0, True,
+                        _title_block("ENGINEER", "SCALE:", "Doyle & Shea"))]
+    catalogue = _catalogue(sheets=[_sheet("M-001", 1)], pages=pages)
+    header, _ = job_header(catalogue, SimpleNamespace(versions=()), TODAY)
+    assert header.mep_engineer == "Doyle & Shea"
+
+
+def _spec_footer_pages(*, firm: str, count: int = 6) -> list[PageRecord]:
+    return [PageRecord(SPEC, n, "text", f"Some spec text on page {n}.\n{firm}", 0) for n in range(1, count + 1)]
+
+
+def test_the_engineer_falls_back_to_the_spec_page_footers():
+    # 26-0193: no title-block label, but "MG Engineering D.P.C." is the most common name in the
+    # spec's page footers (test1-fixes.md 3.1).
+    pages = _spec_footer_pages(firm="MG Engineering D.P.C.")
+    catalogue = _catalogue(folder="26-0193, Fordham Landing", sheets=[_sheet("M-001", 1)], pages=pages)
+    header, flags = job_header(catalogue, SimpleNamespace(versions=()), TODAY)
+    assert header.mep_engineer == "MG Engineering D.P.C."
+    assert not any("engineer" in f.lower() for f in flags)
+
+
+def test_the_spec_footer_fallback_is_the_most_common_name():
+    pages = _spec_footer_pages(firm="MG Engineering D.P.C.", count=5)
+    pages += [PageRecord(SPEC, 90, "text", "Odd page.\nSomeone Else Engineering, LLC", 0)]
+    catalogue = _catalogue(sheets=[_sheet("M-001", 1)], pages=pages)
+    header, _ = job_header(catalogue, SimpleNamespace(versions=()), TODAY)
+    assert header.mep_engineer == "MG Engineering D.P.C."
+
+
+def test_a_title_block_label_wins_over_the_spec_footer():
+    pages = [PageRecord(MECH, 1, "text", "", 0, True, _title_block("ENGINEER", "Doyle & Shea"))]
+    pages += _spec_footer_pages(firm="MG Engineering D.P.C.")
+    catalogue = _catalogue(sheets=[_sheet("M-001", 1)], pages=pages)
+    header, _ = job_header(catalogue, SimpleNamespace(versions=()), TODAY)
+    assert header.mep_engineer == "Doyle & Shea"
+
+
 def test_a_folder_with_only_a_number_and_no_firm_is_pending():
     sheets = [_sheet("M-001", 1), _sheet("M-002", 2)]
     versions = SimpleNamespace(versions=(_version("M-001", 1, None), _version("M-002", 2, None)))
