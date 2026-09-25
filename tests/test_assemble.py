@@ -69,6 +69,7 @@ class JobPlan:
     front_end: dict = field(default_factory=dict)
     unresolved: tuple = ()
     model: str = "fake"
+    dropped: tuple = ()
 
 
 @dataclass(frozen=True)
@@ -89,6 +90,7 @@ class WrittenScope:
     tech_hours_hint: object = None
     review_notes: tuple = ()
     model: str = "fake"
+    refused: tuple = ()
 
 
 class FakeJudge:
@@ -502,6 +504,16 @@ def test_the_plans_questions_reach_the_review_list():
     _, _, review = _assemble([_vav()], {"VAV": WrittenScope(VAV_LINES)},
                              unresolved=("Are the kitchen hoods by others?",))
     assert any(i.decide == "Are the kitchen hoods by others?" for i in review)
+
+
+def test_what_the_judge_threw_away_reaches_the_review_list():
+    plan = JobPlan((_vav(),), dropped=("AHU-1: a quantity with no quote",))
+    scope = WrittenScope(VAV_LINES, refused=("“Furnish Sensor $40” — it names “$”",))
+    _, systems, review = assemble_job(_job_catalogue(), JOB_READING, _dossier(), plan, {"VAV": scope}, TODAY,
+                                      TEMPLATES)
+    assert any("AHU-1: a quantity with no quote" in i.evidence for i in review)
+    vav = next(s for s in systems if s.bundle_key == "VAV")
+    assert any("Furnish Sensor $40" in i.evidence for i in vav.review)
 
 
 def test_a_client_note_the_evidence_does_not_bear_out_is_reviewed_not_printed():

@@ -454,6 +454,7 @@ def check_scope(system, scope, dossier, templates=None, style=None, sourced: boo
             confidence = min(confidence, UNSOURCED_CONFIDENCE)
         sid = (source_ids(getattr(line, "source_id", "") or "") or [""])[0]
         kept.append(CheckedLine(text, depth, quantity, quote, sid, line.why or "", confidence, quoted))
+    dropped += [_squash(str(r)) for r in getattr(scope, "refused", ()) or ()]     # thrown away by the judge
     if dropped:
         review.append(ReviewItem(name, "", "The AI wrote lines the client must never see, or that break the house "
                                  "style; they were dropped", "; ".join(dropped), "Nothing to do unless a line is missing"))
@@ -882,4 +883,8 @@ def assemble_job(catalogue, reading, dossier, plan, scopes, today, templates=Non
     general += [ReviewItem("The plan", "", _squash(q), "the AI's question",
                            "Decide it, and change the proposal by hand if needed")
                 for q in getattr(plan, "unresolved", ()) or ()]
+    dropped = [_squash(str(d)) for d in getattr(plan, "dropped", ()) or ()]
+    if dropped:
+        general.append(ReviewItem("The plan", "", "The AI planned systems that could not be used; they were thrown "
+                                  "away", "; ".join(dropped), "Add a block by hand for any the job needs"))
     return job, [front] + systems, general
