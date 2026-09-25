@@ -1,10 +1,14 @@
 """The whole-job judge: the AI reads the job's whole dossier the way an estimator reads a bid set.
 
-The question the judge answers here:
+The two questions the judge answers here:
 - "plan_job" (`Judge.plan_job`): one pass over the whole dossier lists every system the job gives
   AME controls scope for, with its quantity, where the documents state it, and the source id of
   every paragraph, row and count it rests on. A dossier over `SPLIT_LIMIT` characters is read in
   parts (the sequence and the schedules first, then the rest) and the parts' plans are merged by key.
+- "write_system" (`Judge.write_system`): one pass per planned system writes its scope lines in the
+  house style from the passages the plan cited, with the nearest Master Template's lines as a
+  checklist (never a closed menu) and past proposals' blocks as examples; every line quotes its
+  source.
 
 This module holds the answers' shapes, the prompts, the schemas and the checks; `judge.py` asks the
 questions through its cache and its chat/API hand-off. Nothing here decides scope by itself: it only
@@ -23,7 +27,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol, Sequence
 
-from estimator.writing.judge import MAX_HEADER, _quantity, _squash
+from estimator.writing.judge import (MAX_DEPTH, MAX_EXAMPLES, MAX_HEADER, NO_EVIDENCE_CONFIDENCE, TECH_HOUR_BASES,
+                                     TechHoursHint, _confidence, _depth, _example_text, _quantity, _squash,
+                                     _tech_hours, _template_text)
 from estimator.writing.style import HouseStyle
 
 SPLIT_LIMIT = 150_000        # characters of dossier read in one pass
@@ -77,6 +83,36 @@ for the client, each starting with "**"; sources: the source ids they rest on.
 - unresolved: plain questions for the estimator, about anything the documents leave open.
 - Cite a source id for everything. Never write prices, tech hours, confidence or category words."""
 
+WRITE_PROMPT = """\
+You are an HVAC controls estimator at AME. You are writing the scope of work for one system of a \
+building controls proposal. The whole job has already been read and this system planned: you are \
+given what the plan says about it, the passages of the job's documents it rests on (each with its \
+source id in brackets, such as [S12]), the Master Template's lines for the nearest system as a \
+checklist, blocks AME wrote for similar systems in past proposals, and the house style. Write this \
+system's scope lines from the evidence, the way AME writes them.
+
+How to answer:
+- lines: the scope lines this system's evidence calls for, in the order a proposal lists them, in \
+the house style. Depth 1 sits under the header; depth 2 under the line above it. Never write the \
+header or the count: they are added for you.
+- The Master Template lines are a checklist, not a closed menu. They are usually present for a \
+system like this: write each one the evidence supports, and when you leave one out, say why in \
+review_notes. Write the lines the evidence calls for that the checklist does not have, in the house \
+style.
+- Every line needs the source id of the passage it rests on, a quote (the words from that passage \
+that call for it, copied exactly) and a one-sentence reason in plain English.
+- Give a quantity only when the evidence states a count for that line. Otherwise the quantity is \
+null. Never work one out or guess one.
+- Confidence is a number from 0 to 1.
+- client_notes: short clarifications for the client that the evidence supports, each starting \
+with "**". Never estimating hints, tech hours or prices.
+- tech_hours: the tech hours you suggest, following the nearest Master Template entry: what they \
+are counted per, how many hours, and which entry they are like (its name exactly as given). Null \
+when no entry is close enough.
+- review_notes: plain remarks for the estimator, never printed for the client: a checklist line \
+left out and why, documents that disagree, anything to confirm.
+- Never write prices, tech hours, confidence or category words in a line or a note."""
+
 
 class DossierImage(Protocol):
     """A picture of the job's documents the text could not read (a picture schedule, say)."""
@@ -111,6 +147,28 @@ class JobPlan:
     unresolved: tuple[str, ...]   # plain questions for the estimator
     model: str
     dropped: tuple[str, ...] = ()  # systems the AI planned that could not be trusted, and why
+
+
+@dataclass(frozen=True)
+class WrittenLine:
+    """One scope line the judge wrote for a planned system."""
+    text: str
+    depth: int
+    quantity: int | None      # only when the evidence states the count (then the quote holds it)
+    quote: str                # the words from the evidence that call for it ("" when none: low confidence)
+    source_id: str            # "[S12]" | ""
+    why: str
+    confidence: float
+
+
+@dataclass(frozen=True)
+class WrittenScope:
+    lines: tuple[WrittenLine, ...]
+    client_notes: tuple[str, ...]           # each starting "**"
+    tech_hours_hint: TechHoursHint | None   # the judge's suggestion, checked by the writer
+    review_notes: tuple[str, ...]           # the judge's remarks for the estimator, never printed
+    model: str
+    refused: tuple[str, ...] = ()           # what it wrote that could not be used, and why
 
 
 @dataclass(frozen=True)
@@ -406,6 +464,155 @@ def _front_end(raw, known: frozenset[str], unresolved: list[str]) -> dict:
         unresolved.append(f"The AI cited {', '.join(f'[{u}]' for u in dict.fromkeys(unknown))} for the front "
                           "end, which the dossier does not have; left out.")
     return front_end
+
+
+# --- the scope question: one planned system ---------------------------------------------------------------
+
+def _system_text(system: PlannedSystem) -> str:
+    quantity = ("not stated" if system.quantity is None
+                else f"{system.quantity}, from {system.quantity_source or 'no source'}: “{system.quantity_quote}”")
+    lines = [f"System: {system.header} (key {system.key})",
+             f"Kind: {system.kind or '(not given)'}",
+             f"Tags: {', '.join(system.tags) or '(none)'}",
+             f"Quantity: {quantity}"]
+    if system.group:
+        lines.append(f"Group: {system.group} (it shares one block with the other systems of this group)")
+    if system.alternate:
+        lines.append(f"Alternate: {system.alternate} (the documents price it separately)")
+    if system.exception:
+        lines.append(f"Exception: {system.exception}")
+    lines.append(f"Sources the plan cited: sequence {', '.join(system.sequence_sources) or '(none)'}; "
+                 f"schedules {', '.join(system.schedule_sources) or '(none)'}")
+    if system.why:
+        lines.append(f"Why the plan wrote it: {system.why}")
+    return "\n".join(lines)
+
+
+def options_text(options) -> str:
+    """The checklist: a template (its lines and when each applies), template lines, or plain texts."""
+    if options is None:
+        return "(no Master Template entry is close enough)"
+    if isinstance(options, str):
+        return options.strip() or "(none)"
+    if hasattr(options, "lines") and hasattr(options, "name"):
+        return _template_text(options)
+    out = []
+    for item in options:
+        if isinstance(item, str):
+            out.append(f"- {item}")
+        elif hasattr(item, "lines") and hasattr(item, "name"):
+            out.append(_template_text(item))
+        elif hasattr(item, "text"):
+            out.append(f"{'  ' * (max(1, int(getattr(item, 'depth', 1))) - 1)}- {item.text}")
+    return "\n".join(out) or "(none)"
+
+
+def write_prompt(system: PlannedSystem, evidence_text: str, images: Sequence, options, examples,
+                 style_text: str) -> str:
+    example_text = "\n\n".join(_example_text(e) for e in list(examples or ())[:MAX_EXAMPLES]) or "(none)"
+    return "\n\n".join([
+        _system_text(system),
+        f"The job's evidence for this system, each passage with its source id:\n"
+        f"{(evidence_text or '').strip() or '(none)'}",
+        images_text(images),
+        "The Master Template checklist for the nearest system (usually present; write each one the "
+        "evidence supports, and say in review_notes why you leave one out):\n" + options_text(options),
+        f"Blocks AME wrote for similar systems in past proposals:\n{example_text}",
+        (style_text or "").strip() or "(no house style given)"])
+
+
+def write_schema() -> dict:
+    line = {
+        "type": "object",
+        "properties": {
+            "text": {"type": "string"},
+            "depth": {"type": "integer"},
+            "quantity": {"anyOf": [{"type": "integer"}, {"type": "null"}]},
+            "quote": {"type": "string"},
+            "source_id": {"type": "string"},
+            "why": {"type": "string"},
+            "confidence": {"type": "number"},
+        },
+        "required": ["text", "depth", "quantity", "quote", "source_id", "why", "confidence"],
+        "additionalProperties": False,
+    }
+    hours = {
+        "type": "object",
+        "properties": {
+            "per": {"type": "string", "enum": list(TECH_HOUR_BASES)},
+            "hours": {"type": "number"},
+            "like": {"type": "string"},
+        },
+        "required": ["per", "hours", "like"],
+        "additionalProperties": False,
+    }
+    return {
+        "type": "object",
+        "properties": {
+            "lines": {"type": "array", "items": line},
+            "client_notes": {"type": "array", "items": {"type": "string"}},
+            "tech_hours": {"anyOf": [hours, {"type": "null"}]},
+            "review_notes": {"type": "array", "items": {"type": "string"}},
+        },
+        "required": ["lines", "client_notes", "tech_hours", "review_notes"],
+        "additionalProperties": False,
+    }
+
+
+def parse_scope(answer: dict, model: str, style: HouseStyle, known: frozenset[str] = frozenset()) -> WrittenScope:
+    """Read the AI's scope: a line that breaks the house style is refused; a number with no words
+    stating it is taken off its line; a line with no quote keeps a confidence of 0.5 at most; a source
+    id the evidence does not have is cleared. Each is listed in `refused`."""
+    refused: list[str] = []
+    lines: list[WrittenLine] = []
+    seen: set[str] = set()
+    last_depth = 0
+    for raw in answer.get("lines") or []:
+        if not isinstance(raw, dict):
+            continue
+        text = _text(raw.get("text"))
+        if not text:
+            continue
+        depth = min(_depth(raw.get("depth")), last_depth + 1, MAX_DEPTH)
+        reason = style.check_line(text, depth)
+        if reason:
+            refused.append(f"“{text}” — {reason}")
+            continue
+        if depth == 1 and text.lower() in seen:
+            continue
+        quote, why = _text(raw.get("quote")), _text(raw.get("why"))
+        quantity = _quantity(raw.get("quantity"))
+        confidence = _confidence(raw.get("confidence"))
+        if quantity is not None and not quote:
+            refused.append(f"the AI gave {quantity} for “{text}” with no words stating it; the number was left out")
+            quantity = None
+        if not quote:
+            confidence = min(confidence, NO_EVIDENCE_CONFIDENCE)
+        unknown: list[str] = []
+        sources = _ids(raw.get("source_id"), known, unknown)
+        if unknown:
+            refused.append(f"“{text}” cites {', '.join(f'[{u}]' for u in unknown)}, which the evidence does "
+                           "not have; the source was left out")
+        if depth == 1:
+            seen.add(text.lower())
+        last_depth = depth
+        lines.append(WrittenLine(text=text, depth=depth, quantity=quantity, quote=quote,
+                                 source_id=sources[0] if sources else "", why=why, confidence=confidence))
+    notes = []
+    for note in answer.get("client_notes") or []:
+        note = _text(note)
+        if not note:
+            continue
+        bad = style.check_note(note)
+        if bad:
+            refused.append(f"the note “{note}” — {bad}")
+            continue
+        if note not in notes:
+            notes.append(note)
+    hint = _tech_hours(answer.get("tech_hours"), refused)
+    return WrittenScope(lines=tuple(lines), client_notes=tuple(notes), tech_hours_hint=hint,
+                        review_notes=tuple(_texts(answer.get("review_notes"))), model=model,
+                        refused=tuple(refused))
 
 
 # --- a dossier too long to read at once -------------------------------------------------------------------

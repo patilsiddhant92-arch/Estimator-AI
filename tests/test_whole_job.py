@@ -4,10 +4,10 @@ import base64
 import json
 from types import SimpleNamespace
 
-from estimator.writing.judge import CHAT_MODEL, Judge
+from estimator.writing.judge import CHAT_MODEL, Judge, TechHoursHint
 from estimator.writing.templates import load_templates
-from estimator.writing.whole_job import (PLAN_PROMPT, SPLIT_LIMIT, JobPlan, PlannedSystem, checklist_text,
-                                         split_dossier)
+from estimator.writing.whole_job import (PLAN_PROMPT, SPLIT_LIMIT, WRITE_PROMPT, JobPlan, PlannedSystem,
+                                         WrittenLine, WrittenScope, checklist_text, split_dossier)
 
 DOSSIER = """1. Job
 [S1] Somerville HS New Gym. Controls: new BACnet system.
@@ -338,3 +338,192 @@ def test_the_checklist_names_every_master_template_system_on_one_line_each():
         assert line.startswith(f"- {template.name}")
     assert "tech hour" not in text.lower()
     assert "VAV" in lines[0]
+
+
+# --- B2: write_system ----------------------------------------------------------------------------------
+
+EVIDENCE = """[S2] A. Rooftop units RTU-1 thru 3 shall run on the BMS schedule.
+[S7] Each rooftop unit shall report its discharge air temperature and a filter alarm.
+Counts: RTU — 3 schedule rows, 3 distinct tags. Devices: SD (duct smoke detector) 3.
+"""
+OPTIONS = ["Furnish BMS Communication Wiring to Rooftop Unit Factory Controls",
+           "Map Available Points Via Mfr. Provided BMS Interface",
+           "Furnish and Install Duct Smoke Detector"]
+EXAMPLES = [{"job": "25-0101", "header": "Qty (2) Rooftop Unit RTU-1, 2",
+             "lines": [{"text": "Furnish BMS Communication Wiring to Rooftop Unit Factory Controls", "depth": 1}],
+             "notes": ["**Start/Stop via BMS schedule"]}]
+
+
+def _planned(**overrides):
+    fields = dict(key="RTU-1-3", header="Rooftop Unit RTU-1 thru 3", kind="Packaged ERU / RTU / AHU",
+                  tags=("RTU-1", "RTU-2", "RTU-3"), quantity=3, quantity_source="[S4]",
+                  quantity_quote="RTU-1 | 5000 CFM ; RTU-2 | 5000 CFM ; RTU-3 | 4000 CFM",
+                  sequence_sources=("[S2]", "[S7]"), schedule_sources=("[S4]",), group="", alternate="",
+                  exception="", why="The schedule lists three rooftop units.")
+    fields.update(overrides)
+    return PlannedSystem(**fields)
+
+
+def _line(text, depth=1, quantity=None, quote="shall run on the BMS schedule", source_id="[S2]",
+          why="The sequence runs the units on the BMS.", confidence=0.9):
+    return {"text": text, "depth": depth, "quantity": quantity, "quote": quote, "source_id": source_id,
+            "why": why, "confidence": confidence}
+
+
+def _scope_answer(**overrides):
+    answer = {
+        "lines": [
+            _line(OPTIONS[0]),
+            _line(OPTIONS[1], quote="report its discharge air temperature and a filter alarm", source_id="S7"),
+            _line("Discharge Air Temperature", depth=2, quote="discharge air temperature", source_id="[S7]"),
+        ],
+        "client_notes": ["**Start/Stop via BMS schedule"],
+        "tech_hours": {"per": "unit", "hours": 4, "like": "Packaged ERU / RTU / AHU"},
+        "review_notes": ["Left out the duct smoke detector: the evidence shows none in the units."],
+    }
+    answer.update(overrides)
+    return answer
+
+
+def _write(tmp_path, client, images=(), system=None, **kwargs):
+    return _judge(tmp_path, client, **kwargs).write_system(system or _planned(), EVIDENCE, images, OPTIONS,
+                                                            EXAMPLES, "STYLE TEXT")
+
+
+def test_the_scope_is_read_into_written_lines(tmp_path):
+    scope = _write(tmp_path, FakeClient(_response(_scope_answer())))
+
+    assert isinstance(scope, WrittenScope)
+    assert scope.model == "claude-opus-5-5"
+    first, second, third = scope.lines
+    assert first == WrittenLine(text=OPTIONS[0], depth=1, quantity=None, quote="shall run on the BMS schedule",
+                                source_id="[S2]", why="The sequence runs the units on the BMS.", confidence=0.9)
+    assert second.source_id == "[S7]"
+    assert third.depth == 2 and third.text == "Discharge Air Temperature"
+    assert scope.client_notes == ("**Start/Stop via BMS schedule",)
+    assert scope.tech_hours_hint == TechHoursHint("unit", 4.0, "Packaged ERU / RTU / AHU")
+    assert scope.review_notes == ("Left out the duct smoke detector: the evidence shows none in the units.",)
+    assert scope.refused == ()
+
+
+def test_the_scope_request_carries_the_plan_evidence_checklist_examples_and_style(tmp_path):
+    fake = FakeClient(_response(_scope_answer()))
+    _write(tmp_path, fake, images=_images(tmp_path))
+
+    (call,) = fake.calls
+    assert call["system"] == WRITE_PROMPT
+    schema = call["output_config"]["format"]["schema"]
+    assert set(schema["required"]) == {"lines", "client_notes", "tech_hours", "review_notes"}
+    assert "source_id" in schema["properties"]["lines"]["items"]["required"]
+    content = call["messages"][0]["content"]
+    text = "\n".join(block["text"] for block in content if block["type"] == "text")
+    for part in ("Rooftop Unit RTU-1 thru 3", "RTU-1, RTU-2, RTU-3", "[S4]", EVIDENCE.strip(), *OPTIONS,
+                 "25-0101", "STYLE TEXT", "H601 HVAC SCHEDULES"):
+        assert part in text
+    assert "checklist" in text.lower() and "usually present" in text.lower()
+    assert [block["type"] for block in content].count("image") == 1
+
+
+def test_the_write_prompt_treats_the_template_as_a_checklist_and_asks_for_sources():
+    low = WRITE_PROMPT.lower()
+    for words in ("checklist", "not a closed menu", "source id", "quote", "never work one out", "review_notes"):
+        assert words in low
+
+
+def test_lines_that_break_the_house_style_are_refused(tmp_path):
+    answer = _scope_answer()
+    answer["lines"] += [_line("Some wiring maybe"), _line("Furnish and Install Sensor (4 tech hours)"),
+                        _line("Furnish and Install Filter Switch, CONFIRMED")]
+    answer["client_notes"] += ["no stars here", "**$500 allowance"]
+    scope = _write(tmp_path, FakeClient(_response(answer)))
+
+    assert [l.text for l in scope.lines] == [OPTIONS[0], OPTIONS[1], "Discharge Air Temperature"]
+    assert len(scope.refused) == 5
+    assert scope.client_notes == ("**Start/Stop via BMS schedule",)
+
+
+def test_a_quantity_with_no_quote_keeps_the_line_but_not_the_number(tmp_path):
+    answer = _scope_answer()
+    answer["lines"].append(_line("Furnish and Install Duct Smoke Detector", quantity=3, quote=""))
+    scope = _write(tmp_path, FakeClient(_response(answer)))
+
+    smoke = scope.lines[-1]
+    assert smoke.text == "Furnish and Install Duct Smoke Detector"
+    assert smoke.quantity is None and smoke.confidence <= 0.5
+    assert any("3" in r and "Duct Smoke Detector" in r for r in scope.refused)
+
+
+def test_a_line_with_no_quote_is_kept_with_low_confidence_and_a_bad_source_is_cleared(tmp_path):
+    answer = _scope_answer()
+    answer["lines"][0].update(quote="", confidence=0.95)
+    answer["lines"][1].update(source_id="[S999]")
+    scope = _write(tmp_path, FakeClient(_response(answer)))
+
+    assert scope.lines[0].confidence == 0.5
+    assert scope.lines[1].source_id == ""
+    assert any("S999" in r for r in scope.refused)
+
+
+def test_a_line_too_deep_for_its_place_is_raised(tmp_path):
+    answer = _scope_answer(lines=[_line("Discharge Air Temperature Sensor", depth=3),
+                                  _line(OPTIONS[0], depth=1), _line("Filter Alarm", depth=4)])
+    scope = _write(tmp_path, FakeClient(_response(answer)))
+
+    assert [(l.text, l.depth) for l in scope.lines] == [(OPTIONS[0], 1), ("Filter Alarm", 2)]
+    assert any("Discharge Air Temperature Sensor" in r for r in scope.refused)
+
+
+def test_unknown_fields_are_ignored_and_bad_tech_hours_dropped(tmp_path):
+    answer = _scope_answer(mood="happy", tech_hours={"per": "fortnight", "hours": 4, "like": "RTU"})
+    answer["lines"][0]["colour"] = "red"
+    scope = _write(tmp_path, FakeClient(_response(answer)))
+
+    assert len(scope.lines) == 3
+    assert scope.tech_hours_hint is None
+    assert any("tech hours" in r for r in scope.refused)
+
+
+def test_the_same_scope_is_answered_from_the_cache(tmp_path):
+    fake = FakeClient(_response(_scope_answer()))
+    judge = _judge(tmp_path, fake)
+    first = judge.write_system(_planned(), EVIDENCE, (), OPTIONS, EXAMPLES, "STYLE TEXT")
+    second = judge.write_system(_planned(), EVIDENCE, (), OPTIONS, EXAMPLES, "STYLE TEXT")
+
+    assert len(fake.calls) == 1 and (judge.calls, judge.cached) == (1, 1)
+    assert second == first
+
+
+def test_in_the_chat_the_scope_request_says_its_kind_and_lists_the_pictures(tmp_path):
+    images = _images(tmp_path)
+    judge = _judge(tmp_path, mode="chat")
+    assert judge.write_system(_planned(), EVIDENCE, images, OPTIONS, EXAMPLES, "STYLE TEXT") is None
+
+    (request_file,) = judge.requests_dir.glob("*.json")
+    request = json.loads(request_file.read_text(encoding="utf-8"))
+    assert request["kind"] == "write_system"
+    assert request["system"] == "Rooftop Unit RTU-1 thru 3"
+    assert request["key"] == request_file.stem
+    assert request["images"][0]["path"] == images[0].path
+    assert "lines" in request["schema"]["properties"]
+
+    judge.answers_dir.mkdir(parents=True)
+    (judge.answers_dir / request_file.name).write_text(json.dumps(_scope_answer()), encoding="utf-8")
+    scope = _judge(tmp_path, mode="chat").write_system(_planned(), EVIDENCE, images, OPTIONS, EXAMPLES,
+                                                       "STYLE TEXT")
+    assert scope is not None and scope.model == CHAT_MODEL and len(scope.lines) == 3
+
+
+def test_the_options_may_be_a_master_template(tmp_path):
+    template = next(t for t in load_templates() if t.name == "Exhaust Fan")
+    fake = FakeClient(_response(_scope_answer()))
+    _judge(tmp_path, fake).write_system(_planned(), EVIDENCE, (), template, EXAMPLES, "STYLE TEXT")
+
+    text = fake.calls[0]["messages"][0]["content"][0]["text"]
+    assert all(line.text in text for line in template.lines)
+
+
+def test_no_key_means_no_scope(tmp_path, monkeypatch):
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    judge = _judge(tmp_path)
+    assert judge.write_system(_planned(), EVIDENCE, (), OPTIONS, EXAMPLES, "STYLE TEXT") is None
+    assert "no AI key" in judge.last_error
