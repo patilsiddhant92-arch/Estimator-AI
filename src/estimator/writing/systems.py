@@ -1091,6 +1091,28 @@ def _equipment() -> Equipment:
     return Equipment.load()
 
 
+OWN_TAGS = _TAG
+
+
+def naming(bundle: SystemBundle, other_names=()):
+    """How strongly a text names the system: OWN_TAGS (3) for one of its own tags, 2 for its
+    prefix or another tag of it, 1 for its kind or another name it goes by (`other_names`: its
+    template's), 0 when it does not name it (or names only the units of its family written as
+    another system)."""
+    rules = _rules()
+    equipment = _equipment()
+    tags = [t for f in bundle.families for t in f.tags]
+    prefixes = [f.prefix for f in bundle.families if f.prefix]
+    names = [bundle.name, *(f.kind for f in bundle.families), *other_names,
+             *(n for p in prefixes for n in rules.also_called.get(p, ()))]
+    matcher = _Matcher.of(tags, prefixes, names, bundle.siblings)
+
+    def rank(text: str) -> int:
+        found = frozenset(find_tags(text, equipment)) | frozenset(_tags_in(text, equipment, allowed=set(prefixes)))
+        return matcher.rank(text, found)
+    return rank
+
+
 def _order(bundle: SystemBundle, first_seen: int, rules: _Rules) -> tuple[int, int]:
     if bundle.existing:
         return len(rules.stages) + 1, first_seen

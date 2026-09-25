@@ -618,6 +618,51 @@ def test_an_ai_answer_does_not_undo_a_schedule_override():
     assert "24V Transformer by Unit Mfr." in _printed(system)
 
 
+# --- a rule fires only on a passage that names the system ---------------------------------------------
+
+def _fans(passages, tags=("EF-1", "EF-2")):
+    rows = _rows(list(tags), ("TAG", "CFM"), {"CFM": "800"}, title="FAN SCHEDULE")
+    return _bundle("EF", "Exhaust Fan", list(tags), rows=rows, passages=tuple(passages))
+
+
+def test_a_rule_does_not_fire_on_the_paragraph_after_the_one_naming_the_system():
+    passage = Passage("23 09 93, page 5", "Specs.pdf", 5,
+                      "EF-1 and EF-2 run continuously.\n\nThe duct static pressure sensor sets the supply fan speed.")
+    printed = _printed(_write(_fans([passage])))
+    assert "Furnish and Install Duct Static Pressure Sensor" not in printed
+    assert "Furnish and Install DDC Controller" not in printed
+
+
+def test_a_rule_fires_on_its_own_section_even_where_a_paragraph_does_not_name_it():
+    passage = Passage("23 09 93, page 5", "Specs.pdf", 5,
+                      "C. Fans:\n\n1. The duct static pressure sensor sets the fan speed.", section="Fans")
+    assert "Furnish and Install Duct Static Pressure Sensor" in _printed(_write(_fans([passage])))
+
+
+def test_the_ais_quote_naming_the_units_beats_a_rule_whose_passage_does_not():
+    general = Passage("23 09 93, page 5", "Specs.pdf", 5, "Exhaust fans shall hold the space temperature.")
+    own = Passage("23 09 93, page 6", "Specs.pdf", 6,
+                  "EF-1 and EF-2 shall be started by their line-voltage thermostat; no BMS points.")
+    judge = FakeJudge([Choice("Furnish and Install DDC Controller", False, None,
+                              "The fans run on their own thermostat.", "EF-1 and EF-2 shall be started by their "
+                              "line-voltage thermostat", 0.9)])
+    system = _write(_fans([general, own]), judge=judge)
+    printed = _printed(system)
+    assert "Furnish and Install DDC Controller" not in printed
+    assert "Interlock with Associated AHU / RTU /MAU Unit Operation" in printed      # the choice falls back
+    [item] = [i for i in system.review if "The AI's answer is kept" in i.decide]
+    assert "Furnish and Install DDC Controller" in item.decide and "EF-1 and EF-2 shall be started" in item.evidence
+
+
+def test_the_rule_is_kept_when_its_own_passage_names_the_units():
+    own = Passage("23 09 93, page 5", "Specs.pdf", 5, "EF-1 and EF-2 shall hold the space temperature.")
+    judge = FakeJudge([Choice("Furnish and Install DDC Controller", False, None, "No controller.",
+                              "EF-1 and EF-2 shall hold the space temperature", 0.9)])
+    system = _write(_fans([own]), judge=judge)
+    assert "Furnish and Install DDC Controller" in _printed(system)
+    assert any(i.category == "CONFLICT" for i in system.review)
+
+
 # --- a system made from a sequence heading ------------------------------------------------------------
 
 def _heading_job(text):

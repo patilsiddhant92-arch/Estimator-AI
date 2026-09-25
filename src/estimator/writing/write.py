@@ -32,7 +32,7 @@ from estimator.writing.front_end import front_end, job_header
 from estimator.writing.judge import NO_KEY
 from estimator.writing.phrasing import examples_for, load_bank
 from estimator.writing.style import load_house_style
-from estimator.writing.systems import SystemBundle, build_bundles, unbundled_flags
+from estimator.writing.systems import OWN_TAGS, SystemBundle, build_bundles, naming, unbundled_flags
 from estimator.writing.templates import (HARDWARE_VERBS, TEMPLATES_FILE, Condition, SystemTemplate, TemplateLine,
                                          TechHours, integration_trio, load_templates, nearest_templates,
                                          template_for)
@@ -125,6 +125,13 @@ def _plain(text: str) -> str:
     return re.sub(r"[^a-z0-9]+", " ", (text or "").casefold()).strip()
 
 
+def _paragraph_at(text: str, at: int) -> str:
+    """The paragraph of a passage (paragraphs are joined by a blank line) holding position `at`."""
+    start = text.rfind("\n\n", 0, at)
+    end = text.find("\n\n", at)
+    return text[start + 2 if start >= 0 else 0: end if end >= 0 else len(text)]
+
+
 def _sentence(text: str, start: int, end: int) -> str:
     stop = text.rfind(". ", 0, start)
     lo = max(stop + 2 if stop >= 0 else 0, text.rfind("\n", 0, start) + 1)
@@ -174,6 +181,8 @@ class Hit:
     place: str
     where: str
     quote: str
+    own: bool = True     # the words sit where the system's own units are named (its schedule rows, a
+                         # paragraph naming its tags); False for a paragraph naming only its kind or prefix
 
     @property
     def text(self) -> str:
@@ -190,18 +199,20 @@ class _Check:
 class _Reading:
     """One bundle's evidence, and each template condition checked against it once."""
 
-    def __init__(self, bundle: SystemBundle, catalogue):
+    def __init__(self, bundle: SystemBundle, catalogue, template: SystemTemplate | None = None):
         self.bundle = bundle
         self.rows = bundle.schedule_rows
         self.passages = bundle.passages
         self.notes: list[tuple[str, str]] = [("the schedule's notes", n) for n in bundle.controls_by]
         self.notes += [("the schedule's notes", n) for n in bundle.schedule_notes if n not in bundle.controls_by]
+        self._schedule_notes = len(self.notes)
         for note in bundle.notes:
             label = " ".join(p for p in (note.sheet, note.block.title() if note.block else "", note.number) if p)
             self.notes.append((label or "a drawing note", note.text))
         self.prefixes = [f.prefix for f in bundle.families]
         overview = getattr(catalogue, "overview", None)
         self.topics = [t for t in (overview.topics if overview is not None else ()) if t.status == FOUND]
+        self.names = naming(bundle, (template.name, *template.kinds) if template is not None else ())
         self._seen: dict[str, _Check] = {}
 
     def checks(self) -> list[_Check]:
@@ -259,20 +270,36 @@ class _Reading:
         return None, ""
 
     def _in_sequence(self, name: str, words) -> tuple[Hit | None, str]:
+        """The words, in a paragraph that names the system (its tags, prefix or kind) or in the
+        system's own section: a sentence about every fan decides nothing for this one."""
         for passage in self.passages:
             for word in words:
-                m = _word(word).search(passage.text)
-                if m:
-                    return Hit(name, "sequence", passage.where, _sentence(passage.text, m.start(), m.end())), ""
+                for m in _word(word).finditer(passage.text):
+                    rank = self.names(_paragraph_at(passage.text, m.start()))
+                    if rank or passage.section:
+                        return Hit(name, "sequence", passage.where, _sentence(passage.text, m.start(), m.end()),
+                                   own=rank == OWN_TAGS), ""
         return None, ""
 
     def _in_notes(self, name: str, words) -> tuple[Hit | None, str]:
-        for where, text in self.notes:
+        for n, (where, text) in enumerate(self.notes):
             for word in words:
                 m = _word(word).search(text)
                 if m:
-                    return Hit(name, "notes", where, _sentence(text, m.start(), m.end())), ""
+                    own = n < self._schedule_notes or self.names(text) == OWN_TAGS
+                    return Hit(name, "notes", where, _sentence(text, m.start(), m.end()), own=own), ""
         return None, ""
+
+    def quote_names_units(self, quote: str) -> bool:
+        """The AI's quote sits in a sequence paragraph naming the system's own tags."""
+        wanted = _plain(quote)
+        if not wanted:
+            return False
+        for passage in self.passages:
+            for paragraph in passage.text.split("\n\n"):
+                if wanted in _plain(paragraph) and self.names(paragraph) == OWN_TAGS:
+                    return True
+        return False
 
     def _in_prefix(self, name: str, words) -> tuple[Hit | None, str]:
         for prefix in self.prefixes:
@@ -283,7 +310,7 @@ class _Reading:
     def _in_spec_overview(self, name: str, words) -> tuple[Hit | None, str]:
         for topic in self.topics:
             if any(_word(w).search(topic.item) for w in words):
-                return Hit(name, "spec_overview", short_place(topic.places), topic.quote), ""
+                return Hit(name, "spec_overview", short_place(topic.places), topic.quote, own=False), ""
         return None, ""
 
     def factory_controls(self, words) -> Hit | None:
@@ -342,6 +369,8 @@ class _State:
     specific: int = 0            # how many conditions the line needs (a choice prefers the most)
     counted: str = ""            # the device count behind the quantity, for the review list
     stated: int | None = None    # a count the AI quoted from the evidence (a line it wrote itself)
+    hits: tuple = ()             # what the rule found (the words that put the line in, or kept it out)
+    won: bool = False            # the AI's answer beat the rule's
 
     @property
     def open(self) -> bool:
@@ -372,7 +401,7 @@ def _decide(line: TemplateLine, template: SystemTemplate, reading: _Reading, pen
     blocked = [(n, c) for n, c in unless if c.state == HOLDS]
     if blocked:
         name, check = blocked[0]
-        state.decided, state.evidence = "unless", check.hit.text
+        state.decided, state.evidence, state.hits = "unless", check.hit.text, (check.hit,)
         state.words = f"the rule left it out because of {check.hit.text}"
         return state
     unsure_unless = [n for n, c in unless if c.state == UNKNOWN]
@@ -385,7 +414,7 @@ def _decide(line: TemplateLine, template: SystemTemplate, reading: _Reading, pen
         if all(s == HOLDS for s in states):
             hits = [c.hit for _, c in whens]
             weakest = min(hits, key=lambda h: _RULE_CONFIDENCE[h.place])
-            state.include, state.decided = True, "rule"
+            state.include, state.decided, state.hits = True, "rule", tuple(hits)
             state.category = _RULE_CATEGORY.get(weakest.place, CONFIRMED)
             state.confidence = _RULE_CONFIDENCE[weakest.place]
             state.source = "rule: " + "; ".join(f"{h.condition} ({h.where})" for h in hits)
@@ -437,7 +466,7 @@ def _choose(states: list[_State]) -> None:
             best = max(winners, key=lambda s: (s.specific, s.confidence))
             for s in members:
                 if s is not best:
-                    s.include, s.category, s.decided = False, "", "absence"
+                    s.include, s.category, s.decided, s.hits = False, "", "absence", best.hits
                     s.words = f"the rule chose {best.text} instead ({best.evidence})"
             continue
         unchecked = [s for s in members if s.decided == "pending"]
@@ -523,10 +552,22 @@ def _apply_ai(states, judgement, reading: _Reading, system: str, review: list[Re
         category = CONFIRMED if place == "sequence" else ADDED
         confidence = AI_SEQUENCE if place == "sequence" else AI_OTHER
         quoted = f"{where}: “{c.quote}”"
+        disagrees = (s.decided == "rule" and not c.include) or (s.decided in ("absence", "unless") and c.include)
         if s.open:
             s.include, s.decided, s.category, s.confidence = c.include, "ai", category, confidence
             s.source = f"AI: {c.why}" if c.include else f"AI: left out — {c.why}"
             s.evidence, s.listed = quoted, True
+        elif disagrees and place == "sequence" and reading.quote_names_units(c.quote) \
+                and not any(h.own for h in s.hits):
+            # The AI quotes a paragraph naming this system's own units; the rule's words did not.
+            rule_said = s.evidence if s.decided == "rule" else s.words
+            s.include, s.decided, s.category, s.confidence = c.include, "ai", category, confidence
+            s.source = f"AI: {c.why}" if c.include else f"AI: left out — {c.why}"
+            s.evidence, s.listed, s.won = quoted, True, True
+            review.append(ReviewItem(system, "", f"The AI's answer is kept over the rule on {s.text} — its quote "
+                                     "names this system's own units; the rule's words did not",
+                                     f"{rule_said} vs {quoted}",
+                                     f"Check it: the AI {'includes' if c.include else 'leaves out'} the line"))
         elif s.decided == "rule" and not c.include:
             review.append(ReviewItem(system, "CONFLICT", f"The rule and the AI disagree on {s.text} — "
                                      f"{s.evidence} vs {quoted}", f"The rule includes it; the AI says: {c.why}",
@@ -543,10 +584,17 @@ def _apply_ai(states, judgement, reading: _Reading, system: str, review: list[Re
     for members in groups.values():
         chosen = [s for s in members if s.decided == "ai" and s.include]
         if not chosen:
+            if any(s.won and not s.include for s in members) and not any(s.include for s in members):
+                default = next((s for s in members if s.default), None)
+                if default is not None:          # the AI took out the rule's choice: the default stands
+                    default.include, default.decided, default.category = True, "default", ASSUMPTION
+                    default.confidence, default.source = DEFAULT_CONFIDENCE, "default"
+                    default.evidence = ("Master Template default — the AI left out "
+                                        + "; ".join(s.text for s in members if s.won))
             continue
-        best = max(chosen, key=lambda s: s.confidence)
+        best = max(chosen, key=lambda s: (s.won, s.confidence))
         for s in members:
-            if s is not best and s.include and s.decided in ("default", "ai"):
+            if s is not best and s.include and (s.decided in ("default", "ai") or (best.won and s.decided == "rule")):
                 s.include, s.category, s.listed = False, "", False
     if judgement.dropped:
         review.append(ReviewItem(system, "", "The AI answered lines that are not in the Master Template; they were "
@@ -1067,7 +1115,7 @@ def write_system(catalogue, bundle: SystemBundle, templates, judge=None) -> Writ
     if template is None:
         return _no_template(catalogue, bundle, templates, judge)
     name = bundle.name
-    reading = _Reading(bundle, catalogue)
+    reading = _Reading(bundle, catalogue, template)
     review: list[ReviewItem] = [_review_flag(name, f) for f in bundle.flags]
     pending_reason = _pending_reason(judge)
 
@@ -1234,7 +1282,7 @@ def apply_exceptions(fe: FrontEnd, bundles, catalogue, templates
         mine = [b for b in to_write if _choose_template(b, templates) is template]
         hit = None
         for bundle in [*mine, _empty_bundle(template.name)]:
-            check = _Reading(bundle, catalogue).check(rule.called_for)
+            check = _Reading(bundle, catalogue, template).check(rule.called_for)
             if check.state == HOLDS:
                 hit = check.hit
                 break
