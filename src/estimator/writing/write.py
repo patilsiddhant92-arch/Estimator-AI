@@ -699,9 +699,32 @@ def _review_flag(system: str, flag: str) -> ReviewItem:
     return ReviewItem(system, category, decide, "", action)
 
 
+def _named_template(name: str, templates) -> SystemTemplate | None:
+    """A system made from a sequence heading takes the template its name matches: the name or
+    one of its kinds, singular or plural, or one written whole inside it ("Ductless Split System")."""
+    plain = _plain(name)
+    singular = " ".join(w[:-1] if len(w) > 3 and w.endswith("s") and not w.endswith("ss") else w
+                        for w in plain.split())
+    for template in templates:
+        names = {_plain(n) for n in (template.name, *template.kinds)}
+        if plain in names or singular in names:
+            return template
+    for template in templates:
+        for n in (template.name, *template.kinds):
+            wanted = _plain(n)
+            if len(wanted.split()) >= 2 and re.search(rf"(?<![a-z0-9]){re.escape(wanted)}s?(?![a-z0-9])", singular):
+                return template
+    return None
+
+
 def _choose_template(bundle: SystemBundle, templates) -> SystemTemplate | None:
     if bundle.existing:
         return template_for("", bundle.name, templates)
+    if bundle.heading:
+        named = _named_template(bundle.name, templates)
+        prefixes = [f.prefix for f in bundle.families if f.prefix]
+        return named or next((template_for(p, "", templates) for p in prefixes if template_for(p, "", templates)),
+                             None)
     if bundle.group:
         return template_for("", bundle.name, templates) or template_for(bundle.families[0].prefix, "", templates)
     family = bundle.families[0]
@@ -752,10 +775,15 @@ def _no_template(catalogue, bundle: SystemBundle, templates, judge) -> WrittenSy
 
 
 def _units_text(bundle: SystemBundle) -> str:
-    parts = [f"{f.kind} ({f.prefix}): {tag_list(f.tags)}"
-             + (f" — {f.quantity} scheduled" if f.quantity is not None else " — not counted yet")
+    parts = [(f"{f.kind} ({f.prefix}): {tag_list(f.tags)}" if f.prefix else f.kind)
+             + (f" — {f.quantity} {'named in the sequence' if bundle.heading else 'scheduled'}"
+                if f.quantity is not None else " — not counted yet")
              for f in bundle.families]
     return "Units: " + "; ".join(parts)
+
+
+def _uncounted(bundle: SystemBundle) -> str:
+    return ", ".join(f.prefix or f.kind for f in bundle.families if f.quantity is None)
 
 
 def _template_named(name: str, templates) -> SystemTemplate | None:
@@ -862,8 +890,7 @@ def _compose_system(catalogue, bundle: SystemBundle, templates, judge,
                                 f"No Master Template entry; written like {analog or 'no template'}, "
                                 f"{len(lines)} {'line' if len(lines) == 1 else 'lines'}", "check the wording"))
     if not counted_units:
-        missing = [f.prefix for f in bundle.families if f.quantity is None]
-        review.insert(0, ReviewItem(name, PENDING, f"The {', '.join(missing)} units could not be counted from the "
+        review.insert(0, ReviewItem(name, PENDING, f"The {_uncounted(bundle)} units could not be counted from the "
                                     "schedule, so this system is left out of the proposal",
                                     ", ".join(tag_list(f.tags) for f in bundle.families if f.quantity is None),
                                     "Count them by eye, then add the block"))
@@ -1016,8 +1043,7 @@ def write_system(catalogue, bundle: SystemBundle, templates, judge=None) -> Writ
                                      confidence if is_printed else 0.0, source, where, is_printed))
 
     if not counted_units:
-        missing = [f.prefix for f in bundle.families if f.quantity is None]
-        review.insert(0, ReviewItem(name, PENDING, f"The {', '.join(missing)} units could not be counted from the "
+        review.insert(0, ReviewItem(name, PENDING, f"The {_uncounted(bundle)} units could not be counted from the "
                                     "schedule, so this system is left out of the proposal",
                                     ", ".join(tag_list(f.tags) for f in bundle.families if f.quantity is None),
                                     "Count them by eye, then add the block"))

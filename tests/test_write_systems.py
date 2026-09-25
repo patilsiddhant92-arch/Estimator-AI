@@ -547,6 +547,47 @@ def test_build_job_gives_a_job_that_fits_the_price_sheet():
     assert any("ZZ-1" in flag for flag in flags)            # a family on no schedule reaches the review list
 
 
+# --- a system made from a sequence heading ------------------------------------------------------------
+
+def _heading_job(text):
+    from estimator.catalogue.register import PageRecord
+    from estimator.reading.sequences import SEQUENCE as SEQ, Backbone
+    schedule = Schedule(DWG, 5, "M-601", "VAV BOX SCHEDULE", ("TAG", "HW GPM"),
+                        tuple(ScheduleRow(t, {"TAG": t, "HW GPM": "1.5"}, None, None) for t in VAV_TAGS),
+                        False, (), ())
+    items = tuple(InventoryItem(t, "Variable Air Volume Box", "CONFIRMED", 1, "M-601 VAV BOX SCHEDULE", ("M-101",),
+                                "", "") for t in VAV_TAGS)
+    catalogue = SimpleNamespace(job=SimpleNamespace(name="26-9999", root=Path("26-9999, 1 Test Street")),
+                                overview=SpecOverview(), pages=(PageRecord("Specs.pdf", 44, "text", text, 0),),
+                                sheets=(), sections=(), tags=())
+    backbone = (Backbone(SEQ, "23 09 93 SEQUENCE OF OPERATIONS (Specs.pdf, page 44)", "Specs.pdf", 44, 44,
+                         "spec section"),)
+    reading = SimpleNamespace(schedules=(schedule,), inventory=items, notes=(), backbone=backbone, devices=(),
+                              versions=(), flags=())
+    return catalogue, reading
+
+
+HEADINGS = ("A. VAV Boxes:\n1. Each VAV box maintains the space temperature.\n"
+            "B. Gas Booster:\n1. The BMS shall monitor the gas booster pump status.\n"
+            "C. Air Curtains:\n1. The air curtain runs when the door opens.\n")
+
+
+def test_a_heading_with_no_template_goes_to_the_ai_to_write_and_waits_for_a_count():
+    catalogue, reading = _heading_job(HEADINGS)
+    judge = FakeWriter(_composition(lines=[_written("Furnish Gas Booster Pump Status (BI)",
+                                                    "monitor the gas booster pump status")]))
+    job, systems, _ = build_job(catalogue, reading, judge, dt.date(2026, 9, 25))
+    by_key = {s.bundle_key: s for s in systems}
+    booster = by_key["Gas Booster"]
+    assert [c[0] for c in judge.composed] == ["Gas Booster"]
+    assert "monitor the gas booster pump status" in judge.composed[0][1]
+    assert not booster.printed                                        # no tags named: PENDING, kept out
+    assert any(item.category == "PENDING" and "Gas Booster" in item.decide for item in booster.review)
+    assert by_key["Air Curtain"].template == "Air Curtain"               # a template matches its name: choose
+    assert "Air Curtain" in [asked[0] for asked in judge.asked]
+    assert [b.header for b in job.blocks] == ["Qty (3) Variable Air Volume Box VAV-1 thru 3"]
+
+
 # --- a Sensaphone becomes an exception when the network control panel sends the alarms ---------------
 
 ALARM = "HVAC Alarm Panel w/ Auto Dialer"
