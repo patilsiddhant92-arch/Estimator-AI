@@ -90,7 +90,7 @@ def test_nothing_internal_reaches_the_proposal(estimated):
     for word in INTERNAL:
         assert not re.search(rf"\b{re.escape(word)}", scope), word
     whole = _proposal_text(out / "26-9999 Proposal.docx")
-    for word in ("confidence", "ASSUMPTION", "CONFIRMED", "rule:", "AI:", "tech hour"):
+    for word in ("confidence", "ASSUMPTION", "CONFIRMED", "rule:", "AI:", "tech hour", "PENDING"):
         assert word not in whole, word
 
 

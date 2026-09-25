@@ -139,7 +139,7 @@ def test_an_extension_of_an_existing_named_system():
 def test_an_extension_of_an_unnamed_system_is_flagged():
     overview = _overview({"Tie-in to an existing system": "Connect to the existing BMS in the building."})
     fe, flags, _ = front_end(_catalogue(overview))
-    assert fe.mode == "extend-existing" and fe.existing_system_name == "PENDING"
+    assert fe.mode == "extend-existing" and fe.existing_system_name == "[existing BMS name]"
     assert any("Name the existing BMS" in flag for flag in flags)
 
 
@@ -269,9 +269,9 @@ def test_a_folder_with_only_a_number_and_no_firm_is_pending():
     pages = [PageRecord(MECH, 1, "text", "", 0, True, _title_block("Engineer of Record:", "Texas Engineering Firm F-26237"))]
     header, flags = job_header(_catalogue(folder="26-0445", sheets=sheets, pages=pages), versions, TODAY)
     assert header.quote_number == "26-0445"
-    assert header.reference == "PENDING — project name"
-    assert header.mep_engineer == "PENDING — MEP engineer"
-    assert header.based_on == ("M-001 Thru M-002 Dated: PENDING",)
+    assert header.reference == "[project name]"
+    assert header.mep_engineer == "[MEP engineer]"
+    assert header.based_on == ("M-001 Thru M-002 Dated: [date]",)
     assert len(flags) == 3
     assert any("project name" in f for f in flags) and any("engineer" in f.lower() for f in flags)
     assert any("date" in f.lower() for f in flags)
@@ -286,5 +286,5 @@ def test_sheets_sort_by_their_numbers_and_sets_split_by_letters():
 
 def test_no_mechanical_or_controls_sheets_is_pending():
     header, flags = job_header(_catalogue(folder="26-0001"), SimpleNamespace(versions=()), TODAY)
-    assert header.based_on == ("PENDING — drawings the proposal is based on",)
+    assert header.based_on == ("[drawings the proposal is based on]",)
     assert any("based on" in f for f in flags)

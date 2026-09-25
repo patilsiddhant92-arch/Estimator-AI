@@ -288,7 +288,7 @@ def _based_on(catalogue, reading, settings: dict, flags: list[str]) -> list[str]
             numbers[version.sheet] = version.latest
     if not sets:
         flags.append("Say which drawings the proposal is based on — no mechanical or controls sheet numbers were read")
-        return ["PENDING — drawings the proposal is based on"]
+        return ["[drawings the proposal is based on]"]
 
     lines = []
     undated = []
