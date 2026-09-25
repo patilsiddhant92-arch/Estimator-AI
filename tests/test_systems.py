@@ -391,6 +391,65 @@ def test_a_heading_bundle_with_a_template_name_is_written_from_that_template():
     assert _choose_template(bundles["Fire Pump"], load_templates()) is None
 
 
+# --- a family splits where the sequence splits it -------------------------------------------------------
+
+SPLIT_TEXT = ("SECTION 23 09 93 SEQUENCE OF OPERATIONS\n\n"
+              "3.01 ROOFTOP UNITS\n"
+              "A. RTU-1,2,3, serving the gymnasium, will operate as single-zone units.\n"
+              "B. RTU-4 and RTU-5 shall operate as VAV systems.\n"
+              "1. RTU-4,5: The supply fan speed shall maintain the duct static pressure setpoint.\n"
+              "C. RTU-3: Provide position sensors on the roll-up doors.\n"
+              "D. Occupied: all units run on the time schedule.\n"
+              "3.02 EXHAUST FANS\n"
+              "A. EF-1, EF-2: Fans shall be interlocked with the space line-voltage thermostat.\n"
+              "B. EF-3: Fan shall be engaged via the manufacturer-furnished ON/OFF switch.\n")
+
+
+def _split_job(text=SPLIT_TEXT):
+    tags = ["RTU-1", "RTU-2", "RTU-3", "RTU-4", "RTU-5"]
+    items = _rtus(tags) + [_item("EF-1"), _item("EF-2"), _item("EF-3"), _item("EF-9", "EXTRA", None)]
+    schedules = [_schedule("M-601", 5, "ROOFTOP UNIT SCHEDULE", tags),
+                 _schedule("M-602", 6, "FAN SCHEDULE", ["EF-1", "EF-2", "EF-3"])]
+    pages = [PageRecord(SPEC, 44, "text", text, 0)]
+    backbone = [Backbone(SEQUENCE, "23 09 93 SEQUENCE OF OPERATIONS (Specs.pdf, page 44)", SPEC, 44, 44,
+                         "spec section")]
+    return _job(items, schedules, pages=pages, backbone=backbone)
+
+
+def test_units_the_sequence_gives_their_own_paragraphs_become_their_own_system():
+    bundles = build_bundles(*_split_job())
+    rtus = [b for b in bundles if b.families[0].prefix == "RTU"]
+    assert [(b.families[0].tags, b.families[0].quantity) for b in rtus] == [
+        (("RTU-1", "RTU-2", "RTU-3"), 3), (("RTU-4", "RTU-5"), 2)]   # RTU-3's own line does not split it again
+    small, big = rtus
+    assert {r.tag for r in big.schedule_rows} == {"RTU-4", "RTU-5"}
+    texts = " ".join(p.text for p in big.passages)
+    assert "duct static pressure" in texts and "single-zone" not in texts and "roll-up doors" not in texts
+    assert "all units run on the time schedule" in texts                   # the heading's other paragraphs
+    assert any("RTU-4 and RTU-5 shall operate" in p.text for p in big.own)
+    small_texts = " ".join(p.text for p in small.passages)
+    assert "single-zone" in small_texts and "roll-up doors" in small_texts and "duct static" not in small_texts
+    assert set(big.siblings) == {"RTU-1", "RTU-2", "RTU-3"}
+    assert any("RTU-4, RTU-5" in f and "own paragraph" in f for f in big.flags)
+    assert small.key != big.key and small.name == big.name == "Rooftop Unit"
+
+
+def test_the_rest_of_a_family_stays_together_and_keeps_its_flags():
+    bundles = build_bundles(*_split_job())
+    fans = [b for b in bundles if b.families[0].prefix == "EF"]
+    assert [b.families[0].tags for b in fans] == [("EF-1", "EF-2"), ("EF-3",)]
+    [three] = [b for b in fans if b.families[0].tags == ("EF-3",)]
+    assert "ON/OFF switch" in three.own[0].text and "line-voltage thermostat" not in three.own[0].text
+    assert sum(any("(EXTRA)" in f for f in b.flags) for b in fans) == 1
+
+
+def test_a_family_named_whole_is_not_split():
+    text = "SECTION 23 09 93\n\n3.01 ROOFTOP UNITS\nA. RTU-1 thru RTU-5: The units run on the time schedule.\n"
+    bundles = build_bundles(*_split_job(text))
+    assert [b.families[0].tags for b in bundles if b.families[0].prefix == "RTU"] == [
+        ("RTU-1", "RTU-2", "RTU-3", "RTU-4", "RTU-5")]
+
+
 def test_a_type_only_row_makes_no_system_and_is_flagged_to_count_from_the_plans():
     """A TYPE ONLY row holds the schedule's title as its tag and its type codes in `types`;
     grouping skips it by its category."""

@@ -100,6 +100,7 @@ class SystemBundle:
     existing: bool = False
     own: tuple[Passage, ...] = ()  # the sequence paragraphs that are this system's own: its heading's section
     heading: str = ""              # the sequence heading that made this system, when no schedule did
+    siblings: tuple[str, ...] = () # tags of the same family written as another system (a split)
 
 
 # --- the groupings file --------------------------------------------------------------------------
@@ -220,17 +221,20 @@ class _Matcher:
     prefixes: frozenset[str]
     words: re.Pattern | None       # the prefix as a word ("VAV boxes"), three letters or more, capitals
     names: re.Pattern | None       # the kind, the other names it goes by, the group's name
+    siblings: frozenset[str] = frozenset()   # the family's tags written as another system
 
     @classmethod
-    def of(cls, tags, prefixes, names) -> "_Matcher":
+    def of(cls, tags, prefixes, names, siblings=()) -> "_Matcher":
         long = sorted((p for p in prefixes if len(p) >= 3), key=len, reverse=True)
         words = (re.compile(rf"(?<![A-Za-z0-9])(?:{'|'.join(map(re.escape, long))})s?(?![A-Za-z0-9])")
                  if long else None)
-        return cls(frozenset(tags), frozenset(prefixes), words, _names_pattern(names))
+        return cls(frozenset(tags), frozenset(prefixes), words, _names_pattern(names), frozenset(siblings))
 
     def rank(self, text: str, found: frozenset[str]) -> int:
         if self.tags & found:
             return _TAG
+        if self.siblings & found:
+            return 0                # it names the units of the family written as another system
         # Another tag of the prefix counts, except for one-letter prefixes (B, P): "B-2" is too often not a boiler.
         if (any(len(_prefix(t)) > 1 and _prefix(t) in self.prefixes for t in found)
                 or (self.words and self.words.search(text))):
@@ -422,7 +426,7 @@ def _backbone_paragraphs(catalogue, reading, equipment: Equipment) -> list[_Para
             where = _where(backbone.where, page)
             for index, text in enumerate(_paragraphs(texts.get((backbone.document, page), ""))):
                 found.append(_Paragraph(backbone.what, n, where, backbone.document, page, index, text,
-                                        frozenset(find_tags(text, equipment))))
+                                        frozenset(find_tags(text, equipment)) | frozenset(_tags_in(text, equipment))))
     return found
 
 
@@ -458,7 +462,7 @@ def _passages(matcher: _Matcher, paragraphs: list[_Paragraph], first: tuple[Pass
 def _bundle(key: str, name: str, members: list[_Fam], matcher: _Matcher, schedules, reading,
             paragraphs: list[_Paragraph], has_sequence: bool, group: bool = False,
             sections: tuple[tuple[str, tuple[int, ...]], ...] = (), heading: str = "",
-            extra_flags: tuple[str, ...] = ()) -> SystemBundle:
+            extra_flags: tuple[str, ...] = (), own: tuple[int, ...] = ()) -> SystemBundle:
     row_tags = frozenset().union(*(m.row_tags for m in members))
     existing = any(m.existing for m in members)
     rows: list[BundleRow] = []
@@ -474,8 +478,14 @@ def _bundle(key: str, name: str, members: list[_Fam], matcher: _Matcher, schedul
     on_sheets = set(sheets)
     devices = tuple(d for d in reading.devices if _place(d.sheet, d.document, d.page) in on_sheets)
     notes = tuple(n for n in reading.notes if matcher.rank(n.text, frozenset(find_tags(n.text, _equipment()))))
-    own, covered = _section_passages(paragraphs, sections)
-    passages = _passages(matcher, paragraphs, own, covered)
+    if own:          # a split: the paragraphs its units open come first, and are its own
+        title = compact_tags([t for m in members for t in m.family.tags])
+        first, covered = _section_passages(paragraphs, ((title, own), *sections))
+        mine, _ = _section_passages(paragraphs, ((title, own),))
+    else:
+        first, covered = _section_passages(paragraphs, sections)
+        mine = first
+    passages = _passages(matcher, paragraphs, first, covered)
     flags = [*extra_flags, *(f for m in members for f in m.flags)]
     if has_sequence and not passages and not existing:
         flags.append(f"No passage of the sequence of operation names {name} — read the sequence for it by hand")
@@ -484,7 +494,7 @@ def _bundle(key: str, name: str, members: list[_Fam], matcher: _Matcher, schedul
         schedule_notes=_unique(n for s in used for n in s.notes),
         controls_by=_unique(c for s in used for c in s.controls_by),
         notes=notes, passages=passages, devices=devices, sheets=sheets, flags=tuple(flags),
-        group=group, existing=existing, own=own, heading=heading,
+        group=group, existing=existing, own=mine, heading=heading, siblings=tuple(sorted(matcher.siblings)),
     )
 
 
@@ -687,9 +697,10 @@ def _lead(text: str, equipment: Equipment) -> tuple[list[str], str]:
     """The tags a paragraph opens with and any title words after them:
     "4. DF-1,2,3,4 Destratification Fans: …" → ([DF-1 … DF-4], "Destratification Fans")."""
     first = _first_line(text)
-    head = re.split(r":|\bshall\b|\bwill\b|\bserving\b|\bis\b|\bare\b", first, maxsplit=1)[0]
+    pieces = re.split(r":|\bshall\b|\bwill\b|\bserving\b|\bis\b|\bare\b", first, maxsplit=1)
+    head = pieces[0]
     lead = _ANY_TAG.match(head.lstrip())
-    if not lead:
+    if not lead or len(pieces) < 2:        # a line of a points table ("VAV-1 space temperature AI") leads nothing
         return [], ""
     spans: list = []
     tags = _tags_in(head, equipment, allowed={lead.group(1)}, spans=spans)
@@ -714,6 +725,8 @@ class _Spec:
     sections: list = field(default_factory=list)       # (title, paragraph indexes)
     heading: str = ""
     flags: list = field(default_factory=list)
+    own: tuple[int, ...] = ()                          # a split's own paragraphs (those its tags open)
+    split: bool = False
 
     @property
     def existing(self) -> bool:
@@ -947,10 +960,104 @@ def _read_headings(specs: list[_Spec], paragraphs: list[_Paragraph], rules: _Rul
                 add_new(words, words, under, paragraphs[i].text)
         rest = [i for i in section if i not in taken]
         for spec in matched:
-            spec.sections.append((_short(title), rest))
+            mine = rest
+            if spec.matcher.siblings:        # a split: not the paragraphs its family's other units open
+                theirs: set[int] = set()
+                for i in rest:
+                    tags, _ = _lead(paragraphs[i].text, equipment)
+                    if set(tags) & spec.matcher.siblings and not set(tags) & spec.matcher.tags:
+                        theirs.update(_under(i, section, depths, paragraphs))
+                mine = [i for i in rest if i not in theirs]
+            spec.sections.append((_short(title), mine))
         for part in unmatched:
             add_new(title, part, rest, paragraphs[section[0]].text)
     return list(new.values())
+
+
+def _split(spec: _Spec, paragraphs: list[_Paragraph], equipment: Equipment, rules: _Rules, entries: dict,
+           quantities: dict[str, int]) -> list[_Spec]:
+    """A family the sequence splits: each set of its units that opens paragraphs of its own
+    ("RTU-4 and RTU-5 shall …", "EF-4: …") becomes a system of its own; the rest stay together.
+    The sets opening the most paragraphs win; one overlapping a set already taken stays with it."""
+    if spec.group or len(spec.members) != 1:
+        return [spec]
+    [fam] = spec.members
+    counted = list(fam.family.tags)
+    if fam.existing or len(counted) < 2 or fam.family.quantity is None:
+        return [spec]
+    by_backbone: dict[int, list[int]] = {}
+    for i, p in enumerate(paragraphs):
+        if p.what == SEQUENCE:
+            by_backbone.setdefault(p.backbone, []).append(i)
+    opened: dict[frozenset[str], list[int]] = {}
+    led: dict[frozenset[str], set[str]] = {}
+    times: Counter = Counter()
+    for indexes in by_backbone.values():
+        depths = _depths(paragraphs, indexes)
+        for i in indexes:
+            tags, _ = _lead(paragraphs[i].text, equipment)
+            subset = frozenset(tags) & frozenset(counted)
+            if subset and len(subset) < len(counted):
+                have = opened.setdefault(subset, [])
+                have += [j for j in _under(i, indexes, depths, paragraphs) if j not in have]
+                led.setdefault(subset, set()).update(tags)
+                times[subset] += 1
+    if not opened:
+        return [spec]
+    ranked = sorted(opened, key=lambda s: (-times[s], -len(s), min(counted.index(t) for t in s)))
+    chosen: list[frozenset[str]] = []
+    for subset in ranked:
+        if not any(subset & c for c in chosen):
+            chosen.append(subset)
+    rest = [t for t in counted if not any(t in c for c in chosen)]
+    pieces = [(sorted(c, key=counted.index), True) for c in chosen] + ([(rest, False)] if rest else [])
+    pieces.sort(key=lambda piece: counted.index(piece[0][0]))
+    others = [t for t in fam.evidence_tags if t not in counted]
+    made: list[_Spec] = []
+    names = (fam.kind, *rules.also_called.get(fam.prefix, ()))
+    for n, (tags, own) in enumerate(pieces):
+        extra = [t for t in others if own and t in led.get(frozenset(tags), set())]
+        evidence = tuple(tags) + tuple(extra)
+        family = Family(fam.prefix, fam.kind, tuple(tags), sum(quantities.get(t, 1) for t in tags),
+                        {"CONFIRMED": len(tags)})
+        part = _Fam(fam.prefix, fam.kind, family, evidence, frozenset(evidence), existing=False,
+                    first_seen=fam.first_seen)
+        places: list[str] = []
+        for tag in evidence:
+            entry = entries.get(tag)
+            if entry is not None:
+                places += list(entry.on_schedules) + list(entry.elsewhere)
+        part.places = list(dict.fromkeys([p for p in fam.places if p in fam.schedule_places] + places))
+        part.schedule_places = set(fam.schedule_places)
+        part.flags = []
+        siblings = [t for t in fam.evidence_tags if t not in evidence]
+        matcher = _Matcher.of(evidence, (fam.prefix,), names, siblings)
+        piece = _Spec(compact_tags(tags), fam.kind, [part], matcher, fam.first_seen, split=True)
+        piece.words, piece.heads = spec.words, spec.heads
+        if own:
+            where = paragraphs[opened[frozenset(tags)][0]].where
+            one = len(tags) == 1
+            piece.own = tuple(opened[frozenset(tags)])
+            piece.flags.append(f"{compact_tags(tags)} written as a system of {'its' if one else 'their'} own — the "
+                               f"sequence gives {'it' if one else 'them'} {'its' if one else 'their'} own paragraph "
+                               f"({where}); check the split")
+        made.append(piece)
+    # The family's flags (EXTRA, ORPHANED, …) stay with the units left together, else the first part.
+    holder = next((m for m, (_, own) in zip(made, pieces) if not own), made[0])
+    holder.members[0].flags = list(fam.flags)
+    # Tags of the family no part claimed (EXTRA ones no paragraph opens) go with the holder.
+    claimed = {t for m in made for t in m.matcher.tags}
+    loose = [t for t in others if t not in claimed]
+    if loose:
+        h_fam = holder.members[0]
+        h_fam.evidence_tags = h_fam.evidence_tags + tuple(loose)
+        h_fam.row_tags = frozenset(h_fam.evidence_tags)
+        holder.matcher = _Matcher.of(h_fam.evidence_tags, (fam.prefix,), names,
+                                     [t for t in fam.evidence_tags if t not in h_fam.evidence_tags])
+    for m in made:                     # each part's siblings are the tags the other parts hold
+        mine = set(m.matcher.tags)
+        m.matcher = _Matcher.of(m.matcher.tags, (fam.prefix,), names, [t for t in fam.evidence_tags if t not in mine])
+    return made
 
 
 def _new_spec(kind: str, title: str, tags: list[str], prefix: str, where: str, entries: dict, n: int) -> _Spec:
@@ -1025,6 +1132,8 @@ def build_bundles(catalogue, reading) -> list[SystemBundle]:
         _describe(spec, names, schedules, rules.headings)
         specs.append(spec)
     entries = {t.tag: t for t in catalogue.tags}
+    quantities = {i.tag: i.quantity for i in reading.inventory if i.category in COUNTED and i.quantity is not None}
+    specs = [piece for spec in specs for piece in _split(spec, paragraphs, equipment, rules, entries, quantities)]
     keys = {s.key for s in specs}
     for spec in _read_headings(specs, paragraphs, rules, equipment, entries):
         while spec.key in keys:
@@ -1034,7 +1143,7 @@ def build_bundles(catalogue, reading) -> list[SystemBundle]:
 
     made = [(_bundle(s.key, s.name, s.members, s.matcher, schedules, reading, paragraphs, has_sequence,
                      group=s.group, sections=tuple((t, tuple(i)) for t, i in s.sections), heading=s.heading,
-                     extra_flags=tuple(s.flags)), s.first_seen) for s in specs]
+                     extra_flags=tuple(s.flags), own=s.own), s.first_seen) for s in specs]
     made.sort(key=lambda pair: _order(pair[0], pair[1], rules))
     return [bundle for bundle, _ in made]
 
