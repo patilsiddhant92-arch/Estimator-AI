@@ -130,12 +130,18 @@ def build_inventory(catalogue, schedules: list[Schedule]) -> tuple[list[Inventor
         entry = entries.get(tag)
         return entry.kind if entry else equipment.prefixes.get(tag.split("-", 1)[0], "Equipment")
 
+    # A tag named only in the specifications — a paragraph or page reference, a model number — and on no
+    # drawing sheet isn't a unit: it's left out, and listed once.
+    drawing_places = {s.number or f"{_name(s.document)} p.{s.page}" for s in catalogue.sheets}
+    spec_only = sorted((t.tag for t in catalogue.tags
+                        if not t.on_schedules and not any(p in drawing_places for p in t.elsewhere)), key=_natural)
+
     has_schedule_sheet = any("Schedules" in s.types for s in catalogue.sheets)
     if not schedules and not has_schedule_sheet:
         items = [InventoryItem(t.tag, t.kind, "PENDING", None, None, t.elsewhere,
                                "No schedule in the set — the count has to come from the plans", "confirm")
-                 for t in sorted(catalogue.tags, key=lambda t: _natural(t.tag))]
-        return items, [], []
+                 for t in sorted(catalogue.tags, key=lambda t: _natural(t.tag)) if t.tag not in spec_only]
+        return items, [], _left_out(spec_only, [])
 
     drawings = {s.number or f"{_name(s.document)} p.{s.page}" for s in catalogue.sheets if "Schedules" not in s.types}
     listings: dict[str, list[tuple[str, str]]] = defaultdict(list)
@@ -155,6 +161,27 @@ def build_inventory(catalogue, schedules: list[Schedule]) -> tuple[list[Inventor
             if row.existing:
                 existing.add(row.tag)
     scheduled_prefixes = {tag.split("-", 1)[0] for tag in listings}
+    spec_only = [tag for tag in spec_only if tag not in listings]
+    # What the schedules read from each sheet say outside their tag column: models, remarks, notes.
+    read_places = {_place(schedule) for schedule in schedules}
+    other_text: dict[str, str] = defaultdict(str)
+    for schedule in schedules:
+        key = schedule.headers[0] if schedule.headers else ""
+        words = [v for row in schedule.rows for k, v in row.cells.items() if k != key and v] + list(schedule.notes)
+        other_text[_place(schedule)] += " " + _compact(" ".join(words))
+
+    def not_a_unit(entry) -> bool:
+        """On schedule sheets whose schedules were read, in none of their tag columns, and either a one-letter
+        prefix (B-7, P-212: too easily a model number or a phone number) or named inside another column or a
+        note there (a model number, "AS LOW AS 8HZ") and on no plan."""
+        if not entry.on_schedules or not all(p in read_places for p in entry.on_schedules):
+            return False
+        if entry.tag.split("-", 1)[0] in equipment.schedule_only:
+            return True
+        return (any(_compact(entry.tag) in other_text[p] for p in entry.on_schedules)
+                and not any(p in drawings for p in entry.elsewhere))
+
+    mentioned: list[str] = []
 
     items: list[InventoryItem] = []
     for tag in sorted(set(listings) | set(entries), key=_natural):
@@ -184,6 +211,11 @@ def build_inventory(catalogue, schedules: list[Schedule]) -> tuple[list[Inventor
                 items.append(InventoryItem(tag, kind, "MISSING", 1, label, seen,
                                            f"On the schedule only; no plan shows it{extra} — confirm before pricing",
                                            "confirm"))
+            continue
+        if tag in spec_only:
+            continue
+        if not_a_unit(entry):
+            mentioned.append(tag)
             continue
         seen = entry.elsewhere
         if entry.on_schedules:
@@ -216,7 +248,24 @@ def build_inventory(catalogue, schedules: list[Schedule]) -> tuple[list[Inventor
     pairs = [f"check the pairing: {counts[a]} {a}, {counts[b]} {b} — one outdoor unit can serve several indoor "
              f"units, so this may be right" for a, b in vocabulary().pairs
              if counts.get(a) and counts.get(b) and counts[a] != counts[b]]
-    return items, totals, pairs + dropped + _new_prefix_flags(schedules)
+    return items, totals, pairs + dropped + _new_prefix_flags(schedules) + _left_out(spec_only, mentioned)
+
+
+def _compact(text: str) -> str:
+    return re.sub(r"[\s\-‐‑–—#.]", "", text).upper()
+
+
+def _left_out(spec_only: list[str], mentioned: list[str], limit: int = 20) -> list[str]:
+    def shown(tags: list[str]) -> str:
+        return ", ".join(tags[:limit]) + (f" … ({len(tags)} in all)" if len(tags) > limit else "")
+
+    flags = []
+    if spec_only:
+        flags.append(f"mentioned only in the specs, not on any drawing: {shown(spec_only)}")
+    if mentioned:
+        flags.append("named on a schedule sheet but not as a unit (inside a model number or a note, or a one-letter "
+                     f"prefix outside a tag column): {shown(mentioned)}")
+    return flags
 
 
 def _seen_on_pages(catalogue, tags) -> dict[str, tuple[str, ...]]:

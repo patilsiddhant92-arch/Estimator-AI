@@ -172,3 +172,41 @@ def test_a_unit_whose_prefix_is_not_in_the_equipment_list_takes_its_kind_from_th
     assert (by_prefix["TXF"].kind, by_prefix["TXF"].scheduled) == ("Fan", 2)
     assert "prefix TXF isn't in the equipment list yet — added from the schedule's title" in by_prefix["TXF"].flags
     assert any("RPXF" in f and "TXF" in f and "FAN SCHEDULE" in f for f in flags)
+
+
+# --- tags that aren't units: named only in the specs, or only inside a schedule's other columns -------
+
+def test_a_tag_named_only_in_the_specs_is_left_out_and_listed_once():
+    tags = [TagEntry("VAV-1", "Variable Air Volume Box", ("M-601",), ("M-101",), 2),
+            TagEntry("CT-580", "Cooling Tower", (), ("Specs.pdf p.12", "Specs.pdf p.40"), 2),
+            TagEntry("CH-4", "Chiller", (), ("Specs.pdf p.20",), 1),
+            TagEntry("EF-9", "Exhaust Fan", (), ("M-101", "Specs.pdf p.7"), 2)]
+    items, _, flags = build_inventory(catalogue_with(tags), [schedule("VAV BOX SCHEDULE", row("VAV-1"))])
+    assert set(by_tag(items)) == {"VAV-1", "EF-9"}
+    assert "mentioned only in the specs, not on any drawing: CH-4, CT-580" in flags
+
+
+def test_with_no_schedule_in_the_set_spec_only_tags_are_still_left_out():
+    tags = [TagEntry("RTU-1", "Rooftop Unit", (), ("M-101", "Specs.pdf p.3"), 2),
+            TagEntry("AC-20", "Air Conditioning Unit", (), ("Specs.pdf p.344",), 1)]
+    sheets = (Sheet(DOC, 2, "M-101", "FIRST FLOOR PLAN", "Mechanical", ("Plans",)),)
+    items, _, flags = build_inventory(catalogue_with(tags, sheets), [])
+    assert [i.tag for i in items] == ["RTU-1"]
+    assert flags == ["mentioned only in the specs, not on any drawing: AC-20"]
+
+
+def test_a_tag_inside_a_model_number_on_the_schedule_sheet_is_not_a_unit():
+    tags = [TagEntry("EF-1", "Exhaust Fan", ("M-601",), ("M-101",), 2),
+            TagEntry("B-7", "Boiler", ("M-601",), (), 1),
+            TagEntry("SP-A390", "Sump Pump", ("M-601",), (), 1),
+            TagEntry("P-212", "Pump", ("M-601",), ("M-101", "M-102"), 3),     # a phone number in the title block
+            TagEntry("EF-5", "Exhaust Fan", ("M-601",), ("M-101",), 2)]
+    fans = Schedule(DOC, 1, "M-601", "FAN SCHEDULE", ("TAG", "MODEL"),
+                    (ScheduleRow("EF-1", {"TAG": "EF-1", "MODEL": "USF-15-B7"}, None, None),
+                     ScheduleRow("EF-2", {"TAG": "EF-2", "MODEL": "SP-A390"}, None, None)), False, (), ())
+    items, _, flags = build_inventory(catalogue_with(tags), [fans])
+    got = by_tag(items)
+    assert "B-7" not in got and "SP-A390" not in got and "P-212" not in got
+    assert got["EF-5"].category == "PENDING"          # on the schedule sheet, in no table read: still counted by eye
+    assert ("named on a schedule sheet but not as a unit (inside a model number or a note, or a one-letter "
+            "prefix outside a tag column): B-7, P-212, SP-A390") in flags
