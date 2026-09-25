@@ -1,0 +1,912 @@
+"""The job dossier: everything controls-relevant in the bid documents, gathered into one plain-text
+document the judge reads as the estimator reads a bid set (whole-job writing, Part A).
+
+Deterministic reading gathers and checks here; it never decides scope. The dossier holds the job's
+documents and the Spec overview's findings, the full text of the sequence of operation and points
+list, every schedule row, the equipment counts, the devices on the plans, the controls notes and the
+parts of the controls spec that price the front end and services. Every paragraph and row carries a
+short source id ("[S12]") that `Dossier.sources` resolves to a place in the documents, so the judge
+can cite each line and number it writes. A schedule that is a picture, or whose table couldn't be
+read, is rendered to a PNG the judge can look at ("I3").
+
+The floor multiplier lives here, one rule for the counts and the devices alike: a plan sheet number
+on N pages of one document stands for N floors, and a typical plan whose title names a floor range
+stands for the floors in that range. The sheet is counted on its first page only, then multiplied.
+"""
+from __future__ import annotations
+
+import hashlib
+import os
+import re
+import secrets
+from collections import Counter, defaultdict
+from dataclasses import dataclass, field
+from pathlib import Path
+
+import pymupdf
+
+from estimator.catalogue.job import CONTROLS_DISCIPLINES
+from estimator.catalogue.overview import FOUND, RULED_OUT, STANDARD_CLARIFICATION, STANDARD_EXCLUSION
+from estimator.catalogue.tags import Equipment, find_tags
+from estimator.reading.revisions import governing_pages
+from estimator.reading.schedules import header_key, vocabulary
+from estimator.reading.sequences import POINTS, SEQUENCE
+from estimator.writing.systems import _paragraphs
+from estimator.writing.write import tag_list
+
+SEQUENCE_LIMIT = 150_000     # characters: a longer sequence is kept whole, flagged; the judge splits its passes
+SPEC_LIMIT = 12_000          # characters of controls spec highlights
+COPY_SHARE = 0.5             # share of a backbone's text already given above that makes it a copy of it
+RUNNING_SHARE = 0.6          # a line on this share of a backbone's pages (3 at least) is a running header
+EDGE_LINES = 8               # ... when it is among the first or last lines of the page
+PICTURE_SHARE = 0.15         # pictures covering this much of a schedule sheet make it a picture schedule
+MIN_PICTURE = 0.005          # share of the sheet: smaller pictures (logos, stamps) aren't rendered
+ONE_PICTURE = 0.8            # one picture this big is the whole sheet
+PICTURE_DPI = 200
+SHEET_DPI = 150
+MAX_PIXELS = 40e6            # a render bigger than this is drawn at a lower resolution
+IMAGE_VERSION = 1            # raise when the way pictures are rendered changes
+IMAGES_FOLDER = "dossier-images"
+
+_QUANTITY_HEADERS = ("QTY", "QUANTITY", "NO OF UNITS", "NO. OF UNITS", "NUMBER OF UNITS", "NO. REQ'D", "NO REQD",
+                     "UNITS REQUIRED", "COUNT")
+_INT = re.compile(r"^\s*\(?(\d{1,5})\)?\s*(?:EA\.?|UNITS?)?\s*$", re.I)
+_TYPE_CODE = re.compile(r"^[A-Z][A-Z0-9\-/]{0,11}$")
+_ARTICLE = re.compile(r"^(\d{1,2}\.\d{1,2})\s+(\S.{1,79})$")
+_LIST_MARKER = re.compile(r"^\(?[A-Za-z0-9#]{1,3}[.)]$")
+_LIST_ITEM = re.compile(r"^\(?(?:[A-Za-z]|#{1,2})[.)]\s")    # "C. The unit shall …", "#. Point …" (digits made #)
+_RISER = re.compile(r"\bRISERS?\b", re.I)
+
+# The controls spec articles the estimator reads for the front end and the services, in the order
+# they are given when the highlights run long. Headings only; the text under them is quoted whole.
+SPEC_HEADINGS: tuple[tuple[str, re.Pattern], ...] = (
+    ("front end", re.compile(r"front[- ]?end|work\s*stations?|servers?|operator\s+interface|graphic", re.I)),
+    ("integration", re.compile(r"integrat|gateways?|interfac|third[- ]party|protocol|BACnet|network", re.I)),
+    ("wiring", re.compile(r"wiring|conduit|raceway|electrical|cabl", re.I)),
+    ("warranty", re.compile(r"warrant|guarantee", re.I)),
+    ("training", re.compile(r"training|instruction", re.I)),
+    ("commissioning", re.compile(r"commission|start[- ]?up|check[- ]?out|acceptance|demonstrat", re.I)),
+    ("submittals", re.compile(r"submittals?", re.I)),
+)
+
+
+@dataclass(frozen=True)
+class DossierImage:
+    path: str            # absolute PNG path in cache_dir / "dossier-images"
+    what: str            # "H601 HVAC SCHEDULES — picture schedule" | "M-701.00 schedule, table unreadable"
+    sheet: str | None
+    document: str
+    page: int
+
+
+@dataclass(frozen=True)
+class Dossier:
+    job_name: str
+    text: str                       # the whole dossier as one plain-text document with numbered sections
+    images: tuple[DossierImage, ...]
+    sources: dict[str, str]         # source id -> "where", e.g. "S3" -> "23 09 93 SEQUENCE ..., Specs.pdf page 44"
+    families: tuple                 # reading.totals as-is
+    device_totals: dict[str, int]   # label -> total across controls-discipline plan sheets, floors applied
+    counts: dict[str, dict]         # family prefix -> {"schedule_rows", "quantity_column", "plan_placements",
+                                    #                   "riser", "distinct_tags"}
+    stats: dict[str, int]           # characters per section, page counts, image count
+
+
+# ---- small helpers ------------------------------------------------------------------------------
+
+def _name(document: str) -> str:
+    return document.rsplit("/", 1)[-1]
+
+
+def _squash(text: str | None) -> str:
+    return " ".join((text or "").split())
+
+
+def _norm(text: str) -> str:
+    return re.sub(r"[^a-z0-9]+", " ", text.lower()).strip()
+
+
+def _natural(tag: str) -> list:
+    return [(0, int(part), "") if part.isdigit() else (1, 0, part) for part in re.split(r"(\d+)", tag)]
+
+
+def _prefix(tag: str) -> str:
+    return tag.split("-", 1)[0]
+
+
+def _plural(n: int, word: str, many: str | None = None) -> str:
+    return f"{n} {word}" if n == 1 else f"{n} {many or word + 's'}"
+
+
+def _place(sheet: str | None, document: str, page: int) -> str:
+    return f"{sheet}, {_name(document)} page {page}" if sheet else f"{_name(document)} page {page}"
+
+
+class _Ids:
+    """Source ids, short and unique, each resolving to the place it came from."""
+
+    def __init__(self) -> None:
+        self.where: dict[str, str] = {}
+        self._n = 0
+
+    def new(self, where: str) -> str:
+        self._n += 1
+        sid = f"S{self._n}"
+        self.where[sid] = where
+        return sid
+
+
+# ---- the floor multiplier -------------------------------------------------------------------------
+
+def floor_multipliers(catalogue, reading) -> dict[tuple[str, str], int]:
+    """(document, sheet number) -> how many floors that plan stands for. A typical plan whose title
+    names a floor range stands for the range's floors; otherwise a sheet number on N pages of one
+    document stands for N. Sheets not listed stand for one."""
+    typical = {t.sheet: len(t.floors) for t in getattr(reading, "typicals", ()) if t.sheet and t.floors}
+    pages: Counter = Counter((s.document, s.number) for s in catalogue.sheets if s.number)
+    found: dict[tuple[str, str], int] = {}
+    for (document, number), n in pages.items():
+        floors = typical.get(number) or n
+        if floors > 1:
+            found[(document, number)] = floors
+    return found
+
+
+def _first_pages(catalogue) -> dict[tuple[str, str], int]:
+    first: dict[tuple[str, str], int] = {}
+    for sheet in catalogue.sheets:
+        if sheet.number:
+            key = (sheet.document, sheet.number)
+            first[key] = min(first.get(key, sheet.page), sheet.page)
+    return first
+
+
+def _counted_pages(catalogue, reading) -> frozenset[tuple[str, int]]:
+    """The drawing pages counted: the governing page of each sheet, and of a sheet on several pages of
+    one document, the first page only (the multiplier stands for the rest)."""
+    governing = governing_pages(catalogue, getattr(reading, "supersessions", ()),
+                                [t.sheet for t in getattr(reading, "typicals", ())])
+    first = _first_pages(catalogue)
+    keep = set()
+    for sheet in catalogue.sheets:
+        if (sheet.document, sheet.page) not in governing:
+            continue
+        if sheet.number and first[(sheet.document, sheet.number)] != sheet.page:
+            continue
+        keep.add((sheet.document, sheet.page))
+    return frozenset(keep)
+
+
+# ---- section 1: the job ---------------------------------------------------------------------------
+
+def _found_place(found) -> str:
+    if not found.places:
+        return ""
+    p = found.places[0]
+    label = p.section or p.sheet
+    return f"{label}, {_name(p.document)} page {p.page}" if label else f"{_name(p.document)} page {p.page}"
+
+
+def _quoted(found) -> str:
+    return f" — “{_squash(found.quote)}”" if found.quote else ""
+
+
+def _job_section(catalogue, reading, ids: _Ids) -> list[str]:
+    job = catalogue.job
+    lines = [f"[{ids.new(f'the job folder {job.name}')}] Job: {job.name}"]
+    dates: dict[str, object] = {}
+    for version in getattr(reading, "versions", ()):
+        if version.latest and (version.document not in dates or version.latest > dates[version.document]):
+            dates[version.document] = version.latest
+    for d in job.documents:
+        date = dates.get(d.relative)
+        bits = [d.kind, _plural(d.pages, "page")]
+        if d.revision and d.revision != "base":
+            bits.append(f"revision {d.revision}")
+        if date:
+            bits.append(f"latest issue dated {date.isoformat()}")
+        if d.duplicate_of:
+            bits.append(f"the same file as {_name(d.duplicate_of)}, catalogued once")
+        sid = ids.new(f"{d.relative} (the document list)")
+        lines.append(f"[{sid}] Document: {_name(d.relative)} — {', '.join(bits)}")
+    addenda = [d for d in job.documents if d.kind == "addendum" or (d.revision and d.revision != "base")]
+    if addenda:
+        sid = ids.new("the document list")
+        lines.append(f"[{sid}] Addenda and revised documents: {', '.join(_name(d.relative) for d in addenda)}")
+    disciplines = {(s.document, s.page): s.discipline for s in catalogue.sheets}
+    others = 0
+    for s in getattr(reading, "supersessions", ()):
+        controls = (disciplines.get((s.current.document, s.current.page)) in CONTROLS_DISCIPLINES
+                    or any(c.affects_controls for c in s.changes))
+        if not controls:
+            others += 1
+            continue
+        sid = ids.new(_place(s.sheet, s.current.document, s.current.page))
+        lines.append(f"[{sid}] Sheet {s.sheet} replaced by a later issue: {_squash(s.note)}")
+    if others:
+        lines.append(f"({_plural(others, 'other sheet')} of other trades replaced by a later issue, "
+                     f"no change there affecting controls)")
+    bid = getattr(catalogue, "bid", None)
+    if bid is not None:
+        sid = ids.new("the bid check (all pages searched)")
+        lines.append(f"[{sid}] Bid check: {bid.finding} — {_squash(bid.reason)}")
+    overview = catalogue.overview
+    for maker in overview.makers:
+        if maker.priced:
+            continue
+        where = _found_place(maker)
+        sid = ids.new(where or "the Spec overview")
+        terms = f" ({maker.terms})" if maker.terms else ""
+        lines.append(f"[{sid}] Controls platform named: {maker.maker}{terms}{_quoted(maker)}")
+    for topic in overview.topics:
+        if topic.status not in (FOUND, RULED_OUT):
+            continue
+        status = "ruled out" if topic.status == RULED_OUT else "found"
+        sid = ids.new(_found_place(topic) or "the Spec overview")
+        lines.append(f"[{sid}] {topic.section} — {topic.item}: {status}{_quoted(topic)}")
+    for found in overview.who_does_what:
+        sid = ids.new(_found_place(found) or "the Spec overview")
+        lines.append(f"[{sid}] Who does what ({found.item}){_quoted(found)}")
+    if overview.who_does_what_more:
+        lines.append(f"(and {_plural(overview.who_does_what_more, 'more who-does-what sentence')}, not listed)")
+    for found in overview.standard_lines:
+        if found.status != FOUND:
+            continue
+        what = ("Standard exclusion the job speaks to" if found.section == STANDARD_EXCLUSION
+                else "Standard clarification the job speaks to" if found.section == STANDARD_CLARIFICATION
+                else found.section)
+        sid = ids.new(_found_place(found) or "the Spec overview")
+        lines.append(f"[{sid}] {what}: {found.item}{_quoted(found)}")
+    for heading, group in (("Service", overview.services), ("Other system to connect to", overview.integrations),
+                           ("Special system", overview.special_systems),
+                           ("Project condition", overview.conditions)):
+        for found in group:
+            if found.status not in (FOUND, RULED_OUT):
+                continue
+            extra = []
+            if found.amount:
+                extra.append(found.amount)
+            if found.protocol:
+                extra.append(f"protocol: {found.protocol}")
+            if found.status == RULED_OUT:
+                extra.append("ruled out")
+            detail = f" ({'; '.join(extra)})" if extra else ""
+            sid = ids.new(_found_place(found) or "the Spec overview")
+            lines.append(f"[{sid}] {heading}: {found.item}{detail}{_quoted(found)}")
+    return lines
+
+
+# ---- sections 2 and 3: the sequence of operation and the points list -------------------------------
+
+def _label(where: str) -> str:
+    label = re.sub(r"\s*\([^()]*\)\s*$", "", where).strip()
+    return re.sub(r"^sequence inside\s+", "", label)
+
+
+def _later(document) -> bool:
+    return document is not None and (document.kind == "addendum" or (document.revision or "base") != "base")
+
+
+def _running_key(line: str) -> str:
+    return re.sub(r"\d+", "#", _squash(line))
+
+
+def _edge_lines(text: str) -> list[str]:
+    lines = [line for line in text.splitlines() if _squash(line)]
+    return lines[:EDGE_LINES] + lines[-EDGE_LINES:]
+
+
+def _running_lines(texts: list[str]) -> set[str]:
+    """Lines at the top or foot of most pages of one backbone — the project name, the section's footer —
+    with their digits ignored, so "230993 - 4" matches on every page. A bare list marker is never one,
+    and a line in the body of the page is never one (a points list repeats its lines system by system)."""
+    if len(texts) < 3:
+        return set()
+    seen: Counter = Counter()
+    for text in texts:
+        seen.update({_running_key(line) for line in _edge_lines(text)})
+    need = max(3, int(len(texts) * RUNNING_SHARE + 0.999))
+    return {line for line, n in seen.items()
+            if n >= need and len(line) >= 3 and not _LIST_MARKER.match(line) and not _LIST_ITEM.match(line)}
+
+
+def _without_running(text: str, running: set[str]) -> str:
+    lines = text.splitlines()
+    filled = [i for i, line in enumerate(lines) if _squash(line)]
+    edge = set(filled[:EDGE_LINES] + filled[-EDGE_LINES:])
+    return "\n".join(line for i, line in enumerate(lines) if not (i in edge and _running_key(line) in running))
+
+
+def _page_paragraphs(texts: dict[tuple[str, int], str], document: str, first: int, last: int) -> list[tuple[int, str]]:
+    pages = [(page, texts.get((document, page), "")) for page in range(first, last + 1)]
+    running = _running_lines([text for _, text in pages])
+    found = []
+    for page, text in pages:
+        if running:
+            text = _without_running(text, running)
+        found += [(page, _squash(p)) for p in _paragraphs(text) if _squash(p)]
+    return found
+
+
+@dataclass
+class _Printed:
+    """What sections 2 and 3 printed: pages, paragraph texts (-> where they were given), the spec
+    sections given whole, and those left out because a later copy replaces them."""
+    pages: set = field(default_factory=set)
+    norms: dict = field(default_factory=dict)
+    sections: set = field(default_factory=set)
+    replaced: set = field(default_factory=set)
+
+
+def _backbone_section(catalogue, reading, what: str, ids: _Ids, printed: _Printed,
+                      texts: dict[tuple[str, int], str]) -> tuple[list[str], int]:
+    documents = {d.relative: d for d in catalogue.job.documents}
+    order = {d.relative: i for i, d in enumerate(catalogue.job.documents)}
+    items = [b for b in reading.backbone if b.what == what and not b.duplicate_of]
+    items.sort(key=lambda b: (order.get(b.document, len(order)), b.first_page))
+    lines: list[str] = []
+    # A spec section issued again in an addendum (or a later revision) is replaced by it: the later
+    # copy is given, the older one named only.
+    by_label: dict[str, list] = defaultdict(list)
+    for b in items:
+        if b.kind == "spec section":
+            by_label[_label(b.where)].append(b)
+    replaced = set()
+    for label, group in by_label.items():
+        later = [b for b in group if _later(documents.get(b.document))]
+        if later and len(later) < len(group):
+            keep = later[-1]
+            for b in group:
+                if b is not keep:
+                    replaced.add(id(b))
+                    lines.append(f"({b.where} is replaced by the copy in {_name(keep.document)}; "
+                                 f"only that copy is given)")
+                    printed.replaced.add((b.document, b.first_page, b.last_page))
+    page_count = 0
+    for b in items:
+        if id(b) in replaced:
+            continue
+        paragraphs = [(page, p) for page, p in _page_paragraphs(texts, b.document, b.first_page, b.last_page)
+                      if (b.document, page) not in printed.pages]
+        if not paragraphs:
+            continue
+        total = sum(len(p) for _, p in paragraphs) or 1
+        repeated = [(page, p) for page, p in paragraphs if _norm(p) in printed.norms]
+        share = sum(len(p) for _, p in repeated) / total
+        label = _label(b.where)
+        copy_of = None
+        if share >= COPY_SHARE:
+            copy_of = Counter(printed.norms[_norm(p)] for _, p in repeated).most_common(1)[0][0]
+            lines.append(f"({b.where} repeats {copy_of} — {round(share * 100)}% of its text is given above; "
+                         f"only its paragraphs that differ are given here)")
+            paragraphs = [(page, p) for page, p in paragraphs if _norm(p) not in printed.norms]
+        current = None
+        for page, text in paragraphs:
+            if page != current:
+                current = page
+                page_count += 1
+                lines.append(f"--- {label}, {_name(b.document)} page {page} ---")
+            sid = ids.new(f"{label}, {_name(b.document)} page {page}")
+            lines.append(f"[{sid}] {text}")
+        for page, text in paragraphs:
+            printed.norms.setdefault(_norm(text), label)
+        printed.pages.update((b.document, page) for page in range(b.first_page, b.last_page + 1))
+        if b.kind == "spec section" and copy_of is None:
+            printed.sections.add((b.document, b.first_page, b.last_page))
+    return lines, page_count
+
+
+# ---- section 4: the schedules, and the pictures of them --------------------------------------------
+
+def _picture_boxes(page: pymupdf.Page) -> list[pymupdf.Rect]:
+    """The page's pictures, in the page's coordinates as viewed (what `get_pixmap(clip=)` takes),
+    overlapping ones merged, small ones left out, in reading order."""
+    area = abs(page.rect)
+    if area <= 0:
+        return []
+    boxes = []
+    for info in page.get_image_info():
+        box = (pymupdf.Rect(info["bbox"]) * page.rotation_matrix) & page.rect
+        if not box.is_empty and abs(box) >= MIN_PICTURE * area:
+            boxes.append(pymupdf.Rect(box))
+    merged = True
+    while merged:
+        merged = False
+        for i in range(len(boxes)):
+            for j in range(i + 1, len(boxes)):
+                if boxes[i].intersects(boxes[j]):
+                    boxes[i] = boxes[i] | boxes[j]
+                    del boxes[j]
+                    merged = True
+                    break
+            if merged:
+                break
+    band = page.rect.height * 0.05 or 1
+    return sorted(boxes, key=lambda b: (int(b.y0 // band), b.x0))
+
+
+def _dpi(rect: pymupdf.Rect, dpi: int) -> int:
+    inches = (rect.width / 72) * (rect.height / 72)
+    if inches <= 0:
+        return dpi
+    return max(36, min(dpi, int((MAX_PIXELS / inches) ** 0.5)))
+
+
+def _render(page: pymupdf.Page, clip: pymupdf.Rect | None, dpi: int, folder: Path, key: str) -> Path:
+    """The picture's PNG, written whole under a name no other run uses and then moved into place;
+    an existing file for the same document, page, area and resolution is reused."""
+    path = folder / f"{hashlib.sha1(key.encode('utf-8')).hexdigest()[:20]}.png"
+    if path.exists() and path.stat().st_size > 0:
+        return path
+    folder.mkdir(parents=True, exist_ok=True)
+    pixmap = page.get_pixmap(clip=clip, dpi=_dpi(clip if clip is not None else page.rect, dpi))
+    tmp = path.with_name(f"{path.stem}.{os.getpid()}-{secrets.token_hex(4)}.tmp.png")
+    try:
+        pixmap.save(str(tmp))
+        os.replace(tmp, path)
+    finally:
+        if tmp.exists():
+            tmp.unlink()
+    return path
+
+
+def _file_key(path: Path) -> str:
+    try:
+        stat = path.stat()
+        return f"{stat.st_size}-{stat.st_mtime_ns}"
+    except OSError:
+        return "missing"
+
+
+def _schedule_images(catalogue, reading, counted: frozenset, cache_dir: Path | None
+                     ) -> tuple[dict[tuple[str, int], list[DossierImage]], dict[tuple[str, int], str], list[str]]:
+    """Pictures of every schedule sheet whose schedules are pictures, were counted from the sheet's text,
+    or couldn't be read at all. Returns the images by page, why each page was pictured, and flags."""
+    sheets = {(s.document, s.page): s for s in catalogue.sheets}
+    records = {(p.document, p.page): p for p in catalogue.pages}
+    read_pages = {(s.document, s.page) for s in reading.schedules}
+    candidates: dict[tuple[str, int], str] = {}
+    for s in reading.schedules:
+        key = (s.document, s.page)
+        if s.from_text:
+            candidates[key] = "counted from the sheet's text; the table couldn't be read"
+        else:
+            candidates.setdefault(key, "")
+    for sheet in catalogue.sheets:
+        key = (sheet.document, sheet.page)
+        if ("Schedules" in sheet.types and sheet.discipline in CONTROLS_DISCIPLINES and key in counted
+                and key not in read_pages):
+            record = records.get(key)
+            if record is not None and record.status != "blank":
+                candidates[key] = "no schedule could be read from it"
+    images: dict[tuple[str, int], list[DossierImage]] = {}
+    why: dict[tuple[str, int], str] = {}
+    flags: list[str] = []
+    if not candidates:
+        return images, why, flags
+    paths = {d.relative: Path(d.path) for d in catalogue.job.documents}
+    folder = Path(cache_dir).resolve() / IMAGES_FOLDER if cache_dir is not None else None
+    opened: dict[str, pymupdf.Document] = {}
+    try:
+        for key in sorted(candidates, key=lambda k: (list(paths).index(k[0]) if k[0] in paths else 0, k[1])):
+            document, number = key
+            reason = candidates[key]
+            sheet = sheets.get(key)
+            label = " ".join(x for x in (sheet.number if sheet else None, sheet.title if sheet else None) if x)
+            label = label or f"{_name(document)} page {number}"
+            try:
+                if document not in opened:
+                    opened[document] = pymupdf.open(str(paths[document]))
+                page = opened[document][number - 1]
+                boxes = _picture_boxes(page)
+                area = abs(page.rect) or 1
+                covered = sum(abs(b) for b in boxes) / area
+                if not reason and covered < PICTURE_SHARE:
+                    continue                  # a table read from the text layer: nothing to picture
+                if folder is None:
+                    flags.append(f"{label}: not pictured — no cache folder to keep pictures in")
+                    continue
+                base = f"v{IMAGE_VERSION}|{document}|{_file_key(paths[document])}|{number}"
+                one_picture = any(abs(b) >= ONE_PICTURE * area for b in boxes)
+                if covered >= PICTURE_SHARE and not one_picture:
+                    found = []
+                    for i, box in enumerate(boxes, start=1):
+                        clip = f"{box.x0:.1f},{box.y0:.1f},{box.x1:.1f},{box.y1:.1f}"
+                        path = _render(page, box, PICTURE_DPI, folder, f"{base}|{clip}|{PICTURE_DPI}")
+                        part = f", picture {i} of {len(boxes)}" if len(boxes) > 1 else ""
+                        found.append(DossierImage(str(path), f"{label} — picture schedule{part}",
+                                                  sheet.number if sheet else None, document, number))
+                    images[key] = found
+                    why[key] = reason or "the schedules are pictures"
+                else:
+                    path = _render(page, None, SHEET_DPI, folder, f"{base}|sheet|{SHEET_DPI}")
+                    what = (f"{label} — picture schedule (the whole sheet)" if one_picture or covered >= PICTURE_SHARE
+                            else f"{label} — schedule, table unreadable")
+                    images[key] = [DossierImage(str(path), what, sheet.number if sheet else None, document, number)]
+                    why[key] = reason or "the sheet is one picture"
+            except Exception as error:
+                flags.append(f"{label}: could not be pictured — {_squash(str(error)) or type(error).__name__}")
+    finally:
+        for pdf in opened.values():
+            pdf.close()
+    return images, why, flags
+
+
+def _cell(text: str | None) -> str:
+    return _squash(text) or "-"
+
+
+def _schedules_section(catalogue, reading, ids: _Ids, images: dict, why: dict, image_ids: dict,
+                       flags: list[str]) -> list[str]:
+    lines: list[str] = []
+    sheets = {(s.document, s.page): s for s in catalogue.sheets}
+    pictured: set = set()
+    for schedule in reading.schedules:
+        key = (schedule.document, schedule.page)
+        where = _place(schedule.sheet, schedule.document, schedule.page)
+        sid = ids.new(f"{schedule.sheet + ' ' if schedule.sheet else ''}{schedule.title}, "
+                      f"{_name(schedule.document)} page {schedule.page}")
+        extras = []
+        if schedule.type_only:
+            extras.append("type rows, no unit tags")
+        if schedule.from_text:
+            extras.append("counted from the sheet's text; the table couldn't be read")
+        lines.append(f"[{sid}] {schedule.title} — {where} ({_plural(len(schedule.rows), 'row')}"
+                     f"{'; ' + '; '.join(extras) if extras else ''})")
+        if key in images:
+            names = ", ".join(image_ids[id(img)] for img in images[key])
+            lines.append(f"    See {'image' if len(images[key]) == 1 else 'images'} {names}.")
+            pictured.add(key)
+        headers = list(schedule.headers)
+        if headers:
+            lines.append(f"    Columns: {' | '.join(_cell(h) for h in headers)}")
+        for row in schedule.rows:
+            first = row.tag or _cell(row.cells.get(headers[0]) if headers else None)
+            cells = [_cell(row.cells.get(h)) for h in headers[1:]] if headers else []
+            mark = " (EXISTING)" if row.existing else ""
+            rid = ids.new(f"{schedule.title} row {first}, {where}")
+            lines.append(f"[{rid}] {' | '.join([first + mark] + cells)}")
+        for note in schedule.notes:
+            nid = ids.new(f"{schedule.title} notes, {where}")
+            lines.append(f"[{nid}] Note: {_squash(note)}")
+        for sentence in schedule.controls_by:
+            cid = ids.new(f"{schedule.title} notes, {where}")
+            lines.append(f"[{cid}] Unit controls by: {_squash(sentence)}")
+    for key, found in images.items():
+        if key in pictured:
+            continue
+        sheet = sheets.get(key)
+        where = _place(sheet.number if sheet else None, key[0], key[1])
+        sid = ids.new(f"schedule sheet {where}")
+        names = ", ".join(image_ids[id(img)] for img in found)
+        lines.append(f"[{sid}] Schedule sheet {where}: {why.get(key, '')} — see "
+                     f"{'image' if len(found) == 1 else 'images'} {names}.")
+    lines += [f"({flag})" for flag in flags]
+    return lines
+
+
+# ---- section 5: the equipment counts -----------------------------------------------------------------
+
+def _is_quantity(header: str) -> bool:
+    key = header_key(header)
+    return any(key == h or key.startswith(h + " ") for h in _QUANTITY_HEADERS)
+
+
+def _number(text: str | None) -> int | None:
+    m = _INT.match(_squash(text))
+    return int(m.group(1)) if m else None
+
+
+def _type_code(schedule, row) -> str | None:
+    """A type row's code ("HPAC") stands for its family when the schedule lists units by type."""
+    if row.tag or not schedule.headers:
+        return None
+    code = _squash(row.cells.get(schedule.headers[0])).upper()
+    if not _TYPE_CODE.match(code) or code in {header_key(h) for h in schedule.headers}:
+        return None
+    return code
+
+
+@dataclass
+class _Family:
+    rows: int = 0                       # schedule rows, not existing
+    quantity: int | None = None         # the QUANTITY column's total, when the schedule has one
+    scheduled: set = field(default_factory=set)
+    on_plans: set = field(default_factory=set)
+    placements: int = 0                 # on the controls plan sheets, floors applied
+    by_sheet: list = field(default_factory=list)    # (sheet, count on its first page, floors)
+    riser: int = 0
+
+
+def _counts(catalogue, reading, counted: frozenset, multipliers: dict) -> dict[str, _Family]:
+    equipment = Equipment.load()
+    type_titles = vocabulary().type_titles
+    families: dict[str, _Family] = defaultdict(_Family)
+    blocks: set = set()
+    on_page: dict[tuple[str, int], Counter] = defaultdict(Counter)
+    codes: set[str] = set()
+    for schedule in reading.schedules:
+        block = (schedule.document, schedule.page, tuple(row.tag for row in schedule.rows))
+        if len(block[2]) >= 2 and all(block[2]) and block in blocks:
+            continue                 # one schedule set out in two blocks (fan data, then coil data)
+        blocks.add(block)
+        quantity = next((h for h in schedule.headers if _is_quantity(h)), None)
+        for row in schedule.rows:
+            if row.tag:
+                key = _prefix(row.tag)
+                on_page[(schedule.document, schedule.page)][row.tag] += 1
+            else:
+                key = _type_code(schedule, row)
+                if key is None or type_titles.search(schedule.title):
+                    continue
+                codes.add(key)
+                on_page[(schedule.document, schedule.page)][key] += 1
+            if row.existing:
+                continue
+            family = families[key]
+            family.rows += 1
+            if row.tag:
+                family.scheduled.add(row.tag)
+            n = _number(row.cells.get(quantity)) if quantity else None
+            if n is not None:
+                family.quantity = (family.quantity or 0) + n
+    valid = {t.tag for t in catalogue.tags} | {t for f in families.values() for t in f.scheduled}
+    exclude = frozenset(tag for s in catalogue.sheets if s.number for tag in find_tags(s.number, equipment))
+    records = {(p.document, p.page): p for p in catalogue.pages}
+    code_patterns = {code: re.compile(rf"(?<![A-Za-z0-9\-]){re.escape(code)}(?![A-Za-z0-9])") for code in codes}
+    read: list[tuple] = []
+    for sheet in catalogue.sheets:
+        key = (sheet.document, sheet.page)
+        record = records.get(key)
+        if key not in counted or record is None or sheet.discipline not in CONTROLS_DISCIPLINES:
+            continue
+        is_plan = "Plans" in sheet.types
+        is_riser = bool(_RISER.search(sheet.title or ""))
+        if is_plan or is_riser:
+            edge = Counter(tag for tag in find_tags("\n".join(s.text for s in record.edge_spans), equipment, exclude)
+                           if tag in valid)
+            read.append((sheet, key, record, is_plan, is_riser, edge))
+    # A tag in the title-block strip of most of these sheets is the title block's own text (a project or
+    # phone number that looks like a tag), not a unit: its words there aren't counted.
+    in_edge = Counter(tag for *_, edge in read for tag in edge)
+    title_block = {tag for tag, n in in_edge.items() if n >= max(2, len(read) / 2)}
+    for sheet, key, record, is_plan, is_riser, edge in read:
+        tally = Counter(tag for tag in find_tags(record.text, equipment, exclude) if tag in valid)
+        tally.subtract(on_page.get(key, Counter()))       # a schedule on a plan sheet names each unit once more
+        tally.subtract({tag: n for tag, n in edge.items() if tag in title_block})
+        by_family: Counter = Counter()
+        for tag, n in tally.items():
+            if n > 0:
+                by_family[_prefix(tag)] += n
+                if is_plan:
+                    families[_prefix(tag)].on_plans.add(tag)
+        for code, pattern in code_patterns.items():
+            n = len(pattern.findall(record.text)) - on_page.get(key, Counter())[code]
+            if n > 0:
+                by_family[code] += n
+        floors = multipliers.get((sheet.document, sheet.number), 1) if sheet.number else 1
+        for prefix, n in by_family.items():
+            family = families[prefix]
+            if is_riser:
+                family.riser += n
+            if is_plan:
+                family.placements += n * floors
+                family.by_sheet.append((sheet.number or f"{_name(sheet.document)} p.{sheet.page}", n, floors))
+    return families
+
+
+def _counts_dict(families: dict[str, _Family]) -> dict[str, dict]:
+    return {prefix: {"schedule_rows": f.rows, "quantity_column": f.quantity, "plan_placements": f.placements,
+                     "riser": f.riser or None, "distinct_tags": len(f.scheduled | f.on_plans)}
+            for prefix, f in families.items()}
+
+
+def _family_order(reading, families: dict[str, _Family]) -> list[str]:
+    order = [t.prefix for t in reading.totals if t.prefix in families]
+    order += [p for p in families if p not in order and families[p].rows]
+    order += sorted((p for p in families if p not in order), key=lambda p: (-families[p].placements, p))
+    return order
+
+
+def _by_sheet(entries: list) -> str:
+    parts = []
+    for sheet, n, floors in entries:
+        parts.append(f"{sheet} {n} × {floors} = {n * floors}" if floors > 1 else f"{sheet} {n}")
+    return "; ".join(parts)
+
+
+def _counts_section(reading, families: dict[str, _Family], ids: _Ids) -> list[str]:
+    equipment = Equipment.load()
+    totals = {t.prefix: t for t in reading.totals}
+    lines = []
+    for prefix in _family_order(reading, families):
+        f = families[prefix]
+        total = totals.get(prefix)
+        kind = (total.kind if total else None) or equipment.prefixes.get(prefix) or "type code on a schedule"
+        tags = sorted(f.scheduled | f.on_plans, key=_natural)
+        sid = ids.new(f"equipment counts for {prefix} (schedules and plans)")
+        text = (f"[{sid}] {prefix} ({kind}): schedule rows {f.rows}; "
+                f"QUANTITY column total {f.quantity if f.quantity is not None else '—'}; "
+                f"distinct tags {len(tags)}; plan placements {f.placements}"
+                f"{' (' + _by_sheet(f.by_sheet) + ')' if f.by_sheet else ''}; "
+                f"riser {f.riser or '—'}.")
+        if tags:
+            text += f" Tags: {tag_list(tags)}."
+        if total and total.flags:
+            text += f" Reading notes: {'; '.join(total.flags)}."
+        lines.append(text)
+    return lines
+
+
+# ---- section 6: the devices on the plans ---------------------------------------------------------------
+
+def _device_totals(catalogue, reading, multipliers: dict) -> tuple[dict[str, int], dict[str, list], dict[str, str]]:
+    first = _first_pages(catalogue)
+    totals: Counter = Counter()
+    by_label: dict[str, list] = defaultdict(list)
+    names: dict[str, str] = {}
+    for d in reading.devices:
+        if d.sheet and first.get((d.document, d.sheet), d.page) != d.page:
+            continue                   # another page of a sheet counted on its first page
+        floors = multipliers.get((d.document, d.sheet), 1) if d.sheet else d.floors
+        totals[d.label] += d.count * floors
+        by_label[d.label].append((d.sheet or f"{_name(d.document)} p.{d.page}", d.count, floors))
+        names.setdefault(d.label, d.device)
+    return dict(totals.most_common()), by_label, names
+
+
+def _devices_section(totals: dict, by_label: dict, names: dict, ids: _Ids) -> list[str]:
+    lines = []
+    for label, total in totals.items():
+        sid = ids.new(f"device label {label} counted on the controls plan sheets")
+        lines.append(f"[{sid}] {label} ({names[label]}): {total} in all — {_by_sheet(by_label[label])}")
+    return lines
+
+
+# ---- section 7: the notes ------------------------------------------------------------------------------
+
+def _notes_section(reading, ids: _Ids) -> list[str]:
+    lines = []
+    seen = set()
+    current = None
+    for note in reading.notes:
+        if not note.controls:
+            continue
+        key = (note.sheet, note.block, note.number, note.text)
+        if key in seen:
+            continue
+        seen.add(key)
+        where = _place(note.sheet, note.document, note.page)
+        if where != current:
+            current = where
+            lines.append(f"--- {where} ---")
+        sid = ids.new(f"{note.block} {note.number}, {where}")
+        who = f" ({note.who})" if note.who else ""
+        lines.append(f"[{sid}] {note.block} {note.number}: {_squash(note.text)}{who}")
+    return lines
+
+
+# ---- section 8: the controls spec highlights -------------------------------------------------------------
+
+def _spec_section(catalogue, printed: _Printed, texts: dict, ids: _Ids) -> list[str]:
+    documents = {d.relative: d for d in catalogue.job.documents}
+    sections = [s for s in catalogue.sections if s.controls]
+    labels = defaultdict(list)
+    for s in sections:
+        labels[(s.number, s.title)].append(s)
+    lines: list[str] = []
+    articles: list[tuple[int, int, str, list[tuple[int, str]], object]] = []   # (priority, order, title, paras, section)
+    for order, s in enumerate(sections):
+        span = (s.document, s.first_page, s.last_page)
+        label = f"{s.number} {s.title}".strip()
+        if span in printed.replaced:
+            lines.append(f"({label}, {_name(s.document)}: replaced by a later copy, given above)")
+            continue
+        if span in printed.sections or any(
+                (s.document, p) in printed.pages for p in range(s.first_page, s.last_page + 1)):
+            lines.append(f"({label}, {_name(s.document)}: given in full above)")
+            continue
+        copies = labels[(s.number, s.title)]
+        if not _later(documents.get(s.document)) and any(_later(documents.get(c.document)) for c in copies):
+            lines.append(f"({label}, {_name(s.document)}: replaced by the copy in an addendum)")
+            continue
+        current: list[tuple[int, str]] | None = None
+        title = ""
+        for page, paragraph in _page_paragraphs(texts, s.document, s.first_page, s.last_page):
+            m = _ARTICLE.match(paragraph)
+            if m and not m.group(2).rstrip().endswith((".", ";", ",")):
+                current = [(page, paragraph)]
+                title = f"{m.group(1)} {m.group(2)}"
+                priority = next((i for i, (_, p) in enumerate(SPEC_HEADINGS) if p.search(m.group(2))), None)
+                if priority is not None:
+                    articles.append((priority, order * 10_000 + len(articles), title, current, s))
+                else:
+                    current = None
+                continue
+            if current is not None:
+                current.append((page, paragraph))
+    articles.sort(key=lambda a: (a[0], a[1]))
+    used = 0
+    cut: list[str] = []
+    for _, _, title, paragraphs, s in articles:
+        size = sum(len(p) + 8 for _, p in paragraphs)
+        label = f"{s.number} {s.title}".strip()
+        if used >= SPEC_LIMIT:
+            cut.append(f"{label} §{title} ({size:,} characters)")
+            continue
+        lines.append(f"--- {label} §{title}, {_name(s.document)} ---")
+        for page, paragraph in paragraphs:
+            if used + len(paragraph) > SPEC_LIMIT:
+                left = sum(len(p) for _, p in paragraphs[paragraphs.index((page, paragraph)):])
+                cut.append(f"the rest of {label} §{title} ({left:,} characters)")
+                used = SPEC_LIMIT
+                break
+            sid = ids.new(f"{label} §{title}, {_name(s.document)} page {page}")
+            lines.append(f"[{sid}] {paragraph}")
+            used += len(paragraph) + 8
+    if cut:
+        lines.append(f"(Cut at {SPEC_LIMIT:,} characters. Left out: {'; '.join(cut)}.)")
+    if not articles and not lines:
+        lines.append("(No controls spec section found.)")
+    return lines
+
+
+# ---- the dossier ---------------------------------------------------------------------------------------
+
+_SECTIONS = (("job", "1. JOB"), ("sequence", "2. SEQUENCE OF OPERATION"), ("points", "3. POINTS LISTS"),
+             ("schedules", "4. SCHEDULES"), ("counts", "5. EQUIPMENT COUNTS"), ("devices", "6. DEVICES ON PLANS"),
+             ("notes", "7. NOTES"), ("spec", "8. CONTROLS SPEC HIGHLIGHTS"))
+
+
+def build_dossier(catalogue, reading, cache_dir: Path | None) -> Dossier:
+    """Everything controls-relevant in the job, in one document with every paragraph citable."""
+    ids = _Ids()
+    texts = {(p.document, p.page): p.text for p in catalogue.pages}
+    counted = _counted_pages(catalogue, reading)
+    multipliers = floor_multipliers(catalogue, reading)
+    body: dict[str, list[str]] = {}
+
+    body["job"] = _job_section(catalogue, reading, ids)
+    printed = _Printed()
+    body["sequence"], sequence_pages = _backbone_section(catalogue, reading, SEQUENCE, ids, printed, texts)
+    body["points"], points_pages = _backbone_section(catalogue, reading, POINTS, ids, printed, texts)
+
+    images, why, image_flags = _schedule_images(catalogue, reading, counted, cache_dir)
+    all_images = [img for key in images for img in images[key]]
+    image_ids = {id(img): f"I{i}" for i, img in enumerate(all_images, start=1)}
+    for img in all_images:
+        ids.where[image_ids[id(img)]] = f"{img.what}, {_name(img.document)} page {img.page} (picture)"
+    body["schedules"] = _schedules_section(catalogue, reading, ids, images, why, image_ids, image_flags)
+
+    families = _counts(catalogue, reading, counted, multipliers)
+    body["counts"] = _counts_section(reading, families, ids)
+    device_totals, by_label, names = _device_totals(catalogue, reading, multipliers)
+    body["devices"] = _devices_section(device_totals, by_label, names, ids)
+    body["notes"] = _notes_section(reading, ids)
+    body["spec"] = _spec_section(catalogue, printed, texts, ids)
+
+    empty = {"sequence": "(No sequence of operation found in the documents.)",
+             "points": "(No points list found in the documents.)",
+             "schedules": "(No schedules read from the drawings.)",
+             "counts": "(No equipment tags counted.)",
+             "devices": "(No device labels counted on the plans.)",
+             "notes": "(No notes that add controls scope.)"}
+    stats: dict[str, int] = {}
+    parts = [f"JOB DOSSIER — {catalogue.job.name}",
+             "Everything controls-relevant in the bid documents. Every paragraph and row starts with its source "
+             "id in square brackets (S1, S2 and so on); pictures are named I1, I2 and so on. Cite them."]
+    sequence_chars = sum(len(line) + 1 for line in body["sequence"])
+    if sequence_chars > SEQUENCE_LIMIT:
+        parts.append(f"(The sequence of operation runs to {sequence_chars:,} characters, more than "
+                     f"{SEQUENCE_LIMIT:,}; it is given whole.)")
+    for key, heading in _SECTIONS:
+        lines = body[key] or [empty.get(key, "(Nothing found.)")]
+        section = "\n".join([f"== {heading} ==", *lines])
+        stats[key] = len(section)
+        parts.append(section)
+    text = "\n\n".join(parts) + "\n"
+    stats.update(total=len(text), sequence_pages=sequence_pages, points_pages=points_pages,
+                 images=len(all_images), sources=len(ids.where),
+                 sequence_over_limit=int(sequence_chars > SEQUENCE_LIMIT), families=len(families))
+    return Dossier(catalogue.job.name, text, tuple(all_images), dict(ids.where), tuple(reading.totals),
+                   device_totals, _counts_dict(families), stats)
