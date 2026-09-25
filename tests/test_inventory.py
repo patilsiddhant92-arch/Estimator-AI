@@ -149,3 +149,26 @@ def test_compact_tag_lists():
     assert compact_tags(tags) == "VAV-101 thru VAV-112, VAV-114"
     assert compact_tags(["VAV-21-01", "VAV-21-02", "VAV-21-03", "VAV-100A"]) == "VAV-21-01 thru VAV-21-03, VAV-100A"
     assert compact_tags(["EF-1", "EF-2"]) == "EF-1, EF-2"
+
+
+def test_a_unit_whose_prefix_is_not_in_the_equipment_list_takes_its_kind_from_the_schedule():
+    from estimator.catalogue.register import PageRecord
+    sheets = (Sheet(DOC, 1, "M-702", "MECHANICAL SCHEDULES", "Mechanical", ("Schedules",)),
+              Sheet(DOC, 2, "M-101", "FIRST FLOOR PLAN", "Mechanical", ("Plans",)))
+    pages = (PageRecord(DOC, 1, "text", "FAN SCHEDULE TXF-B TXF-2", 0, True),
+             PageRecord(DOC, 2, "text", "EXHAUST TO TXF‐B ABOVE\nTXF-2 ON ROOF", 0, True))
+    catalogue = Catalogue(JobFolder("26-9999", Path("26-9999"), (), ()), pages, sheets, (),
+                          BidCheck("Qualifies", "", (), (), ()), (), ())
+    rows = [ScheduleRow("TXF-B", {"TAG": "TXF-B"}, None, None, kind="Fan"),
+            ScheduleRow("TXF-2", {"TAG": "TXF-2"}, None, None, kind="Fan"),
+            ScheduleRow("RPXF-1", {"TAG": "RPXF-1"}, None, None, kind="Fan")]
+    items, totals, flags = build_inventory(catalogue, [Schedule(DOC, 1, "M-702", "FAN SCHEDULE", ("TAG",), tuple(rows),
+                                                                False, (), ())])
+    got = by_tag(items)
+    assert {t: (i.kind, i.category) for t, i in got.items()} == {
+        "TXF-B": ("Fan", "CONFIRMED"), "TXF-2": ("Fan", "CONFIRMED"), "RPXF-1": ("Fan", "MISSING")}
+    assert got["TXF-B"].seen_on == ("M-101",)
+    by_prefix = {t.prefix: t for t in totals}
+    assert (by_prefix["TXF"].kind, by_prefix["TXF"].scheduled) == ("Fan", 2)
+    assert "prefix TXF isn't in the equipment list yet — added from the schedule's title" in by_prefix["TXF"].flags
+    assert any("RPXF" in f and "TXF" in f and "FAN SCHEDULE" in f for f in flags)

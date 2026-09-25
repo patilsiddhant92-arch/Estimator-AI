@@ -119,8 +119,14 @@ def build_inventory(catalogue, schedules: list[Schedule]) -> tuple[list[Inventor
     dropped: list[str] = []
     schedules = _one_copy_per_sheet(list(schedules), dropped)
     entries = {t.tag: t for t in catalogue.tags}
+    # A unit whose prefix isn't in the equipment list takes its kind from its schedule's title; the tag
+    # index never looked for it, so the other sheets are searched for it here.
+    new_kinds = {row.tag: row.kind for s in schedules for row in s.rows if row.tag and row.kind}
+    new_places = _seen_on_pages(catalogue, new_kinds)
 
     def kind_of(tag: str) -> str:
+        if tag in new_kinds:
+            return new_kinds[tag]
         entry = entries.get(tag)
         return entry.kind if entry else equipment.prefixes.get(tag.split("-", 1)[0], "Equipment")
 
@@ -156,7 +162,7 @@ def build_inventory(catalogue, schedules: list[Schedule]) -> tuple[list[Inventor
         kind = kind_of(tag)
         if tag in listings:
             own = list(dict.fromkeys(place for _, place in listings[tag]))
-            seen = tuple(p for p in (entry.elsewhere if entry else ()) if p not in own)
+            seen = tuple(p for p in (entry.elsewhere if entry else new_places.get(tag, ())) if p not in own)
             on_drawings = [p for p in seen if p in drawings]
             label = listings[tag][0][0]
             where = _list(own)
@@ -205,15 +211,58 @@ def build_inventory(catalogue, schedules: list[Schedule]) -> tuple[list[Inventor
                                    f"Type-only schedule ({len(codes)} types: {shown}) — no unit tags, so count them "
                                    f"on the plans; no count yet", "confirm", tuple(codes)))
 
-    totals = _totals(items, schedules, equipment)
+    totals = _totals(items, schedules, equipment, new_kinds)
     counts = {t.prefix: t.scheduled for t in totals}
     pairs = [f"check the pairing: {counts[a]} {a}, {counts[b]} {b} — one outdoor unit can serve several indoor "
              f"units, so this may be right" for a, b in vocabulary().pairs
              if counts.get(a) and counts.get(b) and counts[a] != counts[b]]
-    return items, totals, pairs + dropped
+    return items, totals, pairs + dropped + _new_prefix_flags(schedules)
 
 
-def _totals(items: list[InventoryItem], schedules: list[Schedule], equipment: Equipment) -> list[FamilyTotal]:
+def _seen_on_pages(catalogue, tags) -> dict[str, tuple[str, ...]]:
+    """Every page each tag appears on, by sheet number (or document and page), however its dashes are written."""
+    if not tags:
+        return {}
+    dash = "-‐‑–—"
+
+    def spelled(tag: str) -> str:
+        prefix, rest = tag.split("-", 1)
+        rest = "".join(f"[{dash}]" if ch == "-" else re.escape(ch) for ch in rest)
+        return rf"{re.escape(prefix)}[{dash}\s]?{rest}"
+
+    pattern = re.compile(rf"(?<![A-Z0-9])(?:{'|'.join(spelled(t) for t in sorted(tags, key=len, reverse=True))})"
+                         rf"(?![A-Z0-9])")
+    canonical = {re.sub(rf"[{dash}\s]", "", t): t for t in tags}
+    sheets = {(s.document, s.page): s for s in catalogue.sheets}
+    places: dict[str, list[str]] = defaultdict(list)
+    for record in catalogue.pages:
+        sheet = sheets.get((record.document, record.page))
+        place = sheet.number if sheet is not None and sheet.number else f"{_name(record.document)} p.{record.page}"
+        for m in pattern.finditer(record.text):
+            tag = canonical.get(re.sub(rf"[{dash}\s]", "", m.group(0)))
+            if tag and place not in places[tag]:
+                places[tag].append(place)
+    return {tag: tuple(p) for tag, p in places.items()}
+
+
+def _new_prefix_flags(schedules: list[Schedule]) -> list[str]:
+    """One line per schedule that lists units whose prefix isn't in the equipment list yet."""
+    flags = []
+    for schedule in schedules:
+        prefixes = list(dict.fromkeys(row.tag.split("-", 1)[0] for row in schedule.rows if row.tag and row.kind))
+        if prefixes:
+            kind = next(row.kind for row in schedule.rows if row.kind)
+            flags.append(f"{_label(schedule)}: {'prefix' if len(prefixes) == 1 else 'prefixes'} {', '.join(prefixes)} "
+                         f"{'is' if len(prefixes) == 1 else 'are'}n't in the equipment list yet — counted as "
+                         f"\"{kind}\" from the schedule's title; add {'it' if len(prefixes) == 1 else 'them'} to "
+                         f"the equipment list if that's right")
+    return flags
+
+
+def _totals(items: list[InventoryItem], schedules: list[Schedule], equipment: Equipment,
+            new_kinds: dict[str, str] | None = None) -> list[FamilyTotal]:
+    new_kinds = new_kinds or {}
+    kinds = {tag.split("-", 1)[0]: kind for tag, kind in new_kinds.items()}
     order: list[str] = []
     for schedule in schedules:
         for row in schedule.rows:
@@ -241,6 +290,8 @@ def _totals(items: list[InventoryItem], schedules: list[Schedule], equipment: Eq
             n = len(groups.get(category, []))
             if n:
                 flags.append(f"{n} {text.format(them='it' if n == 1 else 'them')}")
-        totals.append(FamilyTotal(equipment.prefixes.get(prefix, prefix), prefix, len(counted),
+        if prefix in kinds and prefix not in equipment.prefixes:
+            flags.append(f"prefix {prefix} isn't in the equipment list yet — added from the schedule's title")
+        totals.append(FamilyTotal(kinds.get(prefix) or equipment.prefixes.get(prefix, prefix), prefix, len(counted),
                                   compact_tags(counted), tuple(flags)))
     return totals

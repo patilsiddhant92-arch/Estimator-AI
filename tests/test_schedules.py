@@ -243,3 +243,43 @@ def test_a_page_that_cannot_be_read_is_skipped_and_flagged(tmp_path):
 def test_only_the_pages_given_are_read(tmp_path):
     catalogue, opener = catalogue_for(tmp_path, vav_page(), vav_page())
     assert [s.page for s in read_schedules(catalogue, opener, pages={(DOC, 2)})] == [2]
+
+
+# --- a tag column counts every unit, whatever its prefix ----------------------------------------------
+
+def test_a_tag_column_counts_units_whose_prefix_is_not_in_the_equipment_list(tmp_path):
+    lines, texts = grid(200, 200, [90, 140, 70], [["FAN SCHEDULE", "", ""],
+                                                  ["TAG", "SERVICE", "CFM"],
+                                                  ["TXF-B", "TOILET EXHAUST", "400"],
+                                                  ["SPXF-A,B,C", "SMOKE PURGE", "9000"],
+                                                  ["DXF1-1", "DRYER EXHAUST", "200"],
+                                                  ["EF-4", "GENERAL EXHAUST", "300"]])
+    catalogue, opener = catalogue_for(tmp_path, (lines, texts))
+    [schedule] = read_schedules(catalogue, opener)
+    assert not schedule.type_only
+    assert [row.tag for row in schedule.rows] == ["TXF-B", "SPXF-A", "SPXF-B", "SPXF-C", "DXF-1-1", "EF-4"]
+    assert [row.kind for row in schedule.rows] == ["Fan"] * 5 + [None]    # EF is in the equipment list
+    assert schedule.rows[1].cells["SERVICE"] == "SMOKE PURGE"
+
+
+def test_a_tag_column_of_type_letters_stays_type_only(tmp_path):
+    lines, texts = grid(200, 200, [60, 160, 90], [["AIR DEVICE SCHEDULE", "", ""],
+                                                  ["TAG", "APPLICATION", "MODEL"],
+                                                  ["CD", "CEILING DIFFUSER", "OMNI"],
+                                                  ["EG", "EXHAUST GRILLE", "350RL"],
+                                                  ["RG", "RETURN GRILLE", "350RL"],
+                                                  ["LD-A", "LINEAR DIFFUSER", "ML"]])
+    catalogue, opener = catalogue_for(tmp_path, (lines, texts))
+    [schedule] = read_schedules(catalogue, opener)
+    assert schedule.type_only and [row.tag for row in schedule.rows] == [None] * 4
+
+
+def test_air_devices_under_a_tag_header_are_types_not_units(tmp_path):
+    lines, texts = grid(200, 200, [60, 160, 90], [["GRILLES, REGISTERS, & DIFFUSERS SCHEDULE", "", ""],
+                                                  ["TAG", "APPLICATION", "MODEL"],
+                                                  ["LG-6", "LINEAR BAR GRILLE", "LBG"],
+                                                  ["LD-A", "LINEAR DIFFUSER", "ML"],
+                                                  ["LR-A", "LINEAR RETURN", "ML"]])
+    catalogue, opener = catalogue_for(tmp_path, (lines, texts))
+    [schedule] = read_schedules(catalogue, opener)
+    assert schedule.type_only

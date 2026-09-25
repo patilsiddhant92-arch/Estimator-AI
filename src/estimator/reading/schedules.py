@@ -37,6 +37,7 @@ class ScheduleRow:
     manufacturer: str | None
     model: str | None
     existing: bool = False     # the row says EXISTING, EXIST., (E) or TO REMAIN: not new work
+    kind: str | None = None    # set only when the tag's prefix isn't in equipment.json: the schedule's title says what it is
 
 
 @dataclass(frozen=True)
@@ -73,6 +74,7 @@ class Vocabulary:
     notes_below: float
     pairs: tuple[tuple[str, str], ...]
     not_schedules: re.Pattern   # tables keyed by tag that aren't equipment schedules (refrigerant calculations)
+    type_titles: re.Pattern     # schedules that list types of air device or fixture, never units
 
 
 def _any(patterns: Iterable[str]) -> re.Pattern:
@@ -92,7 +94,7 @@ def vocabulary(path: Path = SCHEDULES) -> Vocabulary:
         re.compile(data["schedule_sheet_text"], re.I),
         re.compile(rf"(?mi)^\s*(?:{header_words})\s*[.:]?\s*$"),
         float(data["border_share"]), int(data["min_rows"]), int(data["min_columns"]), float(data["notes_below"]),
-        tuple((a, b) for a, b in data["pairs"]), _any(data["not_schedules"]),
+        tuple((a, b) for a, b in data["pairs"]), _any(data["not_schedules"]), _any(data["type_list_titles"]),
     )
 
 
@@ -164,6 +166,64 @@ def expand_tags(text: str, equipment: Equipment | None = None, range_words: tupl
     found += [(m.start(), tag) for m in by_code.finditer(rest) for tag in find_tags(m.group(0), equipment)[:1]]
     found += [(m.start(), tag) for m in by_name.finditer(rest) for tag in find_tags(m.group(0), equipment)[:1]]
     return [tag for _, tag in sorted(found, key=lambda f: f[0])]
+
+
+_LOOSE = re.compile(rf"^([A-Z]{{1,6}})(\d*)((?:[{_DASH}][A-Z0-9]+)*)$")
+_NO_TITLE = "Schedule (no title found)"
+
+
+def _loose_one(text: str) -> tuple[str, str] | None:
+    """(prefix, canonical tag) for a tag-shaped cell — letters, then digits or a dash ("TXF-B", "DXF1-1")."""
+    m = _LOOSE.match(text)
+    if not m or not (m.group(2) or m.group(3)):
+        return None
+    tail = re.sub(f"[{_DASH}]", "-", m.group(2) + m.group(3)).lstrip("-")
+    return m.group(1), f"{m.group(1)}-{tail}"
+
+
+def loose_tags(text: str, equipment: Equipment, range_words: tuple[str, ...] | None = None) -> list[str]:
+    """Every tag a tag cell names when its prefix isn't in the equipment list: "TXF-B", "SPXF-A,B,C" (three
+    fans), "XF-1 THRU XF-4" or "XF-1 THRU 4". Empty when the cell isn't tag-shaped, or its prefix is known
+    (expand_tags reads those)."""
+    words = "|".join(range_words or vocabulary().range_words)
+    text = re.sub(r"^\(E\)\s*", "", clean_text(text or "").upper().strip())
+    ranged = re.fullmatch(rf"(\S+)\s*(?:{words})\s*(\S+)", text)
+    if ranged:
+        first, last = _loose_one(ranged.group(1)), ranged.group(2)
+        split = _SPLIT.match(first[1]) if first is not None and first[0] not in equipment.prefixes else None
+        if split is None:
+            return []
+        stem, low = split.groups()
+        if last.isdigit():
+            high = last
+        else:
+            other = _loose_one(last)
+            high = other[1][len(stem):] if other is not None and other[1].startswith(stem) else ""
+        if not high.isdigit() or not 0 < int(high) - int(low) <= 200:
+            return []
+        return [_numbered(stem, low, n) for n in range(int(low), int(high) + 1)]
+    parts = [part for part in re.split(r"\s*[,&]\s*", text) if part]
+    first = _loose_one(parts[0]) if parts else None
+    if first is None or first[0] in equipment.prefixes:
+        return []
+    tags = [first[1]]
+    for part in parts[1:]:
+        if re.fullmatch(r"[A-Z0-9]{1,3}", part) and "-" in first[1]:
+            tags.append(f"{first[1].rsplit('-', 1)[0]}-{part}")       # "SPXF-A,B,C"
+        elif (other := _loose_one(part)) is not None and other[0] == first[0]:
+            tags.append(other[1])
+        else:
+            return []
+    return tags
+
+
+def kind_from_title(title: str) -> str:
+    """What a schedule lists, from its title: "FAN SCHEDULE" → "Fan"."""
+    if title == _NO_TITLE:
+        return "Equipment"
+    words = re.sub(r"\([^)]*\)", " ", title)
+    words = " ".join(re.sub(r"\bSCHEDULES?\b", " ", words, flags=re.I).split()).strip(" -–—:,")
+    return words.title() if words else "Equipment"
 
 
 # --- the page's words, found by position --------------------------------------------------------
@@ -349,6 +409,11 @@ def _schedule(grid: _Grid, words: _Words, head: _Head, vocab: Vocabulary, equipm
     remark_cols = [c for c, name in labels if _is(name, vocab.notes_headers)]
     tagged: list[ScheduleRow] = []
     typed: list[ScheduleRow] = []
+    # Rows whose tag cell is tag-shaped but has a prefix the equipment list doesn't know: units under a tag
+    # column, unless most of the column is bare type letters (CD, EG, RG) or the schedule lists air devices.
+    loose: list[tuple[int, list[ScheduleRow]]] = []
+    bare = 0          # rows under the tag column that are bare type letters, neither tag-shaped nor a header
+    kind = kind_from_title(head.title or _NO_TITLE)
     note_lines: list[str] = []
     in_notes = False
     # The tag column is as wide as its header cell. Its words are read by position, row band by
@@ -384,10 +449,14 @@ def _schedule(grid: _Grid, words: _Words, head: _Head, vocab: Vocabulary, equipm
         model = next((grid.text(r, c) for c in model_cols if grid.text(r, c)), None)
         remarks = " ".join(grid.text(r, c) for c in remark_cols)
         existing = bool(vocab.existing.search(tag_text) or vocab.existing.search(remarks))
+        found = [] if tags or head.kind != "tag" or not _names_a_unit(tag_text, vocab) else loose_tags(tag_text, equipment)
         if tags:
             tagged += [ScheduleRow(tag, cells, maker, model, existing) for tag in tags]
-        elif tag_text and len(tag_text) <= 12 and not vocab.note_number.match(tag_text):
+        elif found:
+            loose.append((len(tagged), [ScheduleRow(tag, cells, maker, model, existing, kind) for tag in found]))
+        if not tags and tag_text and len(tag_text) <= 12 and not vocab.note_number.match(tag_text):
             typed.append(ScheduleRow(None, cells, maker, model, existing))
+            bare += not found and header_key(tag_text) not in vocab.tag_headers
     notes = _notes_from(note_lines, vocab)
     if not notes and head.end_row == grid.n_rows:
         box = grid.row_box(head.row, head.col, head.end_col) or grid.bbox
@@ -401,6 +470,9 @@ def _schedule(grid: _Grid, words: _Words, head: _Head, vocab: Vocabulary, equipm
                 kept.append(text)
                 last = top
         notes = _notes_from(kept, vocab)
+    if loose and len(loose) > bare and not vocab.type_titles.search(head.title):
+        for at, found in reversed(loose):
+            tagged[at:at] = found
     rows = tuple(tagged) if tagged else tuple(typed)
     remarks = [row.cells.get(names[c], "") for row in rows for c in remark_cols]
     document, page, sheet = where
