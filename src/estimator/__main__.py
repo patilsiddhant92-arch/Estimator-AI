@@ -39,6 +39,7 @@ from estimator.proposal.write import check_template, write_proposal
 from estimator.reading.job import read_job, reading_lines
 from estimator.scope import Job
 from estimator.sent import job_from_sent
+from estimator.writing.dossier import build_dossier
 from estimator.writing.assemble import (assemble_job, checklist_text, plan_checks, system_evidence,
                                         system_examples, system_images, template_options)
 from estimator.writing.front_end import job_header
@@ -243,12 +244,6 @@ def _run(args: argparse.Namespace) -> int:
     elif args.command == "estimate":
         _estimate(args)
     return 0
-
-
-def build_dossier(catalogue, reading, cache_dir):
-    """The job's dossier (estimator.writing.dossier): everything controls-relevant, every paragraph citable."""
-    from estimator.writing.dossier import build_dossier as build
-    return build(catalogue, reading, cache_dir)
 
 
 def _estimate(args: argparse.Namespace) -> None:

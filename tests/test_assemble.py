@@ -523,3 +523,16 @@ def test_a_client_note_the_evidence_does_not_bear_out_is_reviewed_not_printed():
     assert notes == ["**Maintain the CO2 setpoints"]
     vav = next(s for s in systems if s.bundle_key == "VAV")
     assert any("Space sensors by others" in i.decide for i in vav.review)
+
+
+def test_the_fakes_have_the_real_parts_field_names():
+    """The fakes above stand in for Parts A and B; their field names must stay those of the real classes."""
+    import dataclasses
+    from estimator.writing import dossier as real_dossier, whole_job as real_whole_job
+    pairs = [(Dossier, real_dossier.Dossier), (DossierImage, real_dossier.DossierImage),
+             (PlannedSystem, real_whole_job.PlannedSystem), (JobPlan, real_whole_job.JobPlan),
+             (WrittenLine, real_whole_job.WrittenLine), (WrittenScope, real_whole_job.WrittenScope)]
+    for fake, real in pairs:
+        fake_names = {f.name for f in dataclasses.fields(fake)}
+        real_names = {f.name for f in dataclasses.fields(real)}
+        assert fake_names <= real_names, (fake.__name__, fake_names - real_names)
