@@ -75,6 +75,10 @@ def _section_heading(ws, text: str) -> None:
 
 _TOPIC_HEADINGS = ["What", "Status", "Where", "How strong", "What the job says (word for word)"]
 _LINE_HEADINGS = ["AME's line (word for word)", "Status", "Where", "How strong", "What the job says (word for word)"]
+_WHO_HEADINGS = ["Who does it (the job's words)", "Status", "Where", "How strong", "What the job says (word for word)"]
+_SYSTEM_HEADINGS = ["System", "Status", "Protocol named in the same sentence", "Where", "How strong",
+                    "What the job says (word for word)"]
+_SERVICE_HEADINGS = ["Service", "Status", "Amount stated", "Where", "How strong", "What the job says (word for word)"]
 _MAKER_HEADINGS = ["Category", "Manufacturer", "AME gets prices for it?", "Where", "How strong",
                    "What the job says (word for word)", "Basis of design / or equal", "Ask for a price from",
                    "Email draft"]
@@ -100,12 +104,62 @@ def _found_row(ws, item: str, found) -> None:
     ws.cell(ws.max_row, 5).alignment = Alignment(wrap_text=True, vertical="top")
 
 
-def _topic_table(ws, catalogue: Catalogue, heading: str, section: str) -> None:
+def _found_row_with(ws, found, extra: str) -> None:
+    """A row with one more column after the status: the protocol, or the amount stated."""
+    _append(ws, [found.item, found.status, extra or None, short_place(found.places),
+                found.places[0].strength if found.places else None, found.quote])
+    _status_cell(ws, 2, found.status)
+    ws.cell(ws.max_row, 1).alignment = Alignment(wrap_text=True, vertical="top")
+    ws.cell(ws.max_row, 6).alignment = Alignment(wrap_text=True, vertical="top")
+
+
+def _topic_table(ws, heading: str, rows, intro: str | None = None) -> None:
     _section_heading(ws, heading)
+    if intro:
+        _append(ws, [intro])
     _headings(ws, _TOPIC_HEADINGS)
-    for found in catalogue.overview.topics:
-        if found.section == section:
-            _found_row(ws, found.item, found)
+    for found in rows:
+        _found_row(ws, found.item, found)
+    _append(ws, [])
+
+
+def _who_does_what(ws, catalogue: Catalogue, heading: str) -> None:
+    overview = catalogue.overview
+    _section_heading(ws, heading)
+    _append(ws, ["Every sentence that gives work to someone other than the controls contractor — the owner, others, "
+                "another trade or the equipment maker — and any responsibility matrix."])
+    if not overview.who_does_what:
+        _append(ws, ["Nothing found — the job doesn't give any work to someone else in the places searched."])
+        _append(ws, [])
+        return
+    _headings(ws, _WHO_HEADINGS)
+    for found in overview.who_does_what:
+        _found_row(ws, found.item, found)
+    if overview.who_does_what_more:
+        _append(ws, [f"…and {overview.who_does_what_more} more; see the Pages tab"])
+    _append(ws, [])
+
+
+def _other_systems(ws, catalogue: Catalogue, heading: str) -> None:
+    _section_heading(ws, heading)
+    _append(ws, ["Each other system the job asks to be integrated, monitored or connected to the controls, "
+                "with the protocol named in the same sentence."])
+    rows = catalogue.overview.integrations
+    if not rows:
+        _append(ws, ["Nothing found — the job doesn't name another system to connect to."])
+        _append(ws, [])
+        return
+    _headings(ws, _SYSTEM_HEADINGS)
+    for found in rows:
+        _found_row_with(ws, found, found.protocol)
+    _append(ws, [])
+
+
+def _services(ws, catalogue: Catalogue, heading: str) -> None:
+    _section_heading(ws, heading)
+    _headings(ws, _SERVICE_HEADINGS)
+    for found in catalogue.overview.services:
+        _found_row_with(ws, found, found.amount)
     _append(ws, [])
 
 
@@ -148,10 +202,15 @@ def _spec_overview(ws, catalogue: Catalogue) -> None:
     _append(ws, ["See the Bid check tab for every passage."])
     _append(ws, [])
     _standard_lines(ws, catalogue, "2. AME normally excludes this — the job asks for it")
-    _topic_table(ws, catalogue, "3. Protocols", "Protocols")
-    _topic_table(ws, catalogue, "4. Network and front end", "Network and front end")
-    _topic_table(ws, catalogue, "5. Electrical and conduit", "Electrical and conduit")
-    _section_heading(ws, "6. Manufacturers named on this job")
+    _who_does_what(ws, catalogue, "3. Who does what")
+    _other_systems(ws, catalogue, "4. Other systems to connect to")
+    _services(ws, catalogue, "5. Services that cost hours")
+    _topic_table(ws, "6. Special systems", overview.special_systems)
+    _topic_table(ws, "7. Project conditions that change the price", overview.conditions,
+                 "Searched in the general requirements (Division 1) too.")
+    for number, section in ((8, "Protocols"), (9, "Network and front end"), (10, "Electrical and conduit")):
+        _topic_table(ws, f"{number}. {section}", [t for t in overview.topics if t.section == section])
+    _section_heading(ws, "11. Manufacturers named on this job")
     _headings(ws, _MAKER_HEADINGS)
     for maker in overview.makers:
         if not maker.priced:
@@ -170,7 +229,7 @@ def _spec_overview(ws, catalogue: Catalogue) -> None:
         for column in (6, 8, 9):
             ws.cell(row, column).alignment = Alignment(wrap_text=True, vertical="top")
     _append(ws, [])
-    _section_heading(ws, "7. Searched for but not found")
+    _section_heading(ws, "12. Searched for but not found")
     for line in overview.not_found or ["Nothing to report — everything on the reading lists was found."]:
         _append(ws, [line])
     ws.column_dimensions["A"].width = 40

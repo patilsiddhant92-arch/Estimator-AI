@@ -41,6 +41,14 @@ _STRENGTH_RANK = {name: index for index, name in enumerate(STRENGTHS)}
 
 STANDARD_CLARIFICATION = "Standard clarification"
 STANDARD_EXCLUSION = "Standard exclusion"
+WHO_DOES_WHAT = "Who does what"
+OTHER_SYSTEMS = "Other systems to connect to"
+SERVICES = "Services that cost hours"
+SPECIAL_SYSTEMS = "Special systems"
+CONDITIONS = "Project conditions that change the price"
+SPLIT_ROW = "The job splits controls between several contractors — say which part AME is pricing"
+MATRIX_ROW = "A responsibility matrix"
+NOT_STATED = "not stated"
 
 _CONTROLS_WORDS = re.compile(
     r"\bBMS\b|\bBAS\b|\bATC\b|\bDDC\b|building\s+(?:automation|management)|"
@@ -103,6 +111,13 @@ class SpecOverview:
     makers: tuple[MakerRow, ...] = ()    # only makers found; sorted by category order in the list, then maker name
     not_found: tuple[str, ...] = ()      # plain lines: each topic not found, then each ask_if_missing category with no maker
     standard_lines: tuple[Found, ...] = ()   # AME's standard clarifications and exclusions the job speaks to, template order
+    who_does_what: tuple[Found, ...] = ()    # responsibility matrices, a split between several controls contractors,
+                                             # then each unique sentence giving work to someone else, strongest first
+    who_does_what_more: int = 0              # sentences past the reading list's limit, not listed
+    integrations: tuple[Found, ...] = ()     # other systems to connect to that the job names, reading-list order
+    services: tuple[Found, ...] = ()         # every service that costs hours, found or not
+    special_systems: tuple[Found, ...] = ()  # every special system, found or not
+    conditions: tuple[Found, ...] = ()       # every project condition that changes the price, found or not
 
 
 @dataclass(frozen=True)
@@ -182,18 +197,98 @@ def _load_vendors(path: str) -> _Vendors:
     return _Vendors(data["email_draft"], vendors)
 
 
+_PLAIN = re.compile(r"[A-Za-z0-9 ]+")
+
+
+def _top_level_bar(pattern: str) -> bool:
+    depth, i, in_class = 0, 0, False
+    while i < len(pattern):
+        c = pattern[i]
+        if c == "\\":
+            i += 2
+            continue
+        if in_class:
+            in_class = c != "]"
+        elif c == "[":
+            in_class = True
+        elif c == "(":
+            depth += 1
+        elif c == ")":
+            depth -= 1
+        elif c == "|" and depth == 0:
+            return True
+        i += 1
+    return False
+
+
+def _plain_start(text: str) -> str:
+    """The plain letters a piece of pattern starts with, less a last letter a quantifier makes optional."""
+    found = _PLAIN.match(text)
+    if not found:
+        return ""
+    word = found.group()
+    if text[len(word):len(word) + 1] in ("?", "*", "{"):
+        word = word[:-1]
+    return word.strip()
+
+
+def _opening_words(pattern: str) -> tuple[str, ...] | None:
+    """Words (lower case) one of which every match of the pattern must contain, read from how the
+    pattern opens: "\\btraining\\b" -> ("training",), "\\b(?:normal|regular)\\s+hours" -> ("normal",
+    "regular"). None when that can't be told safely, and the pattern is always run."""
+    if _top_level_bar(pattern):
+        return None
+    rest = pattern
+    while rest.startswith("\\b"):
+        rest = rest[2:]
+    if rest.startswith("(?-i:"):
+        rest = rest[5:]
+        while rest.startswith("\\b"):
+            rest = rest[2:]
+    if rest.startswith("(?:"):
+        depth, i = 0, 0
+        while i < len(rest):
+            if rest[i] == "\\":
+                i += 2
+                continue
+            depth += rest[i] == "("
+            depth -= rest[i] == ")"
+            if depth == 0:
+                break
+            i += 1
+        inner, after = rest[3:i], rest[i + 1:i + 2]
+        if after in ("?", "*", "{") or "(" in inner or "[" in inner:
+            return None
+        words = [_plain_start(alternative) for alternative in inner.split("|")]
+        return tuple(w.lower() for w in words) if all(len(w) >= 3 for w in words) else None
+    word = _plain_start(rest)
+    return (word.lower(),) if len(word) >= 3 else None
+
+
 class _AnyOf:
     """Several patterns searched one by one — much faster in Python than one long alternation,
-    which defeats the regex engine's quick scan for each pattern's first letters."""
+    which defeats the regex engine's quick scan for each pattern's first letters. A pattern whose
+    opening words aren't on the page at all is skipped: it can't match there."""
 
     def __init__(self, patterns):
-        self.patterns = tuple(p if isinstance(p, re.Pattern) else re.compile(p, re.I) for p in patterns)
+        compiled = tuple(p if isinstance(p, re.Pattern) else re.compile(p, re.I) for p in patterns)
+        self.patterns = compiled
+        self._openings = tuple(_opening_words(p.pattern) for p in compiled)
 
-    def search(self, text: str) -> bool:
-        return any(p.search(text) for p in self.patterns)
+    def _live(self, lowered: str | None):
+        for pattern, words in zip(self.patterns, self._openings):
+            if lowered is None or words is None or any(w in lowered for w in words):
+                yield pattern
 
-    def finditer(self, text: str) -> list[re.Match]:
-        return sorted((m for p in self.patterns for m in p.finditer(text)), key=lambda m: (m.start(), -m.end()))
+    def search(self, text: str, lowered: str | None = None) -> bool:
+        return any(p.search(text) for p in self._live(lowered))
+
+    def first(self, text: str) -> re.Match | None:
+        found = [m for m in (p.search(text) for p in self.patterns) if m is not None]
+        return min(found, key=lambda m: m.start()) if found else None
+
+    def finditer(self, text: str, lowered: str | None = None) -> list[re.Match]:
+        return sorted((m for p in self._live(lowered) for m in p.finditer(text)), key=lambda m: (m.start(), -m.end()))
 
 
 def _any_of(patterns) -> _AnyOf | None:
@@ -223,6 +318,16 @@ class _ScopeReview:
     lines: tuple[_Search, ...]           # AME's standard clarifications, then its exclusions, in template order
     unmatched_lines: tuple[str, ...]     # template lines with no entry in the reading list
     unused_entries: tuple[str, ...]      # reading-list entries that match no template line
+    who: _AnyOf
+    who_limit: int
+    matrix: _AnyOf
+    split_names: tuple[tuple[str, _AnyOf], ...]
+    split_defined: _AnyOf
+    systems: tuple[_Search, ...]
+    protocols: tuple[tuple[str, str, bool, _AnyOf], ...]   # name, family, fallback (only when no other of its family)
+    services: tuple[_Search, ...]
+    special_systems: tuple[_Search, ...]
+    conditions: tuple[_Search, ...]
 
 
 @lru_cache
@@ -259,7 +364,22 @@ def _load_scope_review(path: str, template: str) -> _ScopeReview:
                 verbs = _any_of(entry.get("verbs", default_verbs))
             lines.append(_Search(kind, line, _any_of(entry["patterns"]), verbs))
     unused = tuple(e["line_starts"] for e in entries if e["line_starts"] not in used)
-    return _ScopeReview(_any_of(data["ruled_out_words"]), word_lists, needs, after, before, tuple(lines), tuple(unmatched), unused)
+    who = data["who_does_what"]
+    integrations = data["integrations"]
+    words = _any_of(integrations["words"])
+
+    def topics(section: str, key: str, also: _AnyOf | None = None) -> tuple[_Search, ...]:
+        return tuple(_Search(section, t["item"], _any_of(t["patterns"]), None, also, _any_of(t.get("amount", ())))
+                     for t in (data[key] if isinstance(data[key], list) else data[key]["systems"]))
+
+    return _ScopeReview(
+        _any_of(data["ruled_out_words"]), word_lists, needs, after, before, tuple(lines), tuple(unmatched), unused,
+        _any_of(who["patterns"]), who["limit"], _any_of(who["matrix"]),
+        tuple((n["name"], _any_of(n["patterns"])) for n in who["split_names"]), _any_of(who["split_defined"]),
+        topics(OTHER_SYSTEMS, "integrations", words),
+        tuple((pr["name"], pr["family"], pr.get("fallback", False), _any_of(pr["patterns"]))
+              for pr in integrations["protocols"]),
+        topics(SERVICES, "services"), topics(SPECIAL_SYSTEMS, "special_systems"), topics(CONDITIONS, "conditions"))
 
 
 def template_lines_without_an_entry() -> tuple[str, ...]:
@@ -459,11 +579,18 @@ def _live_verb(verbs: _AnyOf, window: str, review: _ScopeReview) -> bool:
     return False
 
 
-def _scope_hit(search: _Search, text: str, boundaries: list[int], place: Place, gate: _AnyOf | None,
-               review: _ScopeReview) -> _Hit | None:
+def _protocols_in(window: str, review: _ScopeReview) -> str:
+    named = [(name, family, fallback) for name, family, fallback, words in review.protocols if words.search(window)]
+    specific = {family for _, family, fallback in named if not fallback}
+    names = [name for name, family, fallback in named if not (fallback and family in specific)]
+    return ", ".join(names) or NOT_STATED
+
+
+def _scope_hit(search: _Search, text: str, lowered: str, boundaries: list[int], place: Place, gate: _AnyOf | None,
+               review: _ScopeReview, protocols: bool = False) -> _Hit | None:
     """The page's first qualifying hit that doesn't forbid the thing; else the first that does."""
     first_ruled = None
-    for m in search.pattern.finditer(text):
+    for m in search.pattern.finditer(text, lowered):
         lo, hi, w_lo, w_hi = _window(text, boundaries, m.start(), m.end())
         window = text[w_lo:w_hi]
         if gate is not None and not gate.search(window):
@@ -477,21 +604,22 @@ def _scope_hit(search: _Search, text: str, boundaries: list[int], place: Place, 
             continue
         amount = ""
         if search.amount is not None:
-            found = search.amount.search(window)
+            found = search.amount.first(window)
             amount = " ".join(found.group().split()) if found else ""
-        hit = _Hit(place, _as_quote(text, lo, hi, w_lo, w_hi), ruled, amount)
+        hit = _Hit(place, _as_quote(text, lo, hi, w_lo, w_hi), ruled, amount,
+                   _protocols_in(window, review) if protocols else "")
         if not ruled:
             return hit
         first_ruled = hit
     return first_ruled
 
 
-def _page_gates(review: _ScopeReview, text: str, in_controls: bool) -> dict:
+def _page_gates(review: _ScopeReview, text: str, lowered: str, in_controls: bool) -> dict:
     """For each scope review section: None (a controls page: every hit counts), the words a hit
     needs, or False when the page carries none of those words anywhere, so nothing on it can count."""
     if in_controls:
         return {section: None for section in review.needs}
-    present = {name: words for name, words in review.word_lists.items() if words.search(text)}
+    present = {name: words for name, words in review.word_lists.items() if words.search(text, lowered)}
     return {section: (_AnyOf(p for name in names if name in present for p in present[name].patterns)
                       if any(name in present for name in names) else False)
             for section, names in review.needs.items()}
@@ -509,6 +637,55 @@ def _resolve(section: str, item: str, hits: list[_Hit]) -> Found:
     deciding = deciding or ordered[0]
     places = (deciding.place,) + tuple(h.place for h in ordered if h is not deciding)
     return Found(section, item, places, deciding.quote, status, deciding.amount, deciding.protocol)
+
+
+def _who_on_page(review: _ScopeReview, text: str, lowered: str, boundaries: list[int], place: Place, gate: _AnyOf | None,
+                 who_rows: dict, who_words: dict, matrix_rows: dict, split_seen: set, split_hits: list) -> None:
+    """Every unique sentence on the page that gives work to someone other than the controls
+    contractor; a responsibility matrix; and the names of several controls contractors."""
+    def windows(words: _AnyOf):
+        for m in words.finditer(text, lowered):
+            lo, hi, w_lo, w_hi = _window(text, boundaries, m.start(), m.end())
+            if gate is not None and not gate.search(text[w_lo:w_hi]):
+                continue
+            yield m, _as_quote(text, lo, hi, w_lo, w_hi)
+
+    for rows, words, with_words in ((who_rows, review.who, True), (matrix_rows, review.matrix, False)):
+        seen = set()
+        for m, quote in windows(words):
+            key = quote.casefold()
+            if key in seen:
+                continue
+            seen.add(key)
+            rows.setdefault(key, []).append(_Hit(place, quote, False))
+            if with_words:
+                who_words.setdefault(key, " ".join(m.group().split()))
+    for name, words in review.split_names:
+        if name not in split_seen and next(windows(words), None) is not None:
+            split_seen.add(name)
+    defined = next(windows(review.split_defined), None)
+    if defined is not None:
+        split_hits.append(_Hit(place, defined[1], False))
+
+
+def _grouped(section: str, rows: dict, items: dict | None = None, item: str = "") -> list[Found]:
+    """One Found per unique sentence, strongest place first; ties keep document order."""
+    out = []
+    for key, hits in rows.items():
+        ordered = sorted(hits, key=lambda h: _STRENGTH_RANK[h.place.strength])
+        out.append(Found(section, items[key] if items is not None else item, tuple(h.place for h in ordered),
+                         ordered[0].quote, FOUND))
+    return sorted(out, key=lambda f: _STRENGTH_RANK[f.places[0].strength])
+
+
+def _who_rows(review: _ScopeReview, who_rows: dict, who_words: dict, matrix_rows: dict, split_seen: set,
+              split_hits: list) -> tuple[tuple[Found, ...], int]:
+    rows = _grouped(WHO_DOES_WHAT, matrix_rows, item=MATRIX_ROW)
+    if len(split_seen) >= 2 and split_hits:
+        ordered = sorted(split_hits, key=lambda h: _STRENGTH_RANK[h.place.strength])
+        rows.append(Found(WHO_DOES_WHAT, SPLIT_ROW, tuple(h.place for h in ordered), ordered[0].quote, FOUND))
+    sentences = _grouped(WHO_DOES_WHAT, who_rows, who_words)
+    return tuple(rows + sentences[:review.who_limit]), max(0, len(sentences) - review.who_limit)
 
 
 def _not_found_line(item: str, division_1: bool = False) -> str:
@@ -529,8 +706,23 @@ def build_overview(pages, sheets, sections) -> SpecOverview:
     division_1 = [s for s in sections if s.number.startswith("01")]
 
     topic_hits: dict[tuple[str, str], list[_Hit]] = defaultdict(list)
-    line_hits: dict[str, list[_Hit]] = defaultdict(list)
+    scope_hits: dict[tuple[str, str], list[_Hit]] = defaultdict(list)
+    who_rows: dict[str, list[_Hit]] = {}        # quote, case-folded -> its hits; insertion = document order
+    who_words: dict[str, str] = {}
+    matrix_rows: dict[str, list[_Hit]] = {}
+    split_seen: set[str] = set()
+    split_hits: list[_Hit] = []
     maker_hits: dict[str, list[tuple[Place, str]]] = defaultdict(list)
+
+    def search_all(searches: tuple[_Search, ...], gate, protocols: bool = False) -> None:
+        if gate is False:
+            return
+        for search in searches:
+            if search.pattern is None:
+                continue
+            hit = _scope_hit(search, text, lowered, boundaries, place, gate, review, protocols)
+            if hit is not None:
+                scope_hits[(search.section, search.item)].append(hit)
 
     for record in pages:
         sheet = by_page.get((record.document, record.page))
@@ -539,17 +731,18 @@ def build_overview(pages, sheets, sections) -> SpecOverview:
             continue
         text = clean_text(record.text)
         boundaries = _boundaries(text)
-        in_controls = place.strength in CONTROLS_PLACES
+        lowered = text.lower()
+        gates = _page_gates(review, text, lowered, place.strength in CONTROLS_PLACES)
+        search_all(review.conditions, gates["conditions"])
         if place.strength == DIVISION_1:
             continue
-        gates = _page_gates(review, text, in_controls)
-        if gates["exclusions"] is not False:
-            for search in review.lines:
-                if search.pattern is None:
-                    continue
-                hit = _scope_hit(search, text, boundaries, place, gates["exclusions"], review)
-                if hit is not None:
-                    line_hits[search.item].append(hit)
+        search_all(review.lines, gates["exclusions"])
+        search_all(review.systems, gates["integrations"], protocols=True)
+        search_all(review.services, gates["services"])
+        search_all(review.special_systems, gates["special_systems"])
+        if gates["who_does_what"] is not False:
+            _who_on_page(review, text, lowered, boundaries, place, gates["who_does_what"], who_rows, who_words, matrix_rows,
+                         split_seen, split_hits)
         electrical = place.strength == "Electrical drawing"
         for topic in topics:
             if electrical and not topic.electrical:
@@ -566,16 +759,24 @@ def build_overview(pages, sheets, sections) -> SpecOverview:
                     continue
                 maker_hits[maker.name].append((place, _quote_at(text, *match, boundaries)))
 
+    def resolve_all(searches: tuple[_Search, ...]) -> tuple[Found, ...]:
+        return tuple(_resolve(s.section, s.item, scope_hits.get((s.section, s.item), [])) for s in searches)
+
     found_topics = tuple(_resolve(t.section, t.item, topic_hits.get((t.section, t.item), [])) for t in topics)
     standard_lines = []
-    for search in review.lines:
-        found = _resolve(search.section, search.item, line_hits.get(search.item, []))
+    for found in resolve_all(review.lines):
         # An exclusion the job only forbids isn't asked for; a clarification it forbids is worth a look.
-        if found.status == FOUND or (found.status == RULED_OUT and search.section == STANDARD_CLARIFICATION):
+        if found.status == FOUND or (found.status == RULED_OUT and found.section == STANDARD_CLARIFICATION):
             standard_lines.append(found)
+    integrations = tuple(f for f in resolve_all(review.systems) if f.status != NOT_FOUND)
+    services, special, conditions = (resolve_all(review.services), resolve_all(review.special_systems),
+                                     resolve_all(review.conditions))
+    who, more = _who_rows(review, who_rows, who_words, matrix_rows, split_seen, split_hits)
 
+    not_found: list[str] = [_not_found_line(f.item) for f in services + special if f.status == NOT_FOUND]
+    not_found += [_not_found_line(f.item, division_1=True) for f in conditions if f.status == NOT_FOUND]
+    not_found += [_not_found_line(t.item) for t in found_topics if t.status == NOT_FOUND]
     makers_out: list[MakerRow] = []
-    not_found: list[str] = [_not_found_line(t.item) for t in found_topics if t.status == NOT_FOUND]
 
     for category in categories:
         category_rows = []
@@ -595,4 +796,5 @@ def build_overview(pages, sheets, sections) -> SpecOverview:
         if category.ask_if_missing and not category_rows:
             not_found.append(f"No {category.category.lower()} maker named — ask the engineer if the job needs one")
 
-    return SpecOverview(found_topics, tuple(makers_out), tuple(not_found), tuple(standard_lines))
+    return SpecOverview(found_topics, tuple(makers_out), tuple(not_found), tuple(standard_lines), who, more,
+                        integrations, services, special, conditions)

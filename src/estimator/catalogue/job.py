@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from estimator.catalogue.documents import JobFolder, find_documents
-from estimator.catalogue.overview import FOUND, SpecOverview, build_overview
+from estimator.catalogue.overview import FOUND, STANDARD_EXCLUSION, SpecOverview, build_overview
 from estimator.catalogue.pdf import tessdata
 from estimator.catalogue.qualify import BidCheck, check_bid
 from estimator.catalogue.register import PageRecord, register_job
@@ -151,6 +151,13 @@ def _flags(catalogue: Catalogue) -> list[str]:
     return flags
 
 
+def scope_review_counts(overview: SpecOverview) -> tuple[int, int, int]:
+    """(standard exclusions the job asks for, other systems to connect to, who-does-what lines)."""
+    exclusions = sum(1 for f in overview.standard_lines if f.section == STANDARD_EXCLUSION and f.status == FOUND)
+    systems = sum(1 for f in overview.integrations if f.status == FOUND)
+    return exclusions, systems, len(overview.who_does_what) + overview.who_does_what_more
+
+
 def summary_lines(catalogue: Catalogue) -> list[str]:
     pages = catalogue.pages
     count = {status: sum(1 for p in pages if p.status == status) for status in ("ocr", "blank", "unreadable")}
@@ -160,6 +167,7 @@ def summary_lines(catalogue: Catalogue) -> list[str]:
     overview = catalogue.overview
     protocols = [t.item for t in overview.topics if t.section == "Protocols" and t.status == FOUND]
     ame_count = sum(1 for m in overview.makers if m.ame_quotes)
+    exclusions, systems, who = scope_review_counts(overview)
     return [
         f"{catalogue.job.name} — {len(catalogue.job.documents)} documents, {len(pages)} pages: "
         f"{count['ocr']} read by OCR, {count['blank']} blank, {count['unreadable']} could not be read.",
@@ -167,6 +175,8 @@ def summary_lines(catalogue: Catalogue) -> list[str]:
         f"Other controls manufacturers named, for the US team: {', '.join(bid.others) or 'none'}.",
         f"Spec overview: {len(overview.makers)} manufacturers named ({ame_count} AME gets prices for); "
         f"protocols: {', '.join(protocols) or 'none stated'}.",
+        f"Scope review: {exclusions} standard exclusions the job asks for; {systems} other systems to connect to; "
+        f"{who} who-does-what lines.",
         f"Drawing sheets: {len(sheets)}; {sum(1 for s in sheets if s.number)} with a sheet number; "
         f"{sum(1 for s in sheets if s.number and not s.types and s.discipline in CONTROLS_DISCIPLINES)} "
         f"sheets that carry controls scope not sorted by type.",

@@ -19,7 +19,7 @@
     "\\b23\\s?09\\s?(?:00|13|23|93)\\b",
     "(?-i:\\bDSI\\b)",
     "(?-i:\\bCSI\\b)(?!\\s+(?:MasterFormat|[Ff]ormat|[Dd]ivision|[Ss]ection|[Nn]umber))",
-    "(?<![\\d(])(?<!\\d\\s)(?-i:\\bPSI\\b)(?![)GA])",
+    "(?-i:\\bPSI\\b)(?<![\\d(]PSI)(?<!\\d\\sPSI)(?![)GA])",
     "(?-i:\\bSSI\\b)",
     "(?-i:\\bMSI\\b)",
     "\\bsystems?\\s+integrators?\\b",
@@ -214,10 +214,10 @@
     "split_names": [
       {"name": "DSI", "patterns": ["(?-i:\\bDSI\\b)", "\\bdesign\\s+systems?\\s+integrators?\\b"]},
       {"name": "CSI", "patterns": ["(?-i:\\bCSI\\b)(?!\\s+(?:MasterFormat|[Ff]ormat|[Dd]ivision|[Ss]ection|[Nn]umber))", "\\bconstruction\\s+systems?\\s+integrators?\\b"]},
-      {"name": "PSI", "patterns": ["(?<![\\d(])(?<!\\d\\s)(?-i:\\bPSI\\b)(?![)GA])", "\\bpanel\\s+(?:hardware\\s+engineering\\s+)?systems?\\s+integrators?\\b"]},
+      {"name": "PSI", "patterns": ["(?-i:\\bPSI\\b)(?<![\\d(]PSI)(?<!\\d\\sPSI)(?![)GA])", "\\bpanel\\s+(?:hardware\\s+engineering\\s+)?systems?\\s+integrators?\\b"]},
       {"name": "SSI", "patterns": ["(?-i:\\bSSI\\b)", "\\bSCADA\\s+systems?\\s+integrators?\\b"]},
       {"name": "MSI", "patterns": ["(?-i:\\bMSI\\b)", "\\bmaster\\s+systems?\\s+integrators?\\b"]},
-      {"name": "system integrator", "patterns": ["(?<!master\\s)(?<!design\\s)(?<!construction\\s)(?<!panel\\s)(?<!scada\\s)\\bsystems?\\s+integrators?\\b"]}
+      {"name": "system integrator", "patterns": ["\\bs(?<!master\\ss)(?<!design\\ss)(?<!construction\\ss)(?<!panel\\ss)(?<!scada\\ss)ystems?\\s+integrators?\\b"]}
     ],
     "split_defined": [
       "\\((?-i:DSI|CSI|PSI|SSI|MSI)\\)",
