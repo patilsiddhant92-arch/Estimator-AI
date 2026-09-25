@@ -33,5 +33,7 @@
   "sole_words": ["no\\s+substitutions?", "sole[- ]source", "no\\s+other\\s+(?:manufacturer|system|vendor)s?", "substitutions\\s+will\\s+not\\s+be\\s+(?:accepted|permitted|considered)", "substitutions?\\s+(?:are|is)\\s+not\\s+permitted", "proprietary\\s+specification"],
   "basis_words": ["basis[\\s-]+of[\\s-]+design"],
   "unacceptable_words": ["\\bunacceptable\\b", "not\\s+acceptable"],
-  "requires_words": ["shall\\s+be(?!\\s+(?:removed|replaced|demolished|relocated|discontinued|decommissioned|abandoned|reused|turned\\s+over))", "extension\\s+of\\s+the\\s+existing"]
+  "requires_words": ["shall\\s+be(?!\\s+(?:removed|replaced|demolished|relocated|discontinued|decommissioned|abandoned|reused|turned\\s+over))", "extension\\s+of\\s+the\\s+existing"],
+  "system_heading_words": ["control\\s+system", "\\bBAS\\b", "\\bBMS\\b", "building\\s+automation", "DDC\\s+system", "system\\s+manufacturers?"],
+  "component_heading_words": ["sensors?", "transmitters?", "\\bvalves?\\b", "dampers?", "actuators?", "meters?", "\\bwire\\b", "\\bcable\\b", "access\\s+control", "card\\s+readers?", "\\bsecurity\\b", "\\bvideo\\b", "intrusion", "fire\\s+alarm"]
 }

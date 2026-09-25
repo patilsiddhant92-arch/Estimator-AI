@@ -145,10 +145,13 @@ def test_an_access_control_passage_outside_controls_is_not_a_mention():
     assert bid.mentions == ()
 
 
-def test_the_same_access_control_passage_inside_a_controls_section_still_counts():
+def test_the_same_access_control_passage_inside_a_controls_section_is_named_in_passing_not_qualifies():
+    # Bid check fix round 2 (D1, item 3): an access-control list is a components list, not the
+    # control system itself — that holds inside a controls section too, so Honeywell here is
+    # worth showing the US team, but it never qualifies the job on its own.
     pages = _pages(ACCESS_CONTROL_TEXT)
     bid = check_bid(pages, [CONTROLS])
-    assert bid.finding == "Qualifies"
+    assert bid.finding != "Qualifies"
     assert bid.mentions != ()
 
 
@@ -565,6 +568,31 @@ def test_a16_a_proprietary_specification_with_niagara_jaces_is_open():
 def test_a17_niagara_based_systems_are_not_acceptable_rejects_ames_own_lines():
     pages = _pages("Niagara-based systems, including Honeywell WEBs, are not acceptable.\n"
                    "B. Acceptable manufacturers: Siemens, Automated Logic.")
+    bid = check_bid(pages, [CONTROLS])
+    assert bid.finding == "Open"
+
+
+def test_a10_a_power_meter_list_naming_honeywell_is_not_evidence_for_qualifies():
+    pages = _pages("PROVIDE 120V POWER TO ALL BMS PANELS.\n5. POWER METERS: ACCEPTABLE MANUFACTURERS: "
+                   "SCHNEIDER ELECTRIC, SIEMENS, HONEYWELL.")
+    bid = check_bid(pages, [CONTROLS])
+    assert bid.finding == "Open"
+
+
+def test_a15_an_access_control_list_does_not_rescue_a_shall_be_siemens_sentence():
+    pages = _pages("The BAS shall interface with the access control system.\n"
+                   "Access control system acceptable manufacturers: Honeywell Pro-Watch, Lenel, Software House.\n"
+                   "The BAS shall be Siemens Desigo CC.")
+    bid = check_bid(pages, [CONTROLS])
+    assert bid.finding == "Open"
+
+
+def test_26_0328_shaped_rockwell_plc_with_a_far_off_honeywell_sensor_row_is_open():
+    # The real job's Honeywell sensor rows sit 20 pages from the PLC heading — here they are one
+    # passage away, and the sensor list must not turn this into a false Qualifies.
+    pages = _pages("Manufacturers: Subject to compliance, one of the following: a. Acceptable PLC "
+                   "Manufacturer 1) Rockwell Automation/Allen-Bradley\nb. Air Duct Pressure Sensor "
+                   "1. Kele 2. Honeywell 3. Setra")
     bid = check_bid(pages, [CONTROLS])
     assert bid.finding == "Open"
 

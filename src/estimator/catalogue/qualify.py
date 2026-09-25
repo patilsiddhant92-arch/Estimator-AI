@@ -80,6 +80,33 @@ def _name_occurrences(names: Sequence["Named"], text: str) -> list[tuple[int, in
     return [(m.start(), m.end(), n.name) for n in names for p in n.patterns for m in p.finditer(text)]
 
 
+def _heading_kind(text: str, pos: int, reading: "ReadingList") -> str | None:
+    """The nearest article or list heading above a position (D1, item 3): a components list
+    (sensors, valves, cable, access control, security...) is never evidence for Qualifies, even
+    inside a controls section — only a heading about the control system itself is, or a bare
+    "acceptable manufacturers" heading with no component word of its own. Scans backward line by
+    line — a numbered item naming nobody in particular ("1. Alerton Inc.") carries no signal of
+    its own, so the scan keeps going until it reaches the heading that actually governs the list."""
+    for line in reversed(text[:pos].split("\n")):
+        if not line.strip():
+            continue
+        if reading.component_heading_words.search(line):
+            return "component"
+        if reading.system_heading_words.search(line):
+            return "system"
+        if reading.list_words.search(line):
+            return "generic_list"
+    return None
+
+
+def _list_eligible(named: Named, passage: str, reading: "ReadingList") -> bool:
+    """A name counts toward Qualifies from at least one occurrence whose governing heading is
+    about the control system itself (or unclear) — never one where every occurrence sits only
+    under a components heading."""
+    return any(_heading_kind(passage, match.start(), reading) != "component"
+              for pattern in named.patterns for match in pattern.finditer(passage))
+
+
 def _bind(bindable: list[tuple[int, int, str]], start: int, end: int,
          sentence_bounds: list[int], clause_bounds: list[int]) -> list[str]:
     """Which name(s) a sole-source/basis-of-design/rejection phrase belongs to: whichever
@@ -120,6 +147,8 @@ class ReadingList:
     not_controls_words: re.Pattern
     unacceptable_words: re.Pattern
     requires_words: re.Pattern
+    system_heading_words: re.Pattern
+    component_heading_words: re.Pattern
 
     @classmethod
     def load(cls, path: Path = MANUFACTURERS) -> "ReadingList":
@@ -134,7 +163,8 @@ class ReadingList:
 
         return cls(named("platforms_we_bid"), named("on_an_approved_list"), named("other_manufacturers"),
                    words("controls_words"), words("list_words"), words("sole_words"), words("basis_words"),
-                   words("not_controls_words"), words("unacceptable_words"), words("requires_words"))
+                   words("not_controls_words"), words("unacceptable_words"), words("requires_words"),
+                   words("system_heading_words"), words("component_heading_words"))
 
     def all_names(self) -> tuple[Named, ...]:
         return self.ours + self.listed + self.others
@@ -312,8 +342,12 @@ def _mentions(record: PageRecord, text: str, controls: Sequence[SpecSection], sh
         is_list = bool(reading.list_words.search(passage))
         # An AME line named with a limit ("Honeywell (EBI only...)") stays uncertain rather than
         # qualifying outright — it falls to "named in passing" like any other unlisted mention,
-        # never simply vanishing (A18).
-        listed = tuple(n.name for n in approved if not reading.is_ebi_shadowed(n.name, passage)) if is_list else ()
+        # never simply vanishing (A18). A name that only ever turns up under a components heading
+        # (sensors, valves, cable, access control...) is never list evidence either, even inside a
+        # controls section (D1, item 3) — a heading or article about the control system itself is
+        # what the list must be about, not the parts that hang off it.
+        listed = tuple(n.name for n in approved if not reading.is_ebi_shadowed(n.name, passage)
+                       and _list_eligible(n, passage, reading)) if is_list else ()
         # Honeywell or Johnson Controls named outside a list — or on a list that turned out not to
         # be an approved-manufacturers list at all — is never one of AME's own lines, but it's
         # still worth recording, "named in passing", rather than vanishing without a trace (I9).
