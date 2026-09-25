@@ -30,7 +30,8 @@
   "controls_words": ["\\bBMS\\b", "\\bBAS\\b", "\\bDDC\\b", "building\\s+automation", "building\\s+management", "temperature\\s+control", "direct\\s+digital"],
   "not_controls_words": ["access\\s+control", "card\\s+readers?", "\\bsecurity\\b", "intrusion", "video\\s+surveillance", "\\bCCTV\\b", "fire\\s+alarm"],
   "list_words": ["acceptable\\s+manufacturers?", "approved\\s+manufacturers?", "available\\s+manufacturers?", "manufacturers?\\s*:", "one\\s+of\\s+the\\s+following", "subject\\s+to\\s+compliance"],
-  "sole_words": ["no\\s+substitutions?", "sole[- ]source", "no\\s+other\\s+(?:manufacturer|system|vendor)s?", "substitutions\\s+will\\s+not\\s+be\\s+(?:accepted|permitted|considered)"],
+  "sole_words": ["no\\s+substitutions?", "sole[- ]source", "no\\s+other\\s+(?:manufacturer|system|vendor)s?", "substitutions\\s+will\\s+not\\s+be\\s+(?:accepted|permitted|considered)", "substitutions?\\s+(?:are|is)\\s+not\\s+permitted", "proprietary\\s+specification"],
   "basis_words": ["basis[\\s-]+of[\\s-]+design"],
-  "unacceptable_words": ["\\bunacceptable\\b"]
+  "unacceptable_words": ["\\bunacceptable\\b", "not\\s+acceptable"],
+  "requires_words": ["shall\\s+be(?!\\s+(?:removed|replaced|demolished|relocated|discontinued|decommissioned|abandoned|reused|turned\\s+over))", "extension\\s+of\\s+the\\s+existing"]
 }

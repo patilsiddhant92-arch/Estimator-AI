@@ -519,3 +519,60 @@ def test_a13_a_review_stamp_is_not_sole_source_wording():
     bid = check_bid(pages, [CONTROLS])
     assert bid.finding == "Open"
     assert "Siemens" in bid.reason and "none of the lines AME bids" in bid.reason
+
+
+# --- Bid check fix round 2: a plain "shall be <maker>" counts against Qualifies too (D1) ---
+
+def test_a2_a_shall_be_competitor_sentence_blocks_even_with_honeywell_on_a_sensor_list():
+    pages = _pages("The BAS shall be Automated Logic WebCTRL to match the campus standard.\n"
+                   "2.5 SENSORS\nHumidity sensors: Manufacturers: subject to compliance, one of the "
+                   "following: 1. Honeywell H7655. 2. Vaisala. 3. BAPI.")
+    bid = check_bid(pages, [CONTROLS])
+    assert bid.finding == "Open"
+
+
+def test_a2b_substitutions_are_not_permitted_is_sole_source_wording_too():
+    pages = _pages("The BAS shall be Siemens Desigo CC. Substitutions are not permitted.\n"
+                   "2.9 CONTROL VALVES\nManufacturers: one of the following: Belimo, Honeywell.")
+    bid = check_bid(pages, [CONTROLS])
+    assert bid.finding == "Open"
+
+
+def test_a5b_extension_of_the_existing_metasys_blocks_even_with_a_valves_list():
+    pages = _pages("The BAS shall be an extension of the existing Johnson Controls Metasys Extended "
+                   "Architecture.\nCONTROL VALVES Acceptable manufacturers: Belimo, Honeywell.")
+    bid = check_bid(pages, [CONTROLS])
+    assert bid.finding == "Open"
+
+
+def test_a9_extension_of_existing_metasys_beats_a_duct_sensor_list():
+    pages = _pages("CONTROLS GENERAL NOTES: THE BAS SHALL BE AN EXTENSION OF THE EXISTING JOHNSON "
+                   "CONTROLS METASYS SYSTEM.\n2. DUCT SENSORS: ACCEPTABLE MANUFACTURERS: HONEYWELL, "
+                   "BAPI, VERIS.")
+    bid = check_bid(pages, [CONTROLS])
+    assert bid.finding == "Open"
+
+
+def test_a16_a_proprietary_specification_with_niagara_jaces_is_open():
+    pages = _pages("This is a proprietary specification. The BAS shall be Automated Logic WebCTRL.\n"
+                   "B. The ALC system shall integrate the existing Niagara JACEs in Building B via "
+                   "BACnet/IP.")
+    bid = check_bid(pages, [CONTROLS])
+    assert bid.finding == "Open"
+    assert "Niagara N4" in bid.reason
+
+
+def test_a17_niagara_based_systems_are_not_acceptable_rejects_ames_own_lines():
+    pages = _pages("Niagara-based systems, including Honeywell WEBs, are not acceptable.\n"
+                   "B. Acceptable manufacturers: Siemens, Automated Logic.")
+    bid = check_bid(pages, [CONTROLS])
+    assert bid.finding == "Open"
+
+
+def test_a18_an_ame_line_limited_to_ebi_is_open_not_qualifies():
+    # A18: Honeywell is on a genuine acceptable-manufacturers list, but limited to EBI (not the
+    # WEBs line AME bids) — an AME line with a limit is uncertain, so Open, never Qualifies.
+    pages = _pages("Acceptable manufacturers: 1. Siemens. 2. Automated Logic. 3. Honeywell (EBI only, "
+                   "integrated with the existing Honeywell EBI front end).")
+    bid = check_bid(pages, [CONTROLS])
+    assert bid.finding == "Open"

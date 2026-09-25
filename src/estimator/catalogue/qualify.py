@@ -119,6 +119,7 @@ class ReadingList:
     basis_words: re.Pattern
     not_controls_words: re.Pattern
     unacceptable_words: re.Pattern
+    requires_words: re.Pattern
 
     @classmethod
     def load(cls, path: Path = MANUFACTURERS) -> "ReadingList":
@@ -133,7 +134,7 @@ class ReadingList:
 
         return cls(named("platforms_we_bid"), named("on_an_approved_list"), named("other_manufacturers"),
                    words("controls_words"), words("list_words"), words("sole_words"), words("basis_words"),
-                   words("not_controls_words"), words("unacceptable_words"))
+                   words("not_controls_words"), words("unacceptable_words"), words("requires_words"))
 
     def all_names(self) -> tuple[Named, ...]:
         return self.ours + self.listed + self.others
@@ -148,6 +149,15 @@ class ReadingList:
         metasys = next((n for n in self.others if n.name == "Johnson Controls Metasys"), None)
         fx = next((n for n in self.ours if n.name == "Johnson Controls FX"), None)
         return bool(metasys and metasys.found_in(passage) and not (fx and fx.found_in(passage)))
+
+    def is_ebi_shadowed(self, name: str, passage: str) -> bool:
+        """Honeywell never counts on a list when the passage limits it to EBI (Enterprise
+        Buildings Integrator, not the WEBs line AME bids) — "Honeywell (EBI only...)" is an AME
+        line with a limit, so it stays uncertain rather than qualifying (A18)."""
+        if name != "Honeywell":
+            return False
+        webs = next((n for n in self.ours if n.name == "Honeywell WEBs"), None)
+        return bool(re.search(r"\bEBI\b", passage) and not (webs and webs.found_in(passage)))
 
 
 @dataclass(frozen=True)
@@ -165,6 +175,7 @@ class Mention:
     sole_for: tuple[str, ...] = ()       # other manufacturer(s) sole-sourced in their own sentence (D2)
     basis_for: tuple[str, ...] = ()      # other manufacturer(s) named basis of design in their own sentence
     rejected_ours: tuple[str, ...] = ()  # AME's own line(s) called unacceptable in their own sentence
+    requires_for: tuple[str, ...] = ()   # other manufacturer(s) required as the system ("shall be", D1)
 
     @property
     def named(self) -> str:
@@ -299,7 +310,10 @@ def _mentions(record: PageRecord, text: str, controls: Sequence[SpecSection], sh
                    and not reading.is_metasys_shadowed(n.name, passage)
                    and SAME_MAKER_OURS.get(n.name) not in ours]
         is_list = bool(reading.list_words.search(passage))
-        listed = tuple(n.name for n in approved) if is_list else ()
+        # An AME line named with a limit ("Honeywell (EBI only...)") stays uncertain rather than
+        # qualifying outright — it falls to "named in passing" like any other unlisted mention,
+        # never simply vanishing (A18).
+        listed = tuple(n.name for n in approved if not reading.is_ebi_shadowed(n.name, passage)) if is_list else ()
         # Honeywell or Johnson Controls named outside a list — or on a list that turned out not to
         # be an approved-manufacturers list at all — is never one of AME's own lines, but it's
         # still worth recording, "named in passing", rather than vanishing without a trace (I9).
@@ -313,11 +327,29 @@ def _mentions(record: PageRecord, text: str, controls: Sequence[SpecSection], sh
         sentence_bounds = _sentence_boundaries(passage)
         clause_bounds = _clause_boundaries(passage)
         own_names, other_names = set(ours), set(others)
-        sole_for, basis_for, rejected_ours = set(), set(), set()
-        for pattern, bucket, eligible in ((reading.sole_words, sole_for, other_names),
-                                          (reading.basis_words, basis_for, other_names),
-                                          (reading.unacceptable_words, rejected_ours, own_names)):
+        # A genuine controls section or controls-sheet is already read on its own terms (above) —
+        # everywhere else, a bare "shall be <maker>", sole-source or basis-of-design phrase counts
+        # against Qualifies only when its own sentence is plainly about the control system (a
+        # BMS/BAS/DDC/building-automation word, or the literal word "system"), not whichever
+        # equipment happens to sit in the same 350-character window (D1: A8's Trane rooftop units,
+        # A11's Siemens switchboards, reached only through a nearby "BMS"/"DDC" elsewhere).
+        system_context = in_controls_section or in_controls_sheet
+
+        def _about_the_system(start: int, end: int) -> bool:
+            if system_context:
+                return True
+            s_lo, s_hi = _span_at(sentence_bounds, start, end)
+            sentence = passage[s_lo:s_hi]
+            return bool(reading.controls_words.search(sentence) or re.search(r"\bsystem\b", sentence, re.I))
+
+        sole_for, basis_for, rejected_ours, requires_for = set(), set(), set(), set()
+        for pattern, bucket, eligible, gated in ((reading.sole_words, sole_for, other_names, True),
+                                                 (reading.basis_words, basis_for, other_names, True),
+                                                 (reading.unacceptable_words, rejected_ours, own_names, False),
+                                                 (reading.requires_words, requires_for, other_names, True)):
             for match in pattern.finditer(passage):
+                if gated and not _about_the_system(match.start(), match.end()):
+                    continue
                 for name in _bind(bindable, match.start(), match.end(), sentence_bounds, clause_bounds):
                     if name in eligible:
                         bucket.add(name)
@@ -327,7 +359,8 @@ def _mentions(record: PageRecord, text: str, controls: Sequence[SpecSection], sh
                                  sheet=sheet.number if sheet is not None else None,
                                  passing=passing, is_list=is_list,
                                  sole_for=tuple(sorted(sole_for)), basis_for=tuple(sorted(basis_for)),
-                                 rejected_ours=tuple(sorted(rejected_ours))))
+                                 rejected_ours=tuple(sorted(rejected_ours)),
+                                 requires_for=tuple(sorted(requires_for))))
     return found
 
 
@@ -353,7 +386,7 @@ _where = where
 def _deciding(qualifying: Sequence[Mention]) -> Mention:
     """Prefer a passage with list or sole-source wording as the one to cite — a casual mention
     naming AME's own product elsewhere (a programming tool, say) is not the approved list (M11)."""
-    return (next((m for m in qualifying if m.is_list or m.sole_for), None)
+    return (next((m for m in qualifying if m.is_list or m.sole_for or m.requires_for), None)
             or next((m for m in qualifying if m.ours), None)
             or qualifying[0])
 
@@ -374,7 +407,12 @@ def _judge(mentions: Sequence[Mention], others: tuple[str, ...]) -> tuple[str, s
     basis_blocking = [m for m in mentions if m.basis_for and not (m.is_list and m.ours)]
     # The passage calls one of AME's own lines unacceptable outright, in its own sentence.
     unacceptable_blocking = [m for m in mentions if m.rejected_ours]
-    contrary = sole_blocking or basis_blocking or unacceptable_blocking
+    # A plain requirement for another maker's system — "The BAS shall be Automated Logic WebCTRL",
+    # "an extension of the existing Johnson Controls Metasys system" — counts against a Qualifies
+    # too, whatever the wording, even with no sole-source phrase at all (D1). It never on its own
+    # produces Does not qualify — only explicit sole-source wording does that.
+    requires_blocking = [m for m in mentions if m.requires_for]
+    contrary = sole_blocking or basis_blocking or unacceptable_blocking or requires_blocking
     # Whether an AME line was named anywhere at all, qualifying or not — this is what keeps a
     # sole-source clause for another manufacturer from reading as "Does not qualify" when Honeywell
     # or Johnson Controls also turns up somewhere, even off an approved list (B1b/B1c).
@@ -383,15 +421,19 @@ def _judge(mentions: Sequence[Mention], others: tuple[str, ...]) -> tuple[str, s
     if qualifying and contrary:
         first = _deciding(qualifying)
         name = ", ".join(first.ours or first.listed)
-        against = sole_blocking[0] if sole_blocking else (unacceptable_blocking[0] if unacceptable_blocking else basis_blocking[0])
+        against = (sole_blocking[0] if sole_blocking
+                  else unacceptable_blocking[0] if unacceptable_blocking
+                  else basis_blocking[0] if basis_blocking else requires_blocking[0])
         if against in sole_blocking:
             clause = f"also requires {', '.join(against.sole_for)} with no substitutions"
         elif against in unacceptable_blocking:
             clause = (f"also calls {', '.join(against.rejected_ours)} unacceptable, requiring "
                       f"{', '.join(against.others)} instead" if against.others
                       else f"also calls {', '.join(against.rejected_ours)} unacceptable")
-        else:
+        elif against in basis_blocking:
             clause = f"also names {', '.join(against.basis_for)} as the basis of design, or approved equal"
+        else:
+            clause = f"also requires {', '.join(against.requires_for)} for the system"
         return ("Open", f"The spec says two different things: it names {name} ({where(first)}) but {clause} "
                         f"({where(against)}). The US team decides.")
     if qualifying:
@@ -411,6 +453,14 @@ def _judge(mentions: Sequence[Mention], others: tuple[str, ...]) -> tuple[str, s
         passing_names = sorted({name for m in mentions for name, _ in m.passing})
         extra = f" The spec also names {', '.join(passing_names)}, which is not a line AME bids." if passing_names else ""
         return ("Open", f"The spec requires {', '.join(first.sole_for)} with no substitutions ({where(first)})."
+                        f"{extra} The US team decides.")
+    if requires_blocking:
+        # Never Does not qualify on its own — a bare "shall be <maker>" is a real requirement to
+        # flag, but not the explicit sole-source wording the principle reserves that for.
+        first = requires_blocking[0]
+        passing_names = sorted({name for m in mentions for name, _ in m.passing})
+        extra = f" The spec also names {', '.join(passing_names)}, which is not a line AME bids." if passing_names else ""
+        return ("Open", f"The spec requires {', '.join(first.requires_for)} for the system ({where(first)})."
                         f"{extra} The US team decides.")
     if unacceptable_blocking:
         first = unacceptable_blocking[0]
