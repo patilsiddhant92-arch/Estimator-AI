@@ -390,22 +390,34 @@ def _engineer(catalogue, settings: dict) -> str | None:
 def _label_engineer(catalogue, settings: dict) -> str | None:
     """The text beside the title block's ENGINEER / MEP ENGINEER / CONSULTING ENGINEER label — the
     firm's own name, whatever it is, even one with no "engineer/consulting/associates" word of its
-    own ("GILLAN & HARTMANN, Inc.")."""
+    own ("GILLAN & HARTMANN, Inc."). A real title block is a grid of several labels and values
+    ("ENGINEER" and "DATE" side by side, each with its own value below it), so the value is read from
+    the same column as the label — the nearest text below it, close to its own left edge — never
+    whatever merely comes next in reading order (that could be another column's label or value
+    entirely, "ISSUE FOR BID" under a neighbouring "DATE"). Of what's in that column, a name that
+    looks like a firm's (an "&", or a corporate suffix) is preferred to one that reads as a person's
+    (a name with a professional-license line, "MICHAEL S. GILLAN, PE")."""
     label = re.compile(settings["engineer_label"], re.I)
     skip = {w.upper() for w in settings.get("engineer_label_skip", ())}
+    hint = re.compile(settings["engineer_label_company_hint"], re.I)
+    x_tolerance = settings.get("engineer_label_x_tolerance", 0.05)
+    y_reach = settings.get("engineer_label_y_reach", 0.03)
     pages = {(s.document, s.page) for s in catalogue.sheets if s.discipline in settings["engineer_disciplines"]}
     for record in catalogue.pages:
         if (record.document, record.page) not in pages:
             continue
-        ordered = sorted(record.edge_spans, key=lambda s: (round(s.y0, 3), s.x0))
-        texts = [" ".join(s.text.split()) for s in ordered]
-        for i, text in enumerate(texts):
-            if not label.match(text):
+        spans = record.edge_spans
+        for label_span in spans:
+            if not label.match(" ".join(label_span.text.split())):
                 continue
-            for candidate in texts[i + 1:]:
-                if label.match(candidate) or candidate.rstrip(":").strip().upper() in skip:
-                    continue
-                return candidate
+            candidates = [s for s in spans if s is not label_span
+                         and label_span.y0 < s.y0 <= label_span.y0 + y_reach
+                         and abs(s.x0 - label_span.x0) <= x_tolerance]
+            candidates = [" ".join(s.text.split()) for s in sorted(candidates, key=lambda s: s.y0)]
+            candidates = [c for c in candidates if not label.match(c) and c.rstrip(":").strip().upper() not in skip]
+            if not candidates:
+                continue
+            return next((c for c in candidates if hint.search(c)), candidates[0])
     return None
 
 
@@ -417,22 +429,19 @@ def _spec_pages(catalogue) -> set[tuple[str, int]]:
     return pages
 
 
-def _footer_line(text: str) -> str:
-    lines = [line for line in clean_text(text).splitlines() if line.strip()]
-    return " ".join(lines[-1].split()) if lines else ""
-
-
 def _spec_footer_engineer(catalogue, firm: re.Pattern) -> str | None:
-    """Else the most common firm name in the spec's page footers — the last printed line of each
-    spec page, the same "engineer/consulting/associates" firm-name pattern the title blocks use."""
+    """Else the most common firm name printed on the spec's own pages — the same boilerplate line
+    (a header or a footer, wherever the page puts it) that repeats on page after page, the same
+    "engineer/consulting/associates" firm-name pattern the title blocks use."""
     spec_pages = _spec_pages(catalogue)
     counts: Counter[str] = Counter()
     for record in catalogue.pages:
         if (record.document, record.page) not in spec_pages:
             continue
-        footer = _footer_line(record.text)
-        if firm.search(footer):
-            counts[footer] += 1
+        for line in clean_text(record.text).splitlines():
+            squashed = " ".join(line.split())
+            if squashed and firm.search(squashed):
+                counts[squashed] += 1
     return counts.most_common(1)[0][0] if counts else None
 
 
@@ -489,11 +498,14 @@ def _based_on(catalogue, reading, settings: dict, flags: list[str]) -> list[str]
 
 def _based_on_sections(catalogue, reading, settings: dict) -> tuple[list[str], list[str]]:
     """The controls spec sections that carry a schedule or a sequence of operation, each with its
-    date (the last one printed on any of its pages) — else "[date]", flagged."""
+    date — else "[date]", flagged. The same section number reissued in more than one document (a
+    base spec and its addendum) is one line, not two: its dates are pooled and the latest governs,
+    the same way "based on"'s own sheet numbers already do."""
     schedule_pages = {(s.document, s.page) for s in getattr(reading, "schedules", ())}
     sequence_ranges = [(b.document, b.first_page, b.last_page) for b in getattr(reading, "backbone", ())
                        if not b.duplicate_of]
-    lines, undated = [], []
+    pooled: dict[str, dict] = {}
+    order: list[str] = []
     for section in getattr(catalogue, "sections", ()):
         if not section.controls:
             continue
@@ -506,8 +518,17 @@ def _based_on_sections(catalogue, reading, settings: dict) -> tuple[list[str], l
         texts = [r.text for r in catalogue.pages
                 if r.document == section.document and section.first_page <= r.page <= section.last_page]
         dates = [d for d in (parse_date(t) for t in texts) if d]
+        entry = pooled.setdefault(section.number, {"title": section.title, "dates": []})
+        entry["dates"] += dates
+        if section.number not in order:
+            order.append(section.number)
+
+    lines, undated = [], []
+    for number in order:
+        entry = pooled[number]
+        dates = entry["dates"]
         date = max(dates).strftime(settings["date_format"]) if dates else settings["undated"]
         if not dates:
-            undated.append(section.number)
-        lines.append(settings["spec_section_line"].format(number=section.number, title=section.title, date=date))
+            undated.append(number)
+        lines.append(settings["spec_section_line"].format(number=number, title=entry["title"], date=date))
     return lines, undated

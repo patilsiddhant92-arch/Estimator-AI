@@ -558,6 +558,21 @@ def test_an_undated_controls_spec_section_is_flagged():
     assert any("23 09 93" in f and "date" in f.lower() for f in flags)
 
 
+def test_the_same_section_reissued_in_an_addendum_is_one_line():
+    # 26-0478: 23 09 23 is a real section in both the base spec and its addendum — one line, with
+    # the later date, not two identical undated lines.
+    ADDENDUM = "Addendum.pdf"
+    sections = (SpecSection("23 09 23", "DIRECT DIGITAL CONTROL (DDC) SYSTEM", SPEC, 40, 41),
+               SpecSection("23 09 23", "DIRECT DIGITAL CONTROL (DDC) SYSTEM", ADDENDUM, 1, 2))
+    pages = [PageRecord(SPEC, n, "text", "Dated 01/01/2026", 0) for n in (40, 41)]
+    pages += [PageRecord(ADDENDUM, n, "text", "Dated 03/15/2026", 0) for n in (1, 2)]
+    catalogue = _catalogue(folder="26-0001", sections=sections, pages=pages)
+    reading = SimpleNamespace(versions=(), backbone=(_backbone(SPEC, 40, 41), _backbone(ADDENDUM, 1, 2)),
+                              schedules=())
+    header, _ = job_header(catalogue, reading, TODAY)
+    assert header.based_on == ("23 09 23 DIRECT DIGITAL CONTROL (DDC) SYSTEM Dated: 03/15/2026",)
+
+
 def test_based_on_with_no_schedules_or_backbone_attribute_is_unaffected():
     # A reading object that carries no .schedules / .backbone (older test fixtures) never breaks —
     # it just lists no spec sections.
