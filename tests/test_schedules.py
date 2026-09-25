@@ -283,3 +283,59 @@ def test_air_devices_under_a_tag_header_are_types_not_units(tmp_path):
     catalogue, opener = catalogue_for(tmp_path, (lines, texts))
     [schedule] = read_schedules(catalogue, opener)
     assert schedule.type_only
+
+
+# --- schedules whose tables can't be read are counted from the sheet's text ---------------------------
+
+from estimator.reading.schedules import schedules_from_text   # noqa: E402
+
+_OCR_TEXT = """HVAC SCHEDULES
+H601
+ROOFTOP UNIT SCHEDULE (1 OF 2)
+TAG | AREA SERVED | CFM
+| RTU-1 | GYMNASIUM | 8000
+[RTu2 | GYMNASIUM | 8000
+EXHAUST FAN SCHEDULE
+EF-1 THRU 3 | ROOF | 400
+NOTES:
+1. RTU-1 SHALL BE PROVIDED WITH A FACTORY CONTROLLER.
+2. CALL P 212.643.9055 FOR SERVICE.
+"""
+
+
+def test_units_are_counted_from_the_text_under_the_nearest_schedule_heading():
+    schedules = schedules_from_text(_OCR_TEXT, ("Mech.pdf", 6, "H601"))
+    assert [(s.title, [r.tag for r in s.rows]) for s in schedules] == [
+        ("ROOFTOP UNIT SCHEDULE (1 OF 2)", ["RTU-1", "RTU-2"]),
+        ("EXHAUST FAN SCHEDULE", ["EF-1", "EF-2", "EF-3"])]
+    assert all(s.from_text and not s.type_only for s in schedules)
+
+
+def _ocr_catalogue(tmp_path, text, types=("Schedules",), status="ocr", discipline="Mechanical"):
+    path = make_pdf(tmp_path / f"Mech{next(_NAMES)}.pdf", Page(WIDTH, HEIGHT, ((100, 100, "HVAC SCHEDULES", 12),)))
+    document = Document(path, DOC, "drawings", "base", 1)
+    job = JobFolder("26-9999", tmp_path, (document,), ())
+    opened = pymupdf.open(path)
+    records = (PageRecord(DOC, 1, status, text, 0, large_sheet=True),)
+    sheets = (Sheet(DOC, 1, "H601", "HVAC SCHEDULES" if "Schedules" in types else "HVAC FLOOR PLAN", discipline, types),)
+    catalogue = Catalogue(job, records, sheets, (), BidCheck("Qualifies", "", (), (), ()), (), ())
+    return catalogue, (lambda document, page: opened[page - 1])
+
+
+def test_a_schedule_sheet_read_by_ocr_with_no_readable_table_is_counted_from_its_text(tmp_path):
+    catalogue, opener = _ocr_catalogue(tmp_path, _OCR_TEXT)
+    schedules = read_schedules(catalogue, opener)
+    assert [s.title for s in schedules] == ["ROOFTOP UNIT SCHEDULE (1 OF 2)", "EXHAUST FAN SCHEDULE"]
+    assert schedules[0].sheet == "H601" and schedules[0].from_text
+
+
+def test_a_plan_sheet_read_from_its_text_layer_is_not_counted_from_its_text(tmp_path):
+    # A plan names every unit on it; only a schedule sheet, or a picture of a schedule, is counted from text.
+    catalogue, opener = _ocr_catalogue(tmp_path, _OCR_TEXT, types=("Plans",), status="text")
+    assert read_schedules(catalogue, opener) == []
+
+
+def test_a_mechanical_sheet_with_a_pictured_schedule_is_counted_from_its_text(tmp_path):
+    catalogue, opener = _ocr_catalogue(tmp_path, _OCR_TEXT, types=("Plans",), status="ocr")
+    assert [s.title for s in read_schedules(catalogue, opener)] == ["ROOFTOP UNIT SCHEDULE (1 OF 2)",
+                                                                    "EXHAUST FAN SCHEDULE"]

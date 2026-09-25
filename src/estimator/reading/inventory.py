@@ -8,12 +8,13 @@ from __future__ import annotations
 
 import re
 from collections import defaultdict
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from estimator.catalogue.tags import Equipment
 from estimator.reading.schedules import Schedule, vocabulary
 
 COUNTED = ("CONFIRMED", "MISSING", "DISCREPANCY")
+FROM_TEXT = "counted from the schedule sheet's text; the table itself couldn't be read — check the count"
 
 
 @dataclass(frozen=True)
@@ -146,6 +147,7 @@ def build_inventory(catalogue, schedules: list[Schedule]) -> tuple[list[Inventor
     drawings = {s.number or f"{_name(s.document)} p.{s.page}" for s in catalogue.sheets if "Schedules" not in s.types}
     listings: dict[str, list[tuple[str, str]]] = defaultdict(list)
     existing: set[str] = set()
+    from_text: dict[str, str] = {}      # tag → the schedule it was counted under, from a sheet's text
     blocks: set[tuple] = set()
     for schedule in schedules:
         # One schedule set out in two blocks on the same sheet (fan data, then coil data), each
@@ -158,6 +160,8 @@ def build_inventory(catalogue, schedules: list[Schedule]) -> tuple[list[Inventor
             if row.tag is None:
                 continue
             listings[row.tag].append((_label(schedule), _place(schedule)))
+            if schedule.from_text:
+                from_text.setdefault(row.tag, _label(schedule))
             if row.existing:
                 existing.add(row.tag)
     scheduled_prefixes = {tag.split("-", 1)[0] for tag in listings}
@@ -211,6 +215,9 @@ def build_inventory(catalogue, schedules: list[Schedule]) -> tuple[list[Inventor
                 items.append(InventoryItem(tag, kind, "MISSING", 1, label, seen,
                                            f"On the schedule only; no plan shows it{extra} — confirm before pricing",
                                            "confirm"))
+            if tag in from_text:
+                item = items[-1]
+                items[-1] = replace(item, reason=f"{item.reason} — {FROM_TEXT}")
             continue
         if tag in spec_only:
             continue
@@ -243,12 +250,22 @@ def build_inventory(catalogue, schedules: list[Schedule]) -> tuple[list[Inventor
                                    f"Type-only schedule ({len(codes)} types: {shown}) — no unit tags, so count them "
                                    f"on the plans; no count yet", "confirm", tuple(codes)))
 
-    totals = _totals(items, schedules, equipment, new_kinds)
+    totals = _totals(items, schedules, equipment, new_kinds, set(from_text))
     counts = {t.prefix: t.scheduled for t in totals}
     pairs = [f"check the pairing: {counts[a]} {a}, {counts[b]} {b} — one outdoor unit can serve several indoor "
              f"units, so this may be right" for a, b in vocabulary().pairs
              if counts.get(a) and counts.get(b) and counts[a] != counts[b]]
-    return items, totals, pairs + dropped + _new_prefix_flags(schedules) + _left_out(spec_only, mentioned)
+    return (items, totals, pairs + dropped + _new_prefix_flags(schedules) + _from_text_flags(from_text)
+            + _left_out(spec_only, mentioned))
+
+
+def _from_text_flags(from_text: dict[str, str]) -> list[str]:
+    """One line per family counted from a schedule sheet's text."""
+    by_prefix: dict[str, list[str]] = defaultdict(list)
+    for tag, label in from_text.items():
+        by_prefix[tag.split("-", 1)[0]].append(label)
+    return [f"{len(labels)} {prefix} counted from the text of {', '.join(dict.fromkeys(labels))} — the table itself "
+            f"couldn't be read; check the count" for prefix, labels in by_prefix.items()]
 
 
 def _compact(text: str) -> str:
@@ -309,8 +326,9 @@ def _new_prefix_flags(schedules: list[Schedule]) -> list[str]:
 
 
 def _totals(items: list[InventoryItem], schedules: list[Schedule], equipment: Equipment,
-            new_kinds: dict[str, str] | None = None) -> list[FamilyTotal]:
+            new_kinds: dict[str, str] | None = None, from_text: set[str] | None = None) -> list[FamilyTotal]:
     new_kinds = new_kinds or {}
+    texted = {tag.split("-", 1)[0] for tag in from_text or ()}
     kinds = {tag.split("-", 1)[0]: kind for tag, kind in new_kinds.items()}
     order: list[str] = []
     for schedule in schedules:
@@ -339,6 +357,8 @@ def _totals(items: list[InventoryItem], schedules: list[Schedule], equipment: Eq
             n = len(groups.get(category, []))
             if n:
                 flags.append(f"{n} {text.format(them='it' if n == 1 else 'them')}")
+        if prefix in texted:
+            flags.append("counted from the schedule sheet's text — check the count")
         if prefix in kinds and prefix not in equipment.prefixes:
             flags.append(f"prefix {prefix} isn't in the equipment list yet — added from the schedule's title")
         totals.append(FamilyTotal(kinds.get(prefix) or equipment.prefixes.get(prefix, prefix), prefix, len(counted),

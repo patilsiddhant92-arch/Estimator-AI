@@ -22,6 +22,8 @@
   "min_columns": 3,
   "notes_below": 200,
   "not_schedules": ["\\bCALCULATIONS?\\b"],
+  "schedule_heading_about": "A line of a sheet's text that heads a schedule (\"EXHAUST FAN SCHEDULE\", \"ROOFTOP UNIT SCHEDULE (1 OF 2)\"). When a schedule sheet's tables can't be read (a picture read by OCR), its units are counted from its text, each under the nearest heading above it.",
+  "schedule_heading": "^(?!(?:SEE|REFER|PER|AS)\\b)[A-Z][A-Z0-9 ,&/()'.+\\-]{1,80}?\\bSCHEDULES?\\b(?:\\s*\\([^)]*\\))?(?:\\s*-\\s*[A-Z ]{2,30})?$",
   "type_list_titles_about": "A schedule with one of these words in its title lists types of air device, silencer or fixture (passive items no controller serves), not units: a tag column whose prefix isn't in equipment.json is read as types there, never counted as units.",
   "type_list_titles": ["\\bGRILLES?\\b", "\\bREGISTERS?\\b", "\\bDIFFUSERS?\\b", "\\bLOUVERS?\\b", "\\bAIR (?:DEVICES?|OUTLETS?|INLETS?)\\b",
                        "\\bFIXTURES?\\b", "\\bDOORS?\\b", "\\bHARDWARE\\b", "\\bFINISH(?:ES)?\\b", "\\bLIGHT(?:ING)?\\b",

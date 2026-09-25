@@ -230,6 +230,7 @@ def test_the_other_reading_tabs(tmp_path):
     wb = openpyxl.load_workbook(write_evidence(tmp_path / "e.xlsx", _catalogue(), _reading()))
     schedules = _values(wb["Schedules"])
     assert schedules[1][:4] == ["VAV BOX SCHEDULE", "M-601", 2, "DDC BY TCC."]
+    assert (schedules[0][-1], schedules[1][-1]) == ("Read from", "the table")
     devices = _values(wb["Devices on plans"])
     assert ["M-201", "Occupancy sensor", "OCC", 3, 7, 21, "yes"] in [r[:7] for r in devices]
     assert any(r[0] == "OCC" and r[1] == "OCCUPANCY SENSOR" for r in devices)

@@ -321,9 +321,10 @@ def _write_reading(workbook, reading: JobReading) -> None:
     _equipment(workbook.create_sheet(READING_TABS[0]), reading)
     _table(workbook.create_sheet(READING_TABS[1]),
            ["Schedule", "Sheet", "Units listed", "Who provides the unit controller (the schedule's notes)",
-            "Types only, no unit tags", "Document", "Page"],
-           [[s.title, s.sheet, len(s.rows), "\n".join(s.controls_by) or None, _yes(s.type_only), s.document, s.page]
-            for s in reading.schedules] or [["No schedule read from the drawings", None, None, None, None, None, None]])
+            "Types only, no unit tags", "Document", "Page", "Read from"],
+           [[s.title, s.sheet, len(s.rows), "\n".join(s.controls_by) or None, _yes(s.type_only), s.document, s.page,
+             "the sheet's text — the table couldn't be read; check the count" if s.from_text else "the table"]
+            for s in reading.schedules] or [["No schedule read from the drawings"] + [None] * 7])
     _devices(workbook.create_sheet(READING_TABS[2]), reading)
     notes = sorted(reading.notes, key=lambda n: not n.controls)
     _table(workbook.create_sheet(READING_TABS[3]),

@@ -210,3 +210,23 @@ def test_a_tag_inside_a_model_number_on_the_schedule_sheet_is_not_a_unit():
     assert got["EF-5"].category == "PENDING"          # on the schedule sheet, in no table read: still counted by eye
     assert ("named on a schedule sheet but not as a unit (inside a model number or a note, or a one-letter "
             "prefix outside a tag column): B-7, P-212, SP-A390") in flags
+
+
+def test_units_counted_from_a_schedule_sheets_text_say_so_and_are_flagged_once_per_family():
+    tags = [TagEntry("RTU-1", "Rooftop Unit", ("H601",), ("M-101",), 3),
+            TagEntry("RTU-2", "Rooftop Unit", ("H601",), (), 1)]
+    rooftop = Schedule(DOC, 1, "H601", "ROOFTOP UNIT SCHEDULE", (), (row("RTU-1"), row("RTU-2")), False, (), (),
+                       from_text=True)
+    sheets = (Sheet(DOC, 1, "H601", "HVAC SCHEDULES", "Mechanical", ("Schedules",)),
+              Sheet(DOC, 2, "M-101", "FIRST FLOOR PLAN", "Mechanical", ("Plans",)))
+    items, totals, flags = build_inventory(catalogue_with(tags, sheets), [rooftop])
+    got = by_tag(items)
+    assert (got["RTU-1"].category, got["RTU-2"].category) == ("CONFIRMED", "MISSING")
+    for item in got.values():
+        assert item.reason.endswith("counted from the schedule sheet's text; the table itself couldn't be read "
+                                    "— check the count")
+    [total] = totals
+    assert total.scheduled == 2
+    assert "counted from the schedule sheet's text — check the count" in total.flags
+    assert [f for f in flags if "RTU" in f] == [
+        "2 RTU counted from the text of H601 ROOFTOP UNIT SCHEDULE — the table itself couldn't be read; check the count"]

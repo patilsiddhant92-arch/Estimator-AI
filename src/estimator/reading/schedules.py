@@ -51,6 +51,7 @@ class Schedule:
     type_only: bool            # no row has a tag
     notes: tuple[str, ...]     # numbered notes under / beside the table
     controls_by: tuple[str, ...]   # the note sentences that say who provides the unit controller
+    from_text: bool = False    # counted from the sheet's text, because its table couldn't be read
 
 
 @dataclass(frozen=True)
@@ -75,6 +76,7 @@ class Vocabulary:
     pairs: tuple[tuple[str, str], ...]
     not_schedules: re.Pattern   # tables keyed by tag that aren't equipment schedules (refrigerant calculations)
     type_titles: re.Pattern     # schedules that list types of air device or fixture, never units
+    schedule_heading: re.Pattern   # a line of text that heads a schedule ("EXHAUST FAN SCHEDULE")
 
 
 def _any(patterns: Iterable[str]) -> re.Pattern:
@@ -95,6 +97,7 @@ def vocabulary(path: Path = SCHEDULES) -> Vocabulary:
         re.compile(rf"(?mi)^\s*(?:{header_words})\s*[.:]?\s*$"),
         float(data["border_share"]), int(data["min_rows"]), int(data["min_columns"]), float(data["notes_below"]),
         tuple((a, b) for a, b in data["pairs"]), _any(data["not_schedules"]), _any(data["type_list_titles"]),
+        re.compile(data["schedule_heading"]),
     )
 
 
@@ -513,11 +516,17 @@ def _split(grid: _Grid, words: _Words, vocab: Vocabulary, equipment: Equipment,
 
 def read_page(page: pymupdf.Page, where: tuple[str, int, str | None],
               vocab: Vocabulary | None = None, equipment: Equipment | None = None) -> list[Schedule]:
+    return _read_tables(page, where, vocab, equipment)[0]
+
+
+def _read_tables(page: pymupdf.Page, where: tuple[str, int, str | None], vocab: Vocabulary | None = None,
+                 equipment: Equipment | None = None) -> tuple[list[Schedule], int]:
+    """The page's schedules, and how many ruled tables of any size find_tables saw on it."""
     vocab = vocab or vocabulary()
     equipment = equipment or Equipment.load()
     area = page.rect.width * page.rect.height
-    tables = [t for t in page.find_tables().tables
-              if t.row_count >= vocab.min_rows and t.col_count >= vocab.min_columns]
+    found = page.find_tables().tables
+    tables = [t for t in found if t.row_count >= vocab.min_rows and t.col_count >= vocab.min_columns]
     words = _Words(page)
     schedules: list[Schedule] = []
     for table in tables:
@@ -527,7 +536,51 @@ def read_page(page: pymupdf.Page, where: tuple[str, int, str | None],
             continue   # the sheet's border and title block. When a schedule's rules run into the border it is kept.
         others = [tuple(t.bbox) for t in tables if t is not table]
         schedules += _split(grid, words, vocab, equipment, where, others)
-    return schedules
+    return schedules, len(found)
+
+
+# --- a schedule sheet whose tables can't be read: its units counted from its text -------------------
+
+_EDGE_JUNK = re.compile(r"^[\s|\[\]_{}!:;.,'`~-]+|[\s|\[\]_{}!:;,'`~-]+$")
+
+
+def _heading(line: str, vocab: Vocabulary) -> str | None:
+    line = " ".join(_EDGE_JUNK.sub("", line.upper()).split())
+    return line if len(line) <= 90 and vocab.schedule_heading.match(line) else None
+
+
+def schedules_from_text(text: str, where: tuple[str, int, str | None], vocab: Vocabulary | None = None,
+                        equipment: Equipment | None = None, exclude: Collection[str] = ()) -> list[Schedule]:
+    """The units a schedule sheet lists, counted from its text when its tables can't be read (a picture read
+    by OCR): every distinct tag, under the nearest "… SCHEDULE" heading above it. A "THRU" range gives one
+    tag per unit. A one-letter prefix counts only written with its dash ("P-1", never the "P 212" of a phone
+    number)."""
+    vocab = vocab or vocabulary()
+    equipment = equipment or Equipment.load()
+    groups: dict[str, list[ScheduleRow]] = {}
+    seen: set[str] = set(exclude)
+    title = _NO_TITLE
+    for raw in clean_text(text).splitlines():
+        heading = _heading(raw, vocab)
+        if heading:
+            title = heading
+            continue
+        line = raw.upper()
+        existing = bool(vocab.existing.search(line))
+        for tag in expand_tags(line, equipment):
+            prefix, rest = tag.split("-", 1)
+            if tag in seen or (len(prefix) == 1 and not re.search(
+                    rf"(?<![A-Z0-9]){prefix}[{_DASH}]{re.escape(rest)}", line)):
+                continue
+            seen.add(tag)
+            groups.setdefault(title, []).append(ScheduleRow(tag, {}, None, None, existing))
+    document, page, sheet = where
+    return [Schedule(document, page, sheet, title, (), tuple(rows), False, (), (), from_text=True)
+            for title, rows in groups.items()]
+
+
+def _has_heading(text: str, vocab: Vocabulary) -> bool:
+    return any(_heading(line, vocab) for line in text.splitlines())
 
 
 def _is_schedule_sheet(sheet, text: str, vocab: Vocabulary) -> bool:
@@ -544,21 +597,38 @@ def read_schedules(catalogue, page_opener: PageOpener, pages: Collection[tuple[s
     vocab = vocabulary()
     equipment = Equipment.load()
     records = {(p.document, p.page): p for p in catalogue.pages}
+    sheet_numbers = frozenset(tag for s in catalogue.sheets if s.number for tag in find_tags(s.number, equipment))
     schedules: list[Schedule] = []
     for sheet in catalogue.sheets:
         if pages is not None and (sheet.document, sheet.page) not in pages:
             continue
         record = records.get((sheet.document, sheet.page))
-        if record is None or record.status != "text" or sheet.discipline not in CONTROLS_DISCIPLINES:
+        if record is None or record.status not in ("text", "ocr") or sheet.discipline not in CONTROLS_DISCIPLINES:
             continue
-        if not _is_schedule_sheet(sheet, clean_text(record.text), vocab):
+        text = clean_text(record.text)
+        by_tables = _is_schedule_sheet(sheet, text, vocab)
+        # Counted from the text when no table can be read: a schedule sheet, or a mechanical sheet whose
+        # schedules are pictures read by OCR. Never a plan read from its text layer, which names every unit on it.
+        by_text = "Schedules" in sheet.types or (record.status == "ocr" and sheet.discipline == "Mechanical"
+                                                 and _has_heading(text, vocab))
+        if not (by_tables or by_text):
             continue
-        try:
-            page = page_opener(sheet.document, sheet.page)
-            found = read_page(page, (sheet.document, sheet.page, sheet.number), vocab, equipment)
-        except Exception as error:
-            if flags is not None:
-                flags.append(unreadable_page(sheet.number, sheet.document, sheet.page, "schedules", error))
-            continue
-        schedules += [s for s in found if not vocab.not_schedules.search(s.title)]
+        where = (sheet.document, sheet.page, sheet.number)
+        found: list[Schedule] = []
+        tables = 0
+        if by_tables:
+            try:
+                page = page_opener(sheet.document, sheet.page)
+                found, tables = _read_tables(page, where, vocab, equipment)
+                found = [s for s in found if not vocab.not_schedules.search(s.title)]
+            except Exception as error:
+                if flags is not None:
+                    flags.append(unreadable_page(sheet.number, sheet.document, sheet.page, "schedules", error))
+                if record.status != "ocr":
+                    continue
+        # A sheet read from its text layer is counted from its text only when find_tables saw no table on it
+        # at all (a schedule set out without rules); one whose tables were read and weren't schedules isn't.
+        if by_text and not any(s.rows for s in found) and (record.status == "ocr" or not tables):
+            found = schedules_from_text(text, where, vocab, equipment, sheet_numbers)
+        schedules += found
     return schedules
