@@ -8,6 +8,7 @@ import pytest
 
 from estimator.catalogue.overview import FOUND, NOT_FOUND, RULED_OUT, Found, Place, SpecOverview
 from estimator.catalogue.pdf import Span
+from estimator.catalogue.qualify import BidCheck, Mention
 from estimator.catalogue.register import PageRecord
 from estimator.catalogue.sheet_types import Sheet
 from estimator.catalogue.spec_sections import SpecSection
@@ -146,6 +147,52 @@ def test_an_extension_of_an_unnamed_system_is_flagged():
 def test_a_ruled_out_tie_in_is_a_new_system():
     overview = _overview({"Tie-in to an existing system": (RULED_OUT, "Tie-in to the existing BMS is not allowed.")})
     assert front_end(_catalogue(overview))[0].mode == "new-system"
+
+
+# --- the existing BMS name from the Bid check --------------------------------------
+
+def _bid_check(*mentions):
+    return BidCheck("Qualifies", "reason", (), tuple(mentions), ())
+
+
+def _mention(quote, ours=(), listed=(), others=(), page=5):
+    return Mention(document=SPEC, page=page, quote=quote, ours=ours, listed=listed, others=others)
+
+
+def test_an_unnamed_tie_in_gets_its_name_from_the_bid_check():
+    # 26-0478: the addendum names no manufacturer in the tie-in sentence itself, but the Bid check's
+    # own passage does (test1-fixes.md 3.2).
+    overview = _overview({"Tie-in to an existing system": "Connect to the existing BMS in the building."})
+    bid_check = _bid_check(_mention("Existing BMS is a Johnson Controls Facility Explorer.",
+                                    ours=("Johnson Controls FX",)))
+    fe, flags, evidence = front_end(_catalogue(overview), bid_check=bid_check)
+    assert fe.mode == "extend-existing" and fe.existing_system_name == "Johnson Controls"
+    assert not any("Name the existing BMS" in f for f in flags)
+    hit = next(e for e in evidence if e.line.startswith("Seamlessly Tie in"))
+    assert "Johnson Controls Facility Explorer" in hit.quote and hit.status == "CONFIRMED"
+
+
+def test_the_bid_check_is_not_used_when_the_tie_in_already_names_the_system():
+    overview = _overview({"Tie-in to an existing system":
+                          "Seamlessly integrate into the existing Honeywell WEBs Niagara front end."})
+    bid_check = _bid_check(_mention("Also mentions Johnson Controls FX.", ours=("Johnson Controls FX",)))
+    fe, _, _ = front_end(_catalogue(overview), bid_check=bid_check)
+    assert fe.existing_system_name == "Honeywell / Niagara N4 / WEBs"
+
+
+def test_no_bid_check_still_flags_the_unnamed_tie_in():
+    overview = _overview({"Tie-in to an existing system": "Connect to the existing BMS in the building."})
+    fe, flags, _ = front_end(_catalogue(overview))
+    assert fe.existing_system_name == "[existing BMS name]"
+    assert any("Name the existing BMS" in f for f in flags)
+
+
+def test_a_bid_check_with_no_name_in_its_passages_still_flags():
+    overview = _overview({"Tie-in to an existing system": "Connect to the existing BMS in the building."})
+    bid_check = _bid_check(_mention("The spec names Siemens.", others=("Siemens",)))
+    fe, flags, _ = front_end(_catalogue(overview), bid_check=bid_check)
+    assert fe.existing_system_name == "[existing BMS name]"
+    assert any("Name the existing BMS" in f for f in flags)
 
 
 # --- by the owner, by others ------------------------------------------------------

@@ -56,8 +56,12 @@ def _compile(patterns, shared: dict) -> tuple[re.Pattern, ...]:
 
 # --- the front end ----------------------------------------------------------------
 
-def front_end(catalogue, data: dict | None = None) -> tuple[FrontEnd, list[str], list[Evidence]]:
-    """The front-end block, the flags for the review list, and the evidence for each printed line."""
+def front_end(catalogue, data: dict | None = None, bid_check=None
+             ) -> tuple[FrontEnd, list[str], list[Evidence]]:
+    """The front-end block, the flags for the review list, and the evidence for each printed line.
+
+    bid_check: the catalogue's Bid check (estimator.catalogue.qualify.BidCheck), when there is one.
+    Its passages name the existing BMS when the Spec overview's own tie-in quote doesn't."""
     data = data or _load(FRONT_END_FILE)
     overview = catalogue.overview
     topics = {t.item: t for t in overview.topics}
@@ -68,12 +72,17 @@ def front_end(catalogue, data: dict | None = None) -> tuple[FrontEnd, list[str],
     if tie_in is not None and tie_in.status == FOUND:
         mode = "extend-existing"
         name = _existing_name(tie_in.quote, data["existing_systems"])
+        where, quote = short_place(tie_in.places), tie_in.quote
+        if name is None and bid_check is not None:
+            found = _existing_name_from_bid_check(bid_check, data["existing_systems"])
+            if found is not None:
+                name, where, quote = found
         if name is None:
             name = data["existing_systems"]["unnamed"]
             flags.append(f"Name the existing BMS — the job asks for a tie-in to an existing system but doesn't say "
                          f"which one: “{tie_in.quote}” ({short_place(tie_in.places)})")
         heading = data["headings"][mode].format(system=name)
-        evidence.append(Evidence(heading, short_place(tie_in.places), tie_in.quote,
+        evidence.append(Evidence(heading, where, quote,
                                  "CONFIRMED" if name != data["existing_systems"]["unnamed"] else "PENDING"))
     else:
         mode, name = "new-system", None
@@ -113,6 +122,18 @@ def _existing_name(quote: str, systems: dict) -> str | None:
     names = [entry["name"] for entry in systems["names"]
              if any(re.search(p, quote, re.I) for p in entry["patterns"])]
     return " / ".join(names) or None
+
+
+def _existing_name_from_bid_check(bid_check, systems: dict) -> tuple[str, str, str] | None:
+    """(name, where, quote) from the first Bid check passage that names one of the existing_systems
+    names — None when no passage does."""
+    from estimator.catalogue.qualify import where as bid_where
+
+    for mention in bid_check.mentions:
+        name = _existing_name(mention.quote, systems)
+        if name is not None:
+            return name, bid_where(mention), mention.quote
+    return None
 
 
 class _Conditions:
