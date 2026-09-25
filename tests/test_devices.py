@@ -168,3 +168,75 @@ def test_only_sheets_that_carry_controls_scope_are_counted(opener):
     catalogue.sheets = tuple(replace(s, discipline=disciplines[s.number]) for s in catalogue.sheets)
     counts, _ = count_devices(catalogue, open_page, [], [])
     assert {c.sheet for c in counts} == {"M-201"}
+
+
+# ---- one count per sheet number, whatever the set holds (review findings 1, 5 and 6) -----------
+
+TWO_T = _plan((400, 500, "T", 12), (700, 500, "T", 12))
+TYPICAL = "MECHANICAL 10TH-16TH FLOOR PLAN TYPICAL"
+
+
+def _two_documents(tmp_path, base_pages, addendum_pages):
+    """A base set and an addendum, each [(Page, number, title)]; returns the catalogue and an opener."""
+    docs = {"Base/Mech.pdf": base_pages, "Addendum 1/Mech.pdf": addendum_pages}
+    opened = {name: pymupdf.open(str(make_pdf(tmp_path / name, *(p for p, *_ in pages))))
+              for name, pages in docs.items()}
+    sheets = tuple(Sheet(name, i, number, title, "Mechanical", ("Plans",))
+                   for name, pages in docs.items() for i, (_, number, title) in enumerate(pages, start=1))
+    records = tuple(PageRecord(name, i, "text", f"{name} page {i}", 0, True)
+                    for name, pages in docs.items() for i in range(1, len(pages) + 1))
+    return SimpleNamespace(pages=records, sheets=sheets), (lambda document, page: opened[document][page - 1])
+
+
+def test_a_typical_sheet_in_the_base_set_and_an_addendum_is_counted_once(tmp_path):
+    """2 thermostats on a typical floor over 7 floors is 14, not 28."""
+    catalogue, open_page = _two_documents(tmp_path, [(TWO_T, "M-110", TYPICAL)], [(TWO_T, "M-110", TYPICAL)])
+    typicals = typical_sheets(catalogue)
+    counts, _ = count_devices(catalogue, open_page, [], typicals)
+    assert [(c.document, c.label, c.total) for c in counts] == [("Base/Mech.pdf", "T", 14)]
+
+
+def test_the_governing_page_is_the_one_counted(tmp_path):
+    catalogue, open_page = _two_documents(tmp_path, [(TWO_T, "M-201", "SECOND FLOOR PLAN")],
+                                          [(PLAN, "M-201", "SECOND FLOOR PLAN")])
+    counts, _ = count_devices(catalogue, open_page, [], [], pages={("Addendum 1/Mech.pdf", 1)})
+    assert {(c.document, c.label, c.total) for c in counts} == {("Addendum 1/Mech.pdf", "T", 3),
+                                                                ("Addendum 1/Mech.pdf", "OCC", 2)}
+
+
+def test_a_typical_sheet_printed_per_floor_with_different_text_is_counted_on_its_first_page(opener):
+    build, open_page = opener
+    catalogue = build([(PLAN, "M-110.00", TYPICAL, ("Plans",)), (PLAN, "M-110.00", TYPICAL, ("Plans",))],
+                      texts=["floor 10", "floor 11"])
+    counts, _ = count_devices(catalogue, open_page, [], typical_sheets(catalogue))
+    [t] = [c for c in counts if c.label == "T"]
+    assert (t.page, t.count, t.floors, t.total) == (1, 3, 7, 21)
+
+
+def test_a_page_that_cannot_be_read_is_skipped_and_flagged(opener):
+    build, open_page = opener
+    catalogue = build([(PLAN, "M-201", "MECHANICAL SECOND FLOOR PLAN", ("Plans",)),
+                       (PLAN, "M-202", "MECHANICAL THIRD FLOOR PLAN", ("Plans",))])
+
+    def flaky(document, page):
+        if page == 2:
+            raise RuntimeError("code=2: broken content stream")
+        return open_page(document, page)
+
+    counts, flags = count_devices(catalogue, flaky, [], [])
+    assert {c.sheet for c in counts} == {"M-201"}
+    assert flags == ["M-202 (Mech.pdf page 2) could not be read for devices — code=2: broken content stream; "
+                     "check it by hand"]
+
+
+def test_a_legend_page_that_cannot_be_read_is_skipped_and_flagged(opener):
+    build, _ = opener
+    catalogue = build([(LEGEND, "M-002", "MECHANICAL LEGEND", ("Notes and legends",))])
+
+    def broken(document, page):
+        raise RuntimeError("cannot open broken document")
+
+    flags: list[str] = []
+    assert read_legend(catalogue, broken, flags=flags) == []
+    assert flags == ["M-002 (Mech.pdf page 1) could not be read for the legend — cannot open broken document; "
+                     "check it by hand"]

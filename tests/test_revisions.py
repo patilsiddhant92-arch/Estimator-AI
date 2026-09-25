@@ -118,7 +118,8 @@ def test_with_no_dates_and_two_base_documents_it_asks():
     catalogue = _catalogue((BASE, 1, "M-201", "OLD PLAN TEXT HERE", ()), (OTHER, 1, "M-201", "NEW PLAN TEXT HERE", ()))
     supersessions, flags = supersede(catalogue, sheet_versions(catalogue))
     assert supersessions == []
-    assert flags == ["Sheet M-201 is in two documents with no dates to order them — check which governs"]
+    assert flags == ["Sheet M-201 is in two documents with no dates to order them — check which governs; "
+                     "counted from Mech.pdf for now"]
 
 
 def test_pages_repeated_in_one_document_are_not_versions():
@@ -195,4 +196,95 @@ def test_two_different_sets_at_the_same_date_still_ask():
     catalogue = _catalogue((BASE, 1, "M-201", "OLD PLAN TEXT HERE", table), (OTHER, 1, "M-201", "NEW PLAN TEXT HERE", table),
                            (OTHER, 2, "M-301", "ANOTHER SHEET", table), (OTHER, 3, "M-302", "AND ANOTHER", table))
     _, flags = supersede(catalogue, sheet_versions(catalogue))
-    assert flags == ["Sheet M-201 is in two documents with the same date (02/12/25) — check which governs"]
+    assert flags == ["Sheet M-201 is in two documents with the same date (02/12/25) — check which governs; "
+                     "counted from Mech.pdf for now"]
+
+
+# ---- two-digit years and far-future dates (review finding 8) ----------------------------------
+
+def test_a_two_digit_year_past_next_year_is_last_century():
+    today = date(2026, 9, 25)
+    assert parse_date("02/12/95", Revisions.load(), today) == date(1995, 2, 12)
+    assert parse_date("02/12/27", Revisions.load(), today) == date(2027, 2, 12)
+    assert parse_date("02/12/28", Revisions.load(), today) is None      # 1928: before any drawing set
+
+
+def test_a_date_more_than_a_year_after_today_is_ignored():
+    today = date(2026, 9, 25)
+    assert parse_date("01/01/2031", Revisions.load(), today) is None
+    assert parse_date("09/20/2027", Revisions.load(), today) == date(2027, 9, 20)
+
+
+# ---- the change log's speed (review finding 7) ------------------------------------------------
+
+def test_a_marked_up_copy_is_set_aside_before_any_change_is_computed(monkeypatch):
+    from estimator.reading import revisions
+
+    def refuse(*args, **kwargs):
+        raise AssertionError("changes computed for a marked-up copy")
+
+    monkeypatch.setattr(revisions, "_changes", refuse)
+    table = _table(("3", "ISSUED FOR BID", "02/12/25"))
+    marked = "2. Takeoffs/1. Base Takeoff/Marked_Mech.pdf"
+    pages = []
+    for page, number in enumerate(("M-201", "M-202", "M-203"), start=1):
+        pages.append((BASE, page, number, f"PLAN {number}", table))
+        pages.append((marked, page, number, f"PLAN {number}\nCHECK THIS DAMPER - ESTIMATOR", table))
+    catalogue = _catalogue(*pages)
+    assert supersede(catalogue, sheet_versions(catalogue)) == ([], [])
+
+
+def test_the_governing_pairs_changes_are_computed_once(monkeypatch):
+    from estimator.reading import revisions
+
+    calls = []
+    real = revisions._changes
+    monkeypatch.setattr(revisions, "_changes", lambda *args: calls.append(args[0]) or real(*args))
+    early = _table(("3", "ISSUED FOR BID", "02/12/25"))
+    late = _table(("4", "ADDENDUM #1", "02/26/25"), ("3", "ISSUED FOR BID", "02/12/25"))
+    catalogue = _catalogue((BASE, 1, "M-201", "EF-1 ON ROOF", early), (ADDENDUM, 1, "M-201", "EF-2 ON ROOF", late),
+                           kinds={ADDENDUM: "addendum"})
+    [s], _ = supersede(catalogue, sheet_versions(catalogue))
+    assert calls == ["M-201"]
+    assert {(c.what, c.old or c.new) for c in s.changes if c.what.startswith("tag")} == {
+        ("tag added", "EF-2"), ("tag removed", "EF-1")}
+
+
+def test_many_changed_schedule_rows_pair_by_their_first_tag():
+    old = "\n".join(f"VAV-{n} {400 + n} CFM 8 INCH INLET" for n in range(1, 301))
+    new = "\n".join(f"VAV-{n} {500 + n} CFM 8 INCH INLET" for n in range(1, 301))
+    catalogue = _catalogue((BASE, 1, "M-601", old, ()), (ADDENDUM, 1, "M-601", new, ()), kinds={ADDENDUM: "addendum"})
+    catalogue = Catalogue(catalogue.job, catalogue.pages,
+                          tuple(Sheet(s.document, s.page, s.number, "SCHEDULES", "Mechanical", ("Schedules",))
+                                for s in catalogue.sheets),
+                          (), catalogue.bid, (), ())
+    [s], _ = supersede(catalogue, sheet_versions(catalogue))
+    assert len(s.changes) == 300 and all(c.what == "schedule row changed" for c in s.changes)
+    assert s.changes[0].old.startswith("VAV-1 401") and s.changes[0].new.startswith("VAV-1 501")
+
+
+# ---- the governing pages (review findings 1, 2 and 6) -----------------------------------------
+
+def test_the_governing_pages_take_each_sheet_number_from_one_document():
+    from estimator.reading.revisions import governing_pages
+
+    early = _table(("3", "ISSUED FOR BID", "02/12/25"))
+    late = _table(("4", "ADDENDUM #1", "02/26/25"), ("3", "ISSUED FOR BID", "02/12/25"))
+    catalogue = _catalogue((BASE, 1, "M-201", "OLD M-201", early), (BASE, 2, "M-202", "ONLY IN BASE", early),
+                           (ADDENDUM, 1, "M-201", "NEW M-201", late), kinds={ADDENDUM: "addendum"})
+    supersessions, _ = supersede(catalogue, sheet_versions(catalogue))
+    assert governing_pages(catalogue, supersessions) == {(ADDENDUM, 1), (BASE, 2)}
+
+
+def test_the_governing_pages_skip_a_marked_up_copy_and_repeats_inside_one_document():
+    from estimator.reading.revisions import governing_pages
+
+    marked = "2. Takeoffs/1. Base Takeoff/Marked_Mech.pdf"
+    pages = [(marked, n, number, f"PLAN {number} MARKED", ()) for n, number in enumerate(("M-201", "M-202", "M-203"), 1)]
+    pages += [(BASE, n, number, f"PLAN {number}", ()) for n, number in enumerate(("M-201", "M-202", "M-203", "M-204"), 1)]
+    pages += [(BASE, 5, "M-204", "PLAN M-204", ()),               # the same page again: read once
+              (BASE, 6, "M-204", "PLAN M-204 PART 2", ()),        # the same number, other text: read too
+              (BASE, 7, "M-110", "TYPICAL FLOOR 10", ()), (BASE, 8, "M-110", "TYPICAL FLOOR 11", ())]
+    catalogue = _catalogue(*pages)
+    assert governing_pages(catalogue, (), typicals=["M-110"]) == {
+        (BASE, 1), (BASE, 2), (BASE, 3), (BASE, 4), (BASE, 6), (BASE, 7)}

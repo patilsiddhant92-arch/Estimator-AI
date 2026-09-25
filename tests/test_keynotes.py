@@ -109,3 +109,61 @@ def test_no_heading_on_the_page_gives_no_notes():
     sheet = _sheet("M-205")
     notes = read_notes(_catalogue([page], [sheet]))
     assert notes == []
+
+
+# ---- where the last note of a block ends (review finding 4) ------------------------------------
+
+def test_a_note_ends_at_a_blank_line():
+    text = "KEY NOTES:\n1. PROVIDE A DAMPER ACTUATOR\nON THE OUTSIDE AIR DAMPER.\n\nROOM 101\nCORRIDOR\n"
+    [note] = read_notes(_catalogue([_page(text)], [_sheet("M-201")]))
+    assert note.text == "PROVIDE A DAMPER ACTUATOR ON THE OUTSIDE AIR DAMPER."
+
+
+def test_a_note_ends_at_any_heading():
+    text = "KEY NOTES:\n1. PROVIDE A DAMPER ACTUATOR.\nDEMOLITION LEGEND:\nEXISTING TO BE REMOVED\n"
+    [note] = read_notes(_catalogue([_page(text)], [_sheet("M-201")]))
+    assert note.text == "PROVIDE A DAMPER ACTUATOR."
+
+
+def test_a_note_ends_where_the_title_block_starts():
+    from estimator.catalogue.pdf import Span
+
+    text = ("KEY NOTES:\n1. PROVIDE A DAMPER ACTUATOR.\nACME ENGINEERING GROUP\n123 MAIN STREET\n"
+            "SECOND FLOOR PLAN\n")
+    strip = tuple(Span(t, 10, 0.85, 0.85 + i * 0.02, 0.95, 0.86 + i * 0.02)
+                  for i, t in enumerate(("ACME ENGINEERING GROUP", "123 MAIN STREET", "SECOND FLOOR PLAN")))
+    page = PageRecord(DOC, 1, "text", text, 0, True, strip)
+    [note] = read_notes(_catalogue([page], [_sheet("M-201")]))
+    assert note.text == "PROVIDE A DAMPER ACTUATOR."
+
+
+def test_a_notes_block_set_in_the_title_block_strip_is_still_read():
+    from estimator.catalogue.pdf import Span
+
+    text = "KEY NOTES:\n1. PROVIDE A DAMPER ACTUATOR\nON THE OUTSIDE AIR DAMPER.\n"
+    strip = tuple(Span(t, 10, 0.85, 0.3 + i * 0.02, 0.95, 0.31 + i * 0.02)
+                  for i, t in enumerate(("KEY NOTES:", "1. PROVIDE A DAMPER ACTUATOR", "ON THE OUTSIDE AIR DAMPER.")))
+    page = PageRecord(DOC, 1, "text", text, 0, True, strip)
+    [note] = read_notes(_catalogue([page], [_sheet("M-201")]))
+    assert note.text == "PROVIDE A DAMPER ACTUATOR ON THE OUTSIDE AIR DAMPER."
+
+
+def test_a_note_longer_than_600_characters_is_cut_and_says_so():
+    long = " ".join(["PROVIDE CONTROL WIRING TO EACH DAMPER ACTUATOR"] * 30)
+    [note] = read_notes(_catalogue([_page(f"KEY NOTES:\n1. {long}\n")], [_sheet("M-201")]))
+    assert note.text.endswith(" …") and len(note.text) <= 602
+    assert note.text.startswith("PROVIDE CONTROL WIRING")
+
+
+def test_the_sixtieth_note_ends_where_the_sixty_first_starts():
+    lines = "".join(f"{n}. NOTE NUMBER {n}.\n" for n in range(1, 71))
+    notes = read_notes(_catalogue([_page(f"KEY NOTES:\n{lines}")], [_sheet("M-201")]))
+    assert len(notes) == 60
+    assert notes[-1].number == "60" and notes[-1].text == "NOTE NUMBER 60."
+
+
+def test_only_the_pages_given_are_read():
+    text = "KEY NOTES:\n1. PROVIDE A DAMPER ACTUATOR.\n"
+    pages = [_page(text, page=1), _page(text, page=2)]
+    notes = read_notes(_catalogue(pages, [_sheet("M-201", page=1), _sheet("M-201", page=2)]), pages={(DOC, 2)})
+    assert [n.page for n in notes] == [2]

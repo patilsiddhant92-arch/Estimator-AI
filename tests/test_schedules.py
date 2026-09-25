@@ -223,3 +223,23 @@ def test_only_controls_disciplines_and_schedule_sheets_are_read(tmp_path):
     catalogue, opener = catalogue_for(tmp_path, ((), ((200, 200, "MECHANICAL FLOOR PLAN - SEE SCHEDULE ON M-601", 10),)),
                                       title="FLOOR PLAN", types=("Plans",))
     assert read_schedules(catalogue, opener) == []
+
+
+def test_a_page_that_cannot_be_read_is_skipped_and_flagged(tmp_path):
+    """One bad page never stops the run: it is skipped and said in plain words (review finding 5)."""
+    catalogue, opener = catalogue_for(tmp_path, vav_page(), vav_page())
+
+    def flaky(document, page):
+        if page == 1:
+            raise RuntimeError("find_tables failed")
+        return opener(document, page)
+
+    flags: list[str] = []
+    [schedule] = read_schedules(catalogue, flaky, flags=flags)
+    assert schedule.page == 2
+    assert flags == ["M-601 (Mech.pdf page 1) could not be read for schedules — find_tables failed; check it by hand"]
+
+
+def test_only_the_pages_given_are_read(tmp_path):
+    catalogue, opener = catalogue_for(tmp_path, vav_page(), vav_page())
+    assert [s.page for s in read_schedules(catalogue, opener, pages={(DOC, 2)})] == [2]

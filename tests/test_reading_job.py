@@ -1,4 +1,6 @@
 """The whole reading of a job, wired together (build step 4, Task 6)."""
+from pathlib import Path
+
 import pymupdf
 import pytest
 
@@ -81,3 +83,66 @@ def test_a_cache_file_cut_short_is_read_again(job, tmp_path):
     for path in cache.glob("reading-v*.json"):
         path.write_text('{"shape": ', encoding="utf-8")
     assert read_job(catalogue, cache_dir=cache) == first
+
+
+# ---- review fixes: governing pages, a bad page, the cache key ----------------------------------
+
+def test_a_sheet_in_the_base_set_and_an_addendum_is_read_once(job, tmp_path):
+    """The addendum reissues M-201 and M-601; the devices and schedules are read from it alone."""
+    addendum = job / "2. Takeoffs" / "2. Addendum 1"
+    make_pdf(addendum / "Addendum 1 Mech.pdf", _schedule_sheet(), PLAN)
+    catalogue = catalogue_job(job, tmp_path / "cache")
+    reading = read_job(catalogue)
+    assert {(d.label, d.total) for d in reading.devices} == {("T", 2), ("OCC", 1)}
+    assert [(t.prefix, t.scheduled) for t in reading.totals] == [("VAV", 3)]
+    assert len(reading.schedules) == 1
+    assert sum(1 for n in reading.notes if "STATIC PRESSURE SENSOR" in n.text) == 1
+
+
+def test_one_page_that_cannot_be_read_never_stops_the_run(job, tmp_path):
+    catalogue = catalogue_job(job, tmp_path / "cache")
+    real = pymupdf.open(str(job / "2. Takeoffs" / "1. Base Takeoff" / "Mech.pdf"))
+
+    def flaky(document, page):
+        if page == 1:
+            raise RuntimeError("broken page")
+        return real[page - 1]
+
+    reading = read_job(catalogue, page_opener=flaky)
+    real.close()
+    assert reading.schedules == ()
+    assert {(d.label, d.total) for d in reading.devices} == {("T", 2), ("OCC", 1)}
+    assert "M-601 (Mech.pdf page 1) could not be read for schedules — broken page; check it by hand" in reading.flags
+
+
+def test_a_document_that_will_not_open_is_flagged_not_raised(job, tmp_path):
+    from estimator.reading.pages import PageOpener
+
+    catalogue = catalogue_job(job, tmp_path / "cache")
+    opener = PageOpener(catalogue)
+    opener._paths = {name: tmp_path / "gone.pdf" for name in opener._paths}
+    reading = read_job(catalogue, page_opener=opener)
+    assert reading.devices == () and reading.schedules == ()
+    assert any(f.startswith("M-601 (Mech.pdf page 1) could not be read for schedules — the document would not open")
+               for f in reading.flags)
+
+
+def test_the_cache_file_names_carry_the_pymupdf_version(job, tmp_path):
+    cache = tmp_path / "cache"
+    read_job(catalogue_job(job, cache), cache_dir=cache)
+    names = [p.name for p in cache.glob("reading-v*.json")]
+    assert names and all(f"-pymupdf{pymupdf.VersionBind}-" in n for n in names)
+    assert not list(cache.glob("*.tmp"))
+
+
+def test_a_cache_file_is_written_under_a_name_no_other_run_uses(tmp_path, monkeypatch):
+    import os
+
+    from estimator.reading import pages
+
+    moved = []
+    real_replace = os.replace
+    monkeypatch.setattr(pages.os, "replace", lambda src, dst: moved.append(Path(src).name) or real_replace(src, dst))
+    pages._store(tmp_path / "x.json", {"shape": {}, "data": 1})
+    pages._store(tmp_path / "x.json", {"shape": {}, "data": 2})
+    assert len(set(moved)) == 2 and all(f".{os.getpid()}-" in name and name.endswith(".tmp") for name in moved)

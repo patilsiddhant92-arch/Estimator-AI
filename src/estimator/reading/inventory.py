@@ -18,14 +18,15 @@ COUNTED = ("CONFIRMED", "MISSING", "DISCREPANCY")
 
 @dataclass(frozen=True)
 class InventoryItem:
-    tag: str
-    kind: str                  # from equipment.json
+    tag: str                   # the unit's tag; on a TYPE ONLY row, "Type-only: " and the schedule's title
+    kind: str                  # from equipment.json; "" on a TYPE ONLY row
     category: str              # CONFIRMED | DISCREPANCY | EXTRA | MISSING | ORPHANED | EXISTING | TYPE ONLY | PENDING
     quantity: int | None       # 1 per scheduled tag; None when it can't be counted yet
     schedule: str | None       # "M-601 VAV BOX SCHEDULE"
     seen_on: tuple[str, ...]   # other sheets it appears on (from TagEntry.elsewhere)
     reason: str                # plain words
     action: str                # "" | "confirm" | "include pending" | "exclude pending"
+    types: tuple[str, ...] = ()   # a TYPE ONLY row's type codes ("CD", "EG"); empty on every other row
 
 
 @dataclass(frozen=True)
@@ -89,19 +90,34 @@ def compact_tags(tags) -> str:
     return ", ".join(parts)
 
 
-def _one_copy_per_sheet(schedules: list[Schedule]) -> list[Schedule]:
-    """A sheet number read from two documents (a marked-up copy of the same set) is read once:
-    its schedules come from the first page that carries it."""
-    first: dict[str, tuple[str, int]] = {}
+def _one_copy_per_sheet(schedules: list[Schedule], flags: list[str] | None = None) -> list[Schedule]:
+    """A sheet number read from two documents (a marked-up copy of the same set, an older issue) is
+    read once: its schedules come from the first document that carries it. Every page of that
+    document with the number is kept — a schedule sheet can run onto a second page. Each sheet
+    whose schedules are dropped is said in `flags`."""
+    first: dict[str, str] = {}
     for s in schedules:
         if s.sheet:
-            first.setdefault(s.sheet, (s.document, s.page))
-    return [s for s in schedules if not s.sheet or first[s.sheet] == (s.document, s.page)]
+            first.setdefault(s.sheet, s.document)
+    kept: list[Schedule] = []
+    dropped: dict[tuple[str, str], int] = defaultdict(int)
+    for s in schedules:
+        if not s.sheet or first[s.sheet] == s.document:
+            kept.append(s)
+        else:
+            dropped[(s.sheet, s.document)] += 1
+    if flags is not None:
+        for (sheet, document), n in dropped.items():
+            what = "1 schedule" if n == 1 else f"{n} schedules"
+            flags.append(f"{what} on {sheet} in {_name(document)} not counted — the same sheet was read from "
+                         f"{_name(first[sheet])}")
+    return kept
 
 
 def build_inventory(catalogue, schedules: list[Schedule]) -> tuple[list[InventoryItem], list[FamilyTotal], list[str]]:
     equipment = Equipment.load()
-    schedules = _one_copy_per_sheet(list(schedules))
+    dropped: list[str] = []
+    schedules = _one_copy_per_sheet(list(schedules), dropped)
     entries = {t.tag: t for t in catalogue.tags}
 
     def kind_of(tag: str) -> str:
@@ -185,16 +201,16 @@ def build_inventory(catalogue, schedules: list[Schedule]) -> tuple[list[Inventor
         key = schedule.headers[0] if schedule.headers else ""
         codes = list(dict.fromkeys(row.cells.get(key, "") for row in schedule.rows if row.cells.get(key)))
         shown = ", ".join(codes[:8]) + (" …" if len(codes) > 8 else "")
-        items.append(InventoryItem(shown or schedule.title, schedule.title, "TYPE ONLY", None, _label(schedule), (),
+        items.append(InventoryItem(f"Type-only: {schedule.title}", "", "TYPE ONLY", None, _label(schedule), (),
                                    f"Type-only schedule ({len(codes)} types: {shown}) — no unit tags, so count them "
-                                   f"on the plans; no count yet", "confirm"))
+                                   f"on the plans; no count yet", "confirm", tuple(codes)))
 
     totals = _totals(items, schedules, equipment)
     counts = {t.prefix: t.scheduled for t in totals}
     pairs = [f"check the pairing: {counts[a]} {a}, {counts[b]} {b} — one outdoor unit can serve several indoor "
              f"units, so this may be right" for a, b in vocabulary().pairs
              if counts.get(a) and counts.get(b) and counts[a] != counts[b]]
-    return items, totals, pairs
+    return items, totals, pairs + dropped
 
 
 def _totals(items: list[InventoryItem], schedules: list[Schedule], equipment: Equipment) -> list[FamilyTotal]:

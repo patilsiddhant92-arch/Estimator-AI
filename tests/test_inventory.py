@@ -91,6 +91,24 @@ def test_the_same_sheet_in_a_marked_up_copy_is_read_once():
     assert [i.category for i in items] == ["CONFIRMED"]
 
 
+def test_a_copy_in_another_document_is_dropped_and_said():
+    tags = [TagEntry("VAV-1", "Variable Air Volume Box", ("M-601",), ("M-101",), 3)]
+    original = schedule("VAV BOX SCHEDULE", row("VAV-1"))
+    copy = Schedule("Marked_Mech.pdf", 1, "M-601", "VAV BOX SCHEDULE", ("TAG",), (row("VAV-1"),), False, (), ())
+    _, _, flags = build_inventory(catalogue_with(tags), [original, copy])
+    assert flags == ["1 schedule on M-601 in Marked_Mech.pdf not counted — the same sheet was read from Mech.pdf"]
+
+
+def test_a_later_page_with_the_same_number_in_one_document_is_still_read():
+    """A schedule sheet that runs onto a second page under the same number is not a copy."""
+    tags = [TagEntry(t, "Variable Air Volume Box", ("M-601",), ("M-101",), 2) for t in ("VAV-1", "VAV-2")]
+    first = schedule("VAV BOX SCHEDULE", row("VAV-1"), page=1)
+    second = schedule("VAV BOX SCHEDULE (CONTINUED)", row("VAV-2"), page=5)
+    items, totals, flags = build_inventory(catalogue_with(tags), [first, second])
+    assert [(i.tag, i.category) for i in items] == [("VAV-1", "CONFIRMED"), ("VAV-2", "CONFIRMED")]
+    assert totals[0].scheduled == 2 and flags == []
+
+
 def test_a_scheduled_tag_the_tag_index_never_saw_is_missing():
     items, totals, _ = build_inventory(catalogue_with([]), [schedule("VAV BOX SCHEDULE", row("VAV-1"), row("VAV-2"))])
     assert [(i.tag, i.category) for i in items] == [("VAV-1", "MISSING"), ("VAV-2", "MISSING")]
@@ -112,7 +130,8 @@ def test_a_type_only_schedule_is_counted_on_the_plans():
     items, totals, _ = build_inventory(catalogue_with([]), [diffusers])
     [item] = items
     assert item.category == "TYPE ONLY" and item.quantity is None and item.action == "confirm"
-    assert item.kind == "DIFFUSER SCHEDULE" and "CD, EG" in item.tag
+    assert item.tag == "Type-only: DIFFUSER SCHEDULE" and item.kind == "" and item.types == ("CD", "EG")
+    assert item.schedule == "M-601 DIFFUSER SCHEDULE"
     assert "count them on the plans" in item.reason
 
 

@@ -279,3 +279,15 @@ def test_bundles_come_in_the_proposal_order():
                  _schedule("M-602", 6, "CHILLERS", ["CH-1"])]
     keys = [b.key for b in build_bundles(*_job(items, schedules))]
     assert keys == ["VAV", "EF", "Chilled Water System"]
+
+
+def test_a_type_only_row_makes_no_system_and_no_flag():
+    """A TYPE ONLY row holds the schedule's title as its tag and its type codes in `types`;
+    grouping skips it by its category."""
+    type_only = InventoryItem("Type-only: DIFFUSER SCHEDULE", "", "TYPE ONLY", None, "M-601 DIFFUSER SCHEDULE", (),
+                              "Type-only schedule (2 types: CD, EG)", "confirm", ("CD", "EG"))
+    items = [_item("VAV-1"), type_only]
+    schedules = [_schedule("M-601", 5, "VAV BOX SCHEDULE", ["VAV-1"])]
+    catalogue, reading = _job(items, schedules, tags=[_tag("VAV-1")])
+    assert [b.key for b in build_bundles(catalogue, reading)] == ["VAV"]
+    assert unbundled_flags(reading) == []

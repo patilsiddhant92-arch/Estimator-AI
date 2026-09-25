@@ -11,7 +11,10 @@ OCC is that trade's own.
 
 A typical plan stands for several floors. Its title names the range ("10TH-16TH ... TYPICAL"),
 and each label on it counts once per floor in that range. A set often repeats such a sheet
-on one page per floor with identical text; that is still one sheet, counted once.
+on one page per floor; that is still one sheet, counted on its first page only.
+
+Each sheet number is counted once across the whole set: from the document that governs it
+(`revisions.governing_pages`), never again from an addendum's older copy or a marked-up copy.
 """
 from __future__ import annotations
 
@@ -19,7 +22,7 @@ import json
 import re
 from bisect import bisect_left, bisect_right
 from collections import defaultdict
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Collection, Sequence
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
@@ -30,6 +33,8 @@ from estimator.catalogue.job import CONTROLS_DISCIPLINES
 from estimator.catalogue.pdf import clean_text
 from estimator.catalogue.register import EDGE
 from estimator.catalogue.sheet_types import SHEET_TYPES
+from estimator.reading.pages import unreadable_page
+from estimator.reading.revisions import governing_pages
 
 ASSETS = Path(__file__).resolve().parents[3] / "assets"
 DEVICES = ASSETS / "reading_lists" / "devices.json"
@@ -191,25 +196,28 @@ def _legend_entries(words: list[_Word], sheet: str | None, reading: DeviceList) 
     return entries
 
 
-def read_legend(catalogue, page_opener: PageOpener, reading: DeviceList | None = None) -> list[LegendEntry]:
-    """Every code a legend sheet explains (a notes-and-legends sheet with LEGEND or SYMBOL in its title)."""
+def read_legend(catalogue, page_opener: PageOpener, reading: DeviceList | None = None,
+                flags: list[str] | None = None) -> list[LegendEntry]:
+    """Every code a legend sheet explains (a notes-and-legends sheet with LEGEND or SYMBOL in its title).
+    A legend page that can't be read is skipped, with a line added to `flags`."""
     reading = reading or _default_list()
     found: dict[tuple[str, str, str | None], LegendEntry] = {}
     for sheet in catalogue.sheets:
         if not _is_legend(sheet, reading):
             continue
         # The whole sheet is read, title-block strip included: a legend often runs down into it.
-        words = _words(page_opener(sheet.document, sheet.page))
+        try:
+            words = _words(page_opener(sheet.document, sheet.page))
+        except Exception as error:
+            if flags is not None:
+                flags.append(unreadable_page(sheet.number, sheet.document, sheet.page, "the legend", error))
+            continue
         for entry in _legend_entries(words, sheet.number, reading):
             found.setdefault((entry.code, entry.meaning, entry.sheet), entry)
     return list(found.values())
 
 
 # ---- typical floors ---------------------------------------------------------------------------
-
-def _pages_of(catalogue) -> dict[tuple[str, int], str]:
-    return {(p.document, p.page): p.text for p in catalogue.pages}
-
 
 def typical_sheets(catalogue, reading: DeviceList | None = None) -> list[TypicalSheet]:
     """Plans whose title names a floor range and says TYPICAL. A sheet repeated on several pages
@@ -250,34 +258,38 @@ def _plural(n: int, word: str) -> str:
 
 
 def count_devices(catalogue, page_opener: PageOpener, legend: Sequence[LegendEntry],
-                  typicals: Sequence[TypicalSheet], reading: DeviceList | None = None
-                  ) -> tuple[list[DeviceCount], list[str]]:
+                  typicals: Sequence[TypicalSheet], reading: DeviceList | None = None,
+                  pages: Collection[tuple[str, int]] | None = None) -> tuple[list[DeviceCount], list[str]]:
     """Each device label on each plan sheet, with its typical-floor multiplier, and the flags: a label
-    the job's legend doesn't define, or no labels on any plan at all."""
+    the job's legend doesn't define, a page that couldn't be read, or no labels on any plan at all.
+
+    Only `pages` are read — by default the governing pages (`revisions.governing_pages`): each
+    sheet number from one document only, a typical sheet on its first page only."""
     reading = reading or _default_list()
+    if pages is None:
+        pages = governing_pages(catalogue, (), [t.sheet for t in typicals])
     meanings: dict[str, str] = {}
     for entry in legend:
         meanings.setdefault(entry.code, entry.meaning)
     floors_of = {(t.sheet, t.title): len(t.floors) for t in typicals}
-    texts = _pages_of(catalogue)
-    seen: set[tuple[str, str | None, str]] = set()
     counts: list[DeviceCount] = []
+    flags: list[str] = []
     searched = 0
     for sheet in catalogue.sheets:
         if not _is_plan(sheet, reading) or _is_legend(sheet, reading):
             continue
         if sheet.discipline not in CONTROLS_DISCIPLINES:
             continue    # an architectural or electrical plan's labels are its own trade's, not controls devices
-        if sheet.number:
-            # The same sheet on several pages of one document with identical text (a typical plan
-            # printed once per floor) is one sheet.
-            copy = (sheet.document, sheet.number, texts.get((sheet.document, sheet.page), ""))
-            if copy in seen:
-                continue
-            seen.add(copy)
+        if (sheet.document, sheet.page) not in pages:
+            continue    # another copy of a sheet counted elsewhere: the governing one, or a typical's first page
+        try:
+            words = _words(page_opener(sheet.document, sheet.page))
+        except Exception as error:
+            flags.append(unreadable_page(sheet.number, sheet.document, sheet.page, "devices", error))
+            continue
         searched += 1
         tally: dict[str, int] = defaultdict(int)
-        for word in _words(page_opener(sheet.document, sheet.page)):
+        for word in words:
             if not word.edge and word.text in reading.labels:
                 tally[word.text] += 1
         floors = floors_of.get((sheet.number, sheet.title), 1)
@@ -287,7 +299,6 @@ def count_devices(catalogue, page_opener: PageOpener, legend: Sequence[LegendEnt
                 device = meanings[label].capitalize()
             counts.append(DeviceCount(sheet.number, sheet.document, sheet.page, device, label, tally[label],
                                       floors, tally[label] * floors, label in meanings))
-    flags: list[str] = []
     if legend:
         missing: dict[str, list[str]] = defaultdict(list)
         for count in counts:

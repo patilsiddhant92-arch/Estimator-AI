@@ -17,9 +17,9 @@ from __future__ import annotations
 import json
 import re
 from collections import defaultdict
-from collections.abc import Sequence
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, timedelta
 from functools import lru_cache
 from pathlib import Path
 
@@ -122,26 +122,34 @@ def _natural(text: str) -> list:
 
 # ---- dates -------------------------------------------------------------------------------------
 
-def _date_match(text: str, reading: Revisions) -> tuple[re.Match, date] | None:
-    """The first real date in the text, in any of the reading list's forms."""
+def _date_match(text: str, reading: Revisions, today: date | None = None) -> tuple[re.Match, date] | None:
+    """The first real date in the text, in any of the reading list's forms. A two-digit year past
+    next year is last century's ("95" is 1995), and a date more than a year after today is not an
+    issue date at all and is passed over."""
+    today = today or date.today()
+    latest = today + timedelta(days=366)
     for pattern, order in reading.dates:
         for match in pattern.finditer(text):
             parts = dict(zip(order, match.groups()))
             month = parts["m"]
             month = reading.months.index(month[:3].upper()) + 1 if month.isalpha() else int(month)
             year = int(parts["y"])
-            year = year + 2000 if year < 100 else year
+            if year < 100:
+                year = year + 2000 if year + 2000 <= today.year + 1 else year + 1900
             if not 1990 <= year <= 2099:
                 continue
             try:
-                return match, date(year, month, int(parts["d"]))
+                when = date(year, month, int(parts["d"]))
             except ValueError:
                 continue
+            if when > latest:
+                continue
+            return match, when
     return None
 
 
-def parse_date(text: str, reading: Revisions | None = None) -> date | None:
-    found = _date_match(clean_text(text), reading or Revisions.load())
+def parse_date(text: str, reading: Revisions | None = None, today: date | None = None) -> date | None:
+    found = _date_match(clean_text(text), reading or Revisions.load(), today)
     return found[1] if found else None
 
 
@@ -265,6 +273,12 @@ class _Content:
     tags: tuple[str, ...]
     lines: tuple[str, ...]
     schedule: bool
+    tag_set: frozenset[str] = frozenset()
+    line_set: frozenset[str] = frozenset()
+
+    def same_as(self, other: "_Content") -> bool:
+        """No change between the two: the same tags and the same note lines."""
+        return self.tag_set == other.tag_set and self.line_set == other.line_set
 
 
 def _content(record: PageRecord | None, schedule: bool, exclude: frozenset[str], reading: Revisions) -> _Content:
@@ -276,26 +290,38 @@ def _content(record: PageRecord | None, schedule: bool, exclude: frozenset[str],
     lines = (_squash(line) for line in text.splitlines())
     kept = tuple(dict.fromkeys(line for line in lines
                                if len(line) >= reading.min_line_chars and line not in title_block))
-    return _Content(tags, kept, schedule)
+    return _Content(tags, kept, schedule, frozenset(tags), frozenset(kept))
 
 
 def _changes(sheet: str, new: _Content, old: _Content, reading: Revisions) -> list[Change]:
     equipment = _equipment()
 
     # Every unit needs controls: a unit that comes or goes always changes the controls scope.
-    changes = [Change(sheet, "tag added", "", t, True) for t in new.tags if t not in old.tags]
-    changes += [Change(sheet, "tag removed", t, "", True) for t in old.tags if t not in new.tags]
-    added = [line for line in new.lines if line not in old.lines]
-    removed = [line for line in old.lines if line not in new.lines]
-    if new.schedule:
-        for line in list(removed):
+    changes = [Change(sheet, "tag added", "", t, True) for t in new.tags if t not in old.tag_set]
+    changes += [Change(sheet, "tag removed", t, "", True) for t in old.tags if t not in new.tag_set]
+    added = [line for line in new.lines if line not in old.line_set]
+    removed = [line for line in old.lines if line not in new.line_set]
+    if new.schedule and added and removed:
+        # Each line's first tag is looked up once; a removed row pairs with the first added row
+        # that starts with the same tag.
+        waiting: dict[str, list[str]] = defaultdict(list)
+        for line in added:
             first = find_tags(line, equipment)[:1]
-            partner = next((a for a in added if first and find_tags(a, equipment)[:1] == first), None)
-            if partner is not None:
-                removed.remove(line)
-                added.remove(partner)
-                changes.append(Change(sheet, "schedule row changed", line, partner,
-                                      reading.is_controls(line) or reading.is_controls(partner)))
+            if first:
+                waiting[first[0]].append(line)
+        paired: set[str] = set()
+        unpaired: list[str] = []
+        for line in removed:
+            first = find_tags(line, equipment)[:1]
+            partner = waiting[first[0]].pop(0) if first and waiting.get(first[0]) else None
+            if partner is None:
+                unpaired.append(line)
+                continue
+            paired.add(partner)
+            changes.append(Change(sheet, "schedule row changed", line, partner,
+                                  reading.is_controls(line) or reading.is_controls(partner)))
+        removed = unpaired
+        added = [line for line in added if line not in paired]
     changes += [Change(sheet, "note added", "", line, reading.is_controls(line)) for line in added]
     changes += [Change(sheet, "note removed", line, "", reading.is_controls(line)) for line in removed]
     return changes
@@ -360,10 +386,13 @@ def supersede(catalogue, versions: Sequence[SheetVersion],
         in_documents = list(by_sheet[sheet].values())
         if len(in_documents) < 2:
             continue
+        rivals = [v for v in in_documents if (v.sheet, v.document) not in copies]
+        if len(rivals) < 2 and _governing(in_documents, kinds) is None:
+            continue    # the only rival is a marked-up copy of the same set: nothing to decide
         distinct: list[SheetVersion] = []
         for version in in_documents:
             # The same text at the same issue (a marked-up copy of the set) is one version, not two.
-            if not any(not _changes(sheet, content(version), content(kept), reading)
+            if not any(content(version).same_as(content(kept))
                        and (version.latest is None or kept.latest is None or version.latest == kept.latest)
                        for kept in distinct):
                 distinct.append(version)
@@ -371,13 +400,15 @@ def supersede(catalogue, versions: Sequence[SheetVersion],
             continue
         current = _governing(distinct, kinds)
         if current is None and len([v for v in distinct if (v.sheet, v.document) not in copies]) < 2:
-            continue    # the only rival is a marked-up copy of the same set: nothing to decide
+            continue
         if current is None:
             count = _COUNT_WORDS.get(len(distinct), str(len(distinct)))
             dates = {v.latest for v in distinct}
             why = (f"the same date ({_short(next(iter(dates)))})" if len(dates) == 1 and None not in dates
                    else "no dates to order them")
-            flags.append(f"Sheet {sheet} is in {count} documents with {why} — check which governs")
+            meanwhile = rivals[0].document.rsplit("/", 1)[-1]
+            flags.append(f"Sheet {sheet} is in {count} documents with {why} — check which governs; "
+                         f"counted from {meanwhile} for now")
             continue
         replaced = sorted((v for v in distinct if v is not current),
                           key=lambda v: (v.latest or date.min, kinds.get(v.document) == "addendum", v.document))
@@ -386,3 +417,37 @@ def supersede(catalogue, versions: Sequence[SheetVersion],
         supersessions.append(Supersession(sheet, current, tuple(replaced), changes,
                                           _note(sheet, current, replaced, changes)))
     return supersessions, flags
+
+
+def governing_pages(catalogue, supersessions: Sequence[Supersession] = (),
+                    typicals: Iterable[str | None] = ()) -> frozenset[tuple[str, int]]:
+    """The drawing pages the readers read, as (document, page): every page with no sheet number,
+    and for each sheet number the pages of the one document that governs it — the later issue
+    when a supersession decided it, else the first document that carries it and isn't a marked-up
+    copy of another (`repeats`). Inside that document a page repeated with the same text is read
+    once, and a typical sheet (one plan standing for several floors) only on its first page."""
+    copies = {(_sheet_number(number), document) for number, document in repeats(catalogue)[1]}
+    current = {s.sheet: s.current.document for s in supersessions}
+    typical = {_sheet_number(t) for t in typicals if t}
+    texts = {(p.document, p.page): p.text for p in catalogue.pages}
+    keep: set[tuple[str, int]] = set()
+    by_number: dict[str, list] = defaultdict(list)
+    for sheet in catalogue.sheets:
+        if sheet.number:
+            by_number[_sheet_number(sheet.number)].append(sheet)
+        else:
+            keep.add((sheet.document, sheet.page))
+    for number, sheets in by_number.items():
+        documents = list(dict.fromkeys(s.document for s in sheets))
+        governing = current.get(number) or next((d for d in documents if (number, d) not in copies), documents[0])
+        own = [s for s in sheets if s.document == governing]
+        if number in typical:
+            own = own[:1]
+        read: set[str] = set()
+        for sheet in own:
+            text = texts.get((sheet.document, sheet.page), "")
+            if text in read:
+                continue
+            read.add(text)
+            keep.add((sheet.document, sheet.page))
+    return frozenset(keep)

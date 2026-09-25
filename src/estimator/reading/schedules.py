@@ -11,7 +11,7 @@ from __future__ import annotations
 import bisect
 import json
 import re
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Collection, Iterable
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
@@ -21,6 +21,7 @@ import pymupdf
 from estimator.catalogue.job import CONTROLS_DISCIPLINES
 from estimator.catalogue.pdf import clean_text
 from estimator.catalogue.tags import Equipment, find_tags
+from estimator.reading.pages import unreadable_page
 
 ASSETS = Path(__file__).resolve().parents[3] / "assets"
 SCHEDULES = ASSETS / "reading_lists" / "schedules.json"
@@ -463,19 +464,29 @@ def _is_schedule_sheet(sheet, text: str, vocab: Vocabulary) -> bool:
     return bool(vocab.schedule_text.search(text) and vocab.header_line.search(text))
 
 
-def read_schedules(catalogue, page_opener: PageOpener) -> list[Schedule]:
-    """Every schedule on the drawing sheets that can carry controls scope, in page order."""
+def read_schedules(catalogue, page_opener: PageOpener, pages: Collection[tuple[str, int]] | None = None,
+                   flags: list[str] | None = None) -> list[Schedule]:
+    """Every schedule on the drawing sheets that can carry controls scope, in page order. With
+    `pages`, only those pages are read (the governing ones). A page that can't be read is skipped,
+    with a line added to `flags`; the rest of the job is still read."""
     vocab = vocabulary()
     equipment = Equipment.load()
     records = {(p.document, p.page): p for p in catalogue.pages}
     schedules: list[Schedule] = []
     for sheet in catalogue.sheets:
+        if pages is not None and (sheet.document, sheet.page) not in pages:
+            continue
         record = records.get((sheet.document, sheet.page))
         if record is None or record.status != "text" or sheet.discipline not in CONTROLS_DISCIPLINES:
             continue
         if not _is_schedule_sheet(sheet, clean_text(record.text), vocab):
             continue
-        page = page_opener(sheet.document, sheet.page)
-        found = read_page(page, (sheet.document, sheet.page, sheet.number), vocab, equipment)
+        try:
+            page = page_opener(sheet.document, sheet.page)
+            found = read_page(page, (sheet.document, sheet.page, sheet.number), vocab, equipment)
+        except Exception as error:
+            if flags is not None:
+                flags.append(unreadable_page(sheet.number, sheet.document, sheet.page, "schedules", error))
+            continue
         schedules += [s for s in found if not vocab.not_schedules.search(s.title)]
     return schedules

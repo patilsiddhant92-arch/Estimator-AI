@@ -3,9 +3,13 @@
 Finding a sheet's tables (`page.find_tables()`) and its words (`page.get_text("words")`) takes
 minutes on a big job. Both are kept, page by page, in the cache folder the page register uses,
 so a second read of the same job opens no PDF at all. A page's cache file is keyed by its
-document's content hash and a version number: an edited document, or a new way of reading,
-is read again, never answered from a stale file. Each file is written whole, then moved into
-place, so an interrupted run never leaves half a file behind.
+document's content hash, a version number and the pymupdf version: an edited document, a new
+way of reading, or a new pymupdf is read again, never answered from a stale file. Each file is
+written whole under a name no other run uses, then moved into place, so an interrupted run
+never leaves half a file behind and two runs never write into each other's.
+
+A page that can't be read (a document that won't open, a page pymupdf chokes on) raises; the
+readers catch it, skip that page, and say so with `unreadable_page`.
 
 `PageOpener(catalogue, cache_dir)` is called as `opener(document, page)` — the page opener the
 schedules and devices readers take. What it returns behaves like a pymupdf page for what they
@@ -16,6 +20,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import secrets
 from dataclasses import dataclass
 from pathlib import Path
 from types import SimpleNamespace
@@ -23,6 +28,18 @@ from types import SimpleNamespace
 import pymupdf
 
 CACHE_VERSION = 1     # raise it whenever what is kept, or how it is read, changes
+_PYMUPDF = "".join(ch for ch in str(getattr(pymupdf, "VersionBind", "") or getattr(pymupdf, "__version__", ""))
+                   if ch.isalnum() or ch == ".") or "unknown"
+
+
+def unreadable_page(sheet: str | None, document: str, page: int, what: str, error: BaseException) -> str:
+    """The flag for one page a reader had to skip, in plain words."""
+    name = document.rsplit("/", 1)[-1]
+    where = f"{sheet} ({name} page {page})" if sheet else f"{name} page {page}"
+    reason = " ".join(str(error).split()) or type(error).__name__
+    if len(reason) > 120:
+        reason = reason[:119] + "…"
+    return f"{where} could not be read for {what} — {reason}; check it by hand"
 
 
 @dataclass(frozen=True)
@@ -134,6 +151,7 @@ class PageOpener:
         self._paths = {d.relative: Path(d.path) for d in catalogue.job.documents}
         self._cache_dir = Path(cache_dir) if cache_dir is not None else None
         self._open: dict[str, pymupdf.Document] = {}
+        self._failed: dict[str, str] = {}
         self._digests: dict[str, str] = {}
 
     def __call__(self, document: str, page: int):
@@ -143,7 +161,13 @@ class PageOpener:
 
     def real_page(self, document: str, page: int) -> pymupdf.Page:
         if document not in self._open:
-            self._open[document] = pymupdf.open(str(self._paths[document]))
+            if document in self._failed:
+                raise RuntimeError(self._failed[document])
+            try:
+                self._open[document] = pymupdf.open(str(self._paths[document]))
+            except Exception as error:
+                self._failed[document] = f"the document would not open ({' '.join(str(error).split()) or type(error).__name__})"
+                raise RuntimeError(self._failed[document]) from error
         return self._open[document][page - 1]
 
     def cache_file(self, document: str, page: int, part: str) -> Path | None:
@@ -152,7 +176,8 @@ class PageOpener:
         if document not in self._digests:
             with open(self._paths[document], "rb") as handle:
                 self._digests[document] = hashlib.file_digest(handle, "sha1").hexdigest()
-        return self._cache_dir / f"reading-v{CACHE_VERSION}-{self._digests[document]}-p{page}-{part}.json"
+        return (self._cache_dir
+                / f"reading-v{CACHE_VERSION}-pymupdf{_PYMUPDF}-{self._digests[document]}-p{page}-{part}.json")
 
     def close(self) -> None:
         for pdf in self._open.values():
@@ -177,6 +202,6 @@ def _load(path: Path) -> dict | None:
 
 def _store(path: Path, data: dict) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_name(path.name + ".tmp")
+    tmp = path.with_name(f"{path.name}.{os.getpid()}-{secrets.token_hex(4)}.tmp")
     tmp.write_text(json.dumps(data), encoding="utf-8")
     os.replace(tmp, path)
