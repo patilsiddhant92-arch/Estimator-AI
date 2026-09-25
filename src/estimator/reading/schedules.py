@@ -9,6 +9,7 @@ stacked or side by side, so a table is split at every header cell that names the
 from __future__ import annotations
 
 import bisect
+import hashlib
 import json
 import re
 from collections.abc import Callable, Collection, Iterable
@@ -52,6 +53,7 @@ class Schedule:
     notes: tuple[str, ...]     # numbered notes under / beside the table
     controls_by: tuple[str, ...]   # the note sentences that say who provides the unit controller
     from_text: bool = False    # counted from the sheet's text, because its table couldn't be read
+    source: str = "table"      # "table", or BY_EYE: a picture of the schedule read by the AI judge (reading/pictures.py)
 
 
 @dataclass(frozen=True)
@@ -527,6 +529,72 @@ def _split(grid: _Grid, words: _Words, vocab: Vocabulary, equipment: Equipment,
     return [_schedule(grid, words, head, vocab, equipment, where, other_tables) for head in heads]
 
 
+BY_EYE = "picture, read by eye"
+
+
+def schedule_from_cells(title: str, headers: Iterable[str], rows: Iterable, notes: Iterable[str],
+                        where: tuple[str, int, str | None], vocab: Vocabulary | None = None,
+                        equipment: Equipment | None = None, source: str = BY_EYE) -> Schedule:
+    """One schedule given cell by cell (a picture of it read by eye): the same Schedule and ScheduleRows the
+    table reader makes. A row is a list of cells in the headers' order, or a {header: cell} mapping. The tag
+    column is the one headed TAG, UNIT NO., MARK ...; a unit row is read from it as the table reader reads
+    it, THRU ranges and unknown prefixes included."""
+    vocab = vocab or vocabulary()
+    equipment = equipment or Equipment.load()
+    names: list[str] = []
+    for n, header in enumerate(headers, start=1):
+        label, count = _squash(str(header)) or f"COLUMN {n}", 2
+        name = label
+        while name in names:
+            name, count = f"{label} ({count})", count + 1
+        names.append(name)
+    key = next((n for n in names if header_key(n) in vocab.tag_headers), None)
+    by_tag = key is not None
+    key = key or next((n for n in names if header_key(n) in vocab.type_headers), names[0] if names else "")
+    makers = [n for n in names if _is(n, vocab.manufacturer_headers)]
+    models = [n for n in names if _is(n, vocab.model_headers)]
+    remark_names = [n for n in names if _is(n, vocab.notes_headers)]
+    title = _squash(title) or _NO_TITLE
+    kind = kind_from_title(title)
+    tagged: list[ScheduleRow] = []
+    typed: list[ScheduleRow] = []
+    loose: list[tuple[int, list[ScheduleRow]]] = []
+    bare = 0
+    for raw in rows:
+        values = raw.get("cells", raw) if isinstance(raw, dict) else raw
+        if isinstance(values, dict):
+            cells = {name: _squash(str(values.get(name, "") or "")) for name in names}
+        else:
+            cells = {name: _squash(str(value or "")) for name, value in zip(names, values)}
+        tag_text = cells.get(key, "")
+        if not any(cells.values()) or not tag_text or vocab.note_number.match(tag_text):
+            continue
+        tags = expand_tags(tag_text, equipment) if _names_a_unit(tag_text, vocab) else []
+        if tags and not _compact(re.sub(r"^\(E\)\s*", "", tag_text, flags=re.I)).startswith(_compact(tags[0])):
+            tags = []
+        maker = next((cells[n] for n in makers if cells.get(n)), None)
+        model = next((cells[n] for n in models if cells.get(n)), None)
+        remarks = " ".join(cells.get(n, "") for n in remark_names)
+        existing = bool(vocab.existing.search(tag_text) or vocab.existing.search(remarks))
+        found = [] if tags or not by_tag or not _names_a_unit(tag_text, vocab) else loose_tags(tag_text, equipment)
+        if tags:
+            tagged += [ScheduleRow(tag, cells, maker, model, existing) for tag in tags]
+        elif found:
+            loose.append((len(tagged), [ScheduleRow(tag, cells, maker, model, existing, kind) for tag in found]))
+        if not tags and len(tag_text) <= 12:
+            typed.append(ScheduleRow(None, cells, maker, model, existing))
+            bare += not found and header_key(tag_text) not in vocab.tag_headers
+    if loose and len(loose) > bare and not vocab.type_titles.search(title):
+        for at, found in reversed(loose):
+            tagged[at:at] = found
+    out = tuple(tagged) if tagged else tuple(typed)
+    notes = tuple(_squash(str(n)) for n in notes if _squash(str(n)))
+    remarks = [row.cells.get(n, "") for row in out for n in remark_names]
+    document, page, sheet = where
+    return Schedule(document, page, sheet, title, tuple(names), out, not tagged, notes,
+                    _controls_by(notes, [r for r in remarks if r], vocab), source=source)
+
+
 def read_page(page: pymupdf.Page, where: tuple[str, int, str | None],
               vocab: Vocabulary | None = None, equipment: Equipment | None = None) -> list[Schedule]:
     return _read_tables(page, where, vocab, equipment)[0]
@@ -630,15 +698,71 @@ def _is_schedule_sheet(sheet, text: str, vocab: Vocabulary) -> bool:
     return bool(vocab.schedule_text.search(text) and vocab.header_line.search(text))
 
 
+def _plan_tags(catalogue) -> dict[str, set[str]]:
+    """Prefix → the distinct tags of that family on the plan sheets of the trades that carry controls scope."""
+    plans = {s.number or f"{s.document.rsplit('/', 1)[-1]} p.{s.page}" for s in catalogue.sheets
+             if "Plans" in s.types and s.discipline in CONTROLS_DISCIPLINES}
+    found: dict[str, set[str]] = {}
+    for entry in catalogue.tags:
+        if any(p in plans for p in entry.elsewhere):
+            found.setdefault(entry.tag.split("-", 1)[0], set()).add(entry.tag)
+    return found
+
+
+def _thin(found: list[Schedule], plan_tags: dict[str, set[str]]) -> bool:
+    """Fewer units on the sheet's schedules than the plans show tags of those families."""
+    tags = {row.tag for s in found for row in s.rows if row.tag}
+    families = {tag.split("-", 1)[0] for tag in tags}
+    return bool(families) and len(tags) < len(set().union(*(plan_tags.get(f, set()) for f in families)))
+
+
+def _by_eye(sheet, text: str, found: list[Schedule], page_opener, judge, image_dir: Path, plan_tags,
+            vocab: Vocabulary, equipment: Equipment, flags: list[str] | None) -> list[Schedule]:
+    """A Schedules sheet with pictures and no readable table, or thin schedules: its pictures read by eye (1.1).
+    What the eye reads replaces what was counted from the sheet's text, or joins what its tables gave."""
+    from estimator.reading.pictures import read_by_eye, render_pictures   # pictures builds on this module
+
+    from_tables = [s for s in found if s.rows and not s.from_text]
+    if from_tables and not _thin(from_tables, plan_tags):
+        return found
+    where = (sheet.document, sheet.page, sheet.number)
+    try:
+        page = page_opener(sheet.document, sheet.page)
+        digest = getattr(page_opener, "digest", None)
+        name = digest(sheet.document) if digest else hashlib.sha1(sheet.document.encode()).hexdigest()
+        pictures = render_pictures(page, image_dir, f"{name[:16]}-p{sheet.page}")
+    except Exception as error:
+        if flags is not None:
+            flags.append(unreadable_page(sheet.number, sheet.document, sheet.page, "its schedule pictures", error))
+        return found
+    if not pictures:
+        return found
+    hint = "; ".join(dict.fromkeys(h for line in text.splitlines() if (h := _heading(line, vocab))))[:400]
+    eye, waiting = read_by_eye(judge, pictures, where, hint, vocab, equipment)
+    name = sheet.number or f"{sheet.document.rsplit('/', 1)[-1]} page {sheet.page}"
+    if flags is not None and waiting:
+        flags.append(f"{name}: {waiting} of its {len(pictures)} schedule pictures not read by eye yet "
+                     f"({judge.last_error or 'no answer'})" + ("; counted from the sheet's text meanwhile"
+                                                               if not from_tables else ""))
+    if not eye:
+        return found
+    if flags is not None:
+        flags.append(f"{name}: {len(eye)} schedules read by eye from {len(pictures) - waiting} pictures of the sheet "
+                     f"— check the counts")
+    return from_tables + eye if from_tables else eye
+
+
 def read_schedules(catalogue, page_opener: PageOpener, pages: Collection[tuple[str, int]] | None = None,
-                   flags: list[str] | None = None) -> list[Schedule]:
+                   flags: list[str] | None = None, judge=None, image_dir: Path | None = None) -> list[Schedule]:
     """Every schedule on the drawing sheets that can carry controls scope, in page order. With
     `pages`, only those pages are read (the governing ones). A page that can't be read is skipped,
-    with a line added to `flags`; the rest of the job is still read."""
+    with a line added to `flags`; the rest of the job is still read. With a `judge` and an `image_dir`, a
+    Schedules sheet whose schedules are pictures is read by eye (reading/pictures.py)."""
     vocab = vocabulary()
     equipment = Equipment.load()
     records = {(p.document, p.page): p for p in catalogue.pages}
     sheet_numbers = sheet_number_tags((s.number for s in catalogue.sheets), equipment)
+    plan_tags = _plan_tags(catalogue) if judge is not None and image_dir is not None else {}
     schedules: list[Schedule] = []
     for sheet in catalogue.sheets:
         if pages is not None and (sheet.document, sheet.page) not in pages:
@@ -671,5 +795,7 @@ def read_schedules(catalogue, page_opener: PageOpener, pages: Collection[tuple[s
         # at all (a schedule set out without rules); one whose tables were read and weren't schedules isn't.
         if by_text and not any(s.rows for s in found) and (record.status == "ocr" or not tables):
             found = schedules_from_text(text, where, vocab, equipment, sheet_numbers)
+        if judge is not None and image_dir is not None and "Schedules" in sheet.types:
+            found = _by_eye(sheet, text, found, page_opener, judge, image_dir, plan_tags, vocab, equipment, flags)
         schedules += found
     return schedules

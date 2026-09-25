@@ -36,6 +36,7 @@ Request shape (checked against anthropic 1.8.0 and the current models):
 """
 from __future__ import annotations
 
+import base64
 import hashlib
 import json
 import math
@@ -325,6 +326,67 @@ class Judge:
             self._client = anthropic.Anthropic(timeout=TIMEOUT_SECONDS)
         return self._client
 
+    # -- a third kind of question: a schedule that is a picture, read by eye
+    def read_schedule(self, image: Path, sheet: str | None, page: int, title_hint: str,
+                      tiles: tuple[Path, ...] = ()) -> dict | None:
+        """Read the schedules in one picture cut out of a drawing sheet (a PNG): {"schedules": [{title,
+        headers, rows: [{cells}], notes}]}, every cell copied as printed and "" where it can't be read.
+        `tiles` are the same picture in pieces, when it is too big to send whole. Same cache and hand-off as
+        the other questions: in chat mode the request names the PNG for Claude to open in the chat; through
+        the API the picture goes as image blocks. None, with `last_error` set, when there is no answer."""
+        images = tuple(Path(p) for p in tiles) or (Path(image),)
+        prompt = _read_schedule_prompt(sheet, page, title_hint, images)
+        system = f"{sheet or 'sheet'} (page {page}) picture {Path(image).stem}"
+        extra = {"image": str(image), "tiles": [str(p) for p in tiles], "sheet": sheet, "page": page,
+                 "title_hint": title_hint}
+        if self.mode == CHAT:
+            got = self._answer(READ_SCHEDULE, system, READ_SCHEDULE_PROMPT, prompt, _read_schedule_schema(), extra)
+            return got[0] if got is not None else None
+        cache_file = self.cache_dir / f"{_key(self.model, prompt, READ_SCHEDULE_PROMPT)}.json"
+        cached = _read_cache(cache_file, READ_SCHEDULE)
+        if cached is not None:
+            self.last_error = None
+            self.cached += 1
+            return cached["answer"]
+        if not self.available:
+            self.last_error = NO_KEY
+            return None
+        try:
+            answer, model = self._ask_with_images(READ_SCHEDULE_PROMPT, prompt, _read_schedule_schema(), images)
+        except Exception as error:  # the judge never raises into the pipeline
+            self.last_error = _plain(error)
+            return None
+        _write_cache(cache_file, {"version": CACHE_VERSION, "kind": READ_SCHEDULE, "model": model, "answer": answer})
+        self.calls += 1
+        self.last_error = None
+        return answer
+
+    def _ask_with_images(self, system_prompt: str, prompt: str, schema: dict,
+                         images: tuple[Path, ...]) -> tuple[dict, str]:
+        content = [{"type": "image", "source": {"type": "base64", "media_type": "image/png",
+                                                 "data": base64.standard_b64encode(p.read_bytes()).decode("ascii")}}
+                   for p in images]
+        response = self._get_client().messages.create(
+            model=self.model,
+            max_tokens=MAX_TOKENS,
+            system=system_prompt,
+            messages=[{"role": "user", "content": [*content, {"type": "text", "text": prompt}]}],
+            output_config={"format": {"type": "json_schema", "schema": schema}},
+        )
+        stop = getattr(response, "stop_reason", None)
+        if stop == "max_tokens":
+            raise _Unusable("the AI answer was cut off before it finished")
+        if stop == "refusal":
+            raise _Unusable("the AI declined to read this picture")
+        text = "".join(block.text for block in response.content if getattr(block, "type", None) == "text")
+        try:
+            answer = json.loads(text)
+        except ValueError:
+            raise _Unusable("the AI answer could not be read") from None
+        if not _fits(answer, READ_SCHEDULE):
+            raise _Unusable("the AI answer could not be read")
+        return answer, getattr(response, "model", None) or self.model
+
 
 class _Unusable(Exception):
     """A reply came back but cannot be used; the message is already in plain words."""
@@ -612,6 +674,65 @@ def _quantity(value) -> int | None:
     if isinstance(value, bool) or not isinstance(value, int) or value < 0:
         return None
     return value
+
+
+# --- the read_schedule question: a schedule that is a picture ------------------------------------------------
+
+READ_SCHEDULE = "read_schedule"
+_MAIN_LIST[READ_SCHEDULE] = "schedules"
+
+READ_SCHEDULE_PROMPT = """\
+You are reading equipment schedules from a picture cut out of a building drawing sheet (HVAC, \
+plumbing or controls). An estimator will count and price the units from what you copy, so copy, \
+never interpret.
+
+How to answer:
+- Give every schedule in the picture: its title as printed, its column headers from left to \
+right, one row for each printed row, and the notes printed with it.
+- A header over several sub-columns is joined to each sub-header, for example "ELECTRICAL VOLTS".
+- Each row gives one cell per header, in the same order as the headers.
+- Copy every cell exactly as printed, character for character, with its dashes, units and \
+abbreviations. Write "" for an empty cell, and "" for any cell you cannot read with certainty.
+- Never guess, complete, correct or work out a value. Never add a row that is not printed. \
+Leave out rows that are wholly blank.
+- Give each note whole, with its number, as printed.
+- When several images are given, they are consecutive pieces of one picture, overlapping a \
+little: read them as one picture and give each row once.
+- If the picture holds no schedule, give no schedules."""
+
+
+def _read_schedule_prompt(sheet: str | None, page: int, title_hint: str, images) -> str:
+    names = "; ".join(f"{p.name} (sha1 {hashlib.sha1(p.read_bytes()).hexdigest()})" for p in images)
+    return (f"Sheet: {sheet or '(no sheet number)'}, page {page}\n"
+            f"What the sheet's own text suggests it schedules: {title_hint or '(nothing readable)'}\n"
+            f"Picture: {names}\n\n"
+            f"Copy every schedule in the picture.")
+
+
+def _read_schedule_schema() -> dict:
+    row = {
+        "type": "object",
+        "properties": {"cells": {"type": "array", "items": {"type": "string"}}},
+        "required": ["cells"],
+        "additionalProperties": False,
+    }
+    schedule = {
+        "type": "object",
+        "properties": {
+            "title": {"type": "string"},
+            "headers": {"type": "array", "items": {"type": "string"}},
+            "rows": {"type": "array", "items": row},
+            "notes": {"type": "array", "items": {"type": "string"}},
+        },
+        "required": ["title", "headers", "rows", "notes"],
+        "additionalProperties": False,
+    }
+    return {
+        "type": "object",
+        "properties": {"schedules": {"type": "array", "items": schedule}},
+        "required": ["schedules"],
+        "additionalProperties": False,
+    }
 
 
 # --- files -------------------------------------------------------------------------------------------------

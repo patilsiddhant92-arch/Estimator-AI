@@ -1,4 +1,5 @@
 """The optional AI judge. Every test uses a fake client: no test touches the network."""
+import base64
 import json
 from types import SimpleNamespace
 
@@ -527,3 +528,77 @@ def test_a_choose_answer_is_not_read_as_a_compose_answer(tmp_path):
     (answers / request.name).write_text(json.dumps(_answer()), encoding="utf-8")
     again = _chat(tmp_path)
     assert _compose(again) is None and "could not be read" in again.last_error
+
+
+# --- read_schedule: a schedule that is a picture, read by eye (1.1) ---------------------------------------
+
+SCHEDULE_ANSWER = {"schedules": [{"title": "ELECTRIC HEATER SCHEDULE", "headers": ["TAG", "AREA SERVED", "WATTS"],
+                                  "rows": [{"cells": ["UH-1", "FIRE PUMP ROOM", "3000"]},
+                                           {"cells": ["CUH-1", "VESTIBULE 005", ""]}],
+                                  "notes": ["2. PROVIDE MANUFACTURER'S INTEGRAL THERMOSTAT."]}]}
+
+
+def _png(tmp_path, name="H601-p19-1.png", body=b"\x89PNG\r\n\x1a\n fake picture"):
+    path = tmp_path / "schedule-images" / name
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(body)
+    return path
+
+
+def test_read_schedule_sends_the_picture_as_an_image_block_and_caches_the_answer(tmp_path):
+    fake = FakeClient(reply=_response(SCHEDULE_ANSWER))
+    png = _png(tmp_path)
+    judge = _judge(tmp_path, fake)
+    assert judge.read_schedule(png, "H601", 19, "EXHAUST FAN SCHEDULE") == SCHEDULE_ANSWER
+    [call] = fake.calls
+    image, text = call["messages"][0]["content"]
+    assert image["type"] == "image" and image["source"]["media_type"] == "image/png"
+    assert base64.standard_b64decode(image["source"]["data"]) == png.read_bytes()
+    assert "H601" in text["text"] and "EXHAUST FAN SCHEDULE" in text["text"]
+    assert "exactly as printed" in call["system"] and "Never guess" in call["system"]
+    schema = call["output_config"]["format"]["schema"]
+    assert schema["required"] == ["schedules"]
+    assert schema["properties"]["schedules"]["items"]["required"] == ["title", "headers", "rows", "notes"]
+    again = _judge(tmp_path, FakeClient(error=AssertionError("answered from the cache")))
+    assert again.read_schedule(png, "H601", 19, "EXHAUST FAN SCHEDULE") == SCHEDULE_ANSWER and again.cached == 1
+
+
+def test_read_schedule_sends_every_tile_of_a_big_picture(tmp_path):
+    fake = FakeClient(reply=_response(SCHEDULE_ANSWER))
+    tiles = (_png(tmp_path, "a-t1.png", b"one"), _png(tmp_path, "a-t2.png", b"two"))
+    _judge(tmp_path, fake).read_schedule(_png(tmp_path, "a.png"), "H601", 19, "", tiles=tiles)
+    content = fake.calls[0]["messages"][0]["content"]
+    assert [c["type"] for c in content] == ["image", "image", "text"]
+
+
+def test_a_changed_picture_is_asked_again(tmp_path):
+    fake = FakeClient(reply=_response(SCHEDULE_ANSWER))
+    judge = _judge(tmp_path, fake)
+    judge.read_schedule(_png(tmp_path, body=b"first"), "H601", 19, "")
+    judge.read_schedule(_png(tmp_path, body=b"second"), "H601", 19, "")
+    assert len(fake.calls) == 2
+
+
+def test_read_schedule_in_the_chat_names_the_png_and_picks_up_the_answer(tmp_path, monkeypatch):
+    monkeypatch.setattr("anthropic.Anthropic", lambda *a, **k: pytest.fail("the chat judge never calls the API"))
+    png = _png(tmp_path)
+    judge = _chat(tmp_path)
+    assert judge.read_schedule(png, "H601", 19, "EXHAUST FAN SCHEDULE") is None and judge.waiting == 1
+    [request] = _requests(tmp_path)
+    data = json.loads(request.read_text(encoding="utf-8"))
+    assert data["kind"] == "read_schedule" and data["image"] == str(png)
+    assert (data["sheet"], data["page"], data["title_hint"]) == ("H601", 19, "EXHAUST FAN SCHEDULE")
+    assert data["schema"]["required"] == ["schedules"]
+    answers = tmp_path / "cache" / "judge-chat" / "answers"
+    answers.mkdir(parents=True)
+    (answers / request.name).write_text(json.dumps(SCHEDULE_ANSWER), encoding="utf-8")
+    again = _chat(tmp_path)
+    assert again.read_schedule(png, "H601", 19, "EXHAUST FAN SCHEDULE") == SCHEDULE_ANSWER
+    assert again.answered_in_chat == 1 and not request.exists()
+
+
+def test_read_schedule_with_no_key_gives_none(tmp_path, monkeypatch):
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    judge = Judge(tmp_path / "cache", model="test-model")
+    assert judge.read_schedule(_png(tmp_path), "H601", 19, "") is None
+    assert judge.last_error == "judgement pending — no AI key set"

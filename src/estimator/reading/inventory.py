@@ -18,13 +18,15 @@ from dataclasses import dataclass, field, replace
 from estimator.catalogue.job import CONTROLS_DISCIPLINES
 from estimator.catalogue.tags import Equipment
 from estimator.reading.revisions import governing_pages
-from estimator.reading.schedules import EQUIPMENT, Schedule, header_key, kind_from_title, quantity_header, vocabulary
+from estimator.reading.schedules import (BY_EYE, EQUIPMENT, Schedule, header_key, kind_from_title, quantity_header,
+                                        vocabulary)
 
 ON_PLANS = "CONFIRMED-on-plans"   # a tag series the trade plans show, on no readable schedule: priced, "check"
 ON_PLANS_WHY = "not on a readable schedule — counted from the plans, check"
 COUNTED = ("CONFIRMED", "MISSING", "DISCREPANCY", ON_PLANS)
 TRADE_DISCIPLINES = ("Mechanical", "Controls", "Plumbing")
 FROM_TEXT = "counted from the schedule sheet's text; the table itself couldn't be read — check the count"
+READ_BY_EYE = "read by eye from a picture of the schedule — check the count"
 TYPE_PLACED = 3        # labels on the plans (floors counted) that make a scheduled tag a type ...
 TYPE_ON_ONE_SHEET = 3  # ... when one sheet alone holds this many (floors counted): a unit is labelled once or twice
 _DECIMAL_TYPE = re.compile(r"^[A-Z]+-\d+\.\d+$")   # AC-3.0, HRU-4.0: a size, not a unit number
@@ -301,6 +303,7 @@ def build_inventory(catalogue, schedules: list[Schedule], typicals: Sequence = (
     first_row: dict[str, tuple[Schedule, object]] = {}
     existing: set[str] = set()
     from_text: dict[str, str] = {}      # tag → the schedule it was counted under, from a sheet's text
+    by_eye: set[str] = set()            # tags read from a picture of the schedule by the AI judge
     blocks: set[tuple] = set()
     for schedule in schedules:
         # One schedule set out in two blocks on the same sheet (fan data, then coil data), each
@@ -316,6 +319,8 @@ def build_inventory(catalogue, schedules: list[Schedule], typicals: Sequence = (
             first_row.setdefault(row.tag, (schedule, row))
             if schedule.from_text:
                 from_text.setdefault(row.tag, _label(schedule))
+            if schedule.source == BY_EYE:
+                by_eye.add(row.tag)
             if row.existing:
                 existing.add(row.tag)
     scheduled_prefixes = {tag.split("-", 1)[0] for tag in listings}
@@ -380,6 +385,9 @@ def build_inventory(catalogue, schedules: list[Schedule], typicals: Sequence = (
             if tag in from_text:
                 item = items[-1]
                 items[-1] = replace(item, reason=f"{item.reason} — {FROM_TEXT}")
+            elif tag in by_eye:
+                item = items[-1]
+                items[-1] = replace(item, reason=f"{item.reason} — {READ_BY_EYE}")
             continue
         if tag in spec_only:
             continue
