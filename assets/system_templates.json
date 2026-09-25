@@ -253,9 +253,10 @@
         "Install and wire mfr. Provided sensors shipped loose w/ unit; if info not available about particular shipped loose end devices",
         "**Here unit manufacturer is providing a DDC Controller and we are going to integrate it into Our BMS. Along with that OEM will ship loose few end devices that we need to install and wire",
         "*schedule notes and sequence often clears who is providing the controls",
-        "Qty (1) for Packaged Controller + Bipolar on BMS"
+        "Qty (1) for Packaged Controller + Bipolar on BMS",
+        "tech hour: 16 hour each (estimator, 2026-09-25)"
       ],
-      "tech_hours": {"per": "unit", "hours": null},
+      "tech_hours": {"per": "unit", "hours": 16},
       "about": "Tie-in Ionization Device Alarm comes from the template's job specific feedback."
     },
     {

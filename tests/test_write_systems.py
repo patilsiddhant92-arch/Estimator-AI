@@ -156,9 +156,8 @@ def test_a_packaged_rtu_with_a_factory_control_package_gets_the_trio_and_the_ins
     assert "Install and wire mfr. Provided sensors shipped loose w/ unit" in printed
     trio = _line(system, first)
     assert trio.category == "CONFIRMED" and "FACTORY CONTROL PACKAGE" in trio.evidence
-    assert system.blocks[0].tech_hours is None
-    assert any("No tech hours in the Master Template for Packaged ERU / RTU / AHU — enter them" in str(item)
-               for item in system.review)
+    assert system.blocks[0].tech_hours == 32           # 16 h a unit, from the estimator
+    assert not any("No tech hours" in str(item) for item in system.review)
 
 
 def test_factory_controls_replace_the_ddc_controller_lines():

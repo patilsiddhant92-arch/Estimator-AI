@@ -218,3 +218,9 @@ def test_prefixes_are_upper_case_and_mostly_known():
             assert prefix == prefix.upper()
     missing = {p for t in TEMPLATES for p in t.prefixes} - known
     assert not missing, f"prefixes the template needs that equipment.json doesn't list: {sorted(missing)}"
+
+
+def test_a_packaged_unit_is_sixteen_tech_hours_each():
+    [packaged] = [t for t in TEMPLATES if t.name == "Packaged ERU / RTU / AHU"]
+    assert (packaged.tech_hours.per, packaged.tech_hours.hours) == ("unit", 16)
+    assert "tech hour: 16 hour each (estimator, 2026-09-25)" in packaged.hints
