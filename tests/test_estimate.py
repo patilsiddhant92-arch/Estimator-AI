@@ -5,7 +5,7 @@ import openpyxl
 import pytest
 from docx import Document
 
-from estimator.__main__ import main
+from estimator.__main__ import _parser, ai_mode, main
 from estimator.evidence.workbook import ESTIMATE_TABS, TABS
 from estimator.proposal.sections import scope_texts
 from pdfs import FILLER, Page, make_pdf
@@ -76,11 +76,48 @@ def test_the_estimate_writes_the_proposal_the_price_sheet_and_the_evidence_packa
     assert "AI: not used" in printed
 
 
-def test_without_a_key_the_ai_is_not_used_and_its_lines_say_why(job, tmp_path, capsys, monkeypatch):
+def test_the_api_without_a_key_is_not_used_and_its_lines_say_why(job, tmp_path, capsys, monkeypatch):
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     out = tmp_path / "out"
-    assert main(["estimate", str(job), "--out", str(out), "--workers", "1"]) == 0
+    assert main(["estimate", str(job), "--out", str(out), "--ai", "api", "--workers", "1"]) == 0
     assert "AI: not used — no AI key set" in capsys.readouterr().out
+    assert (out / "26-9999 Proposal.docx").exists()
+
+
+@pytest.mark.parametrize("flags, key, mode", [
+    ([], None, "chat"),                        # no key: the chat answers
+    ([], "not-a-real-key", "api"),             # a key: the API answers
+    (["--ai", "chat"], "not-a-real-key", "chat"),
+    (["--ai", "api"], None, "api"),
+    (["--ai", "off"], "not-a-real-key", "off"),
+    (["--no-ai"], "not-a-real-key", "off"),     # the old flag still works
+])
+def test_the_ai_flag_picks_who_answers(flags, key, mode, monkeypatch):
+    if key:
+        monkeypatch.setenv("ANTHROPIC_API_KEY", key)
+    else:
+        monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    args = _parser().parse_args(["estimate", "JOB", "--out", "OUT", *flags])
+    assert ai_mode(args) == mode
+
+
+def test_no_ai_and_ai_cannot_both_be_given(capsys):
+    with pytest.raises(SystemExit):
+        _parser().parse_args(["estimate", "JOB", "--out", "OUT", "--no-ai", "--ai", "chat"])
+
+
+def test_in_chat_mode_the_questions_wait_in_the_requests_folder(job, tmp_path, capsys, monkeypatch):
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.setattr("anthropic.Anthropic", lambda *a, **k: pytest.fail("the chat mode never calls the API"))
+    out, cache = tmp_path / "out", tmp_path / "cache"
+    assert main(["estimate", str(job), "--out", str(out), "--ai", "chat", "--cache", str(cache),
+                 "--workers", "1"]) == 0
+    printed = capsys.readouterr().out
+    requests = cache / "judge-chat" / "requests"
+    written = list(requests.glob("*.json"))
+    assert written
+    assert (f"AI: answered in the chat for 0 systems; {len(written)} waiting — requests in {requests}. "
+            "Answer them, then run estimate again.") in printed
     assert (out / "26-9999 Proposal.docx").exists()
 
 

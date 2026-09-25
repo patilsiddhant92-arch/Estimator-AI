@@ -11,6 +11,11 @@ never read, printed or stored here: the SDK takes it from the environment itself
 
 Each answer is cached by the model and the exact prompt, so the same system never costs twice.
 
+In "chat" mode no API is called: each question is written to a requests folder for Claude to
+answer in the Claude Code chat, and the answer, saved to the answers folder under the same name,
+is picked up on the next run and cached like any other. Chat answers are cached under the model
+name "claude (chat)", so switching to the API later judges every system afresh.
+
 Request shape (checked against anthropic 1.8.0 and the current models):
 - The answer comes back as JSON through structured outputs (`output_config.format`), not a
   forced tool call: current models such as claude-opus-5-5 refuse `tool_choice` "tool"/"any".
@@ -36,6 +41,9 @@ TIMEOUT_SECONDS = 180.0
 NO_EVIDENCE_CONFIDENCE = 0.5
 NO_KEY = "judgement pending — no AI key set"
 CACHE_VERSION = 1
+API, CHAT = "api", "chat"
+MODES = (API, CHAT)
+CHAT_MODEL = "claude (chat)"   # the model name chat answers are cached under, apart from the API's
 
 SYSTEM_PROMPT = """\
 You are an HVAC controls estimator at AME. You are writing the scope of work for one system of a \
@@ -80,29 +88,58 @@ class Judgement:
 
 
 class Judge:
-    def __init__(self, cache_dir: Path, model: str | None = None, client=None):
+    """mode "api": Claude answers through the Anthropic API. mode "chat": each question is written
+    to `handoff_dir/requests/<key>.json` for Claude to answer in the chat, and the answer is read
+    back from `handoff_dir/answers/<key>.json` on the next run. Both keep answers in the same cache,
+    under different model names, so switching from the chat to the API judges afresh."""
+
+    def __init__(self, cache_dir: Path, model: str | None = None, client=None, *, mode: str = API,
+                 handoff_dir: Path | None = None):
+        if mode not in MODES:
+            raise ValueError(f"the AI mode must be one of {', '.join(MODES)}, not {mode!r}")
+        self.mode = mode
         self.cache_dir = Path(cache_dir) / "judge"
-        self.model = model or os.environ.get(MODEL_VARIABLE) or DEFAULT_MODEL
+        self.handoff_dir = Path(handoff_dir) if handoff_dir is not None else Path(cache_dir) / "judge-chat"
+        if mode == CHAT:
+            self.model = CHAT_MODEL
+        else:
+            self.model = model or os.environ.get(MODEL_VARIABLE) or DEFAULT_MODEL
         self._client = client
         self.last_error: str | None = None
-        self.calls = 0          # answers the AI service gave on this run
-        self.cached = 0         # answers taken from the cache, at no cost
+        self.calls = 0              # answers the AI service gave on this run
+        self.cached = 0             # answers taken from the cache, at no cost
+        self.answered_in_chat = 0   # chat answers picked up from the answers folder on this run
+        self.waiting = 0            # questions written to the requests folder, still to answer
+
+    @property
+    def requests_dir(self) -> Path:
+        return self.handoff_dir / "requests"
+
+    @property
+    def answers_dir(self) -> Path:
+        return self.handoff_dir / "answers"
 
     @property
     def available(self) -> bool:
-        """A client was given, or a key is set in the environment (never read beyond that)."""
+        """The chat is always there; for the API, a client was given or a key is set in the
+        environment (never read beyond that)."""
+        if self.mode == CHAT:
+            return True
         return self._client is not None or bool(os.environ.get(KEY_VARIABLE))
 
     def judge(self, system: str, evidence: str, options: list[str],
               rules: list[str]) -> Judgement | None:
         """Ask which options the evidence calls for. None, with `last_error` set, on any failure."""
         prompt = _prompt(system, evidence, options, rules)
-        cache_file = self.cache_dir / f"{_key(self.model, prompt)}.json"
+        key = _key(self.model, prompt)
+        cache_file = self.cache_dir / f"{key}.json"
         cached = _read_cache(cache_file)
         if cached is not None:
             self.last_error = None
             self.cached += 1
             return _judgement(cached["answer"], options, cached["model"])
+        if self.mode == CHAT:
+            return self._from_chat(key, system, prompt, options, cache_file)
         if not self.available:
             self.last_error = NO_KEY
             return None
@@ -115,6 +152,34 @@ class Judge:
         self.calls += 1
         self.last_error = None
         return _judgement(answer, options, model)
+
+    def _from_chat(self, key: str, system: str, prompt: str, options: list[str],
+                   cache_file: Path) -> Judgement | None:
+        """The chat's answer when it is in the answers folder; otherwise a request for one."""
+        request = self.requests_dir / f"{key}.json"
+        answer_file = self.answers_dir / f"{key}.json"
+        problem = None
+        if answer_file.exists():
+            answer = _read_answer(answer_file)
+            if answer is not None:
+                _write_cache(cache_file, {"version": CACHE_VERSION, "model": CHAT_MODEL, "answer": answer})
+                request.unlink(missing_ok=True)
+                self.answered_in_chat += 1
+                self.last_error = None
+                return _judgement(answer, options, CHAT_MODEL)
+            problem = f"the answer for {system} could not be read"
+        try:
+            _write_json(request, {"key": key, "system": system, "system_prompt": SYSTEM_PROMPT,
+                                  "prompt": prompt, "options": list(options), "schema": _schema(options),
+                                  "answer_file": str(answer_file)}, indent=2)
+        except OSError:
+            self.last_error = f"judgement pending — the request for {system} could not be written to {request.parent}"
+        else:
+            self.waiting += 1
+            self.last_error = f"judgement pending — waiting for an answer in the chat (requests folder: {request.parent})"
+        if problem:
+            self.last_error += f"; {problem}"
+        return None
 
     def _ask(self, prompt: str, options: list[str]) -> tuple[dict, str]:
         response = self._get_client().messages.create(
@@ -248,12 +313,28 @@ def _read_cache(cache_file: Path) -> dict | None:
     return data
 
 
+def _read_answer(answer_file: Path) -> dict | None:
+    """The chat's answer, in the shape the API returns, or None when it cannot be used."""
+    try:
+        answer = json.loads(answer_file.read_text(encoding="utf-8-sig"))
+    except (OSError, ValueError):
+        return None
+    if not isinstance(answer, dict) or not isinstance(answer.get("choices"), list):
+        return None
+    return answer
+
+
+def _write_json(path: Path, data: dict, indent: int | None = None) -> None:
+    """Written whole or not at all: to a temporary name first, then swapped into place."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(path.name + ".tmp")
+    tmp.write_text(json.dumps(data, ensure_ascii=False, indent=indent), encoding="utf-8")
+    os.replace(tmp, path)
+
+
 def _write_cache(cache_file: Path, data: dict) -> None:
     try:
-        cache_file.parent.mkdir(parents=True, exist_ok=True)
-        tmp = cache_file.with_name(cache_file.name + ".tmp")
-        tmp.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
-        os.replace(tmp, cache_file)
+        _write_json(cache_file, data)
     except OSError:
         pass  # a cache that cannot be written only costs a second call next time
 

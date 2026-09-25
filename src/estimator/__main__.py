@@ -4,7 +4,11 @@
     python -m estimator import-sent PROPOSAL.docx WORKUP.xlsx --out JOB.json
     python -m estimator price-check GENERATED.xlsx SENT.xlsx --out REPORT.md
     python -m estimator catalogue JOB_FOLDER --out FOLDER
-    python -m estimator estimate JOB_FOLDER --out FOLDER [--workers N] [--no-ai] [--cache FOLDER]
+    python -m estimator estimate JOB_FOLDER --out FOLDER [--workers N] [--ai chat|api|off] [--cache FOLDER]
+
+--ai picks who judges the template lines: "api" (Claude through the Anthropic API, the default when
+ANTHROPIC_API_KEY is set), "chat" (the questions are written to a requests folder for Claude to answer
+in the Claude Code chat, the default otherwise) or "off". --no-ai is the same as --ai off.
 """
 from __future__ import annotations
 
@@ -28,9 +32,10 @@ from estimator.proposal.write import check_template, write_proposal
 from estimator.reading.job import read_job, reading_lines
 from estimator.scope import Job
 from estimator.sent import job_from_sent
-from estimator.writing.judge import Judge
+from estimator.writing.judge import API, CHAT, KEY_VARIABLE, Judge
 from estimator.writing.write import build_job
 
+OFF = "off"
 _INVALID_FILENAME_CHARS = re.compile(r'[<>:"/\\|?*]')
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -72,9 +77,22 @@ def _parser() -> argparse.ArgumentParser:
     estimate.add_argument("job", type=Path)
     estimate.add_argument("--out", type=Path, required=True)
     estimate.add_argument("--workers", type=int, default=min(4, os.cpu_count() or 1))
-    estimate.add_argument("--no-ai", action="store_true", help="don't ask the AI; its lines stay PENDING")
+    ai = estimate.add_mutually_exclusive_group()
+    ai.add_argument("--ai", choices=(CHAT, API, OFF),
+                    help="who judges the template lines: the chat, the API, or no one "
+                         "(default: api when ANTHROPIC_API_KEY is set, otherwise chat)")
+    ai.add_argument("--no-ai", action="store_true", help="the same as --ai off: its lines stay PENDING")
     estimate.add_argument("--cache", type=Path, help="where to keep what was read (default: OUT/.cache)")
     return parser
+
+
+def ai_mode(args: argparse.Namespace) -> str:
+    """chat, api or off: the flag when given, else the API when a key is set, else the chat."""
+    if args.no_ai:
+        return OFF
+    if args.ai:
+        return args.ai
+    return API if os.environ.get(KEY_VARIABLE) else CHAT
 
 
 def _safe_filename(text: str) -> str:
@@ -218,13 +236,14 @@ def _estimate(args: argparse.Namespace) -> None:
     cache = args.cache or args.out / ".cache"
     catalogue = catalogue_job(args.job, cache, workers)
     reading = read_job(catalogue, cache_dir=cache)
-    judge = None if args.no_ai else Judge(cache)
+    mode = ai_mode(args)
+    judge = None if mode == OFF else Judge(cache, mode=mode)
     job, systems, review_flags = build_job(catalogue, reading, judge, dt.date.today())
     args.out.mkdir(parents=True, exist_ok=True)
     package = write_evidence(args.out / f"{_safe_filename(job.header.quote_number)} Evidence Package.xlsx",
                              catalogue, reading, systems=systems, review_flags=review_flags)
     reading_flags = len(catalogue.flags) + len(reading.flags)
-    for line in estimate_lines(systems, review_flags, judge, args.no_ai, reading_flags):
+    for line in estimate_lines(systems, review_flags, judge, mode == OFF, reading_flags):
         print(line)
     print(f"Wrote {package}")
     book = PriceBook.load(PRICE_BOOK, ALIASES)
@@ -250,7 +269,16 @@ def estimate_lines(systems, review_flags, judge, no_ai: bool, reading_flags: int
                + (f", then {reading_flags} {'flag' if reading_flags == 1 else 'flags'} from reading the job."
                   if reading_flags else ".")]
     if no_ai:
-        summary.append("AI: not used (--no-ai); lines it would judge are PENDING.")
+        summary.append("AI: not used (--ai off); lines it would judge are PENDING.")
+    elif judge is not None and getattr(judge, "mode", API) == CHAT:
+        answered = judge.answered_in_chat + judge.cached
+        line = f"AI: answered in the chat for {answered} {'system' if answered == 1 else 'systems'}; "
+        if judge.waiting:
+            line += (f"{judge.waiting} waiting — requests in {judge.requests_dir}. "
+                     "Answer them, then run estimate again.")
+        else:
+            line += "none waiting."
+        summary.append(line)
     elif judge is not None and not judge.available and not judge.cached:
         summary.append("AI: not used — no AI key set (ANTHROPIC_API_KEY); lines it would judge are PENDING.")
     elif judge is not None:

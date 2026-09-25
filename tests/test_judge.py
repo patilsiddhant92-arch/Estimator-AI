@@ -228,3 +228,105 @@ def test_a_stated_quantity_must_be_a_whole_count(tmp_path):
     result = _judge(tmp_path, FakeClient(_response(answer))).judge("VAV", EVIDENCE, OPTIONS, RULES)
 
     assert result.choices[1].quantity is None
+
+
+# --- the chat hand-off: answers come from the chat, not the API --------------------------------------
+
+def _chat(tmp_path):
+    return Judge(tmp_path / "cache", mode="chat")
+
+
+def _requests(tmp_path):
+    return sorted((tmp_path / "cache" / "judge-chat" / "requests").glob("*.json"))
+
+
+def test_the_chat_judge_is_available_without_a_key(tmp_path, monkeypatch):
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    judge = _chat(tmp_path)
+    assert judge.available is True
+    assert judge.model == "claude (chat)"
+    assert judge.handoff_dir == tmp_path / "cache" / "judge-chat"
+    assert Judge(tmp_path / "cache", mode="chat", handoff_dir=tmp_path / "elsewhere").handoff_dir \
+        == tmp_path / "elsewhere"
+
+
+def test_a_chat_miss_writes_a_request_and_waits(tmp_path, monkeypatch):
+    monkeypatch.setattr("anthropic.Anthropic", lambda *a, **k: pytest.fail("the chat judge never calls the API"))
+    judge = _chat(tmp_path)
+
+    assert judge.judge("VAV", EVIDENCE, OPTIONS, RULES) is None
+    [request] = _requests(tmp_path)
+    data = json.loads(request.read_text(encoding="utf-8"))
+    assert data["key"] == request.stem
+    assert data["system"] == "VAV"
+    assert data["system_prompt"].startswith("You are an HVAC controls estimator at AME")
+    assert EVIDENCE in data["prompt"] and "1. " + OPTIONS[0] in data["prompt"]
+    assert data["options"] == OPTIONS
+    assert data["schema"]["properties"]["choices"]["items"]["properties"]["line"]["enum"] == OPTIONS
+    assert judge.waiting == 1 and judge.answered_in_chat == 0
+    assert judge.last_error.startswith("judgement pending — waiting for an answer in the chat")
+    assert str(tmp_path / "cache" / "judge-chat" / "requests") in judge.last_error
+    assert not list(request.parent.glob("*.tmp"))
+
+
+def test_an_answer_from_the_chat_is_picked_up_cached_and_the_request_removed(tmp_path):
+    judge = _chat(tmp_path)
+    judge.judge("VAV", EVIDENCE, OPTIONS, RULES)
+    [request] = _requests(tmp_path)
+    answers = tmp_path / "cache" / "judge-chat" / "answers"
+    answers.mkdir(parents=True)
+    answer = _answer()
+    answer["choices"].append({"line": "Furnish a coffee machine", "include": True, "quantity": None,
+                              "why": "made up", "quote": "", "confidence": 0.9})
+    (answers / request.name).write_text(json.dumps(answer), encoding="utf-8")
+
+    again = _chat(tmp_path)
+    result = again.judge("VAV", EVIDENCE, OPTIONS, RULES)
+    assert isinstance(result, Judgement)
+    assert [c.line for c in result.choices] == OPTIONS
+    assert result.dropped == ("Furnish a coffee machine",)
+    assert result.model == "claude (chat)"
+    assert again.answered_in_chat == 1 and again.waiting == 0 and again.last_error is None
+    assert not request.exists()
+
+    # Now it is in the normal cache: the answers file is not needed again.
+    (answers / request.name).unlink()
+    third = _chat(tmp_path)
+    assert third.judge("VAV", EVIDENCE, OPTIONS, RULES) == result
+    assert third.cached == 1 and third.waiting == 0
+    assert not _requests(tmp_path)
+
+
+def test_an_answers_file_that_cannot_be_read_rewrites_the_request(tmp_path):
+    judge = _chat(tmp_path)
+    judge.judge("VAV", EVIDENCE, OPTIONS, RULES)
+    [request] = _requests(tmp_path)
+    answers = tmp_path / "cache" / "judge-chat" / "answers"
+    answers.mkdir(parents=True)
+    (answers / request.name).write_text("{not json", encoding="utf-8")
+    request.unlink()
+
+    again = _chat(tmp_path)
+    assert again.judge("VAV", EVIDENCE, OPTIONS, RULES) is None
+    assert [r.name for r in _requests(tmp_path)] == [request.name]
+    assert "the answer for VAV could not be read" in again.last_error
+    assert again.waiting == 1 and again.answered_in_chat == 0
+    assert not list((tmp_path / "cache" / "judge").glob("*.json"))    # nothing bad is cached
+
+
+def test_chat_and_api_answers_are_cached_apart(tmp_path, monkeypatch):
+    from estimator.writing.judge import _key, _prompt
+    monkeypatch.delenv("ESTIMATOR_MODEL", raising=False)
+    prompt = _prompt("VAV", EVIDENCE, OPTIONS, RULES)
+    api, chat = Judge(tmp_path, client=FakeClient()), Judge(tmp_path, mode="chat")
+    assert _key(api.model, prompt) != _key(chat.model, prompt)
+
+    # An API answer in the cache is not taken as the chat's, so switching judges afresh.
+    api.judge("VAV", EVIDENCE, OPTIONS, RULES)
+    chat = Judge(tmp_path, mode="chat")
+    assert chat.judge("VAV", EVIDENCE, OPTIONS, RULES) is None and chat.waiting == 1
+
+
+def test_an_unknown_mode_is_refused(tmp_path):
+    with pytest.raises(ValueError):
+        Judge(tmp_path, mode="maybe")
