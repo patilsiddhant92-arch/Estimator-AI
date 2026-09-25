@@ -11,7 +11,7 @@ from collections import defaultdict
 from dataclasses import dataclass, replace
 
 from estimator.catalogue.tags import Equipment
-from estimator.reading.schedules import Schedule, vocabulary
+from estimator.reading.schedules import EQUIPMENT, Schedule, vocabulary
 
 COUNTED = ("CONFIRMED", "MISSING", "DISCREPANCY")
 FROM_TEXT = "counted from the schedule sheet's text; the table itself couldn't be read — check the count"
@@ -360,7 +360,10 @@ def _totals(items: list[InventoryItem], schedules: list[Schedule], equipment: Eq
         if prefix in texted:
             flags.append("counted from the schedule sheet's text — check the count")
         if prefix in kinds and prefix not in equipment.prefixes:
-            flags.append(f"prefix {prefix} isn't in the equipment list yet — added from the schedule's title")
+            flags.append(f"prefix {prefix} isn't in the equipment list yet — added from the schedule's title"
+                         if kinds[prefix] != EQUIPMENT else
+                         f"prefix {prefix} isn't in the equipment list yet, and its schedule's title doesn't say "
+                         f"what it is — name it in the equipment list")
         totals.append(FamilyTotal(kinds.get(prefix) or equipment.prefixes.get(prefix, prefix), prefix, len(counted),
                                   compact_tags(counted), tuple(flags)))
     return totals

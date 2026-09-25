@@ -341,3 +341,22 @@ def test_a_mechanical_sheet_with_a_pictured_schedule_is_counted_from_its_text(tm
     catalogue, opener = _ocr_catalogue(tmp_path, _OCR_TEXT, types=("Plans",), status="ocr")
     assert [s.title for s in read_schedules(catalogue, opener)] == ["ROOFTOP UNIT SCHEDULE (1 OF 2)",
                                                                     "EXHAUST FAN SCHEDULE"]
+
+
+def test_one_letter_codes_in_a_tag_column_are_types_not_units(tmp_path):
+    lines, texts = grid(200, 200, [60, 160, 90], [["TERMINAL DEVICE SCHEDULE", "", ""],
+                                                  ["TAG", "DESCRIPTION", "MODEL"],
+                                                  ["A-1", "SUPPLY DIFFUSER", "OMNI"],
+                                                  ["C-2", "RETURN GRILLE", "350RL"],
+                                                  ["R-1", "RETURN REGISTER", "350RL"]])
+    catalogue, opener = catalogue_for(tmp_path, (lines, texts))
+    [schedule] = read_schedules(catalogue, opener)
+    assert schedule.type_only
+
+
+def test_a_kind_comes_only_from_a_title_that_names_a_schedule():
+    from estimator.reading.schedules import kind_from_title
+    assert kind_from_title("DRYER EXHAUST & MAKE-UP AIR FAN SCHEDULE") == "Dryer Exhaust & Make-Up Air Fan"
+    assert kind_from_title("ROOFTOP UNIT SCHEDULE (1 OF 2)") == "Rooftop Unit"
+    assert kind_from_title("REMARKS: 1. PROVIDE UNIT WITH FACTORY WIRED DISCONNECT SWITCH.") == "Equipment"
+    assert kind_from_title("Schedule (no title found)") == "Equipment"

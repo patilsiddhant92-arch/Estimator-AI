@@ -171,12 +171,13 @@ def expand_tags(text: str, equipment: Equipment | None = None, range_words: tupl
     return [tag for _, tag in sorted(found, key=lambda f: f[0])]
 
 
-_LOOSE = re.compile(rf"^([A-Z]{{1,6}})(\d*)((?:[{_DASH}][A-Z0-9]+)*)$")
+_LOOSE = re.compile(rf"^([A-Z]{{2,6}})(\d*)((?:[{_DASH}][A-Z0-9]+)*)$")
 _NO_TITLE = "Schedule (no title found)"
 
 
 def _loose_one(text: str) -> tuple[str, str] | None:
-    """(prefix, canonical tag) for a tag-shaped cell — letters, then digits or a dash ("TXF-B", "DXF1-1")."""
+    """(prefix, canonical tag) for a tag-shaped cell — two or more letters, then digits or a dash ("TXF-B",
+    "DXF1-1"). A single letter ("A-1", "C-2") is a type code, never a unit's prefix, in a tag column."""
     m = _LOOSE.match(text)
     if not m or not (m.group(2) or m.group(3)):
         return None
@@ -220,13 +221,18 @@ def loose_tags(text: str, equipment: Equipment, range_words: tuple[str, ...] | N
     return tags
 
 
+EQUIPMENT = "Equipment"
+
+
 def kind_from_title(title: str) -> str:
-    """What a schedule lists, from its title: "FAN SCHEDULE" → "Fan"."""
-    if title == _NO_TITLE:
-        return "Equipment"
+    """What a schedule lists, from its title: "FAN SCHEDULE" → "Fan". A title that doesn't name a schedule
+    (none was found, or a notes block was read in its place) says nothing: "Equipment"."""
+    if (title == _NO_TITLE or len(title) > 60 or not re.search(r"\bSCHEDULES?\b", title, re.I)
+            or re.match(r"\s*(?:\d|REMARKS?\b|NOTES?\b)", title, re.I)):
+        return EQUIPMENT
     words = re.sub(r"\([^)]*\)", " ", title)
     words = " ".join(re.sub(r"\bSCHEDULES?\b", " ", words, flags=re.I).split()).strip(" -–—:,")
-    return words.title() if words else "Equipment"
+    return words.title() if words else EQUIPMENT
 
 
 # --- the page's words, found by position --------------------------------------------------------
