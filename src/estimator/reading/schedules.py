@@ -77,6 +77,7 @@ class Vocabulary:
     not_schedules: re.Pattern   # tables keyed by tag that aren't equipment schedules (refrigerant calculations)
     type_titles: re.Pattern     # schedules that list types of air device or fixture, never units
     schedule_heading: re.Pattern   # a line of text that heads a schedule ("EXHAUST FAN SCHEDULE")
+    quantity_headers: frozenset[str] = frozenset()   # a column that counts the units a row stands for (QTY)
 
 
 def _any(patterns: Iterable[str]) -> re.Pattern:
@@ -97,7 +98,7 @@ def vocabulary(path: Path = SCHEDULES) -> Vocabulary:
         re.compile(rf"(?mi)^\s*(?:{header_words})\s*[.:]?\s*$"),
         float(data["border_share"]), int(data["min_rows"]), int(data["min_columns"]), float(data["notes_below"]),
         tuple((a, b) for a, b in data["pairs"]), _any(data["not_schedules"]), _any(data["type_list_titles"]),
-        re.compile(data["schedule_heading"]),
+        re.compile(data["schedule_heading"]), frozenset(data.get("quantity_headers", ())),
     )
 
 
@@ -108,6 +109,12 @@ def _squash(text: str | None) -> str:
 def header_key(text: str | None) -> str:
     """A header cell as compared with the reading list: spaces squashed, capitals, no trailing stop."""
     return _squash(text).upper().rstrip(".:").strip()
+
+
+def quantity_header(schedule: "Schedule", vocab: Vocabulary | None = None) -> str | None:
+    """The schedule's column that counts the units a row stands for (QUANTITY, QTY., NO.), if it has one."""
+    words = (vocab or vocabulary()).quantity_headers
+    return next((h for h in schedule.headers if header_key(h) in words), None)
 
 
 def _is(header: str, words: Iterable[str]) -> bool:

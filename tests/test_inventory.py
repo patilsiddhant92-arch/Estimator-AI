@@ -230,3 +230,76 @@ def test_units_counted_from_a_schedule_sheets_text_say_so_and_are_flagged_once_p
     assert "counted from the schedule sheet's text — check the count" in total.flags
     assert [f for f in flags if "RTU" in f] == [
         "2 RTU counted from the text of H601 ROOFTOP UNIT SCHEDULE — the table itself couldn't be read; check the count"]
+
+
+# --- a row whose tag is really a type: counted, never 1 per row (26-0193: AC-3.0, GCF-A, EUH-1, HPAC) ---------
+
+def _type_job():
+    from estimator.catalogue.register import PageRecord
+    from estimator.reading.devices import TypicalSheet
+    places = [("M-701", "MECHANICAL SCHEDULES", ("Schedules",), "SCHEDULES"),
+              ("M-100", "CELLAR PLAN", ("Plans",), "GCF-A\nGCF-A\nGCF-A\nEUH-1\nTO EUH-1\nRTU-1 ABOVE"),
+              ("M-101", "LEVEL 01 PLAN", ("Plans",), "AC-3.0\nAC-3.0\nRTU-1\nEUH-1\nEUH-1 (TYP.)"),
+              ("M-113", "LEVEL 13 TO 22 PLAN", ("Plans",), "AC-3.0\nEUH-1"),
+              ("M-611", "REFRIGERANT RISER DIAGRAM", ("Water riser", "Diagrams"), "AC-3.0\nAC-3.0\nAC-3.0"),
+              ("E-101", "LEVEL 01 POWER PLAN", ("Plans",), "EUH-1\nEUH-1\nEUH-1")]
+    sheets = tuple(Sheet(DOC, n, number, title, "Electrical" if number.startswith("E") else "Mechanical", types)
+                   for n, (number, title, types, _) in enumerate(places, start=1))
+    pages = tuple(PageRecord(DOC, n, "text", text, 0, True) for n, (*_, text) in enumerate(places, start=1))
+    tags = [TagEntry("AC-3.0", "Air Conditioning Unit", ("M-701",), ("M-101", "M-113", "M-611"), 7),
+            TagEntry("GCF-A", "Fan", ("M-701",), ("M-100",), 4),
+            TagEntry("EUH-1", "Electric Unit Heater", ("M-701",), ("M-100", "M-101", "M-113", "E-101"), 9),
+            TagEntry("RTU-1", "Rooftop Unit", ("M-701",), ("M-100", "M-101"), 3)]
+    catalogue = Catalogue(JobFolder("26-9999", Path("26-9999"), (), ()), pages, sheets, (),
+                          BidCheck("Qualifies", "", (), (), ()), tuple(tags), ())
+    typical = TypicalSheet("M-113", "LEVEL 13 TO 22 PLAN", tuple(str(n) for n in range(13, 23)), "")
+    return catalogue, [typical]
+
+
+def _sched(title, headers, *rows, type_only=False):
+    return Schedule(DOC, 1, "M-701", title, headers,
+                    tuple(ScheduleRow(tag, cells, None, None) for tag, cells in rows), type_only, (), ())
+
+
+def test_a_type_row_is_counted_from_its_placements_on_the_plans_times_the_floors():
+    catalogue, typicals = _type_job()
+    schedules = [_sched("VRF INDOOR UNIT SCHEDULE", ("TAG",), ("AC-3.0", {"TAG": "AC-3.0"}), ("AC-4.0", {"TAG": "AC-4.0"})),
+                 _sched("FAN SCHEDULE", ("TAG",), ("GCF-A", {"TAG": "GCF-A"})),
+                 _sched("ELECTRIC UNIT HEATER SCHEDULE", ("UNIT NO.",), ("EUH-1", {"UNIT NO.": "EUH-1"})),
+                 _sched("ROOFTOP UNIT SCHEDULE", ("TAG",), ("RTU-1", {"TAG": "RTU-1"}))]
+    items, totals, _ = build_inventory(catalogue, schedules, typicals)
+    got = by_tag(items)
+    # AC-3.0: a decimal size is a type. 2 on M-101, 1 on M-113 x 10 floors; the riser diagram shows 3.
+    assert (got["AC-3.0"].category, got["AC-3.0"].quantity) == ("CONFIRMED", 12)
+    assert "decimal" in got["AC-3.0"].reason and "M-113 1 × 10 floors" in got["AC-3.0"].reason
+    assert "riser" in got["AC-3.0"].reason and "M-611 3" in got["AC-3.0"].reason
+    assert got["AC-3.0"].action == "confirm"
+    # AC-4.0: a type placed nowhere on the plans: PENDING, never 1.
+    assert (got["AC-4.0"].category, got["AC-4.0"].quantity) == ("PENDING", None)
+    # GCF-A is labelled 3 times on one plan: 3 fans of that type.
+    assert (got["GCF-A"].category, got["GCF-A"].quantity) == ("CONFIRMED", 3)
+    assert "labelled 3 times" in got["GCF-A"].reason
+    # EUH-1: 1 on M-100 ("TO EUH-1" is a note, not a label), 2 on M-101, 1 on M-113 x 10; an electrical plan's
+    # labels are that trade's own.
+    assert got["EUH-1"].quantity == 13
+    # RTU-1 is labelled once per plan: one unit.
+    assert (got["RTU-1"].category, got["RTU-1"].quantity) == ("CONFIRMED", 1)
+    scheduled = {t.prefix: t.scheduled for t in totals}
+    assert scheduled == {"AC": 12, "GCF": 3, "EUH": 13, "RTU": 1}
+
+
+def test_a_schedules_quantity_column_gives_a_types_count():
+    catalogue, typicals = _type_job()
+    schedules = [_sched("HEAT PUMP AIR CONDITIONING UNIT SCHEDULE", ("UNIT NO.", "SERVICE", "QUANTITY"),
+                        (None, {"UNIT NO.": "HPAC", "SERVICE": "RESIDENTIAL UNITS", "QUANTITY": "719"}), type_only=True),
+                 _sched("FAN SCHEDULE", ("TAG", "QTY."), ("GCF-A", {"TAG": "GCF-A", "QTY.": "(2)"}))]
+    items, totals, _ = build_inventory(catalogue, schedules, typicals)
+    got = by_tag(items)
+    assert (got["HPAC"].kind, got["HPAC"].category, got["HPAC"].quantity) == (
+        "Heat Pump Air Conditioning Unit", "CONFIRMED", 719)
+    assert "QUANTITY column" in got["HPAC"].reason
+    assert not [i for i in items if i.category == "TYPE ONLY"]
+    assert got["GCF-A"].quantity == 2 and "QTY." in got["GCF-A"].reason      # the column, not the 3 labels
+    scheduled = {t.prefix: t.scheduled for t in totals}
+    assert (scheduled["HPAC"], scheduled["GCF"]) == (719, 2)
+    assert next(t.kind for t in totals if t.prefix == "HPAC") == "Heat Pump Air Conditioning Unit"

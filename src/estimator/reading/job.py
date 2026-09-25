@@ -50,7 +50,7 @@ def read_job(catalogue, page_opener=None, cache_dir: Path | None = None) -> JobR
     opener = page_opener or PageOpener(catalogue, cache_dir)
     try:
         schedules = read_schedules(catalogue, opener, pages, page_flags)
-        items, totals, inventory_flags = build_inventory(catalogue, schedules)
+        items, totals, inventory_flags = build_inventory(catalogue, schedules, typicals, pages)
         legend = read_legend(catalogue, opener, flags=page_flags)
         devices, device_flags = count_devices(catalogue, opener, legend, typicals, pages=pages)
     finally:

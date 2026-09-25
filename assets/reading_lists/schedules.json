@@ -7,6 +7,8 @@
   "model_headers": ["MODEL", "MODEL NO", "MODEL NUMBER", "MFR MODEL", "MODEL #"],
   "serves_headers": ["SERVES", "SERVICE", "SERVING", "AREA SERVED", "AREA SERVING", "SERVICE/LOCATION", "LOCATION"],
   "notes_headers": ["REMARKS", "NOTES", "NOTE", "COMMENTS", "REMARK"],
+  "quantity_headers_about": "A column that counts the units a row stands for. A row whose tag is a type takes its quantity from it (header compared whole: NO. OF PORTS is not one).",
+  "quantity_headers": ["QUANTITY", "QTY", "NO", "NO OF UNITS", "NUMBER OF UNITS", "QTY REQUIRED", "QUANTITY REQUIRED"],
   "basis_of_design": ["MFR\\.?\\s*\\(AS STD\\.?\\)\\s*:?\\s*(.+)", "BASIS OF DESIGN\\s*:?\\s*(.+)"],
   "existing_words": ["\\bEXISTING\\b", "\\bEXIST\\.", "\\(E\\)", "\\bTO REMAIN\\b", "\\bTO BE REMOVED\\b"],
   "controls_phrases": ["TEMPERATURE CONTROLS? CONTRACTOR", "CONTROLS? CONTRACTOR", "\\bATC\\b", "\\bBMS\\b", "\\bBAS\\b",
