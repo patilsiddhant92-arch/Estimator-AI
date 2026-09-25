@@ -163,6 +163,16 @@ def test_a_family_with_only_extra_tags_makes_no_bundle_but_is_reported():
     assert "AC-1" in flag and "AC-2" in flag and "not priced until confirmed" in flag
 
 
+def test_type_only_schedules_make_no_bundle_and_are_flagged():
+    type_only = InventoryItem("VAV-A, VAV-B", "VAV TYPE SCHEDULE", "TYPE ONLY", None, "M-601 VAV TYPE SCHEDULE",
+                              (), "", "confirm")
+    catalogue, reading = _job([_item("VAV-1"), type_only], [_schedule("M-601", 5, "VAV BOX SCHEDULE", ["VAV-1"])])
+    bundles = build_bundles(catalogue, reading)
+    assert [(b.key, b.families[0].tags) for b in bundles] == [("VAV", ("VAV-1",))]
+    assert bundles[0].families[0].categories == {"CONFIRMED": 1}
+    assert unbundled_flags(reading) == ["Type-only schedule VAV TYPE SCHEDULE — count from the plans"]
+
+
 def test_pending_tags_make_a_bundle_with_no_quantity():
     items = [_item("VAV-1", "PENDING", None), _item("VAV-2", "PENDING", None)]
     (bundle,) = build_bundles(*_job(items))
