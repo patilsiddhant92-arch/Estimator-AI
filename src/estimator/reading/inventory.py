@@ -118,7 +118,14 @@ def build_inventory(catalogue, schedules: list[Schedule]) -> tuple[list[Inventor
     drawings = {s.number or f"{_name(s.document)} p.{s.page}" for s in catalogue.sheets if "Schedules" not in s.types}
     listings: dict[str, list[tuple[str, str]]] = defaultdict(list)
     existing: set[str] = set()
+    blocks: set[tuple] = set()
     for schedule in schedules:
+        # One schedule set out in two blocks on the same sheet (fan data, then coil data), each
+        # listing the same units in the same order, is one listing, not every unit twice.
+        block = (schedule.document, schedule.page, tuple(row.tag for row in schedule.rows))
+        if len(block[2]) >= 2 and block in blocks:
+            continue
+        blocks.add(block)
         for row in schedule.rows:
             if row.tag is None:
                 continue

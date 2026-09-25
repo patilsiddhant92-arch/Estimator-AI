@@ -117,6 +117,29 @@ def test_a_tag_cell_spanning_split_rows_is_read_once(tmp_path):
     assert [row.tag for row in schedule.rows] == ["AHU-1", "AHU-2"]
 
 
+def test_a_tag_named_in_the_next_column_is_not_the_units_tag(tmp_path):
+    lines, texts = grid(200, 200, [60, 120, 70], [["UNIT NO.", "SERVICE", "CFM"], ["ST-1S", "AHU-1 SUPPLY", "900"],
+                                                  ["ST-1R", "AHU-1 RETURN", "800"]])
+    catalogue, opener = catalogue_for(tmp_path, (lines, texts + ((200, 192, "DUCT SILENCER SCHEDULE", 10),)))
+    [schedule] = read_schedules(catalogue, opener)
+    assert schedule.type_only and [row.tag for row in schedule.rows] == [None, None]
+
+
+def test_a_note_row_naming_a_unit_is_not_a_second_listing(tmp_path):
+    lines, texts = grid(200, 200, [90, 120, 70], [["UNIT NO.", "SERVICE", "CFM"], ["EF-1", "TOILETS", "300"],
+                                                  ["1. EF-1 SHALL RUN", "", ""], ["EF-1 TO RUN WITH AHU-1", "", ""]])
+    catalogue, opener = catalogue_for(tmp_path, (lines, texts + ((200, 192, "FAN SCHEDULE", 10),)))
+    [schedule] = read_schedules(catalogue, opener)
+    assert [row.tag for row in schedule.rows] == ["EF-1"]
+
+
+def test_a_refrigerant_calculation_table_is_not_a_schedule(tmp_path):
+    lines, texts = grid(200, 200, [90, 120, 70], [["EQUIPMENT TAG", "ROOM", "AREA"], ["AC-1", "OFFICE", "300"],
+                                                  ["ACCU-1", "ROOF", "900"]])
+    catalogue, opener = catalogue_for(tmp_path, (lines, texts + ((200, 192, "REFRIGERANT CONCENTRATION CALCULATION", 10),)))
+    assert read_schedules(catalogue, opener) == []
+
+
 def test_a_whole_sheet_border_table_is_dropped(tmp_path):
     border = ((20, 20, 2572, 20), (20, 1708, 2572, 1708), (20, 20, 20, 1708), (2572, 20, 2572, 1708),
               (2300, 20, 2300, 1708), (2300, 1400, 2572, 1400), (2300, 1550, 2572, 1550))

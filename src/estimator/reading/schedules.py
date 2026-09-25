@@ -71,6 +71,7 @@ class Vocabulary:
     min_columns: int
     notes_below: float
     pairs: tuple[tuple[str, str], ...]
+    not_schedules: re.Pattern   # tables keyed by tag that aren't equipment schedules (refrigerant calculations)
 
 
 def _any(patterns: Iterable[str]) -> re.Pattern:
@@ -90,7 +91,7 @@ def vocabulary(path: Path = SCHEDULES) -> Vocabulary:
         re.compile(data["schedule_sheet_text"], re.I),
         re.compile(rf"(?mi)^\s*(?:{header_words})\s*[.:]?\s*$"),
         float(data["border_share"]), int(data["min_rows"]), int(data["min_columns"]), float(data["notes_below"]),
-        tuple((a, b) for a, b in data["pairs"]),
+        tuple((a, b) for a, b in data["pairs"]), _any(data["not_schedules"]),
     )
 
 
@@ -365,11 +366,16 @@ def _schedule(grid: _Grid, words: _Words, head: _Head, vocab: Vocabulary, equipm
         if in_notes:
             note_lines.append(" ".join(grid.text(r, c) for c in range(head.col, head.end_col) if grid.text(r, c)))
             continue
-        tags = expand_tags(tag_text, equipment)
-        if not tags and wide_x1 > tag_x1:
+        tags = expand_tags(tag_text, equipment) if _names_a_unit(tag_text, vocab) else []
+        if tags and not _compact(re.sub(r"^\(E\)\s*", "", tag_text, flags=re.I)).startswith(_compact(tags[0])):
+            tags = []   # a line of text that mentions a unit, not the unit's own row
+        if not tags and tag_text and wide_x1 > tag_x1 and _names_a_unit(tag_text, vocab):
+            # A tag split over two columns ("VAV" | "-503"): kept only when it starts in the tag column,
+            # never a tag named in the next column ("ST-1S" | "AHU-1 SUPPLY").
             joined = words.starting_in((tag_x0, top, wide_x1, bottom))
-            tags = expand_tags(joined, equipment)
-            tag_text = joined if tags else tag_text
+            found = expand_tags(joined, equipment)
+            if found and _compact(found[0]).startswith(_compact(tag_text.split()[0])):
+                tags, tag_text = found, joined
         tag_text = tag_text or key_text
         cells = {name: grid.text(r, c) for c, name in labels}
         cells[key_name] = tag_text
@@ -400,6 +406,16 @@ def _schedule(grid: _Grid, words: _Words, head: _Head, vocab: Vocabulary, equipm
     return Schedule(document, page, sheet, head.title or "Schedule (no title found)",
                     tuple(name for _, name in labels), rows, not tagged, tuple(notes),
                     _controls_by(notes, [r for r in remarks if r], vocab))
+
+
+def _compact(text: str) -> str:
+    return re.sub(rf"[\s{_DASH}#.]", "", text).upper()
+
+
+def _names_a_unit(tag_text: str, vocab: Vocabulary) -> bool:
+    """A tag cell starts with the unit's tag and says little else ("VAV-1 THRU VAV-12", "(E) AHU-3");
+    a numbered note or a sentence running through the column is not a unit's row."""
+    return bool(tag_text) and not vocab.note_number.match(tag_text) and len(tag_text.split()) <= 4
 
 
 def _inside(x: float, y: float, box: tuple) -> bool:
@@ -460,5 +476,6 @@ def read_schedules(catalogue, page_opener: PageOpener) -> list[Schedule]:
         if not _is_schedule_sheet(sheet, clean_text(record.text), vocab):
             continue
         page = page_opener(sheet.document, sheet.page)
-        schedules += read_page(page, (sheet.document, sheet.page, sheet.number), vocab, equipment)
+        found = read_page(page, (sheet.document, sheet.page, sheet.number), vocab, equipment)
+        schedules += [s for s in found if not vocab.not_schedules.search(s.title)]
     return schedules

@@ -74,6 +74,15 @@ def test_a_tag_on_two_schedule_sheets_is_a_discrepancy():
     assert totals[0].scheduled == 1
 
 
+def test_one_schedule_set_out_in_two_blocks_is_one_listing():
+    tags = [TagEntry(t, "Air Handling Unit", ("M-601",), ("M-101",), 3) for t in ("AHU-1", "AHU-2")]
+    fans = schedule("AIR HANDLING UNIT SCHEDULE", row("AHU-1"), row("AHU-2"))
+    coils = schedule("", row("AHU-1"), row("AHU-2"))
+    items, totals, _ = build_inventory(catalogue_with(tags), [fans, coils])
+    assert [i.category for i in items] == ["CONFIRMED", "CONFIRMED"]
+    assert totals[0].scheduled == 2
+
+
 def test_the_same_sheet_in_a_marked_up_copy_is_read_once():
     tags = [TagEntry("VAV-1", "Variable Air Volume Box", ("M-601",), ("M-101",), 3)]
     original = schedule("VAV BOX SCHEDULE", row("VAV-1"))

@@ -21,5 +21,6 @@
   "min_rows": 2,
   "min_columns": 3,
   "notes_below": 200,
-  "pairs": [["SS", "CU"], ["IU", "CU"], ["FCU", "CU"], ["CRAC", "ACCU"], ["AC", "CU"], ["HP", "ACCU"]]
+  "not_schedules": ["\\bCALCULATIONS?\\b"],
+  "pairs":[["SS", "CU"], ["IU", "CU"], ["FCU", "CU"], ["CRAC", "ACCU"], ["AC", "CU"], ["HP", "ACCU"]]
 }
