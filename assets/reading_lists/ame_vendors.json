@@ -1,0 +1,19 @@
+{
+  "about": "Who AME asks for a price, by manufacturer. The estimator's own list. Edit here, never in code.",
+  "email_draft": "Could you please provide the pricing for the {maker} - {category}?\n\nPlease include unit pricing, lead time, and any applicable factory controls / BACnet notes.\n\nThank you.",
+  "vendors": [
+    {"vendor": "Mechanical Technologies", "products": "VFDs, Airflow Stations, Gas Detection", "makers": ["ABB", "Ruskin", "MSA"], "contact": "Jamie Scott jscott@mthvac.com; Larry Scholl lscholl@mthvac.com"},
+    {"vendor": "AWACP", "products": "Airflow Stations and Gas Detection", "makers": [], "products_match": ["Airflow", "Gas detection"], "contact": "Joel Adelantar joeladelantar@awacp.com (732) 689-0387"},
+    {"vendor": "Broudy Precision", "products": "General Controls", "makers": ["Honeywell", "JCI", "Johnson Controls", "Belimo", "ACI", "Vaisala"], "contact": "jchandler@broudyprecision.com; tsanroman@broudyprecision.com"},
+    {"vendor": "Universal Supply Group", "products": "General Controls", "makers": ["Honeywell"], "contact": "Rory Fitzsimons rfitzsimons@usginc.com"},
+    {"vendor": "Building Controls & Solutions", "products": "General Controls", "makers": ["Honeywell"], "contact": "AJ Hudak AJ.Hudak@building-controls.com"},
+    {"vendor": "Accuspec", "products": "Air Valves, Flow Meters", "makers": ["Accutrol", "Onicon"], "contact": "Bill Theel btheel@accuspecinc.com; Sam Hall shall@accuspecinc.com"},
+    {"vendor": "JT Lynne", "products": "Control Valves", "makers": ["Bray"], "contact": "Steve Valahovic steve.valahovic@jtlynnefe.com"},
+    {"vendor": "Control Associates", "products": "Control Valves, DP", "makers": ["Keystone", "Fisher", "Rosemount"], "contact": "Chris Sneath csneath@control-associates.com"},
+    {"vendor": "Technical Air", "products": "Airflow Stations", "makers": ["Ebtron"], "contact": "Dave Painter dpainter@technicalair.com"},
+    {"vendor": "Pro Tech Solutions", "products": "DP / Pressure, Meters", "makers": ["Rosemount", "Dynasonic"], "contact": "Steve Pedraza spedraza@control-associates.com"},
+    {"vendor": "Technical Devices, Inc", "products": "Flow Meters", "makers": ["Flexim"], "contact": "Dave Painter dpainter@technicalair.com"},
+    {"vendor": "Engineered Air Solutions", "products": "Gas Detection", "makers": ["Macurco"], "contact": "B Sullivan bsullivan@engineeredairsolutions.com; Kevin Fitzpatrick kfitzpatrick@engineeredairsolutions.com; jthaker@engineeredairsolutions.com"},
+    {"vendor": "NY Thermal Systems", "products": "Gas Detection", "makers": ["Toxalert"], "contact": "johnc@nythermalsystems.com"}
+  ]
+}

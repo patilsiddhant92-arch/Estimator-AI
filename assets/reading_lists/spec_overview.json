@@ -1,0 +1,30 @@
+{
+  "about": "What the Spec overview tab looks for. Each topic is found or not found, never guessed. Add topics here, never in code. Patterns are matched ignoring case. electrical: true also searches electrical drawings, but only in a sentence with a controls word.",
+  "topics": [
+    {"section": "Protocols", "item": "BACnet/IP", "patterns": ["\\bBACnet\\s*/\\s*IP\\b", "\\bBACnet\\s+IP\\b", "\\bB/IP\\b"]},
+    {"section": "Protocols", "item": "BACnet MS/TP", "patterns": ["\\bMS\\s*/\\s*TP\\b"]},
+    {"section": "Protocols", "item": "BACnet (any mention)", "patterns": ["\\bBACnet\\b"]},
+    {"section": "Protocols", "item": "Modbus", "patterns": ["\\bModbus\\b"]},
+    {"section": "Protocols", "item": "LonWorks", "patterns": ["\\bLon\\s*Works\\b", "\\bLonTalk\\b"]},
+    {"section": "Protocols", "item": "Open protocol stated", "patterns": ["\\bopen\\s+(?:protocol|system|architecture|standard)s?\\b", "\\bnon[- ]proprietary\\b", "\\binteroperab"]},
+    {"section": "Protocols", "item": "Proprietary system stated", "patterns": ["(?<!non-)(?<!non )\\bproprietary\\b"]},
+    {"section": "Protocols", "item": "BTL listing", "patterns": ["\\bBTL\\b", "BACnet\\s+Testing\\s+Laborator"]},
+    {"section": "Network and front end", "item": "Operator workstation / front-end PC", "patterns": ["\\boperators?'?\\s+work\\s*stations?\\b", "\\bfront[- ]end\\b", "\\bwork\\s*stations?\\b"]},
+    {"section": "Network and front end", "item": "Server", "patterns": ["\\bservers?\\b(?!\\s*(?:rooms?|areas?))"]},
+    {"section": "Network and front end", "item": "Supervisory / network controller (JACE)", "patterns": ["\\bJACE\\b", "\\bsupervisory\\s+(?:controller|device|engine)s?\\b", "\\bnetwork\\s+(?:area\\s+)?controllers?\\b", "\\bbuilding\\s+controllers?\\b", "\\bNAE\\b"]},
+    {"section": "Network and front end", "item": "Graphics", "patterns": ["\\bgraphics?\\b", "\\bgraphical\\b"]},
+    {"section": "Network and front end", "item": "UPS", "patterns": ["(?<!-)\\b(?-i:UPS)\\b", "\\buninterruptible\\s+power"]},
+    {"section": "Network and front end", "item": "Network switches", "patterns": ["\\b(?:network|ethernet)\\s+switch(?:es)?\\b"]},
+    {"section": "Network and front end", "item": "Remote access", "patterns": ["\\bremote\\s+access\\b", "\\bVPN\\b"]},
+    {"section": "Network and front end", "item": "Tie-in to an existing system", "patterns": ["\\bexisting\\s+(?:BMS|BAS|EMS|DDC|front[- ]end|building\\s+(?:management|automation)\\s+system|temperature\\s+control)", "\\bextension\\s+of\\s+the\\s+existing\\b", "\\b(?:tie|connect|integrate)[sd]?\\s+(?:in\\s*)?(?:in)?to\\s+the\\s+existing\\b"]},
+    {"section": "Network and front end", "item": "Cybersecurity / owner IT rules", "patterns": ["\\bcyber\\s*-?security\\b", "\\bowner'?s?\\s+IT\\b"]},
+    {"section": "Electrical and conduit", "item": "EMT conduit", "patterns": ["\\bEMT\\b", "\\belectrical\\s+metallic\\s+tubing\\b"], "electrical": true},
+    {"section": "Electrical and conduit", "item": "Wiring in conduit", "patterns": ["\\bin\\s+(?:a\\s+)?conduits?\\b", "\\bconduits?\\b"], "electrical": true},
+    {"section": "Electrical and conduit", "item": "Plenum-rated cable", "patterns": ["\\bplenum[- ]?(?:rated|cable)\\b", "\\bCMP\\b"], "electrical": true},
+    {"section": "Electrical and conduit", "item": "Power to controls panels", "patterns": ["\\b(?:120\\s*V|power)\\b[^.;]{0,60}\\b(?:BMS|BAS|DDC|ATC|control)\\s+panels?\\b"], "electrical": true},
+    {"section": "Electrical and conduit", "item": "Work by the electrical contractor", "patterns": ["\\bby\\s+(?:the\\s+)?(?:electrical\\s+contractor|E\\.?C\\.?|Division\\s+26)\\b", "\\b(?:Division|Div\\.?)\\s+26\\b"], "electrical": true},
+    {"section": "Electrical and conduit", "item": "Control transformers", "patterns": ["\\bcontrol\\s+transformers?\\b", "\\b24\\s*VAC?\\s+transformers?\\b", "\\b120\\s*V?\\s*/\\s*24\\s*V"], "electrical": true},
+    {"section": "Electrical and conduit", "item": "Back boxes for thermostats and sensors", "patterns": ["\\bback\\s*-?box(?:es)?\\b", "\\bJ-?box(?:es)?\\b", "\\bjunction\\s+box(?:es)?\\b"], "electrical": true},
+    {"section": "Electrical and conduit", "item": "Fire alarm / smoke detector interface", "patterns": ["\\bsmoke\\s+detectors?\\b", "\\bfire\\s+alarm\\b", "\\bduct\\s+detectors?\\b"], "electrical": true}
+  ]
+}

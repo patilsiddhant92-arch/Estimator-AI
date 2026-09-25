@@ -1,0 +1,52 @@
+{
+  "about": "How the equipment families on a job become systems (design §10.1). A plant or multi-equipment group forms when one of its anchors is on the job. Another family joins it only when it shares a schedule sheet, a sequence passage, or a riser or control-diagram sheet with a member; otherwise it stands alone, flagged when a group it could belong to is on the job. Anything not in a group is a system of its own family. Each group's name is a Master Template system name or kind. Edit here, never in code.",
+  "groups": [
+    {"name": "Geothermal System", "anchors": ["GHP"], "joiners": ["GWP", "HGP", "CHWP", "HWP", "ET", "PFHX", "AS"]},
+    {"name": "Chilled Water System", "anchors": ["CH", "CHLR", "ACCH"], "joiners": ["CHWP", "CHGP", "PCHWP", "SCHWP", "ET", "AS", "CHF"]},
+    {"name": "Condenser Water", "anchors": ["CT"], "joiners": ["CWP", "CTF"]},
+    {"name": "Boiler Plant", "anchors": ["B", "BLR"], "joiners": ["HWP", "BP", "ET", "AS"]},
+    {"name": "Heat Exchanger", "anchors": ["HX", "PFHX"], "joiners": ["HWP", "ET", "AS"]},
+    {"name": "VRF System", "anchors": ["ODU"], "joiners": ["IDU", "BS"]},
+    {"name": "Split System", "anchors": ["SS", "CU", "ACCU", "OU"], "joiners": ["IU", "AC", "HP"]},
+    {"name": "Kitchen Exhaust", "anchors": ["KEF", "DWEF"], "joiners": ["MAU", "PCU"]},
+    {"name": "Gas Detection", "anchors": ["GDP"], "joiners": []}
+  ],
+  "link_sheet_types": ["Air riser", "Water riser", "Control diagrams", "Diagrams"],
+  "link_disciplines": ["Mechanical", "Controls"],
+  "also_called": {
+    "VAV": ["variable air volume", "VAV box", "VAV terminal"],
+    "FPB": ["fan powered box", "fan powered terminal", "fan powered VAV"],
+    "FPV": ["fan powered VAV", "fan powered box"],
+    "CAV": ["constant air volume"],
+    "AHU": ["air handling unit", "air handler"],
+    "RTU": ["rooftop unit", "roof top unit"],
+    "ERU": ["energy recovery unit"],
+    "ERV": ["energy recovery ventilator"],
+    "DOAS": ["dedicated outdoor air"],
+    "MAU": ["makeup air unit", "make-up air unit"],
+    "FCU": ["fan coil"],
+    "UV": ["unit ventilator"],
+    "CH": ["chiller"],
+    "CT": ["cooling tower"],
+    "B": ["boiler"],
+    "HX": ["heat exchanger"],
+    "KEF": ["kitchen exhaust"],
+    "SPF": ["stair pressurization"],
+    "GDP": ["gas detection"],
+    "FTR": ["finned tube", "fin tube"],
+    "CUH": ["cabinet unit heater"],
+    "UH": ["unit heater"]
+  },
+  "order": {
+    "about": "The order of the systems in the proposal, after the front end: the first stage that names a bundle's group or one of its prefixes; anything else comes after, in the order the schedules list it, and existing equipment last.",
+    "stages": [
+      {"stage": "Air systems", "prefixes": ["AHU", "RTU", "ERU", "ERV", "DOAS", "HRU", "MAU"]},
+      {"stage": "Terminal units", "prefixes": ["VAV", "FPB", "FPV", "FPT", "CAV", "FCU", "UV"]},
+      {"stage": "Fans", "names": ["Kitchen Exhaust"], "prefixes": ["EF", "GEF", "TEF", "TX", "DX", "SF", "RF", "SPF", "SX", "IF", "CF", "KEF", "DWEF"]},
+      {"stage": "Heating", "prefixes": ["FTR", "UH", "CUH", "EUH", "ECUH", "CBH", "BB", "EBB", "ACU", "ARC", "EDH", "DH"]},
+      {"stage": "Plants", "names": ["Chilled Water System", "Boiler Plant", "Heat Exchanger", "Condenser Water", "Geothermal System"]},
+      {"stage": "Split, VRF and computer room units", "names": ["Split System", "VRF System"], "prefixes": ["CRAC", "CRAH", "HP", "WSHP", "GHP"]},
+      {"stage": "Monitoring", "names": ["Gas Detection"], "prefixes": ["GDP"]}
+    ]
+  }
+}

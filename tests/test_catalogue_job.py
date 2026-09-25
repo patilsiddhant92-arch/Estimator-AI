@@ -53,6 +53,18 @@ def test_the_summary_is_in_plain_words(job, tmp_path):
     assert lines[1].startswith("Bid check: Qualifies — The spec names Niagara N4")
 
 
+def test_the_summary_has_a_spec_overview_line(job, tmp_path):
+    lines = summary_lines(catalogue_job(job, tmp_path / "cache"))
+    assert any(line.startswith("Spec overview:") for line in lines)
+    line = next(line for line in lines if line.startswith("Spec overview:"))
+    assert "manufacturers named" in line and "AME gets prices for" in line and "protocols:" in line
+
+
+def test_the_catalogue_carries_a_spec_overview(job, tmp_path):
+    result = catalogue_job(job, tmp_path / "cache")
+    assert any(m.maker == "Tridium / Niagara" for m in result.overview.makers)
+
+
 def test_the_command_writes_the_evidence_package(job, tmp_path, capsys):
     out = tmp_path / "out"
     assert main(["catalogue", str(job), "--out", str(out), "--workers", "1"]) == 0

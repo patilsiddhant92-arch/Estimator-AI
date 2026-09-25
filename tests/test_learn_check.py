@@ -101,3 +101,121 @@ def test_missing_from_documents_tab_is_empty_once_a_file_is_on_it(tmp_path):
     (root / "2. Takeoffs" / "notes.xlsx").write_text("x")
     job = JobFolder("26-9999", root, (), (), (), (), ("2. Takeoffs/notes.xlsx",))
     assert learn_check.missing_from_documents_tab(job) == ()
+
+
+# Task 3: the Spec overview table in the Learn check.
+
+def test_overview_makers_include_is_checked():
+    assert learn_check.misses(_result(overview_maker_names=("Belimo", "Vaisala")),
+                              {**EXPECTED, "overview_makers_include": ["Belimo"]}) == []
+    found = learn_check.misses(_result(overview_maker_names=()),
+                               {**EXPECTED, "overview_makers_include": ["Belimo"]})
+    assert found == ["Belimo was expected among the Spec overview manufacturers, but the check didn't find it"]
+
+
+def test_overview_makers_include_is_optional():
+    assert learn_check.misses(_result(), EXPECTED) == []
+
+
+def test_measure_reads_the_spec_overview(tmp_path):
+    from estimator.catalogue.job import catalogue_job
+    from pdfs import make_pdf, Page
+
+    root = tmp_path / "26-9999"
+    base = root / "2. Takeoffs" / "1. Base Takeoff"
+    spec = Page(texts=((72, 72, "SECTION 23 09 23 - INSTRUMENTATION AND CONTROL FOR HVAC\n"
+                                "Actuators shall be Belimo or approved equal. Provide BACnet MS/TP.\n"
+                                "23 09 23 - 1", 10),))
+    make_pdf(base / "Marked_230923.pdf", spec)
+    catalogue = catalogue_job(root, tmp_path / "cache")
+    result = learn_check.measure(catalogue)
+    assert result.overview_makers >= 1 and "Belimo" in result.overview_maker_names
+    assert result.overview_ame >= 1
+    assert "BACnet MS/TP" in result.overview_protocols
+    assert result.overview_not_found > 0
+
+
+# The scope review in the Learn check.
+
+ROWS = (("Other systems to connect to", "UPS (uninterruptible power supply)", "The UPS shall be monitored.", ""),
+        ("Who does what", "A responsibility matrix", "BMS CONTRACTOR RESPONSIBILITY MATRIX", "IC00-00"),
+        ("Who does what", "The Owner will provide", "The Owner will provide the following: 1. Servers 2. Switches", ""),
+        ("Standard exclusion", "All water flow meters.", "Provide flow meters.", ""))
+
+
+def test_scope_review_includes_is_checked():
+    expected = {**EXPECTED, "scope_review_includes": [
+        {"section": "Other systems to connect to", "item_starts": "UPS"},
+        {"section": "Who does what", "item_starts": "A responsibility matrix", "sheet": "IC00-00"},
+        {"section": "Who does what", "says": ["The Owner will provide", "Servers"]},
+        {"section": "Standard exclusion", "item_starts": ["All water flow meters", "The installation of dampers"]}]}
+    assert learn_check.misses(_result(scope_rows=ROWS), expected) == []
+
+
+def test_a_missing_scope_review_row_is_said_in_plain_words():
+    expected = {**EXPECTED, "scope_review_includes": [
+        {"section": "Other systems to connect to", "item_starts": "Chillers"},
+        {"section": "Who does what", "item_starts": "A responsibility matrix", "sheet": "IC01-01"},
+        {"section": "Who does what", "says": ["The Owner will provide", "Firewalls"]},
+        {"section": "Standard exclusion", "item_starts": ["All gas meters", "All motor starters"]}]}
+    assert learn_check.misses(_result(scope_rows=ROWS), expected) == [
+        "Other systems to connect to: a row for “Chillers” was expected in the Spec overview, but the check didn't "
+        "find it",
+        "Who does what: a row for “A responsibility matrix” on sheet IC01-01 was expected in the Spec overview, but "
+        "the check didn't find it",
+        "Who does what: a row saying “The Owner will provide … Firewalls” was expected in the Spec overview, but the "
+        "check didn't find it",
+        "Standard exclusion: a row for “All gas meters” or “All motor starters” was expected in the Spec overview, "
+        "but the check didn't find it"]
+
+
+def test_scope_review_includes_is_optional():
+    assert learn_check.misses(_result(), EXPECTED) == []
+
+
+def test_measure_reads_the_scope_review(tmp_path):
+    from estimator.catalogue.job import catalogue_job
+    from pdfs import make_pdf, Page
+
+    root = tmp_path / "26-9999"
+    base = root / "2. Takeoffs" / "1. Base Takeoff"
+    spec = Page(texts=((72, 72, "SECTION 23 09 23 - INSTRUMENTATION AND CONTROL FOR HVAC\n"
+                                "The BMS contractor shall furnish all water flow meters. The UPS shall be monitored "
+                                "by the BMS. IDF cabinet by others.\n23 09 23 - 1", 10),))
+    make_pdf(base / "Marked_230923.pdf", spec)
+    result = learn_check.measure(catalogue_job(root, tmp_path / "cache"))
+    assert result.scope_exclusions >= 1 and result.scope_systems >= 1 and result.scope_who >= 1
+    assert ("Standard exclusion", "All water flow meters.") in [row[:2] for row in result.scope_rows]
+
+
+# The reading of the job (build step 4).
+
+def test_families_include_is_checked():
+    expected = {**EXPECTED, "families_include": {"VAV": 58, "CAV": 19}}
+    result = _result(families=(("VAV", 57), ("EF", 2)))
+    assert learn_check.misses(result, expected) == [
+        "58 VAV units were expected on the schedules, but the reading found 57",
+        "19 CAV units were expected on the schedules, but the reading found none"]
+    assert learn_check.misses(_result(families=(("VAV", 58), ("CAV", 19))), expected) == []
+
+
+def test_families_include_is_optional():
+    assert learn_check.misses(_result(families=()), EXPECTED) == []
+
+
+def test_measure_reads_the_reading(tmp_path):
+    from estimator.catalogue.job import catalogue_job
+    from estimator.reading.job import read_job
+    from pdfs import FILLER, Page, make_pdf
+
+    root = tmp_path / "26-9999"
+    plan = Page(width=3024, height=2160, texts=((200, 300, FILLER, 12), (900, 900, "OCC", 12), (1000, 900, "OCC", 12),
+                                                (2640, 1860, "FLOOR PLAN", 20), (2800, 2000, "M-101", 40)))
+    make_pdf(root / "2. Takeoffs" / "1. Base Takeoff" / "Mech.pdf", plan)
+    catalogue = catalogue_job(root, tmp_path / "cache")
+    result = learn_check.measure(catalogue, read_job(catalogue))
+    assert result.device_labels == (("OCC", 2),)
+    assert result.units == 0 and result.families == ()
+    assert result.backbone == "none / none"
+    row = learn_check.reading_row("26-9999", result)
+    assert row == "| 26-9999 | 0 | — | — | OCC 2 | 0 | 0 | 0 | none / none |"

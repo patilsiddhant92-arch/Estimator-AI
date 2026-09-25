@@ -85,6 +85,27 @@ def _exclusions(document: DocxDocument) -> list[str]:
     return texts[start + 1 : end]
 
 
+def _clarifications(document: DocxDocument) -> list[str]:
+    paragraphs = [p for p in document.paragraphs if visible_text(p).strip()]
+    texts = [squash(p.text) for p in paragraphs]
+    start = next((i for i, t in enumerate(texts) if t.startswith(layout.CLARIFICATIONS)), None)
+    end = next((i for i, t in enumerate(texts) if t.startswith(layout.EXCLUSIONS)), None)
+    if start is None or end is None or end <= start:
+        raise ProposalFormatError("can't find the clarifications list")
+    _refuse_foreign_children(document, paragraphs[start], paragraphs[end], region="among the clarifications")
+    _refuse_deleted_paragraphs(document.paragraphs, paragraphs[start], paragraphs[end])
+    for paragraph in paragraphs[start + 1 : end]:
+        _refuse_hidden_text(paragraph)
+    return texts[start + 1 : end]
+
+
+def read_standard_lines(template_path: Path) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    """The template's standard clarifications and its standard exclusions, word for word, in
+    the order the proposal prints them."""
+    document = open_docx(template_path)
+    return tuple(_clarifications(document)), tuple(_exclusions(document))
+
+
 def read_named_exceptions(document: DocxDocument, template_path: Path) -> tuple[str, ...]:
     """Exclusions this job added after the template's standard list."""
     standard = _exclusions(open_docx(template_path))

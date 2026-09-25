@@ -1,0 +1,105 @@
+{
+  "about": "Every manufacturer the Spec overview lists, by category. A maker is listed once, under its category here. Add makers here, never in code. Names match as written or in capitals; priced: false marks a category that isn't a device to price (the controls platform is the bid check's business); not_before / not_after stop false hits such as 'New York'.",
+  "categories": [
+    {"category": "Controls platform", "ask_if_missing": false, "priced": false, "makers": [
+      {"name": "Honeywell", "names": ["Honeywell"]},
+      {"name": "Johnson Controls", "names": ["Johnson Controls", "JCI"]},
+      {"name": "Tridium / Niagara", "names": ["Tridium", "Niagara"], "not_after": ["Falls"]},
+      {"name": "Siemens", "names": ["Siemens"]},
+      {"name": "Automated Logic", "names": ["Automated Logic", "ALC"]},
+      {"name": "Distech Controls", "names": ["Distech"]},
+      {"name": "Delta Controls", "names": ["Delta Controls"]},
+      {"name": "Alerton", "names": ["Alerton"]},
+      {"name": "KMC Controls", "names": ["KMC"]},
+      {"name": "Schneider Electric", "names": ["Schneider", "Andover", "EcoStruxure", "Altivar"]},
+      {"name": "Rockwell Automation (Allen-Bradley)", "names": ["Rockwell", "Allen-Bradley", "Allen Bradley"]},
+      {"name": "Reliable Controls", "names": ["Reliable Controls"]}
+    ]},
+    {"category": "Sensors and transmitters", "ask_if_missing": true, "makers": [
+      {"name": "ACI", "names": ["ACI", "Automation Components"]},
+      {"name": "BAPI", "names": ["BAPI"]},
+      {"name": "Vaisala", "names": ["Vaisala"]},
+      {"name": "Setra", "names": ["Setra"]},
+      {"name": "Veris", "names": ["Veris"]},
+      {"name": "Dwyer", "names": ["Dwyer"]},
+      {"name": "Kele", "names": ["Kele"]},
+      {"name": "Mamac", "names": ["Mamac"]},
+      {"name": "Greystone", "names": ["Greystone"]},
+      {"name": "Senva", "names": ["Senva"]}
+    ]},
+    {"category": "Actuators and dampers", "ask_if_missing": true, "makers": [
+      {"name": "Belimo", "names": ["Belimo"]},
+      {"name": "Ruskin", "names": ["Ruskin"]},
+      {"name": "Greenheck", "names": ["Greenheck"]},
+      {"name": "Nailor", "names": ["Nailor"]}
+    ]},
+    {"category": "Control valves", "ask_if_missing": true, "makers": [
+      {"name": "Bray", "names": ["Bray"]},
+      {"name": "Keystone", "names": ["Keystone"]},
+      {"name": "Fisher", "names": ["Fisher"]},
+      {"name": "Griswold", "names": ["Griswold"]},
+      {"name": "Flow Design (FDI)", "names": ["Flow Design"]}
+    ]},
+    {"category": "Airflow measuring", "ask_if_missing": true, "makers": [
+      {"name": "Ebtron", "names": ["Ebtron", "EBTRON"]},
+      {"name": "Air Monitor", "names": ["Air Monitor"]},
+      {"name": "Paragon Controls", "names": ["Paragon Controls"]}
+    ]},
+    {"category": "Flow meters", "ask_if_missing": true, "makers": [
+      {"name": "Onicon", "names": ["Onicon", "ONICON"]},
+      {"name": "Flexim", "names": ["Flexim", "FLEXIM"]},
+      {"name": "Dynasonic", "names": ["Dynasonic", "DynaSonic"]},
+      {"name": "Badger Meter", "names": ["Badger Meter"]}
+    ]},
+    {"category": "Pressure and differential pressure", "ask_if_missing": false, "makers": [
+      {"name": "Rosemount", "names": ["Rosemount"]}
+    ]},
+    {"category": "Gas detection", "ask_if_missing": true, "makers": [
+      {"name": "MSA", "names": ["MSA"]},
+      {"name": "Macurco", "names": ["Macurco"]},
+      {"name": "Toxalert", "names": ["Toxalert"]},
+      {"name": "Honeywell Analytics", "names": ["Honeywell Analytics"]}
+    ]},
+    {"category": "Variable frequency drives", "ask_if_missing": true, "makers": [
+      {"name": "ABB", "names": ["ABB"]},
+      {"name": "Danfoss", "names": ["Danfoss"]},
+      {"name": "Yaskawa", "names": ["Yaskawa"]},
+      {"name": "Toshiba", "names": ["Toshiba"]}
+    ]},
+    {"category": "Relays and current switches", "ask_if_missing": false, "makers": [
+      {"name": "Functional Devices (RIB)", "names": ["Functional Devices", "RIB"]}
+    ]},
+    {"category": "Terminal units (VAV / fan-powered boxes)", "ask_if_missing": false, "makers": [
+      {"name": "Titus", "names": ["Titus"]},
+      {"name": "Price Industries", "names": ["Price Industries", "PRICE"], "not_before": ["UNIT", "CONTRACT", "BID", "LUMP SUM", "Proposal", "PROPOSAL"], "not_after": ["LIST", "BREAKDOWN", "SCHEDULE", "BASED", "AS"]},
+      {"name": "Anemostat", "names": ["Anemostat"]},
+      {"name": "Krueger", "names": ["Krueger"]},
+      {"name": "Envirotec", "names": ["Envirotec", "Envirotech"]}
+    ]},
+    {"category": "Equipment makers (units with their own controls)", "ask_if_missing": false, "makers": [
+      {"name": "Trane", "names": ["Trane"]},
+      {"name": "Carrier", "names": ["Carrier"], "not_after": ["Sense", "SENSE", "Pipe", "PIPE", "Pipes", "PIPES"]},
+      {"name": "York", "names": ["York"], "not_before": ["New", "NEW"]},
+      {"name": "Daikin", "names": ["Daikin"]},
+      {"name": "Mitsubishi", "names": ["Mitsubishi"]},
+      {"name": "LG", "names": ["LG"]},
+      {"name": "Lennox", "names": ["Lennox"]},
+      {"name": "AAON", "names": ["AAON"]},
+      {"name": "McQuay", "names": ["McQuay"]},
+      {"name": "Liebert / Vertiv", "names": ["Liebert", "Vertiv"]},
+      {"name": "Above Air", "names": ["Above Air"], "not_after": ["Flow", "FLOW"]},
+      {"name": "Islandaire", "names": ["Islandaire"]},
+      {"name": "PoweredAire", "names": ["PoweredAire", "Powered Aire"]},
+      {"name": "Armstrong", "names": ["Armstrong"], "not_after": ["Armaflex", "ARMAFLEX"]},
+      {"name": "Bell & Gossett", "names": ["Bell & Gossett", "Bell and Gossett", "B&G"]},
+      {"name": "Taco", "names": ["Taco"]},
+      {"name": "Grundfos", "names": ["Grundfos"]},
+      {"name": "Aerco", "names": ["Aerco", "AERCO"]},
+      {"name": "Lochinvar", "names": ["Lochinvar"]},
+      {"name": "Cleaver-Brooks", "names": ["Cleaver-Brooks", "Cleaver Brooks"]}
+    ]},
+    {"category": "Lab air valves", "ask_if_missing": false, "makers": [
+      {"name": "Accutrol", "names": ["Accutrol"]}
+    ]}
+  ]
+}

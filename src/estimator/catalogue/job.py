@@ -2,10 +2,11 @@
 from __future__ import annotations
 
 from collections import Counter, defaultdict
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from estimator.catalogue.documents import JobFolder, find_documents
+from estimator.catalogue.overview import FOUND, STANDARD_EXCLUSION, SpecOverview, build_overview
 from estimator.catalogue.pdf import tessdata
 from estimator.catalogue.qualify import BidCheck, check_bid
 from estimator.catalogue.register import PageRecord, register_job
@@ -24,6 +25,7 @@ class Catalogue:
     bid: BidCheck
     tags: tuple[TagEntry, ...]
     flags: tuple[str, ...]
+    overview: SpecOverview = field(default_factory=SpecOverview)
 
 
 CONTROLS_DISCIPLINES = ("Mechanical", "Controls", "Plumbing", "Fire protection", "Unknown")
@@ -41,8 +43,9 @@ def catalogue_job(root: Path, cache_dir: Path | None = None, workers: int = 1) -
     has_spec_book = any(d.kind == "specs" for d in job.documents)
     bid = check_bid(pages, sections, by_sheet, has_spec_book)
     tags = tuple(index_tags(pages, by_sheet))
-    catalogue = Catalogue(job, pages, sheets, sections, bid, tags, ())
-    return Catalogue(job, pages, sheets, sections, bid, tags, tuple(_flags(catalogue)))
+    overview = build_overview(pages, sheets, sections)
+    catalogue = Catalogue(job, pages, sheets, sections, bid, tags, (), overview)
+    return Catalogue(job, pages, sheets, sections, bid, tags, tuple(_flags(catalogue)), overview)
 
 
 def _name(relative: str) -> str:
@@ -63,7 +66,7 @@ def _plural(n: int, word: str) -> str:
     return f"{n} {word}" if n == 1 else f"{n} {word}s"
 
 
-def _repeats(catalogue: Catalogue) -> tuple[list[str], set[tuple[str, str]]]:
+def repeats(catalogue: Catalogue) -> tuple[list[str], set[tuple[str, str]]]:
     """One document's sheet numbers can be almost entirely a repeat of another's — a marked-up
     copy of the same set. One line says so, instead of an "is on N pages" flag per sheet (M2)."""
     numbers: dict[str, set[str]] = defaultdict(set)
@@ -132,7 +135,7 @@ def _flags(catalogue: Catalogue) -> list[str]:
         unique = list(dict.fromkeys(s.number for s in untyped))   # each number named once, even from copies
         names = ", ".join(unique[:20]) + (" …" if len(unique) > 20 else "")
         flags.append(f"{_plural(len(untyped), 'drawing sheet')} could not be sorted by type — {names}")
-    repeat_lines, repeat_covered = _repeats(catalogue)
+    repeat_lines, repeat_covered = repeats(catalogue)
     flags += repeat_lines
     places: dict[str, dict[str, list[int]]] = defaultdict(lambda: defaultdict(list))
     for sheet in catalogue.sheets:
@@ -148,17 +151,32 @@ def _flags(catalogue: Catalogue) -> list[str]:
     return flags
 
 
+def scope_review_counts(overview: SpecOverview) -> tuple[int, int, int]:
+    """(standard exclusions the job asks for, other systems to connect to, who-does-what lines)."""
+    exclusions = sum(1 for f in overview.standard_lines if f.section == STANDARD_EXCLUSION and f.status == FOUND)
+    systems = sum(1 for f in overview.integrations if f.status == FOUND)
+    return exclusions, systems, len(overview.who_does_what) + overview.who_does_what_more
+
+
 def summary_lines(catalogue: Catalogue) -> list[str]:
     pages = catalogue.pages
     count = {status: sum(1 for p in pages if p.status == status) for status in ("ocr", "blank", "unreadable")}
     bid = catalogue.bid
     sheets = catalogue.sheets
     controls = list(dict.fromkeys(f"{s.number} {s.title}".strip() for s in catalogue.sections if s.controls))
+    overview = catalogue.overview
+    protocols = [t.item for t in overview.topics if t.section == "Protocols" and t.status == FOUND]
+    ame_count = sum(1 for m in overview.makers if m.ame_quotes)
+    exclusions, systems, who = scope_review_counts(overview)
     return [
         f"{catalogue.job.name} — {len(catalogue.job.documents)} documents, {len(pages)} pages: "
         f"{count['ocr']} read by OCR, {count['blank']} blank, {count['unreadable']} could not be read.",
         f"Bid check: {bid.finding} — {bid.reason}",
         f"Other controls manufacturers named, for the US team: {', '.join(bid.others) or 'none'}.",
+        f"Spec overview: {len(overview.makers)} manufacturers named ({ame_count} AME gets prices for); "
+        f"protocols: {', '.join(protocols) or 'none stated'}.",
+        f"Scope review: {exclusions} standard exclusions the job asks for; {systems} other systems to connect to; "
+        f"{who} who-does-what lines.",
         f"Drawing sheets: {len(sheets)}; {sum(1 for s in sheets if s.number)} with a sheet number; "
         f"{sum(1 for s in sheets if s.number and not s.types and s.discipline in CONTROLS_DISCIPLINES)} "
         f"sheets that carry controls scope not sorted by type.",

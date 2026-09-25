@@ -34,3 +34,7 @@ Thumbs.db
 
 # Generated documents
 out/
+
+# Helper worktrees and working notes
+.claude/worktrees/
+.superpowers/

@@ -1,0 +1,1161 @@
+{
+  "about": "The estimator's Master Template as data: how each system looks, which line to pick when, and tech hours. Guidance, not a mandatory point list. Edit here, never in code. Words in a condition are matched as whole words, ignoring case; a condition holds when any one of its words is found in any one of its places. Job details the template's samples carry (tag lists, 'Qty. N Total', valve sizes, sheet references, floor locations) are left out of the line texts: the writer adds the job's own.",
+  "verbs": ["Furnish and Install", "Furnish", "Furnish and Wire", "Install and Wire", "Install", "Wire"],
+  "integration_trio": [
+    "Furnish BMS Communication Wiring to {what} Factory Controls",
+    "Map Available Points Via Mfr. Provided BMS Interface",
+    "AME requires mfr. Rep to assist in integration, cost to be incurred by mech contractor"
+  ],
+  "integration_trio_depths": [1, 1, 2],
+  "placeholders": {"{what}": "the equipment named in the first integration line (Chiller, Pump VFD, ...); empty for plain factory controls", "{unit}": "the unit an alarm is watched at (HVAC alarm panel)"},
+  "not_hardware_points_containing": ["DDC Controller"],
+  "client_note_examples": ["**Start/Stop via Fire Alarm System", "**Refrigeration Leak Detection system is coming with the unit per equipment schedule"],
+  "factory_controls": {
+    "about": "When the unit comes with the manufacturer's own controls, the three integration lines replace the lines that name a DDC controller. The words are looked for, whole and ignoring case, in the schedule's who-provides-the-controller notes, its other notes and its cells.",
+    "words": ["factory control package", "factory controls", "factory mounted controls", "factory-mounted controls", "factory mounted DDC controls", "controls by unit manufacturer", "controls by the unit manufacturer", "controls by unit mfr", "controls by the equipment manufacturer", "unit manufacturer's controls", "manufacturer's controls", "packaged controls", "furnished with factory controls", "integral controls"]
+  },
+  "counted_devices": {
+    "about": "For a line whose quantity is counted, the device labels on the plans that count it (the labels are in reading_lists/devices.json). The line matches when it contains the words on the left, ignoring case; the longest match wins. A line with no match, or no label counted on the system's sheets, falls back to one per unit, as an assumption.",
+    "lines": {
+      "Space Temperature Sensor": ["T", "TS"],
+      "Stairwell Pressure Sensor": ["SP"],
+      "Differential Pressure Transmitter": ["DP"],
+      "Differential Pressure Sensor": ["DP"],
+      "Flow Meter": ["FM"],
+      "Flow Switch": ["FS"],
+      "Leak Sensor": ["LD"],
+      "CO/NO2 Sensor": ["CO", "NO2"],
+      "CO Sensor": ["CO"],
+      "Weather Station": ["WS"],
+      "Domestic Water Meter": ["DWM"],
+      "Humidity Sensor": ["H", "RH"],
+      "CO2 Sensor": ["CO2"]
+    }
+  },
+  "systems": [
+    {
+      "name": "VAV / Fan VAV",
+      "applies_to": {"prefixes": ["VAV", "FPB", "FPV", "FPT", "CAV"], "kinds": []},
+      "header": "Qty ({n}) {kind} {tags}",
+      "conditions": {
+        "fan_powered": {"schedule": ["FAN POWERED", "FPB", "SERIES", "PARALLEL", "FAN HP", "FAN WATTS"], "prefix": ["FPB", "FPV", "FPT"]},
+        "reheat": {"schedule": ["GPM", "HW COIL", "HOT WATER", "HEATING COIL", "REHEAT", "KW", "SCR", "ELECTRIC HEAT"], "sequence": ["reheat", "heating coil"]},
+        "reheat_hot_water": {"schedule": ["GPM", "HW COIL", "HOT WATER"], "sequence": ["hot water reheat", "hot water valve", "reheat valve"]},
+        "reheat_electric_scr": {"schedule": ["SCR"], "sequence": ["SCR"]},
+        "reheat_electric": {"schedule": ["KW", "ELECTRIC HEAT"], "sequence": ["electric heat"]},
+        "space_humidity": {"sequence": ["humidity"]},
+        "space_co2": {"sequence": ["CO2"]},
+        "power_24v_by_bms": {"sequence": ["24V wiring by BMS", "24 V wiring by BMS", "24V wiring by the BMS", "24 V wiring by the BMS", "24V wiring by the controls contractor", "24 V wiring by the controls contractor"], "notes": ["24V WIRING BY BMS", "24 V WIRING BY BMS", "24V WIRING BY CONTROLS", "24 V WIRING BY CONTROLS"]},
+        "transformer_with_unit": {"schedule": ["TRANSFORMER"], "notes": ["TRANSFORMER"]}
+      },
+      "lines": [
+        {"text": "Furnish DDC Controller to the Factory for Installation", "default": true, "quantity": "per_unit"},
+        {"text": "Furnish and Install Space Temperature Sensor", "choice": "space_sensor", "default": true, "quantity": "per_unit"},
+        {"text": "Furnish and Install Space Temperature / Humidity Sensor", "choice": "space_sensor", "when": ["space_humidity"], "quantity": "per_unit"},
+        {"text": "Furnish and Install Space Temperature / Humidity / CO2 Sensor", "choice": "space_sensor", "when": ["space_humidity", "space_co2"], "quantity": "per_unit"},
+        {"text": "Furnish and Install Space Temperature / CO2 Sensor", "choice": "space_sensor", "when": ["space_co2"], "quantity": "per_unit"},
+        {"text": "Furnish Fan Enable", "when": ["fan_powered"], "quantity": "per_unit"},
+        {"text": "Furnish and Install Discharge Air Temperature Sensor", "when": ["reheat"], "quantity": "per_unit"},
+        {"text": "Furnish and Wire Hot Water Control Valve and Actuator", "when": ["reheat_hot_water"], "quantity": "per_unit"},
+        {"text": "Furnish Electric Heat Enable (DO)", "when": ["reheat_electric"], "unless": ["reheat_electric_scr", "reheat_hot_water"], "quantity": "per_unit"},
+        {"text": "Furnish Electric Heat SCR Control (AO)", "when": ["reheat_electric_scr"], "unless": ["reheat_hot_water"], "quantity": "per_unit"},
+        {"text": "Run 24V Power Loop to VAVs", "choice": "power_24v", "when": ["power_24v_by_bms"], "quantity": "per_unit", "no_verb": true},
+        {"text": "Furnish and Install VAV Transformer", "choice": "power_24v", "default": true, "quantity": "per_unit"},
+        {"text": "24V VAV Transformer is Coming with the Unit", "choice": "power_24v", "when": ["transformer_with_unit"], "quantity": "none", "no_verb": true}
+      ],
+      "client_notes": [],
+      "hints": [
+        "Furnish and Install Space Temperature Sensor; applicable",
+        "Furnish Fan Enable; Only applicable when Fan powered VAV is mentioned in the schedule",
+        "Discharge Air Temperature Sensor; mandatory when we have reheat VAV; meaning there is heating coil mentioned in the schedule",
+        "Run 24V Power Loop to VAVs (Mentioned 24 V Wiring Control by BMS Contractor)",
+        "**Above VAV template takes care all VAV configuration, selecting required lines per sequence of operation",
+        "** T, T/H, T/H/CO2, T/CO2 information is mostly in the sequence, sensor location can be on the plans",
+        "**Cooling only VAV – only needs T, T/H, T/H/CO2, T/CO2 (one as declared in the sequence)",
+        "**Reheat VAV – Hot water; we include hot water control valve and actuator. Look for GPM in VAV schedule",
+        "**Reheat VAV – Electric SCR; Look for SCR in schedule / sequence",
+        "**Reheat VAV – Electric Heat; Look for kW in schedule / sequence",
+        "**tech hour: 4 hour each for each hot water reheat VAV",
+        "**tech hour: 3 hour each for each cooling only VAV",
+        "VAV Transformer by Unit Mfr. – if it shown on schedule / sequence / details",
+        "If VAV’s are not shown on electrical plans, but in electrical panel schedule then consider add alternate for 24V wiring scope",
+        "If VAV’s shown on electrical plans then 24v wiring by elec."
+      ],
+      "tech_hours": {"per": "unit", "hours": 3, "when": [{"if": ["reheat_hot_water"], "hours": 4}]}
+    },
+    {
+      "name": "Fan Coil Unit",
+      "applies_to": {"prefixes": ["FCU"], "kinds": []},
+      "header": "Qty ({n}) Fan Coil Unit {tags}",
+      "conditions": {
+        "discharge_temp": {"sequence": ["discharge air temperature", "discharge temperature", "supply air temperature"]},
+        "filter_dp": {"sequence": ["filter differential", "filter status", "dirty filter", "filter DP", "filter alarm"]},
+        "cooling_coil": {"schedule": ["CHW", "CHILLED WATER"], "sequence": ["chilled water valve", "cooling valve", "chilled water control valve", "cooling coil valve"]},
+        "heating_coil": {"schedule": ["HW", "HHW", "HOT WATER"], "sequence": ["hot water valve", "heating valve", "hot water control valve", "heating coil valve"]},
+        "leak_sensor": {"sequence": ["leak detection", "leak sensor", "leak detector", "condensate overflow", "drain pan"]},
+        "oa_damper": {"sequence": ["outside air damper", "outdoor air damper", "OA damper"]}
+      },
+      "lines": [
+        {"text": "Furnish and Install DDC Controller", "default": true},
+        {"text": "Furnish and Install Space Temperature Sensor", "default": true},
+        {"text": "Furnish and Install Discharge Temperature Sensor", "when": ["discharge_temp"]},
+        {"text": "Furnish Fan Start / Stop (low, med, hi) and Status", "default": true},
+        {"text": "Furnish and Wire Filter DP Switch", "when": ["filter_dp"]},
+        {"text": "Furnish and Wire Cooling Coil Control Valve and Actuator", "when": ["cooling_coil"]},
+        {"text": "Furnish and Wire Heating Coil Control Valve and Actuator", "when": ["heating_coil"]},
+        {"text": "Furnish and Install Leak Sensor", "when": ["leak_sensor"]},
+        {"text": "Furnish and Install Damper Actuator", "when": ["oa_damper"]}
+      ],
+      "client_notes": [],
+      "hints": [
+        "**tech hour: 4 hour per fcu"
+      ],
+      "tech_hours": {"per": "unit", "hours": 4}
+    },
+    {
+      "name": "Existing Fan Coil Unit (relocated)",
+      "applies_to": {"prefixes": [], "kinds": ["Existing Fan Coil Unit", "Existing FCU"]},
+      "header": "Qty ({n}) Existing Fan Coil Unit, {tags}",
+      "conditions": {},
+      "lines": [
+        {"text": "Demo and safe-off existing control wiring prior to relocation of unit", "default": true, "no_verb": true},
+        {"text": "Extend control wiring for relocated existing thermostat", "default": true, "no_verb": true},
+        {"text": "Furnish and Install Damper Actuator", "default": true},
+        {"text": "Extend communication bus to new unit location", "default": true, "no_verb": true},
+        {"text": "Re-commission unit to ensure proper operation", "default": true, "no_verb": true}
+      ],
+      "client_notes": [],
+      "hints": [
+        "(when unit and stat both getting relocated)"
+      ],
+      "tech_hours": {"per": "unit", "hours": null}
+    },
+    {
+      "name": "Air Handling Unit",
+      "applies_to": {"prefixes": ["AHU"], "kinds": []},
+      "header": "Qty ({n}) {kind} {tags}",
+      "conditions": {
+        "supply_static": {"sequence": ["supply static", "duct static", "supply duct static"]},
+        "building_static": {"sequence": ["building static", "building pressure", "space static"]},
+        "chw_coil_temps": {"sequence": ["chilled water coil supply", "chilled water coil return", "chilled water supply and return temperature"]},
+        "hw_coil_temps": {"sequence": ["hot water coil supply", "hot water coil return", "hot water supply and return temperature"]},
+        "coil_leaving": {"sequence": ["coil leaving", "leaving air temperature", "leaving coil"]},
+        "space_t_h": {"sequence": ["space humidity", "space temperature and humidity", "room humidity", "space temperature / humidity"]},
+        "discharge_temp": {"sequence": ["discharge air temperature", "supply air temperature"]},
+        "discharge_humidity": {"sequence": ["discharge air humidity", "supply air humidity"]},
+        "mixed_air": {"sequence": ["mixed air"]},
+        "return_temp": {"sequence": ["return air temperature"]},
+        "return_humidity": {"sequence": ["return air humidity"]},
+        "return_co2": {"sequence": ["return air CO2", "return CO2"]},
+        "supply_fan_vfd": {"schedule": ["VFD"], "sequence": ["supply fan VFD", "supply fan speed", "variable frequency drive", "VFD"]},
+        "supply_airflow": {"sequence": ["supply airflow", "supply air flow", "fan airflow", "piezo"]},
+        "flow_transmitter_by_others": {"sequence": ["flow transmitter furnished by others", "flow transmitter by others", "flow transmitter by unit manufacturer", "factory mounted flow transmitter", "factory-mounted flow transmitter"]},
+        "exhaust_fan": {"schedule": ["EXHAUST FAN", "RELIEF FAN"], "sequence": ["exhaust fan", "relief fan"]},
+        "exhaust_fan_vfd": {"sequence": ["exhaust fan VFD", "exhaust fan speed", "relief fan VFD", "relief fan speed"]},
+        "exhaust_airflow": {"sequence": ["exhaust airflow", "exhaust air flow", "relief airflow"]},
+        "heat_wheel": {"schedule": ["HEAT WHEEL", "ENERGY WHEEL", "ENTHALPY WHEEL"], "sequence": ["heat wheel", "energy wheel", "enthalpy wheel", "energy recovery wheel"]},
+        "heat_wheel_bypass": {"sequence": ["face and bypass", "face/bypass", "bypass damper", "wheel bypass"]},
+        "freeze_pump": {"sequence": ["freeze protection pump", "coil pump", "coil circulating pump", "coil circulator"]},
+        "high_static": {"sequence": ["high static", "high duct static", "high pressure limit", "high static pressure"]},
+        "low_suction": {"sequence": ["low suction"]},
+        "freezestat": {"sequence": ["freezestat", "freeze stat", "low limit", "low temperature limit"]},
+        "filter_dp": {"sequence": ["filter"]},
+        "oa_flow_station": {"sequence": ["outside air flow", "outdoor air flow", "outside airflow", "outdoor airflow", "AFMS"]},
+        "supply_flow_station": {"sequence": ["supply air flow measuring", "supply airflow measuring", "supply air flow station", "supply airflow station"]},
+        "oa_damper": {"sequence": ["outside air damper", "outdoor air damper", "OA damper"]},
+        "ea_damper": {"sequence": ["exhaust air damper", "relief air damper", "EA damper", "relief damper"]},
+        "ra_damper": {"sequence": ["return air damper", "RA damper"]},
+        "hw_valve": {"schedule": ["HW COIL", "HOT WATER", "HHW"], "sequence": ["hot water valve", "heating valve", "heating coil valve", "hot water control valve"]},
+        "electric_gas_heat": {"schedule": ["GAS", "MBH", "KW", "ELECTRIC HEAT"], "sequence": ["gas heat", "electric heat", "furnace", "burner"]},
+        "chw_valve": {"schedule": ["CHW", "CHILLED WATER"], "sequence": ["chilled water valve", "cooling valve", "cooling coil valve", "chilled water control valve"]},
+        "dx_cooling": {"schedule": ["DX", "COMPRESSOR", "EER", "SEER"], "sequence": ["DX cooling", "compressor", "DX"]},
+        "humidifier": {"schedule": ["HUMIDIFIER"], "sequence": ["humidifier"]},
+        "humidifier_valve": {"sequence": ["humidifier valve", "humidifier control valve", "steam valve"]},
+        "high_limit_humidity": {"sequence": ["high limit humidity", "humidity high limit", "high limit humidistat"]},
+        "leak_sensor": {"sequence": ["leak detection", "leak sensor", "leak detector", "condensate overflow", "drain pan"]},
+        "bipolar_ionization": {"schedule": ["BIPOLAR", "IONIZATION", "NPBI"], "sequence": ["bipolar", "ionization"]}
+      },
+      "lines": [
+        {"text": "Furnish and Install DDC Controller", "default": true},
+        {"text": "Furnish and Install Supply Static Pressure Sensor", "when": ["supply_static"]},
+        {"text": "Furnish and Install Building Static Pressure Sensor", "when": ["building_static"]},
+        {"text": "Furnish and Install Chilled Water Coil Supply/Return Temperature Sensor", "when": ["chw_coil_temps"]},
+        {"text": "Furnish and Install Hot Water Coil Supply/Return Air Temperature Sensor", "when": ["hw_coil_temps"]},
+        {"text": "Furnish and Install Coil Leaving Air Temperature Sensor", "when": ["coil_leaving"]},
+        {"text": "Furnish and Install Space Temperature / Humidity Sensor", "when": ["space_t_h"]},
+        {"text": "Furnish and Install Discharge Air Temperature Sensor", "when": ["discharge_temp"]},
+        {"text": "Furnish and Install Discharge Air Humidity Sensor", "when": ["discharge_humidity"]},
+        {"text": "Furnish and Install Mixed Air Temperature Sensor", "when": ["mixed_air"]},
+        {"text": "Furnish and Install Return Air Temperature Sensor", "when": ["return_temp"]},
+        {"text": "Furnish and Install Return Air Humidity Sensor", "when": ["return_humidity"]},
+        {"text": "Furnish and Install Return Air CO2 Sensor", "when": ["return_co2"]},
+        {"text": "Furnish Supply Fan Start/Stop and Status", "default": true},
+        {"text": "Furnish Supply Fan VFD control", "when": ["supply_fan_vfd"]},
+        {"text": "Wire Supply Fan Flow Transmitter (Furnished by Others)", "when": ["supply_airflow", "flow_transmitter_by_others"]},
+        {"text": "Furnish and Install DP Sensor for Supply Airflow Monitoring (Piezo Ring)", "when": ["supply_airflow"], "unless": ["flow_transmitter_by_others"]},
+        {"text": "Furnish Exhaust Fan Start/Stop and Status", "when": ["exhaust_fan"]},
+        {"text": "Furnish Exhaust Fan VFD control", "when": ["exhaust_fan", "exhaust_fan_vfd"]},
+        {"text": "Wire Exhaust Fan Flow Transmitter (Furnished by Others)", "when": ["exhaust_airflow", "flow_transmitter_by_others"]},
+        {"text": "Furnish and Install DP Sensor for Exhaust Airflow Monitoring (Piezo Ring)", "when": ["exhaust_airflow"], "unless": ["flow_transmitter_by_others"]},
+        {"text": "Furnish Heat Wheel Start/Stop and Status", "when": ["heat_wheel"]},
+        {"text": "Furnish Heat Wheel VFD Control", "when": ["heat_wheel"]},
+        {"text": "Furnish Freeze Protection Pump Start/Stop and Status", "when": ["freeze_pump"]},
+        {"text": "Furnish and Install High Static Pressure Switch", "when": ["high_static"]},
+        {"text": "Furnish and Install Low Suction Pressure Switch", "when": ["low_suction"]},
+        {"text": "Furnish and Install Freezestat", "when": ["freezestat"]},
+        {"text": "Furnish and Wire Filter DP Switch", "when": ["filter_dp"]},
+        {"text": "Furnish and Wire Outside Air Flow Measuring Station", "when": ["oa_flow_station"]},
+        {"text": "Furnish and Wire Supply Air Flow Measuring Station", "when": ["supply_flow_station"]},
+        {"text": "Furnish and Install Outside Air Damper Actuator", "when": ["oa_damper"]},
+        {"text": "Furnish and Install Exhaust Air Damper Actuator", "when": ["ea_damper"]},
+        {"text": "Furnish and Install Return Air Damper Actuator", "when": ["ra_damper"]},
+        {"text": "Furnish and Install Heat Wheel Face/Bypass Air Damper Actuator", "when": ["heat_wheel", "heat_wheel_bypass"]},
+        {"text": "Furnish and Wire Hot Water Control Valve and Actuator", "when": ["hw_valve"]},
+        {"text": "Furnish Electric/Gas Heat Enable", "when": ["electric_gas_heat"]},
+        {"text": "Furnish and Wire Cooling Coil Water Control Valve and Actuator", "when": ["chw_valve"]},
+        {"text": "Furnish DX Cooling Enable / Disable", "when": ["dx_cooling"]},
+        {"text": "Furnish Humidifier Enable / Disable", "when": ["humidifier"]},
+        {"text": "Furnish Humidifier Control Valve and Actuator", "when": ["humidifier", "humidifier_valve"]},
+        {"text": "Furnish and Install High Limit Humidity Switch", "when": ["high_limit_humidity"]},
+        {"text": "Furnish and Install Leak Sensor", "when": ["leak_sensor"]},
+        {"text": "Tie-in Ionization Device Alarm", "when": ["bipolar_ionization"], "no_verb": true}
+      ],
+      "client_notes": [],
+      "hints": [
+        "(**tech hour: 2 hour each hardware point)",
+        "Qty (1) for AME DDC + Bipolar on BMS"
+      ],
+      "tech_hours": {"per": "hardware_point", "hours": 2},
+      "about": "The sample had (Qty. 2) heat wheel face/bypass damper actuators; the writer adds the job's own count. Tie-in Ionization Device Alarm comes from the template's job specific feedback."
+    },
+    {
+      "name": "Packaged ERU / RTU / AHU",
+      "applies_to": {"prefixes": ["RTU", "ERU", "ERV", "DOAS", "HRU", "MAU"], "kinds": ["Packaged Unit", "Packaged AHU"]},
+      "header": "Qty ({n}) {kind} {tags}",
+      "conditions": {
+        "space_thermostat": {"schedule": ["THERMOSTAT"], "sequence": ["thermostat"]},
+        "supply_air_sensor": {"sequence": ["supply air temperature", "discharge air temperature"]},
+        "duct_static": {"sequence": ["duct static", "static pressure"]},
+        "bipolar_ionization": {"schedule": ["BIPOLAR", "IONIZATION", "NPBI"], "sequence": ["bipolar", "ionization"]}
+      },
+      "lines": [
+        {"text": "Install and wire Space Thermostat (Furnished by Unit Mfr.)", "when": ["space_thermostat"]},
+        {"text": "Install and wire Supply Air Temperature Sensor (Furnished by Unit Mfr.)", "when": ["supply_air_sensor"]},
+        {"text": "Install and wire Duct Static Pressure Sensor (Furnished by Unit Mfr.)", "when": ["duct_static"]},
+        {"text": "Install and wire mfr. Provided sensors shipped loose w/ unit", "default": true, "unless": ["space_thermostat", "supply_air_sensor", "duct_static"]},
+        {"text": "Furnish BMS Communication Wiring to Factory Controls", "default": true},
+        {"text": "Map Available Points Via Mfr. Provided BMS Interface", "default": true, "quantity": "none"},
+        {"text": "AME Requires Mfr. Rep to Assist in Integration, cost to be Incurred by Mech Contractor", "default": true, "quantity": "none", "depth": 2},
+        {"text": "Tie-in Ionization Device Alarm", "when": ["bipolar_ionization"], "no_verb": true}
+      ],
+      "client_notes": [],
+      "hints": [
+        "Install and wire mfr. Provided sensors shipped loose w/ unit; if info not available about particular shipped loose end devices",
+        "**Here unit manufacturer is providing a DDC Controller and we are going to integrate it into Our BMS. Along with that OEM will ship loose few end devices that we need to install and wire",
+        "*schedule notes and sequence often clears who is providing the controls",
+        "Qty (1) for Packaged Controller + Bipolar on BMS"
+      ],
+      "tech_hours": {"per": "unit", "hours": null},
+      "about": "Tie-in Ionization Device Alarm comes from the template's job specific feedback."
+    },
+    {
+      "name": "Exhaust Fan",
+      "applies_to": {"prefixes": ["EF", "GEF"], "kinds": []},
+      "header": "Qty ({n}) Exhaust Fans {tags}",
+      "conditions": {
+        "fan_ddc": {"sequence": ["duct static", "static pressure", "VFD", "variable frequency", "space temperature"]},
+        "fan_space_temp": {"sequence": ["space temperature", "room temperature"]},
+        "fan_duct_static": {"sequence": ["duct static", "static pressure"]},
+        "fan_vfd": {"schedule": ["VFD"], "sequence": ["VFD", "variable frequency", "variable speed"]},
+        "end_switch": {"sequence": ["end switch", "damper position", "proven open", "damper status"]}
+      },
+      "lines": [
+        {"text": "Interlock with Associated AHU / RTU /MAU Unit Operation", "choice": "ef_control", "default": true, "no_verb": true},
+        {"text": "Furnish and Install DDC Controller", "choice": "ef_control", "when": ["fan_ddc"]},
+        {"text": "Furnish and Install Space Temperature Sensor", "when": ["fan_ddc", "fan_space_temp"]},
+        {"text": "Furnish and Install Duct Static Pressure Sensor", "when": ["fan_ddc", "fan_duct_static"]},
+        {"text": "Furnish Fan Start / Stop and Status", "when": ["fan_ddc"]},
+        {"text": "Furnish Fan VFD Control", "when": ["fan_ddc", "fan_vfd"]},
+        {"text": "Furnish and Install Damper Actuator", "choice": "ef_damper", "default": true},
+        {"text": "Furnish and Install Damper Actuator w/ End Switch", "choice": "ef_damper", "when": ["end_switch"]}
+      ],
+      "client_notes": [],
+      "hints": [
+        "**When sequence mentions Exhaust fan operation shall be interlocked with Associated unit, we can use something like this,",
+        "**tech hour: 4 hour each fan if gets more points."
+      ],
+      "tech_hours": {"per": "unit", "hours": null, "when": [{"if": ["fan_ddc"], "hours": 4}]}
+    },
+    {
+      "name": "Toilet Exhaust Fan",
+      "applies_to": {"prefixes": ["TX", "TEF"], "kinds": []},
+      "header": "Qty ({n}) Toilet Exhaust Fan {tags}",
+      "conditions": {
+        "timeclock": {"sequence": ["time clock", "timeclock", "time-clock", "stand-alone", "standalone"]}
+      },
+      "lines": [
+        {"text": "Furnish and Install Timeclock", "when": ["timeclock"]},
+        {"text": "Furnish and Install Damper Actuator w/ End Switch", "default": true}
+      ],
+      "client_notes": [],
+      "hints": [
+        "**tech hour: 2 hour each fan",
+        "**Timeclock device often used when we have a standalone system"
+      ],
+      "tech_hours": {"per": "unit", "hours": 2}
+    },
+    {
+      "name": "Dryer Exhaust Fan",
+      "applies_to": {"prefixes": ["DX"], "kinds": []},
+      "header": "Qty ({n}) Laundry / Dryer Exhaust Fan {tags}",
+      "conditions": {},
+      "lines": [
+        {"text": "Interlock wiring to Differential Pressure Controller (Furnished by Unit Mfr.)", "default": true, "no_verb": true},
+        {"text": "Furnish and Install Damper Actuator", "default": true},
+        {"text": "Furnish BMS Communication Wiring to Factory Controls", "default": true},
+        {"text": "Map Available Points Via Mfr. Provided BMS Interface", "default": true, "quantity": "none"},
+        {"text": "AME requires mfr. Rep to assist in integration, cost to be incurred by mech contractor", "default": true, "quantity": "none", "depth": 2}
+      ],
+      "client_notes": [],
+      "hints": [
+        "Dryer Exhaust Fans DX",
+        "**tech hour: 4 hour each",
+        "**Fan Comes with the Pressure Controller, we have to interlock fan with pressure controller"
+      ],
+      "tech_hours": {"per": "unit", "hours": 4}
+    },
+    {
+      "name": "Post-Fire Smoke Purge Fans",
+      "applies_to": {"prefixes": ["SX"], "kinds": ["Smoke Purge Fan", "Post-Fire Smoke Purge Fan"]},
+      "header": "Qty ({n}) Post-Fire Smoke Purge Fans {tags}",
+      "conditions": {},
+      "lines": [
+        {"text": "Furnish and Install Fan Status", "default": true},
+        {"text": "Furnish and Install Damper Actuator", "default": true}
+      ],
+      "client_notes": [
+        "*Fans Are Controlled via Fire Alarm System"
+      ],
+      "hints": [],
+      "tech_hours": {"per": "unit", "hours": null}
+    },
+    {
+      "name": "Stair / Elevator Vent",
+      "applies_to": {"prefixes": [], "kinds": ["Stair / Elevator Vent", "Stair Vent", "Elevator Vent"]},
+      "header": "Qty ({n}) Stair / Elevator Vent",
+      "conditions": {},
+      "lines": [
+        {"text": "Furnish and Install Damper Actuator (Smoke Detector by Others)", "default": true}
+      ],
+      "client_notes": [],
+      "hints": [
+        "*This is mentioned on the plans and air riser, a damper actuator symbol with arrow and a note nearby mentioned damper actuator in the stair controlled by smoke detector, then we use above scope",
+        "**tech hour: 1 hour each qty"
+      ],
+      "tech_hours": {"per": "unit", "hours": 1}
+    },
+    {
+      "name": "Stair Pressurization Fans",
+      "applies_to": {"prefixes": ["SPF"], "kinds": ["Stair Pressurization", "Stair Pressurization System"]},
+      "group": true,
+      "header": "Qty ({n}) Stair Pressurization Fans {tags}",
+      "conditions": {
+        "fan_vfd": {"schedule": ["VFD"], "sequence": ["VFD", "variable frequency", "variable speed"]},
+        "elevator_pressurization": {"sequence": ["elevator pressurization", "elevator shaft pressurization", "hoistway pressurization"]}
+      },
+      "lines": [
+        {"text": "Furnish and Install DDC Controller", "default": true},
+        {"text": "Furnish Fan Start / Stop and Status", "default": true},
+        {"text": "Furnish Fan VFD control", "when": ["fan_vfd"]},
+        {"text": "Furnish and Install Stairwell Pressure Sensor", "default": true, "quantity": "counted"},
+        {"text": "Furnish and Install Damper Actuator w/ End Switch", "default": true},
+        {"text": "Furnish and Install Stairwell/Elevator Pressurization", "when": ["elevator_pressurization"], "quantity": "counted"}
+      ],
+      "client_notes": [],
+      "hints": [
+        "(**tech hour: 4 hour per each unit)"
+      ],
+      "tech_hours": {"per": "unit", "hours": 4},
+      "about": "The sample gave the floors, (Location: 6th Floor, 14th Floor); the writer adds the job's own."
+    },
+    {
+      "name": "Kitchen Exhaust Ventilation",
+      "applies_to": {"prefixes": ["KEF", "DWEF", "MAU", "PCU"], "kinds": ["Kitchen Exhaust", "Kitchen Exhaust System"]},
+      "group": true,
+      "header": "Qty ({n}) {kind} {tags}",
+      "family_names": {"KEF": "Kitchen Exhaust System", "DWEF": "Dishwashing", "MAU": "Makeup Air Unit", "PCU": "Pollution Control Unit"},
+      "conditions": {},
+      "lines": [
+        {"text": "Install and Wire Space Temperature Sensor (Furnished by Unit Mfr.)", "default": true, "of": ["MAU"]},
+        {"text": "Interlock wiring b/w MAU and Kitchen Exhaust Operation", "default": true, "of": ["MAU"], "no_verb": true},
+        {"text": "Low Voltage Control Interlock w/ Kitchen Hood Operation", "default": true, "of": ["KEF"], "no_verb": true},
+        {"text": "Furnish and Install Damper Actuator (Exhaust Fan)", "default": true, "of": ["KEF", "DWEF"]}
+      ],
+      "client_notes": [],
+      "hints": [
+        "**tech hour: 40 hour each",
+        "**this is a complex system; most heavy lifting is done here by kitchen equipment contractor and we are responsible for doing interlocks of the kitchen hood control panel with the makeup system and the kitchen hood exhaust fan so that all of the system works in coordination. We don't have to provide kitchen hood control panels. This is complex. It is done by the special contractor, and our scope is limited to the interlock wiring between the kitchen hood control panel, kitchen hood, dishwasher, makeup air, and the kitchen hood exhaust, as applicable."
+      ],
+      "tech_hours": {"per": "unit", "hours": 40, "of": ["KEF"]}
+    },
+    {
+      "name": "Gas Detection",
+      "applies_to": {"prefixes": ["GDP", "EF", "SF"], "kinds": ["Gas Detection Panel", "Gas Detection System"]},
+      "group": true,
+      "header": "Qty ({n}) {kind} {tags}",
+      "family_names": {"GDP": "Gas Detection Panel", "EF": "Exhaust Fan", "SF": "Supply Fan"},
+      "conditions": {},
+      "lines": [
+        {"text": "Furnish and Install Gas Detection Panel", "default": true, "quantity": "counted", "of": ["GDP"]},
+        {"text": "CO/NO2 Sensor", "default": true, "quantity": "counted", "depth": 2, "no_verb": true},
+        {"text": "Remote Horn / Strobe Sensor", "default": true, "quantity": "counted", "depth": 2, "no_verb": true},
+        {"text": "Interlock Fan Operation with Gas Detection Panel", "default": true, "of": ["EF", "SF"], "no_verb": true},
+        {"text": "Furnish and Install Damper Actuator", "default": true, "of": ["EF", "SF"]},
+        {"text": "Tie into BMS", "default": true, "quantity": "one", "no_verb": true}
+      ],
+      "client_notes": [],
+      "hints": [
+        "Gas Detection Panel (Garage/ Parking / Loading Dock system) Stand Alone Operation",
+        "**Gas Detection panel is the most important and expensive system, cant miss panel and sensor qty.",
+        "** Sensors are shown on the plans mostly",
+        "**Gas detection type: CO/NO2 (parking / loading dock / Garage)",
+        "**Gas detection type: H2 Hydrogen (Battery room, UPS Room)",
+        "**Gas detection type: O2 Oxygen",
+        "**Gas detection type: CO/CH4 (at boiler)",
+        "**Gas detection type: refrigeration (at chillers)",
+        "** We always source quotes for this",
+        "**tech hour: 4 hour each fan",
+        "**tech hour: 8 hour each gas panel"
+      ],
+      "tech_hours": [
+        {"per": "panel", "hours": 8, "of": ["GDP"]},
+        {"per": "fan", "hours": 4, "of": ["EF", "SF"]}
+      ]
+    },
+    {
+      "name": "Fire / Smoke Dampers",
+      "applies_to": {"prefixes": ["FSD", "SD"], "kinds": ["Fire / Smoke Damper", "Fire/Smoke Damper"]},
+      "header": "Qty ({n}) Fire / Smoke Dampers {tags}",
+      "conditions": {
+        "fan_starter_interlock": {"sequence": ["fan starter", "associated unit fan", "associated fan starter"]}
+      },
+      "lines": [
+        {"text": "Necessary Low Voltage Interlock Wiring", "choice": "fsd_wiring", "default": true, "no_verb": true},
+        {"text": "Low Voltage Interlock with Associated Unit Fan Starter", "choice": "fsd_wiring", "when": ["fan_starter_interlock"], "no_verb": true},
+        {"text": "Furnish Open / Close Status to BMS via FSD End Switch (End switch provided w damper by others)", "default": true, "unless": ["fan_starter_interlock"]}
+      ],
+      "client_notes": [],
+      "hints": [
+        "**tech hour: 0.5 hour each qty"
+      ],
+      "tech_hours": {"per": "unit", "hours": 0.5}
+    },
+    {
+      "name": "Apartment Heat Pumps",
+      "applies_to": {"prefixes": ["HP"], "kinds": ["Apartment Heat Pump"]},
+      "header": "Qty ({n}) Apartment Heat Pumps {tags}",
+      "conditions": {
+        "leak_sensor": {"schedule": ["LEAK"], "notes": ["LEAK"], "sequence": ["leak detection", "leak sensor", "leak detector", "condensate overflow"]},
+        "nest": {"schedule": ["NEST"], "notes": ["NEST"], "sequence": ["Nest"]}
+      },
+      "lines": [
+        {"text": "Install and Wire Programmable Thermostat (Furnished by Unit Mfr.)", "default": true},
+        {"text": "Furnish and Install Leak Sensor", "when": ["leak_sensor"]},
+        {"text": "Furnish and Install Nest Thermostat (Alternate)", "when": ["nest"]}
+      ],
+      "client_notes": [],
+      "hints": [
+        "This is often declared under schedule or sequence of operation",
+        "check schedule for notes",
+        "*Apartment heat pumps are usually seen on the high riser buildings",
+        "*Qty range is around 100s to 1000s.",
+        "*Often Qty. multiply due to typical floor layout in mechanical plans",
+        "**tech hour: 0.3 hour each qty"
+      ],
+      "tech_hours": {"per": "unit", "hours": 0.3},
+      "about": "The template writes \"( Alternate) check schedule for notes)\"; the line keeps \"(Alternate)\"."
+    },
+    {
+      "name": "HVAC Alarm Panel w/ Auto Dialer",
+      "applies_to": {"prefixes": [], "kinds": ["HVAC Alarm Panel", "Auto Dialer", "Sensaphone"]},
+      "header": "Qty ({n}) HVAC Alarm Panel w/ Auto Dialer",
+      "conditions": {
+        "bms_sends_alarms": {"sequence": ["email", "e-mail", "SMS", "text message"]}
+      },
+      "lines": [
+        {"text": "Furnish and Install Sensaphone", "default": true},
+        {"text": "Monitor the following Alarms", "default": true, "quantity": "none", "no_verb": true},
+        {"text": "High / Low Room Temperature/Humidity {unit} Unit", "default": true, "quantity": "none", "depth": 2},
+        {"text": "Leak Detection at {unit} Unit", "default": true, "quantity": "none", "depth": 2},
+        {"text": "Common Alarms at {unit} AC Unit", "default": true, "quantity": "none", "depth": 2},
+        {"text": "EXCEPTION TO AUTO DIALER (BMS CAN SEND OUT ALARMS VIA EMAIL AND SMS TEXT)", "when": ["bms_sends_alarms"], "quantity": "none", "no_verb": true}
+      ],
+      "client_notes": [],
+      "hints": [
+        "*Sensaphone – A device that AME will use in lieu of Network Level Control Panel to send of email notification for Alarms, often used on small jobs with Standalone Setting.",
+        "(Sensaphone or Similar word is used in the specs / sequence 99% of the time)",
+        "**tech hour: 8 hour each qty"
+      ],
+      "tech_hours": {"per": "unit", "hours": 8}
+    },
+    {
+      "name": "Finned Tube Radiation",
+      "applies_to": {"prefixes": ["FTR"], "kinds": ["Perimeter Radiation"]},
+      "header": "Qty ({n}) Finned Tube Radiation {tags}",
+      "conditions": {
+        "hot_water": {"schedule": ["GPM", "HOT WATER", "HW", "EWT"], "sequence": ["hot water", "control valve"]}
+      },
+      "lines": [
+        {"text": "Furnish and Wire Hot Water Control Valve and Actuator", "when": ["hot_water"]},
+        {"text": "Interlock with Associate VAV / FCU/ System Operation", "default": true, "no_verb": true}
+      ],
+      "client_notes": [],
+      "hints": [
+        "Qty (#) Finned Tube Radiation FTR – Hot water",
+        "Qty (#) Finned Tube Radiation FTR – Electric",
+        "**FTR / perimeter similar names are used and they are seen sharing a space with primary equipment VAV, FCU, RTU, Split System etc",
+        "**tech hour: 1 hour each FTR"
+      ],
+      "tech_hours": {"per": "unit", "hours": 1},
+      "about": "The template's two FTR entries in one: hot water has the valve and the interlock, electric the interlock only."
+    },
+    {
+      "name": "EUH / CUH / UH",
+      "applies_to": {"prefixes": ["EUH", "ECUH", "CUH", "UH", "CBH"], "kinds": ["Electric - EUH / CUH / UH", "Water - EUH / CUH / UH"]},
+      "header": "Qty ({n}) {kind} {tags}",
+      "conditions": {
+        "uh_ddc": {"sequence": ["DDC controller", "fan status", "return air temperature", "return temperature"]},
+        "bacnet_thermostat": {"sequence": ["BACnet thermostat", "communicating thermostat", "networked thermostat"]},
+        "hot_water": {"schedule": ["GPM", "HOT WATER", "HW", "EWT"], "sequence": ["hot water", "control valve"]},
+        "three_way": {"sequence": ["3-way", "three-way", "three way"]}
+      },
+      "lines": [
+        {"text": "Install and wire Space Thermostat (Furnished by Unit Mfr.)", "choice": "uh_control", "default": true},
+        {"text": "Furnish and Install BACnet Thermostat", "choice": "uh_control", "when": ["bacnet_thermostat"]},
+        {"text": "Furnish and Install DDC Controller or Communicating Thermostat", "choice": "uh_control", "when": ["uh_ddc"]},
+        {"text": "Furnish and Install Space Temperature Sensor", "when": ["uh_ddc"]},
+        {"text": "Furnish and Install Return Temperature Sensor", "when": ["uh_ddc"]},
+        {"text": "Furnish Fan Start / Stop and Status", "when": ["uh_ddc"]},
+        {"text": "Furnish and wire 3-Way Hot Water Control Valve and Actuator", "when": ["hot_water", "three_way"]},
+        {"text": "Furnish and Wire Hot Water Control Valve and Actuator", "when": ["hot_water"], "unless": ["three_way"]}
+      ],
+      "client_notes": [],
+      "hints": [
+        "Qty (#) Electric - EUH / CUH / UH",
+        "Qty (#) Water - EUH / CUH / UH",
+        "Qty (#) Cabinet Unit Heater CUH-1",
+        "Furnish and Install BACnet Thermostat (when sequence / point list",
+        "(**tech hour: 2 hour per each unit)"
+      ],
+      "tech_hours": {"per": "unit", "hours": 2},
+      "about": "The template's three heater entries (electric, cabinet unit heater with DDC, water) in one. The electric entry gives no tech hours; the other two give 2 per unit."
+    },
+    {
+      "name": "Air Curtain",
+      "applies_to": {"prefixes": ["ACU", "ARC"], "kinds": []},
+      "header": "Qty ({n}) Air Curtain {tags}",
+      "conditions": {},
+      "lines": [
+        {"text": "Install and wire Space Thermostat (Furnished by Unit Mfr.)", "default": true},
+        {"text": "Interlock w/ Door Switch (Furnished by Unit Mfr.)", "default": true, "no_verb": true}
+      ],
+      "client_notes": [],
+      "hints": [
+        "(**tech hour: 2 hour per each unit)"
+      ],
+      "tech_hours": {"per": "unit", "hours": 2}
+    },
+    {
+      "name": "Unit Ventilators",
+      "applies_to": {"prefixes": ["UV"], "kinds": ["Unit Ventilator"]},
+      "header": "Qty ({n}) Unit Ventilators {tags}",
+      "conditions": {
+        "ddc_ready": {"schedule": ["DDC READY", "DDC-READY"], "notes": ["DDC READY", "DDC-READY"], "sequence": ["DDC ready", "DDC-ready"]},
+        "valve_by_unit_mfr": {"schedule": ["VALVE BY UNIT MFR", "VALVE BY MFR", "FACTORY MOUNTED VALVE", "FACTORY-MOUNTED VALVE"], "sequence": ["valve furnished by the unit manufacturer", "valve by the unit manufacturer", "factory mounted valve", "factory-mounted valve"]},
+        "condenser": {"prefix": ["ACCU", "CU"], "schedule": ["ACCU", "CONDENSING UNIT"]},
+        "leak_sensor": {"sequence": ["leak detection", "leak sensor", "leak detector", "condensate overflow", "drain pan"]},
+        "bipolar_ionization": {"schedule": ["BIPOLAR", "IONIZATION", "NPBI"], "sequence": ["bipolar", "ionization"]}
+      },
+      "lines": [
+        {"text": "Furnish and Install DDC Controller", "default": true},
+        {"text": "Furnish Fan Start / Stop and Status", "default": true, "unless": ["ddc_ready"]},
+        {"text": "Furnish and Install Space Temperature / Humidity / CO2", "default": true, "unless": ["ddc_ready"]},
+        {"text": "Furnish and Install Space Temperature Sensor", "when": ["ddc_ready"]},
+        {"text": "Furnish and Install Discharge Air Temperature", "default": true, "unless": ["ddc_ready"]},
+        {"text": "Furnish and Install Outside Air/Return Air Damper Actuator", "default": true, "unless": ["ddc_ready"]},
+        {"text": "Furnish and Install Freeze stat", "default": true, "unless": ["ddc_ready"]},
+        {"text": "Furnish and wire Hot Water Control Valve and Actuator", "default": true, "unless": ["ddc_ready"]},
+        {"text": "Necessary Control Wiring w/ Mfr. Provided Terminal Strip", "default": true, "unless": ["ddc_ready"], "no_verb": true},
+        {"text": "Furnish and Wire Steam / Hot Water Control Valve and Actuator (by AME)", "when": ["ddc_ready"], "unless": ["valve_by_unit_mfr"]},
+        {"text": "Furnish and Install Fan CT", "when": ["ddc_ready"]},
+        {"text": "Furnish and Install Leak Sensor", "when": ["leak_sensor"]},
+        {"text": "Furnish Needle Point Bipolar Ionization Status", "when": ["bipolar_ionization"]},
+        {"text": "Condenser Interlock Wiring", "when": ["ddc_ready", "condenser"], "no_verb": true},
+        {"text": "Tie-in mfr. Provided Sensors and End-Devices via Terminal Strip", "when": ["ddc_ready"], "no_verb": true},
+        {"text": "Damper Actuator", "when": ["ddc_ready"], "quantity": "none", "depth": 2},
+        {"text": "Freezestat", "when": ["ddc_ready"], "quantity": "none", "depth": 2},
+        {"text": "Discharge Air Temperature Sensor", "when": ["ddc_ready"], "quantity": "none", "depth": 2},
+        {"text": "Fan Relays", "when": ["ddc_ready"], "quantity": "none", "depth": 2},
+        {"text": "Steam / Hot Water Control Valve and Actuator (by mfr.)", "when": ["ddc_ready", "valve_by_unit_mfr"], "quantity": "none", "depth": 2}
+      ],
+      "client_notes": [],
+      "hints": [
+        "*Qty (16) Unit Ventilator UV-## / Qty (16) ACCU-## (DDC Ready)",
+        "(**tech hour: 4 hour per each unit)",
+        "**DDC Ready is the tricky part of the UV scope. Often what end devices are provided by unit mfr is detailed out in schedule and sequence of operation.",
+        "**space Sensor is always by AME if DDC is provided by AME"
+      ],
+      "tech_hours": {"per": "unit", "hours": 4}
+    },
+    {
+      "name": "Heat Exchanger System",
+      "applies_to": {"prefixes": ["HX", "PFHX"], "kinds": ["Heat Exchanger", "Heat Exchanger Plant"]},
+      "group": true,
+      "header": "Qty ({n}) {kind} {tags}",
+      "family_names": {"HX": "Heat Exchanger System"},
+      "conditions": {
+        "oa_t_h": {"sequence": ["outside air temperature", "outdoor air temperature", "outside air humidity", "outdoor air humidity"]},
+        "building_loop": {"sequence": ["building loop", "building supply", "building return", "building water"]},
+        "pump_vfd": {"schedule": ["VFD"], "sequence": ["VFD", "variable speed", "variable frequency"]},
+        "dp_transmitter": {"sequence": ["differential pressure"]},
+        "flow_meter": {"sequence": ["flow meter", "flow station", "flow transmitter"]},
+        "hot_water": {"schedule": ["HOT WATER", "HW", "HHW"], "sequence": ["hot water"]},
+        "chilled_water": {"schedule": ["CHILLED WATER", "CHW"], "sequence": ["chilled water"]},
+        "steam": {"schedule": ["STEAM", "PPH", "LB/HR"], "sequence": ["steam"]},
+        "btu_meter": {"schedule": ["BTU METER"], "sequence": ["BTU meter", "BTU"]},
+        "primary_secondary": {"sequence": ["primary control valve", "secondary control valve", "primary side valve", "secondary side valve"]},
+        "dp_bypass": {"sequence": ["bypass valve", "differential pressure bypass", "DP bypass"]}
+      },
+      "lines": [
+        {"text": "Furnish and Install DDC Controller", "default": true, "quantity": "one"},
+        {"text": "Furnish and Install Outside Air Temperature / Humidity Sensor", "when": ["oa_t_h"], "quantity": "one"},
+        {"text": "Furnish and Install System Water Supply / Return Temperature Sensor", "default": true, "quantity": "one"},
+        {"text": "Furnish and Install Building Water Supply / Return Temperature Sensor", "when": ["building_loop"], "quantity": "one"},
+        {"text": "Furnish and Install HX Supply / Return Water Temperature Sensor", "default": true, "of": ["HX", "PFHX"]},
+        {"text": "Furnish Pump Start/ Stop and Status", "default": true, "of": ["HWP", "CHWP", "CWP", "P"]},
+        {"text": "Furnish Pump VFD Control", "when": ["pump_vfd"], "of": ["HWP", "CHWP", "CWP", "P"]},
+        {"text": "Furnish and Install Differential Pressure Transmitter", "when": ["dp_transmitter"], "quantity": "counted"},
+        {"text": "Furnish and Install Hot Water Flow Meter", "when": ["hot_water", "flow_meter"], "quantity": "counted"},
+        {"text": "Furnish and Install Chilled Water Flow Meter", "when": ["chilled_water", "flow_meter"], "quantity": "counted"},
+        {"text": "Furnish and Install Steam Flow Meter", "when": ["steam", "flow_meter"], "quantity": "counted"},
+        {"text": "Furnish and Install BTU Meter – Flow Meter, Supply / Return Temperature Sensor", "when": ["btu_meter"], "quantity": "counted"},
+        {"text": "Furnish and Wire HX Steam Control Valve and Actuator (1/3rd-2/3rd)", "when": ["steam"], "of": ["HX", "PFHX"]},
+        {"text": "Furnish and Wire HX Primary Control Valve and Actuator", "when": ["primary_secondary"], "of": ["HX", "PFHX"]},
+        {"text": "Furnish and Wire HX Secondary Control Valve and Actuator", "when": ["primary_secondary"], "of": ["HX", "PFHX"]},
+        {"text": "Furnish and Wire Heat Exchanger Control Valve and Actuator", "default": true, "unless": ["steam", "primary_secondary"], "of": ["HX", "PFHX"]},
+        {"text": "Furnish and Wire Differential Pressure Bypass Control Valve and Actuator", "when": ["dp_bypass"], "quantity": "one"}
+      ],
+      "client_notes": [],
+      "hints": [
+        "Qty (1) Heat Exchanger System HX-2 | HWP-1, 2",
+        "Qty (1) Heat Exchanger System HX-1 | Pump-1, 2",
+        "(**tech hour: 2 hour each hardware point)"
+      ],
+      "tech_hours": {"per": "hardware_point", "hours": 2},
+      "about": "The template's two heat exchanger samples (one steam, one chilled water) in one. The template writes \"System ### Water\" / \"Building ### Water\" for the medium (hot, chilled) and ##” for valve sizes; the lines leave both out and the writer adds the job's own."
+    },
+    {
+      "name": "Chilled Water System",
+      "applies_to": {"prefixes": ["CH", "CHLR", "ACCH", "CHWP", "CHGP", "PCHWP", "SCHWP", "ET", "AS"], "kinds": ["Chilled Water Plant"]},
+      "group": true,
+      "header": "Qty ({n}) {kind} {tags}",
+      "family_names": {"CHGP": "Chilled Water Glycol Pump", "CHWP": "Chilled Water Pump", "ET": "Expansion Tank"},
+      "conditions": {
+        "ups_controller": {"sequence": ["UPS", "uninterruptible power"]},
+        "glycol": {"schedule": ["GLYCOL"], "sequence": ["glycol"]},
+        "btu_meter": {"schedule": ["BTU METER"], "sequence": ["BTU meter", "BTU"]},
+        "chiller_dp": {"sequence": ["chiller differential pressure", "evaporator differential pressure", "differential pressure across the chiller", "differential pressure across the evaporator"]},
+        "system_dp": {"sequence": ["system differential pressure", "remote differential pressure", "differential pressure transmitter"]},
+        "expansion_tank_pressure": {"prefix": ["ET"], "sequence": ["expansion tank pressure"]},
+        "chiller_flow_switch": {"sequence": ["flow switch"]},
+        "air_cooled": {"prefix": ["ACCH"], "schedule": ["AIR COOLED", "AIR-COOLED"], "sequence": ["air-cooled chiller", "air cooled chiller"]},
+        "pump_vfd": {"schedule": ["VFD"], "sequence": ["VFD", "variable speed", "variable frequency"]},
+        "isolation_valves": {"sequence": ["isolation valve"]},
+        "min_flow_bypass": {"sequence": ["minimum flow", "bypass valve"]}
+      },
+      "lines": [
+        {"text": "Furnish and Install DDC Controller", "default": true, "quantity": "one"},
+        {"text": "Furnish and Install UPS for DDC Controller", "when": ["ups_controller"], "quantity": "one"},
+        {"text": "Furnish and Install Chiller Chilled Glycol Temperature Transmitters", "when": ["glycol"], "quantity": "counted"},
+        {"text": "Furnish and Install Main BTU Meter - Flow Meter, Temperature Transmitter", "when": ["btu_meter"], "quantity": "counted"},
+        {"text": "Furnish and Install Chiller Differential Pressure Transmitters", "when": ["chiller_dp"], "quantity": "counted"},
+        {"text": "Furnish and Install System Differential Pressure Transmitters", "when": ["system_dp"], "quantity": "counted"},
+        {"text": "Furnish and Install Expansion Tank Pressure Transmitters", "when": ["expansion_tank_pressure"], "quantity": "counted"},
+        {"text": "Furnish and Install Chiller Flow Switches", "when": ["chiller_flow_switch"], "quantity": "counted"},
+        {"text": "Furnish Air-Cooled Chiller Enable", "when": ["air_cooled"], "of": ["CH", "CHLR", "ACCH"]},
+        {"text": "Furnish Air-Cooled Chiller Status", "when": ["air_cooled"], "of": ["CH", "CHLR", "ACCH"]},
+        {"text": "Furnish Air-Cooled Chiller Common Alarm", "when": ["air_cooled"], "of": ["CH", "CHLR", "ACCH"]},
+        {"text": "Furnish Chiller Chilled Water Supply Temperature Setpoint", "default": true, "of": ["CH", "CHLR", "ACCH"]},
+        {"text": "Furnish Pump Start/Stop and Status", "default": true, "of": ["CHWP", "CHGP", "PCHWP", "SCHWP"]},
+        {"text": "Furnish Pump VFD Control", "when": ["pump_vfd"], "of": ["CHWP", "CHGP", "PCHWP", "SCHWP"]},
+        {"text": "Furnish Pump VFD Feedback", "when": ["pump_vfd"], "of": ["CHWP", "CHGP", "PCHWP", "SCHWP"]},
+        {"text": "Furnish Pump VFD Common Alarm", "when": ["pump_vfd"], "of": ["CHWP", "CHGP", "PCHWP", "SCHWP"]},
+        {"text": "Furnish and Wire Chiller Isolation Control Valves and Actuator w/ (2) End Switches", "when": ["isolation_valves"], "of": ["CH", "CHLR", "ACCH"]},
+        {"text": "Furnish and Wire Minimum Flow Bypass Control Valve and Actuator", "when": ["min_flow_bypass"], "quantity": "one"},
+        {"text": "Furnish BMS Communication Wiring to Chiller Factory Controls", "default": true, "of": ["CH", "CHLR", "ACCH"]},
+        {"text": "Map Available Points Via Mfr. Provided BMS Interface", "default": true, "quantity": "none"},
+        {"text": "AME requires mfr. Rep to assist in integration, cost to be incurred by mech contractor", "default": true, "quantity": "none", "depth": 2},
+        {"text": "Furnish BMS Communication Wiring to Pump VFD Controls", "when": ["pump_vfd"], "of": ["CHWP", "CHGP", "PCHWP", "SCHWP"]},
+        {"text": "Map Available Points Via Mfr. Provided BMS Interface", "when": ["pump_vfd"], "quantity": "none"},
+        {"text": "AME requires mfr. Rep to assist in integration, cost to be incurred by mech contractor", "when": ["pump_vfd"], "quantity": "none", "depth": 2}
+      ],
+      "client_notes": [],
+      "hints": [
+        "Qty (2) ACCH-5R-1, 2",
+        "Qty (3) Chilled Water Glycol Pump CHGP-5-1, 2, 3",
+        "Qty (1) Expansion Tank ET-5-1",
+        "(**tech hour: 2 hour each hardware point)"
+      ],
+      "tech_hours": {"per": "hardware_point", "hours": 2},
+      "about": "The sample's tag lists, (Qty. N Total), valve sizes (6” isolation, 4” bypass) and (As per Controls 5/M-818) are that job's; the lines leave them out and the writer adds the job's own."
+    },
+    {
+      "name": "Geothermal System",
+      "applies_to": {"prefixes": ["GHP", "CHWP", "GWP", "HWP", "HGP", "ET", "PFHX", "AS"], "kinds": ["Geothermal", "Geothermal Plant", "Geothermal Heat Pump System"]},
+      "group": true,
+      "header": "Qty ({n}) {kind} {tags}",
+      "family_names": {"GHP": "Geothermal Heat Pump", "CHWP": "Chilled Water Pump", "GWP": "Glycol Water Pump", "HWP": "Hot Water Pump", "HGP": "Snow Melt Pump", "ET": "Expansion Tank", "PFHX": "Plate Frame Heat Exchanger"},
+      "conditions": {
+        "ups_controller": {"sequence": ["UPS", "uninterruptible power"]},
+        "cooling_side": {"prefix": ["CHWP", "GWP"], "sequence": ["chilled water", "chilled glycol", "cooling mode"]},
+        "heating_side": {"prefix": ["HWP"], "sequence": ["heating hot water", "hot water", "heating mode"]},
+        "ground_loop": {"sequence": ["ground loop", "ground water", "geothermal loop", "well field", "wellfield", "bore field"]},
+        "btu_meter": {"schedule": ["BTU METER"], "sequence": ["BTU meter", "BTU"]},
+        "dp": {"sequence": ["differential pressure"]},
+        "riser_dp": {"sequence": ["remote differential pressure", "riser differential pressure", "riser"]},
+        "flow_meter": {"sequence": ["flow meter", "flow station", "flow transmitter"]},
+        "makeup_water": {"sequence": ["makeup water", "make-up water", "make up water"]},
+        "expansion_tank_pressure": {"prefix": ["ET"], "sequence": ["expansion tank pressure"]},
+        "pfhx": {"prefix": ["PFHX"], "sequence": ["plate frame heat exchanger", "plate and frame"]},
+        "flow_switch": {"sequence": ["flow switch"]},
+        "pump_vfd": {"schedule": ["VFD"], "sequence": ["VFD", "variable speed", "variable frequency"]},
+        "isolation_valves": {"sequence": ["isolation valve"]},
+        "modulating_valves": {"sequence": ["modulating valve", "modulating control valve", "modulate the control valve", "control valve shall modulate"]},
+        "free_cooling": {"sequence": ["free cooling", "waterside economizer", "water-side economizer"]},
+        "bypass": {"sequence": ["bypass valve", "flow bypass"]},
+        "domestic_preheat": {"sequence": ["domestic preheat", "domestic water preheat", "domestic hot water preheat"]},
+        "snow_melt": {"prefix": ["HGP"], "sequence": ["snow melt", "snowmelt"]},
+        "hot_glycol": {"sequence": ["hot glycol"]}
+      },
+      "lines": [
+        {"text": "Furnish and Install DDC Controller", "default": true, "quantity": "one"},
+        {"text": "Furnish and Install UPS for DDC Controller", "when": ["ups_controller"], "quantity": "one"},
+        {"text": "Furnish and Install Chilled Glycol Heat Exchanger Temperature Transmitters", "when": ["cooling_side", "pfhx"], "quantity": "counted"},
+        {"text": "Furnish and Install Ground Loop Heat Exchanger Temperature Transmitters", "when": ["ground_loop", "pfhx"], "quantity": "counted"},
+        {"text": "Furnish and Install Geothermal Heat Pump Temperature Transmitters", "default": true, "quantity": "counted"},
+        {"text": "Furnish and Install GHP Heating Hot Water Temperature Transmitters", "when": ["heating_side"], "quantity": "counted"},
+        {"text": "Furnish and Install Domestic Preheat Heat Exchanger Temperature Transmitters", "when": ["domestic_preheat"], "quantity": "counted"},
+        {"text": "Furnish and Install Snow Melt Heat Exchanger Temperature Transmitters", "when": ["snow_melt"], "quantity": "counted"},
+        {"text": "Furnish and Install Plant Heating Hot Water Supply Temperature Transmitter", "when": ["heating_side"], "quantity": "one"},
+        {"text": "Furnish and Install Hot Glycol Supply Temperature Transmitter", "when": ["hot_glycol"], "quantity": "one"},
+        {"text": "Furnish and Install Ground Water BTU Meter - Flow Meter, Temperature Transmitters", "when": ["ground_loop", "btu_meter"], "quantity": "counted"},
+        {"text": "Furnish and Install Chilled Water BTU Meter - Flow Transmitters, Temperature Transmitters", "when": ["cooling_side", "btu_meter"], "quantity": "counted"},
+        {"text": "Furnish and Install Domestic Preheat BTU Meter - Flow Meter, Temperature Transmitters", "when": ["domestic_preheat", "btu_meter"], "quantity": "counted"},
+        {"text": "Furnish and Install Facility Hot Water BTU Meter - Flow Meter, Temperature Transmitters", "when": ["heating_side", "btu_meter"], "quantity": "counted"},
+        {"text": "Furnish and Install Snow Melt Hot Glycol BTU Meter - Flow Meter, Temperature Transmitters", "when": ["snow_melt", "btu_meter"], "quantity": "counted"},
+        {"text": "Furnish and Install Geothermal Heat Pump Differential Pressure Transmitters", "when": ["dp"], "quantity": "counted"},
+        {"text": "Furnish and Install Chilled Glycol System Differential Pressure Transmitter", "when": ["cooling_side", "dp"], "quantity": "counted"},
+        {"text": "Furnish and Install Chilled Water Riser Differential Pressure Transmitters", "when": ["cooling_side", "riser_dp"], "quantity": "counted"},
+        {"text": "Furnish and Install Geothermal Ground Loop System Differential Pressure Transmitter", "when": ["ground_loop", "dp"], "quantity": "counted"},
+        {"text": "Furnish and Install Plant Hot Water Differential Pressure Transmitter", "when": ["heating_side", "dp"], "quantity": "counted"},
+        {"text": "Furnish and Install Remote Hot Water Differential Pressure Transmitters", "when": ["heating_side", "riser_dp"], "quantity": "counted"},
+        {"text": "Furnish and Install Snow Melt Differential Pressure Transmitter", "when": ["snow_melt", "dp"], "quantity": "counted"},
+        {"text": "Furnish and Install Chilled Water Main Flow Meter", "when": ["cooling_side", "flow_meter"], "quantity": "counted"},
+        {"text": "Furnish and Install Chilled Water System Makeup Water Flow Meter", "when": ["cooling_side", "makeup_water"], "quantity": "counted"},
+        {"text": "Furnish and Install Hot Water System Make-Up Flow Transmitter", "when": ["heating_side", "makeup_water"], "quantity": "counted"},
+        {"text": "Furnish and Install Expansion Tank Pressure Transmitters", "when": ["expansion_tank_pressure"], "quantity": "counted"},
+        {"text": "Furnish and Install PFHX Flow Meter", "when": ["pfhx"], "of": ["PFHX"]},
+        {"text": "Furnish and Wire Geothermal Heat Pump Flow Switches", "when": ["flow_switch"], "quantity": "counted"},
+        {"text": "Furnish Geothermal Heat Pump Enable", "default": true, "of": ["GHP"]},
+        {"text": "Furnish Geothermal Common Alarm", "default": true, "of": ["GHP"]},
+        {"text": "Furnish Geothermal Heat Pump Chilled Water Setpoint", "when": ["cooling_side"], "of": ["GHP"]},
+        {"text": "Furnish Geothermal Heat Pump Hot Water Setpoint", "when": ["heating_side"], "of": ["GHP"]},
+        {"text": "Furnish Pump Start/Stop and Status", "default": true, "of": ["CHWP", "GWP", "HWP", "HGP"]},
+        {"text": "Furnish Pump VFD Control", "when": ["pump_vfd"], "of": ["CHWP", "GWP", "HWP", "HGP"]},
+        {"text": "Furnish Pump VFD Feedback", "when": ["pump_vfd"], "of": ["CHWP", "GWP", "HWP", "HGP"]},
+        {"text": "Furnish Pump VFD Common Alarm", "when": ["pump_vfd"], "of": ["CHWP", "GWP", "HWP", "HGP"]},
+        {"text": "Furnish and Wire Heat Exchanger Isolation Control Valves and Actuators w/ (2) End Switches", "when": ["pfhx", "isolation_valves"], "of": ["PFHX"]},
+        {"text": "Furnish and Wire Geothermal Heat Pump Isolation Control Valves and Actuators w/ (2) End Switches", "when": ["isolation_valves"], "of": ["GHP"]},
+        {"text": "Furnish and Wire Heat Exchanger Modulating Control Valves and Actuators", "when": ["pfhx", "modulating_valves"], "of": ["PFHX"]},
+        {"text": "Furnish and Wire Geothermal Heat Pump Modulating Control Valves and Actuators", "when": ["modulating_valves"], "of": ["GHP"]},
+        {"text": "Furnish and Wire Free Cooling Flow Control Modulating Control Valves and Actuators (Duty/Standby)", "when": ["free_cooling"], "quantity": "counted"},
+        {"text": "Furnish and Wire GHP Hot Water Supply Control Valves and Actuators", "when": ["heating_side", "modulating_valves"], "of": ["GHP"]},
+        {"text": "Furnish and Wire Domestic Water Preheat Control Valves and Actuators", "when": ["domestic_preheat"], "quantity": "counted"},
+        {"text": "Furnish and Wire Snow Melt Heat Exchanger Control Valves and Actuators", "when": ["snow_melt"], "quantity": "counted"},
+        {"text": "Furnish and Wire Chilled Glycol Flow Bypass Control Valve and Actuator", "when": ["cooling_side", "bypass"], "quantity": "one"},
+        {"text": "Furnish and Wire Geothermal Ground Loop Flow Bypass Control Valve and Actuator", "when": ["ground_loop", "bypass"], "quantity": "one"},
+        {"text": "Furnish and Wire Hot Water Plant Bypass Control Valve and Actuator", "when": ["heating_side", "bypass"], "quantity": "one"},
+        {"text": "Furnish BMS Communication Wiring to Geothermal Heat Pump Factory Controls", "default": true, "of": ["GHP"]},
+        {"text": "Map Available Points Via Mfr. Provided BMS Interface", "default": true, "quantity": "none"},
+        {"text": "AME requires mfr. Rep to assist in integration, cost to be incurred by mech contractor", "default": true, "quantity": "none", "depth": 2},
+        {"text": "Furnish BMS Communication Wiring to Pump VFD Controls", "when": ["pump_vfd"], "of": ["CHWP", "GWP", "HWP", "HGP"]},
+        {"text": "Map Available Points Via Mfr. Provided BMS Interface", "when": ["pump_vfd"], "quantity": "none"},
+        {"text": "AME requires mfr. Rep to assist in integration, cost to be incurred by mech contractor", "when": ["pump_vfd"], "quantity": "none", "depth": 2}
+      ],
+      "client_notes": [],
+      "hints": [
+        "Qty (3) Geothermal Heat Pump-2-1, 2, 3",
+        "Qty (3) Chilled Water Pump CHWP-2-1, 2, 3",
+        "Qty (3) Glycol Water Pump GWP-2-1, 2, 3",
+        "Qty (2) Expansion Tank ET-2-1, ET-2-2",
+        "Qty (4) Plate Frame Heat Exchanger PFHX-2-1A, 1B; PFHX-2-2A, 2B",
+        "Qty (3) Hot Water Pump HWP-2-1, 2, 3",
+        "Qty (2) Snow Melt Pump HGP-2-1, 2",
+        "Qty (1) AS-2-3",
+        "Furnish and Install GHP Differential Pressure Sensors (DP-09, DP-10, DP-11) (Qty. 3 Total)",
+        "Furnish and Install GHP Flow Switches (FS-09, FS-10, FS-11) (Qty. 3 Total)",
+        "(**tech hour: 2 hour each hardware point)",
+        "(**tech hour: 2 hour per hardwired point)"
+      ],
+      "tech_hours": {"per": "hardware_point", "hours": 2},
+      "about": "The template shows this plant twice, as a Chilled Water System and as a Hot Water System; here the two are one, the heating lines under heating_side. The samples' tag lists, totals, valve sizes (8” / 6” / 4” / 3”) and (As per Controls 5/M-818) are left out of the lines. The Hot Water sample repeats two chilled-side lines in other words (the two GHP hints); only the chilled-side wording is a line."
+    },
+    {
+      "name": "Hot Water System",
+      "applies_to": {"prefixes": ["B", "BLR", "BP", "HWP"], "kinds": ["Boiler Plant", "Hot Water Plant", "Heating Hot Water System", "Boiler System"]},
+      "group": true,
+      "header": "Qty ({n}) {kind} {tags}",
+      "family_names": {"B": "Boiler", "BLR": "Boiler", "BP": "Boiler Circulator Pump", "HWP": "Hot Water Pump"},
+      "conditions": {
+        "oa_t_h": {"sequence": ["outside air temperature", "outdoor air temperature", "outdoor reset", "outside air reset"]},
+        "boiler_pumps": {"prefix": ["BP"], "sequence": ["boiler pump", "boiler circulator", "boiler circulation pump"]},
+        "hot_water_pumps": {"prefix": ["HWP", "P"], "sequence": ["hot water pump"]},
+        "pump_vfd": {"schedule": ["VFD"], "sequence": ["VFD", "variable speed", "variable frequency"]},
+        "dp": {"sequence": ["differential pressure"]},
+        "flow_meter": {"sequence": ["flow meter", "flow station", "flow transmitter"]},
+        "breakglass": {"sequence": ["breakglass", "break glass", "emergency shutdown", "emergency stop", "boiler emergency"]},
+        "flow_switch": {"sequence": ["flow switch"]},
+        "gas_sensor": {"sequence": ["natural gas detect", "gas detection", "methane", "combustible gas"]},
+        "co_sensor": {"sequence": ["carbon monoxide", "CO sensor", "CO detector", "CO detection"]},
+        "horn_strobe": {"sequence": ["horn", "strobe"]},
+        "btu_meter": {"schedule": ["BTU METER"], "sequence": ["BTU meter", "BTU"]},
+        "combustion_air": {"sequence": ["combustion air", "intake damper", "exhaust damper"]},
+        "isolation_valves": {"sequence": ["isolation valve"]},
+        "heat_exchanger": {"prefix": ["HX", "PFHX"], "sequence": ["heat exchanger"]},
+        "expansion_tank_pressure": {"prefix": ["ET"], "sequence": ["expansion tank pressure"]}
+      },
+      "lines": [
+        {"text": "Furnish and Install DDC Controller", "default": true, "quantity": "one"},
+        {"text": "Furnish and Install Outside Air Temperature / Humidity Sensor", "when": ["oa_t_h"], "quantity": "one"},
+        {"text": "Furnish and Install Hot Water Supply / Return Temperature", "default": true, "quantity": "one"},
+        {"text": "Furnish Boiler Enable", "default": true, "of": ["B", "BLR"]},
+        {"text": "Furnish Boiler Status", "default": true, "of": ["B", "BLR"]},
+        {"text": "Furnish Boiler Alarm", "default": true, "of": ["B", "BLR"]},
+        {"text": "Furnish Boiler Setpoint", "default": true, "of": ["B", "BLR"]},
+        {"text": "Furnish Boiler Circulation Pump Start/ Stop and Status", "when": ["boiler_pumps"], "of": ["BP"]},
+        {"text": "Furnish Hot Water Pump Start/ Stop and Status", "when": ["hot_water_pumps"], "of": ["HWP", "P"]},
+        {"text": "Furnish Hot Water Pump VFD Control", "when": ["hot_water_pumps", "pump_vfd"], "of": ["HWP", "P"]},
+        {"text": "Furnish and Install Differential Pressure Transmitter", "when": ["dp"], "quantity": "counted"},
+        {"text": "Furnish and Install Flow Meter", "when": ["flow_meter"], "quantity": "counted"},
+        {"text": "Furnish and Install Breakglass Switch / Station", "when": ["breakglass"], "quantity": "counted"},
+        {"text": "Furnish and Install Flow Switch", "when": ["flow_switch"], "quantity": "counted"},
+        {"text": "Furnish and Install Boiler Room Natural Gas Sensor", "when": ["gas_sensor"], "quantity": "counted"},
+        {"text": "Furnish and Install Boiler Room CO Sensor", "when": ["co_sensor"], "quantity": "counted"},
+        {"text": "Furnish and Install Horn and Strobe Sensor", "when": ["horn_strobe"], "quantity": "counted"},
+        {"text": "Furnish and Install BTU Meter – Flow Meter, Supply / Return Temperature Sensor", "when": ["btu_meter"], "quantity": "counted"},
+        {"text": "Furnish and Install Intake / Exhaust Damper Actuator", "when": ["combustion_air"], "quantity": "counted"},
+        {"text": "Furnish and Wire Boiler Isolation Valve and Actuator", "when": ["isolation_valves"], "of": ["B", "BLR"]},
+        {"text": "Furnish and Wire Heat Exchanger Control Valve and Actuator", "when": ["heat_exchanger"], "quantity": "counted"},
+        {"text": "Furnish and Install Expansion Tank Pressure Sensor", "when": ["expansion_tank_pressure"], "quantity": "counted"},
+        {"text": "Boiler Trim Wiring", "default": true, "of": ["B", "BLR"], "no_verb": true},
+        {"text": "Map Available Points Via Mfr. Provided BMS Interface", "default": true, "quantity": "none"},
+        {"text": "AME requires mfr. Rep to assist in integration, cost to be incurred by mech contractor", "default": true, "quantity": "none", "depth": 2}
+      ],
+      "client_notes": [],
+      "hints": [
+        "Qty (#) Boiler B-1, 2, 3, 4",
+        "Qty (#) Boiler Circulator Pump BP-1, 2, 3, 4",
+        "Qty (2) Hot Water Pump HWP-1, 2, 3",
+        "(**tech hour: 2 hour per hardwired point)"
+      ],
+      "tech_hours": {"per": "hardware_point", "hours": 2}
+    },
+    {
+      "name": "Condenser Water System",
+      "applies_to": {"prefixes": ["CT", "CWP"], "kinds": ["Condenser Water", "Condenser Water Plant"]},
+      "group": true,
+      "header": "Qty ({n}) {kind} {tags}",
+      "conditions": {
+        "oat": {"sequence": ["outside air temperature", "outdoor air temperature", "wet bulb"]},
+        "basin": {"sequence": ["basin", "sump temperature"]},
+        "basin_heater": {"schedule": ["BASIN HEATER"], "sequence": ["basin heater"]},
+        "tower_vfd": {"schedule": ["VFD"], "sequence": ["VFD", "variable speed", "variable frequency"]},
+        "pump_vfd": {"sequence": ["pump VFD", "pump speed", "variable speed pump"]},
+        "dp": {"sequence": ["differential pressure"]},
+        "flow_meter": {"sequence": ["flow meter", "flow station", "flow transmitter"]},
+        "btu_meter": {"schedule": ["BTU METER"], "sequence": ["BTU meter", "BTU"]},
+        "vibration": {"sequence": ["vibration"]},
+        "level_switch": {"sequence": ["level switch", "high level", "low level"]},
+        "isolation_valves": {"sequence": ["isolation valve"]},
+        "bypass": {"sequence": ["bypass valve", "DP bypass", "differential pressure bypass"]}
+      },
+      "lines": [
+        {"text": "Furnish and Install DDC Controller", "default": true, "quantity": "one"},
+        {"text": "Furnish and Install Outside Air Temperature", "when": ["oat"], "quantity": "one"},
+        {"text": "Furnish and Install Condenser Water Supply / Return Temperature Sensor", "default": true, "quantity": "one"},
+        {"text": "Furnish and Install Basin Water Temperature Sensor", "when": ["basin"], "of": ["CT"]},
+        {"text": "Furnish Basin Heater Enable / Disable", "when": ["basin_heater"], "of": ["CT"]},
+        {"text": "Furnish Cooling Tower Fan Enable", "default": true, "of": ["CT"]},
+        {"text": "Furnish Cooling Tower Fan Status", "default": true, "of": ["CT"]},
+        {"text": "Furnish Cooling Tower VFD Control", "when": ["tower_vfd"], "of": ["CT"]},
+        {"text": "Furnish Pump Start/ Stop and Status", "default": true, "of": ["CWP"]},
+        {"text": "Furnish Pump VFD Control", "when": ["pump_vfd"], "of": ["CWP"]},
+        {"text": "Furnish and Install Differential Pressure Transmitter", "when": ["dp"], "quantity": "counted"},
+        {"text": "Furnish and Install Flow Meter", "when": ["flow_meter"], "quantity": "counted"},
+        {"text": "Furnish and Install BTU Meter – Flow Meter, Supply / Return Temperature Sensor", "when": ["btu_meter"], "quantity": "counted"},
+        {"text": "Tie in Mfr. Tower Vibration Switch", "when": ["vibration"], "of": ["CT"], "no_verb": true},
+        {"text": "Tie in Mfr. High / Low Level Switch", "when": ["level_switch"], "of": ["CT"], "no_verb": true},
+        {"text": "Furnish and Wire Cooling Tower Spray Isolation Valve and Actuator", "when": ["isolation_valves"], "of": ["CT"]},
+        {"text": "Furnish and Wire Cooling Tower Sump Isolation Valve and Actuator", "when": ["isolation_valves"], "of": ["CT"]},
+        {"text": "Furnish and Wire Cooling Tower Supply / Return Isolation Valve and Actuator", "when": ["isolation_valves"], "quantity": "counted"},
+        {"text": "Furnish and Wire DP Bypass Control Valve and Actuator", "when": ["bypass"], "quantity": "one"},
+        {"text": "Map Available Points Via Mfr. Provided BMS Interface", "default": true, "quantity": "none"},
+        {"text": "AME requires mfr. Rep to assist in integration, cost to be incurred by mech contractor", "default": true, "quantity": "none", "depth": 2}
+      ],
+      "client_notes": [],
+      "hints": [
+        "(**tech hour: 2 hour each hardware point)"
+      ],
+      "tech_hours": {"per": "hardware_point", "hours": 2},
+      "about": "The sample's valve sizes and totals are left out of the lines: Spray 10” (Qty. 2 Total), Sump 8” (Qty. 2 Total), Supply / Return 10” (Qty. 4 Total). The template gives this plant only two of the three integration lines."
+    },
+    {
+      "name": "Refrigeration Monitoring System",
+      "applies_to": {"prefixes": [], "kinds": ["Refrigerant Monitoring System", "Refrigerant Monitoring", "Refrigeration Monitoring", "Refrigerant Leak Detection"]},
+      "header": "Qty ({n}) Furnish and Install Refrigeration Monitoring System",
+      "conditions": {},
+      "lines": [
+        {"text": "Horn and Strobe", "default": true, "quantity": "counted", "no_verb": true},
+        {"text": "Pull Station", "default": true, "quantity": "counted", "no_verb": true},
+        {"text": "Remote Refrigeration Sensor", "default": true, "quantity": "counted", "no_verb": true},
+        {"text": "Necessary Low Voltage Control Wiring Mfr. Provided Controls", "default": true, "no_verb": true},
+        {"text": "Furnish BMS Communication Wiring to Factory Controls", "default": true},
+        {"text": "Map Available Points Via Mfr. Provided BMS Interface", "default": true, "quantity": "none"},
+        {"text": "AME requires mfr. Rep to assist in integration, cost to be incurred by mech contractor", "default": true, "quantity": "none", "depth": 2}
+      ],
+      "client_notes": [],
+      "hints": [
+        "(**tech hour: 8 hour per panel)"
+      ],
+      "tech_hours": {"per": "panel", "hours": 8}
+    },
+    {
+      "name": "Fuel Oil Pump System",
+      "applies_to": {"prefixes": ["FOP"], "kinds": ["Fuel Oil System", "Fuel Oil"]},
+      "header": "Qty ({n}) Fuel Oil Pump System",
+      "conditions": {},
+      "lines": [
+        {"text": "Necessary Control Wiring to / from Fuel Oil Management Panel", "default": true, "no_verb": true},
+        {"text": "Furnish BMS Communication Wiring to Factory Controls", "default": true},
+        {"text": "Map Available Points Via Mfr. Provided BMS Interface", "default": true, "quantity": "none"}
+      ],
+      "client_notes": [],
+      "hints": [
+        "(**tech hour: 4 hour per each unit)"
+      ],
+      "tech_hours": {"per": "unit", "hours": 4}
+    },
+    {
+      "name": "Misc Monitoring Systems",
+      "applies_to": {"prefixes": [], "kinds": ["Misc Monitoring", "Miscellaneous Monitoring"]},
+      "header": "Misc Monitoring Systems",
+      "conditions": {
+        "gas_meter": {"sequence": ["gas meter"]},
+        "electric_meter": {"sequence": ["electric meter", "electrical meter", "power meter", "kWh meter"]},
+        "makeup_water_alarm": {"sequence": ["make up water", "makeup water", "make-up water"]},
+        "btu_meter": {"sequence": ["BTU meter"]},
+        "fire_tank": {"sequence": ["fire tank", "fire water tank"]},
+        "fire_pump": {"sequence": ["fire pump", "jockey pump"]},
+        "fire_alarm_zones": {"sequence": ["fire alarm zone", "fire alarm system per zone"]},
+        "sump": {"sequence": ["sump pit", "sump level", "sump pump"]},
+        "generator": {"sequence": ["generator"]},
+        "ats": {"sequence": ["ATS", "automatic transfer switch", "transfer switch"]},
+        "dhw_flow": {"sequence": ["domestic hot water flow", "DHW flow"]},
+        "ups": {"sequence": ["UPS", "uninterruptible power"]},
+        "modbus": {"sequence": ["Modbus"], "spec_overview": ["Modbus"]},
+        "domestic_water_tank": {"sequence": ["domestic water tank", "water tank level", "domestic water booster"]},
+        "dhw_heater": {"prefix": ["WH", "DWH"], "sequence": ["domestic hot water heater", "water heater"]},
+        "sewage": {"sequence": ["sewage ejector", "ejector pump", "ejector"]},
+        "fire_alarm_interface": {"sequence": ["fire alarm interface", "smoke purge", "smoke control"]},
+        "sub_metering": {"sequence": ["sub metering", "submetering", "sub-metering"]},
+        "water_meter": {"sequence": ["water meter", "domestic water meter"]},
+        "lighting": {"sequence": ["lighting control"]}
+      },
+      "lines": [
+        {"text": "Map Available Points Via Mfr. Provided BMS Interface or Connect to Nearby DDC Controller", "default": true, "quantity": "none", "no_verb": true},
+        {"text": "Gas meter (Furnished and Installed by Others)", "when": ["gas_meter"], "quantity": "counted", "no_verb": true},
+        {"text": "Mfr. to Provide Pulse Output for Monitoring at BMS", "when": ["gas_meter"], "quantity": "none", "depth": 2},
+        {"text": "Furnish and Install Electrical Meter", "when": ["electric_meter"], "quantity": "counted"},
+        {"text": "BMS Communication Wiring to Mfr. Provided BMS Interface", "when": ["electric_meter"], "quantity": "none", "depth": 2},
+        {"text": "Make Up Water Alarming (Furnished by Unit Mfr.)", "when": ["makeup_water_alarm"], "quantity": "counted", "no_verb": true},
+        {"text": "Mfr. to Provide Dry Contacts to Monitor Alarm at BMS", "when": ["makeup_water_alarm"], "quantity": "none", "depth": 2},
+        {"text": "BTU Meter", "when": ["btu_meter"], "quantity": "counted", "no_verb": true},
+        {"text": "Supply / Return Temperature, Flow Meter", "when": ["btu_meter"], "quantity": "none", "depth": 2},
+        {"text": "Fire Tank", "when": ["fire_tank"], "quantity": "counted", "no_verb": true},
+        {"text": "Fire Tank Water Temperature", "when": ["fire_tank"], "quantity": "none", "depth": 2},
+        {"text": "Fire Pump & Jockey Pump Common Fault Alarm Monitoring", "when": ["fire_pump"], "quantity": "counted", "no_verb": true},
+        {"text": "Fire Alarm System Per Zone", "when": ["fire_alarm_zones"], "quantity": "counted", "no_verb": true},
+        {"text": "Trouble", "when": ["fire_alarm_zones"], "quantity": "none", "depth": 2},
+        {"text": "Alarm", "when": ["fire_alarm_zones"], "quantity": "none", "depth": 2},
+        {"text": "Sump Pit Level monitoring", "when": ["sump"], "quantity": "counted", "no_verb": true},
+        {"text": "Emergency Generator", "when": ["generator"], "quantity": "counted", "no_verb": true},
+        {"text": "Emergency Generator Alarms", "when": ["generator"], "quantity": "counted", "no_verb": true},
+        {"text": "ATS monitoring (Minimum 4 Points)", "when": ["ats"], "quantity": "counted", "no_verb": true},
+        {"text": "Furnish and Install Domestic Hot Water Flow Meter", "when": ["dhw_flow"], "quantity": "counted"},
+        {"text": "UPS", "when": ["ups"], "quantity": "counted", "no_verb": true},
+        {"text": "Generator- Modbus Interface", "when": ["generator", "modbus"], "quantity": "counted", "no_verb": true},
+        {"text": "Domestic Water Tank Level & Pump Status", "when": ["domestic_water_tank"], "quantity": "counted", "no_verb": true},
+        {"text": "Domestic Hot Water Heater(s)", "when": ["dhw_heater"], "quantity": "counted", "no_verb": true},
+        {"text": "Sewage Ejectors & Sump Pump(s)", "when": ["sewage"], "quantity": "counted", "no_verb": true},
+        {"text": "Fire Alarm Interface-", "when": ["fire_alarm_interface"], "quantity": "one", "no_verb": true},
+        {"text": "Alarm condition for each floor, zone, unit and fan.", "when": ["fire_alarm_interface"], "quantity": "none", "depth": 2},
+        {"text": "Smoke purge initiation command for each floor and/or zone.", "when": ["fire_alarm_interface"], "quantity": "none", "depth": 2},
+        {"text": "Smoke control initiation command for each floor and/or zone", "when": ["fire_alarm_interface"], "quantity": "none", "depth": 2},
+        {"text": "Sub Metering", "when": ["sub_metering"], "quantity": "none", "no_verb": true},
+        {"text": "Building Electric Meter for each area", "when": ["sub_metering", "electric_meter"], "quantity": "counted", "depth": 2},
+        {"text": "Building Domestic Water Meter", "when": ["sub_metering", "water_meter"], "quantity": "counted", "depth": 2},
+        {"text": "Building Natural Gas Meter", "when": ["sub_metering", "gas_meter"], "quantity": "counted", "depth": 2},
+        {"text": "Interface Lighting Control System (By Others) With Front End BMS Via Manufacturer Provided BMS Interface", "when": ["lighting"], "quantity": "one", "no_verb": true}
+      ],
+      "client_notes": [],
+      "hints": [
+        "(**tech hour: 2 hour per triangle bullet and multiplied by qty.)"
+      ],
+      "tech_hours": {"per": "line", "hours": 2},
+      "about": "The template's (Qty. #) / (Qty. ##) placeholders are left out of the lines (their quantity is counted); Building Natural Gas Meter appears twice in the template and once here; the lighting line joins two paragraphs of the template."
+    },
+    {
+      "name": "Global Points",
+      "applies_to": {"prefixes": [], "kinds": ["Global Point", "Global"]},
+      "header": "Qty ({n}) Global Points",
+      "conditions": {
+        "oa_humidity": {"sequence": ["outside air humidity", "outdoor air humidity", "enthalpy"]},
+        "oa_co2": {"sequence": ["outside air CO2", "outdoor air CO2", "outdoor CO2"]},
+        "fire_alarm": {"sequence": ["fire alarm"]},
+        "weather_station": {"sequence": ["weather station"]}
+      },
+      "lines": [
+        {"text": "Furnish and Install Outside Air Temperature", "default": true, "quantity": "one"},
+        {"text": "Furnish and Install Outside Air Humidity", "when": ["oa_humidity"], "quantity": "one"},
+        {"text": "Furnish and Install Outside Air CO2", "when": ["oa_co2"], "quantity": "one"},
+        {"text": "Furnish Fire Alarm Active Alarm", "when": ["fire_alarm"], "quantity": "one"},
+        {"text": "Furnish and Install Weather Station", "when": ["weather_station"], "quantity": "one"}
+      ],
+      "client_notes": [],
+      "hints": [
+        "(**tech hour: 4 hour)"
+      ],
+      "tech_hours": {"per": "fixed", "hours": 4, "when": [{"if": ["weather_station"], "hours": 8}]},
+      "about": "The weather station is its own item in the template, with its own 4 hours."
+    },
+    {
+      "name": "VRF System",
+      "applies_to": {"prefixes": ["IDU", "ODU", "BS"], "kinds": ["VRF", "Variable Refrigerant Flow"]},
+      "group": true,
+      "header": "Qty ({n}) {kind} {tags}",
+      "family_names": {"AC": "Indoor Unit", "IDU": "Indoor Unit", "ACCU": "Condensing Unit", "ODU": "Condensing Unit", "BS": "Branch Selector"},
+      "conditions": {
+        "remote_sensor": {"sequence": ["remote sensor", "remote temperature sensor", "remote space temperature"]},
+        "leak_sensor": {"sequence": ["leak detection", "leak sensor", "leak detector", "condensate overflow"]},
+        "ram_module": {"sequence": ["RAM module", "refrigerant leak", "refrigerant detection", "refrigerant monitoring"]},
+        "condensate_pump": {"schedule": ["CONDENSATE PUMP"], "sequence": ["condensate pump"]},
+        "central_controller": {"sequence": ["central controller", "centralized controller"]}
+      },
+      "lines": [
+        {"text": "Install and wire Programmable Thermostat (Furnished by Unit Mfr.)", "default": true, "of": ["IDU", "AC"]},
+        {"text": "Furnish and Install Remote Space Temperature Sensor", "when": ["remote_sensor"], "of": ["IDU", "AC"]},
+        {"text": "Furnish and Install Leak Sensor", "when": ["leak_sensor"], "of": ["IDU", "AC"]},
+        {"text": "Furnish and Install Local RAM Module", "when": ["ram_module"], "of": ["IDU", "AC"]},
+        {"text": "VRF Communication Wiring", "default": true, "quantity": "one", "no_verb": true},
+        {"text": "Tie-in Condensate Pump Float Switch (Furnished by Mfr.)", "when": ["condensate_pump"], "of": ["IDU", "AC"], "no_verb": true},
+        {"text": "Install Central Controller by Unit Mfr. Tie into BMS", "choice": "vrf_bms", "when": ["central_controller"], "quantity": "one"},
+        {"text": "Furnish BMS Communication Wiring to Factory Controls", "choice": "vrf_bms", "default": true, "quantity": "one"},
+        {"text": "Map Available Points Via Mfr. Provided BMS Interface", "default": true, "unless": ["central_controller"], "quantity": "none"},
+        {"text": "AME requires mfr. Rep to assist in integration, cost to be incurred by mech contractor", "default": true, "quantity": "none", "depth": 2}
+      ],
+      "client_notes": [],
+      "hints": [
+        "VRF / Split / CRAC / WSHP / Unit Ventilator",
+        "20-0404 – Nest Programmable Thermostat as alternate (Apartment / Hotel Jobs)",
+        "(**tech hour: 2 hour per indoor unit)"
+      ],
+      "tech_hours": {"per": "indoor_unit", "hours": 2, "of": ["IDU", "AC"]}
+    },
+    {
+      "name": "Split System",
+      "applies_to": {"prefixes": ["CU", "ACCU", "AC", "OU", "SS", "IU"], "kinds": ["Split Systems", "Split AC"]},
+      "group": true,
+      "header": "Qty ({n}) {kind} {tags}",
+      "family_names": {"CU": "Split System Indoor Unit", "ACCU": "Outdoor Unit"},
+      "conditions": {
+        "leak_sensor": {"sequence": ["leak detection", "leak sensor", "leak detector", "condensate overflow"]},
+        "ram_module": {"sequence": ["RAM module", "refrigerant leak", "refrigerant detection", "refrigerant monitoring"]},
+        "condensate_pump": {"schedule": ["CONDENSATE PUMP"], "sequence": ["condensate pump"]}
+      },
+      "lines": [
+        {"text": "Install and wire Programmable Thermostat (Furnished by Unit Mfr.)", "default": true, "of": ["CU", "AC", "IU", "SS"]},
+        {"text": "Furnish and Install Space Temperature Sensor (BMS Monitoring)", "default": true, "of": ["CU", "AC", "IU", "SS"]},
+        {"text": "Furnish and Install Leak Sensor", "when": ["leak_sensor"], "of": ["CU", "AC", "IU", "SS"]},
+        {"text": "Furnish and Install Local RAM Module", "when": ["ram_module"], "of": ["CU", "AC", "IU", "SS"]},
+        {"text": "Tie-in Condensate Pump Float Switch (Furnished by Mfr.)", "when": ["condensate_pump"], "of": ["CU", "AC", "IU", "SS"], "no_verb": true},
+        {"text": "Low Voltage Interlock Wiring between Indoor and Outdoor Unit", "default": true, "of": ["CU", "AC", "IU", "SS"], "no_verb": true},
+        {"text": "Furnish BMS Communication Wiring to Factory Controls", "default": true, "of": ["CU", "AC", "IU", "SS"]},
+        {"text": "Map Available Points Via Mfr. Provided BMS Interface", "default": true, "quantity": "none"},
+        {"text": "AME requires mfr. Rep to assist in integration, cost to be incurred by mech contractor", "default": true, "quantity": "none", "depth": 2}
+      ],
+      "client_notes": [],
+      "hints": [
+        "Qty (#) Split System Indoor Unit CU- | Qty (#) Outdoor Unit ACCU-",
+        "20-0404 – Nest Programmable Thermostat as alternate (Apartment / Hotel Jobs)",
+        "(**tech hour: 2 hour per indoor unit)"
+      ],
+      "tech_hours": {"per": "indoor_unit", "hours": 2, "of": ["CU", "AC", "IU", "SS"]}
+    },
+    {
+      "name": "Computer Room Air Conditioning Unit",
+      "applies_to": {"prefixes": ["CRAC"], "kinds": ["Water Cooled Computer Room Air Conditioning Unit"]},
+      "header": "Qty ({n}) {kind} {tags}",
+      "conditions": {
+        "leak_sensor": {"sequence": ["leak detection", "leak sensor", "leak detector", "condensate overflow"]},
+        "ram_module": {"sequence": ["RAM module", "refrigerant leak", "refrigerant detection", "refrigerant monitoring"]},
+        "condensate_pump": {"schedule": ["CONDENSATE PUMP"], "sequence": ["condensate pump"]},
+        "water_cooled": {"schedule": ["WATER COOLED", "WATER-COOLED", "CONDENSER WATER"], "sequence": ["condenser water", "water-cooled", "water cooled"]},
+        "condenser": {"prefix": ["ACCU", "CU"], "schedule": ["CONDENSER", "DRY COOLER", "DRYCOOLER"], "sequence": ["condenser", "dry cooler", "drycooler"]}
+      },
+      "lines": [
+        {"text": "Install and wire Programmable Thermostat (Furnished by Unit Mfr.)", "default": true},
+        {"text": "Install and wire Space Temp/Humidity Sensor (Furnished by Unit Mfr.)", "default": true},
+        {"text": "Furnish and Install Space Temperature Sensor for BMS Monitoring", "default": true},
+        {"text": "Furnish and Install Leak Sensor", "when": ["leak_sensor"]},
+        {"text": "Furnish and Install Local RAM Module", "when": ["ram_module"]},
+        {"text": "Tie-in Condensate Pump Float Switch (Furnished by Mfr.)", "when": ["condensate_pump"], "no_verb": true},
+        {"text": "Furnish and Wire Condenser Water Supply / Return Isolation Valve and Actuator", "when": ["water_cooled"]},
+        {"text": "Condenser Interlock Wiring", "when": ["condenser"], "no_verb": true},
+        {"text": "Furnish BMS Communication Wiring to Factory Controls", "default": true},
+        {"text": "Map Available Points Via Mfr. Provided BMS Interface", "default": true, "quantity": "none"},
+        {"text": "AME requires mfr. Rep to assist in integration, cost to be incurred by mech contractor", "default": true, "quantity": "none", "depth": 2}
+      ],
+      "client_notes": [],
+      "hints": [
+        "(**tech hour: 4 hour per indoor unit)"
+      ],
+      "tech_hours": {"per": "unit", "hours": 4}
+    },
+    {
+      "name": "Equipment VFD",
+      "applies_to": {"prefixes": ["VFD"], "kinds": ["Variable Frequency Drive"]},
+      "header": "Qty ({n}) {kind} {tags}",
+      "conditions": {},
+      "lines": [
+        {"text": "Furnish BMS Communication Wiring to VFD Controls", "default": true},
+        {"text": "Map Available Points Via Mfr. Provided BMS Interface", "default": true, "quantity": "none"},
+        {"text": "AME Requires Mfr. Rep to Assist in Integration, cost to be Incurred by Mech Contractor", "default": true, "quantity": "none", "depth": 2}
+      ],
+      "client_notes": [],
+      "hints": [
+        "Qty (1) Equipment VFD (When Mentioned its Interface to BMS)"
+      ],
+      "tech_hours": {"per": "unit", "hours": null}
+    }
+  ]
+}

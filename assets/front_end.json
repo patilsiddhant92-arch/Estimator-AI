@@ -1,0 +1,105 @@
+{
+  "about": "The Master Template's front end, word for word: the two openings (New, and Extension of Existing), the warranty lines, and when each line is printed. A line's 'when' names a condition below; a line with no 'when' is a template default. The headings are printed by the proposal writer from the mode (estimator.proposal.layout) and are kept here only so the two never drift apart. Every pattern is a regular expression, matched without regard to case. Edit the wording and the words here, never in code.",
+
+  "headings": {
+    "new-system": "Front End Web Enabled BMS System",
+    "extend-existing": "Seamlessly Tie in to the Existing {system} BMS"
+  },
+
+  "variants": {
+    "new-system": [
+      {"text": "Furnish Network Level Control Panel", "quantity": 1},
+      {"text": "Furnish PC Workstation", "quantity": 1, "when": "workstation"},
+      {"text": "Furnish BMS Server", "quantity": 1, "when": "server", "unless": "server_by_owner"},
+      {"text": "Furnish POT (Laptop or Tablet)", "quantity": 1, "when": "portable_terminal"},
+      {"text": "Furnish UPS \u2013 For workstation, server, network level control panel", "quantity": 1, "when": "ups"},
+      {"text": "Furnish 3-D Graphics", "quantity": 1},
+      {"text": "Furnish Necessary Training on New Controls"},
+      {"text": "IT Infrastructure", "when": "bacnet_ip", "unless": "network_by_others",
+       "lines": ["Network Switches", "Panels", "Fiber \u2013 Ethernet"]}
+    ],
+    "extend-existing": [
+      {"text": "Furnish Network Level Control Panel", "quantity": 1},
+      {"text": "Furnish 3-D Graphics to match existing", "quantity": 1},
+      {"text": "Furnish Necessary Training on New Controls"}
+    ]
+  },
+
+  "conditions": {
+    "workstation": {"topic": "Operator workstation / front-end PC"},
+    "server": {"topic": "Server"},
+    "ups": {"topic": "UPS"},
+    "bacnet_ip": {"topic": "BACnet/IP"},
+    "portable_terminal": {"words": ["\\blaptops?\\b", "\\btablets?\\b", "\\bportable\\s+operator"]},
+    "server_by_owner": {"who": ["\\bservers?\\b(?!\\s*(?:rooms?|areas?))"], "party": "owner",
+                        "also_topic": "Server"},
+    "network_by_others": {"who": ["\\b(?:network|ethernet|LAN|IP|managed|floor)\\s+switch(?:es)?\\b", "@network_switches",
+                                  "\\bIT\\s+infrastructure\\b", "\\bfiber\\b",
+                                  "\\b(?:data|network|ethernet|cat\\s*-?\\s*6)\\s+cabl\\w*"],
+                          "party": "others", "also_topic": "Network switches"},
+    "switches_by_owner": {"who": ["\\b(?:network|ethernet|LAN|IP|managed|floor)\\s+switch(?:es)?\\b", "@network_switches"],
+                          "party": "owner", "also_topic": "Network switches"}
+  },
+
+  "shared_patterns": {
+    "network_switches": "(?<!end )(?<!flow )(?<!limit )(?<!HOA )(?<!H-O-A )(?<!pressure )(?<!float )(?<!selector )(?<!toggle )(?<!disconnect )(?<!auxiliary )(?<!door )(?<!level )(?<!safety )(?<!transfer )(?<!control )(?<!light )(?<!lighting )(?<!key )(?<!tamper )(?<!current )(?<!temperature )(?<!humidity )(?<!position )(?<!proximity )(?<!reed )\\bswitches\\b"
+  },
+
+  "words_are_searched_in": ["Controls spec", "Controls drawing", "Mechanical drawing"],
+
+  "parties": {
+    "owner": [
+      "\\b(?:furnished|provided|supplied)\\s+by\\s+(?:the\\s+)?owner\\b",
+      "\\bowner\\s+(?:will|shall)\\s+(?:provide|furnish|supply)\\b",
+      "\\bowner[- ](?:furnished|provided|supplied)\\b"
+    ],
+    "others": [
+      "\\b(?:furnished|provided|supplied)\\s+by\\s+(?!(?:the\\s+)?(?:TCC|BMS|BAS|ATC|CSI|AME|controls?|temperature|us)\\b)[A-Za-z]",
+      "\\bby\\s+others\\b",
+      "\\b(?:Division|Div\\.?)\\s+(?:16|26|27)\\b[^.;]{0,60}\\bshall\\s+(?:provide|furnish|supply)\\b",
+      "\\b(?:electrical|telecom\\w*|IT)\\s+contractor\\s+shall\\s+(?:provide|furnish|supply)\\b",
+      "\\bby\\s+(?:the\\s+)?(?:electrical|telecom\\w*|IT)\\s+contractor\\b",
+      "\\b(?:furnished|provided|supplied)\\s+by\\s+(?:the\\s+)?owner\\b",
+      "\\bowner\\s+(?:will|shall)\\s+(?:provide|furnish|supply)\\b",
+      "\\bowner[- ](?:furnished|provided|supplied)\\b"
+    ]
+  },
+
+  "client_notes": {
+    "server_by_owner": "**BMS Server by Owner",
+    "switches_by_owner": "**Network Switches by Owner"
+  },
+
+  "existing_systems": {
+    "about": "The BMS names read from the tie-in sentence, in this order, joined with ' / ' as the template writes 'Honeywell / Niagara N4'. When none is named the name is a bracketed fill-in and flagged. Fill-ins are in square brackets so they read as blanks to complete, never as internal words.",
+    "unnamed": "[existing BMS name]",
+    "names": [
+      {"name": "Honeywell", "patterns": ["\\bHoneywell\\b"]},
+      {"name": "Niagara N4", "patterns": ["\\bNiagara\\b", "\\bTridium\\b"]},
+      {"name": "WEBs", "patterns": ["\\bWEBs\\b"]},
+      {"name": "Johnson Controls", "patterns": ["\\bJohnson\\s+Controls\\b", "(?-i:\\bJCI\\b)"]},
+      {"name": "Metasys", "patterns": ["\\bMetasys\\b"]}
+    ]
+  },
+
+  "warranty": {
+    "about": "Printed when the Spec overview's services find a warranty with its length stated. {term} is that length ('one-year' in the template). The second line needs a maintenance or service contract extended past the warranty, with the extra years stated.",
+    "heading": "Warranty scope of work-",
+    "contract": "a {term} preventative maintenance service contract covering all parts, materials, software, hardware, and all costs to provide software and hardware upgrades during the warranty period.",
+    "extension": "extend the maintenance service contract and the warranty for {years} additional years following the warranty period.",
+    "extension_words": ["\\badditional\\s+(?:\\w+\\s+)?(?:\\(\\d+\\)\\s+)?years?\\b", "\\bextend\\w*\\b[^.;]{0,60}\\b(?:warranty|service|maintenance)\\b"],
+    "extension_years": "\\b(\\d+|one|two|three|four|five)\\s*(?:\\(\\d+\\)\\s*)?additional\\s+years?\\b"
+  },
+
+  "header": {
+    "unnamed_reference": "[project name]",
+    "unnamed_engineer": "[MEP engineer]",
+    "engineer_disciplines": ["Mechanical", "Controls"],
+    "engineer_firm": "^(?!.*:$)(?=.{4,70}$).*\\b(?:engineer(?:s|ing)|consult(?:ing|ants)|associates)\\b.*(?:,\\s*|\\s)(?:DPC|D\\.P\\.C\\.|P\\.?C\\.?|PLLC|LLP|LLC|Inc\\.?|Corp\\.?|Ltd\\.?)$",
+    "based_on_disciplines": ["Mechanical", "Controls"],
+    "based_on_line": "{first} Thru {last} Dated: {date}",
+    "based_on_single": "{first} Dated: {date}",
+    "date_format": "%m/%d/%Y",
+    "undated": "[date]"
+  }
+}

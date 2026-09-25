@@ -1,0 +1,28 @@
+{
+  "about": "How a drawing sheet's revision table is read from its title block, and which changed lines touch controls (design §9.8). Extend this file, never code. Date patterns are tried in order, ignoring case; 'order' says which group is the month, the day and the year (m, d, y). A month may be written as a number or as a name from 'months'. A two-digit year is 20xx. An issue row is a date and, beside it on the same row, a description with an issue word. Patterns are matched ignoring case.",
+  "dates": [
+    {"pattern": "(\\d{4})-(\\d{1,2})-(\\d{1,2})", "order": "ymd"},
+    {"pattern": "(\\d{1,2})/(\\d{1,2})/(\\d{4}|\\d{2})", "order": "mdy"},
+    {"pattern": "(\\d{1,2})-(\\d{1,2})-(\\d{4}|\\d{2})", "order": "mdy"},
+    {"pattern": "(\\d{1,2})\\.(\\d{1,2})\\.(\\d{4}|\\d{2})", "order": "mdy"},
+    {"pattern": "(\\d{2}) (\\d{2}) (\\d{4}|\\d{2})", "order": "mdy"},
+    {"pattern": "(JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)[A-Z]*\\.?\\s+(\\d{1,2}),?\\s+(\\d{4})", "order": "mdy"},
+    {"pattern": "(\\d{1,2})\\s*-?\\s*(JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)[A-Z]*\\s*-?\\s*(\\d{4}|\\d{2})", "order": "dmy"}
+  ],
+  "months": ["JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"],
+  "issue_words": [
+    "\\bADDEND(?:UM|A)\\b", "\\bBULLETIN\\b", "\\bRE-?ISSUED?\\b", "\\bISSUED?\\b", "\\bREVISED\\b", "\\bREVISION\\b",
+    "\\bBID\\b", "\\bPERMIT\\b", "\\bPRICING\\b", "\\bTENDER\\b", "\\bPROGRESS\\b", "\\bSUBMISSION\\b", "\\bCONFORMED\\b",
+    "\\bRECORD\\b", "\\bCONSTRUCTION\\b", "\\bDESIGN\\b", "\\bDOCUMENTS\\b", "\\bSET\\b", "\\bGMP\\b",
+    "\\bIF[BCP]\\b", "\\b(?:SD|DD|CD|CDS)\\b", "\\bASI\\b", "\\bCCD\\b", "\\bRFI\\b", "\\bSKETCH\\b", "\\d+\\s*%"
+  ],
+  "not_issues": ["^DATE\\b", "\\bPLOT", "\\bPRINTED\\b", "\\bSAVED\\b", "^SCALE\\b"],
+  "row_reach": 0.05,
+  "max_description": 60,
+  "min_line_chars": 12,
+  "controls_words": [
+    "\\bSENSORS?\\b", "\\bTHERMOSTATS?\\b", "\\bBMS\\b", "\\bBAS\\b", "\\bATC\\b", "\\bDDC\\b", "\\bCONTROLS?\\b",
+    "\\bACTUATORS?\\b", "\\bDAMPERS?\\b", "\\bVALVES?\\b", "\\bINTERLOCK(?:ED|S)?\\b", "\\bMONITOR(?:ED|ING|S)?\\b",
+    "\\bALARMS?\\b", "\\bPOINTS?\\b", "\\bINTEGRAT(?:E|ED|ION)\\b", "\\bVFDS?\\b", "\\bTEMPERATURE\\s+CONTROL", "\\bBY\\s+OTHERS\\b"
+  ]
+}
