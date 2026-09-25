@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from estimator.catalogue.documents import JobFolder, find_documents
-from estimator.catalogue.overview import SpecOverview, build_overview
+from estimator.catalogue.overview import FOUND, SpecOverview, build_overview
 from estimator.catalogue.pdf import tessdata
 from estimator.catalogue.qualify import BidCheck, check_bid
 from estimator.catalogue.register import PageRecord, register_job
@@ -158,7 +158,7 @@ def summary_lines(catalogue: Catalogue) -> list[str]:
     sheets = catalogue.sheets
     controls = list(dict.fromkeys(f"{s.number} {s.title}".strip() for s in catalogue.sections if s.controls))
     overview = catalogue.overview
-    protocols = [t.item for t in overview.topics if t.section == "Protocols" and t.places]
+    protocols = [t.item for t in overview.topics if t.section == "Protocols" and t.status == FOUND]
     ame_count = sum(1 for m in overview.makers if m.ame_quotes)
     return [
         f"{catalogue.job.name} — {len(catalogue.job.documents)} documents, {len(pages)} pages: "

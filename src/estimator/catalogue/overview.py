@@ -1,8 +1,12 @@
 """The Spec overview: what the job says about the controls platform, protocols, the network
 and front end, electrical and conduit, and every manufacturer named — with who AME asks for a
-price. Nothing is guessed (design §9.1): each row either quotes the job word for word, with
-where it was found, or says it wasn't found. Topics, manufacturers and the AME vendor list are
-JSON files in assets/reading_lists/ — the user adds to them, never to code.
+price — and the scope review: potential scope AME needs to carry, such as a standard exclusion
+the job asks the controls contractor for. Nothing is guessed (design §9.1): each row either
+quotes the job word for word, with where it was found, or says it wasn't found. Topics,
+manufacturers, the AME vendor list and the scope review's words are JSON files in
+assets/reading_lists/ — the user adds to them, never to code. AME's standard clarifications and
+exclusions are read from the proposal template itself, so they never drift from what the
+proposal prints.
 """
 from __future__ import annotations
 
@@ -23,10 +27,20 @@ ASSETS = Path(__file__).resolve().parents[3] / "assets"
 SPEC_OVERVIEW = ASSETS / "reading_lists" / "spec_overview.json"
 OVERVIEW_MANUFACTURERS = ASSETS / "reading_lists" / "overview_manufacturers.json"
 AME_VENDORS = ASSETS / "reading_lists" / "ame_vendors.json"
+SCOPE_REVIEW = ASSETS / "reading_lists" / "scope_review.json"
+PROPOSAL_TEMPLATE = ASSETS / "templates" / "AME_nordomatic Proposal Template.docx"
+
+FOUND, RULED_OUT, NOT_FOUND = "Found", "Ruled out", "Not found"
+DIVISION_1 = "General requirements (Division 1)"
+CONTROLS_PLACES = ("Controls spec", "Controls drawing")
 
 # The order places are listed in, and searched: the first match wins (design's "scope").
-STRENGTHS = ("Controls spec", "Controls drawing", "Mechanical drawing", "Mechanical spec", "Electrical drawing")
+STRENGTHS = ("Controls spec", "Controls drawing", "Mechanical drawing", "Mechanical spec", "Electrical drawing",
+             DIVISION_1)
 _STRENGTH_RANK = {name: index for index, name in enumerate(STRENGTHS)}
+
+STANDARD_CLARIFICATION = "Standard clarification"
+STANDARD_EXCLUSION = "Standard exclusion"
 
 _CONTROLS_WORDS = re.compile(
     r"\bBMS\b|\bBAS\b|\bATC\b|\bDDC\b|building\s+(?:automation|management)|"
@@ -41,6 +55,7 @@ _SENTENCE_END = re.compile(r"[.;][ \t]+")
 _LIST_MARKER = re.compile(r"\n[ \t]*((?:[A-Za-z]{1,2}\.|\d{1,3}\.|\(\d{1,3}\)))[ \t]+")
 _BLANK_LINE = re.compile(r"\n[ \t]*\n")
 _QUOTE_LIMIT = 300
+_RULED_OUT_REACH = 120     # characters either side of a hit that the forbidding words must sit within
 
 _BASIS = re.compile(r"basis\s+of\s+design", re.I)
 _NO_SUBSTITUTION = re.compile(r"no\s+substitution", re.I)
@@ -55,15 +70,18 @@ class Place:
     page: int
     sheet: str | None      # the sheet number, when the page is a drawing sheet
     section: str | None    # the spec section number, when inside one
-    strength: str          # "Controls spec" | "Controls drawing" | "Mechanical drawing" | "Mechanical spec" | "Electrical drawing"
+    strength: str          # one of STRENGTHS
 
 
 @dataclass(frozen=True)
 class Found:
-    section: str           # "Protocols" | "Network and front end" | "Electrical and conduit"
+    section: str           # "Protocols" | "Network and front end" | "Electrical and conduit" | a scope review section
     item: str
     places: tuple[Place, ...]   # strongest first, then document order; empty = not found
-    quote: str                  # the sentence at the first place, word for word; "" when not found
+    quote: str                  # the sentence that decided the status, word for word; "" when not found
+    status: str                 # FOUND | RULED_OUT (the only strongest sentences forbid it) | NOT_FOUND
+    amount: str = ""            # hours, sessions or years stated in the quote, when the reading list captures one
+    protocol: str = ""          # other systems to connect to: the protocol named in the quote, or "not stated"
 
 
 @dataclass(frozen=True)
@@ -84,6 +102,7 @@ class SpecOverview:
     topics: tuple[Found, ...] = ()       # every topic in spec_overview.json order, found or not
     makers: tuple[MakerRow, ...] = ()    # only makers found; sorted by category order in the list, then maker name
     not_found: tuple[str, ...] = ()      # plain lines: each topic not found, then each ask_if_missing category with no maker
+    standard_lines: tuple[Found, ...] = ()   # AME's standard clarifications and exclusions the job speaks to, template order
 
 
 @dataclass(frozen=True)
@@ -163,6 +182,97 @@ def _load_vendors(path: str) -> _Vendors:
     return _Vendors(data["email_draft"], vendors)
 
 
+class _AnyOf:
+    """Several patterns searched one by one — much faster in Python than one long alternation,
+    which defeats the regex engine's quick scan for each pattern's first letters."""
+
+    def __init__(self, patterns):
+        self.patterns = tuple(p if isinstance(p, re.Pattern) else re.compile(p, re.I) for p in patterns)
+
+    def search(self, text: str) -> bool:
+        return any(p.search(text) for p in self.patterns)
+
+    def finditer(self, text: str) -> list[re.Match]:
+        return sorted((m for p in self.patterns for m in p.finditer(text)), key=lambda m: (m.start(), -m.end()))
+
+
+def _any_of(patterns) -> _AnyOf | None:
+    """One matcher for any of several patterns; None for none. Each keeps its own inline flags."""
+    patterns = list(patterns)
+    return _AnyOf(patterns) if patterns else None
+
+
+@dataclass(frozen=True)
+class _Search:
+    """One thing the scope review looks for."""
+    section: str
+    item: str
+    pattern: _AnyOf | None              # None = not searched
+    verbs: _AnyOf | None = None        # the words must also carry one of these, not given to someone else
+    also: _AnyOf | None = None         # the words must also carry one of these
+    amount: _AnyOf | None = None       # captured into Found.amount
+
+
+@dataclass(frozen=True)
+class _ScopeReview:
+    ruled_out: _AnyOf
+    word_lists: dict                     # list name -> _AnyOf
+    needs: dict                          # section key -> the word lists a hit outside the controls places needs one of
+    after_verb_other: re.Pattern         # "…ed by others", "…ed and installed under Division 23"
+    before_verb_other: re.Pattern        # "the Owner will …"
+    lines: tuple[_Search, ...]           # AME's standard clarifications, then its exclusions, in template order
+    unmatched_lines: tuple[str, ...]     # template lines with no entry in the reading list
+    unused_entries: tuple[str, ...]      # reading-list entries that match no template line
+
+
+@lru_cache
+def _template_lines(template: str) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    from estimator.proposal.read import read_standard_lines
+    return read_standard_lines(Path(template))
+
+
+def _starts(line: str, start: str) -> bool:
+    return line.strip().lower().startswith(start.strip().lower())
+
+
+@lru_cache
+def _load_scope_review(path: str, template: str) -> _ScopeReview:
+    data = json.loads(Path(path).read_text(encoding="utf-8"))
+    word_lists = {key: _any_of(data[key]) for key in ("controls_party_words", "controls_words", "responsibility_words")}
+    needs = {section: tuple(keys) for section, keys in data["outside_controls_needs"].items()}
+    others = "|".join(f"(?:{p})" for p in data["other_parties"])
+    after = re.compile(rf"^\w*(?:\s*(?:,|and|&|/|or)\s*\w+)?\s+(?:by|under)\s+(?:{others})", re.I)
+    before = re.compile(rf"\b(?:{others})\s+(?:shall|will|to|is\s+to|are\s+to|must)\s+(?:\w+\s+(?:and|&)\s+)?$", re.I)
+    default_verbs = data["exclusion_verbs"]
+    clarifications, exclusions = _template_lines(template)
+    entries = data["exclusions"]
+    lines, unmatched, used = [], [], set()
+    for kind, template_lines in ((STANDARD_CLARIFICATION, clarifications), (STANDARD_EXCLUSION, exclusions)):
+        for line in template_lines:
+            entry = next((e for e in entries if _starts(line, e["line_starts"])), None)
+            if entry is None:
+                unmatched.append(line)
+                continue
+            used.add(entry["line_starts"])
+            verbs = None
+            if kind == STANDARD_EXCLUSION:
+                verbs = _any_of(entry.get("verbs", default_verbs))
+            lines.append(_Search(kind, line, _any_of(entry["patterns"]), verbs))
+    unused = tuple(e["line_starts"] for e in entries if e["line_starts"] not in used)
+    return _ScopeReview(_any_of(data["ruled_out_words"]), word_lists, needs, after, before, tuple(lines), tuple(unmatched), unused)
+
+
+def template_lines_without_an_entry() -> tuple[str, ...]:
+    """Lines of the proposal template's clarifications and exclusions that scope_review.json has
+    no entry for — each would silently go unchecked."""
+    return _load_scope_review(str(SCOPE_REVIEW), str(PROPOSAL_TEMPLATE)).unmatched_lines
+
+
+def entries_without_a_template_line() -> tuple[str, ...]:
+    """scope_review.json exclusion entries whose line_starts matches no line of the template."""
+    return _load_scope_review(str(SCOPE_REVIEW), str(PROPOSAL_TEMPLATE)).unused_entries
+
+
 def _boundaries(text: str) -> list[int]:
     points = {0, len(text)}
     points.update(m.end() for m in _SENTENCE_END.finditer(text))
@@ -179,14 +289,18 @@ def _span_at(boundaries: list[int], start: int, end: int) -> tuple[int, int]:
     return lo, hi
 
 
-def _quote_at(text: str, start: int, end: int) -> str:
-    lo, hi = _span_at(_boundaries(text), start, end)
+def _quote_at(text: str, start: int, end: int, boundaries: list[int] | None = None) -> str:
+    lo, hi = _span_at(boundaries if boundaries is not None else _boundaries(text), start, end)
     window_lo, window_hi = lo, hi
     if hi - lo > _QUOTE_LIMIT:
         mid = (start + end) // 2
         window_lo = max(lo, mid - _QUOTE_LIMIT // 2)
         window_hi = min(hi, window_lo + _QUOTE_LIMIT)
         window_lo = max(lo, window_hi - _QUOTE_LIMIT)
+    return _as_quote(text, lo, hi, window_lo, window_hi)
+
+
+def _as_quote(text: str, lo: int, hi: int, window_lo: int, window_hi: int) -> str:
     quote = " ".join(text[window_lo:window_hi].split())
     if window_lo > lo:
         quote = f"…{quote}"
@@ -195,8 +309,27 @@ def _quote_at(text: str, start: int, end: int) -> str:
     return quote
 
 
-def _sentence_at(text: str, start: int, end: int) -> tuple[int, int]:
-    return _span_at(_boundaries(text), start, end)
+def _window(text: str, boundaries: list[int], start: int, end: int) -> tuple[int, int, int, int]:
+    """The words a scope review hit is judged on, and quoted from: its sentence, run on over the
+    list that follows when the sentence ends in a colon ("The Owner will provide the following:
+    1. Servers 2. Switches"), cut to _QUOTE_LIMIT characters — more after the hit than before it,
+    since a list follows its lead-in. Returns (sentence lo, sentence hi, window lo, window hi)."""
+    lo, hi = _span_at(boundaries, start, end)
+    if text[lo:hi].rstrip().endswith(":"):
+        limit = hi + _QUOTE_LIMIT
+        index = bisect.bisect_right(boundaries, limit) - 1
+        hi = max(hi, boundaries[index])
+    if hi - lo <= _QUOTE_LIMIT:
+        return lo, hi, lo, hi
+    window_lo = max(lo, start - _QUOTE_LIMIT // 3)
+    window_hi = min(hi, max(end, window_lo + _QUOTE_LIMIT))
+    window_lo = max(lo, min(window_lo, window_hi - _QUOTE_LIMIT))
+    return lo, hi, window_lo, window_hi
+
+
+def _ruled_out(text: str, window_lo: int, window_hi: int, start: int, end: int, ruled_out: _AnyOf) -> bool:
+    near = text[max(window_lo, start - _RULED_OUT_REACH):min(window_hi, end + _RULED_OUT_REACH)]
+    return bool(ruled_out.search(near))
 
 
 def _blocked(text: str, start: int, end: int, not_before: tuple[str, ...], not_after: tuple[str, ...]) -> bool:
@@ -223,8 +356,8 @@ def _terms(quote: str) -> str:
     return ""
 
 
-def _place_for(record: PageRecord, sheet: Sheet | None,
-               controls_sections: list[SpecSection], mech_sections: list[SpecSection]) -> Place | None:
+def _place_for(record: PageRecord, sheet: Sheet | None, controls_sections: list[SpecSection],
+               mech_sections: list[SpecSection], division_1: list[SpecSection] = ()) -> Place | None:
     for section in controls_sections:
         if section.document == record.document and section.first_page <= record.page <= section.last_page:
             return Place(record.document, record.page, None, section.number, "Controls spec")
@@ -237,6 +370,9 @@ def _place_for(record: PageRecord, sheet: Sheet | None,
             return Place(record.document, record.page, None, section.number, "Mechanical spec")
     if sheet is not None and sheet.discipline == "Electrical":
         return Place(record.document, record.page, sheet.number, None, "Electrical drawing")
+    for section in division_1:
+        if section.document == record.document and section.first_page <= record.page <= section.last_page:
+            return Place(record.document, record.page, None, section.number, DIVISION_1)
     return None
 
 
@@ -254,11 +390,6 @@ def short_place(places: tuple[Place, ...]) -> str:
         primary = f"{base_name}, page {first.page}"
     extra = len(places) - 1
     return f"{primary}  (+{extra} other)" if extra else primary
-
-
-def _first_match(patterns: tuple[re.Pattern, ...], text: str) -> tuple[int, int] | None:
-    matches = sorted((m.start(), m.end()) for p in patterns for m in p.finditer(text))
-    return matches[0] if matches else None
 
 
 def _first_unblocked_match(maker: _Maker, text: str) -> tuple[int, int] | None:
@@ -286,78 +417,165 @@ def _vendors_for(maker: _Maker, category: str, vendors: _Vendors) -> tuple[str, 
                 if _matches_maker(v, maker) or _matches_category(v, category))
 
 
+@dataclass(frozen=True)
+class _Hit:
+    place: Place
+    quote: str
+    ruled_out: bool
+    amount: str = ""
+    protocol: str = ""
+
+
+def _topic_hit(topic: _Topic, text: str, boundaries: list[int], place: Place, ruled_out: _AnyOf,
+               needs_controls_word: bool) -> _Hit | None:
+    """The page's first sentence naming the topic that doesn't forbid it; else the first that does."""
+    first_ruled = None
+    for start, end in sorted((m.start(), m.end()) for p in topic.patterns for m in p.finditer(text)):
+        lo, hi = _span_at(boundaries, start, end)
+        if needs_controls_word and not _CONTROLS_WORDS.search(text[lo:hi]):
+            continue
+        ruled = _ruled_out(text, lo, hi, start, end, ruled_out)
+        if ruled and first_ruled is not None:
+            continue
+        hit = _Hit(place, _quote_at(text, start, end, boundaries), ruled)
+        if not ruled:
+            return hit
+        first_ruled = hit
+    return first_ruled
+
+
+def _live_verb(verbs: _AnyOf, window: str, review: _ScopeReview) -> bool:
+    """A furnish-or-provide verb in the words that isn't given to someone else: "furnished by
+    others", "installed under Division 23" and "the Owner will provide" don't count."""
+    for m in verbs.finditer(window):
+        after = window[m.end():m.end() + 100]
+        if m.group().lower().endswith("by"):
+            after = " by" + after
+        if review.after_verb_other.match(after):
+            continue
+        if review.before_verb_other.search(window[max(0, m.start() - 60):m.start()]):
+            continue
+        return True
+    return False
+
+
+def _scope_hit(search: _Search, text: str, boundaries: list[int], place: Place, gate: _AnyOf | None,
+               review: _ScopeReview) -> _Hit | None:
+    """The page's first qualifying hit that doesn't forbid the thing; else the first that does."""
+    first_ruled = None
+    for m in search.pattern.finditer(text):
+        lo, hi, w_lo, w_hi = _window(text, boundaries, m.start(), m.end())
+        window = text[w_lo:w_hi]
+        if gate is not None and not gate.search(window):
+            continue
+        if search.also is not None and not search.also.search(window):
+            continue
+        if search.verbs is not None and not _live_verb(search.verbs, window, review):
+            continue
+        ruled = _ruled_out(text, w_lo, w_hi, m.start(), m.end(), review.ruled_out)
+        if ruled and first_ruled is not None:
+            continue
+        amount = ""
+        if search.amount is not None:
+            found = search.amount.search(window)
+            amount = " ".join(found.group().split()) if found else ""
+        hit = _Hit(place, _as_quote(text, lo, hi, w_lo, w_hi), ruled, amount)
+        if not ruled:
+            return hit
+        first_ruled = hit
+    return first_ruled
+
+
+def _page_gates(review: _ScopeReview, text: str, in_controls: bool) -> dict:
+    """For each scope review section: None (a controls page: every hit counts), the words a hit
+    needs, or False when the page carries none of those words anywhere, so nothing on it can count."""
+    if in_controls:
+        return {section: None for section in review.needs}
+    present = {name: words for name, words in review.word_lists.items() if words.search(text)}
+    return {section: (_AnyOf(p for name in names if name in present for p in present[name].patterns)
+                      if any(name in present for name in names) else False)
+            for section, names in review.needs.items()}
+
+
+def _resolve(section: str, item: str, hits: list[_Hit]) -> Found:
+    """Found or Ruled out, decided by the strongest places that name it: Ruled out only when every
+    sentence there forbids it. The deciding sentence's place comes first."""
+    if not hits:
+        return Found(section, item, (), "", NOT_FOUND)
+    ordered = sorted(hits, key=lambda h: _STRENGTH_RANK[h.place.strength])
+    top = _STRENGTH_RANK[ordered[0].place.strength]
+    deciding = next((h for h in ordered if _STRENGTH_RANK[h.place.strength] == top and not h.ruled_out), None)
+    status = FOUND if deciding is not None else RULED_OUT
+    deciding = deciding or ordered[0]
+    places = (deciding.place,) + tuple(h.place for h in ordered if h is not deciding)
+    return Found(section, item, places, deciding.quote, status, deciding.amount, deciding.protocol)
+
+
+def _not_found_line(item: str, division_1: bool = False) -> str:
+    where = ("the general requirements (Division 1), the controls spec or the mechanical and controls drawings"
+             if division_1 else "the controls spec or the mechanical and controls drawings")
+    return f"{item} — not found in {where}; ask the engineer if it matters"
+
+
 def build_overview(pages, sheets, sections) -> SpecOverview:
     topics = _load_topics(str(SPEC_OVERVIEW))
     categories = _load_manufacturers(str(OVERVIEW_MANUFACTURERS))
     vendors = _load_vendors(str(AME_VENDORS))
+    review = _load_scope_review(str(SCOPE_REVIEW), str(PROPOSAL_TEMPLATE))
 
     by_page = {(s.document, s.page): s for s in sheets}
     controls_sections = [s for s in sections if s.controls]
     mech_sections = [s for s in sections if not s.controls and s.number.startswith(_MECH_SPEC_PREFIXES)]
+    division_1 = [s for s in sections if s.number.startswith("01")]
 
-    topic_hits: dict[tuple[str, str], list[tuple[Place, str]]] = defaultdict(list)
-    topic_seen: dict[tuple[str, str], set[tuple[str, int]]] = defaultdict(set)
+    topic_hits: dict[tuple[str, str], list[_Hit]] = defaultdict(list)
+    line_hits: dict[str, list[_Hit]] = defaultdict(list)
     maker_hits: dict[str, list[tuple[Place, str]]] = defaultdict(list)
-    maker_seen: dict[str, set[tuple[str, int]]] = defaultdict(set)
-    maker_by_name: dict[str, tuple[_Maker, str]] = {}
 
     for record in pages:
         sheet = by_page.get((record.document, record.page))
-        place = _place_for(record, sheet, controls_sections, mech_sections)
+        place = _place_for(record, sheet, controls_sections, mech_sections, division_1)
         if place is None:
             continue
         text = clean_text(record.text)
-        if place.strength == "Electrical drawing":
-            for topic in topics:
-                if not topic.electrical:
-                    continue
-                key = (topic.section, topic.item)
-                if (record.document, record.page) in topic_seen[key]:
-                    continue
-                match = _first_match(topic.patterns, text)
-                if match is None:
-                    continue
-                s_lo, s_hi = _sentence_at(text, *match)
-                if not _CONTROLS_WORDS.search(text[s_lo:s_hi]):
-                    continue
-                topic_seen[key].add((record.document, record.page))
-                topic_hits[key].append((place, _quote_at(text, *match)))
+        boundaries = _boundaries(text)
+        in_controls = place.strength in CONTROLS_PLACES
+        if place.strength == DIVISION_1:
             continue
+        gates = _page_gates(review, text, in_controls)
+        if gates["exclusions"] is not False:
+            for search in review.lines:
+                if search.pattern is None:
+                    continue
+                hit = _scope_hit(search, text, boundaries, place, gates["exclusions"], review)
+                if hit is not None:
+                    line_hits[search.item].append(hit)
+        electrical = place.strength == "Electrical drawing"
         for topic in topics:
-            key = (topic.section, topic.item)
-            if (record.document, record.page) in topic_seen[key]:
+            if electrical and not topic.electrical:
                 continue
-            match = _first_match(topic.patterns, text)
-            if match is None:
-                continue
-            topic_seen[key].add((record.document, record.page))
-            topic_hits[key].append((place, _quote_at(text, *match)))
+            hit = _topic_hit(topic, text, boundaries, place, review.ruled_out, electrical)
+            if hit is not None:
+                topic_hits[(topic.section, topic.item)].append(hit)
+        if electrical:
+            continue
         for category in categories:
             for maker in category.makers:
-                if (record.document, record.page) in maker_seen[maker.name]:
-                    continue
                 match = _first_unblocked_match(maker, text)
                 if match is None:
                     continue
-                maker_seen[maker.name].add((record.document, record.page))
-                maker_hits[maker.name].append((place, _quote_at(text, *match)))
-                maker_by_name[maker.name] = (maker, category.category)
+                maker_hits[maker.name].append((place, _quote_at(text, *match, boundaries)))
 
-    found_topics = []
-    for topic in topics:
-        key = (topic.section, topic.item)
-        entries = sorted(topic_hits.get(key, ()), key=lambda pq: _STRENGTH_RANK[pq[0].strength])
-        places = tuple(pq[0] for pq in entries)
-        quote = entries[0][1] if entries else ""
-        found_topics.append(Found(topic.section, topic.item, places, quote))
+    found_topics = tuple(_resolve(t.section, t.item, topic_hits.get((t.section, t.item), [])) for t in topics)
+    standard_lines = []
+    for search in review.lines:
+        found = _resolve(search.section, search.item, line_hits.get(search.item, []))
+        # An exclusion the job only forbids isn't asked for; a clarification it forbids is worth a look.
+        if found.status == FOUND or (found.status == RULED_OUT and search.section == STANDARD_CLARIFICATION):
+            standard_lines.append(found)
 
     makers_out: list[MakerRow] = []
-    not_found: list[str] = []
-    for topic in topics:
-        key = (topic.section, topic.item)
-        if not topic_hits.get(key):
-            not_found.append(f"{topic.item} — not found in the controls spec or the mechanical and controls "
-                             f"drawings; ask the engineer if it matters")
+    not_found: list[str] = [_not_found_line(t.item) for t in found_topics if t.status == NOT_FOUND]
 
     for category in categories:
         category_rows = []
@@ -377,4 +595,4 @@ def build_overview(pages, sheets, sections) -> SpecOverview:
         if category.ask_if_missing and not category_rows:
             not_found.append(f"No {category.category.lower()} maker named — ask the engineer if the job needs one")
 
-    return SpecOverview(tuple(found_topics), tuple(makers_out), tuple(not_found))
+    return SpecOverview(found_topics, tuple(makers_out), tuple(not_found), tuple(standard_lines))

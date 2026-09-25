@@ -13,11 +13,14 @@ from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
 
 from estimator.catalogue.job import Catalogue
-from estimator.catalogue.overview import short_place
+from estimator.catalogue.overview import (FOUND, RULED_OUT, STANDARD_CLARIFICATION, STANDARD_EXCLUSION,
+                                          short_place)
 from estimator.catalogue.qualify import where
 
 TABS = ("Bid check", "Spec overview", "Flags", "Documents", "Pages", "Sheets", "Spec sections", "Equipment tags")
 _GREEN = PatternFill("solid", fgColor="C6EFCE")
+_AMBER = PatternFill("solid", fgColor="FFEB9C")
+_STATUS_FILL = {FOUND: _GREEN, RULED_OUT: _AMBER}
 _KIND = {"drawings": "Drawings", "specs": "Specs", "addendum": "Addendum", "rfi": "RFI", "other": "Other",
          "unreadable": "Could not be opened", "password": "Password-protected"}
 _READ_BY = {"text": "its text", "ocr": "OCR", "blank": "blank page", "unreadable": "could not be read"}
@@ -70,27 +73,57 @@ def _section_heading(ws, text: str) -> None:
         cell.font, cell.fill = _BOLD, _HEADING
 
 
-_TOPIC_HEADINGS = ["What", "Found?", "Where", "How strong", "What the job says (word for word)"]
+_TOPIC_HEADINGS = ["What", "Status", "Where", "How strong", "What the job says (word for word)"]
+_LINE_HEADINGS = ["AME's line (word for word)", "Status", "Where", "How strong", "What the job says (word for word)"]
 _MAKER_HEADINGS = ["Category", "Manufacturer", "AME gets prices for it?", "Where", "How strong",
                    "What the job says (word for word)", "Basis of design / or equal", "Ask for a price from",
                    "Email draft"]
 
 
+def _headings(ws, headings: list[str]) -> None:
+    _append(ws, headings)
+    for cell in ws[ws.max_row]:
+        cell.font, cell.fill = _BOLD, _HEADING
+
+
+def _status_cell(ws, column: int, status: str) -> None:
+    cell = ws.cell(ws.max_row, column)
+    if status in _STATUS_FILL:
+        cell.fill = _STATUS_FILL[status]
+
+
 def _found_row(ws, item: str, found) -> None:
-    _append(ws, [item, "Yes" if found.places else "Not found", short_place(found.places),
+    _append(ws, [item, found.status, short_place(found.places),
                 found.places[0].strength if found.places else None, found.quote])
-    if found.places:
-        ws.cell(ws.max_row, 2).fill = _GREEN
+    _status_cell(ws, 2, found.status)
+    ws.cell(ws.max_row, 1).alignment = Alignment(wrap_text=True, vertical="top")
     ws.cell(ws.max_row, 5).alignment = Alignment(wrap_text=True, vertical="top")
 
 
 def _topic_table(ws, catalogue: Catalogue, heading: str, section: str) -> None:
     _section_heading(ws, heading)
-    _append(ws, _TOPIC_HEADINGS)
-    for cell in ws[ws.max_row]:
-        cell.font, cell.fill = _BOLD, _HEADING
+    _headings(ws, _TOPIC_HEADINGS)
     for found in catalogue.overview.topics:
         if found.section == section:
+            _found_row(ws, found.item, found)
+    _append(ws, [])
+
+
+def _standard_lines(ws, catalogue: Catalogue, heading: str) -> None:
+    _section_heading(ws, heading)
+    _append(ws, ["Each of AME's standard clarifications the job speaks to — read it to see whether the job agrees — "
+                "and each standard exclusion the job asks the controls contractor to furnish, provide or install."])
+    lines = catalogue.overview.standard_lines
+    for kind, title in ((STANDARD_CLARIFICATION, "Clarifications — does the job agree?"),
+                        (STANDARD_EXCLUSION, "Exclusions — the job asks the controls contractor for it")):
+        _append(ws, [title])
+        ws.cell(ws.max_row, 1).font = _BOLD
+        rows = [f for f in lines if f.section == kind]
+        if not rows:
+            _append(ws, ["Nothing found — the job doesn't speak to any of these lines."])
+            continue
+        _headings(ws, _LINE_HEADINGS)
+        for found in rows:
             _found_row(ws, found.item, found)
     _append(ws, [])
 
@@ -114,13 +147,12 @@ def _spec_overview(ws, catalogue: Catalogue) -> None:
     ws.cell(ws.max_row, 1).font = _BOLD
     _append(ws, ["See the Bid check tab for every passage."])
     _append(ws, [])
-    _topic_table(ws, catalogue, "2. Protocols", "Protocols")
-    _topic_table(ws, catalogue, "3. Network and front end", "Network and front end")
-    _topic_table(ws, catalogue, "4. Electrical and conduit", "Electrical and conduit")
-    _section_heading(ws, "5. Manufacturers named on this job")
-    _append(ws, _MAKER_HEADINGS)
-    for cell in ws[ws.max_row]:
-        cell.font, cell.fill = _BOLD, _HEADING
+    _standard_lines(ws, catalogue, "2. AME normally excludes this — the job asks for it")
+    _topic_table(ws, catalogue, "3. Protocols", "Protocols")
+    _topic_table(ws, catalogue, "4. Network and front end", "Network and front end")
+    _topic_table(ws, catalogue, "5. Electrical and conduit", "Electrical and conduit")
+    _section_heading(ws, "6. Manufacturers named on this job")
+    _headings(ws, _MAKER_HEADINGS)
     for maker in overview.makers:
         if not maker.priced:
             ame, ask_for = "—", "A controls platform, not a device to price — see the Bid check tab"
@@ -138,7 +170,7 @@ def _spec_overview(ws, catalogue: Catalogue) -> None:
         for column in (6, 8, 9):
             ws.cell(row, column).alignment = Alignment(wrap_text=True, vertical="top")
     _append(ws, [])
-    _section_heading(ws, "6. Searched for but not found")
+    _section_heading(ws, "7. Searched for but not found")
     for line in overview.not_found or ["Nothing to report — everything on the reading lists was found."]:
         _append(ws, [line])
     ws.column_dimensions["A"].width = 40

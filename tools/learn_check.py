@@ -68,7 +68,7 @@ def measure(catalogue) -> JobResult:
     pages, sheets = catalogue.pages, catalogue.sheets
     relevant = [s for s in sheets if s.discipline in CONTROLS_DISCIPLINES]
     overview = catalogue.overview
-    protocols = tuple(t.item for t in overview.topics if t.section == "Protocols" and t.places)
+    protocols = tuple(t.item for t in overview.topics if t.section == "Protocols" and t.status == "Found")
     return JobResult(
         job=catalogue.job.name, pages=len(pages),
         ocr=sum(1 for p in pages if p.status == "ocr"), unreadable=sum(1 for p in pages if p.status == "unreadable"),
