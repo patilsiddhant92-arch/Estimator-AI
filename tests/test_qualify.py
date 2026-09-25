@@ -235,10 +235,12 @@ def test_m6_substitutions_will_not_be_accepted_is_sole_source():
     assert bid.finding == "Does not qualify" and "Automated Logic" in bid.reason
 
 
-def test_m6_only_at_the_end_of_a_sentence_is_sole_source():
+def test_m6_only_alone_is_no_longer_sole_source_wording():
+    # N2/M6: a bare "only" is not one of the explicit sole-source phrases any more — it names
+    # Automated Logic, but doesn't bar a substitution on its own.
     pages = _pages("A. The building automation system shall be Automated Logic WebCTRL only.")
     bid = check_bid(pages, [CONTROLS])
-    assert bid.finding == "Does not qualify" and "Automated Logic" in bid.reason
+    assert bid.finding == "Open" and "Automated Logic" in bid.reason
 
 
 def test_m6_a_stray_only_inside_an_unrelated_list_does_not_block():
@@ -303,3 +305,177 @@ def test_m11_a_casual_mention_loses_to_the_approved_list_elsewhere():
     bid = check_bid(pages, [CONTROLS])
     assert bid.finding == "Qualifies"
     assert "spec.pdf, page 2" in bid.reason and "spec.pdf, page 1" not in bid.reason
+
+
+# --- Bid-check fix round: the controller's principle, re-derived directly (final-rereview.md) ---
+
+NARROW_CONTROLS = SpecSection("23 09 23", "INSTRUMENTATION AND CONTROL FOR HVAC", "spec.pdf", 1, 1)
+
+
+def test_26_0246_a_warranty_clause_with_only_is_not_sole_source_the_approved_list_decides():
+    # 26-0246 (M11/N2): a warranty clause's "...the product only." must not be read as
+    # sole-source wording — the approved list is what decides, and is what gets cited.
+    pages = _pages("2.1 WARRANTY\nA. The manufacturer's warranty is limited to the extent of the product only.",
+                   "2.9 CONTROL SYSTEM\nA. Acceptable manufacturers: 1. Honeywell. 2. Siemens.")
+    bid = check_bid(pages, [CONTROLS])
+    assert bid.finding == "Qualifies"
+    assert "Honeywell" in bid.reason and "spec.pdf, page 2" in bid.reason
+    assert "product only" not in bid.reason
+
+
+def test_b1_a_formal_sole_source_list_naming_only_another_manufacturer_does_not_qualify():
+    pages = _pages("Acceptable manufacturers: 1. Siemens. No substitutions.")
+    bid = check_bid(pages, [NARROW_CONTROLS])
+    assert bid.finding == "Does not qualify" and "Siemens" in bid.reason
+
+
+def test_b1b_a_valves_list_naming_honeywell_without_controls_words_does_not_rescue_the_block():
+    # 26-0445-shaped: the valves list is about control valves, not the controls system, and has
+    # no strong HVAC-controls words — it never counts, so it can't turn Does not qualify into
+    # Qualifies (and Honeywell was never named anywhere, so it stays Does not qualify).
+    pages = _pages("Acceptable manufacturers: 1. Siemens. No substitutions.",
+                   "2.9 CONTROL VALVES\nA. Manufacturers: one of the following: Belimo, Honeywell.")
+    bid = check_bid(pages, [NARROW_CONTROLS])
+    assert bid.finding == "Does not qualify"
+
+
+def test_b1c_only_beside_a_sole_source_phrase_still_blocks_on_the_phrase_alone():
+    pages = _pages("Manufacturers: Siemens Industry only. No substitutions.",
+                   "2.9 CONTROL VALVES\nA. Manufacturers: one of the following: Belimo, Honeywell.")
+    bid = check_bid(pages, [NARROW_CONTROLS])
+    assert bid.finding == "Does not qualify" and "Siemens" in bid.reason
+
+
+def test_b2_basis_of_design_for_the_bas_and_a_separate_valves_list_is_open():
+    pages = _pages("2.1 BAS\nA. The basis of design is Automated Logic WebCTRL.",
+                   "2.9 CONTROL VALVES\nA. Acceptable manufacturers: Belimo, Honeywell.")
+    bid = check_bid(pages, [CONTROLS])
+    assert bid.finding == "Open"
+
+
+def test_b2b_masterspec_hyphenated_basis_of_design_is_open():
+    # N4: "Basis-of-Design Product" must be recognised, hyphenated, same as "basis of design".
+    pages = _pages("2.1 BAS\nA. Basis-of-Design Product: Subject to compliance with requirements, "
+                   "provide Siemens Desigo CC or comparable product.",
+                   "2.9 CONTROL VALVES\nA. Acceptable manufacturers: Belimo, Honeywell.")
+    bid = check_bid(pages, [CONTROLS])
+    assert bid.finding == "Open" and "Siemens" in bid.reason
+
+
+def test_b2c_a_basis_of_design_heading_without_a_colon_is_not_a_list():
+    pages = _pages("2.1 MANUFACTURERS\nA. Basis of Design: Siemens Desigo CC, or approved equal.",
+                   "2.9 CONTROL VALVES\nA. Acceptable manufacturers: Belimo, Honeywell.")
+    bid = check_bid(pages, [CONTROLS])
+    assert bid.finding == "Open"
+
+
+def test_b3_niagara_with_a_sensor_brand_or_approved_equal_in_the_same_article_qualifies():
+    pages = _pages("2.1 SYSTEM\nA. The BAS shall be built on the Tridium Niagara 4 Framework.\n"
+                   "B. Room Sensor: Siemens QAA2012 or approved equal.")
+    bid = check_bid(pages, [CONTROLS])
+    assert bid.finding == "Qualifies"
+
+
+def test_b3b_niagara_with_a_separate_basis_of_design_sensor_article_is_open():
+    pages = _pages("2.1 SYSTEM\nA. The BAS shall be built on the Tridium Niagara 4 Framework.",
+                   "2.7 SENSORS\nA. Basis of design: Siemens QAA2012, or approved equal.")
+    bid = check_bid(pages, [CONTROLS])
+    assert bid.finding == "Open"
+
+
+def test_b4_reference_only_wording_is_no_longer_sole_source():
+    pages = _pages("2.1 SYSTEM\nA. The BAS shall be built on the Tridium Niagara 4 Framework.\n"
+                   "B. Room Sensor: Siemens QAA2012 or equal. Sensor locations shown are for reference only.")
+    bid = check_bid(pages, [CONTROLS])
+    assert bid.finding == "Qualifies"
+
+
+def test_c2_3c_basis_of_design_and_a_valves_list_adjacent_on_one_page_is_open():
+    # The two articles merge into one passage — the basis-of-design clause still blocks, since
+    # AME's own line is not the one on this list (N3: exempt only when it is).
+    pages = _pages("2.1 BAS\nA. Basis of design: Siemens Desigo CC, or approved equal.\n"
+                   "2.3 CONTROL VALVES\nA. Manufacturers: Subject to compliance, provide products by one "
+                   "of the following: Belimo, Honeywell.")
+    bid = check_bid(pages, [CONTROLS])
+    assert bid.finding == "Open"
+
+
+def test_c2_4b_metasys_by_johnson_controls_word_order_is_not_the_approved_list_item():
+    pages = _pages("Acceptable manufacturers: 1. Metasys by Johnson Controls. 2. Siemens Desigo.")
+    bid = check_bid(pages, [CONTROLS])
+    assert bid.finding == "Open"
+    assert bid.others == ("Johnson Controls Metasys", "Siemens")
+
+
+def test_c2_4c_metasys_on_the_next_line_is_not_the_approved_list_item():
+    pages = _pages("Acceptable manufacturers:\n1. Johnson Controls, Inc.\nMetasys Building Automation System\n"
+                   "2. Siemens Desigo.")
+    bid = check_bid(pages, [CONTROLS])
+    assert bid.finding == "Open"
+    assert bid.others == ("Johnson Controls Metasys", "Siemens")
+
+
+def test_s1_a_security_network_riser_of_another_discipline_is_not_a_controls_mention():
+    # 26-0445-shaped (S1/N1): a security riser typed Network riser is Technology, not Mechanical
+    # or Controls, and has no strong HVAC-controls words — it never reaches the bid check.
+    pages = _pages("SECURITY SYSTEM NETWORK RISER. ACCESS CONTROL: APPROVED MANUFACTURERS: "
+                   "HONEYWELL PRO-WATCH, LENEL.", document="Marked_Sec.pdf")
+    sheet = Sheet("Marked_Sec.pdf", 1, "TY-501", "SECURITY SYSTEM NETWORK RISER", "Technology", ("Network riser",))
+    bid = check_bid(pages, [], {("Marked_Sec.pdf", 1): sheet}, has_spec_book=True)
+    assert bid.mentions == () and bid.finding != "Qualifies"
+
+
+def test_s2_the_security_riser_plus_a_real_sole_source_spec_does_not_qualify():
+    pages = (_pages("A. The building automation system shall be Automated Logic WebCTRL. No substitutions.")
+            + _pages("SECURITY SYSTEM NETWORK RISER. ACCESS CONTROL: APPROVED MANUFACTURERS: "
+                     "HONEYWELL PRO-WATCH, LENEL.", document="Marked_Sec.pdf"))
+    sheet = Sheet("Marked_Sec.pdf", 1, "TY-501", "SECURITY SYSTEM NETWORK RISER", "Technology", ("Network riser",))
+    bid = check_bid(pages, [CONTROLS], {("Marked_Sec.pdf", 1): sheet})
+    assert bid.finding == "Does not qualify"
+
+
+def test_s3_an_electrical_specifications_sheet_does_not_block_a_real_qualifies():
+    pages = (_pages("A. The BAS shall be Honeywell WEBs.")
+            + _pages("CIRCUIT BREAKERS SHALL BE SIEMENS. THIS DRAWING IS FOR REFERENCE ONLY.",
+                     document="Marked_Elec.pdf"))
+    sheet = Sheet("Marked_Elec.pdf", 1, "E-600.00", "ELECTRICAL SPECIFICATIONS", "Electrical", ("Specifications",))
+    bid = check_bid(pages, [CONTROLS], {("Marked_Elec.pdf", 1): sheet})
+    assert bid.finding == "Qualifies"
+
+
+def test_s3b_the_electrical_sheet_alone_with_no_spec_book_is_open_not_does_not_qualify():
+    pages = _pages("CIRCUIT BREAKERS SHALL BE SIEMENS. THIS DRAWING IS FOR REFERENCE ONLY.",
+                   document="Marked_Elec.pdf")
+    sheet = Sheet("Marked_Elec.pdf", 1, "E-600.00", "ELECTRICAL SPECIFICATIONS", "Electrical", ("Specifications",))
+    bid = check_bid(pages, [], {("Marked_Elec.pdf", 1): sheet}, has_spec_book=False)
+    assert bid.finding == "Open" and bid.mentions == ()
+
+
+def test_a_fan_coil_schedule_with_a_basis_of_design_column_never_counts():
+    # N6: a sheet typed Schedules never carries the controls system's own scope, whatever it says.
+    pages = (_pages("Acceptable manufacturers: 1. Honeywell. 2. Siemens.")
+            + _pages("BASIS OF DESIGN MANUFACTURER: TRANE UNITRANE. BACNET INTERFACE REQUIRED FOR BMS "
+                     "INTEGRATION.", document="Marked_Mech.pdf"))
+    sheet = Sheet("Marked_Mech.pdf", 1, "M-701.00", "FAN COIL UNIT SCHEDULE", "Mechanical", ("Schedules",))
+    bid = check_bid(pages, [CONTROLS], {("Marked_Mech.pdf", 1): sheet})
+    assert bid.finding == "Qualifies"
+    assert all(m.document != "Marked_Mech.pdf" for m in bid.mentions)
+
+
+def test_26_0436_a_schneider_switchgear_reference_only_note_has_no_effect():
+    pages = _pages("MV RING - UPPER NETWORK DIAGRAM E501.01. GENERAL NOTES: 1. REFERENCE SCHNEIDER DRAWINGS "
+                   "FOR PROJECT SPECIFIC DETAIL. 2. SCHNEIDER TO PROVIDE PROJECT SPECIFIC NETWORK ARC DRAWINGS. "
+                   "NOTE: This Drawing Is Provided For Reference Only. Refer to Schneider EIC "
+                   "(Interconnect Drawings) For Project Specific Detail.", document="Marked_Elec.pdf")
+    sheet = Sheet("Marked_Elec.pdf", 1, "E501.01", "MV RING - UPPER NETWORK DIAGRAM", "Electrical",
+                 ("Network riser", "Diagrams"))
+    bid = check_bid(pages, [], {("Marked_Elec.pdf", 1): sheet}, has_spec_book=True)
+    assert bid.mentions == ()
+
+
+def test_26_0328_a_trane_unit_heater_schedule_with_a_basis_of_design_column_has_no_effect():
+    pages = _pages("CABINET UNIT HEATER SCHEDULE. BASIS OF DESIGN: TRANE, OR APPROVED EQUAL.",
+                   document="Marked_Mech.pdf")
+    sheet = Sheet("Marked_Mech.pdf", 1, "M07-03.00", "CABINET UNIT HEATER SCHEDULE", "Mechanical", ("Schedules",))
+    bid = check_bid(pages, [], {("Marked_Mech.pdf", 1): sheet}, has_spec_book=True)
+    assert bid.mentions == ()

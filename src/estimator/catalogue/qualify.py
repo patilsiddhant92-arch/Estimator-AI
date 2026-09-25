@@ -4,6 +4,13 @@ AME bids two Niagara N4 product lines, Honeywell WEBs and Johnson Controls FX. T
 finds every passage that names a controls manufacturer, quotes it word for word, and
 sorts the job into Qualifies / Open / Does not qualify. The tool reports; the US team
 decides. Every other controls manufacturer found is listed for them, whatever the finding.
+
+The controller's principle (build step 3, bid-check fix round): a wrong Qualifies is the
+costliest result, because it is the only one that doesn't hold the job for the US team; a
+wrong Open only costs them a look. So Qualifies requires clear evidence and nothing against
+it; anything contradictory or uncertain is Open, with every passage quoted. Does not qualify
+is reserved for explicit sole-source wording for another manufacturer, with no AME line named
+anywhere. Silent is Open.
 """
 from __future__ import annotations
 
@@ -18,10 +25,19 @@ from estimator.catalogue.register import PageRecord
 from estimator.catalogue.sheet_types import Sheet
 from estimator.catalogue.spec_sections import SpecSection
 
-# A large sheet typed as one of these carries controls-relevant prose even away from the
-# specs — its own "spec section", in effect — so a passage on it is read the same way as one
-# inside a controls spec section (C1).
-SHEET_TYPES_LIKE_CONTROLS = ("Specifications", "Control diagrams", "Network riser")
+# A large sheet of one of these disciplines, typed one of these ways, carries controls-relevant
+# prose even away from the specs — its own "spec section", in effect — so a passage on it is read
+# the same way as one inside a controls spec section (C1, N1). A sheet typed Schedules never
+# counts, whatever else it's typed or which discipline it's on (N6): the equipment maker and a
+# "BASIS OF DESIGN" column on a schedule are not the controls system.
+CONTROLS_SHEET_DISCIPLINES = ("Mechanical", "Controls")
+SHEET_TYPES_LIKE_CONTROLS = ("Specifications", "Control diagrams", "Network riser", "Notes and legends")
+
+# Honeywell and Johnson Controls generic mentions share a maker with one of AME's own lines
+# (Honeywell WEBs, Johnson Controls FX). When both are named in the same passage, showing the
+# generic name too ("Honeywell (not on a list, not WEBs)") contradicts the line already credited
+# to AME (N5) — so it's dropped from that passage.
+SAME_MAKER_OURS = {"Honeywell": "Honeywell WEBs", "Johnson Controls": "Johnson Controls FX"}
 
 ASSETS = Path(__file__).resolve().parents[3] / "assets"
 MANUFACTURERS = ASSETS / "reading_lists" / "manufacturers.json"
@@ -50,6 +66,7 @@ class ReadingList:
     sole_words: re.Pattern
     basis_words: re.Pattern
     not_controls_words: re.Pattern
+    unacceptable_words: re.Pattern
 
     @classmethod
     def load(cls, path: Path = MANUFACTURERS) -> "ReadingList":
@@ -64,10 +81,21 @@ class ReadingList:
 
         return cls(named("platforms_we_bid"), named("on_an_approved_list"), named("other_manufacturers"),
                    words("controls_words"), words("list_words"), words("sole_words"), words("basis_words"),
-                   words("not_controls_words"))
+                   words("not_controls_words"), words("unacceptable_words"))
 
     def all_names(self) -> tuple[Named, ...]:
         return self.ours + self.listed + self.others
+
+    def is_metasys_shadowed(self, name: str, passage: str) -> bool:
+        """Johnson Controls never counts on a list when the passage mentions Metasys anywhere,
+        unless FX is named too — "Metasys by Johnson Controls" and "Johnson Controls, Inc." with
+        Metasys on the next line both apply, since this looks anywhere in the passage, not only
+        nearby."""
+        if name != "Johnson Controls":
+            return False
+        metasys = next((n for n in self.others if n.name == "Johnson Controls Metasys"), None)
+        fx = next((n for n in self.ours if n.name == "Johnson Controls FX"), None)
+        return bool(metasys and metasys.found_in(passage) and not (fx and fx.found_in(passage)))
 
 
 @dataclass(frozen=True)
@@ -84,6 +112,7 @@ class Mention:
     basis: bool = False                 # the passage names another manufacturer as basis of design / approved equal
     is_list: bool = False               # list wording ("acceptable manufacturers:") is in the passage
     also_at: tuple[tuple[str, int, str | None], ...] = ()   # (document, page, sheet) of the same quote elsewhere (M3)
+    ours_unacceptable: bool = False     # the passage calls one of AME's own lines unacceptable
 
     @property
     def named(self) -> str:
@@ -177,8 +206,12 @@ def _dedupe(mentions: list[Mention]) -> list[Mention]:
 
 def _mentions(record: PageRecord, text: str, controls: Sequence[SpecSection], sheet: Sheet | None,
              reading: ReadingList) -> list[Mention]:
-    in_controls = (any(s.document == record.document and s.first_page <= record.page <= s.last_page for s in controls)
-                   or (sheet is not None and any(t in sheet.types for t in SHEET_TYPES_LIKE_CONTROLS)))
+    if sheet is not None and "Schedules" in sheet.types:
+        return []   # a sheet typed Schedules never carries the controls system's own scope (N6)
+    in_controls_section = any(s.document == record.document and s.first_page <= record.page <= s.last_page
+                              for s in controls)
+    in_controls_sheet = (sheet is not None and sheet.discipline in CONTROLS_SHEET_DISCIPLINES
+                         and any(t in sheet.types for t in SHEET_TYPES_LIKE_CONTROLS))
     windows = []
     for named in reading.all_names():
         for pattern in named.patterns:
@@ -195,24 +228,39 @@ def _mentions(record: PageRecord, text: str, controls: Sequence[SpecSection], sh
     found = []
     for start, end in merged:
         passage = text[start:end]
-        if not (in_controls or reading.controls_words.search(passage)):
-            continue
-        if not in_controls and reading.not_controls_words.search(passage):
+        # A genuine controls spec section is read on its own terms — a security/fire-alarm word
+        # inside it doesn't disqualify the passage. Everywhere else (a drawing sheet promoted by
+        # its type, or any other page reached only by a strong HVAC-controls word) the security
+        # exclusion applies (N1): it also covers a controls-typed sheet of another discipline,
+        # which no longer reaches this point via in_controls_sheet at all.
+        if in_controls_section:
+            pass
+        elif in_controls_sheet:
+            if reading.not_controls_words.search(passage):
+                continue
+        elif reading.controls_words.search(passage) and not reading.not_controls_words.search(passage):
+            pass
+        else:
             continue
         ours = tuple(n.name for n in reading.ours if n.found_in(passage))
-        approved = [n for n in reading.listed if n.found_in(passage)]
+        approved = [n for n in reading.listed if n.found_in(passage)
+                   and not reading.is_metasys_shadowed(n.name, passage)
+                   and SAME_MAKER_OURS.get(n.name) not in ours]
         is_list = bool(reading.list_words.search(passage))
         listed = tuple(n.name for n in approved) if is_list else ()
-        # Honeywell or Johnson Controls named outside a list is never one of AME's own lines
-        # (that's "ours"), but it's still worth recording — "named in passing" — rather than
-        # vanishing without a trace (I9).
-        passing = () if is_list else tuple((n.name, n.note) for n in approved)
+        # Honeywell or Johnson Controls named outside a list — or on a list that turned out not to
+        # be an approved-manufacturers list at all — is never one of AME's own lines, but it's
+        # still worth recording, "named in passing", rather than vanishing without a trace (I9).
+        passing = tuple((n.name, n.note) for n in approved if n.name not in listed)
         others = tuple(n.name for n in reading.others if n.found_in(passage))
+        sole = bool(reading.sole_words.search(passage))
+        basis = bool(reading.basis_words.search(passage))
+        ours_unacceptable = bool(ours) and bool(reading.unacceptable_words.search(passage))
         if ours or listed or others or passing:
             found.append(Mention(record.document, record.page, " ".join(passage.split()),
-                                 ours, listed, others, bool(reading.sole_words.search(passage)),
+                                 ours, listed, others, sole,
                                  sheet.number if sheet is not None else None, passing,
-                                 bool(reading.basis_words.search(passage)), is_list))
+                                 basis, is_list, (), ours_unacceptable))
     return found
 
 
@@ -222,13 +270,17 @@ def _place(document: str, page: int, sheet: str | None, ambiguous: bool) -> str:
     return f"{sheet} ({body})" if sheet else body
 
 
-def _where(mention: Mention) -> str:
+def where(mention: Mention) -> str:
     """Every place the passage was found (M3): the folder is given only when two of them share
     a file name — most quotes have a single place, where this reads exactly as it always did."""
     places = [(mention.document, mention.page, mention.sheet)] + list(mention.also_at)
     basenames = Counter(document.rsplit("/", 1)[-1] for document, _, _ in places)
     return "; ".join(_place(document, page, sheet, basenames[document.rsplit("/", 1)[-1]] > 1)
                      for document, page, sheet in places)
+
+
+# kept for any external code still importing the old private name
+_where = where
 
 
 def _deciding(qualifying: Sequence[Mention]) -> Mention:
@@ -241,52 +293,70 @@ def _deciding(qualifying: Sequence[Mention]) -> Mention:
 
 def _judge(mentions: Sequence[Mention], others: tuple[str, ...]) -> tuple[str, str]:
     qualifying = [m for m in mentions if m.ours or m.listed]
-    # A passage with a sole-source word and another manufacturer is a contrary requirement even
-    # when it also names one of AME's own lines — "Niagara or Honeywell WEBs shall be
-    # unacceptable ... BAS shall be Siemens" still means Open, not Qualifies (C2). Not when the
-    # passage is itself a formal acceptable-manufacturers list: naming three interchangeable
-    # options is the opposite of sole-sourcing, whatever stray "only" turns up nearby (26-0445's
-    # "Mains: Circuit breaker or Lugs only." sits inside "Manufacturers: ... one of the
-    # following: Schneider Electric, Eaton, Siemens" — a list, not a sole-source clause).
-    sole_blocking = [m for m in mentions if m.sole and m.others and not m.is_list]
+    # Another manufacturer named with sole-source wording in the same passage — list wording no
+    # longer excuses it (N3): "Acceptable manufacturers: 1. Siemens. No substitutions." blocks.
+    sole_blocking = [m for m in mentions if m.sole and m.others]
     # "Basis of design: Siemens, or approved equal" is a softer contrary requirement — it doesn't
-    # rule AME out on its own ("or approved equal" leaves the door open), but it still keeps a
-    # would-be Qualifies from winning outright. Not when the same passage is itself a formal
-    # acceptable-manufacturers list: a "(Basis of Design)" label on the list's first item doesn't
-    # override AME's own line also being on that same list (26-0334's "Vykon (Basis of Design) ...
-    # Honeywell (WEBS) ... Or approved equal Niagara N4 based ... manufacturers are acceptable").
-    basis_blocking = [m for m in mentions if m.basis and m.others and not m.is_list and m not in sole_blocking]
-    # Honeywell/Johnson Controls named with sole-source wording, but not on any list: the US team
-    # must see this even though it never counts toward Qualifies (I9).
-    passing_sole = [m for m in mentions if m.sole and m.passing and not m.ours and not m.listed and not m.others]
-    contrary = sole_blocking or basis_blocking
+    # rule AME out on its own, but it keeps a would-be Qualifies from winning outright. Exempt only
+    # when the very same passage is a formal list that also names one of AME's own lines — AME's
+    # own line being on that list is what the exemption is for (26-0334's "Vykon (Basis of Design)
+    # ... Honeywell (WEBS) ... Johnson Controls (FX) ... Niagara N4 based ... are acceptable").
+    basis_blocking = [m for m in mentions if m.basis and m.others and not (m.is_list and m.ours)]
+    # The passage calls one of AME's own lines unacceptable outright.
+    unacceptable_blocking = [m for m in mentions if m.ours_unacceptable and m.others]
+    contrary = sole_blocking or basis_blocking or unacceptable_blocking
+    # Whether an AME line was named anywhere at all, qualifying or not — this is what keeps a
+    # sole-source clause for another manufacturer from reading as "Does not qualify" when Honeywell
+    # or Johnson Controls also turns up somewhere, even off an approved list (B1b/B1c).
+    ame_named_anywhere = any(m.ours or m.listed or m.passing for m in mentions)
+
     if qualifying and contrary:
         first = _deciding(qualifying)
-        name = ', '.join(first.ours or first.listed)
-        against = sole_blocking[0] if sole_blocking else basis_blocking[0]
-        if against.sole:
-            return ("Open", f"The spec says two different things: it names {name} ({_where(first)}) but also requires "
-                            f"{', '.join(against.others)} with no substitutions ({_where(against)}). The US team decides.")
-        return ("Open", f"The spec says two different things: it names {name} ({_where(first)}) but also names "
-                        f"{', '.join(against.others)} as the basis of design, or approved equal ({_where(against)}). "
-                        f"The US team decides.")
+        name = ", ".join(first.ours or first.listed)
+        against = sole_blocking[0] if sole_blocking else (unacceptable_blocking[0] if unacceptable_blocking else basis_blocking[0])
+        if against in sole_blocking:
+            clause = f"also requires {', '.join(against.others)} with no substitutions"
+        elif against in unacceptable_blocking:
+            clause = f"also calls {', '.join(against.ours)} unacceptable, requiring {', '.join(against.others)} instead"
+        else:
+            clause = f"also names {', '.join(against.others)} as the basis of design, or approved equal"
+        return ("Open", f"The spec says two different things: it names {name} ({where(first)}) but {clause} "
+                        f"({where(against)}). The US team decides.")
     if qualifying:
         first = _deciding(qualifying)
         if first.ours:
-            return "Qualifies", f"The spec names {', '.join(first.ours)} ({_where(first)})."
+            return "Qualifies", f"The spec names {', '.join(first.ours)} ({where(first)})."
         verb = "is" if len(first.listed) == 1 else "are"
-        return "Qualifies", f"{' and '.join(first.listed)} {verb} on the spec's list of acceptable manufacturers ({_where(first)})."
+        return "Qualifies", f"{' and '.join(first.listed)} {verb} on the spec's list of acceptable manufacturers ({where(first)})."
+    if sole_blocking and not ame_named_anywhere:
+        # Does not qualify only for explicit sole-source wording for another manufacturer, with no
+        # AME line named anywhere — the principle's one exception to "the US team decides".
+        first = sole_blocking[0]
+        return ("Does not qualify", f"The spec requires {', '.join(first.others)} with no substitutions "
+                                    f"({where(first)}). The US team decides.")
     if sole_blocking:
-        return ("Does not qualify", f"The spec requires {', '.join(sole_blocking[0].others)} with no substitutions "
-                                    f"({_where(sole_blocking[0])}). The US team decides.")
-    if passing_sole:
-        first = passing_sole[0]
-        names = ', '.join(name for name, _ in first.passing)
-        return ("Open", f"The spec requires {names}, which is not a line AME bids ({_where(first)}). The US team decides.")
+        first = sole_blocking[0]
+        passing_names = sorted({name for m in mentions for name, _ in m.passing})
+        extra = f" The spec also names {', '.join(passing_names)}, which is not a line AME bids." if passing_names else ""
+        return ("Open", f"The spec requires {', '.join(first.others)} with no substitutions ({where(first)})."
+                        f"{extra} The US team decides.")
+    if unacceptable_blocking:
+        first = unacceptable_blocking[0]
+        return ("Open", f"The spec calls {', '.join(first.ours)} unacceptable and requires "
+                        f"{', '.join(first.others)} instead ({where(first)}). The US team decides.")
     if basis_blocking:
         first = basis_blocking[0]
         return ("Open", f"The spec names {', '.join(first.others)} as the basis of design, or approved equal "
-                        f"({_where(first)}). The US team decides.")
+                        f"({where(first)}). The US team decides.")
+    # I9: Honeywell/Johnson Controls named — with or without sole-source wording — but never on a
+    # real approved-manufacturers list: worth showing, never enough to qualify on its own.
+    passing_only = [m for m in mentions if m.passing and not m.ours and not m.listed and not m.others]
+    if passing_only:
+        first = passing_only[0]
+        names = ', '.join(name for name, _ in first.passing)
+        verb = "is" if len(first.passing) == 1 else "are"
+        return ("Open", f"The spec requires {names}, which {verb} not a line AME bids ({where(first)})."
+                        f" The US team decides.")
     if others:
-        return "Open", f"The spec names {', '.join(others)}, and none of the lines AME bids ({_where(mentions[0])}). The US team decides."
+        return "Open", f"The spec names {', '.join(others)}, and none of the lines AME bids ({where(mentions[0])}). The US team decides."
     return "Open", "The spec names no controls manufacturer at all. The US team decides."

@@ -13,6 +13,7 @@ from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
 
 from estimator.catalogue.job import Catalogue
+from estimator.catalogue.qualify import where
 
 TABS = ("Bid check", "Flags", "Documents", "Pages", "Sheets", "Spec sections", "Equipment tags")
 _KIND = {"drawings": "Drawings", "specs": "Specs", "addendum": "Addendum", "rfi": "RFI", "other": "Other",
@@ -73,18 +74,17 @@ def _bid_check(ws, catalogue: Catalogue) -> None:
     _append(ws, ["Controls sections in the specs", "; ".join(bid.controls_sections) or "none found"])
     _append(ws, ["The US team makes the final call. Every passage the check found is quoted below, word for word."])
     _append(ws, [])
-    _append(ws, ["Document", "Page", "Manufacturers named", "What the spec says (word for word)"])
+    _append(ws, ["Where (every place it was found)", "Manufacturers named", "What the spec says (word for word)"])
     for cell in ws[ws.max_row]:
         cell.font, cell.fill = _BOLD, _HEADING
     for m in bid.mentions:
-        _append(ws, [m.document, m.page, m.named, m.quote])
-        ws.cell(ws.max_row, 4).alignment = Alignment(wrap_text=True, vertical="top")
+        _append(ws, [where(m), m.named, m.quote])
+        ws.cell(ws.max_row, 3).alignment = Alignment(wrap_text=True, vertical="top")
     for row in range(3, 7):
         ws.cell(row, 1).font = _BOLD
     ws.column_dimensions["A"].width = 52
-    ws.column_dimensions["B"].width = 24
-    ws.column_dimensions["C"].width = 30
-    ws.column_dimensions["D"].width = 110
+    ws.column_dimensions["B"].width = 30
+    ws.column_dimensions["C"].width = 110
 
 
 def _table(ws, headings: list[str], rows: list[list]) -> None:
