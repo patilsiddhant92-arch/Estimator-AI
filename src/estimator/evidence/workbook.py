@@ -6,6 +6,7 @@ is visible, never missing.
 """
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 from openpyxl import Workbook
@@ -21,6 +22,8 @@ from estimator.reading.job import JobReading
 TABS = ("Bid check", "Spec overview", "Flags", "Documents", "Pages", "Sheets", "Spec sections", "Equipment tags")
 # The reading of the job (build step 4), written after the Spec overview when a reading is given.
 READING_TABS = ("Equipment", "Schedules", "Devices on plans", "Notes", "Changes", "Sequence and points")
+# The written scope (build step 5), right after the bid check when the systems are given.
+ESTIMATE_TABS = ("Review list", "Scope lines")
 _GREEN = PatternFill("solid", fgColor="C6EFCE")
 _AMBER = PatternFill("solid", fgColor="FFEB9C")
 _GREY = PatternFill("solid", fgColor="D9D9D9")
@@ -44,10 +47,18 @@ def _append(ws, row: list) -> None:
             cell.data_type = "s"
 
 
-def write_evidence(path: Path, catalogue: Catalogue, reading: JobReading | None = None) -> Path:
+def write_evidence(path: Path, catalogue: Catalogue, reading: JobReading | None = None,
+                   systems=None, review_flags=()) -> Path:
+    """The Evidence Package. With the written systems (build step 5), the review list and every
+    scope line come right after the bid check; `review_flags` are the review items that belong to
+    no system (a family on the drawings but on no schedule)."""
     workbook = Workbook()
     workbook.remove(workbook.active)
     _bid_check(workbook.create_sheet(TABS[0]), catalogue)
+    if systems is not None:
+        flags = list(catalogue.flags) + list(reading.flags if reading is not None else ())
+        _review_list(workbook.create_sheet(ESTIMATE_TABS[0]), systems, review_flags, flags)
+        _scope_lines(workbook.create_sheet(ESTIMATE_TABS[1]), systems)
     _spec_overview(workbook.create_sheet(TABS[1]), catalogue)
     if reading is not None:
         _write_reading(workbook, reading)
@@ -400,3 +411,58 @@ def _changes(ws, reading: JobReading) -> None:
                     version.latest.strftime("%m/%d/%Y") if version.latest else None,
                     _READ_FROM.get(version.source, version.source), version.document, version.page])
     _widths(ws, [30, 28, 60, 60, 16, 50])
+
+
+# ---- the written scope (build step 5) --------------------------------------------------------------
+
+_RED = PatternFill("solid", fgColor="FFC7CE")
+_LINE_FILL = {"CONFIRMED": _GREEN, "ADDED": _GREEN, "ASSUMPTION": _AMBER, "PENDING": _RED, "CONFLICT": _RED}
+_REVIEW_ORDER = ("PENDING", "CONFLICT", "DISCREPANCY", "MISSING", "EXTRA", "ORPHANED", "EXISTING", "ASSUMPTION", "")
+_FLAG_CATEGORY = re.compile(r"\b(EXTRA|ORPHANED|PENDING|DISCREPANCY|MISSING|CONFLICT|EXISTING)\b")
+
+
+def _review_list(ws, systems, review_flags, flags) -> None:
+    """Everything the estimator decides before the proposal goes out, the most urgent first,
+    then the flags from cataloguing and reading the job."""
+    rows = []
+    for system in systems:
+        for item in system.review:
+            rows.append([item.system, item.category, item.decide, item.evidence or None, item.action or None])
+    for flag in review_flags:
+        decide, _, action = flag.partition(" — ")
+        found = _FLAG_CATEGORY.search(decide)
+        rows.append(["Not on a schedule", found.group(1) if found else "", decide, None, action or None])
+    rank = {c: n for n, c in enumerate(_REVIEW_ORDER)}
+    rows.sort(key=lambda r: rank.get(r[1], len(rank)))
+    rows += [["Reading the job", "", flag, None, "See the Flags tab"] for flag in flags]
+    _table(ws, ["System", "Category", "What to decide", "Evidence", "Suggested action"],
+           rows or [["", "", "Nothing to review.", None, None]])
+    for r in range(2, ws.max_row + 1):
+        fill = _LINE_FILL.get(ws.cell(r, 2).value)
+        if fill is not None:
+            ws.cell(r, 2).fill = fill
+        for column in (3, 4, 5):
+            ws.cell(r, column).alignment = Alignment(wrap_text=True, vertical="top")
+    _widths(ws, [30, 14, 70, 60, 44])
+
+
+def _scope_lines(ws, systems) -> None:
+    """Every line the tool wrote or left PENDING, with its category, confidence, source and evidence."""
+    _headings(ws, ["System", "Line", "Quantity", "Tech hours", "Category", "Confidence", "Source", "Evidence",
+                   "In the proposal?"])
+    ws.freeze_panes = "A2"
+    for system in systems:
+        headers = [(b.header, b.tech_hours) for b in system.blocks] or [(system.bundle_key, None)]
+        for header, hours in headers:
+            _append(ws, [system.bundle_key, header, None, hours, None, None, None, None, _yes(system.printed)])
+            ws.cell(ws.max_row, 2).font = _BOLD
+        for line in system.lines:
+            _append(ws, [line.system, line.text, line.quantity, line.tech_hours, line.category,
+                        round(line.confidence, 2), line.source, line.evidence, _yes(line.client)])
+            ws.cell(ws.max_row, 2).alignment = Alignment(indent=line.depth, wrap_text=True, vertical="top")
+            fill = _LINE_FILL.get(line.category)
+            if fill is not None:
+                ws.cell(ws.max_row, 5).fill = fill
+            ws.cell(ws.max_row, 8).alignment = Alignment(wrap_text=True, vertical="top")
+    ws.auto_filter.ref = ws.dimensions
+    _widths(ws, [26, 60, 10, 11, 13, 11, 44, 70, 16])

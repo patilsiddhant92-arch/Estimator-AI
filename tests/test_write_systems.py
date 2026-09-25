@@ -267,6 +267,16 @@ def test_an_ai_that_fails_leaves_the_lines_pending_with_its_reason():
     assert line.category == "PENDING" and "too many requests" in line.evidence
 
 
+def test_with_no_ai_key_the_pending_lines_say_so_once(tmp_path, monkeypatch):
+    from estimator.writing.judge import Judge
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    rows = _rows(["AHU-1"], ("TAG", "CFM"), {"CFM": "5000"}, title="AIR HANDLING UNIT SCHEDULE")
+    system = _write(_bundle("AHU", "Air Handling Unit", ["AHU-1"], rows=rows), judge=Judge(tmp_path))
+    line = _line(system, "Furnish and Install Supply Static Pressure Sensor")
+    assert line.evidence.endswith("judgement pending — no AI key set")
+    assert "judgement pending — judgement pending" not in line.evidence
+
+
 # --- no template, existing, flags -----------------------------------------------------------------
 
 def test_a_missing_template_gives_a_pending_block_that_is_not_printed():
