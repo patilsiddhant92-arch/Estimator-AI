@@ -119,7 +119,10 @@ _NO_TITLE_BLOCK = _TitleBlock(frozenset(), "")
 
 def _note_body(body: str, rules: _Rules, title_block: _TitleBlock) -> str:
     """One item's text, up to a blank line, a heading or the title block, whitespace squashed."""
-    first, *rest = body.split("\n")
+    lines = body.split("\n")
+    while len(lines) > 1 and not lines[0].strip():
+        lines.pop(0)            # the number stood alone on its line: the note starts on the next
+    first, *rest = lines
     in_strip = title_block.holds(" ".join(first.split()))    # a notes block set in the strip itself
     kept = [first]
     for line in rest:

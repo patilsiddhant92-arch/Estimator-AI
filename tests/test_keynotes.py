@@ -167,3 +167,14 @@ def test_only_the_pages_given_are_read():
     pages = [_page(text, page=1), _page(text, page=2)]
     notes = read_notes(_catalogue(pages, [_sheet("M-201", page=1), _sheet("M-201", page=2)]), pages={(DOC, 2)})
     assert [n.page for n in notes] == [2]
+
+
+def test_a_note_whose_number_stands_alone_on_its_line_is_still_read():
+    from estimator.catalogue.pdf import Span
+
+    text = "KEY NOTES:\n1. \nPROVIDE A RETURN AIR SENSOR\nWIRED TO THE BMS.\n"
+    strip = tuple(Span(t, 10, 0.85, 0.3 + i * 0.02, 0.95, 0.31 + i * 0.02)
+                  for i, t in enumerate(("PROVIDE A RETURN AIR SENSOR", "WIRED TO THE BMS.")))
+    page = PageRecord(DOC, 1, "text", text, 0, True, strip)
+    [note] = read_notes(_catalogue([page], [_sheet("M-201")]))
+    assert note.text == "PROVIDE A RETURN AIR SENSOR WIRED TO THE BMS." and note.controls
