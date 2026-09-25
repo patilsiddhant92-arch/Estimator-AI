@@ -14,6 +14,8 @@ from estimator.catalogue.sheet_types import Sheet
 from estimator.catalogue.spec_sections import SpecSection
 from estimator.proposal import layout
 from estimator.reading.revisions import SheetVersion
+from estimator.reading.schedules import Schedule
+from estimator.reading.sequences import SEQUENCE, Backbone
 from estimator.scope import FrontEnd, Header
 from estimator.writing.front_end import FRONT_END_FILE, Evidence, front_end, job_header
 
@@ -48,12 +50,13 @@ def _overview(found=(), who=(), services=()):
                         services=tuple(services))
 
 
-def _catalogue(overview=None, texts=(), folder="26-9999", sheets=(), pages=()):
+def _catalogue(overview=None, texts=(), folder="26-9999", sheets=(), pages=(), sections=None):
     """texts: words on a controls spec page (for the laptop / tablet search)."""
     records = [PageRecord(SPEC, 12, "text", text, 0) for text in texts] + list(pages)
-    sections = (SpecSection("23 09 23", "Direct Digital Control System for HVAC", SPEC, 1, 50),)
+    if sections is None:
+        sections = (SpecSection("23 09 23", "Direct Digital Control System for HVAC", SPEC, 1, 50),)
     return SimpleNamespace(job=SimpleNamespace(name=folder.split(",")[0].strip(), root=Path("Learn") / folder),
-                           pages=tuple(records), sheets=tuple(sheets), sections=sections,
+                           pages=tuple(records), sheets=tuple(sheets), sections=tuple(sections),
                            overview=overview or _overview())
 
 
@@ -391,3 +394,70 @@ def test_no_mechanical_or_controls_sheets_is_pending():
     header, flags = job_header(_catalogue(folder="26-0001"), SimpleNamespace(versions=()), TODAY)
     assert header.based_on == ("[drawings the proposal is based on]",)
     assert any("based on" in f for f in flags)
+
+
+def test_plumbing_sheets_are_part_of_based_on_too():
+    sheets = [_sheet("P-101", 1, "Plumbing")]
+    versions = SimpleNamespace(versions=(_version("P-101", 1, dt.date(2026, 4, 1), MECH),))
+    header, flags = job_header(_catalogue(folder="26-0001", sheets=sheets), versions, TODAY)
+    assert header.based_on == ("P-101 Dated: 04/01/2026",)
+    assert not any("based on" in f for f in flags)
+
+
+# --- "based on" and the controls spec sections --------------------------------------
+
+def _schedule(document, page):
+    return Schedule(document, page, None, "VAV BOX SCHEDULE", (), (), False, (), ())
+
+
+def _backbone(document, first_page, last_page):
+    return Backbone(SEQUENCE, "23 09 93 SEQUENCE OF OPERATIONS", document, first_page, last_page, "spec section")
+
+
+def test_a_controls_spec_section_with_a_sequence_is_listed_with_its_date():
+    sections = (SpecSection("23 09 93", "SEQUENCE OF OPERATIONS", SPEC, 40, 75),)
+    pages = [PageRecord(SPEC, n, "text", "Some sequence text." if n != 75 else "Issued 06/26/2026", 0)
+             for n in range(40, 76)]
+    catalogue = _catalogue(folder="26-0001", sections=sections, pages=pages)
+    reading = SimpleNamespace(versions=(), backbone=(_backbone(SPEC, 40, 75),), schedules=())
+    header, flags = job_header(catalogue, reading, TODAY)
+    assert header.based_on == ("23 09 93 SEQUENCE OF OPERATIONS Dated: 06/26/2026",)
+    assert not any("based on" in f for f in flags)
+
+
+def test_a_controls_spec_section_with_a_schedule_is_listed_too():
+    sections = (SpecSection("23 09 23", "POINTS SCHEDULE", SPEC, 10, 12),)
+    pages = [PageRecord(SPEC, n, "text", "Dated 01/15/2026", 0) for n in range(10, 13)]
+    catalogue = _catalogue(folder="26-0001", sections=sections, pages=pages)
+    reading = SimpleNamespace(versions=(), backbone=(), schedules=(_schedule(SPEC, 11),))
+    header, _ = job_header(catalogue, reading, TODAY)
+    assert header.based_on == ("23 09 23 POINTS SCHEDULE Dated: 01/15/2026",)
+
+
+def test_a_controls_spec_section_with_neither_is_not_listed():
+    sections = (SpecSection("23 09 00", "GENERAL REQUIREMENTS", SPEC, 1, 3),)
+    pages = [PageRecord(SPEC, n, "text", "Dated 01/15/2026", 0) for n in (1, 2, 3)]
+    catalogue = _catalogue(folder="26-0001", sections=sections, pages=pages)
+    reading = SimpleNamespace(versions=(), backbone=(), schedules=())
+    header, flags = job_header(catalogue, reading, TODAY)
+    assert header.based_on == ("[drawings the proposal is based on]",)
+    assert any("based on" in f for f in flags)
+
+
+def test_an_undated_controls_spec_section_is_flagged():
+    sections = (SpecSection("23 09 93", "SEQUENCE OF OPERATIONS", SPEC, 40, 41),)
+    pages = [PageRecord(SPEC, n, "text", "No date printed anywhere on this page.", 0) for n in (40, 41)]
+    catalogue = _catalogue(folder="26-0001", sections=sections, pages=pages)
+    reading = SimpleNamespace(versions=(), backbone=(_backbone(SPEC, 40, 41),), schedules=())
+    header, flags = job_header(catalogue, reading, TODAY)
+    assert header.based_on == ("23 09 93 SEQUENCE OF OPERATIONS Dated: [date]",)
+    assert any("23 09 93" in f and "date" in f.lower() for f in flags)
+
+
+def test_based_on_with_no_schedules_or_backbone_attribute_is_unaffected():
+    # A reading object that carries no .schedules / .backbone (older test fixtures) never breaks —
+    # it just lists no spec sections.
+    sheets = [_sheet("M-001", 1)]
+    versions = SimpleNamespace(versions=(_version("M-001", 1, dt.date(2026, 1, 1)),))
+    header, _ = job_header(_catalogue(folder="26-0001", sheets=sheets), versions, TODAY)
+    assert header.based_on == ("M-001 Dated: 01/01/2026",)

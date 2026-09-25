@@ -23,6 +23,7 @@ from pathlib import Path
 
 from estimator.catalogue.overview import FOUND, Found, Place, short_place
 from estimator.catalogue.pdf import clean_text
+from estimator.reading.revisions import parse_date
 from estimator.scope import FrontEnd, Header, Item, Run
 
 ASSETS = Path(__file__).resolve().parents[3] / "assets"
@@ -359,9 +360,6 @@ def _based_on(catalogue, reading, settings: dict, flags: list[str]) -> list[str]
         latest = numbers.get(version.sheet)
         if version.sheet not in numbers or (version.latest and (latest is None or version.latest > latest)):
             numbers[version.sheet] = version.latest
-    if not sets:
-        flags.append("Say which drawings the proposal is based on — no mechanical or controls sheet numbers were read")
-        return ["[drawings the proposal is based on]"]
 
     lines = []
     undated = []
@@ -377,4 +375,41 @@ def _based_on(catalogue, reading, settings: dict, flags: list[str]) -> list[str]
     if undated:
         flags.append("Give the drawings' issue date for “based on” — no revision date was read from the title "
                      f"blocks of the {', '.join(undated)} set")
+
+    section_lines, undated_sections = _based_on_sections(catalogue, reading, settings)
+    lines += section_lines
+    if undated_sections:
+        word = "section" if len(undated_sections) == 1 else "sections"
+        flags.append(f"Give the issue date for “based on” — no date was read from the {word} "
+                     f"{', '.join(undated_sections)}")
+
+    if not lines:
+        flags.append("Say which drawings the proposal is based on — no mechanical or controls sheet numbers were read")
+        return ["[drawings the proposal is based on]"]
     return lines
+
+
+def _based_on_sections(catalogue, reading, settings: dict) -> tuple[list[str], list[str]]:
+    """The controls spec sections that carry a schedule or a sequence of operation, each with its
+    date (the last one printed on any of its pages) — else "[date]", flagged."""
+    schedule_pages = {(s.document, s.page) for s in getattr(reading, "schedules", ())}
+    sequence_ranges = [(b.document, b.first_page, b.last_page) for b in getattr(reading, "backbone", ())
+                       if not b.duplicate_of]
+    lines, undated = [], []
+    for section in getattr(catalogue, "sections", ()):
+        if not section.controls:
+            continue
+        has_schedule = any(document == section.document and section.first_page <= page <= section.last_page
+                           for document, page in schedule_pages)
+        has_sequence = any(document == section.document and first <= section.last_page and last >= section.first_page
+                           for document, first, last in sequence_ranges)
+        if not (has_schedule or has_sequence):
+            continue
+        texts = [r.text for r in catalogue.pages
+                if r.document == section.document and section.first_page <= r.page <= section.last_page]
+        dates = [d for d in (parse_date(t) for t in texts) if d]
+        date = max(dates).strftime(settings["date_format"]) if dates else settings["undated"]
+        if not dates:
+            undated.append(section.number)
+        lines.append(settings["spec_section_line"].format(number=section.number, title=section.title, date=date))
+    return lines, undated

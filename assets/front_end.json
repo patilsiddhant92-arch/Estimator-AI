@@ -99,9 +99,10 @@
     "engineer_label_skip": ["SCALE", "DATE", "REV", "REVISION", "REVISIONS", "DRAWN", "CHECKED", "PROJECT",
                             "PROJ", "JOB", "SEAL", "NORTH", "TRUE NORTH", "SHEET", "DRAWING", "TITLE"],
     "engineer_firm": "^(?!.*:$)(?=.{4,70}$).*\\b(?:engineer(?:s|ing)|consult(?:ing|ants)|associates)\\b.*(?:,\\s*|\\s)(?:DPC|D\\.P\\.C\\.|P\\.?C\\.?|PLLC|LLP|LLC|Inc\\.?|Corp\\.?|Ltd\\.?)$",
-    "based_on_disciplines": ["Mechanical", "Controls"],
+    "based_on_disciplines": ["Mechanical", "Controls", "Plumbing"],
     "based_on_line": "{first} Thru {last} Dated: {date}",
     "based_on_single": "{first} Dated: {date}",
+    "spec_section_line": "{number} {title} Dated: {date}",
     "date_format": "%m/%d/%Y",
     "undated": "[date]"
   }
