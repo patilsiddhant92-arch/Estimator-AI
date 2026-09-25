@@ -174,12 +174,16 @@ def test_c2_existing_ours_system_to_be_removed_and_replaced_is_open():
 
 
 def test_c2_a_separate_basis_of_design_article_beats_an_approved_list_elsewhere():
+    # Bid check fix round 2 (D1, item 3): CONTROL VALVES is a components heading, so Honeywell
+    # here was never real evidence for Qualifies in the first place (it's shown to the US team as
+    # a passing mention) — Open turns on Siemens's basis-of-design article alone.
     pages = _pages("2.1 BAS\nA. Basis of design: Siemens Desigo CC, or approved equal.",
                    "2.3 CONTROL VALVES\nA. Manufacturers: Subject to compliance, provide products by one "
                    "of the following: Belimo, Honeywell.")
     bid = check_bid(pages, [CONTROLS])
     assert bid.finding == "Open"
-    assert "Honeywell" in bid.reason and "Siemens" in bid.reason and "basis of design" in bid.reason
+    assert "Siemens" in bid.reason and "basis of design" in bid.reason
+    assert any(("Honeywell", "on a valve list") in m.passing for m in bid.mentions)
 
 
 def test_c2_or_approved_equal_alone_on_a_minor_component_does_not_block():
@@ -673,6 +677,43 @@ def test_26_0352_shaped_rockwell_motor_starters_are_not_an_other_controls_manufa
                  ("Specifications",))
     bid = check_bid(pages, [], {("Marked_Mech.pdf", 1): sheet}, has_spec_book=False)
     assert bid.others == ()
+
+
+def test_d5_a_passing_honeywell_on_a_sensor_list_is_worded_names_not_requires():
+    pages = _pages("2.5 SENSORS\nA. Manufacturers: one of the following: 1. Honeywell. 2. Vaisala.")
+    bid = check_bid(pages, [CONTROLS])
+    assert bid.finding == "Open"
+    [mention] = bid.mentions
+    assert mention.passing == (("Honeywell", "on a sensor list"),)
+    assert mention.named == "Honeywell (on a sensor list)"
+    assert "names Honeywell" in bid.reason and "requires" not in bid.reason
+
+
+def test_a3_a_reference_to_a_list_elsewhere_does_not_say_none_of_the_lines_ame_bids():
+    # A3: "Acceptable manufacturers are listed in Paragraph 2.1.B" names Automated Logic and
+    # Siemens in passing, but the list itself, two clauses on, names Honeywell too — the reason
+    # must not claim none of the lines AME bids when one is in fact named.
+    pages = _pages("2.1 SYSTEM\nA. Acceptable manufacturers are listed in Paragraph 2.1.B, and shall "
+                   "match Automated Logic or Siemens for campus-wide compatibility.\n"
+                   "B. 1. Automated Logic. 2. Honeywell. 3. Siemens.")
+    bid = check_bid(pages, [CONTROLS])
+    assert bid.finding in ("Qualifies", "Open")
+    assert "none of the lines AME bids" not in bid.reason
+
+
+def test_d5_26_0352_shaped_cites_the_distech_specifications_sheet_not_the_motor_starters_note():
+    pages = (_pages("MOTOR STARTERS SHALL BE CUTLER HAMMER, WESTINGHOUSE OR ALLEN-BRADLEY.",
+                    document="Marked_Mech.pdf")
+            + _pages("MECHANICAL SPECIFICATIONS\nPROVIDE DISTECH ALLURE EC-SMART-AIR SERIES DISTECH "
+                     "MICROPROCESSOR CONTROLLERS AND RELAYS FOR THE BMS.", document="Marked_Mech2.pdf"))
+    starters = Sheet("Marked_Mech.pdf", 1, "M-600.00", "MECHANICAL SPECIFICATIONS", "Mechanical",
+                     ("Specifications",))
+    distech = Sheet("Marked_Mech2.pdf", 1, "M-601.00", "MECHANICAL SPECIFICATIONS", "Mechanical",
+                    ("Specifications",))
+    bid = check_bid(pages, [], {("Marked_Mech.pdf", 1): starters, ("Marked_Mech2.pdf", 1): distech},
+                    has_spec_book=False)
+    assert bid.finding == "Open"
+    assert "M-601.00" in bid.reason and "Distech" in bid.reason
 
 
 def test_a18_an_ame_line_limited_to_ebi_is_open_not_qualifies():

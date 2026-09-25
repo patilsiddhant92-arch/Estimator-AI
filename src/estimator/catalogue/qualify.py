@@ -92,31 +92,70 @@ def _name_occurrences(names: Sequence["Named"], text: str) -> list[tuple[int, in
     return [(m.start(), m.end(), n.name) for n in names for p in n.patterns for m in p.finditer(text)]
 
 
-def _heading_kind(text: str, pos: int, reading: "ReadingList") -> str | None:
+# D5/item 6: what to call a components list when a name is only ever named on one — "on a sensor
+# list", not the generic "not WEBs"/"not FX" note, and never worded as though it were a
+# requirement ("names Honeywell", never "requires Honeywell").
+_COMPONENT_CATEGORIES = (
+    ("power meter", re.compile(r"power\s+meters?", re.I)),
+    ("sensor", re.compile(r"sensors?", re.I)),
+    ("transmitter", re.compile(r"transmitters?", re.I)),
+    ("valve", re.compile(r"valves?", re.I)),
+    ("damper", re.compile(r"dampers?", re.I)),
+    ("actuator", re.compile(r"actuators?", re.I)),
+    ("meter", re.compile(r"meters?", re.I)),
+    ("wire and cable", re.compile(r"\bwire\b|\bcable\b", re.I)),
+    ("access control", re.compile(r"access\s+control", re.I)),
+    ("card reader", re.compile(r"card\s+readers?", re.I)),
+    ("security", re.compile(r"\bsecurity\b", re.I)),
+    ("video", re.compile(r"\bvideo\b", re.I)),
+    ("intrusion", re.compile(r"intrusion", re.I)),
+    ("fire alarm", re.compile(r"fire\s+alarm", re.I)),
+)
+
+
+def _component_category(line: str) -> str:
+    return next((name for name, pattern in _COMPONENT_CATEGORIES if pattern.search(line)), "component")
+
+
+def _heading_kind(text: str, pos: int, reading: "ReadingList") -> tuple[str | None, str | None]:
     """The nearest article or list heading above a position (D1, item 3): a components list
     (sensors, valves, cable, access control, security...) is never evidence for Qualifies, even
     inside a controls section — only a heading about the control system itself is, or a bare
-    "acceptable manufacturers" heading with no component word of its own. Scans backward line by
-    line — a numbered item naming nobody in particular ("1. Alerton Inc.") carries no signal of
-    its own, so the scan keeps going until it reaches the heading that actually governs the list."""
-    for line in reversed(text[:pos].split("\n")):
-        if not line.strip():
-            continue
-        if reading.component_heading_words.search(line):
-            return "component"
-        if reading.system_heading_words.search(line):
-            return "system"
-        if reading.list_words.search(line):
-            return "generic_list"
-    return None
+    "acceptable manufacturers" heading with no component word of its own. Scans every line above,
+    not just the nearest one: a components article's own heading ("2.5 SENSORS") governs even when
+    a plain list-introducing line ("Manufacturers: one of the following:") sits closer to the
+    names — a component word anywhere above always wins, since the principle's bias is against a
+    false Qualifies. Returns (kind, the governing line), the line given so a "component" kind can
+    say which one."""
+    lines = [line for line in text[:pos].split("\n") if line.strip()]
+    component = next((line for line in reversed(lines) if reading.component_heading_words.search(line)), None)
+    if component is not None:
+        return "component", component
+    system = next((line for line in reversed(lines) if reading.system_heading_words.search(line)), None)
+    if system is not None:
+        return "system", system
+    generic = next((line for line in reversed(lines) if reading.list_words.search(line)), None)
+    if generic is not None:
+        return "generic_list", generic
+    return None, None
 
 
 def _list_eligible(named: Named, passage: str, reading: "ReadingList") -> bool:
     """A name counts toward Qualifies from at least one occurrence whose governing heading is
     about the control system itself (or unclear) — never one where every occurrence sits only
     under a components heading."""
-    return any(_heading_kind(passage, match.start(), reading) != "component"
+    return any(_heading_kind(passage, match.start(), reading)[0] != "component"
               for pattern in named.patterns for match in pattern.finditer(passage))
+
+
+def _component_note(named: Named, passage: str, reading: "ReadingList") -> str | None:
+    """When a name is only ever found under a components heading, the category to name it by
+    ("on a sensor list") — None when at least one occurrence isn't (it keeps its usual note)."""
+    kinds = [_heading_kind(passage, match.start(), reading)
+            for pattern in named.patterns for match in pattern.finditer(passage)]
+    if kinds and all(kind == "component" for kind, _ in kinds):
+        return f"on a {_component_category(kinds[0][1])} list"
+    return None
 
 
 def _plc_context_eligible(named: Named, passage: str, sentence_bounds: list[int], reading: "ReadingList") -> bool:
@@ -233,6 +272,7 @@ class Mention:
     basis_for: tuple[str, ...] = ()      # other manufacturer(s) named basis of design in their own sentence
     rejected_ours: tuple[str, ...] = ()  # AME's own line(s) called unacceptable in their own sentence
     requires_for: tuple[str, ...] = ()   # other manufacturer(s) required as the system ("shall be", D1)
+    in_context: bool = False            # a genuine controls section or controls-sheet, not a passing mention (D5)
 
     @property
     def named(self) -> str:
@@ -241,7 +281,8 @@ class Mention:
         parts = [f"{n} (a line AME bids)" for n in self.ours]
         parts += list(self.listed)
         parts += list(self.others)
-        parts += [f"{n} (not on a list, {note})" for n, note in self.passing]
+        parts += [f"{n} ({note})" if note.startswith("on a ") else f"{n} (not on a list, {note})"
+                 for n, note in self.passing]
         return ", ".join(parts)
 
 
@@ -400,7 +441,9 @@ def _mentions(record: PageRecord, text: str, controls: Sequence[SpecSection], sh
         # Honeywell or Johnson Controls named outside a list — or on a list that turned out not to
         # be an approved-manufacturers list at all — is never one of AME's own lines, but it's
         # still worth recording, "named in passing", rather than vanishing without a trace (I9).
-        passing = tuple((n.name, n.note) for n in approved if n.name not in listed)
+        # When it's only ever named on a components list, say which kind (D5, item 6).
+        passing = tuple((n.name, _component_note(n, passage, reading) or n.note)
+                        for n in approved if n.name not in listed)
         sentence_bounds = _sentence_boundaries(passage)
         # Rockwell/Allen-Bradley and Schneider are named for all sorts of things besides a
         # controls system (motor starters, medium-voltage switchgear) — they only count as
@@ -448,7 +491,7 @@ def _mentions(record: PageRecord, text: str, controls: Sequence[SpecSection], sh
                                  passing=passing, is_list=is_list,
                                  sole_for=tuple(sorted(sole_for)), basis_for=tuple(sorted(basis_for)),
                                  rejected_ours=tuple(sorted(rejected_ours)),
-                                 requires_for=tuple(sorted(requires_for))))
+                                 requires_for=tuple(sorted(requires_for)), in_context=system_context))
     return found
 
 
@@ -477,6 +520,18 @@ def _deciding(qualifying: Sequence[Mention]) -> Mention:
     return (next((m for m in qualifying if m.is_list or m.sole_for or m.requires_for), None)
             or next((m for m in qualifying if m.ours), None)
             or qualifying[0])
+
+
+def _deciding_other(candidates: Sequence[Mention]) -> Mention:
+    """Prefer the passage that names a maker for the control system itself as the one to cite: a
+    genuine controls section or controls-sheet passage, or one with list, sole-source or "shall
+    be" wording, over a passing mention elsewhere (D5: 26-0352 cites M-601.00's Distech, not
+    M-600.00's motor starters)."""
+    signal = lambda m: m.is_list or m.sole_for or m.requires_for or m.basis_for
+    return (next((m for m in candidates if m.in_context and signal(m)), None)
+            or next((m for m in candidates if m.in_context), None)
+            or next((m for m in candidates if signal(m)), None)
+            or candidates[0])
 
 
 def _judge(mentions: Sequence[Mention], others: tuple[str, ...], ame_anywhere: str | None = None) -> tuple[str, str]:
@@ -569,14 +624,21 @@ def _judge(mentions: Sequence[Mention], others: tuple[str, ...], ame_anywhere: s
         return ("Open", f"The spec names {', '.join(first.basis_for)} as the basis of design, or approved equal "
                         f"({where(first)}). The US team decides.")
     # I9: Honeywell/Johnson Controls named — with or without sole-source wording — but never on a
-    # real approved-manufacturers list: worth showing, never enough to qualify on its own.
+    # real approved-manufacturers list: worth showing, never enough to qualify on its own. D5/item
+    # 6: worded as a plain mention, never as a requirement — "names Honeywell (on a sensor list)".
     passing_only = [m for m in mentions if m.passing and not m.ours and not m.listed and not m.others]
     if passing_only:
-        first = passing_only[0]
-        names = ', '.join(name for name, _ in first.passing)
+        first = next((m for m in passing_only if m.in_context), None) or passing_only[0]
+        names = ', '.join(f"{name} ({note})" if note else name for name, note in first.passing)
         verb = "is" if len(first.passing) == 1 else "are"
-        return ("Open", f"The spec requires {names}, which {verb} not a line AME bids ({where(first)})."
+        return ("Open", f"The spec names {names}, which {verb} not a line AME bids ({where(first)})."
                         f" The US team decides.")
     if others:
-        return "Open", f"The spec names {', '.join(others)}, and none of the lines AME bids ({where(mentions[0])}). The US team decides."
+        # Don't say "none of the lines AME bids" when an AME line was in fact named somewhere —
+        # just not in this same passage (A3).
+        first = _deciding_other([m for m in mentions if m.others])
+        if ame_named_anywhere:
+            return ("Open", f"The spec names {', '.join(others)} ({where(first)})."
+                            f" An AME line is also named elsewhere in the documents. The US team decides.")
+        return "Open", f"The spec names {', '.join(others)}, and none of the lines AME bids ({where(first)}). The US team decides."
     return "Open", "The spec names no controls manufacturer at all. The US team decides."
