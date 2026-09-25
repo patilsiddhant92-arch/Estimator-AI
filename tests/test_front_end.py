@@ -8,13 +8,18 @@ import pytest
 
 from estimator.catalogue.overview import FOUND, NOT_FOUND, RULED_OUT, Found, Place, SpecOverview
 from estimator.catalogue.pdf import Span
+from estimator.catalogue.qualify import BidCheck, Mention
 from estimator.catalogue.register import PageRecord
 from estimator.catalogue.sheet_types import Sheet
 from estimator.catalogue.spec_sections import SpecSection
 from estimator.proposal import layout
 from estimator.reading.revisions import SheetVersion
-from estimator.scope import FrontEnd, Header
-from estimator.writing.front_end import FRONT_END_FILE, Evidence, front_end, job_header
+from estimator.reading.schedules import Schedule
+from estimator.reading.sequences import SEQUENCE, Backbone
+from estimator.scope import Block, FrontEnd, Header
+from estimator.writing.front_end import (FRONT_END_FILE, Evidence, extended_warranty_block, front_end,
+                                         global_points_block, job_header)
+from estimator.writing.templates import load_templates
 
 SPEC = "Specs.pdf"
 MECH = "Mech.pdf"
@@ -47,12 +52,13 @@ def _overview(found=(), who=(), services=()):
                         services=tuple(services))
 
 
-def _catalogue(overview=None, texts=(), folder="26-9999", sheets=(), pages=()):
+def _catalogue(overview=None, texts=(), folder="26-9999", sheets=(), pages=(), sections=None):
     """texts: words on a controls spec page (for the laptop / tablet search)."""
     records = [PageRecord(SPEC, 12, "text", text, 0) for text in texts] + list(pages)
-    sections = (SpecSection("23 09 23", "Direct Digital Control System for HVAC", SPEC, 1, 50),)
+    if sections is None:
+        sections = (SpecSection("23 09 23", "Direct Digital Control System for HVAC", SPEC, 1, 50),)
     return SimpleNamespace(job=SimpleNamespace(name=folder.split(",")[0].strip(), root=Path("Learn") / folder),
-                           pages=tuple(records), sheets=tuple(sheets), sections=sections,
+                           pages=tuple(records), sheets=tuple(sheets), sections=tuple(sections),
                            overview=overview or _overview())
 
 
@@ -148,6 +154,52 @@ def test_a_ruled_out_tie_in_is_a_new_system():
     assert front_end(_catalogue(overview))[0].mode == "new-system"
 
 
+# --- the existing BMS name from the Bid check --------------------------------------
+
+def _bid_check(*mentions):
+    return BidCheck("Qualifies", "reason", (), tuple(mentions), ())
+
+
+def _mention(quote, ours=(), listed=(), others=(), page=5):
+    return Mention(document=SPEC, page=page, quote=quote, ours=ours, listed=listed, others=others)
+
+
+def test_an_unnamed_tie_in_gets_its_name_from_the_bid_check():
+    # 26-0478: the addendum names no manufacturer in the tie-in sentence itself, but the Bid check's
+    # own passage does (test1-fixes.md 3.2).
+    overview = _overview({"Tie-in to an existing system": "Connect to the existing BMS in the building."})
+    bid_check = _bid_check(_mention("Existing BMS is a Johnson Controls Facility Explorer.",
+                                    ours=("Johnson Controls FX",)))
+    fe, flags, evidence = front_end(_catalogue(overview), bid_check=bid_check)
+    assert fe.mode == "extend-existing" and fe.existing_system_name == "Johnson Controls"
+    assert not any("Name the existing BMS" in f for f in flags)
+    hit = next(e for e in evidence if e.line.startswith("Seamlessly Tie in"))
+    assert "Johnson Controls Facility Explorer" in hit.quote and hit.status == "CONFIRMED"
+
+
+def test_the_bid_check_is_not_used_when_the_tie_in_already_names_the_system():
+    overview = _overview({"Tie-in to an existing system":
+                          "Seamlessly integrate into the existing Honeywell WEBs Niagara front end."})
+    bid_check = _bid_check(_mention("Also mentions Johnson Controls FX.", ours=("Johnson Controls FX",)))
+    fe, _, _ = front_end(_catalogue(overview), bid_check=bid_check)
+    assert fe.existing_system_name == "Honeywell / Niagara N4 / WEBs"
+
+
+def test_no_bid_check_still_flags_the_unnamed_tie_in():
+    overview = _overview({"Tie-in to an existing system": "Connect to the existing BMS in the building."})
+    fe, flags, _ = front_end(_catalogue(overview))
+    assert fe.existing_system_name == "[existing BMS name]"
+    assert any("Name the existing BMS" in f for f in flags)
+
+
+def test_a_bid_check_with_no_name_in_its_passages_still_flags():
+    overview = _overview({"Tie-in to an existing system": "Connect to the existing BMS in the building."})
+    bid_check = _bid_check(_mention("The spec names Siemens.", others=("Siemens",)))
+    fe, flags, _ = front_end(_catalogue(overview), bid_check=bid_check)
+    assert fe.existing_system_name == "[existing BMS name]"
+    assert any("Name the existing BMS" in f for f in flags)
+
+
 # --- by the owner, by others ------------------------------------------------------
 
 def test_the_server_by_the_owner_is_a_client_note():
@@ -167,6 +219,21 @@ def test_approved_by_the_owner_is_not_provided_by_the_owner():
     who = ["Any server changes shall be approved by the Owner."]
     fe, _, _ = front_end(_catalogue(_overview(ALL_FOUND, who=who)))
     assert "Furnish BMS Server" in _texts(fe) and "**BMS Server by Owner" not in _texts(fe)
+
+
+def test_a_location_determined_by_the_owner_is_not_furnished_by_the_owner():
+    # test1-fixes.md 3.4: "Installed at a location determined by the owner" isn't enough — the server
+    # is still furnished by the controls contractor.
+    who = ["The server shall be installed at a location determined by the Owner."]
+    fe, _, _ = front_end(_catalogue(_overview(ALL_FOUND, who=who)))
+    assert "Furnish BMS Server" in _texts(fe) and "**BMS Server by Owner" not in _texts(fe)
+
+
+def test_owner_furnished_is_enough_for_the_server_note():
+    for phrase in ("provided by the owner", "owner furnished", "furnished by owner"):
+        who = [f"The BMS server shall be {phrase}."]
+        fe, _, _ = front_end(_catalogue(_overview(ALL_FOUND, who=who)))
+        assert "**BMS Server by Owner" in _texts(fe), phrase
 
 
 # --- the IT infrastructure lines --------------------------------------------------
@@ -229,6 +296,93 @@ def test_a_warranty_with_no_length_is_flagged_not_printed():
     assert any("warranty" in flag.lower() for flag in flags)
 
 
+# --- Global Points and Extended Warranty blocks (test1-fixes.md 3.5) ---------------
+
+TEMPLATES = load_templates()
+_TEMP_LINE = "Furnish and Install Outside Air Temperature"
+_HUMIDITY_LINE = "Furnish and Install Outside Air Humidity"
+
+
+def _block_texts(block):
+    return [i.text for i in block.items]
+
+
+def test_global_points_needs_outside_air_temperature_or_humidity_named():
+    block, evidence = global_points_block(_catalogue(), templates=TEMPLATES)
+    assert block is None and evidence == []
+
+
+def test_global_points_with_outside_air_temperature_named():
+    texts = ["Furnish an outside air temperature sensor for the BMS."]
+    block, evidence = global_points_block(_catalogue(texts=texts), templates=TEMPLATES)
+    assert isinstance(block, Block)
+    assert block.header == "Qty (1) Global Points"
+    assert _block_texts(block) == [_TEMP_LINE]
+    assert block.items[0].quantity == 1
+    temp = next(e for e in evidence if e.line == _TEMP_LINE)
+    assert temp.status == "CONFIRMED" and "outside air temperature" in temp.quote.lower()
+
+
+def test_global_points_adds_the_humidity_line_when_named_too():
+    texts = ["Furnish an outside air temperature and outside air humidity sensor."]
+    block, evidence = global_points_block(_catalogue(texts=texts), templates=TEMPLATES)
+    assert _block_texts(block) == [_TEMP_LINE, _HUMIDITY_LINE]
+    humidity = next(e for e in evidence if e.line == _HUMIDITY_LINE)
+    assert humidity.status == "CONFIRMED" and "humidity" in humidity.quote.lower()
+
+
+def test_global_points_from_enthalpy_alone_still_gets_both_lines():
+    texts = ["Furnish an outside air enthalpy sensor for the economizer."]
+    block, evidence = global_points_block(_catalogue(texts=texts), templates=TEMPLATES)
+    assert _block_texts(block) == [_TEMP_LINE, _HUMIDITY_LINE]
+    temp = next(e for e in evidence if e.line == _TEMP_LINE)
+    assert temp.status == "ASSUMPTION"      # named for humidity, not temperature — the default line
+
+
+def test_global_points_words_outside_the_controls_documents_dont_count():
+    outside = PageRecord("Arch.pdf", 3, "text", "Outside air temperature sensor shown for reference.", 0)
+    block, evidence = global_points_block(_catalogue(pages=[outside]), templates=TEMPLATES)
+    assert block is None and evidence == []
+
+
+# --- extended warranty -------------------------------------------------------------
+
+def test_no_warranty_gives_no_extended_warranty_block():
+    block, flags, evidence = extended_warranty_block(_catalogue())
+    assert block is None and flags == [] and evidence == []
+
+
+def test_a_plain_warranty_with_no_extension_gives_no_block():
+    services = (_warranty("Provide a two (2) year warranty on all parts and labor.", "two (2) year"),)
+    block, flags, evidence = extended_warranty_block(_catalogue(_overview(services=services)))
+    assert block is None and flags == [] and evidence == []
+
+
+def test_the_extended_warranty_block_with_its_years_quoted():
+    services = (_warranty("The warranty is one year, then extend the maintenance service for four (4) additional "
+                          "years.", "one year"),)
+    block, flags, evidence = extended_warranty_block(_catalogue(_overview(services=services)))
+    assert isinstance(block, Block)
+    assert block.header == "Qty (1) Extended Warranty"
+    assert _block_texts(block) == [
+        "Warranty scope of work-",
+        "a one-year preventative maintenance service contract covering all parts, materials, software, "
+        "hardware, and all costs to provide software and hardware upgrades during the warranty period.",
+        "extend the maintenance service contract and the warranty for four additional years following the "
+        "warranty period."]
+    assert flags == []
+    assert evidence and all(e.status == "CONFIRMED" for e in evidence)
+    extension = next(e for e in evidence if e.line.startswith("extend the maintenance"))
+    assert "four (4) additional" in extension.quote
+
+
+def test_the_extended_warranty_block_flags_a_missing_year_count():
+    services = (_warranty("Extend the maintenance service for additional years.", "one year"),)
+    block, flags, evidence = extended_warranty_block(_catalogue(_overview(services=services)))
+    assert block is None and evidence == []
+    assert any("years" in f.lower() for f in flags)
+
+
 # --- the header -------------------------------------------------------------------
 
 def _sheet(number, page, discipline="Mechanical", document=MECH):
@@ -263,6 +417,62 @@ def test_the_header_from_the_folder_name_sheets_and_versions():
     assert flags == []
 
 
+def test_the_engineer_label_in_the_title_block_wins_even_with_no_corporate_suffix_word():
+    # "GILLAN & HARTMANN, Inc." names no "engineer/consulting/associates" word of its own — only the
+    # label beside it says what it is (test1-fixes.md 3.1, 26-0478's H601).
+    pages = [PageRecord(MECH, 1, "text", "", 0, True, _title_block("ENGINEER", "GILLAN & HARTMANN, Inc."))]
+    catalogue = _catalogue(folder="26-0478, Somerville HS", sheets=[_sheet("M-001", 1)], pages=pages)
+    header, flags = job_header(catalogue, SimpleNamespace(versions=()), TODAY)
+    assert header.mep_engineer == "GILLAN & HARTMANN, Inc."
+    assert not any("engineer" in f.lower() for f in flags)
+
+
+def test_the_mep_engineer_and_consulting_engineer_labels_are_recognised_too():
+    for label in ("MEP ENGINEER", "MEP ENGINEER:", "CONSULTING ENGINEER"):
+        pages = [PageRecord(MECH, 1, "text", "", 0, True, _title_block(label, "Doyle & Shea"))]
+        catalogue = _catalogue(sheets=[_sheet("M-001", 1)], pages=pages)
+        header, _ = job_header(catalogue, SimpleNamespace(versions=()), TODAY)
+        assert header.mep_engineer == "Doyle & Shea", label
+
+
+def test_another_title_block_label_beside_the_engineer_label_is_skipped():
+    pages = [PageRecord(MECH, 1, "text", "", 0, True,
+                        _title_block("ENGINEER", "SCALE:", "Doyle & Shea"))]
+    catalogue = _catalogue(sheets=[_sheet("M-001", 1)], pages=pages)
+    header, _ = job_header(catalogue, SimpleNamespace(versions=()), TODAY)
+    assert header.mep_engineer == "Doyle & Shea"
+
+
+def _spec_footer_pages(*, firm: str, count: int = 6) -> list[PageRecord]:
+    return [PageRecord(SPEC, n, "text", f"Some spec text on page {n}.\n{firm}", 0) for n in range(1, count + 1)]
+
+
+def test_the_engineer_falls_back_to_the_spec_page_footers():
+    # 26-0193: no title-block label, but "MG Engineering D.P.C." is the most common name in the
+    # spec's page footers (test1-fixes.md 3.1).
+    pages = _spec_footer_pages(firm="MG Engineering D.P.C.")
+    catalogue = _catalogue(folder="26-0193, Fordham Landing", sheets=[_sheet("M-001", 1)], pages=pages)
+    header, flags = job_header(catalogue, SimpleNamespace(versions=()), TODAY)
+    assert header.mep_engineer == "MG Engineering D.P.C."
+    assert not any("engineer" in f.lower() for f in flags)
+
+
+def test_the_spec_footer_fallback_is_the_most_common_name():
+    pages = _spec_footer_pages(firm="MG Engineering D.P.C.", count=5)
+    pages += [PageRecord(SPEC, 90, "text", "Odd page.\nSomeone Else Engineering, LLC", 0)]
+    catalogue = _catalogue(sheets=[_sheet("M-001", 1)], pages=pages)
+    header, _ = job_header(catalogue, SimpleNamespace(versions=()), TODAY)
+    assert header.mep_engineer == "MG Engineering D.P.C."
+
+
+def test_a_title_block_label_wins_over_the_spec_footer():
+    pages = [PageRecord(MECH, 1, "text", "", 0, True, _title_block("ENGINEER", "Doyle & Shea"))]
+    pages += _spec_footer_pages(firm="MG Engineering D.P.C.")
+    catalogue = _catalogue(sheets=[_sheet("M-001", 1)], pages=pages)
+    header, _ = job_header(catalogue, SimpleNamespace(versions=()), TODAY)
+    assert header.mep_engineer == "Doyle & Shea"
+
+
 def test_a_folder_with_only_a_number_and_no_firm_is_pending():
     sheets = [_sheet("M-001", 1), _sheet("M-002", 2)]
     versions = SimpleNamespace(versions=(_version("M-001", 1, None), _version("M-002", 2, None)))
@@ -288,3 +498,85 @@ def test_no_mechanical_or_controls_sheets_is_pending():
     header, flags = job_header(_catalogue(folder="26-0001"), SimpleNamespace(versions=()), TODAY)
     assert header.based_on == ("[drawings the proposal is based on]",)
     assert any("based on" in f for f in flags)
+
+
+def test_plumbing_sheets_are_part_of_based_on_too():
+    sheets = [_sheet("P-101", 1, "Plumbing")]
+    versions = SimpleNamespace(versions=(_version("P-101", 1, dt.date(2026, 4, 1), MECH),))
+    header, flags = job_header(_catalogue(folder="26-0001", sheets=sheets), versions, TODAY)
+    assert header.based_on == ("P-101 Dated: 04/01/2026",)
+    assert not any("based on" in f for f in flags)
+
+
+# --- "based on" and the controls spec sections --------------------------------------
+
+def _schedule(document, page):
+    return Schedule(document, page, None, "VAV BOX SCHEDULE", (), (), False, (), ())
+
+
+def _backbone(document, first_page, last_page):
+    return Backbone(SEQUENCE, "23 09 93 SEQUENCE OF OPERATIONS", document, first_page, last_page, "spec section")
+
+
+def test_a_controls_spec_section_with_a_sequence_is_listed_with_its_date():
+    sections = (SpecSection("23 09 93", "SEQUENCE OF OPERATIONS", SPEC, 40, 75),)
+    pages = [PageRecord(SPEC, n, "text", "Some sequence text." if n != 75 else "Issued 06/26/2026", 0)
+             for n in range(40, 76)]
+    catalogue = _catalogue(folder="26-0001", sections=sections, pages=pages)
+    reading = SimpleNamespace(versions=(), backbone=(_backbone(SPEC, 40, 75),), schedules=())
+    header, flags = job_header(catalogue, reading, TODAY)
+    assert header.based_on == ("23 09 93 SEQUENCE OF OPERATIONS Dated: 06/26/2026",)
+    assert not any("based on" in f for f in flags)
+
+
+def test_a_controls_spec_section_with_a_schedule_is_listed_too():
+    sections = (SpecSection("23 09 23", "POINTS SCHEDULE", SPEC, 10, 12),)
+    pages = [PageRecord(SPEC, n, "text", "Dated 01/15/2026", 0) for n in range(10, 13)]
+    catalogue = _catalogue(folder="26-0001", sections=sections, pages=pages)
+    reading = SimpleNamespace(versions=(), backbone=(), schedules=(_schedule(SPEC, 11),))
+    header, _ = job_header(catalogue, reading, TODAY)
+    assert header.based_on == ("23 09 23 POINTS SCHEDULE Dated: 01/15/2026",)
+
+
+def test_a_controls_spec_section_with_neither_is_not_listed():
+    sections = (SpecSection("23 09 00", "GENERAL REQUIREMENTS", SPEC, 1, 3),)
+    pages = [PageRecord(SPEC, n, "text", "Dated 01/15/2026", 0) for n in (1, 2, 3)]
+    catalogue = _catalogue(folder="26-0001", sections=sections, pages=pages)
+    reading = SimpleNamespace(versions=(), backbone=(), schedules=())
+    header, flags = job_header(catalogue, reading, TODAY)
+    assert header.based_on == ("[drawings the proposal is based on]",)
+    assert any("based on" in f for f in flags)
+
+
+def test_an_undated_controls_spec_section_is_flagged():
+    sections = (SpecSection("23 09 93", "SEQUENCE OF OPERATIONS", SPEC, 40, 41),)
+    pages = [PageRecord(SPEC, n, "text", "No date printed anywhere on this page.", 0) for n in (40, 41)]
+    catalogue = _catalogue(folder="26-0001", sections=sections, pages=pages)
+    reading = SimpleNamespace(versions=(), backbone=(_backbone(SPEC, 40, 41),), schedules=())
+    header, flags = job_header(catalogue, reading, TODAY)
+    assert header.based_on == ("23 09 93 SEQUENCE OF OPERATIONS Dated: [date]",)
+    assert any("23 09 93" in f and "date" in f.lower() for f in flags)
+
+
+def test_the_same_section_reissued_in_an_addendum_is_one_line():
+    # 26-0478: 23 09 23 is a real section in both the base spec and its addendum — one line, with
+    # the later date, not two identical undated lines.
+    ADDENDUM = "Addendum.pdf"
+    sections = (SpecSection("23 09 23", "DIRECT DIGITAL CONTROL (DDC) SYSTEM", SPEC, 40, 41),
+               SpecSection("23 09 23", "DIRECT DIGITAL CONTROL (DDC) SYSTEM", ADDENDUM, 1, 2))
+    pages = [PageRecord(SPEC, n, "text", "Dated 01/01/2026", 0) for n in (40, 41)]
+    pages += [PageRecord(ADDENDUM, n, "text", "Dated 03/15/2026", 0) for n in (1, 2)]
+    catalogue = _catalogue(folder="26-0001", sections=sections, pages=pages)
+    reading = SimpleNamespace(versions=(), backbone=(_backbone(SPEC, 40, 41), _backbone(ADDENDUM, 1, 2)),
+                              schedules=())
+    header, _ = job_header(catalogue, reading, TODAY)
+    assert header.based_on == ("23 09 23 DIRECT DIGITAL CONTROL (DDC) SYSTEM Dated: 03/15/2026",)
+
+
+def test_based_on_with_no_schedules_or_backbone_attribute_is_unaffected():
+    # A reading object that carries no .schedules / .backbone (older test fixtures) never breaks —
+    # it just lists no spec sections.
+    sheets = [_sheet("M-001", 1)]
+    versions = SimpleNamespace(versions=(_version("M-001", 1, dt.date(2026, 1, 1)),))
+    header, _ = job_header(_catalogue(folder="26-0001", sheets=sheets), versions, TODAY)
+    assert header.based_on == ("M-001 Dated: 01/01/2026",)

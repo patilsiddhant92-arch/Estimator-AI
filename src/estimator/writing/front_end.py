@@ -23,7 +23,9 @@ from pathlib import Path
 
 from estimator.catalogue.overview import FOUND, Found, Place, short_place
 from estimator.catalogue.pdf import clean_text
-from estimator.scope import FrontEnd, Header, Item, Run
+from estimator.reading.revisions import parse_date
+from estimator.scope import Block, FrontEnd, Header, Item, Run
+from estimator.writing.templates import load_templates, template_for
 
 ASSETS = Path(__file__).resolve().parents[3] / "assets"
 FRONT_END_FILE = ASSETS / "front_end.json"
@@ -56,8 +58,12 @@ def _compile(patterns, shared: dict) -> tuple[re.Pattern, ...]:
 
 # --- the front end ----------------------------------------------------------------
 
-def front_end(catalogue, data: dict | None = None) -> tuple[FrontEnd, list[str], list[Evidence]]:
-    """The front-end block, the flags for the review list, and the evidence for each printed line."""
+def front_end(catalogue, data: dict | None = None, bid_check=None
+             ) -> tuple[FrontEnd, list[str], list[Evidence]]:
+    """The front-end block, the flags for the review list, and the evidence for each printed line.
+
+    bid_check: the catalogue's Bid check (estimator.catalogue.qualify.BidCheck), when there is one.
+    Its passages name the existing BMS when the Spec overview's own tie-in quote doesn't."""
     data = data or _load(FRONT_END_FILE)
     overview = catalogue.overview
     topics = {t.item: t for t in overview.topics}
@@ -68,12 +74,17 @@ def front_end(catalogue, data: dict | None = None) -> tuple[FrontEnd, list[str],
     if tie_in is not None and tie_in.status == FOUND:
         mode = "extend-existing"
         name = _existing_name(tie_in.quote, data["existing_systems"])
+        where, quote = short_place(tie_in.places), tie_in.quote
+        if name is None and bid_check is not None:
+            found = _existing_name_from_bid_check(bid_check, data["existing_systems"])
+            if found is not None:
+                name, where, quote = found
         if name is None:
             name = data["existing_systems"]["unnamed"]
             flags.append(f"Name the existing BMS — the job asks for a tie-in to an existing system but doesn't say "
                          f"which one: “{tie_in.quote}” ({short_place(tie_in.places)})")
         heading = data["headings"][mode].format(system=name)
-        evidence.append(Evidence(heading, short_place(tie_in.places), tie_in.quote,
+        evidence.append(Evidence(heading, where, quote,
                                  "CONFIRMED" if name != data["existing_systems"]["unnamed"] else "PENDING"))
     else:
         mode, name = "new-system", None
@@ -113,6 +124,18 @@ def _existing_name(quote: str, systems: dict) -> str | None:
     names = [entry["name"] for entry in systems["names"]
              if any(re.search(p, quote, re.I) for p in entry["patterns"])]
     return " / ".join(names) or None
+
+
+def _existing_name_from_bid_check(bid_check, systems: dict) -> tuple[str, str, str] | None:
+    """(name, where, quote) from the first Bid check passage that names one of the existing_systems
+    names — None when no passage does."""
+    from estimator.catalogue.qualify import where as bid_where
+
+    for mention in bid_check.mentions:
+        name = _existing_name(mention.quote, systems)
+        if name is not None:
+            return name, bid_where(mention), mention.quote
+    return None
 
 
 class _Conditions:
@@ -190,6 +213,30 @@ def _sentence(text: str, start: int, end: int) -> str:
     return quote if len(quote) <= _QUOTE_LIMIT else quote[:_QUOTE_LIMIT].rstrip() + "…"
 
 
+def _term(amount: str) -> str:
+    return re.sub(r"\s*-?\s*(year|month)s?\s*$", r"-\1", amount.strip().lower())
+
+
+def _warranty_rows(overview, found: Found) -> list[Found]:
+    services = {s.item: s for s in overview.services}
+    agreement = services.get(_SERVICE_AGREEMENT)
+    return [found] + ([agreement] if agreement is not None and agreement.status == FOUND else [])
+
+
+def _warranty_extension(rows: list[Found], warranty: dict) -> tuple[str, str, Found] | None:
+    """("found"|"missing_years", the extension line or "", the row it came from) for the first row
+    whose quote calls for a warranty or service contract longer than the standard year — None when
+    none does."""
+    for row in rows:
+        if not any(re.search(p, row.quote, re.I) for p in warranty["extension_words"]):
+            continue
+        years = re.search(warranty["extension_years"], row.quote, re.I)
+        if years is None:
+            return "missing_years", "", row
+        return "found", warranty["extension"].format(years=years.group(1).lower()), row
+    return None
+
+
 def _warranty(overview, warranty: dict, flags: list[str], evidence: list[Evidence]) -> list[Item]:
     services = {s.item: s for s in overview.services}
     found = services.get(_WARRANTY)
@@ -200,27 +247,100 @@ def _warranty(overview, warranty: dict, flags: list[str], evidence: list[Evidenc
         flags.append(f"Say how long the warranty is — the job asks for one but no length was read: "
                      f"“{found.quote}” ({where})")
         return []
-    term = re.sub(r"\s*-?\s*(year|month)s?\s*$", r"-\1", found.amount.strip().lower())
-    contract = warranty["contract"].format(term=term)
+    contract = warranty["contract"].format(term=_term(found.amount))
     items = [_line(warranty["heading"], 1, None), _line(contract, 2, None)]
     evidence.append(Evidence(warranty["heading"], where, found.quote, "CONFIRMED"))
     evidence.append(Evidence(contract, where, found.quote, "CONFIRMED"))
 
-    agreement = services.get(_SERVICE_AGREEMENT)
-    rows = [found] + ([agreement] if agreement is not None and agreement.status == FOUND else [])
-    for row in rows:
-        if not any(re.search(p, row.quote, re.I) for p in warranty["extension_words"]):
-            continue
-        years = re.search(warranty["extension_years"], row.quote, re.I)
-        if years is None:
+    extension = _warranty_extension(_warranty_rows(overview, found), warranty)
+    if extension is not None:
+        state, text, row = extension
+        if state == "missing_years":
             flags.append(f"Say for how many years the warranty is extended — the job asks for it but the years "
                          f"weren't read: “{row.quote}” ({short_place(row.places)})")
-            break
-        extension = warranty["extension"].format(years=years.group(1).lower())
-        items.append(_line(extension, 2, None))
-        evidence.append(Evidence(extension, short_place(row.places), row.quote, "CONFIRMED"))
-        break
+        else:
+            items.append(_line(text, 2, None))
+            evidence.append(Evidence(text, short_place(row.places), row.quote, "CONFIRMED"))
     return items
+
+
+def extended_warranty_block(catalogue, data: dict | None = None) -> tuple[Block | None, list[str], list[Evidence]]:
+    """The Master Template's standalone "Qty (1) Extended Warranty" block: printed only when the
+    job's warranty or service/maintenance agreement calls for a term longer than the standard year,
+    with that term quoted word for word.
+
+    Call this from estimator.writing.write.build_job, after the front end and the systems are
+    written, and — when it returns a block — append the block to Job.blocks and fold its evidence
+    and flags into the review list the same way apply_exceptions' systems are. None, with no flags
+    and no evidence, when the job never asks for an extension."""
+    data = data or _load(FRONT_END_FILE)
+    warranty = data["warranty"]
+    overview = catalogue.overview
+    services = {s.item: s for s in overview.services}
+    found = services.get(_WARRANTY)
+    if found is None or found.status != FOUND or not found.amount:
+        return None, [], []
+    extension = _warranty_extension(_warranty_rows(overview, found), warranty)
+    if extension is None:
+        return None, [], []
+    state, text, row = extension
+    if state == "missing_years":
+        flag = (f"Say for how many years the warranty is extended — the job asks for it but the years "
+               f"weren't read: “{row.quote}” ({short_place(row.places)})")
+        return None, [flag], []
+    where = short_place(found.places)
+    contract = warranty["contract"].format(term=_term(found.amount))
+    items = (_line(warranty["heading"], 1, None), _line(contract, 2, None), _line(text, 2, None))
+    evidence = [Evidence(warranty["heading"], where, found.quote, "CONFIRMED"),
+               Evidence(contract, where, found.quote, "CONFIRMED"),
+               Evidence(text, short_place(row.places), row.quote, "CONFIRMED")]
+    return Block(header=warranty["extended_header"], items=items), [], evidence
+
+
+_GLOBAL_POINTS = "Global Points"
+_GP_TEMPERATURE_LINE = "Furnish and Install Outside Air Temperature"
+_GP_HUMIDITY_LINE = "Furnish and Install Outside Air Humidity"
+
+
+def global_points_block(catalogue, data: dict | None = None, templates=None
+                        ) -> tuple[Block | None, list[Evidence]]:
+    """The Master Template's "Qty (1) Global Points" block, with the outside-air temperature and
+    humidity lines: printed only when the spec or sequence names an outside-air temperature or
+    humidity sensor, using the Master Template's own Global Points entry (assets/system_templates.json)
+    for the header and the lines' wording.
+
+    Call this from estimator.writing.write.build_job (templates is the same tuple load_templates()
+    already gives it), after the front end and the systems are written, and — when it returns a
+    block — append the block to Job.blocks and fold its evidence into the review list the same way
+    apply_exceptions' systems are. None, with no evidence, when neither is named."""
+    data = data or _load(FRONT_END_FILE)
+    templates = templates if templates is not None else load_templates()
+    template = template_for("", _GLOBAL_POINTS, templates)
+    if template is None:
+        return None, []
+    held = _Conditions(catalogue, data, {t.item: t for t in catalogue.overview.topics})
+    temperature = held.check("oa_temperature")
+    humidity = held.check("oa_humidity")
+    if temperature is None and humidity is None:
+        return None, []
+    lines = {line.text: line for line in template.lines}
+    items: list[Item] = []
+    evidence: list[Evidence] = []
+    temp_line = lines.get(_GP_TEMPERATURE_LINE)
+    if temp_line is not None:
+        items.append(_line(temp_line.text, 1, 1))
+        if temperature is not None:
+            where, quote = temperature
+            evidence.append(Evidence(temp_line.text, where, quote, "CONFIRMED"))
+        else:
+            evidence.append(Evidence(temp_line.text, _TEMPLATE_DEFAULT, "", "ASSUMPTION"))
+    humidity_line = lines.get(_GP_HUMIDITY_LINE)
+    if humidity_line is not None and humidity is not None:
+        where, quote = humidity
+        items.append(_line(humidity_line.text, 1, 1))
+        evidence.append(Evidence(humidity_line.text, where, quote, "CONFIRMED"))
+    header = " ".join(template.header.format(n=1).split())
+    return Block(header=header, items=tuple(items)), evidence
 
 
 # --- the header -------------------------------------------------------------------
@@ -250,6 +370,9 @@ def job_header(catalogue, reading, today: dt.date, data: dict | None = None) -> 
 
 
 def _engineer(catalogue, settings: dict) -> str | None:
+    label = _label_engineer(catalogue, settings)
+    if label is not None:
+        return label
     firm = re.compile(settings["engineer_firm"], re.I)
     for discipline in settings["engineer_disciplines"]:
         pages = {(s.document, s.page) for s in catalogue.sheets if s.discipline == discipline}
@@ -261,7 +384,65 @@ def _engineer(catalogue, settings: dict) -> str | None:
             counts.update(name for name in names if firm.search(name))
         if counts:
             return counts.most_common(1)[0][0]
+    return _spec_footer_engineer(catalogue, firm)
+
+
+def _label_engineer(catalogue, settings: dict) -> str | None:
+    """The text beside the title block's ENGINEER / MEP ENGINEER / CONSULTING ENGINEER label — the
+    firm's own name, whatever it is, even one with no "engineer/consulting/associates" word of its
+    own ("GILLAN & HARTMANN, Inc."). A real title block is a grid of several labels and values
+    ("ENGINEER" and "DATE" side by side, each with its own value below it), so the value is read from
+    the same column as the label — the nearest text below it, close to its own left edge — never
+    whatever merely comes next in reading order (that could be another column's label or value
+    entirely, "ISSUE FOR BID" under a neighbouring "DATE"). Of what's in that column, a name that
+    looks like a firm's (an "&", or a corporate suffix) is preferred to one that reads as a person's
+    (a name with a professional-license line, "MICHAEL S. GILLAN, PE")."""
+    label = re.compile(settings["engineer_label"], re.I)
+    skip = {w.upper() for w in settings.get("engineer_label_skip", ())}
+    hint = re.compile(settings["engineer_label_company_hint"], re.I)
+    x_tolerance = settings.get("engineer_label_x_tolerance", 0.05)
+    y_reach = settings.get("engineer_label_y_reach", 0.03)
+    pages = {(s.document, s.page) for s in catalogue.sheets if s.discipline in settings["engineer_disciplines"]}
+    for record in catalogue.pages:
+        if (record.document, record.page) not in pages:
+            continue
+        spans = record.edge_spans
+        for label_span in spans:
+            if not label.match(" ".join(label_span.text.split())):
+                continue
+            candidates = [s for s in spans if s is not label_span
+                         and label_span.y0 < s.y0 <= label_span.y0 + y_reach
+                         and abs(s.x0 - label_span.x0) <= x_tolerance]
+            candidates = [" ".join(s.text.split()) for s in sorted(candidates, key=lambda s: s.y0)]
+            candidates = [c for c in candidates if not label.match(c) and c.rstrip(":").strip().upper() not in skip]
+            if not candidates:
+                continue
+            return next((c for c in candidates if hint.search(c)), candidates[0])
     return None
+
+
+def _spec_pages(catalogue) -> set[tuple[str, int]]:
+    pages: set[tuple[str, int]] = set()
+    for section in getattr(catalogue, "sections", ()):
+        for page in range(section.first_page, section.last_page + 1):
+            pages.add((section.document, page))
+    return pages
+
+
+def _spec_footer_engineer(catalogue, firm: re.Pattern) -> str | None:
+    """Else the most common firm name printed on the spec's own pages — the same boilerplate line
+    (a header or a footer, wherever the page puts it) that repeats on page after page, the same
+    "engineer/consulting/associates" firm-name pattern the title blocks use."""
+    spec_pages = _spec_pages(catalogue)
+    counts: Counter[str] = Counter()
+    for record in catalogue.pages:
+        if (record.document, record.page) not in spec_pages:
+            continue
+        for line in clean_text(record.text).splitlines():
+            squashed = " ".join(line.split())
+            if squashed and firm.search(squashed):
+                counts[squashed] += 1
+    return counts.most_common(1)[0][0] if counts else None
 
 
 def _natural(number: str) -> tuple:
@@ -286,9 +467,6 @@ def _based_on(catalogue, reading, settings: dict, flags: list[str]) -> list[str]
         latest = numbers.get(version.sheet)
         if version.sheet not in numbers or (version.latest and (latest is None or version.latest > latest)):
             numbers[version.sheet] = version.latest
-    if not sets:
-        flags.append("Say which drawings the proposal is based on — no mechanical or controls sheet numbers were read")
-        return ["[drawings the proposal is based on]"]
 
     lines = []
     undated = []
@@ -304,4 +482,53 @@ def _based_on(catalogue, reading, settings: dict, flags: list[str]) -> list[str]
     if undated:
         flags.append("Give the drawings' issue date for “based on” — no revision date was read from the title "
                      f"blocks of the {', '.join(undated)} set")
+
+    section_lines, undated_sections = _based_on_sections(catalogue, reading, settings)
+    lines += section_lines
+    if undated_sections:
+        word = "section" if len(undated_sections) == 1 else "sections"
+        flags.append(f"Give the issue date for “based on” — no date was read from the {word} "
+                     f"{', '.join(undated_sections)}")
+
+    if not lines:
+        flags.append("Say which drawings the proposal is based on — no mechanical or controls sheet numbers were read")
+        return ["[drawings the proposal is based on]"]
     return lines
+
+
+def _based_on_sections(catalogue, reading, settings: dict) -> tuple[list[str], list[str]]:
+    """The controls spec sections that carry a schedule or a sequence of operation, each with its
+    date — else "[date]", flagged. The same section number reissued in more than one document (a
+    base spec and its addendum) is one line, not two: its dates are pooled and the latest governs,
+    the same way "based on"'s own sheet numbers already do."""
+    schedule_pages = {(s.document, s.page) for s in getattr(reading, "schedules", ())}
+    sequence_ranges = [(b.document, b.first_page, b.last_page) for b in getattr(reading, "backbone", ())
+                       if not b.duplicate_of]
+    pooled: dict[str, dict] = {}
+    order: list[str] = []
+    for section in getattr(catalogue, "sections", ()):
+        if not section.controls:
+            continue
+        has_schedule = any(document == section.document and section.first_page <= page <= section.last_page
+                           for document, page in schedule_pages)
+        has_sequence = any(document == section.document and first <= section.last_page and last >= section.first_page
+                           for document, first, last in sequence_ranges)
+        if not (has_schedule or has_sequence):
+            continue
+        texts = [r.text for r in catalogue.pages
+                if r.document == section.document and section.first_page <= r.page <= section.last_page]
+        dates = [d for d in (parse_date(t) for t in texts) if d]
+        entry = pooled.setdefault(section.number, {"title": section.title, "dates": []})
+        entry["dates"] += dates
+        if section.number not in order:
+            order.append(section.number)
+
+    lines, undated = [], []
+    for number in order:
+        entry = pooled[number]
+        dates = entry["dates"]
+        date = max(dates).strftime(settings["date_format"]) if dates else settings["undated"]
+        if not dates:
+            undated.append(number)
+        lines.append(settings["spec_section_line"].format(number=number, title=entry["title"], date=date))
+    return lines, undated
