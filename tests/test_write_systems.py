@@ -344,3 +344,109 @@ def test_build_job_gives_a_job_that_fits_the_price_sheet():
     assert [b.header for b in job.blocks] == ["Qty (3) Variable Air Volume Box VAV-1 thru 3"]
     assert systems[0].bundle_key == "Front end"
     assert any("ZZ-1" in flag for flag in flags)            # a family on no schedule reaches the review list
+
+
+# --- a Sensaphone becomes an exception when the network control panel sends the alarms ---------------
+
+ALARM = "HVAC Alarm Panel w/ Auto Dialer"
+ALARM_PASSAGE = Passage("23 09 93 SEQUENCE OF OPERATIONS, page 45", "Specs.pdf", 45,
+                        "Alarms: provide a Sensaphone auto dialer to call the owner on a high room temperature alarm.")
+AUTO_DIALER_EXCEPTION = "EXCEPTION TO AUTO DIALER (BMS CAN SEND OUT ALARMS VIA EMAIL AND SMS TEXT)"
+
+
+def _alarm_bundle(passages=(ALARM_PASSAGE,)):
+    return _bundle("AP", "HVAC Alarm Panel", ["AP-1"], passages=passages)
+
+
+def _with_panel():
+    from estimator.writing.front_end import front_end
+    fe, _, _ = front_end(_catalogue())
+    assert "Furnish Network Level Control Panel" in [item.text for item in fe.items]
+    return fe
+
+
+def test_the_exception_is_the_templates_own_line():
+    [alarm] = [t for t in TEMPLATES if t.name == ALARM]
+    assert alarm.becomes_exception_when is not None
+    assert alarm.becomes_exception_when.front_end_line == "Furnish Network Level Control Panel"
+    assert alarm.becomes_exception_when.exception == AUTO_DIALER_EXCEPTION
+    assert AUTO_DIALER_EXCEPTION in [line.text for line in alarm.lines]
+
+
+def test_with_the_panel_a_sensaphone_passage_becomes_an_exception_not_a_block():
+    from estimator.writing.write import apply_exceptions
+    bundle = _alarm_bundle()
+    assert _write(bundle).printed                               # a block, were it not for the rule
+    to_write, excepted, exceptions = apply_exceptions(_with_panel(), [bundle], _catalogue(), TEMPLATES)
+
+    assert to_write == [] and exceptions == (AUTO_DIALER_EXCEPTION,)
+    [alarm] = excepted
+    assert alarm.blocks == () and alarm.template == ALARM
+    [item] = [i for i in alarm.review if "Sensaphone / auto dialer called for" in i.decide]
+    assert item.system == ALARM
+    assert item.decide == ("Sensaphone / auto dialer called for (23 09 93 SEQUENCE OF OPERATIONS, page 45) — put in "
+                           "the exceptions, because the network control panel sends the alarm emails. Check.")
+    assert "Sensaphone auto dialer" in item.evidence
+    [line] = alarm.lines
+    assert line.text == AUTO_DIALER_EXCEPTION and line.client and "23 09 93" in line.evidence
+
+
+def test_with_no_network_control_panel_the_alarm_panel_block_is_written():
+    from estimator.scope import FrontEnd, Item, Run
+    from estimator.writing.write import apply_exceptions
+    standalone = FrontEnd(mode="new-system", items=(Item(kind="line", runs=(Run(text="Furnish 3-D Graphics"),)),))
+    bundle = _alarm_bundle()
+    to_write, excepted, exceptions = apply_exceptions(standalone, [bundle], _catalogue(), TEMPLATES)
+
+    assert (to_write, excepted, exceptions) == ([bundle], [], ())
+    alarm = _write(bundle)
+    assert alarm.printed and alarm.blocks[0].header == "Qty (1) HVAC Alarm Panel w/ Auto Dialer"
+    assert "Furnish and Install Sensaphone" in _printed(alarm)
+
+
+def test_with_the_panel_but_no_sensaphone_called_for_the_block_stays():
+    from estimator.writing.write import apply_exceptions
+    bundle = _alarm_bundle(passages=())
+    assert apply_exceptions(_with_panel(), [bundle], _catalogue(), TEMPLATES) == ([bundle], [], ())
+
+
+def _sensaphone_in_the_spec_job():
+    from estimator.catalogue.overview import FOUND, Found, Place
+    found = Found("Network and front end", "Auto dialer / Sensaphone",
+                  (Place("Specs.pdf", 12, None, "23 09 23", "Controls spec"),),
+                  "The BAS shall include a Sensaphone for remote alarms.", FOUND)
+    schedule = Schedule(DWG, 5, "M-601", "VAV BOX SCHEDULE", ("TAG", "HW GPM"),
+                        tuple(ScheduleRow(t, {"TAG": t, "HW GPM": "1.5"}, None, None) for t in VAV_TAGS),
+                        False, (), ())
+    items = tuple(InventoryItem(t, "Variable Air Volume Box", "CONFIRMED", 1, "M-601 VAV BOX SCHEDULE", ("M-101",),
+                                "", "") for t in VAV_TAGS)
+    catalogue = SimpleNamespace(job=SimpleNamespace(name="26-9999", root=Path("26-9999, 1 Test Street")),
+                                overview=SpecOverview(topics=(found,)), pages=(), sheets=(), sections=(), tags=())
+    reading = SimpleNamespace(schedules=(schedule,), inventory=items, notes=(), backbone=(), devices=(), versions=(),
+                              flags=())
+    return build_job(catalogue, reading, None, dt.date(2026, 9, 25))
+
+
+def test_the_spec_overview_finding_a_sensaphone_makes_the_exception_in_the_job():
+    job, systems, _ = _sensaphone_in_the_spec_job()
+    assert job.named_exceptions == (AUTO_DIALER_EXCEPTION,)
+    assert not any("Alarm Panel" in block.header for block in job.blocks)
+    [item] = [i for s in systems for i in s.review if "Sensaphone / auto dialer called for" in i.decide]
+    assert "Specs.pdf · 23 09 23 · page 12" in item.decide
+    assert item.evidence == "The BAS shall include a Sensaphone for remote alarms."
+
+
+def test_the_proposal_prints_the_named_exception(proposal_template, tmp_path):
+    from estimator.proposal.write import write_proposal
+    from docx import Document
+    job, _, _ = _sensaphone_in_the_spec_job()
+    out = write_proposal(job, proposal_template, tmp_path / "proposal.docx")
+    texts = [p.text.strip() for p in Document(str(out)).paragraphs]
+    assert AUTO_DIALER_EXCEPTION in texts
+
+
+def test_the_summary_counts_a_system_put_in_the_exceptions():
+    from estimator.__main__ import estimate_lines
+    _, systems, flags = _sensaphone_in_the_spec_job()
+    [first, *_] = estimate_lines(systems, flags, None, True)
+    assert first == "Systems written: 1 in the proposal, 1 put in the exceptions."

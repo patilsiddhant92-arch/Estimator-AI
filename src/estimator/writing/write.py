@@ -20,7 +20,7 @@ from dataclasses import dataclass, field
 from functools import lru_cache
 
 from estimator.catalogue.overview import FOUND, short_place
-from estimator.scope import Block, Item, Job, Run
+from estimator.scope import Block, FrontEnd, Item, Job, Run
 from estimator.writing.front_end import front_end, job_header
 from estimator.writing.judge import NO_KEY
 from estimator.writing.systems import SystemBundle, build_bundles, unbundled_flags
@@ -853,16 +853,60 @@ def _split(flag: str) -> tuple[str, str, str]:
     return decide, rest, ""
 
 
+def _empty_bundle(name: str) -> SystemBundle:
+    """No unit of the system on the job: only the Spec overview can say the job calls for it."""
+    return SystemBundle(key=name, name=name, families=(), schedule_rows=(), schedule_notes=(), controls_by=(),
+                        notes=(), passages=(), devices=(), sheets=(), flags=())
+
+
+def apply_exceptions(fe: FrontEnd, bundles, catalogue, templates
+                     ) -> tuple[list[SystemBundle], list[WrittenSystem], tuple[str, ...]]:
+    """A system whose template says it becomes an exception (becomes_exception_when): when the front
+    end prints the template's front-end line and the job calls for the system, the system is not
+    written as a block. Its template line goes into the proposal's exceptions, with a review line.
+
+    Returns the bundles still to write, the systems put in the exceptions (no block, for the
+    Evidence Package) and the exceptions' text, in the templates' order."""
+    front = {item.text for item in fe.items if item.kind == "line"}
+    to_write = list(bundles)
+    excepted: list[WrittenSystem] = []
+    exceptions: list[str] = []
+    for template in templates:
+        rule = template.becomes_exception_when
+        if rule is None or rule.front_end_line not in front:
+            continue
+        mine = [b for b in to_write if _choose_template(b, templates) is template]
+        hit = None
+        for bundle in [*mine, _empty_bundle(template.name)]:
+            check = _Reading(bundle, catalogue).check(rule.called_for)
+            if check.state == HOLDS:
+                hit = check.hit
+                break
+        if hit is None:
+            continue
+        to_write = [b for b in to_write if b not in mine]
+        exceptions.append(rule.exception)
+        line = ScopeLine(template.name, rule.exception, 1, None, None, CONFIRMED, _RULE_CONFIDENCE[hit.place],
+                         f"rule: {rule.front_end_line} is in the front end, and the job calls for "
+                         f"{template.name} ({hit.where})", hit.text, True)
+        review = [ReviewItem(template.name, "", rule.review.format(where=hit.where), hit.quote, "")]
+        review += [_review_flag(template.name, f) for b in mine for f in b.flags]
+        key = mine[0].key if mine else template.name
+        excepted.append(WrittenSystem(key, (), (line,), tuple(review), printed=True, template=template.name))
+    return to_write, excepted, tuple(exceptions)
+
+
 def build_job(catalogue, reading, judge, today, templates=None) -> tuple[Job, list[WrittenSystem], list[str]]:
     """The whole scope: the cover header, the front end and every system, in the proposal's order.
 
-    Returns the Job (the client view), the written systems (the front end first) and the flags for
-    the review list that belong to no system: families on the drawings but on no schedule."""
+    Returns the Job (the client view), the written systems (the front end first, then each system,
+    then any put in the exceptions instead) and the flags for the review list that belong to no
+    system: families on the drawings but on no schedule."""
     templates = templates or load_templates()
     header, header_flags = job_header(catalogue, reading, today)
     fe, fe_flags, fe_evidence = front_end(catalogue)
-    bundles = build_bundles(catalogue, reading)
-    systems = write_systems(catalogue, reading, bundles, templates, judge)
+    bundles, excepted, exceptions = apply_exceptions(fe, build_bundles(catalogue, reading), catalogue, templates)
+    systems = write_systems(catalogue, reading, bundles, templates, judge) + excepted
     blocks = tuple(b for s in systems if s.printed for b in s.blocks)
-    job = Job(header=header, front_end=fe, blocks=blocks)
+    job = Job(header=header, front_end=fe, blocks=blocks, named_exceptions=exceptions)
     return job, [_front_end_system(fe, fe_flags, fe_evidence, header_flags)] + systems, unbundled_flags(reading)

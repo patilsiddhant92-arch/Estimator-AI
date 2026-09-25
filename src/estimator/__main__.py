@@ -254,7 +254,8 @@ def _estimate(args: argparse.Namespace) -> None:
 
 def estimate_lines(systems, review_flags, judge, no_ai: bool, reading_flags: int = 0) -> list[str]:
     """The run's summary, in plain words."""
-    written = [s for s in systems if s.bundle_key != "Front end"]
+    written = [s for s in systems if s.bundle_key != "Front end" and s.blocks]
+    excepted = [s for s in systems if s.bundle_key != "Front end" and not s.blocks]
     printed = [s for s in written if s.printed]
     lines = [line for s in systems for line in s.lines]
     in_proposal = sum(1 for line in lines if line.client)
@@ -263,6 +264,7 @@ def estimate_lines(systems, review_flags, judge, no_ai: bool, reading_flags: int
     held = len(written) - len(printed)
     summary = [f"Systems written: {len(printed)} in the proposal"
                + (f", {held} left out until the estimator writes {'it' if held == 1 else 'them'}" if held else "")
+               + (f", {len(excepted)} put in the exceptions" if excepted else "")
                + ".",
                f"Lines: {in_proposal} in the proposal; {pending} PENDING (kept out); "
                f"{review} {'item' if review == 1 else 'items'} on the review list"

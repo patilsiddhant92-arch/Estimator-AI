@@ -18,6 +18,7 @@
     {"section": "Network and front end", "item": "Remote access", "patterns": ["\\bremote\\s+access\\b", "\\bVPN\\b"]},
     {"section": "Network and front end", "item": "Tie-in to an existing system", "patterns": ["\\bexisting\\s+(?:BMS|BAS|EMS|DDC|front[- ]end|building\\s+(?:management|automation)\\s+system|temperature\\s+control)", "\\bextension\\s+of\\s+the\\s+existing\\b", "\\b(?:tie|connect|integrate)[sd]?\\s+(?:in\\s*)?(?:in)?to\\s+the\\s+existing\\b"]},
     {"section": "Network and front end", "item": "Cybersecurity / owner IT rules", "patterns": ["\\bcyber\\s*-?security\\b", "\\bowner'?s?\\s+IT\\b"]},
+    {"section": "Network and front end", "item": "Auto dialer / Sensaphone", "patterns": ["\\bSensaphone\\b", "\\bauto[- ]?dialer\\b", "\\bautodialer\\b"]},
     {"section": "Electrical and conduit", "item": "EMT conduit", "patterns": ["\\bEMT\\b", "\\belectrical\\s+metallic\\s+tubing\\b"], "electrical": true},
     {"section": "Electrical and conduit", "item": "Wiring in conduit", "patterns": ["\\bin\\s+(?:a\\s+)?conduits?\\b", "\\bconduits?\\b"], "electrical": true},
     {"section": "Electrical and conduit", "item": "Plenum-rated cable", "patterns": ["\\bplenum[- ]?(?:rated|cable)\\b", "\\bCMP\\b"], "electrical": true},

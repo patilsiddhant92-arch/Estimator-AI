@@ -208,3 +208,16 @@ def test_a_controls_platform_maker_is_not_a_device_to_price():
     honeywell = next(m for m in overview.makers if m.maker == "Honeywell")
     assert honeywell.priced is False
     assert honeywell.ame_quotes is False and honeywell.vendors == () and honeywell.email_draft == ""
+
+
+def test_the_spec_overview_looks_for_a_sensaphone_or_auto_dialer():
+    import json
+    import re
+    from pathlib import Path
+    data = json.loads((Path(__file__).resolve().parents[1] / "assets" / "reading_lists" / "spec_overview.json")
+                      .read_text(encoding="utf-8"))
+    [topic] = [t for t in data["topics"] if t["item"] == "Auto dialer / Sensaphone"]
+    assert topic["section"] == "Network and front end"
+    for text in ("Provide a Sensaphone", "an auto dialer", "the auto-dialer", "AUTODIALER"):
+        assert any(re.search(p, text, re.I) for p in topic["patterns"]), text
+    assert not any(re.search(p, "the automatic dialog", re.I) for p in topic["patterns"])

@@ -58,6 +58,17 @@ class TechHours:
 
 
 @dataclass(frozen=True)
+class ExceptionRule:
+    """When the front end prints `front_end_line` and the job calls for this system, the system is
+    not written as a block: its template line `exception` goes into the proposal's exceptions."""
+
+    front_end_line: str
+    exception: str                   # one of the system's own template lines, word for word
+    called_for: Condition            # where the job asks for the system
+    review: str                      # the review line; {where} is where the job asks for it
+
+
+@dataclass(frozen=True)
 class SystemTemplate:
     name: str
     prefixes: tuple[str, ...]
@@ -71,6 +82,7 @@ class SystemTemplate:
     tech_hours: TechHours
     extra_tech_hours: tuple[TechHours, ...] = ()   # added to tech_hours (gas detection: per panel and per fan)
     family_names: dict[str, str] = field(default_factory=dict)  # the template's own name for a family in a group header
+    becomes_exception_when: ExceptionRule | None = None
 
 
 @lru_cache(maxsize=4)
@@ -155,6 +167,13 @@ def _system(raw: dict, top: dict) -> SystemTemplate:
                 if cond not in conditions:
                     raise ValueError(f"{name}: tech hours condition {cond} is not defined")
     applies = raw.get("applies_to", {})
+    rule = None
+    if raw.get("becomes_exception_when"):
+        r = raw["becomes_exception_when"]
+        if r["exception"] not in [line.text for line in lines]:
+            raise ValueError(f"{name}: the exception {r['exception']!r} is not one of the system's template lines")
+        rule = ExceptionRule(r["front_end_line"], r["exception"],
+                             _condition("called_for", r["called_for"], name), r["review"])
     return SystemTemplate(
         name=name,
         prefixes=tuple(p.upper() for p in applies.get("prefixes", ())),
@@ -168,6 +187,7 @@ def _system(raw: dict, top: dict) -> SystemTemplate:
         tech_hours=parsed[0],
         extra_tech_hours=tuple(parsed[1:]),
         family_names=dict(raw.get("family_names", {})),
+        becomes_exception_when=rule,
     )
 
 

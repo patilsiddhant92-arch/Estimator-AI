@@ -497,7 +497,18 @@
         "(Sensaphone or Similar word is used in the specs / sequence 99% of the time)",
         "**tech hour: 8 hour each qty"
       ],
-      "tech_hours": {"per": "unit", "hours": 8}
+      "tech_hours": {"per": "unit", "hours": 8},
+      "becomes_exception_when": {
+        "about": "The estimator, 2026-09-25: if we are providing a JACE / network control panel, email notifications can be achieved using it, so when the job mentions a Sensaphone too we avoid it and put it in the exceptions. 'exception' must be one of this system's lines, word for word.",
+        "front_end_line": "Furnish Network Level Control Panel",
+        "exception": "EXCEPTION TO AUTO DIALER (BMS CAN SEND OUT ALARMS VIA EMAIL AND SMS TEXT)",
+        "called_for": {
+          "sequence": ["Sensaphone", "auto dialer", "auto-dialer", "autodialer"],
+          "notes": ["Sensaphone", "auto dialer", "auto-dialer", "autodialer"],
+          "spec_overview": ["Auto dialer / Sensaphone"]
+        },
+        "review": "Sensaphone / auto dialer called for ({where}) — put in the exceptions, because the network control panel sends the alarm emails. Check."
+      }
     },
     {
       "name": "Finned Tube Radiation",
