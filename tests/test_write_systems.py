@@ -547,6 +547,206 @@ def test_build_job_gives_a_job_that_fits_the_price_sheet():
     assert any("ZZ-1" in flag for flag in flags)            # a family on no schedule reaches the review list
 
 
+# --- schedule columns and notes beat the template's defaults ------------------------------------------
+
+def _heaters(cells, notes=(), passages=()):
+    rows = _rows(["UH-1", "UH-2"], ("TAG", *cells), cells, title="UNIT HEATER SCHEDULE")
+    return _bundle("UH", "Unit Heater", ["UH-1", "UH-2"], rows=rows, schedule_notes=notes, passages=passages)
+
+
+def test_an_scr_control_column_gives_the_scr_line():
+    system = _write(_heaters({"KW": "5", "CONTROL": "SCR"}))
+    line = _line(system, "Furnish Electric Heat SCR Control (AO)")
+    assert (line.category, line.client, line.quantity) == ("CONFIRMED", True, 2)
+    assert line.source.startswith("schedule:") and "CONTROL" in line.evidence
+
+
+def test_scr_in_another_column_is_not_the_control_column():
+    system = _write(_heaters({"KW": "5", "REMARKS": "SEE SCR NOTE ON E-101"}))
+    assert "Furnish Electric Heat SCR Control (AO)" not in _printed(system)
+
+
+def test_a_transformer_by_the_unit_manufacturer_replaces_the_vav_transformer():
+    system = _write(_vav(schedule_notes=("1. PROVIDE MANUFACTURER'S CONTROL POWER TRANSFORMER.",)))
+    printed = _printed(system)
+    assert "24V Transformer by Unit Mfr." in printed
+    assert "Furnish and Install VAV Transformer" not in printed and "Run 24V Power Loop to VAVs" not in printed
+    assert _line(system, "24V Transformer by Unit Mfr.").category == "CONFIRMED"
+
+
+def test_a_thermostat_by_the_manufacturer_takes_the_install_and_wire_form():
+    ddc = Passage("23 09 93, page 50", "Specs.pdf", 50, "Unit heaters UH-1 and UH-2: the DDC controller cycles the fan.")
+    system = _write(_heaters({"KW": "5", "REMARKS": "7-DAY PROGRAMMABLE THERMOSTAT FURNISHED BY MANUFACTURER"},
+                             passages=(ddc,)))
+    printed = _printed(system)
+    assert "Install and wire Space Thermostat (Furnished by Unit Mfr.)" in printed
+    assert "Furnish and Install DDC Controller or Communicating Thermostat" not in printed
+    assert _line(system, "Install and wire Space Thermostat (Furnished by Unit Mfr.)").category == "CONFIRMED"
+
+
+def test_a_bacnet_gateway_kit_gives_the_integration_trio():
+    system = _write(_vav(schedule_notes=("2. PROVIDE BACNET GATEWAY KIT FOR EACH UNIT.",)))
+    first, second, third = integration_trio("Variable Air Volume Box")
+    assert [first, second, third] == _printed(system)[:3]
+    assert "Furnish DDC Controller to the Factory for Installation" not in _printed(system)
+
+
+def test_leak_detection_by_the_unit_manufacturer_is_a_client_note():
+    system = _write(_heaters({"KW": "5"}, notes=("3. REFRIGERANT LEAK DETECTION SENSOR PROVIDED BY UNIT MFR.",)))
+    notes = [i.text for i in system.blocks[0].items if i.kind == "note"]
+    assert "**LEAK DETECTION BY UNIT MFR." in notes
+
+
+def test_the_schedule_note_beats_the_sequence_and_the_review_quotes_both():
+    rows = _rows(["ERV-1", "ERV-2"], ("TAG", "CFM"), {"CFM": "2000"}, title="ENERGY RECOVERY VENTILATOR SCHEDULE")
+    seq = Passage("23 09 93, page 2", "Specs.pdf", 2,
+                  "1. The ERV shall be furnished with factory DDC controls for complete stand-alone operation.")
+    bundle = _bundle("ERV", "Energy Recovery Ventilator", ["ERV-1", "ERV-2"], rows=rows, passages=(seq,),
+                     controls_by=("FURNISH AND INSTALL CONTROLLER FOR EACH ERV.",))
+    system = _write(bundle)
+    printed = _printed(system)
+    assert "Furnish and Install DDC Controller" in printed
+    assert not any("Factory Controls" in t or "Map Available Points" in t for t in printed)
+    [item] = [i for i in system.review if "disagree" in i.decide]
+    assert "FURNISH AND INSTALL CONTROLLER FOR EACH ERV" in item.evidence and "factory DDC controls" in item.evidence
+
+
+def test_an_ai_answer_does_not_undo_a_schedule_override():
+    judge = FakeJudge([Choice("24V Transformer by Unit Mfr.", False, None, "The sequence says nothing.",
+                              "each VAV box shall maintain", 0.9)])
+    system = _write(_vav(schedule_notes=("1. TRANSFORMER BY UNIT MFR.",)), judge=judge)
+    assert "24V Transformer by Unit Mfr." in _printed(system)
+
+
+# --- a rule fires only on a passage that names the system ---------------------------------------------
+
+def _fans(passages, tags=("EF-1", "EF-2")):
+    rows = _rows(list(tags), ("TAG", "CFM"), {"CFM": "800"}, title="FAN SCHEDULE")
+    return _bundle("EF", "Exhaust Fan", list(tags), rows=rows, passages=tuple(passages))
+
+
+def test_a_rule_does_not_fire_on_the_paragraph_after_the_one_naming_the_system():
+    passage = Passage("23 09 93, page 5", "Specs.pdf", 5,
+                      "EF-1 and EF-2 run continuously.\n\nThe duct static pressure sensor sets the supply fan speed.")
+    printed = _printed(_write(_fans([passage])))
+    assert "Furnish and Install Duct Static Pressure Sensor" not in printed
+    assert "Furnish and Install DDC Controller" not in printed
+
+
+def test_a_rule_fires_on_its_own_section_even_where_a_paragraph_does_not_name_it():
+    passage = Passage("23 09 93, page 5", "Specs.pdf", 5,
+                      "C. Fans:\n\n1. The duct static pressure sensor sets the fan speed.", section="Fans")
+    assert "Furnish and Install Duct Static Pressure Sensor" in _printed(_write(_fans([passage])))
+
+
+def test_the_ais_quote_naming_the_units_beats_a_rule_whose_passage_does_not():
+    general = Passage("23 09 93, page 5", "Specs.pdf", 5, "Exhaust fans shall hold the space temperature.")
+    own = Passage("23 09 93, page 6", "Specs.pdf", 6,
+                  "EF-1 and EF-2 shall be started by their line-voltage thermostat; no BMS points.")
+    judge = FakeJudge([Choice("Furnish and Install DDC Controller", False, None,
+                              "The fans run on their own thermostat.", "EF-1 and EF-2 shall be started by their "
+                              "line-voltage thermostat", 0.9)])
+    system = _write(_fans([general, own]), judge=judge)
+    printed = _printed(system)
+    assert "Furnish and Install DDC Controller" not in printed
+    assert "Interlock with Associated AHU / RTU /MAU Unit Operation" in printed      # the choice falls back
+    [item] = [i for i in system.review if "The AI's answer is kept" in i.decide]
+    assert "Furnish and Install DDC Controller" in item.decide and "EF-1 and EF-2 shall be started" in item.evidence
+
+
+def test_the_rule_is_kept_when_its_own_passage_names_the_units():
+    own = Passage("23 09 93, page 5", "Specs.pdf", 5, "EF-1 and EF-2 shall hold the space temperature.")
+    judge = FakeJudge([Choice("Furnish and Install DDC Controller", False, None, "No controller.",
+                              "EF-1 and EF-2 shall hold the space temperature", 0.9)])
+    system = _write(_fans([own]), judge=judge)
+    assert "Furnish and Install DDC Controller" in _printed(system)
+    assert any(i.category == "CONFLICT" for i in system.review)
+
+
+# --- a system made from a sequence heading ------------------------------------------------------------
+
+def _heading_job(text):
+    from estimator.catalogue.register import PageRecord
+    from estimator.reading.sequences import SEQUENCE as SEQ, Backbone
+    schedule = Schedule(DWG, 5, "M-601", "VAV BOX SCHEDULE", ("TAG", "HW GPM"),
+                        tuple(ScheduleRow(t, {"TAG": t, "HW GPM": "1.5"}, None, None) for t in VAV_TAGS),
+                        False, (), ())
+    items = tuple(InventoryItem(t, "Variable Air Volume Box", "CONFIRMED", 1, "M-601 VAV BOX SCHEDULE", ("M-101",),
+                                "", "") for t in VAV_TAGS)
+    catalogue = SimpleNamespace(job=SimpleNamespace(name="26-9999", root=Path("26-9999, 1 Test Street")),
+                                overview=SpecOverview(), pages=(PageRecord("Specs.pdf", 44, "text", text, 0),),
+                                sheets=(), sections=(), tags=())
+    backbone = (Backbone(SEQ, "23 09 93 SEQUENCE OF OPERATIONS (Specs.pdf, page 44)", "Specs.pdf", 44, 44,
+                         "spec section"),)
+    reading = SimpleNamespace(schedules=(schedule,), inventory=items, notes=(), backbone=backbone, devices=(),
+                              versions=(), flags=())
+    return catalogue, reading
+
+
+HEADINGS = ("A. VAV Boxes:\n1. Each VAV box maintains the space temperature.\n"
+            "B. Gas Booster:\n1. The BMS shall monitor the gas booster pump status.\n"
+            "C. Air Curtains:\n1. The air curtain runs when the door opens.\n")
+
+
+def test_a_heading_with_no_template_goes_to_the_ai_to_write_and_waits_for_a_count():
+    catalogue, reading = _heading_job(HEADINGS)
+    judge = FakeWriter(_composition(lines=[_written("Furnish Gas Booster Pump Status (BI)",
+                                                    "monitor the gas booster pump status")]))
+    job, systems, _ = build_job(catalogue, reading, judge, dt.date(2026, 9, 25))
+    by_key = {s.bundle_key: s for s in systems}
+    booster = by_key["Gas Booster"]
+    assert [c[0] for c in judge.composed] == ["Gas Booster"]
+    assert "monitor the gas booster pump status" in judge.composed[0][1]
+    assert not booster.printed                                        # no tags named: PENDING, kept out
+    assert any(item.category == "PENDING" and "Gas Booster" in item.decide for item in booster.review)
+    assert by_key["Air Curtain"].template == "Air Curtain"               # a template matches its name: choose
+    assert "Air Curtain" in [asked[0] for asked in judge.asked]
+    assert [b.header for b in job.blocks] == ["Qty (3) Variable Air Volume Box VAV-1 thru 3"]
+
+
+# --- a unit on its own thermostat or switch, with no BMS points, is a one-line exception ----------------
+
+FANS_TEXT = ("A. Fans:\n"
+             "1. EF-1, EF-2: Fans shall be interlocked with the space line-voltage thermostatic switch.\n"
+             "2. EF-3: Fan shall be manually engaged via the manufacturer-furnished ON/OFF switch.\n")
+
+
+def _fans_job(text=FANS_TEXT, remarks="-"):
+    catalogue, reading = _heading_job(text)
+    fans = Schedule(DWG, 6, "M-602", "FAN SCHEDULE", ("TAG", "CFM", "REMARKS"),
+                    tuple(ScheduleRow(t, {"TAG": t, "CFM": "800", "REMARKS": remarks}, None, None)
+                          for t in ("EF-1", "EF-2", "EF-3")), False, (), ())
+    reading.schedules = reading.schedules + (fans,)
+    reading.inventory = reading.inventory + tuple(
+        InventoryItem(t, "Exhaust Fan", "CONFIRMED", 1, "M-602 FAN SCHEDULE", ("M-101",), "", "")
+        for t in ("EF-1", "EF-2", "EF-3"))
+    return build_job(catalogue, reading, None, dt.date(2026, 9, 25))
+
+
+def test_fans_on_their_own_thermostat_or_switch_are_exceptions_not_blocks():
+    job, systems, _ = _fans_job()
+    assert job.named_exceptions == (
+        "EXCEPTION TO ANY WORK WITH Qty (2) EF-1, 2 - LINE-VOLTAGE THERMOSTAT",
+        "EXCEPTION TO ANY WORK WITH Qty (1) EF-3 - MANUFACTURER ON/OFF SWITCH")
+    assert not any("EF-" in block.header for block in job.blocks)
+    excepted = [s for s in systems if s.lines and s.lines[0].text.startswith("EXCEPTION TO ANY WORK")]
+    assert len(excepted) == 2 and all(s.blocks == () for s in excepted)
+    assert any("no BMS points" in item.decide and "line-voltage thermostatic switch" in item.evidence
+               for s in excepted for item in s.review)
+
+
+def test_a_unit_with_bms_points_is_priced():
+    text = FANS_TEXT.replace("ON/OFF switch.", "ON/OFF switch. The BMS shall monitor the fan status.")
+    job, _, _ = _fans_job(text)
+    assert job.named_exceptions == ("EXCEPTION TO ANY WORK WITH Qty (2) EF-1, 2 - LINE-VOLTAGE THERMOSTAT",)
+    assert any("EF-3" in block.header for block in job.blocks)
+
+
+def test_an_integral_thermostat_on_the_schedule_is_an_exception_when_the_sequence_gives_no_points():
+    job, _, _ = _fans_job("A. VAV Boxes:\n1. VAV-1 maintains the space temperature.\n", remarks="INTEGRAL THERMOSTAT")
+    assert job.named_exceptions == ("EXCEPTION TO ANY WORK WITH Qty (3) EF-1 thru 3 - INTEGRAL THERMOSTAT",)
+
+
 # --- a Sensaphone becomes an exception when the network control panel sends the alarms ---------------
 
 ALARM = "HVAC Alarm Panel w/ Auto Dialer"

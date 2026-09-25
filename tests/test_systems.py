@@ -128,7 +128,8 @@ def test_an_mau_in_the_kitchen_sequence_joins_kitchen_exhaust():
     assert "MAU" not in bundles
     kitchen = bundles["Kitchen Exhaust"]
     assert [f.prefix for f in kitchen.families] == ["KEF", "MAU"]
-    assert kitchen.passages and "MAU-1 shall run" in kitchen.passages[0].text
+    assert any("MAU-1 shall run" in p.text for p in kitchen.passages)
+    assert set(bundles) == {"Kitchen Exhaust"}            # a one-line item is not a heading
 
 
 def test_a_joiner_with_no_anchor_on_the_job_stands_alone_without_a_flag():
@@ -224,15 +225,17 @@ def _sequence_job():
 def test_passages_prefer_the_sequence_and_exact_tags_and_keep_the_next_paragraph():
     bundles = _by_key(build_bundles(*_sequence_job()))
     passages = bundles["VAV"].passages
-    first = passages[0]
+    first = passages[0]                                                # its heading's section comes first
     assert first.where == "23 09 93 SEQUENCE OF OPERATIONS, page 44"
     assert (first.document, first.page) == (SPEC, 44)
-    assert first.text.startswith("A. Occupied mode: VAV-1 thru VAV-3")
-    assert "B. Reheat: open the hot water valve" in first.text        # the paragraph after the hit
-    assert "Unoccupied" not in first.text
+    assert first.section == "VARIABLE AIR VOLUME BOXES"
+    assert first.text.startswith("3.02 VARIABLE AIR VOLUME BOXES")
+    assert "A. Occupied mode: VAV-1 thru VAV-3" in first.text
+    assert "C. Unoccupied mode: the boxes close." in first.text
+    assert "EF-1" not in first.text                                    # the next heading is the next system
     texts = [p.text for p in passages]
-    assert any(t.startswith("3.02 VARIABLE AIR VOLUME BOXES") for t in texts)   # the kind name
     assert any("The VAV boxes report the airflow" in t for t in texts)          # the prefix
+    assert bundles["EF"].passages[0].section == "EXHAUST FANS"
     assert not any("All controls by the BMS" in t for t in texts)
     assert not any("EF-1 runs" in t for t in texts)
     kinds = [p.where for p in passages]
@@ -241,6 +244,17 @@ def test_passages_prefer_the_sequence_and_exact_tags_and_keep_the_next_paragraph
     assert all(p.document != "Copy.pdf" for p in passages)                     # a duplicate copy isn't read twice
     assert all(len(p.text) <= 3000 for p in passages)
     assert len(passages) <= 8
+
+
+def test_a_paragraph_naming_the_system_brings_the_one_after_it():
+    text = "Notes on page 44.\n\nVAV-1 maintains the space temperature.\n\nThe damper modulates.\n\nEF-1 runs."
+    pages = [PageRecord(SPEC, 44, "text", text, 0)]
+    backbone = [Backbone(SEQUENCE, "23 09 93 SEQUENCE OF OPERATIONS (Specs.pdf, page 44)", SPEC, 44, 44,
+                         "spec section")]
+    bundles = _by_key(build_bundles(*_job([_item("VAV-1"), _item("EF-1")], pages=pages, backbone=backbone)))
+    first = bundles["VAV"].passages[0]
+    assert first.text == "VAV-1 maintains the space temperature.\n\nThe damper modulates."
+    assert first.section == ""
 
 
 def test_at_most_eight_passages():
@@ -289,6 +303,151 @@ def test_bundles_come_in_the_proposal_order():
                  _schedule("M-602", 6, "CHILLERS", ["CH-1"])]
     keys = [b.key for b in build_bundles(*_job(items, schedules))]
     assert keys == ["VAV", "EF", "Chilled Water System"]
+
+
+# --- every heading of the sequence makes a system ----------------------------------------------------
+
+def _headings_job(items=None, schedules=None, extra_text="", points_text=""):
+    """A controls section whose sequence article has one heading per system, and a submittals article after it."""
+    text = ("SECTION 23 09 23 DIRECT DIGITAL CONTROL\n\n"
+            "1.1 \nSUMMARY \nA. \nProvide a complete BMS.\n"
+            "B. \nDischarge Air Temperature Sensors: \nProvide one for each unit.\n"
+            "1.6 \nSEQUENCES OF OPERATION \n"
+            "A. \nCentral System Control: Occupied mode shall be determined by the time schedule. \n"
+            "B. \nRooftop Units with Heat Recovery (Heat Recovery where indicated on schedules): \n"
+            "1. \nGeneral: Provide factory-mounted DDC controls.\n"
+            "2. \nWarm-up: the outside air dampers stay closed.\n"
+            "C. \nFire Pump: \n1. \nThe BMS shall monitor all alarms from the fire pump controller.\n"
+            "D. \nDomestic Water Heaters (DWH-1, DWH-2): Monitor the heaters via the BACnet gateway. \n"
+            "E. \nMiscellaneous: \n1. \nAll points shall be trended.\n" + extra_text +
+            "1.7 \nSUBMITTALS \nA. \nShop Drawings: \nSubmit the control diagrams.\n")
+    pages = [PageRecord(SPEC, 44, "text", text, 0)]
+    backbone = [Backbone(SEQUENCE, "sequence inside 23 09 23 DIRECT DIGITAL CONTROL (Specs.pdf, page 44)", SPEC, 44,
+                         44, "spec section")]
+    if points_text:
+        pages.append(PageRecord(SPEC, 60, "text", points_text, 0))
+        backbone.append(Backbone(POINTS, "23 09 94 POINTS LIST (Specs.pdf, page 60)", SPEC, 60, 60, "spec section"))
+    items = items if items is not None else _rtus()
+    schedules = schedules if schedules is not None else [_schedule("M-601", 5, "ROOFTOP UNIT SCHEDULE",
+                                                                   ["RTU-1", "RTU-2"])]
+    return _job(items, schedules, pages=pages, backbone=backbone)
+
+
+def _rtus(tags=("RTU-1", "RTU-2")):
+    return [InventoryItem(t, "Rooftop Unit", "CONFIRMED", 1, "M-601", ("M-101",), "", "") for t in tags]
+
+
+def test_a_heading_that_matches_a_bundle_puts_its_section_first():
+    bundles = _by_key(build_bundles(*_headings_job()))
+    rtu = bundles["RTU"]
+    first = rtu.passages[0]
+    assert first.section == "Rooftop Units with Heat Recovery"
+    assert first.text.startswith("B. \nRooftop Units with Heat Recovery")
+    assert "Warm-up: the outside air dampers stay closed." in first.text
+    assert "fire pump" not in first.text.lower()                  # the next heading starts the next system
+    assert any("Warm-up" in p.text for p in rtu.own)
+
+
+def test_a_heading_that_matches_no_bundle_makes_a_system_of_its_own():
+    points = "POINTS LIST\n\nFire pump running status BI\n\nRTU-1 supply fan status BI"
+    bundles = _by_key(build_bundles(*_headings_job(points_text=points)))
+    assert set(bundles) == {"RTU", "Fire Pump", "Domestic Water Heater"}      # nothing from General, Miscellaneous,
+    pump = bundles["Fire Pump"]                                                # Central System Control or Submittals
+    assert pump.name == "Fire Pump" and pump.heading == "Fire Pump"
+    [family] = pump.families
+    assert (family.prefix, family.tags, family.quantity) == ("", (), None)    # no tags named: PENDING
+    assert any("(PENDING)" in f and "Fire Pump" in f for f in pump.flags)
+    assert pump.passages[0].section == "Fire Pump"
+    assert "monitor all alarms from the fire pump controller" in pump.passages[0].text
+    assert any("Fire pump running status" in p.text for p in pump.passages)   # and its points list
+
+    heaters = bundles["Domestic Water Heater"]
+    [family] = heaters.families
+    assert (family.prefix, family.tags, family.quantity) == ("DWH", ("DWH-1", "DWH-2"), 2)
+    assert "BACnet gateway" in heaters.passages[0].text
+    assert any("the tags the sequence names" in f for f in heaters.flags)
+    assert list(bundles).index("Fire Pump") > list(bundles).index("RTU")       # after the scheduled systems
+
+
+def test_a_heading_splits_on_and_when_both_sides_name_equipment():
+    items = [InventoryItem("GXF-1", "Fan", "CONFIRMED", 1, "M-601", ("M-101",), "", "")]
+    rows = (ScheduleRow("GXF-1", {"TAG": "GXF-1", "SERVICE": "GARAGE EXHAUST"}, None, None),)
+    schedules = [Schedule(DWG, 5, "M-601", "FAN SCHEDULE", ("TAG", "SERVICE"), rows, False, (), ())]
+    extra = ("F. Parking Garage Fans and Associated CO Control System\n"
+             "1. The CO control panel shall run the exhaust fans.\n"
+             "G. Kitchen exhaust fans\n1. The fans are started locally.\n")
+    bundles = _by_key(build_bundles(*_headings_job(items, schedules, extra_text=extra)))
+    assert bundles["GXF"].passages[0].section == "Parking Garage Fans and Associated CO Control System"
+    assert "CO Control System" in bundles                          # the part no bundle matches
+    assert "Kitchen Exhaust Fan" in bundles                        # "exhaust" alone names no fan
+    assert not bundles["GXF"].passages[0].text.startswith("G.")
+
+
+def test_a_heading_bundle_with_a_template_name_is_written_from_that_template():
+    from estimator.writing.write import _choose_template
+    extra = "F. Air Curtains:\n1. Interlock the air curtain with the door switch.\n"
+    bundles = _by_key(build_bundles(*_headings_job(extra_text=extra)))
+    assert _choose_template(bundles["Air Curtain"], load_templates()).name == "Air Curtain"
+    assert _choose_template(bundles["Fire Pump"], load_templates()) is None
+
+
+# --- a family splits where the sequence splits it -------------------------------------------------------
+
+SPLIT_TEXT = ("SECTION 23 09 93 SEQUENCE OF OPERATIONS\n\n"
+              "3.01 ROOFTOP UNITS\n"
+              "A. RTU-1,2,3, serving the gymnasium, will operate as single-zone units.\n"
+              "B. RTU-4 and RTU-5 shall operate as VAV systems.\n"
+              "1. RTU-4,5: The supply fan speed shall maintain the duct static pressure setpoint.\n"
+              "C. RTU-3: Provide position sensors on the roll-up doors.\n"
+              "D. Occupied: all units run on the time schedule.\n"
+              "3.02 EXHAUST FANS\n"
+              "A. EF-1, EF-2: Fans shall be interlocked with the space line-voltage thermostat.\n"
+              "B. EF-3: Fan shall be engaged via the manufacturer-furnished ON/OFF switch.\n")
+
+
+def _split_job(text=SPLIT_TEXT):
+    tags = ["RTU-1", "RTU-2", "RTU-3", "RTU-4", "RTU-5"]
+    items = _rtus(tags) + [_item("EF-1"), _item("EF-2"), _item("EF-3"), _item("EF-9", "EXTRA", None)]
+    schedules = [_schedule("M-601", 5, "ROOFTOP UNIT SCHEDULE", tags),
+                 _schedule("M-602", 6, "FAN SCHEDULE", ["EF-1", "EF-2", "EF-3"])]
+    pages = [PageRecord(SPEC, 44, "text", text, 0)]
+    backbone = [Backbone(SEQUENCE, "23 09 93 SEQUENCE OF OPERATIONS (Specs.pdf, page 44)", SPEC, 44, 44,
+                         "spec section")]
+    return _job(items, schedules, pages=pages, backbone=backbone)
+
+
+def test_units_the_sequence_gives_their_own_paragraphs_become_their_own_system():
+    bundles = build_bundles(*_split_job())
+    rtus = [b for b in bundles if b.families[0].prefix == "RTU"]
+    assert [(b.families[0].tags, b.families[0].quantity) for b in rtus] == [
+        (("RTU-1", "RTU-2", "RTU-3"), 3), (("RTU-4", "RTU-5"), 2)]   # RTU-3's own line does not split it again
+    small, big = rtus
+    assert {r.tag for r in big.schedule_rows} == {"RTU-4", "RTU-5"}
+    texts = " ".join(p.text for p in big.passages)
+    assert "duct static pressure" in texts and "single-zone" not in texts and "roll-up doors" not in texts
+    assert "all units run on the time schedule" in texts                   # the heading's other paragraphs
+    assert any("RTU-4 and RTU-5 shall operate" in p.text for p in big.own)
+    small_texts = " ".join(p.text for p in small.passages)
+    assert "single-zone" in small_texts and "roll-up doors" in small_texts and "duct static" not in small_texts
+    assert set(big.siblings) == {"RTU-1", "RTU-2", "RTU-3"}
+    assert any("RTU-4, RTU-5" in f and "own paragraph" in f for f in big.flags)
+    assert small.key != big.key and small.name == big.name == "Rooftop Unit"
+
+
+def test_the_rest_of_a_family_stays_together_and_keeps_its_flags():
+    bundles = build_bundles(*_split_job())
+    fans = [b for b in bundles if b.families[0].prefix == "EF"]
+    assert [b.families[0].tags for b in fans] == [("EF-1", "EF-2"), ("EF-3",)]
+    [three] = [b for b in fans if b.families[0].tags == ("EF-3",)]
+    assert "ON/OFF switch" in three.own[0].text and "line-voltage thermostat" not in three.own[0].text
+    assert sum(any("(EXTRA)" in f for f in b.flags) for b in fans) == 1
+
+
+def test_a_family_named_whole_is_not_split():
+    text = "SECTION 23 09 93\n\n3.01 ROOFTOP UNITS\nA. RTU-1 thru RTU-5: The units run on the time schedule.\n"
+    bundles = build_bundles(*_split_job(text))
+    assert [b.families[0].tags for b in bundles if b.families[0].prefix == "RTU"] == [
+        ("RTU-1", "RTU-2", "RTU-3", "RTU-4", "RTU-5")]
 
 
 def test_a_type_only_row_makes_no_system_and_is_flagged_to_count_from_the_plans():

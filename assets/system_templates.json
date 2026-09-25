@@ -14,6 +14,35 @@
     "about": "When the unit comes with the manufacturer's own controls, the three integration lines replace the lines that name a DDC controller. The words are looked for, whole and ignoring case, in the schedule's who-provides-the-controller notes, its other notes and its cells.",
     "words": ["factory control package", "factory controls", "factory mounted controls", "factory-mounted controls", "factory mounted DDC controls", "controls by unit manufacturer", "controls by the unit manufacturer", "controls by unit mfr", "controls by the equipment manufacturer", "unit manufacturer's controls", "manufacturer's controls", "packaged controls", "furnished with factory controls", "integral controls"]
   },
+  "schedule_overrides": {
+    "about": "What a schedule column or note says beats the template's default and its rules, and the AI's answer. Each rule's patterns (regular expressions, ignoring case) are looked for in the unit's schedule cells (only under the named columns, when it names some) and its schedule notes. 'use' is the line that goes in: the template's own line of that text, or the one matching 'prefer', else it takes the place of the first line containing an 'instead_of' word (or is added, with add_if_missing); the lines containing an 'instead_of' word, and the other lines of its choice, are left out. 'trio' puts in the three integration lines, as factory controls do. 'note' is a client note. When a 'disagrees' pattern is in the sequence, the schedule's reading is kept and the review list quotes both.",
+    "rules": [
+      {"name": "SCR control column", "columns": ["CONTROL", "CONTROLS", "STAGES"], "patterns": ["\\bSCR\\b"],
+       "use": "Furnish Electric Heat SCR Control (AO)", "instead_of": ["Electric Heat Enable"], "add_if_missing": true},
+      {"name": "transformer by the unit manufacturer", "patterns": ["manufacturer'?s control power transformer", "transformer by (the )?unit (mfr|manufacturer)", "transformer (furnished|provided|supplied) by (the )?(unit )?(mfr|manufacturer)"],
+       "use": "24V Transformer by Unit Mfr.", "instead_of": ["Transformer"], "quantity": "none"},
+      {"name": "thermostat by the unit manufacturer", "patterns": ["7[- ]day programmable (thermostat|controller)", "thermostat (furnished|provided|supplied) by (the )?(unit )?(mfr|manufacturer)", "(mfr|manufacturer)[- ]furnished thermostat", "thermostat by (the )?unit (mfr|manufacturer)"],
+       "prefer": "^Install and wire .*Thermostat \\(Furnished by Unit Mfr\\.\\)$", "use": "Install and wire Space Thermostat (Furnished by Unit Mfr.)", "instead_of": ["Thermostat"]},
+      {"name": "BACnet gateway", "patterns": ["BACnet gateway", "BACnet interface"], "trio": true},
+      {"name": "controller by the controls contractor", "patterns": ["\\bfurnish and install (a |the )?(DDC )?controllers?\\b"],
+       "use": "Furnish and Install DDC Controller", "instead_of": ["Factory Controls", "Map Available Points", "AME requires mfr. Rep"], "add_if_missing": true,
+       "disagrees": ["factory (BACnet )?DDC controls", "factory[- ]mounted (DDC )?controls", "factory controls", "controls by (the )?unit (mfr|manufacturer)"]},
+      {"name": "leak detection by the unit manufacturer", "patterns": ["leak detect\\w*\\b.{0,80}\\bby (the )?unit (mfr|manufacturer)", "leak detect\\w*\\b.{0,80}\\b(provided|furnished) by (the )?(unit )?(mfr|manufacturer)"],
+       "note": "**LEAK DETECTION BY UNIT MFR."},
+      {"name": "airflow station by the unit manufacturer", "patterns": ["air ?flow (measuring|monitoring) station\\b.{0,80}\\bby (the )?unit (mfr|manufacturer)", "air ?flow (measuring|monitoring) station\\b.{0,80}\\b(provided|furnished) by (the )?(unit )?(mfr|manufacturer)"],
+       "note": "**AIRFLOW MEASURING STATION BY UNIT MFR."}
+    ]
+  },
+  "not_priced": {
+    "about": "A unit the evidence says runs on its own integral or line-voltage thermostat, or a manufacturer's on/off switch, with no BMS points, is not priced: it goes into the proposal's exceptions in the estimator's one-line form (26-0445: 'EXCEPTION TO ANY WORK WITH Qty (4) CUH-#-# - INTEGRAL THERMOSTAT'). The reasons' patterns (regular expressions, ignoring case) are looked for in the system's own sequence paragraphs (its heading's section, or the paragraphs its tags open) and its schedule; the BMS words, whole and ignoring case, in its own paragraphs (else the paragraphs naming it) and its schedule notes. One BMS word means it has BMS points, and it is priced.",
+    "reasons": [
+      {"patterns": ["integral (factory[- ]mounted |unit[- ]mounted )?thermostat", "built[- ]in thermostat", "unit[- ]mounted thermostat"], "reason": "INTEGRAL THERMOSTAT"},
+      {"patterns": ["line[- ]voltage (space |room )?thermostat"], "reason": "LINE-VOLTAGE THERMOSTAT"},
+      {"patterns": ["(manufacturer|mfr)[- ]?(furnished|provided|supplied)?[^.]{0,60}\\bon/off\\b[^.]{0,40}\\bswitch", "\\bmanually engaged\\b[^.]{0,60}\\bswitch"], "reason": "MANUFACTURER ON/OFF SWITCH"}
+    ],
+    "bms_words": ["BMS", "BAS", "EMS", "DDC", "ATC", "building management", "building automation", "controls contractor", "control contractor", "BMS contractor", "monitor", "monitored", "monitoring", "alarm", "alarmed", "status", "workstation", "front end", "front-end", "BACnet", "trend"],
+    "exception": "EXCEPTION TO ANY WORK WITH Qty ({n}) {tags} - {reason}"
+  },
   "counted_devices": {
     "about": "For a line whose quantity is counted, the device labels on the plans that count it (the labels are in reading_lists/devices.json). The line matches when it contains the words on the left, ignoring case; the longest match wins. A line with no match, or no label counted on the system's sheets, falls back to one per unit, as an assumption.",
     "lines": {

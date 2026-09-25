@@ -32,7 +32,7 @@ from estimator.writing.front_end import front_end, job_header
 from estimator.writing.judge import NO_KEY
 from estimator.writing.phrasing import examples_for, load_bank
 from estimator.writing.style import load_house_style
-from estimator.writing.systems import SystemBundle, build_bundles, unbundled_flags
+from estimator.writing.systems import OWN_TAGS, SystemBundle, build_bundles, naming, unbundled_flags
 from estimator.writing.templates import (HARDWARE_VERBS, TEMPLATES_FILE, Condition, SystemTemplate, TemplateLine,
                                          TechHours, integration_trio, load_templates, nearest_templates,
                                          template_for)
@@ -125,8 +125,16 @@ def _plain(text: str) -> str:
     return re.sub(r"[^a-z0-9]+", " ", (text or "").casefold()).strip()
 
 
+def _paragraph_at(text: str, at: int) -> str:
+    """The paragraph of a passage (paragraphs are joined by a blank line) holding position `at`."""
+    start = text.rfind("\n\n", 0, at)
+    end = text.find("\n\n", at)
+    return text[start + 2 if start >= 0 else 0: end if end >= 0 else len(text)]
+
+
 def _sentence(text: str, start: int, end: int) -> str:
-    lo = max(text.rfind(". ", 0, start) + 2, text.rfind("\n", 0, start) + 1, 0)
+    stop = text.rfind(". ", 0, start)
+    lo = max(stop + 2 if stop >= 0 else 0, text.rfind("\n", 0, start) + 1)
     ends = [i for i in (text.find(". ", end), text.find("\n", end)) if i != -1]
     hi = min(ends) + 1 if ends else len(text)
     quote = _squash(text[lo:hi])
@@ -173,6 +181,8 @@ class Hit:
     place: str
     where: str
     quote: str
+    own: bool = True     # the words sit where the system's own units are named (its schedule rows, a
+                         # paragraph naming its tags); False for a paragraph naming only its kind or prefix
 
     @property
     def text(self) -> str:
@@ -189,18 +199,20 @@ class _Check:
 class _Reading:
     """One bundle's evidence, and each template condition checked against it once."""
 
-    def __init__(self, bundle: SystemBundle, catalogue):
+    def __init__(self, bundle: SystemBundle, catalogue, template: SystemTemplate | None = None):
         self.bundle = bundle
         self.rows = bundle.schedule_rows
         self.passages = bundle.passages
         self.notes: list[tuple[str, str]] = [("the schedule's notes", n) for n in bundle.controls_by]
         self.notes += [("the schedule's notes", n) for n in bundle.schedule_notes if n not in bundle.controls_by]
+        self._schedule_notes = len(self.notes)
         for note in bundle.notes:
             label = " ".join(p for p in (note.sheet, note.block.title() if note.block else "", note.number) if p)
             self.notes.append((label or "a drawing note", note.text))
         self.prefixes = [f.prefix for f in bundle.families]
         overview = getattr(catalogue, "overview", None)
         self.topics = [t for t in (overview.topics if overview is not None else ()) if t.status == FOUND]
+        self.names = naming(bundle, (template.name, *template.kinds) if template is not None else ())
         self._seen: dict[str, _Check] = {}
 
     def checks(self) -> list[_Check]:
@@ -258,20 +270,36 @@ class _Reading:
         return None, ""
 
     def _in_sequence(self, name: str, words) -> tuple[Hit | None, str]:
+        """The words, in a paragraph that names the system (its tags, prefix or kind) or in the
+        system's own section: a sentence about every fan decides nothing for this one."""
         for passage in self.passages:
             for word in words:
-                m = _word(word).search(passage.text)
-                if m:
-                    return Hit(name, "sequence", passage.where, _sentence(passage.text, m.start(), m.end())), ""
+                for m in _word(word).finditer(passage.text):
+                    rank = self.names(_paragraph_at(passage.text, m.start()))
+                    if rank or passage.section:
+                        return Hit(name, "sequence", passage.where, _sentence(passage.text, m.start(), m.end()),
+                                   own=rank == OWN_TAGS), ""
         return None, ""
 
     def _in_notes(self, name: str, words) -> tuple[Hit | None, str]:
-        for where, text in self.notes:
+        for n, (where, text) in enumerate(self.notes):
             for word in words:
                 m = _word(word).search(text)
                 if m:
-                    return Hit(name, "notes", where, _sentence(text, m.start(), m.end())), ""
+                    own = n < self._schedule_notes or self.names(text) == OWN_TAGS
+                    return Hit(name, "notes", where, _sentence(text, m.start(), m.end()), own=own), ""
         return None, ""
+
+    def quote_names_units(self, quote: str) -> bool:
+        """The AI's quote sits in a sequence paragraph naming the system's own tags."""
+        wanted = _plain(quote)
+        if not wanted:
+            return False
+        for passage in self.passages:
+            for paragraph in passage.text.split("\n\n"):
+                if wanted in _plain(paragraph) and self.names(paragraph) == OWN_TAGS:
+                    return True
+        return False
 
     def _in_prefix(self, name: str, words) -> tuple[Hit | None, str]:
         for prefix in self.prefixes:
@@ -282,7 +310,7 @@ class _Reading:
     def _in_spec_overview(self, name: str, words) -> tuple[Hit | None, str]:
         for topic in self.topics:
             if any(_word(w).search(topic.item) for w in words):
-                return Hit(name, "spec_overview", short_place(topic.places), topic.quote), ""
+                return Hit(name, "spec_overview", short_place(topic.places), topic.quote, own=False), ""
         return None, ""
 
     def factory_controls(self, words) -> Hit | None:
@@ -341,6 +369,8 @@ class _State:
     specific: int = 0            # how many conditions the line needs (a choice prefers the most)
     counted: str = ""            # the device count behind the quantity, for the review list
     stated: int | None = None    # a count the AI quoted from the evidence (a line it wrote itself)
+    hits: tuple = ()             # what the rule found (the words that put the line in, or kept it out)
+    won: bool = False            # the AI's answer beat the rule's
 
     @property
     def open(self) -> bool:
@@ -371,7 +401,7 @@ def _decide(line: TemplateLine, template: SystemTemplate, reading: _Reading, pen
     blocked = [(n, c) for n, c in unless if c.state == HOLDS]
     if blocked:
         name, check = blocked[0]
-        state.decided, state.evidence = "unless", check.hit.text
+        state.decided, state.evidence, state.hits = "unless", check.hit.text, (check.hit,)
         state.words = f"the rule left it out because of {check.hit.text}"
         return state
     unsure_unless = [n for n, c in unless if c.state == UNKNOWN]
@@ -384,7 +414,7 @@ def _decide(line: TemplateLine, template: SystemTemplate, reading: _Reading, pen
         if all(s == HOLDS for s in states):
             hits = [c.hit for _, c in whens]
             weakest = min(hits, key=lambda h: _RULE_CONFIDENCE[h.place])
-            state.include, state.decided = True, "rule"
+            state.include, state.decided, state.hits = True, "rule", tuple(hits)
             state.category = _RULE_CATEGORY.get(weakest.place, CONFIRMED)
             state.confidence = _RULE_CONFIDENCE[weakest.place]
             state.source = "rule: " + "; ".join(f"{h.condition} ({h.where})" for h in hits)
@@ -436,7 +466,7 @@ def _choose(states: list[_State]) -> None:
             best = max(winners, key=lambda s: (s.specific, s.confidence))
             for s in members:
                 if s is not best:
-                    s.include, s.category, s.decided = False, "", "absence"
+                    s.include, s.category, s.decided, s.hits = False, "", "absence", best.hits
                     s.words = f"the rule chose {best.text} instead ({best.evidence})"
             continue
         unchecked = [s for s in members if s.decided == "pending"]
@@ -522,10 +552,22 @@ def _apply_ai(states, judgement, reading: _Reading, system: str, review: list[Re
         category = CONFIRMED if place == "sequence" else ADDED
         confidence = AI_SEQUENCE if place == "sequence" else AI_OTHER
         quoted = f"{where}: “{c.quote}”"
+        disagrees = (s.decided == "rule" and not c.include) or (s.decided in ("absence", "unless") and c.include)
         if s.open:
             s.include, s.decided, s.category, s.confidence = c.include, "ai", category, confidence
             s.source = f"AI: {c.why}" if c.include else f"AI: left out — {c.why}"
             s.evidence, s.listed = quoted, True
+        elif disagrees and place == "sequence" and reading.quote_names_units(c.quote) \
+                and not any(h.own for h in s.hits):
+            # The AI quotes a paragraph naming this system's own units; the rule's words did not.
+            rule_said = s.evidence if s.decided == "rule" else s.words
+            s.include, s.decided, s.category, s.confidence = c.include, "ai", category, confidence
+            s.source = f"AI: {c.why}" if c.include else f"AI: left out — {c.why}"
+            s.evidence, s.listed, s.won = quoted, True, True
+            review.append(ReviewItem(system, "", f"The AI's answer is kept over the rule on {s.text} — its quote "
+                                     "names this system's own units; the rule's words did not",
+                                     f"{rule_said} vs {quoted}",
+                                     f"Check it: the AI {'includes' if c.include else 'leaves out'} the line"))
         elif s.decided == "rule" and not c.include:
             review.append(ReviewItem(system, "CONFLICT", f"The rule and the AI disagree on {s.text} — "
                                      f"{s.evidence} vs {quoted}", f"The rule includes it; the AI says: {c.why}",
@@ -542,10 +584,17 @@ def _apply_ai(states, judgement, reading: _Reading, system: str, review: list[Re
     for members in groups.values():
         chosen = [s for s in members if s.decided == "ai" and s.include]
         if not chosen:
+            if any(s.won and not s.include for s in members) and not any(s.include for s in members):
+                default = next((s for s in members if s.default), None)
+                if default is not None:          # the AI took out the rule's choice: the default stands
+                    default.include, default.decided, default.category = True, "default", ASSUMPTION
+                    default.confidence, default.source = DEFAULT_CONFIDENCE, "default"
+                    default.evidence = ("Master Template default — the AI left out "
+                                        + "; ".join(s.text for s in members if s.won))
             continue
-        best = max(chosen, key=lambda s: s.confidence)
+        best = max(chosen, key=lambda s: (s.won, s.confidence))
         for s in members:
-            if s is not best and s.include and s.decided in ("default", "ai"):
+            if s is not best and s.include and (s.decided in ("default", "ai") or (best.won and s.decided == "rule")):
                 s.include, s.category, s.listed = False, "", False
     if judgement.dropped:
         review.append(ReviewItem(system, "", "The AI answered lines that are not in the Master Template; they were "
@@ -699,9 +748,32 @@ def _review_flag(system: str, flag: str) -> ReviewItem:
     return ReviewItem(system, category, decide, "", action)
 
 
+def _named_template(name: str, templates) -> SystemTemplate | None:
+    """A system made from a sequence heading takes the template its name matches: the name or
+    one of its kinds, singular or plural, or one written whole inside it ("Ductless Split System")."""
+    plain = _plain(name)
+    singular = " ".join(w[:-1] if len(w) > 3 and w.endswith("s") and not w.endswith("ss") else w
+                        for w in plain.split())
+    for template in templates:
+        names = {_plain(n) for n in (template.name, *template.kinds)}
+        if plain in names or singular in names:
+            return template
+    for template in templates:
+        for n in (template.name, *template.kinds):
+            wanted = _plain(n)
+            if len(wanted.split()) >= 2 and re.search(rf"(?<![a-z0-9]){re.escape(wanted)}s?(?![a-z0-9])", singular):
+                return template
+    return None
+
+
 def _choose_template(bundle: SystemBundle, templates) -> SystemTemplate | None:
     if bundle.existing:
         return template_for("", bundle.name, templates)
+    if bundle.heading:
+        named = _named_template(bundle.name, templates)
+        prefixes = [f.prefix for f in bundle.families if f.prefix]
+        return named or next((template_for(p, "", templates) for p in prefixes if template_for(p, "", templates)),
+                             None)
     if bundle.group:
         return template_for("", bundle.name, templates) or template_for(bundle.families[0].prefix, "", templates)
     family = bundle.families[0]
@@ -752,10 +824,15 @@ def _no_template(catalogue, bundle: SystemBundle, templates, judge) -> WrittenSy
 
 
 def _units_text(bundle: SystemBundle) -> str:
-    parts = [f"{f.kind} ({f.prefix}): {tag_list(f.tags)}"
-             + (f" — {f.quantity} scheduled" if f.quantity is not None else " — not counted yet")
+    parts = [(f"{f.kind} ({f.prefix}): {tag_list(f.tags)}" if f.prefix else f.kind)
+             + (f" — {f.quantity} {'named in the sequence' if bundle.heading else 'scheduled'}"
+                if f.quantity is not None else " — not counted yet")
              for f in bundle.families]
     return "Units: " + "; ".join(parts)
+
+
+def _uncounted(bundle: SystemBundle) -> str:
+    return ", ".join(f.prefix or f.kind for f in bundle.families if f.quantity is None)
 
 
 def _template_named(name: str, templates) -> SystemTemplate | None:
@@ -862,8 +939,7 @@ def _compose_system(catalogue, bundle: SystemBundle, templates, judge,
                                 f"No Master Template entry; written like {analog or 'no template'}, "
                                 f"{len(lines)} {'line' if len(lines) == 1 else 'lines'}", "check the wording"))
     if not counted_units:
-        missing = [f.prefix for f in bundle.families if f.quantity is None]
-        review.insert(0, ReviewItem(name, PENDING, f"The {', '.join(missing)} units could not be counted from the "
+        review.insert(0, ReviewItem(name, PENDING, f"The {_uncounted(bundle)} units could not be counted from the "
                                     "schedule, so this system is left out of the proposal",
                                     ", ".join(tag_list(f.tags) for f in bundle.families if f.quantity is None),
                                     "Count them by eye, then add the block"))
@@ -914,6 +990,108 @@ def _factory(states: list[_State], lines, bundle: SystemBundle, factory: Hit) ->
     return kept[:at] + made + kept[at:]
 
 
+# --- schedule columns and notes beat the template's defaults -------------------------------------------
+
+@lru_cache(maxsize=1)
+def _override_rules() -> tuple[dict, ...]:
+    rules = []
+    for raw in _settings().get("schedule_overrides", {}).get("rules", ()):
+        rule = dict(raw)
+        rule["_patterns"] = tuple(re.compile(p, re.I) for p in raw["patterns"])
+        rule["_disagrees"] = tuple(re.compile(p, re.I) for p in raw.get("disagrees", ()))
+        rule["_prefer"] = re.compile(raw["prefer"], re.I) if raw.get("prefer") else None
+        rules.append(rule)
+    return tuple(rules)
+
+
+def _schedule_texts(bundle: SystemBundle) -> list[tuple[str, str, str]]:
+    """(where, column, text) for each schedule cell and note of the system's units; a note has no column."""
+    out = []
+    for row in bundle.schedule_rows:
+        label = f"{row.sheet} {row.title}" if row.sheet else row.title
+        for header, cell in row.cells.items():
+            if cell and _squash(cell) != row.tag:
+                out.append((f"{label}, {row.tag}", header or "", cell))
+    out += [("the schedule's notes", "", n) for n in dict.fromkeys((*bundle.controls_by, *bundle.schedule_notes))]
+    return out
+
+
+def _override_hit(rule: dict, texts) -> Hit | None:
+    columns = [c.upper() for c in rule.get("columns", ())]
+    for where, header, text in texts:
+        if columns and not any(re.search(rf"\b{re.escape(c)}\b", header.upper()) for c in columns):
+            continue
+        for pattern in rule["_patterns"]:
+            m = pattern.search(text)
+            if m:
+                if header:
+                    return Hit(rule["name"], "schedule", f"{where}, {header} column", f"{header}: {_squash(text)}")
+                return Hit(rule["name"], "schedule", where, _sentence(text, m.start(), m.end()))
+    return None
+
+
+def _use_line(states: list[_State], rule: dict, hit: Hit) -> bool:
+    """Put the rule's line in, in place of the lines it replaces. False when the template has no
+    place for it."""
+    use = rule["use"]
+    instead = [w.lower() for w in rule.get("instead_of", ())]
+    target = next((s for s in states if s.text.lower() == use.lower()), None)
+    if target is None and rule["_prefer"] is not None:
+        target = next((s for s in states if rule["_prefer"].search(s.text)), None)
+    replaced = [s for s in states if s is not target and any(w in s.text.lower() for w in instead)]
+    if target is None and replaced:
+        slot = replaced[0]
+        target = _State(use, slot.depth, rule.get("quantity", slot.quantity_rule), slot.of, _hardware(use),
+                        choice=slot.choice)
+        states.insert(states.index(slot), target)
+    elif target is None and rule.get("add_if_missing"):
+        target = _State(use, 1, rule.get("quantity", "per_unit"), (), _hardware(use))
+        states.append(target)
+    if target is None:
+        return False
+    target.include, target.decided, target.category = True, "override", CONFIRMED
+    target.confidence, target.listed = _RULE_CONFIDENCE["schedule"], False
+    target.source, target.evidence = f"schedule: {rule['name']} ({hit.where})", hit.text
+    if "quantity" in rule:
+        target.quantity_rule = rule["quantity"]
+    out = replaced + [s for s in states if target.choice and s.choice == target.choice and s is not target]
+    for s in out:
+        s.include, s.category, s.decided, s.listed = False, "", "override", False
+        s.words = f"the schedule decides it: {hit.text}"
+    return True
+
+
+def _apply_overrides(states: list[_State], lines, bundle: SystemBundle, name: str,
+                     review: list[ReviewItem]) -> tuple[list[_State], list[tuple]]:
+    """What the unit's schedule columns and notes say, applied over the template's defaults and
+    rules. Returns the states and the client notes the rules add."""
+    texts = _schedule_texts(bundle)
+    notes: list[tuple] = []
+    for rule in _override_rules():
+        hit = _override_hit(rule, texts)
+        if hit is None:
+            continue
+        if rule.get("trio"):
+            states = _factory(states, lines, bundle, hit)
+            for s in states:
+                if s.decided == "factory":
+                    s.decided = "override"
+        if rule.get("use") and not _use_line(states, rule, hit):
+            continue
+        if rule.get("note"):
+            notes.append((rule["note"], CONFIRMED, _RULE_CONFIDENCE["schedule"], f"schedule: {rule['name']}",
+                          hit.text))
+        for passage in bundle.passages:
+            m = next((m for p in rule["_disagrees"] for m in [p.search(passage.text)] if m), None)
+            if m:
+                review.append(ReviewItem(
+                    name, "CONFLICT", f"The schedule and the sequence disagree ({rule['name']}) — the schedule's "
+                    "reading is kept", f"{hit.text} vs {passage.where}: “{_sentence(passage.text, m.start(), m.end())}”",
+                    "Check with the engineer; change the block if the sequence is right"))
+                break
+    return states, notes
+
+
 def _follow_parents(states: list[_State]) -> None:
     """A sub-line is printed only under a printed line; under a PENDING line it is PENDING too."""
     last_at: dict[int, _State] = {}
@@ -937,7 +1115,7 @@ def write_system(catalogue, bundle: SystemBundle, templates, judge=None) -> Writ
     if template is None:
         return _no_template(catalogue, bundle, templates, judge)
     name = bundle.name
-    reading = _Reading(bundle, catalogue)
+    reading = _Reading(bundle, catalogue, template)
     review: list[ReviewItem] = [_review_flag(name, f) for f in bundle.flags]
     pending_reason = _pending_reason(judge)
 
@@ -948,6 +1126,7 @@ def write_system(catalogue, bundle: SystemBundle, templates, judge=None) -> Writ
     factory = reading.factory_controls(_settings()["factory_controls"]["words"])
     if factory is not None:
         states = _factory(states, lines, bundle, factory)
+    states, schedule_notes = _apply_overrides(states, lines, bundle, name, review)
 
     ai_notes: list[str] = []
     if judge is not None:
@@ -987,8 +1166,10 @@ def write_system(catalogue, bundle: SystemBundle, templates, judge=None) -> Writ
     # The client notes: the template's own, then the AI's that the evidence bears out.
     notes = [(n, ASSUMPTION, DEFAULT_CONFIDENCE, "Master Template note", "Master Template note")
              for n in template.client_notes]
+    notes += [note for note in schedule_notes if note[0] not in template.client_notes]
+    have = {n for n, *_ in notes}
     notes += [(n, ADDED, AI_OTHER, "AI: a clarification the evidence bears out", "the job's documents")
-              for n in ai_notes if n not in template.client_notes]
+              for n in ai_notes if n not in have]
 
     headers = _headers(template, bundle)
     is_printed = bool(headers) and counted_units
@@ -1016,8 +1197,7 @@ def write_system(catalogue, bundle: SystemBundle, templates, judge=None) -> Writ
                                      confidence if is_printed else 0.0, source, where, is_printed))
 
     if not counted_units:
-        missing = [f.prefix for f in bundle.families if f.quantity is None]
-        review.insert(0, ReviewItem(name, PENDING, f"The {', '.join(missing)} units could not be counted from the "
+        review.insert(0, ReviewItem(name, PENDING, f"The {_uncounted(bundle)} units could not be counted from the "
                                     "schedule, so this system is left out of the proposal",
                                     ", ".join(tag_list(f.tags) for f in bundle.families if f.quantity is None),
                                     "Count them by eye, then add the block"))
@@ -1102,7 +1282,7 @@ def apply_exceptions(fe: FrontEnd, bundles, catalogue, templates
         mine = [b for b in to_write if _choose_template(b, templates) is template]
         hit = None
         for bundle in [*mine, _empty_bundle(template.name)]:
-            check = _Reading(bundle, catalogue).check(rule.called_for)
+            check = _Reading(bundle, catalogue, template).check(rule.called_for)
             if check.state == HOLDS:
                 hit = check.hit
                 break
@@ -1120,6 +1300,76 @@ def apply_exceptions(fe: FrontEnd, bundles, catalogue, templates
     return to_write, excepted, tuple(exceptions)
 
 
+@lru_cache(maxsize=1)
+def _not_priced_rules():
+    raw = _settings()["not_priced"]
+    reasons = tuple((tuple(re.compile(p, re.I) for p in r["patterns"]), r["reason"]) for r in raw["reasons"])
+    bms = tuple(_word(w) for w in raw["bms_words"])
+    return reasons, bms, raw["exception"]
+
+
+def _not_priced(bundle: SystemBundle, template: SystemTemplate | None) -> tuple[str, str, str] | None:
+    """(reason, where, quote) when the evidence says the unit runs on its own thermostat or switch
+    and gives it no BMS points; None otherwise."""
+    if bundle.group or bundle.existing or len(bundle.families) != 1:
+        return None
+    family = bundle.families[0]
+    if family.quantity is None or not family.tags:
+        return None
+    reasons, bms, _ = _not_priced_rules()
+    names = naming(bundle, (template.name, *template.kinds) if template is not None else ())
+    paragraphs = [(p.where, par) for p in bundle.passages for par in p.text.split("\n\n")]
+    own = [(p.where, p.text) for p in bundle.own] or [(w, t) for w, t in paragraphs if names(t) == OWN_TAGS]
+    schedule = [(f"{w}, {h} column" if h else w, t) for w, h, t in _schedule_texts(bundle)]
+    found = None
+    for patterns, reason in reasons:
+        for where, text in own + schedule:
+            m = next((m for p in patterns for m in [p.search(text)] if m), None)
+            if m:
+                found = (reason, where, _sentence(text, m.start(), m.end()))
+                break
+        if found:
+            break
+    if found is None:
+        return None
+    points = [t for _, t in own] or [t for _, t in paragraphs if names(t) >= 2]
+    points += [n for n in (*bundle.controls_by, *bundle.schedule_notes)]
+    if any(b.search(text) for b in bms for text in points):
+        return None
+    return found
+
+
+def apply_not_priced(bundles, templates) -> tuple[list[SystemBundle], list[WrittenSystem], tuple[str, ...]]:
+    """Units on their own integral or line-voltage thermostat, or a manufacturer's on/off switch,
+    with no BMS points, are not priced: each becomes a one-line exception in the house form,
+    with a review line. Returns the bundles still to write, the systems put in the exceptions
+    and the exceptions' text."""
+    _, _, form = _not_priced_rules()
+    to_write: list[SystemBundle] = []
+    excepted: list[WrittenSystem] = []
+    texts: list[str] = []
+    for bundle in bundles:
+        template = _choose_template(bundle, templates)
+        found = _not_priced(bundle, template)
+        if found is None:
+            to_write.append(bundle)
+            continue
+        reason, where, quote = found
+        family = bundle.families[0]
+        tags = tag_list(family.tags)
+        text = form.format(n=family.quantity, tags=tags, reason=reason)
+        texts.append(text)
+        evidence = f"{where}: “{quote}”"
+        line = ScopeLine(bundle.name, text, 1, None, None, CONFIRMED, _RULE_CONFIDENCE["sequence"],
+                         f"rule: {reason.lower()} and no BMS points ({where})", evidence, True)
+        review = [ReviewItem(bundle.name, "", f"{tags} not priced — {reason.lower()}, no BMS points; put in the "
+                             "exceptions", evidence, "Price it if the job wants the BMS to see it")]
+        review += [_review_flag(bundle.name, f) for f in bundle.flags]
+        excepted.append(WrittenSystem(bundle.key, (), (line,), tuple(review), printed=True,
+                                      template=template.name if template is not None else None))
+    return to_write, excepted, tuple(texts)
+
+
 def build_job(catalogue, reading, judge, today, templates=None) -> tuple[Job, list[WrittenSystem], list[str]]:
     """The whole scope: the cover header, the front end and every system, in the proposal's order.
 
@@ -1130,6 +1380,8 @@ def build_job(catalogue, reading, judge, today, templates=None) -> tuple[Job, li
     header, header_flags = job_header(catalogue, reading, today)
     fe, fe_flags, fe_evidence = front_end(catalogue)
     bundles, excepted, exceptions = apply_exceptions(fe, build_bundles(catalogue, reading), catalogue, templates)
+    bundles, not_priced, one_line = apply_not_priced(bundles, templates)
+    excepted, exceptions = excepted + not_priced, exceptions + one_line
     systems = write_systems(catalogue, reading, bundles, templates, judge) + excepted
     blocks = tuple(b for s in systems if s.printed for b in s.blocks)
     job = Job(header=header, front_end=fe, blocks=blocks, named_exceptions=exceptions)

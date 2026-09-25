@@ -11,6 +11,19 @@
     {"name": "Kitchen Exhaust", "anchors": ["KEF", "DWEF"], "joiners": ["MAU", "PCU"]},
     {"name": "Gas Detection", "anchors": ["GDP"], "joiners": []}
   ],
+  "sequence_headings": {
+    "about": "Every lettered or numbered heading of the sequence of operation names a system. A heading is a short title ending at a colon or the end of its line: at most max_title_words words (a note in brackets not counted) and max_title_chars characters, with none of the sentence_words, and not one of not_systems. When a section carries an article titled like `article` (SEQUENCES OF OPERATION inside a controls section, numbered or on a line of its own), only the headings under that article count. The level of heading used is the highest one where a title names a bundle. A title names a bundle by its tags, a prefix written in capitals, or its words: the words before any of main_phrase_ends_at, less the generic_words, of which at least half must be in the bundle's kind, other names, schedule title or describing_columns cells (all of them when the title ends in no equipment noun: 'Heat tracing'); when both the title and the bundle end in one of the equipment_nouns, the nouns must agree. A title naming two things joined by 'and', each ending in an equipment noun, is read as two. Edit here, never in code.",
+    "article": "\\bSEQUENCES?\\s+OF\\s+OPERATIONS?\\b",
+    "max_title_words": 10,
+    "max_title_chars": 80,
+    "sentence_words": ["shall", "will", "must", "refer", "provide", "provided", "is", "are", "be", "when", "upon", "if", "shown", "indicated", "should"],
+    "not_systems": ["general", "miscellaneous", "misc", "central system control", "bacnet object list", "building bms scope", "global system points", "global points", "work included", "summary", "definitions", "description", "system description", "sequence of operation", "sequences of operation", "sequence of operations", "system functions and safeties", "safeties", "alarms", "schedule", "schedules", "occupied", "unoccupied", "setpoints", "set points", "end of section", "air systems", "miscellaneous systems", "related documents", "notes", "general notes", "service", "ddc points", "points"],
+    "generic_words": ["fan", "unit", "system", "control", "controls", "room", "and", "or", "the", "of", "for", "with", "associated", "equipment", "air", "misc", "miscellaneous", "all", "new", "existing", "type", "general", "up", "via", "to", "exhaust", "supply", "sequence", "operation", "in", "at", "on", "by", "schedule", "each"],
+    "equipment_nouns": ["fan", "unit", "heater", "pump", "box", "terminal", "system", "ventilator", "tower", "chiller", "boiler", "damper", "curtain", "conditioner", "exchanger", "generator", "coil", "panel", "valve", "radiator", "handler"],
+    "describing_columns": ["SERVICE", "SERVES", "AREA SERVED", "DESCRIPTION", "SYSTEM", "TYPE", "USE"],
+    "main_phrase_ends_at": ["with", "w/", "for", "serving"],
+    "dropped_first_words": ["associated", "all", "other", "misc", "miscellaneous", "general", "the"]
+  },
   "link_sheet_types": ["Air riser", "Water riser", "Control diagrams", "Diagrams"],
   "link_disciplines": ["Mechanical", "Controls"],
   "also_called": {
