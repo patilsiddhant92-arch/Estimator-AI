@@ -572,7 +572,7 @@ def _written_lines(raw_lines, style: HouseStyle, refused: list[str], skip=frozen
         quote = _squash(str(raw.get("quote") or ""))
         why = _squash(str(raw.get("why") or ""))
         quantity = _quantity(raw.get("quantity"))
-        reason = style.check_line(text)
+        reason = style.check_line(text, _depth(raw.get("depth")))
         if reason is None and quantity is not None and not quote:
             reason = "it gives a quantity with no quote to show it"
         if reason is None and not quote:

@@ -73,8 +73,10 @@ class HouseStyle:
                 return "it names tech hours"
         return None
 
-    def check_line(self, text: str) -> str | None:
-        """Why the scope line breaks the house style, or None when it is fine."""
+    def check_line(self, text: str, depth: int = 1) -> str | None:
+        """Why the scope line breaks the house style, or None when it is fine. A line under
+        another line (depth 2 or more) may be a plain noun phrase — the Master Template writes
+        "Damper Actuator" under its parent line — so only a top-level line needs a house verb."""
         text = _squash(text)
         if not text:
             return "it is empty"
@@ -83,7 +85,7 @@ class HouseStyle:
         bad = self.forbidden(text)
         if bad:
             return bad
-        if not (self.verb(text) or self.is_trio(text) or self.starts_without_verb(text)):
+        if depth < 2 and not (self.verb(text) or self.is_trio(text) or self.starts_without_verb(text)):
             return "it does not start with a house verb (" + ", ".join(self.verbs) + ")"
         return None
 

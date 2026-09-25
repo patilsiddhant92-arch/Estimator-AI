@@ -58,3 +58,9 @@ def test_the_prompt_text_carries_the_rules():
         assert verb in text
     assert STYLE.trio[1] in text and "(Furnished by Unit Mfr.)" in text
     assert "Never write prices, tech hours" in text
+
+
+def test_a_line_under_another_line_may_be_a_noun_phrase():
+    style = load_house_style()
+    assert style.check_line("Damper Actuator", depth=2) is None
+    assert style.check_line("Damper Actuator") is not None

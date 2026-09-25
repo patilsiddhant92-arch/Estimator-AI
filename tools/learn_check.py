@@ -192,7 +192,7 @@ def misses(result: JobResult, expected: dict) -> list[str]:
         found.append("no controls section found, and the job has one")
     if not expected["controls_sections"] and result.controls_sections:
         found.append(f"{result.controls_sections} controls sections found, and the job has none")
-    if result.blank_sheets:
+    if result.blank_sheets > expected.get("blank_sheets_at_most", 0):
         word = "page" if result.blank_sheets == 1 else "pages"
         found.append(f"{result.blank_sheets} blank drawing {word} found — check whether they should have been read")
     at_most = expected.get("unreadable_at_most")
