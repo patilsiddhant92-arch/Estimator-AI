@@ -4,7 +4,8 @@ from types import SimpleNamespace
 
 import pytest
 
-from estimator.writing.judge import DEFAULT_MODEL, Choice, Judge, Judgement
+from estimator.writing.judge import (DEFAULT_MODEL, Choice, Composition, Judge, Judgement, TechHoursHint,
+                                     WrittenLine)
 
 OPTIONS = [
     "Furnish and Install Space Temperature Sensor",
@@ -330,3 +331,199 @@ def test_chat_and_api_answers_are_cached_apart(tmp_path, monkeypatch):
 def test_an_unknown_mode_is_refused(tmp_path):
     with pytest.raises(ValueError):
         Judge(tmp_path, mode="maybe")
+
+
+# --- lines beyond the options -------------------------------------------------------------------------
+
+OCC = {"text": "Furnish and Install Occupancy Sensor", "depth": 1, "quantity": None,
+       "why": "The plans show occupancy sensors in every office.", "quote": "OCC", "confidence": 0.8}
+
+
+def _with_extras(*extras):
+    answer = _answer()
+    answer["extra_lines"] = list(extras)
+    return answer
+
+
+def test_the_choose_schema_asks_for_extra_lines(tmp_path):
+    fake = FakeClient()
+    _judge(tmp_path, fake).judge("VAV", EVIDENCE, OPTIONS, RULES)
+    schema = fake.calls[0]["output_config"]["format"]["schema"]
+    assert "extra_lines" in schema["required"]
+    line = schema["properties"]["extra_lines"]["items"]
+    assert set(line["required"]) == {"text", "depth", "quantity", "why", "quote", "confidence"}
+    assert "Furnish and Install" in fake.calls[0]["messages"][0]["content"]   # the house verbs are offered
+
+
+def test_an_extra_line_the_evidence_calls_for_is_kept(tmp_path):
+    result = _judge(tmp_path, FakeClient(_response(_with_extras(OCC)))).judge("VAV", EVIDENCE, OPTIONS, RULES)
+    [extra] = result.extra_lines
+    assert extra == WrittenLine("Furnish and Install Occupancy Sensor", 1, None,
+                                "The plans show occupancy sensors in every office.", "OCC", 0.8)
+    assert result.refused == ()
+
+
+def test_extra_lines_that_break_the_house_style_are_dropped_and_listed(tmp_path):
+    no_verb = {**OCC, "text": "Occupancy Sensor"}
+    hours = {**OCC, "text": "Furnish and Install Occupancy Sensor (4 hours)"}
+    counted = {**OCC, "text": "Furnish and Install Light Level Sensor", "quantity": 3, "quote": ""}
+    unquoted = {**OCC, "text": "Furnish and Install Door Contact", "quote": ""}
+    priced = {**OCC, "text": "Furnish and Install Door Switch $85"}
+    an_option = {**OCC, "text": OPTIONS[2].upper()}           # already offered: not an extra line
+    answer = _with_extras(no_verb, hours, counted, unquoted, priced, an_option, OCC)
+    result = _judge(tmp_path, FakeClient(_response(answer))).judge("VAV", EVIDENCE, OPTIONS, RULES)
+    assert [e.text for e in result.extra_lines] == ["Furnish and Install Occupancy Sensor"]
+    refused = "\n".join(result.refused)
+    for text in ("“Occupancy Sensor”", "(4 hours)", "Light Level Sensor", "Door Contact", "Door Switch"):
+        assert text in refused, text
+    assert OPTIONS[2].upper() not in refused
+    assert "verb" in refused and "tech hours" in refused and "quote" in refused
+
+
+def test_an_answer_with_no_extra_lines_still_reads(tmp_path):
+    result = _judge(tmp_path, FakeClient()).judge("VAV", EVIDENCE, OPTIONS, RULES)
+    assert result.extra_lines == () and result.refused == ()
+
+
+# --- writing a system with no template ------------------------------------------------------------------
+
+HEATER_EVIDENCE = ("Schedule rows:\n- [M-601 ELECTRIC DUCT HEATER SCHEDULE] EDH-1 — KW: 5; CONTROL: SCR\n"
+                   "Passages from the sequence of operation and points list:\n[23 09 93, page 12]\n"
+                   "The duct heater shall modulate by SCR to hold the discharge air temperature.")
+EXAMPLES = [{"job": "26-0246", "header": "Qty (1) Electric Duct Heater EDH-502", "prefixes": ["EDH"],
+             "kind_words": ["Electric", "Duct", "Heater"],
+             "lines": [{"text": "Furnish Electric Heat Enable (DO)", "depth": 1},
+                       {"text": "Furnish and Install Discharge Air Temperature Sensor", "depth": 1}],
+             "notes": ["*INTERLOCK WITH SUPPLY FAN"]}] * 6
+
+
+def _compose_answer(**overrides):
+    answer = {
+        "header": "Qty (4) Electric Duct Heater",
+        "lines": [
+            {"text": "Furnish Electric Heat SCR Control (AO)", "depth": 1, "quantity": None,
+             "why": "The sequence modulates the heater by SCR.", "quote": "modulate by SCR", "confidence": 0.9},
+            {"text": "Furnish and Install Discharge Air Temperature Sensor", "depth": 1, "quantity": 1,
+             "why": "The sequence holds the discharge air temperature.",
+             "quote": "hold the discharge air temperature", "confidence": 0.8},
+            {"text": "Discharge Air Temperature Sensor", "depth": 1, "quantity": None,
+             "why": "no verb", "quote": "discharge air", "confidence": 0.8},
+            {"text": "Furnish and Install Airflow Switch (2 hours)", "depth": 1, "quantity": None,
+             "why": "hours", "quote": "duct heater", "confidence": 0.8},
+            {"text": "Furnish and Install High Limit Switch", "depth": 2, "quantity": 4,
+             "why": "a count with no quote", "quote": "", "confidence": 0.8},
+        ],
+        "client_notes": ["**Heater furnished with SCR by the unit manufacturer", "Not a note"],
+        "tech_hours": {"per": "unit", "hours": 2, "like": "EUH / CUH / UH"},
+    }
+    answer.update(overrides)
+    return answer
+
+
+def _analogs():
+    from estimator.writing.templates import load_templates
+    templates = {t.name: t for t in load_templates()}
+    return [templates["EUH / CUH / UH"], templates["VAV / Fan VAV"], templates["Air Curtain"],
+            templates["Fan Coil Unit"]]
+
+
+def _compose(judge):
+    from estimator.writing.style import load_house_style
+    return judge.compose("Electric Duct Heater", HEATER_EVIDENCE, EXAMPLES, load_house_style(), _analogs())
+
+
+def test_compose_asks_with_the_evidence_the_style_the_analogs_and_the_examples(tmp_path):
+    fake = FakeClient(_response(_compose_answer()))
+    _compose(_judge(tmp_path, fake))
+    (call,) = fake.calls
+    prompt = call["messages"][0]["content"]
+    assert "Master Template has no entry for this system" in call["system"]
+    assert HEATER_EVIDENCE in prompt
+    assert "Install and Wire" in prompt and "(Furnished by Unit Mfr.)" in prompt       # the house style
+    assert "EUH / CUH / UH" in prompt and "Furnish and Install BACnet Thermostat" in prompt   # an analog's lines
+    assert "VAV / Fan VAV" in prompt and "Air Curtain" in prompt
+    assert "Fan Coil Unit" not in prompt                          # at most three analogs
+    assert prompt.count("Qty (1) Electric Duct Heater EDH-502") == 4   # at most four examples
+    assert "Furnish Electric Heat Enable (DO)" in prompt
+    schema = call["output_config"]["format"]["schema"]
+    assert set(schema["required"]) == {"header", "lines", "client_notes", "tech_hours"}
+    assert set(schema["properties"]["lines"]["items"]["required"]) == \
+        {"text", "depth", "quantity", "why", "quote", "confidence"}
+
+
+def test_compose_keeps_what_follows_the_house_style_and_lists_the_rest(tmp_path):
+    result = _compose(_judge(tmp_path, FakeClient(_response(_compose_answer()))))
+    assert isinstance(result, Composition)
+    assert result.header == "Electric Duct Heater"               # the count is the writer's
+    assert [line.text for line in result.lines] == ["Furnish Electric Heat SCR Control (AO)",
+                                                    "Furnish and Install Discharge Air Temperature Sensor"]
+    assert result.lines[1].quantity == 1 and result.lines[1].depth == 1
+    assert result.client_notes == ("**Heater furnished with SCR by the unit manufacturer",)
+    assert result.tech_hours == TechHoursHint("unit", 2.0, "EUH / CUH / UH")
+    refused = "\n".join(result.refused)
+    for text in ("“Discharge Air Temperature Sensor”", "(2 hours)", "High Limit Switch", "Not a note"):
+        assert text in refused, text
+
+
+def test_a_tech_hours_suggestion_that_cannot_be_read_is_none(tmp_path):
+    answer = _compose_answer(tech_hours={"per": "fortnight", "hours": 2, "like": "EUH / CUH / UH"})
+    assert _compose(_judge(tmp_path, FakeClient(_response(answer)))).tech_hours is None
+    answer = _compose_answer(tech_hours=None)
+    assert _compose(_judge(tmp_path / "b", FakeClient(_response(answer)))).tech_hours is None
+
+
+def test_compose_is_cached_apart_from_choose(tmp_path):
+    fake = FakeClient(_response(_compose_answer()))
+    judge = _judge(tmp_path, fake)
+    first = _compose(judge)
+    assert _compose(judge) == first and len(fake.calls) == 1 and judge.cached == 1
+
+
+def test_compose_without_a_key_is_none(tmp_path, monkeypatch):
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    judge = Judge(tmp_path / "cache")
+    assert _compose(judge) is None and judge.last_error == "judgement pending — no AI key set"
+
+
+def test_chat_requests_say_which_kind_of_question_they_are(tmp_path):
+    judge = _chat(tmp_path)
+    judge.judge("VAV", EVIDENCE, OPTIONS, RULES)
+    assert _compose(judge) is None
+    requests = [json.loads(r.read_text(encoding="utf-8")) for r in _requests(tmp_path)]
+    kinds = {r["kind"]: r for r in requests}
+    assert set(kinds) == {"choose", "compose"} and judge.waiting == 2
+    compose = kinds["compose"]
+    assert compose["system"] == "Electric Duct Heater"
+    assert compose["system_prompt"].startswith("You are an HVAC controls estimator at AME")
+    assert HEATER_EVIDENCE in compose["prompt"]
+    assert compose["schema"]["properties"]["tech_hours"]
+    assert "lines" in compose["schema"]["required"]
+    assert compose["analogs"] == ["EUH / CUH / UH", "VAV / Fan VAV", "Air Curtain"]
+    assert "extra_lines" in kinds["choose"]["schema"]["required"]
+
+
+def test_a_compose_answer_from_the_chat_is_picked_up(tmp_path):
+    judge = _chat(tmp_path)
+    _compose(judge)
+    [request] = _requests(tmp_path)
+    answers = tmp_path / "cache" / "judge-chat" / "answers"
+    answers.mkdir(parents=True)
+    (answers / request.name).write_text(json.dumps(_compose_answer()), encoding="utf-8")
+
+    again = _chat(tmp_path)
+    result = _compose(again)
+    assert isinstance(result, Composition) and result.model == "claude (chat)"
+    assert result.header == "Electric Duct Heater" and len(result.lines) == 2
+    assert again.answered_in_chat == 1 and not request.exists()
+    assert _compose(_chat(tmp_path)) == result                    # cached from now on
+
+
+def test_a_choose_answer_is_not_read_as_a_compose_answer(tmp_path):
+    judge = _chat(tmp_path)
+    _compose(judge)
+    [request] = _requests(tmp_path)
+    answers = tmp_path / "cache" / "judge-chat" / "answers"
+    answers.mkdir(parents=True)
+    (answers / request.name).write_text(json.dumps(_answer()), encoding="utf-8")
+    again = _chat(tmp_path)
+    assert _compose(again) is None and "could not be read" in again.last_error
