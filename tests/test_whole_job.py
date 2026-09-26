@@ -536,3 +536,38 @@ def test_no_key_means_no_scope(tmp_path, monkeypatch):
     judge = _judge(tmp_path)
     assert judge.write_system(_planned(), EVIDENCE, (), OPTIONS, EXAMPLES, "STYLE TEXT") is None
     assert "no AI key" in judge.last_error
+
+
+# --- round 3, Part B: the questions ---------------------------------------------------------------------------
+
+def test_the_plan_prompt_counts_untagged_symbols_keeps_no_info_systems_and_prices_apartment_units_as_adds():
+    low = PLAN_PROMPT.lower()
+    for words in ("untagged symbols", "no control information", "minimal integration lines",
+                  "alternate: \"add\"", "in the hundreds", "the others in why"):
+        assert words in low, words
+
+
+def test_the_write_prompt_asks_for_each_line_once_totals_and_the_house_order():
+    assert ("Write each line once. Put point totals as '(Qty. N Total)' when the evidence gives them. Use the house "
+            "order: controller, sensors, points, valves and dampers, integration, notes.") in WRITE_PROMPT
+    assert "none in the template" in WRITE_PROMPT
+
+
+def test_the_scope_request_carries_the_templates_tech_hour_rule(tmp_path):
+    fake = FakeClient(_response(_scope_answer()))
+    _judge(tmp_path, fake).write_system(_planned(), EVIDENCE, (), OPTIONS, EXAMPLES, "STYLE TEXT",
+                                        hours_rule="Packaged ERU / RTU / AHU: 16 h per unit")
+    (call,) = fake.calls
+    text = "\n".join(block["text"] for block in call["messages"][0]["content"] if block["type"] == "text")
+    assert "tech-hour rule" in text and "Packaged ERU / RTU / AHU: 16 h per unit" in text
+
+
+def test_the_tech_hour_rule_is_the_nearest_templates_in_words():
+    from estimator.writing.assemble import tech_hour_rule
+    from estimator.writing.templates import load_templates
+    templates = load_templates()
+    rtu = PlannedSystem("RTU", "Rooftop Unit RTU-1 thru 3", "Rooftop Unit", ("RTU-1", "RTU-2", "RTU-3"), 3, "", "",
+                        (), (), "", "", "", "")
+    assert tech_hour_rule(rtu, templates) == "Packaged ERU / RTU / AHU: 16 h per unit"
+    odd = PlannedSystem("ZC", "Zamboni Charger", "Zamboni Charger", (), 1, "", "", (), (), "", "", "", "")
+    assert tech_hour_rule(odd, templates) == "none in the template"

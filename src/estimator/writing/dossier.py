@@ -47,6 +47,8 @@ SHEET_DPI = 150
 MAX_PIXELS = 40e6            # a render bigger than this is drawn at a lower resolution
 IMAGE_VERSION = 1            # raise when the way pictures are rendered changes
 IMAGES_FOLDER = "dossier-images"
+PLAN_NOTES_LIMIT = 3_000     # characters of one sheet's notes in 7b
+PLAN_NOTE_DISCIPLINES = ("Mechanical", "Controls", "Plumbing")
 
 _QUANTITY_HEADERS = ("QTY", "QUANTITY", "NO OF UNITS", "NO. OF UNITS", "NUMBER OF UNITS", "NO. REQ'D", "NO REQD",
                      "UNITS REQUIRED", "COUNT")
@@ -765,7 +767,7 @@ def _devices_section(totals: dict, by_label: dict, names: dict, ids: _Ids) -> li
 
 # ---- section 7: the notes ------------------------------------------------------------------------------
 
-def _notes_section(reading, ids: _Ids) -> list[str]:
+def _notes_section(catalogue, reading, ids: _Ids) -> list[str]:
     lines = []
     seen = set()
     current = None
@@ -783,6 +785,40 @@ def _notes_section(reading, ids: _Ids) -> list[str]:
         sid = ids.new(f"{note.block} {note.number}, {where}")
         who = f" ({note.who})" if note.who else ""
         lines.append(f"[{sid}] {note.block} {note.number}: {_squash(note.text)}{who}")
+    return lines + _plan_sheet_notes(catalogue, reading, ids, seen)
+
+
+def _plan_sheet_notes(catalogue, reading, ids: _Ids, given: set) -> list[str]:
+    """7b: every keyed and general note of the mechanical, controls and plumbing sheets (the ones not
+    given above), each with its source id, at most PLAN_NOTES_LIMIT characters a sheet."""
+    disciplines = {(s.document, s.page): s.discipline for s in getattr(catalogue, "sheets", ()) or ()}
+    by_sheet: dict[str, list] = defaultdict(list)
+    seen = set(given)
+    for note in reading.notes:
+        if disciplines.get((note.document, note.page)) not in PLAN_NOTE_DISCIPLINES:
+            continue
+        key = (note.sheet, note.block, note.number, note.text)
+        if key in seen:
+            continue
+        seen.add(key)
+        by_sheet[_place(note.sheet, note.document, note.page)].append(note)
+    if not by_sheet:
+        return []
+    lines = ["--- 7b PLAN SHEET NOTES ---",
+             "(Every keyed and general note of the mechanical, controls and plumbing sheets; the notes given above "
+             "are not repeated.)"]
+    for where, notes in by_sheet.items():
+        lines.append(f"--- {where} ---")
+        used = 0
+        for n, note in enumerate(notes):
+            text = f"{note.block} {note.number}: {_squash(note.text)}" + (f" ({note.who})" if note.who else "")
+            if used + len(text) > PLAN_NOTES_LIMIT:
+                left = len(notes) - n
+                lines.append(f"(Cut at {PLAN_NOTES_LIMIT:,} characters: {_plural(left, 'more note')} on this sheet.)")
+                break
+            sid = ids.new(f"{note.block} {note.number}, {where}")
+            lines.append(f"[{sid}] {text}")
+            used += len(text)
     return lines
 
 
@@ -882,7 +918,7 @@ def build_dossier(catalogue, reading, cache_dir: Path | None) -> Dossier:
     body["counts"] = _counts_section(reading, families, ids)
     device_totals, by_label, names = _device_totals(catalogue, reading, multipliers)
     body["devices"] = _devices_section(device_totals, by_label, names, ids)
-    body["notes"] = _notes_section(reading, ids)
+    body["notes"] = _notes_section(catalogue, reading, ids)
     body["spec"] = _spec_section(catalogue, printed, texts, ids)
 
     empty = {"sequence": "(No sequence of operation found in the documents.)",

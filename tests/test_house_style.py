@@ -59,6 +59,8 @@ def test_a_template_line_is_written_in_the_templates_own_capitals():
     assert STYLE.template_form("map available points via mfr. provided bms interface") ==         "Map Available Points Via Mfr. Provided BMS Interface"
     assert STYLE.template_form("Furnish bms communication wiring to RTU factory controls") ==         "Furnish BMS Communication Wiring to RTU Factory Controls"
     assert STYLE.template_form("Furnish and Install Space Humidistat") == "Furnish and Install Space Humidistat"
+    every = [line.text for t in load_templates() for line in t.lines if line.text.lower() == rep.lower()]
+    assert every and set(every) == {rep}                       # the same everywhere in the Master Template
 
 
 def test_a_long_note_giving_a_device_to_the_unit_takes_the_short_house_form():
@@ -112,6 +114,7 @@ def test_the_prompt_text_carries_the_rules():
         assert verb in text
     assert STYLE.trio[1] in text and "(Furnished by Unit Mfr.)" in text
     assert "Never write prices, tech hours" in text
+    assert "Map" in text and "Re-commission" in text          # every opening the check accepts
 
 
 def test_a_line_under_another_line_may_be_a_noun_phrase():

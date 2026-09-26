@@ -419,17 +419,19 @@ class Judge:
             return None
         return plans[0] if len(parts) == 1 else wj.merge_plans(plans, len(dossier_text or ""))
 
-    def write_system(self, system, evidence_text: str, images, options, examples, style_text: str):
+    def write_system(self, system, evidence_text: str, images, options, examples, style_text: str,
+                     hours_rule: str = ""):
         """Write one planned system's scope (a `whole_job.WrittenScope`) from its evidence, with the
         nearest Master Template's lines as a checklist (`options`: a template, its lines or plain
-        texts) and up to 4 phrasing-bank `examples`. None, with `last_error` set, on any failure."""
+        texts), its tech-hour rule in words (`hours_rule`) and up to 4 phrasing-bank `examples`. None,
+        with `last_error` set, on any failure."""
         from estimator.writing import whole_job as wj
         images = list(images or ())
         known = wj.known_ids(evidence_text, images)
         if known:
             plan_ids = (system.quantity_source, *system.sequence_sources, *system.schedule_sources)
             known = known | {wj.source_key(s) for s in plan_ids if s}
-        prompt = wj.write_prompt(system, evidence_text, images, options, examples, style_text)
+        prompt = wj.write_prompt(system, evidence_text, images, options, examples, style_text, hours_rule)
         got = self._answer_with_images(WRITE_SYSTEM, system.header, wj.WRITE_PROMPT, prompt, wj.write_schema(),
                                        {"plan_key": system.key, "images": wj.images_listing(images)}, images)
         if got is None:

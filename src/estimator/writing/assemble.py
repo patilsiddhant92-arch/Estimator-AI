@@ -684,6 +684,17 @@ def _rule_text(template) -> str:
     return "; ".join(parts)
 
 
+def tech_hour_rule(system, templates=None) -> str:
+    """The nearest Master Template entry's tech-hour rule in words, for the judge's question:
+    "Packaged ERU / RTU / AHU: 16 h per unit", or "none in the template"."""
+    templates = templates if templates is not None else load_templates()
+    template = _nearest_template(system, templates)
+    if template is None:
+        return "none in the template"
+    rule = _rule_text(template)
+    return f"{template.name}: {rule}" if re.search(r"\d", rule) else "none in the template"
+
+
 def tech_hours(system, quantity: int | None, lines, hint, templates=None, evidence: str = ""
                ) -> tuple[float | None, ReviewItem | None]:
     """The system's tech hours and the review line they need. `lines` holds (text, quantity[, depth]) of

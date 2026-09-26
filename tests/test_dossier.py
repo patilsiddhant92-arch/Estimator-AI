@@ -143,7 +143,8 @@ def test_every_section_appears_in_order(tmp_path):
     assert "EF-2 (EXISTING)" in d.text
     assert "1. PROVIDE WITH FACTORY DDC CONTROLS." in d.text
     assert "PROVIDE A CURRENT SWITCH FOR EF-1." in d.text
-    assert "PATCH THE ROOF." not in d.text                     # not a controls note
+    notes = d.text.split("== 7. NOTES ==")[1].split("== 8.")[0]
+    assert "PATCH THE ROOF." in notes.split("--- 7b PLAN SHEET NOTES ---")[1]   # not a controls note: 7b only
     assert d.families == reading.totals
     for key in ("job", "sequence", "points", "schedules", "counts", "devices", "notes", "spec", "total"):
         assert d.stats[key] > 0
@@ -445,3 +446,30 @@ def test_an_empty_job_still_has_every_section(tmp_path):
     assert all(h in d.text for h in HEADINGS)
     assert "(No sequence of operation found in the documents.)" in d.text
     assert d.counts == {} and d.device_totals == {} and d.images == ()
+
+
+# --- round 3: the plan sheets' own notes (7b) -------------------------------------------------------------
+
+def test_the_plan_sheet_notes_are_all_given_in_7b_with_ids_capped_per_sheet(tmp_path, monkeypatch):
+    from estimator.writing.whole_job import split_dossier, _sections
+    catalogue, reading = _job()
+    plumbing = "Drawings/Plumb.pdf"
+    catalogue.sheets = catalogue.sheets + (_sheet(1, "P-101", "PLUMBING PLAN", discipline="Plumbing",
+                                                  document=plumbing),
+                                           _sheet(2, "A-101", "FLOOR PLAN", discipline="Architectural",
+                                                  document=plumbing))
+    long = [Note("P-101", plumbing, 1, "GENERAL NOTES", str(n), f"NOTE {n} " + "X" * 200, False, "")
+            for n in range(1, 30)]
+    reading.notes = reading.notes + tuple(long) + (Note("A-101", plumbing, 2, "GENERAL NOTES", "1",
+                                                        "PAINT THE WALLS.", False, ""),)
+    d = build_dossier(catalogue, reading, tmp_path)
+    part = d.text.split("--- 7b PLAN SHEET NOTES ---")[1].split("== 8.")[0]
+    assert "NOTE 1 " in part and "PATCH THE ROOF." in part and "PAINT THE WALLS." not in part
+    p101 = part.split("P-101")[1]
+    assert len(p101) < 3_600 and "more notes on this sheet" in p101
+    assert "PROVIDE A CURRENT SWITCH FOR EF-1." not in part            # given above in 7, not repeated
+    for sid in re.findall(r"\[(S\d+)\]", part):
+        assert sid in d.sources
+    _, sections = _sections(d.text)
+    assert sorted(sections) == list(range(1, 9))
+    assert "7b PLAN SHEET NOTES" in sections[7]

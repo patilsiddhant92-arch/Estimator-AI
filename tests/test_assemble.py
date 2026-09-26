@@ -108,7 +108,7 @@ class FakeJudge:
         self.calls += 1
         return self.plan
 
-    def write_system(self, system, evidence_text, images, options, examples, style_text):
+    def write_system(self, system, evidence_text, images, options, examples, style_text, hours_rule=""):
         self.asked.append(system.key)
         self.calls += 1
         return self.scopes.get(system.key)

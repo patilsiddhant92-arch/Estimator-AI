@@ -218,8 +218,8 @@ class HouseStyle:
                  *[f"- {line}" for line in self.guide],
                  f"- The header is \"{self.header}\"; the writer fills in the count and the tags.",
                  "- A line starts with one of these verbs: " + "; ".join(self.verbs) + ".",
-                 "- Without a verb, only an interlock, a tie-in or low-voltage wiring line, starting: "
-                 + "; ".join(self.no_verb_starts) + ".",
+                 "- Without a verb, only the openings the Master Template writes (an interlock, a tie-in, "
+                 "low-voltage wiring, mapping points, monitoring …), starting: " + "; ".join(self.openings) + ".",
                  "- A line may end with one of these forms: " + "; ".join(self.trailing_forms) + ".",
                  "- The integration trio, when " + "; or ".join(self.trio_applies_when) + ":",
                  trio,

@@ -275,7 +275,7 @@
         {"text": "Install and wire mfr. Provided sensors shipped loose w/ unit", "default": true, "unless": ["space_thermostat", "supply_air_sensor", "duct_static"]},
         {"text": "Furnish BMS Communication Wiring to Factory Controls", "default": true},
         {"text": "Map Available Points Via Mfr. Provided BMS Interface", "default": true, "quantity": "none"},
-        {"text": "AME Requires Mfr. Rep to Assist in Integration, cost to be Incurred by Mech Contractor", "default": true, "quantity": "none", "depth": 2},
+        {"text": "AME requires mfr. Rep to assist in integration, cost to be incurred by mech contractor", "default": true, "quantity": "none", "depth": 2},
         {"text": "Tie-in Ionization Device Alarm", "when": ["bipolar_ionization"], "no_verb": true}
       ],
       "client_notes": [],
@@ -1191,7 +1191,7 @@
       "lines": [
         {"text": "Furnish BMS Communication Wiring to VFD Controls", "default": true},
         {"text": "Map Available Points Via Mfr. Provided BMS Interface", "default": true, "quantity": "none"},
-        {"text": "AME Requires Mfr. Rep to Assist in Integration, cost to be Incurred by Mech Contractor", "default": true, "quantity": "none", "depth": 2}
+        {"text": "AME requires mfr. Rep to assist in integration, cost to be incurred by mech contractor", "default": true, "quantity": "none", "depth": 2}
       ],
       "client_notes": [],
       "hints": [

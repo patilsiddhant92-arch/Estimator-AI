@@ -71,7 +71,16 @@ rows about this system. A picture is cited by its image id, such as "[I2]".
 - group: when several systems share one block (for example a chilled water plant's chillers and \
 pumps), the same group name on each; otherwise "".
 - alternate: "add" or "deduct" only when the documents say the system is an alternate (for example \
-in-apartment equipment the documents price separately); otherwise "".
+in-apartment equipment the documents price separately); otherwise "". Residential or in-apartment \
+equipment priced per unit, or counted in the hundreds (apartment heat pumps such as HPAC, apartment \
+electric unit heaters), is proposed as alternate: "add", with the reason in why.
+- Untagged symbols counted on the plans are units of a system when the sequence or the notes name that \
+equipment: give their count, citing the count in the dossier.
+- A system the documents name with no control information still gets the minimal integration lines, \
+the way an estimator quotes it (for example the communication wiring and mapping its available points): \
+plan it, never drop it, and say in why that the documents give no control information.
+- When the counts disagree (the schedule's QUANTITY column against the riser against the plans), give \
+the quantity with its source, and list the others in why.
 - exception: when a unit needs no BMS work because it runs on its own integral thermostat or a \
 manufacturer's switch, the one-line exception in capitals, such as "EXCEPTION TO ANY WORK WITH \
 Qty (4) CUH-1 thru 4 - INTEGRAL THERMOSTAT"; otherwise "".
@@ -106,9 +115,12 @@ null. Never work one out or guess one.
 - Confidence is a number from 0 to 1.
 - client_notes: short clarifications for the client that the evidence supports, each starting \
 with "**". Never estimating hints, tech hours or prices.
-- tech_hours: the tech hours you suggest, following the nearest Master Template entry: what they \
-are counted per, how many hours, and which entry they are like (its name exactly as given). Null \
-when no entry is close enough.
+- tech_hours: from the Master Template's tech-hour rule given for the nearest system: what they are \
+counted per, how many hours, and which entry they are like (its name exactly as given). When the rule \
+is "none in the template" (or gives no hours), tech_hours is null and review_notes says "none in the \
+template".
+- Write each line once. Put point totals as '(Qty. N Total)' when the evidence gives them. Use the house \
+order: controller, sensors, points, valves and dampers, integration, notes.
 - review_notes: plain remarks for the estimator, never printed for the client: a checklist line \
 left out and why, documents that disagree, anything to confirm.
 - Never write prices, tech hours, confidence or category words in a line or a note."""
@@ -509,7 +521,7 @@ def options_text(options) -> str:
 
 
 def write_prompt(system: PlannedSystem, evidence_text: str, images: Sequence, options, examples,
-                 style_text: str) -> str:
+                 style_text: str, hours_rule: str = "") -> str:
     example_text = "\n\n".join(_example_text(e) for e in list(examples or ())[:MAX_EXAMPLES]) or "(none)"
     return "\n\n".join([
         _system_text(system),
@@ -518,6 +530,7 @@ def write_prompt(system: PlannedSystem, evidence_text: str, images: Sequence, op
         images_text(images),
         "The Master Template checklist for the nearest system (usually present; write each one the "
         "evidence supports, and say in review_notes why you leave one out):\n" + options_text(options),
+        f"The Master Template's tech-hour rule for the nearest system: {hours_rule or 'none in the template'}",
         f"Blocks AME wrote for similar systems in past proposals:\n{example_text}",
         (style_text or "").strip() or "(no house style given)"])
 

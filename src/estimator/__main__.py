@@ -42,7 +42,7 @@ from estimator.scope import Job
 from estimator.sent import job_from_sent
 from estimator.writing.dossier import build_dossier
 from estimator.writing.assemble import (assemble_job, checklist_text, plan_checks, review_list, system_evidence,
-                                        system_examples, system_images, template_options)
+                                        system_examples, system_images, tech_hour_rule, template_options)
 from estimator.writing.front_end import job_header
 from estimator.writing.judge import API, CHAT, KEY_VARIABLE, Judge
 from estimator.writing.style import load_house_style
@@ -294,7 +294,8 @@ def _estimate_whole_job(args: argparse.Namespace) -> None:
             continue
         scopes[system.key] = judge.write_system(system, system_evidence(system, dossier),
                                                 system_images(system, dossier), template_options(system, templates),
-                                                system_examples(system), style.prompt_text())
+                                                system_examples(system), style.prompt_text(),
+                                                hours_rule=tech_hour_rule(system, templates))
     job, systems, review = assemble_job(catalogue, reading, dossier, plan, scopes, today, templates)
     checks, _ = plan_checks(plan, dossier, reading, catalogue)
     review = review_list(systems, review, dossier)     # every system's rows too: merged and ranked, in plain words
