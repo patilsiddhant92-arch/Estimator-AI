@@ -81,6 +81,14 @@ the way an estimator quotes it (for example the communication wiring and mapping
 plan it, never drop it, and say in why that the documents give no control information.
 - When the counts disagree (the schedule's QUANTITY column against the riser against the plans), give \
 the quantity with its source, and list the others in why.
+- Secondary tagged equipment that serves or goes with a system keeps its own count, the way the \
+estimator writes it: list its tags in the system's tags, and when it is a different kind of unit give \
+it its own header or say in why that it gets its own quantity line (for example gravity intake dampers \
+GD-1 thru 6 under the exhaust fans they open with; a fire pump and its jockey pump are 2 pumps on one \
+controller, so the controller's alarm lines are "(Qty. 2 Total)").
+- Split systems: when the documents show refrigerant leak detection, say in why that the system needs \
+the refrigerant shut-off valve wiring and the leak-alarm or chime interlock, citing the plan or sheet \
+note that calls for them; otherwise ask in unresolved.
 - exception: when a unit needs no BMS work because it runs on its own integral thermostat or a \
 manufacturer's switch, the one-line exception in capitals, such as "EXCEPTION TO ANY WORK WITH \
 Qty (4) CUH-1 thru 4 - INTEGRAL THERMOSTAT"; otherwise "".
@@ -121,6 +129,17 @@ is "none in the template" (or gives no hours), tech_hours is null and review_not
 template".
 - Write each line once. Put point totals as '(Qty. N Total)' when the evidence gives them. Use the house \
 order: controller, sensors, points, valves and dampers, integration, notes.
+- Secondary tagged equipment gets its own quantity line, the way the estimator writes it: for example \
+gravity intake dampers GD-1 thru 6 under the exhaust fans get their own damper line with "(Qty. 6 \
+Total)"; a fire pump and its jockey pump are 2 pumps on one controller, so each alarm line carries \
+"(Qty. 2 Total)".
+- Who furnishes: on fans and ERVs with no factory controls, AME furnishes and installs the actuators, \
+DDC controllers and sensors, unless the documents give them to others ("furnished by …", "by the unit \
+manufacturer", or a schedule note). Write "(Furnished by Others)" or "(Furnished by Unit Mfr.)" only \
+with a quote that says so.
+- Split systems: when the documents show refrigerant leak detection, write the refrigerant shut-off \
+valve wiring and the leak-alarm or chime interlock lines, wherever the plan or sheet notes call for \
+them. Otherwise, ask in review_notes whether they are needed.
 - review_notes: plain remarks for the estimator, never printed for the client: a checklist line \
 left out and why, documents that disagree, anything to confirm.
 - Never write prices, tech hours, confidence or category words in a line or a note."""

@@ -571,3 +571,29 @@ def test_the_tech_hour_rule_is_the_nearest_templates_in_words():
     assert tech_hour_rule(rtu, templates) == "Packaged ERU / RTU / AHU: 16 h per unit"
     odd = PlannedSystem("ZC", "Zamboni Charger", "Zamboni Charger", (), 1, "", "", (), (), "", "", "", "")
     assert tech_hour_rule(odd, templates) == "none in the template"
+
+
+# --- round 4, Part B: the questions ---------------------------------------------------------------------------
+
+def test_the_prompts_give_secondary_tagged_equipment_its_own_quantity():
+    for prompt in (PLAN_PROMPT, WRITE_PROMPT):
+        low = prompt.lower()
+        for words in ("secondary tagged equipment", "gravity intake dampers", "jockey pump", "(qty. 2 total)"):
+            assert words in low, words
+
+
+def test_the_write_prompt_gives_ame_the_actuators_controllers_and_sensors_by_default():
+    low = WRITE_PROMPT.lower()
+    for words in ("no factory controls", "ame furnishes and installs the actuators, ddc controllers and sensors",
+                  "unless the documents give them to others", "by the unit manufacturer", "schedule note",
+                  "(furnished by others)", "only with a quote that says so"):
+        assert words in low, words
+
+
+def test_the_prompts_write_the_split_system_leak_detection_lines_or_ask():
+    for prompt in (PLAN_PROMPT, WRITE_PROMPT):
+        low = prompt.lower()
+        for words in ("split system", "refrigerant leak detection", "shut-off valve", "chime"):
+            assert words in low, words
+    assert "otherwise ask" in PLAN_PROMPT.lower() or "unresolved" in PLAN_PROMPT.lower()
+    assert "otherwise, ask in review_notes" in WRITE_PROMPT.lower()
