@@ -32,7 +32,7 @@ from estimator.writing.judge import (MAX_DEPTH, MAX_EXAMPLES, NO_EVIDENCE_CONFID
                                      _tech_hours, _template_text)
 from estimator.writing.style import HouseStyle
 
-SPLIT_LIMIT = 150_000        # characters of dossier read in one pass
+SPLIT_LIMIT = 400_000        # characters of dossier read in one pass (about 100,000 tokens — well inside one request; splitting loses the sequence for the later parts)
 MAX_IMAGES = 100             # pictures sent with one question
 MAX_IMAGE_BYTES = 5 * 1024 * 1024   # the API takes no bigger picture
 ALTERNATES = ("", "add", "deduct")

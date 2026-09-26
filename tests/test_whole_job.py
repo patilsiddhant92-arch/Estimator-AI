@@ -280,7 +280,7 @@ def test_in_the_chat_the_request_lists_the_pictures_and_the_answer_is_picked_up(
 
 def _huge_dossier():
     sequence = "\n".join(f"[S{n}] {n}. The unit shall run on the BMS schedule and report its alarms. " * 3
-                         for n in range(2, 2 + 1200))
+                         for n in range(2, 2 + 2000))
     counts = "\n".join(f"[C{n}] EF family: {n} placements on the plans." for n in range(1, 400))
     return (f"1. Job\n[S1] Big job.\n\n2. Sequence of operation\n{sequence}\n\n"
             f"4. Schedules\n[S5000] RTU SCHEDULE: RTU-1 | 5000 CFM\n\n5. Equipment counts\n{counts}\n\n"
