@@ -5,7 +5,8 @@ import openpyxl
 import pytest
 
 from estimator.price_sheet.rows import read_sent_rows
-from estimator.price_sheet.write import PRICE_NEEDS_REVIEW, PRICE_PENDING, PriceSheetError, write_price_sheet
+from estimator.price_sheet.write import (PRICE_NEEDS_REVIEW, PRICE_PENDING, QUANTITY_PENDING, PriceSheetError,
+                                        write_price_sheet)
 from estimator.proposal import layout
 from estimator.proposal.sections import scope_texts
 from estimator.proposal.write import write_proposal
@@ -109,3 +110,17 @@ def test_the_price_sheet_is_the_proposal_row_for_row(small_job, proposal_templat
     in_proposal = scope_texts(proposal)
     in_proposal = in_proposal[: in_proposal.index(layout.DEDUCT_ALTERNATES)]   # small_job has no deduct alternates
     assert in_sheet == in_proposal
+
+
+def test_a_block_whose_count_is_still_to_fill_is_flagged_and_its_lines_are_not_priced(small_job, workup_template,
+                                                                                       price_book, tmp_path):
+    from estimator.scope import Block, Item, Run
+    block = Block(header="Qty (##) Exhaust Fan EF-9", items=(
+        Item(kind="line", runs=(Run(text="Furnish and Install Space Temperature Sensor"),)),))
+    job = small_job.model_copy(update={"blocks": small_job.blocks + (block,)})
+    wb = openpyxl.load_workbook(str(write_price_sheet(job, workup_template, price_book, tmp_path / "hash.xlsx")))
+    ws = wb["Price Sheet 1"]
+    header = next(r for r in range(6, 60) if (ws.cell(r, 4).value or "").endswith("Qty (##) Exhaust Fan EF-9"))
+    assert ws.cell(header, 8).value == QUANTITY_PENDING
+    assert (ws.cell(header + 1, 3).value, ws.cell(header + 1, 5).value) == (None, None)
+    assert "1 block has no count yet" in wb["Summary"]["B34"].value

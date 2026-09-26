@@ -16,6 +16,7 @@ from estimator.text import squash, strip_list_marker
 
 FIRST_ROW, LAST_ROW = 6, 396                               # the rows that hold Material Total = Unit Price × Quantity
 HOURS, QUANTITY, SCOPE, UNIT_PRICE, FLAG = 2, 3, 4, 5, 8   # columns B, C, D, E, H
+COUNT_TO_FILL = "Qty (##)"                                  # the house form of a count still to be filled
 
 
 @dataclass(frozen=True)
@@ -25,6 +26,7 @@ class Row:
     quantity: int | None = None      # column C
     item: Item | None = None         # set for a line or note
     ref: tuple = ()                  # where in Job.model_dump() this row came from
+    count_pending: bool = False      # a block header whose count is still to fill: "Qty (##)"
 
 
 @dataclass(frozen=True)
@@ -61,7 +63,7 @@ def sheet_plan(job: Job) -> list[Sheet]:
 def _block_rows(block: Block, number: int | None, ref: tuple) -> list[Row]:
     header = squash(block.header) if number is None else f"{number}.  {squash(block.header)}"
     rows = [] if block.joined else [Row()]
-    rows.append(Row(header, hours=block.tech_hours, ref=ref))
+    rows.append(Row(header, hours=block.tech_hours, ref=ref, count_pending=COUNT_TO_FILL in block.header))
     for j, item in enumerate(block.items):
         rows.append(_item_row(item, layout.BLOCK_LINE_MARKER, ref + ("items", j)))
     return rows

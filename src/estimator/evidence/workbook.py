@@ -431,32 +431,39 @@ _REVIEW_ORDER = ("PENDING", "CONFLICT", "DISCREPANCY", "MISSING", "EXTRA", "ORPH
 _FLAG_CATEGORY = re.compile(r"\b(EXTRA|ORPHANED|PENDING|DISCREPANCY|MISSING|CONFLICT|EXISTING)\b")
 
 
+_SPEC_ONLY = "mentioned only in the specs"     # stays on the Flags tab, never on the review list
+
+
 def _review_list(ws, systems, review_flags, flags) -> None:
-    """Everything the estimator decides before the proposal goes out, the most urgent first,
-    then the flags from cataloguing and reading the job."""
-    rows = []
-    for system in systems:
-        for item in system.review:
-            rows.append([item.system, item.category, item.decide, item.evidence or None, item.action or None])
-    for flag in review_flags:
-        if not isinstance(flag, str):          # a ReviewItem that belongs to no system
-            rows.append([flag.system, flag.category, flag.decide, flag.evidence or None, flag.action or None])
-            continue
-        decide, _, action = flag.partition(" — ")
-        found = _FLAG_CATEGORY.search(decide)
-        rows.append(["Not on a schedule", found.group(1) if found else "", decide, None, action or None])
-    rank = {c: n for n, c in enumerate(_REVIEW_ORDER)}
-    rows.sort(key=lambda r: rank.get(r[1], len(rank)))
-    rows += [["Reading the job", "", flag, None, "See the Flags tab"] for flag in flags]
-    _table(ws, ["System", "Category", "What to decide", "Evidence", "Suggested action"],
-           rows or [["", "", "Nothing to review.", None, None]])
+    """Everything the estimator decides before the proposal goes out, the most urgent first, each
+    with its rank, then the flags from cataloguing and reading the job. Items already ranked (the
+    whole-job method's review list) keep their order; the rest are ordered by their category."""
+    rows = []                                   # (rank, category order, arrival, row)
+    order = {c: n for n, c in enumerate(_REVIEW_ORDER)}
+    items = [item for system in systems for item in system.review] + list(review_flags)
+    for n, item in enumerate(items):
+        if isinstance(item, str):              # a flag's text: a family on the drawings but on no schedule
+            decide, _, action = item.partition(" — ")
+            found = _FLAG_CATEGORY.search(decide)
+            row = ["Not on a schedule", found.group(1) if found else "", decide, None, action or None]
+            rank = 0
+        else:
+            row = [item.system, item.category, item.decide, item.evidence or None, item.action or None]
+            rank = getattr(item, "rank", 0) or 0
+        rows.append((rank or 10 ** 9, order.get(row[1], len(order)), n, row))
+    rows.sort(key=lambda r: r[:3])
+    table = [[k, *row] for k, (*_, row) in enumerate(rows, start=1)]
+    table += [[None, "Reading the job", "", flag, None, "See the Flags tab"] for flag in flags
+              if _SPEC_ONLY not in flag]
+    _table(ws, ["Rank", "System", "Category", "What to decide", "Evidence", "Suggested action"],
+           table or [[None, "", "", "Nothing to review.", None, None]])
     for r in range(2, ws.max_row + 1):
-        fill = _LINE_FILL.get(ws.cell(r, 2).value)
+        fill = _LINE_FILL.get(ws.cell(r, 3).value)
         if fill is not None:
-            ws.cell(r, 2).fill = fill
-        for column in (3, 4, 5):
+            ws.cell(r, 3).fill = fill
+        for column in (4, 5, 6):
             ws.cell(r, column).alignment = Alignment(wrap_text=True, vertical="top")
-    _widths(ws, [30, 14, 70, 60, 44])
+    _widths(ws, [7, 30, 14, 70, 60, 44])
 
 
 def _scope_lines(ws, systems) -> None:

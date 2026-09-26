@@ -481,7 +481,7 @@ def test_a_folder_with_only_a_number_and_no_firm_is_pending():
     assert header.quote_number == "26-0445"
     assert header.reference == "[project name]"
     assert header.mep_engineer == "[MEP engineer]"
-    assert header.based_on == ("M-001 Thru M-002 Dated: [date]",)
+    assert header.based_on == ("M-001 Thru M-002",)            # no "Dated: [date]" placeholder printed
     assert len(flags) == 3
     assert any("project name" in f for f in flags) and any("engineer" in f.lower() for f in flags)
     assert any("date" in f.lower() for f in flags)
@@ -554,7 +554,7 @@ def test_an_undated_controls_spec_section_is_flagged():
     catalogue = _catalogue(folder="26-0001", sections=sections, pages=pages)
     reading = SimpleNamespace(versions=(), backbone=(_backbone(SPEC, 40, 41),), schedules=())
     header, flags = job_header(catalogue, reading, TODAY)
-    assert header.based_on == ("23 09 93 SEQUENCE OF OPERATIONS Dated: [date]",)
+    assert header.based_on == ("23 09 93 SEQUENCE OF OPERATIONS",)
     assert any("23 09 93" in f and "date" in f.lower() for f in flags)
 
 

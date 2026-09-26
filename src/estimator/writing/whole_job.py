@@ -27,7 +27,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol, Sequence
 
-from estimator.writing.judge import (MAX_DEPTH, MAX_EXAMPLES, MAX_HEADER, NO_EVIDENCE_CONFIDENCE, TECH_HOUR_BASES,
+from estimator.writing.judge import (MAX_DEPTH, MAX_EXAMPLES, NO_EVIDENCE_CONFIDENCE, TECH_HOUR_BASES,
                                      TechHoursHint, _confidence, _depth, _example_text, _quantity, _squash,
                                      _tech_hours, _template_text)
 from estimator.writing.style import HouseStyle
@@ -394,8 +394,9 @@ def _exception(text: str) -> str:
 
 
 def parse_plan(answer: dict, model: str, style: HouseStyle, known: frozenset[str] = frozenset()) -> JobPlan:
-    """Read the AI's plan. A system with a quantity but no words stating it, or with no usable header,
-    is dropped and put to the estimator; ids the dossier does not have are left out and named."""
+    """Read the AI's plan. A system with a quantity but no words stating it, or with no header or one the
+    client must never see, is dropped and put to the estimator; ids the dossier does not have are left out
+    and named. A header too long for a block is kept as the AI wrote it: the assembly shortens it."""
     systems: list[PlannedSystem] = []
     dropped: list[str] = []
     unresolved: list[str] = []
@@ -407,8 +408,8 @@ def parse_plan(answer: dict, model: str, style: HouseStyle, known: frozenset[str
         kind = _text(raw.get("kind"))
         key = _text(raw.get("key")) or header
         name = header or kind or key or "a system"
-        bad = ("it has no header" if not header else style.forbidden(header)
-               or ("it is longer than a header" if len(header) > MAX_HEADER else None))
+        # A header longer than a block header is kept: the assembly shortens it (never drops the system).
+        bad = "it has no header" if not header else style.forbidden(header)
         if bad:
             dropped.append(f"{name} — {bad}")
             unresolved.append(f"The AI planned “{name}” but its header could not be used ({bad}): "

@@ -136,9 +136,10 @@ def test_the_evidence_package_lists_the_review_and_every_scope_line(estimated):
     out, _ = estimated
     workbook = openpyxl.load_workbook(out / "26-9999 Evidence Package.xlsx")
     review = [[c.value for c in row] for row in workbook["Review list"].iter_rows()]
-    assert review[0][:5] == ["System", "Category", "What to decide", "Evidence", "Suggested action"]
-    assert any(row[1] == "ASSUMPTION" for row in review[1:])
-    assert any(row[0] == "Cover page" for row in review[1:])            # the MEP engineer could not be read
+    assert review[0][:6] == ["Rank", "System", "Category", "What to decide", "Evidence", "Suggested action"]
+    assert review[1][0] == 1
+    assert any(row[2] == "ASSUMPTION" for row in review[1:])
+    assert any(row[1] == "Cover page" for row in review[1:])            # the MEP engineer could not be read
 
     lines = [[c.value for c in row] for row in workbook["Scope lines"].iter_rows()]
     headings = lines[0]
@@ -244,7 +245,7 @@ def test_the_whole_job_method_writes_the_planned_blocks_and_nothing_internal(job
     sensor = next(row for row in lines if row[1] == "Furnish and Install Space Temperature / CO2 Sensor")
     assert sensor[6] == "AI (whole job) [S2]" and sensor[8] == "yes"
     review = [[c.value for c in row] for row in workbook["Review list"].iter_rows()]
-    assert any(row[2] and "dropped" in row[2] for row in review)
+    assert any(row[3] and "dropped" in row[3] for row in review)
 
     assert "Systems planned: 2; 1 written in the proposal, 1 put in the exceptions." in printed
     assert "AI: 2 calls to fake-model, 0 answered from the cache at no cost." in printed

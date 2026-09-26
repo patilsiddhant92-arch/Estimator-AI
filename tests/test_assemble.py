@@ -232,7 +232,7 @@ def test_no_quantity_is_pending_with_the_counts_as_the_alternatives():
     assert check.category == "PENDING"
     [item] = check.review
     assert item.category == "PENDING" and "3 by distinct tags" in item.evidence
-    assert check.goes == "left out — no quantity"
+    assert check.goes == "the base bid, Qty (##)"
 
 
 def test_a_system_with_no_tag_is_confirmed_by_its_quote():
@@ -414,21 +414,21 @@ def test_the_job_has_the_planned_blocks_in_order_and_fits_the_price_sheet():
     assert any(i.decide.startswith("Equipment on the drawings the plan didn't write") for i in review)
 
 
-def test_a_pending_quantity_is_qty_unknown_in_the_evidence_package_only():
+def test_a_pending_quantity_is_printed_as_qty_hash_hash_with_a_count_to_give():
     job, systems, _ = _assemble([_vav(quantity=None, quantity_quote=""), _ef()],
                                 {"VAV": WrittenScope(VAV_LINES), "EF": EF_SCOPE})
-    assert _headers(job) == ["Qty (2) Exhaust Fan EF-1, 2"]
+    assert _headers(job) == ["Qty (##) Variable Air Volume Box VAV-1 thru 3", "Qty (2) Exhaust Fan EF-1, 2"]
     vav = next(s for s in systems if s.bundle_key == "VAV")
-    assert not vav.printed and vav.block.header == "Qty (?) Variable Air Volume Box VAV-1 thru 3"
-    assert all(line.category == "PENDING" and not line.client for line in vav.lines)
-    assert any(i.category == "PENDING" for i in vav.review)
+    assert vav.printed and all(line.quantity is None for line in vav.lines)
+    assert any(i.decide == "Give the count for Qty (##) Variable Air Volume Box VAV-1 thru 3" for i in vav.review)
 
 
-def test_a_system_the_ai_has_not_written_yet_is_left_out_and_reviewed():
+def test_a_system_the_ai_has_not_written_yet_is_printed_with_fallback_lines_and_reviewed():
     job, systems, _ = _assemble([_vav(), _ef()], {"VAV": WrittenScope(VAV_LINES), "EF": None})
-    assert _headers(job) == ["Qty (3) Variable Air Volume Box VAV-1 thru 3"]
+    assert _headers(job) == ["Qty (3) Variable Air Volume Box VAV-1 thru 3", "Qty (2) Exhaust Fan EF-1, 2"]
     ef = next(s for s in systems if s.bundle_key == "EF")
-    assert not ef.printed and ef.review[0].category == "PENDING"
+    assert ef.printed and ef.review[0].decide.startswith("System written with fallback lines — check")
+    assert all(line.category == "ASSUMPTION" for line in ef.lines)
 
 
 def test_exceptions_and_alternates_go_where_the_plan_puts_them():

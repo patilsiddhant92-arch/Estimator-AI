@@ -77,6 +77,10 @@ class ReviewItem:
     decide: str          # what to decide, in plain words
     evidence: str
     action: str
+    tier: int = 0        # how urgent, set where it is written: 1 a system written with fallback lines or with no
+                         # count, 2 a quantity conflict, 3 the AI's question, 4 the rules and the AI disagree, 5 the
+                         # rest; 0 means "work it out from the category"
+    rank: int = 0        # its place on the ranked review list (1 = the most urgent); 0 before it is ranked
 
     def __str__(self) -> str:
         head = f"{self.system}: {self.decide}" if self.system else self.decide

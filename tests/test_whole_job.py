@@ -201,6 +201,15 @@ def test_a_header_the_client_must_not_see_drops_the_system(tmp_path):
     assert any("Exhaust Fan" in d for d in plan.dropped)
 
 
+def test_a_header_longer_than_a_block_header_is_kept_for_the_assembly_to_shorten(tmp_path):
+    answer = _plan_answer()
+    long = "Plumbing Pumps (Domestic Water Pump, HW Circulator, Ejector Pumps, Elevator Sump, Sewage Ejector Pumps)"
+    answer["systems"][1]["header"] = long
+    plan = _plan(tmp_path, FakeClient(_response(answer)))
+
+    assert plan.systems[1].header == long and plan.dropped == ()
+
+
 def test_a_cited_source_the_dossier_does_not_have_is_left_out(tmp_path):
     answer = _plan_answer()
     answer["systems"][0]["sequence_sources"] = ["[S2]", "[S999]"]

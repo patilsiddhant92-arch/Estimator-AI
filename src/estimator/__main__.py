@@ -20,6 +20,7 @@ from its Master Template entry by rules, the AI judging the lines they leave ope
 from __future__ import annotations
 
 import argparse
+import dataclasses
 import datetime as dt
 import os
 import re
@@ -40,7 +41,7 @@ from estimator.reading.job import read_job, reading_lines
 from estimator.scope import Job
 from estimator.sent import job_from_sent
 from estimator.writing.dossier import build_dossier
-from estimator.writing.assemble import (assemble_job, checklist_text, plan_checks, system_evidence,
+from estimator.writing.assemble import (assemble_job, checklist_text, plan_checks, review_list, system_evidence,
                                         system_examples, system_images, template_options)
 from estimator.writing.front_end import job_header
 from estimator.writing.judge import API, CHAT, KEY_VARIABLE, Judge
@@ -295,7 +296,9 @@ def _estimate_whole_job(args: argparse.Namespace) -> None:
                                                 system_images(system, dossier), template_options(system, templates),
                                                 system_examples(system), style.prompt_text())
     job, systems, review = assemble_job(catalogue, reading, dossier, plan, scopes, today, templates)
-    checks, _ = plan_checks(plan, dossier, reading)
+    checks, _ = plan_checks(plan, dossier, reading, catalogue)
+    review = review_list(systems, review)              # every system's rows too: merged and ranked
+    systems = [dataclasses.replace(s, review=()) for s in systems]
     package = write_evidence(package_path, catalogue, reading, systems=systems, review_flags=review, plan=checks)
     for line in whole_job_lines(plan, systems, review, judge, len(catalogue.flags) + len(reading.flags)):
         print(line)
@@ -321,7 +324,7 @@ def whole_job_lines(plan, systems, review, judge, reading_flags: int = 0) -> lis
         in_proposal = sum(1 for line in lines if line.client)
         count = sum(len(s.review) for s in systems) + len(review)
         summary.append(f"Systems planned: {len(planned)}; {printed} written in the proposal"
-                       + (f", {pending} pending (no quantity)" if pending else "")
+                       + (f", {pending} printed as Qty (##) (no quantity yet)" if pending else "")
                        + (f", {excepted} put in the exceptions" if excepted else "")
                        + (f", {len(written) - printed} left out until written" if len(written) > printed else "")
                        + ".")

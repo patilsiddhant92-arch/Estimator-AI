@@ -454,6 +454,12 @@ def _letters(number: str) -> str:
     return match.group(0).upper() if match else ""
 
 
+def _dated(template: str, dates) -> str:
+    """The "based on" line's form: with no date read, the "Dated: …" part is left out rather than
+    printing a placeholder (the review list asks for the date)."""
+    return template if dates else re.sub(r"\s*Dated:\s*\{date\}", "", template)
+
+
 def _based_on(catalogue, reading, settings: dict, flags: list[str]) -> list[str]:
     disciplines = settings["based_on_disciplines"]
     by_page = {(s.document, s.page): s.discipline for s in catalogue.sheets}
@@ -478,7 +484,7 @@ def _based_on(catalogue, reading, settings: dict, flags: list[str]) -> list[str]
         if not dates:
             undated.append(ordered[0])
         template = settings["based_on_line"] if len(ordered) > 1 else settings["based_on_single"]
-        lines.append(template.format(first=ordered[0], last=ordered[-1], date=date))
+        lines.append(_dated(template, dates).format(first=ordered[0], last=ordered[-1], date=date))
     if undated:
         flags.append("Give the drawings' issue date for “based on” — no revision date was read from the title "
                      f"blocks of the {', '.join(undated)} set")
@@ -530,5 +536,6 @@ def _based_on_sections(catalogue, reading, settings: dict) -> tuple[list[str], l
         date = max(dates).strftime(settings["date_format"]) if dates else settings["undated"]
         if not dates:
             undated.append(number)
-        lines.append(settings["spec_section_line"].format(number=number, title=entry["title"], date=date))
+        lines.append(_dated(settings["spec_section_line"], dates).format(number=number, title=entry["title"],
+                                                                         date=date))
     return lines, undated
