@@ -153,8 +153,10 @@ def test_the_count_row_carries_the_systems_other_review_rows():
 
 def test_with_nothing_to_count_it_the_count_stays_to_fill():
     pumps = _system("PP", "Domestic Water Heaters", (), None, kind="Misc Monitoring Systems", quantity_quote="",
-                    quantity_source="")
-    job, _, _ = _job([pumps], {"PP": WrittenScope((_line("Monitor Domestic Water Heater Status"),))})
+                    quantity_source="", sequence_sources=("S50",))
+    dossier = _dossier(text=_dossier().text + "\n[S50] The BMS shall monitor the domestic water heaters.\n",
+                       sources={**_dossier().sources, "S50": "23 09 93, Specs.pdf page 46"})
+    job, _, _ = _job([pumps], {"PP": WrittenScope((_line("Monitor Domestic Water Heater Status"),))}, dossier=dossier)
     assert _headers(job) == ["Qty (##) Domestic Water Heaters"]
 
 
@@ -255,13 +257,11 @@ def test_the_front_end_holds_six_lines_and_the_spec_extras_go_to_the_review_list
                            {"EF": WrittenScope((_line("Furnish Fan Start / Stop"),))}, front_end=plan_front,
                            catalogue=catalogue)
     texts = _front_texts(job)
-    assert len(texts) == 6
+    assert len(texts) == 8                 # round 5: the cap applies only to the lines the plan adds
     assert {"Furnish PC Workstation", "Furnish BMS Server", "Furnish Network Level Control Panel",
-            "Furnish 3-D Graphics", "Furnish Necessary Training on New Controls"} <= set(texts)
+            "Furnish 3-D Graphics", "Furnish Necessary Training on New Controls", "IT Infrastructure"} <= set(texts)
     [row] = [r for r in systems[0].review if r.decide.startswith("Spec items the front end could add")]
-    assert "Furnish Web Page Host Device" in row.evidence and "IT Infrastructure" in row.evidence
-    front_lines = {line.text for line in systems[0].lines}
-    assert "IT Infrastructure" not in front_lines
+    assert "Furnish Web Page Host Device" in row.evidence and "IT Infrastructure" not in row.evidence
 
 
 def test_the_pc_workstation_is_always_printed_unless_the_owner_furnishes_it():

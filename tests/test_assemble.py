@@ -302,7 +302,7 @@ def test_a_line_whose_quote_is_not_in_the_dossier_is_capped_and_reviewed():
                                      quote="occupancy sensors in every office"),)
     kept, review = check_scope(_vav(), WrittenScope(lines), _dossier(), TEMPLATES)
     occ = next(k for k in kept if k.text == "Furnish and Install Occupancy Sensor")
-    assert not occ.quoted and occ.confidence == 0.5 and occ.quantity is None
+    assert not occ.quoted and occ.confidence == 0.5 and occ.quantity == 5     # a count given with a quote is kept
     assert any("Occupancy Sensor" in i.decide and "not in the job's documents" in i.decide for i in review)
     valve = next(k for k in kept if "Hot Water" in k.text)
     assert valve.quoted and valve.confidence == 0.9 and valve.source_id == "S1"

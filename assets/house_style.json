@@ -250,6 +250,30 @@
       "Monitor"
     ]
   },
+  "repeats": {
+    "about": "Repeated points, found by meaning: each line of a block is read as (device, action). The action comes from the line's opening ('actions'; a sub-line with no verb is a point, 'furnish'); actions in one family of 'same_action' are one action (a point furnished is the point monitored). The device is the noun phrase after the opening, cut where 'device_ends' says, each tag prefix written as the equipment's name, without 'ignore_words'. An interlock's device is what it ties together: the things named after 'with', 'between', 'to' or 'and', without 'partner_ignore_words'; when it names one, the unit the line is written for is the other. Two lines of one block with the same action and the same device (or one listing all the other's devices) are one line: the one with the stronger evidence stays, never when they name different tags or different locations.",
+    "actions": {
+      "furnish and install": "furnish",
+      "furnish and wire": "furnish",
+      "furnish": "furnish",
+      "install and wire": "install",
+      "install": "install",
+      "wire": "wire",
+      "tie-in": "wire",
+      "tie in": "wire",
+      "tie into": "wire",
+      "monitor": "monitor",
+      "map": "monitor",
+      "interlock": "interlock",
+      "low voltage": "interlock",
+      "necessary low voltage": "interlock",
+      "necessary control wiring": "interlock"
+    },
+    "same_action": [["furnish", "monitor"]],
+    "ignore_words": ["electric", "modulating", "control"],
+    "partner_ignore_words": ["fan", "fans", "system", "systems", "unit", "units", "operation", "controls", "control",
+                             "wiring", "associated", "start", "stop", "enable", "signal", "interlock", "interlocked"]
+  },
   "block_lines": {
     "about": "A block's lines: the house target is 4 to 9; a block still over 'review_over' lines after merging is listed for review, never cut.",
     "target": [

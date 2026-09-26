@@ -27,7 +27,29 @@
       {"text": "Furnish Necessary Training on New Controls", "keep": true}
     ]
   },
-  "about_keep": "A line marked \"keep\" is one of AME's standard front-end lines: the whole-job front end holds 6 lines at most and keeps these first, then the other lines in order. \"Furnish PC Workstation\" is always printed, unless the documents give the workstation to the owner in the same sentence.",
+  "about_keep": "A line marked \"keep\" is one of AME's standard front-end lines. The whole-job front end prints every line above that holds; the lines the AI's plan adds fill it to 6 lines at most, except a line 'past_the_cap' names. \"Furnish PC Workstation\" is always printed, unless the documents give the workstation to the owner in the same sentence.",
+
+  "past_the_cap": {
+    "about": "A front-end line the AI's plan adds that the specification explicitly calls for goes in past the 6-line cap: its words match one of 'words' and the Spec overview found one of 'topics'. Regular expressions, ignoring case.",
+    "lines": [
+      {"words": ["\\bUPS\\b", "\\bbattery\\s+back-?\\s*up\\b"], "topics": ["UPS"]},
+      {"words": ["\\bnetwork\\s+switch(?:es)?\\b", "\\bfib(?:er|re)\\b", "\\boptic(?:al)?\\b", "\\bethernet\\b", "\\bIT\\s+infrastructure\\b"],
+       "topics": ["BACnet/IP", "Network switches"]}
+    ]
+  },
+
+  "contradicts": {
+    "about": "A client note from the AI's plan that gives a front-end line's item to others (the owner, 'by others') contradicts the line. 'lines' names each line's item; 'given_away' finds a note giving it away. The one the documents support in the same sentence is kept: the line when the Spec overview calls for it, the note when a sentence of the Spec overview names the item and gives it to the owner or others; else the line. Regular expressions, ignoring case.",
+    "lines": {
+      "Furnish PC Workstation": ["\\bcomputers?\\b", "\\bPCs?\\b", "\\bworkstations?\\b"],
+      "Furnish BMS Server": ["\\bservers?\\b"],
+      "Furnish POT (Laptop or Tablet)": ["\\blaptops?\\b", "\\btablets?\\b"],
+      "Furnish UPS – For workstation, server, network level control panel": ["\\bUPS\\b"],
+      "IT Infrastructure": ["\\bnetwork\\s+switch(?:es)?\\b", "\\bIT\\s+infrastructure\\b", "\\bfib(?:er|re)\\b"]
+    },
+    "given_away": ["\\bby\\s+others\\b", "\\bby\\s+(?:the\\s+)?owner\\b", "\\bowner\\s+(?:to|will|shall)\\s+(?:provide|furnish|supply)\\b",
+                   "\\bowner[- ](?:furnished|provided|supplied)\\b", "\\b(?:furnished|provided|supplied)\\s+by\\s+(?:the\\s+)?(?:owner|others)\\b"]
+  },
 
   "conditions": {
     "workstation": {"topic": "Operator workstation / front-end PC"},

@@ -143,6 +143,10 @@ def test_nothing_planned_vanishes():
             assert system.exception in job.named_exceptions
             continue
         first = system.header.split(" w/ ")[0].split(" ")[0]
+        if system.key in ("PP", "CHWP"):   # nothing on the drawings shows it: the top question, never lost
+            name = system.header
+            assert any(r.decide.startswith(f"Does {name} exist") for r in review_list(systems, review))
+            continue
         assert any(first in header for header in printed), system.key
 
 

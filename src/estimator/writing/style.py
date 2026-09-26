@@ -67,6 +67,10 @@ class HouseStyle:
     spec_openings: tuple = ()            # compiled: "ATC Contractor to …"
     spec_verbs: dict = field(default=None, hash=False, compare=False)   # the specification's verb -> the house verb
     verb_forms: dict = field(default=None, hash=False, compare=False)   # a verb, casefolded -> the Master Template's form
+    repeat_actions: tuple = ()           # (opening, casefolded; its action), the longest opening first
+    same_action: dict = field(default=None, hash=False, compare=False)  # an action -> its family's first
+    repeat_ignore: frozenset = frozenset()           # words a device is read without ("electric", "modulating")
+    partner_ignore: frozenset = frozenset()          # words an interlock's partner is read without ("fan", "system")
 
     @property
     def openings(self) -> tuple[str, ...]:
@@ -383,6 +387,11 @@ def _load(path: Path) -> HouseStyle:
         spec_openings=tuple(re.compile(p, re.I) for p in (raw.get("spec_openings") or {}).get("patterns", ())),
         spec_verbs={k.casefold(): v for k, v in ((raw.get("spec_openings") or {}).get("verbs") or {}).items()},
         verb_forms=_verb_forms(tuple(raw["verbs"])),
+        repeat_actions=tuple(sorted(((k.casefold(), v) for k, v in (raw.get("repeats") or {}).get("actions", {}).items()),
+                                    key=lambda kv: -len(kv[0]))),
+        same_action={a: family[0] for family in (raw.get("repeats") or {}).get("same_action", ()) for a in family},
+        repeat_ignore=frozenset((raw.get("repeats") or {}).get("ignore_words", ())),
+        partner_ignore=frozenset((raw.get("repeats") or {}).get("partner_ignore_words", ())),
     )
 
 
