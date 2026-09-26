@@ -176,7 +176,7 @@ class Judge:
     under different model names, so switching from the chat to the API judges afresh."""
 
     def __init__(self, cache_dir: Path, model: str | None = None, client=None, *, mode: str = API,
-                 handoff_dir: Path | None = None, style: HouseStyle | None = None):
+                 handoff_dir: Path | None = None, style: HouseStyle | None = None, job: str | None = None):
         if mode not in MODES:
             raise ValueError(f"the AI mode must be one of {', '.join(MODES)}, not {mode!r}")
         self.mode = mode
@@ -188,6 +188,8 @@ class Judge:
             self.model = model or os.environ.get(MODEL_VARIABLE) or DEFAULT_MODEL
         self._client = client
         self._style = style
+        self.job = job                  # the job a chat request is for (written into each request)
+        self.retired: list[str] = []    # this job's requests moved into requests/old/ at the start of the run
         self.last_error: str | None = None
         self.calls = 0              # answers the AI service gave on this run
         self.cached = 0             # answers taken from the cache, at no cost
@@ -201,6 +203,39 @@ class Judge:
     @property
     def answers_dir(self) -> Path:
         return self.handoff_dir / "answers"
+
+    @property
+    def old_requests_dir(self) -> Path:
+        return self.requests_dir / "old"
+
+    def retire_requests(self, sources: dict | None = None) -> int:
+        """At the start of a chat run: every request in the requests folder for this job moves into
+        requests/old/. The questions the run still asks are written again (and leave old/); the answers are
+        never touched. A request says its job; one from before requests did is this job's when it is a plan
+        whose dossier names the job's number, or a scope question whose places are this dossier's (`sources`).
+        Returns how many were moved."""
+        if self.mode != CHAT or not self.job or not self.requests_dir.is_dir():
+            return 0
+        moved = 0
+        for path in sorted(self.requests_dir.glob("*.json")):
+            try:
+                request = json.loads(path.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                continue
+            if not isinstance(request, dict) or not _for_job(request, self.job, sources):
+                continue
+            try:
+                self.old_requests_dir.mkdir(parents=True, exist_ok=True)
+                os.replace(path, self.old_requests_dir / path.name)
+            except OSError:
+                continue
+            moved += 1
+            self.retired.append(path.name)
+        return moved
+
+    def stale_requests(self) -> int:
+        """How many of the requests moved into requests/old/ at the start of this run were not asked again."""
+        return sum(1 for name in self.retired if (self.old_requests_dir / name).exists())
 
     @property
     def style(self) -> HouseStyle:
@@ -285,9 +320,11 @@ class Judge:
                 return answer, CHAT_MODEL
             problem = f"the answer for {system} could not be read"
         try:
-            _write_json(request, {"key": key, "kind": kind, "system": system, "system_prompt": system_prompt,
+            _write_json(request, {"key": key, "kind": kind, "system": system,
+                                  **({"job": self.job} if self.job else {}), "system_prompt": system_prompt,
                                   "prompt": prompt, **extra, "schema": schema,
                                   "answer_file": str(answer_file)}, indent=2)
+            (self.old_requests_dir / request.name).unlink(missing_ok=True)      # asked again: no longer stale
         except OSError:
             self.last_error = f"judgement pending — the request for {system} could not be written to {request.parent}"
         else:
@@ -420,31 +457,34 @@ class Judge:
         return plans[0] if len(parts) == 1 else wj.merge_plans(plans, len(dossier_text or ""))
 
     def write_system(self, system, evidence_text: str, images, options, examples, style_text: str,
-                     hours_rule: str = ""):
+                     hours_rule: str = "", image_ids=None):
         """Write one planned system's scope (a `whole_job.WrittenScope`) from its evidence, with the
         nearest Master Template's lines as a checklist (`options`: a template, its lines or plain
         texts), its tech-hour rule in words (`hours_rule`) and up to 4 phrasing-bank `examples`. None,
-        with `last_error` set, on any failure."""
+        with `last_error` set, on any failure. `image_ids` are the pictures' job-wide ids (I15, I17): the
+        request cites them as the plan and the dossier do, never renumbered from I1."""
         from estimator.writing import whole_job as wj
         images = list(images or ())
-        known = wj.known_ids(evidence_text, images)
+        ids = list(image_ids) if image_ids is not None and len(image_ids) == len(images) else None
+        known = wj.known_ids(evidence_text, images, ids)
         if known:
             plan_ids = (system.quantity_source, *system.sequence_sources, *system.schedule_sources)
             known = known | {wj.source_key(s) for s in plan_ids if s}
-        prompt = wj.write_prompt(system, evidence_text, images, options, examples, style_text, hours_rule)
+        prompt = wj.write_prompt(system, evidence_text, images, options, examples, style_text, hours_rule, ids)
         got = self._answer_with_images(WRITE_SYSTEM, system.header, wj.WRITE_PROMPT, prompt, wj.write_schema(),
-                                       {"plan_key": system.key, "images": wj.images_listing(images)}, images)
+                                       {"plan_key": system.key, "images": wj.images_listing(images, ids)}, images,
+                                       ids)
         if got is None:
             return None
         answer, model = got
         return wj.parse_scope(answer, model, self.style, known)
 
     def _answer_with_images(self, kind: str, name: str, system_prompt: str, prompt: str, schema: dict,
-                            extra: dict, images) -> tuple[dict, str] | None:
+                            extra: dict, images, ids=None) -> tuple[dict, str] | None:
         """As `_answer`, for a long question that may carry pictures: the pictures' contents are part
         of the cache key, the API gets them as image blocks and the chat request lists their paths."""
         from estimator.writing import whole_job as wj
-        key = _key(self.model, prompt + wj.images_fingerprint(images), system_prompt)
+        key = _key(self.model, prompt + wj.images_fingerprint(images, ids), system_prompt)
         cache_file = self.cache_dir / f"{key}.json"
         cached = _read_cache(cache_file, kind)
         if cached is not None:
@@ -457,7 +497,7 @@ class Judge:
             self.last_error = NO_KEY
             return None
         try:
-            answer, model = self._ask_long(kind, system_prompt, wj.content_blocks(prompt, images), schema)
+            answer, model = self._ask_long(kind, system_prompt, wj.content_blocks(prompt, images, ids), schema)
         except Exception as error:  # the judge never raises into the pipeline
             self.last_error = _plain(error)
             return None
@@ -480,6 +520,28 @@ class Judge:
         else:
             response = messages.create(**params)
         return _read_response(response, kind, self.model)
+
+
+_JOB_NUMBER = re.compile(r"\b\d{2}-\d{4}\b")
+_CITED_PLACE = re.compile(r"^\[S\d+\]\s+(.+?)\s*$", re.M)
+
+
+def _for_job(request: dict, job: str, sources: dict | None) -> bool:
+    """The request is for this job: it says so, or (a request from before requests said their job) it is a plan
+    whose dossier names the job's number, or a scope question whose cited places are this dossier's."""
+    said = request.get("job")
+    if said:
+        return said == job
+    number = _JOB_NUMBER.search(job or "")
+    prompt = str(request.get("prompt") or "")
+    if request.get("kind") == PLAN_JOB:
+        return bool(number) and number.group(0) in prompt[:6000]
+    if request.get("kind") == WRITE_SYSTEM and sources:
+        places = set(sources.values())
+        cited = _CITED_PLACE.findall(prompt)
+        found = sum(1 for place in cited if place in places)
+        return found >= max(1, round(0.3 * len(cited)))
+    return False
 
 
 class _Unusable(Exception):

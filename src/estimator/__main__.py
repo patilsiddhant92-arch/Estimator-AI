@@ -42,7 +42,7 @@ from estimator.scope import Job
 from estimator.sent import job_from_sent
 from estimator.writing.dossier import build_dossier
 from estimator.writing.assemble import (assemble_job, checklist_text, plan_checks, review_list, system_evidence,
-                                        system_examples, system_images, tech_hour_rule, template_options)
+                                        system_examples, system_pictures, tech_hour_rule, template_options)
 from estimator.writing.front_end import job_header
 from estimator.writing.judge import API, CHAT, KEY_VARIABLE, Judge
 from estimator.writing.style import load_house_style
@@ -278,7 +278,8 @@ def _estimate_whole_job(args: argparse.Namespace) -> None:
         print("AI: not used (--ai off) — the AI writes the scope; run with --ai chat or api. No proposal was written.")
         print(f"Wrote {package}")
         return
-    judge = Judge(cache, mode=mode)
+    judge = Judge(cache, mode=mode, job=dossier.job_name)
+    judge.retire_requests(dossier.sources)     # this job's requests the run does not ask again end in requests/old/
     templates, style = load_templates(), load_house_style()
     plan = judge.plan_job(dossier.text, dossier.images, checklist_text(templates), style.prompt_text())
     if plan is None:
@@ -292,10 +293,16 @@ def _estimate_whole_job(args: argparse.Namespace) -> None:
     for system in plan.systems:
         if system.exception:
             continue
+        pictures = system_pictures(system, dossier)      # each with its job-wide id (I15, I17)
         scopes[system.key] = judge.write_system(system, system_evidence(system, dossier),
-                                                system_images(system, dossier), template_options(system, templates),
+                                                [image for _, image in pictures], template_options(system, templates),
                                                 system_examples(system), style.prompt_text(),
-                                                hours_rule=tech_hour_rule(system, templates))
+                                                hours_rule=tech_hour_rule(system, templates),
+                                                image_ids=[pid for pid, _ in pictures])
+    stale = judge.stale_requests()
+    if stale:
+        print(f"Moved {stale} earlier {'request' if stale == 1 else 'requests'} for this job that this run does not "
+              f"ask again into {judge.old_requests_dir} (the answers are kept).")
     job, systems, review = assemble_job(catalogue, reading, dossier, plan, scopes, today, templates)
     checks, _ = plan_checks(plan, dossier, reading, catalogue)
     review = review_list(systems, review, dossier)     # every system's rows too: merged and ranked, in plain words
@@ -318,8 +325,8 @@ def whole_job_lines(plan, systems, review, judge, reading_flags: int = 0) -> lis
     if plan is not None:
         planned = list(plan.systems)
         excepted = sum(1 for s in planned if s.exception)
-        pending = sum(1 for s in planned if not s.exception and s.quantity is None)
         written = [s for s in systems if s.bundle_key != "Front end" and s.blocks]
+        pending = sum(1 for s in written for b in s.blocks if b.header.startswith("Qty (##)"))
         printed = sum(1 for s in written if s.printed)
         lines = [line for s in systems for line in s.lines]
         in_proposal = sum(1 for line in lines if line.client)

@@ -488,7 +488,8 @@ def _scope_lines(ws, systems) -> None:
     _widths(ws, [26, 60, 10, 11, 13, 11, 44, 70, 16])
 
 
-_PLAN_FILL = {"CONFIRMED": _GREEN, "ASSUMPTION": _AMBER, "DISCREPANCY": _RED, "PENDING": _RED}
+_PLAN_FILL = {"CONFIRMED": _GREEN, "CONFIRMED-on-plans": _AMBER, "ASSUMPTION": _AMBER, "DISCREPANCY": _RED,
+              "PENDING": _RED}
 _PLAN_COUNTS = ("schedule_rows", "quantity_column", "distinct_tags", "plan_placements", "riser")
 
 
@@ -502,7 +503,8 @@ def _plan(ws, checks) -> None:
     for check in checks:
         s = check.system
         tags = ", ".join(s.tags) if not isinstance(s.tags, str) else s.tags
-        _append(ws, [s.key, s.header, s.kind, tags or None, s.quantity, check.category, s.quantity_source or None,
+        printed = getattr(check, "quantity", None)          # the count the header prints (the plan's, counted, panels)
+        _append(ws, [s.key, s.header, s.kind, tags or None, printed if printed is not None else s.quantity, check.category, s.quantity_source or None,
                      check.where or None, s.quantity_quote or None,
                      *[check.columns.get(c) for c in _PLAN_COUNTS],
                      s.group or None, s.alternate or None, s.exception or None, check.goes, s.why or None])

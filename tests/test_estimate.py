@@ -193,7 +193,7 @@ def whole_job(monkeypatch):
     monkeypatch.setattr("estimator.__main__.build_dossier", _fake_dossier)
     judges = []
 
-    def make(cache, mode):
+    def make(cache, mode, job=None):
         judges.append(FakeJudge(JOB_PLAN, SCOPES, mode=mode))
         return judges[-1]
 
@@ -253,7 +253,7 @@ def test_the_whole_job_method_writes_the_planned_blocks_and_nothing_internal(job
 
 
 def test_in_chat_mode_the_whole_job_method_waits_for_the_answers(job, tmp_path, capsys, monkeypatch, whole_job):
-    monkeypatch.setattr("estimator.__main__.Judge", lambda cache, mode: whole_job.append(_Waiting(mode)) or
+    monkeypatch.setattr("estimator.__main__.Judge", lambda cache, mode, job=None: whole_job.append(_Waiting(mode)) or
                         whole_job[-1])
     out = tmp_path / "out"
     assert main(["estimate", str(job), "--out", str(out), "--ai", "chat", "--workers", "1"]) == 0

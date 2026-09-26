@@ -100,7 +100,10 @@ def front_end(catalogue, data: dict | None = None, bid_check=None
         items.append(_line(line["text"], 1, line.get("quantity")))
         for sub in line.get("lines", ()):
             items.append(_line(sub, 2, None))
-        if when is None:
+        said = held.check(line["said_by"]) if when is None and line.get("said_by") else None
+        if said is not None:                      # always printed; the specification also calls for it
+            evidence.append(Evidence(line["text"], said[0], said[1], "CONFIRMED"))
+        elif when is None:
             evidence.append(Evidence(line["text"], _TEMPLATE_DEFAULT, "", "ASSUMPTION"))
         else:
             where, quote = held.check(when)

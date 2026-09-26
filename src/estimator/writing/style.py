@@ -59,6 +59,14 @@ class HouseStyle:
     device_ends: str = r"\s*\("
     software_points: tuple = ()
     same_opening: dict = field(default=None, hash=False, compare=False)   # opening -> its family's first
+    same_line_starts: tuple = ()         # two lines of a block both starting so are the same line
+    merge_openings: tuple = ()           # "Monitor X", "Monitor Y": one "Monitor X and Y" line
+    block_review_over: int = 12          # a block still longer than this is listed for review
+    panel_kinds: tuple = ()              # compiled: a header or kind naming a panel or a controller
+    panels_stated: object = None         # compiled: "two gas detection panels"
+    spec_openings: tuple = ()            # compiled: "ATC Contractor to …"
+    spec_verbs: dict = field(default=None, hash=False, compare=False)   # the specification's verb -> the house verb
+    verb_forms: dict = field(default=None, hash=False, compare=False)   # a verb, casefolded -> the Master Template's form
 
     @property
     def openings(self) -> tuple[str, ...]:
@@ -68,17 +76,66 @@ class HouseStyle:
     # -- the Master Template's own lines
     def template_form(self, text: str) -> str:
         """The line in the form the Master Template writes it (its capitals), when it is one of its lines,
-        or the first integration line naming any equipment; else the line as given."""
+        or the first integration line naming any equipment; else the line with its verb in the form the Master
+        Template writes most ("Install and wire …")."""
         forms = self.template_forms or {}
         key = _key(text)
         if key in forms:
-            return forms[key]
+            return self.verb_form(forms[key])
         squashed = _squash(text)
         low = squashed.casefold()
         if low.startswith(_TRIO_LEAD) and low.endswith("factory controls"):
             middle = squashed[len(_TRIO_LEAD):len(squashed) - len("factory controls")].strip()
             return _squash(self.trio[0].replace("{what}", middle))
+        return self.verb_form(text)
+
+    def verb_form(self, text: str) -> str:
+        """The line with its opening verb in the form the Master Template writes most often."""
+        verb = self.verb(text)
+        form = (self.verb_forms or {}).get(verb.casefold()) if verb else None
+        if not form or form == verb:
+            return text
+        stripped = text.strip()
+        return form + stripped[len(verb):]
+
+    def house_opening(self, text: str) -> str | None:
+        """Specification wording at the start of a line ("ATC Contractor to provide a relay …") in the house
+        verb form ("Furnish a relay …"); None when its verb has no house form. A line without such wording is
+        given back as it is."""
+        squashed = _squash(text)
+        for pattern in self.spec_openings:
+            m = pattern.match(squashed)
+            if m is None:
+                continue
+            rest = squashed[m.end():]
+            low = rest.casefold()
+            for verb in sorted(self.spec_verbs or {}, key=len, reverse=True):
+                if low.startswith(verb + " "):
+                    tail = rest[len(verb):].strip()
+                    return _squash(f"{self.spec_verbs[verb]} {tail}")
+            return None
         return text
+
+    def is_spec_wording(self, text: str) -> bool:
+        return any(p.match(_squash(text).lstrip("*").strip()) for p in self.spec_openings)
+
+    def is_panel(self, text: str) -> bool:
+        """The words name a panel or a controller ("Gas Detection System", "Fire Pump Controller")."""
+        return any(p.search(text or "") for p in self.panel_kinds)
+
+    def panels_in(self, quote: str) -> int | None:
+        """The number of panels a quote states ("2 gas detection panels"), or None."""
+        m = self.panels_stated.search(quote or "") if self.panels_stated is not None else None
+        if m is None:
+            return None
+        n = m.group("n").lower()
+        words = "one two three four five six seven eight nine ten".split()
+        return int(n) if n.isdigit() else words.index(n) + 1
+
+    def same_start(self, a: str, b: str) -> bool:
+        """Both lines start with one of the starts that make two lines the same line ("Map Available Points")."""
+        la, lb = _squash(a).casefold(), _squash(b).casefold()
+        return any(la.startswith(s.casefold()) and lb.startswith(s.casefold()) for s in self.same_line_starts)
 
     def is_template_line(self, text: str) -> bool:
         """The line is one the Master Template writes at the top level (under the header), word for word."""
@@ -251,6 +308,26 @@ def _template_forms(trio: tuple[str, ...]) -> dict[str, str]:
     return forms
 
 
+def _verb_forms(verbs: tuple[str, ...]) -> dict[str, str]:
+    """Each house verb, casefolded, and the form the Master Template writes it in most often ("Install and wire",
+    ten lines against two)."""
+    try:
+        raw = json.loads(TEMPLATES_FILE.read_text(encoding="utf-8"))
+    except OSError:
+        return {}
+    counts: dict[str, dict[str, int]] = {}
+    for system in raw.get("systems", ()):
+        for line in system.get("lines", ()):
+            text = _squash(line.get("text", ""))
+            for verb in sorted(verbs, key=len, reverse=True):
+                if text.casefold().startswith(verb.casefold() + " "):
+                    form = text[:len(verb)]
+                    counts.setdefault(verb.casefold(), {}).setdefault(form, 0)
+                    counts[verb.casefold()][form] += 1
+                    break
+    return {verb: max(forms, key=lambda f: (forms[f], f)) for verb, forms in counts.items()}
+
+
 def _order(raw: dict) -> tuple[tuple, tuple]:
     order = raw.get("line_order") or {}
     groups = order.get("groups", {})
@@ -297,6 +374,15 @@ def _load(path: Path) -> HouseStyle:
         software_points=tuple(re.compile(p, re.I) for p in (raw.get("software_points") or {}).get("patterns", ())),
         same_opening={o.lower(): family[0].lower() for family in (raw.get("same_opening") or {}).get("families", ())
                       for o in family},
+        same_line_starts=tuple((raw.get("same_line_starts") or {}).get("starts", ())),
+        merge_openings=tuple((raw.get("merge_openings") or {}).get("openings", ())),
+        block_review_over=int((raw.get("block_lines") or {}).get("review_over", 12)),
+        panel_kinds=tuple(re.compile(p, re.I) for p in (raw.get("panels") or {}).get("kinds", ())),
+        panels_stated=(re.compile(raw["panels"]["stated"], re.I) if (raw.get("panels") or {}).get("stated")
+                       else None),
+        spec_openings=tuple(re.compile(p, re.I) for p in (raw.get("spec_openings") or {}).get("patterns", ())),
+        spec_verbs={k.casefold(): v for k, v in ((raw.get("spec_openings") or {}).get("verbs") or {}).items()},
+        verb_forms=_verb_forms(tuple(raw["verbs"])),
     )
 
 

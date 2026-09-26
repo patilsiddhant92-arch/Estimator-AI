@@ -8,22 +8,26 @@
 
   "variants": {
     "new-system": [
-      {"text": "Furnish Network Level Control Panel", "quantity": 1},
-      {"text": "Furnish PC Workstation", "quantity": 1, "when": "workstation", "unless": "workstation_by_owner"},
-      {"text": "Furnish BMS Server", "quantity": 1, "when": "server", "unless": "server_by_owner"},
+      {"text": "Furnish Network Level Control Panel", "quantity": 1, "keep": true},
+      {"text": "Furnish PC Workstation", "quantity": 1, "unless": "workstation_by_owner", "said_by": "workstation",
+       "keep": true},
+      {"text": "Furnish BMS Server", "quantity": 1, "when": "server", "unless": "server_by_owner", "keep": true},
       {"text": "Furnish POT (Laptop or Tablet)", "quantity": 1, "when": "portable_terminal"},
       {"text": "Furnish UPS \u2013 For workstation, server, network level control panel", "quantity": 1, "when": "ups"},
-      {"text": "Furnish 3-D Graphics", "quantity": 1},
-      {"text": "Furnish Necessary Training on New Controls"},
+      {"text": "Furnish 3-D Graphics", "quantity": 1, "keep": true},
+      {"text": "Furnish Necessary Training on New Controls", "keep": true},
       {"text": "IT Infrastructure", "when": "bacnet_ip", "unless": "network_by_others",
        "lines": ["Network Switches", "Panels", "Fiber \u2013 Ethernet"]}
     ],
     "extend-existing": [
-      {"text": "Furnish Network Level Control Panel", "quantity": 1},
-      {"text": "Furnish 3-D Graphics to match existing", "quantity": 1},
-      {"text": "Furnish Necessary Training on New Controls"}
+      {"text": "Furnish Network Level Control Panel", "quantity": 1, "keep": true},
+      {"text": "Furnish PC Workstation", "quantity": 1, "unless": "workstation_by_owner", "said_by": "workstation",
+       "keep": true},
+      {"text": "Furnish 3-D Graphics to match existing", "quantity": 1, "keep": true},
+      {"text": "Furnish Necessary Training on New Controls", "keep": true}
     ]
   },
+  "about_keep": "A line marked \"keep\" is one of AME's standard front-end lines: the whole-job front end holds 6 lines at most and keeps these first, then the other lines in order. \"Furnish PC Workstation\" is always printed, unless the documents give the workstation to the owner in the same sentence.",
 
   "conditions": {
     "workstation": {"topic": "Operator workstation / front-end PC"},

@@ -61,16 +61,18 @@ def test_a_header_with_a_pipe_becomes_two_stacked_headers():
     assert not any("|" in h for h in shape.headers)
 
 
-def test_a_header_still_too_long_is_split_into_stacked_headers_by_family():
-    header = "Split System Indoor Unit " + tag_list(AC_TAGS)
+def test_a_header_still_too_long_is_one_header_per_family_and_a_family_is_never_cut():
+    header = "Split System Indoor Unit " + tag_list(AC_TAGS)            # round 4: one family, one header
     assert len(header) > MAX_HEADER
     shape = shape_header(_system("AC", header, AC_TAGS, 11), 11)
-    assert len(shape.headers) > 1
-    assert all(len(h.split(") ", 1)[1]) <= MAX_HEADER and h.startswith("Qty (") for h in shape.headers)
-    assert all("Split System Indoor Unit" in h for h in shape.headers)
-    shown = [t for h in shape.headers for t in expand_tags(h.split("Split System Indoor Unit ", 1)[1])]
-    assert shown == list(AC_TAGS)
-    assert sum(shape.quantities) == 11
+    assert len(shape.headers) == 1 and shape.note == ""
+    shown = expand_tags(shape.headers[0].split("Split System Indoor Unit ", 1)[1])
+    assert shown == list(AC_TAGS) and shape.quantities == (11,)
+    two = _system("AC", "Split System " + tag_list(AC_TAGS) + ", " + tag_list(["ACCU-1", "ACCU-2"]),
+                  AC_TAGS + ("ACCU-1", "ACCU-2"), 13)
+    shape = shape_header(two, 13)
+    assert len(shape.headers) == 2 and shape.quantities == (11, 2)
+    assert all(h.split(") ", 1)[1].startswith("Split System ") for h in shape.headers)
 
 
 def test_a_long_header_system_is_printed_with_its_headers_stacked():
@@ -84,7 +86,7 @@ def test_a_long_header_system_is_printed_with_its_headers_stacked():
                            "Qty (3) Electric Duct Heater EDH-C-1, EDH-1-1, EDH-2-1"]
     assert job.blocks[1].joined and job.blocks[0].items == ()
     stacked = [b for b in job.blocks if "Split System Indoor Unit" in b.header]
-    assert len(stacked) > 1 and all(b.joined for b in stacked[1:]) and all(b.items == () for b in stacked[:-1])
+    assert len(stacked) == 1 and stacked[0].items
 
 
 def test_a_system_whose_lines_were_all_refused_falls_back_to_the_master_template():
@@ -148,7 +150,7 @@ def test_nothing_planned_vanishes():
 
 def test_no_quantity_prints_qty_hash_hash_with_the_count_to_give_at_the_top():
     job, systems, review = _assemble([_vav(quantity=None, quantity_quote="", quantity_source=""), _ef()],
-                                     {"VAV": WrittenScope(VAV_LINES), "EF": EF_SCOPE})
+                                     {"VAV": WrittenScope(VAV_LINES), "EF": EF_SCOPE}, dossier=_dossier(counts={}))
     check_fit(job)
     assert _headers(job) == ["Qty (##) Variable Air Volume Box VAV-1 thru 3", "Qty (2) Exhaust Fan EF-1, 2"]
     assert all(i.quantity is None for i in job.blocks[0].items)

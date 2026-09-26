@@ -35,6 +35,7 @@ from functools import lru_cache
 from types import SimpleNamespace
 from typing import NamedTuple
 
+from estimator.reading.inventory import ON_PLANS
 from estimator.scope import Alternate, Block, Item, Job, Run
 from estimator.writing.front_end import (FRONT_END_FILE, _load as _front_end_data, extended_warranty_block,
                                          front_end, global_points_block, job_header)
@@ -52,7 +53,7 @@ UNQUOTED_CAP = 0.5            # a line whose quote is not in the dossier
 PICTURE_CAP = 0.7             # a quote the judge read off a picture (I1, I2 …): it cannot be machine-checked
 COUNT_TO_FILL = "##"          # "Qty (##)": the house form of a count still to be filled
 FALLBACK = "System written with fallback lines — check"
-MAX_FRONT_END_LINES = 12      # the front end's lines (under each, its own sub-lines); the rest go to the review
+MAX_FRONT_END_LINES = 6       # the front end's lines (under each, its own sub-lines); the rest go to the review
 NEAR_DUPLICATE = 0.6          # a plan front-end line sharing this share of its words with a line already there
 CONTROLS_TRADES = ("Mechanical", "Controls")     # a schedule on these sheets is the controls trade's
 # How urgent a review row is: the order of the ranked review list.
@@ -109,7 +110,11 @@ def expand_tags(tags) -> list[str]:
                 continue
             if re.fullmatch(r"\d+[A-Za-z]?", last):
                 last = stem + last
-            a, b = re.match(r"^(.*?)(\d+)$", first), re.match(r"^(.*?)(\d+)$", last)
+            elif re.fullmatch(r"\d+(?:\.\d+)?(?:-\d+(?:\.\d+)?)+[A-Za-z]?", last):    # "VAV-4-1 thru 4-7"
+                segments, previous = last.split("-"), first.split("-")
+                if len(previous) > len(segments):
+                    last = "-".join(previous[:len(previous) - len(segments)] + segments)
+            a, b =re.match(r"^(.*?)(\d+)$", first), re.match(r"^(.*?)(\d+)$", last)
             if a and b and a.group(1) == b.group(1) and 0 <= int(b.group(2)) - int(a.group(2)) <= 1000:
                 width = len(a.group(2)) if a.group(2).startswith("0") else 0
                 out += [f"{a.group(1)}{str(k).zfill(width)}" for k in range(int(a.group(2)), int(b.group(2)) + 1)]
@@ -293,6 +298,8 @@ class PlanCheck:
     sourced: bool                  # the plan cites at least one source id for it
     where: str                     # where its quantity source is, in words
     review: tuple[ReviewItem, ...]
+    quantity: object = None        # the count its header prints: the plan's, one counted from the plans, or panels
+    devices: int | None = None     # a panel's device count, printed on its device line "(Qty. N Total)"
 
     @property
     def goes(self) -> str:
@@ -339,6 +346,8 @@ def fold(system) -> Fold:
     folded = [t for t in tags if t.upper() in set(named)] or named
     kind = kind or _squash(m.group(1))
     parent = [t for t in tags if t.upper() not in {f.upper() for f in folded}]
+    if not parent or {_tag_prefix(t) for t in folded} & {_tag_prefix(t) for t in parent}:
+        return Fold(tuple(tags), ())      # "VAV Box w/ SCR Electric Reheat VAV-4-1 …": a descriptor of its own units
     return Fold(tuple(parent), ((kind, tuple(folded)),))
 
 
@@ -397,7 +406,30 @@ def _check_system(system, dossier) -> PlanCheck:
     quoted = f"{plain_place(where) + ': ' if where else ''}“{quote}”" if quote else "no quote"
     review: list[ReviewItem] = []
     q = system.quantity
-    if q is None:
+    printed, devices = q, None
+    panel = is_panel_system(system)
+    if panel:                         # a panel's header counts panels; the devices go on the device line
+        printed = load_house_style().panels_in(quote) or 1
+        devices = q if q is not None and q != printed else None
+        if devices is not None:
+            review.append(ReviewItem(name, "", f"{name}: the header counts the panels ({printed}); the plan's count "
+                                     f"({q}) is the devices, printed on the device line", quoted,
+                                     "Check the panels and the devices", tier=TIER_DISAGREE))
+    counted = _counted(counts, columns) if q is None and not panel else None
+    if q is None and panel:
+        category = ASSUMPTION
+        if not system.exception:
+            review.append(ReviewItem(name, ASSUMPTION, f"{name}: printed as {printed} panel — the documents state no "
+                                     "count", system.why or "", "Confirm the number of panels", tier=TIER_DISAGREE))
+    elif q is None and counted is not None:
+        printed, label = counted
+        category = ON_PLANS
+        if not system.exception:
+            review.append(ReviewItem(name, ON_PLANS, f"{shape_header(system, printed).headers[0]}: counted from the "
+                                     f"plans — {printed} by {label}; the plan gave no quantity",
+                                     f"The counts: {_counts_text(counts)}. The plan says: {system.why or 'nothing'}",
+                                     "Check the count", tier=TIER_DISAGREE))
+    elif q is None:
         category = PENDING
         if not system.exception:
             review.append(ReviewItem(name, PENDING, f"Give the count for {shape_header(system, None).headers[0]}",
@@ -422,7 +454,41 @@ def _check_system(system, dossier) -> PlanCheck:
     if not sourced:
         review.append(ReviewItem(name, "", f"The plan cites no source for {name} — it is written, but check every "
                                  "line", system.why or "", "Check the block against the drawings and the sequence"))
-    return PlanCheck(system, category, counts, columns, found, sourced, where, tuple(review))
+    return PlanCheck(system, category, counts, columns, found, sourced, where, tuple(review), printed, devices)
+
+
+_COUNTED_ORDER = ("the schedule's QUANTITY column", "its own tags on the schedule")
+
+
+def _counted(counts: dict, columns: dict | None = None) -> tuple[int, str] | None:
+    """The count the dossier gives for a system the plan gave none: the schedule's QUANTITY column, else its
+    own tags; else, for one type tag, its placements on the plans; else the distinct tags, else the placements.
+    The riser never counts it alone. None when nothing counts it, or when the system is part of a family whose
+    tags are placed more often than they are listed (type tags: its own tags do not count its units)."""
+    columns = columns or {}
+    if "its own tags on the schedule" in counts and \
+            (columns.get("plan_placements") or 0) > (columns.get("distinct_tags") or 0):
+        return None
+
+    def positive(label):
+        n = counts.get(label)
+        return n if isinstance(n, int) and n > 0 else None
+
+    for label in _COUNTED_ORDER:
+        if positive(label):
+            return counts[label], label
+    distinct, placed = positive("distinct tags"), positive("placements on the plans")
+    if placed and (distinct or 0) <= 1:
+        return placed, "placements on the plans"
+    if distinct:
+        return distinct, "distinct tags"
+    return (placed, "placements on the plans") if placed else None
+
+
+def is_panel_system(system) -> bool:
+    """A system with no tags whose header or kind names a panel or a controller ("Gas Detection System",
+    "Fire Pump Controller", "Heat Tracing Control Panel"): its header counts panels."""
+    return not expand_tags(system.tags) and load_house_style().is_panel(f"{system.header} {system.kind or ''}")
 
 
 def _existing(reading) -> set[str]:
@@ -587,7 +653,10 @@ def check_scope(system, scope, dossier, templates=None, style=None, sourced: boo
     previous = 0
     for line in scope.lines:
         text = _squash(line.text)
-        problem = ("it names prices, hours, confidence or the tool's own words" if _NEVER.search(text)
+        house = style.house_opening(text)      # "ATC Contractor to provide …" is "Furnish …"
+        text = house if house is not None else text
+        problem = ("it copies the specification's wording (“ATC Contractor to …”)" if house is None else
+                   "it names prices, hours, confidence or the tool's own words" if _NEVER.search(text)
                    else style.check_line(text, line.depth))
         if problem:
             dropped.append(f"“{text}” ({problem})")
@@ -597,6 +666,9 @@ def check_scope(system, scope, dossier, templates=None, style=None, sourced: boo
         quote = line.quote or ""
         sid = (source_ids(getattr(line, "source_id", "") or "") or [""])[0]
         picture = _is_picture(sid, dossier)
+        if not picture:                       # a quote naming a picture by its job-wide id ("I15")
+            named = next((i for i in source_ids(quote) if _is_picture(i, dossier)), "") if len(quote) <= 40 else ""
+            picture, sid = (True, sid or named) if named else (False, sid)
         quoted = bool(quote) and (picture or quote_in_dossier(quote, dossier))
         confidence = max(0.0, min(float(line.confidence or 0.0), 1.0))
         if picture:
@@ -619,9 +691,8 @@ def check_scope(system, scope, dossier, templates=None, style=None, sourced: boo
         if missing:
             review.append(ReviewItem(name, "", f"Usually present in the Master Template's {template.name}; the AI left "
                                      "out: " + "; ".join(missing), "", "Add any line the job needs"))
-    pictures = system_images(system, dossier)       # the question numbered its pictures I1, I2 … in this order
-    for note in getattr(scope, "review_notes", ()) or ():
-        review.append(ReviewItem(name, "", plain_ids(_squash(note), dossier, pictures), "the AI's note", ""))
+    for note in getattr(scope, "review_notes", ()) or ():      # the question cited the pictures by their job-wide ids
+        review.append(ReviewItem(name, "", plain_ids(_squash(note), dossier), "the AI's note", ""))
     return kept, review
 
 
@@ -775,25 +846,31 @@ def system_examples(system) -> list[dict]:
     return examples_for(prefixes, system.kind or _name(system), load_bank())
 
 
-def system_images(system, dossier) -> list:
-    """The dossier's pictures the plan cites for this system ("I3" is the third)."""
+def system_pictures(system, dossier) -> list[tuple[str, object]]:
+    """The dossier's pictures the plan cites for this system, each with its job-wide id ("I15" is the
+    fifteenth): the write request cites them by these ids, never renumbered from I1."""
     images = list(dossier.images or ())
     wanted = [sid for sid in _system_ids(system) if sid.startswith("I")]
     for sid in _system_ids(system):
         wanted += re.findall(r"\bimage (I\d+)", cited_text(dossier, sid))
-    out = []
+    out: list[tuple[str, object]] = []
     for sid in dict.fromkeys(wanted):
         n = int(sid[1:])
-        if 1 <= n <= len(images) and images[n - 1] not in out:
-            out.append(images[n - 1])
+        if 1 <= n <= len(images) and all(images[n - 1] is not image for _, image in out):
+            out.append((sid, images[n - 1]))
     return out
+
+
+def system_images(system, dossier) -> list:
+    """The dossier's pictures the plan cites for this system ("I3" is the third)."""
+    return [image for _, image in system_pictures(system, dossier)]
 
 
 # --- C2: the block header: never too long, never a pipe ---------------------------------------------------------
 
 _TAG = r"[A-Z]{1,6}(?:-[A-Z0-9]+(?:\.\d+)?)+"
 _TAG_RUN = re.compile(rf"(?<![A-Za-z0-9-])({_TAG}(?:\s*(?:,|&|\band\b|\bthru\b)\s*"
-                      rf"(?:{_TAG}|\d+(?:\.\d+)?[A-Z]?)(?![A-Za-z0-9-]))*)")
+                      rf"(?:{_TAG}|\d+(?:\.\d+)?(?:-\d+(?:\.\d+)?)*[A-Z]?)(?![A-Za-z0-9-]))*)")   # "… thru 4-7"
 
 
 class HeaderShape(NamedTuple):
@@ -836,73 +913,81 @@ def _split_kind(name: str) -> tuple[str, str]:
 
 
 def _strip_descriptors(name: str) -> tuple[str, list[str]]:
-    """The header without the words after " w/ " and without its brackets, and what was taken out."""
+    """The header without the words after " w/ " and without its brackets, and what was taken out. The tags
+    those words name stay in the header: a tag list is never moved into a note."""
     found = []
     m = re.search(r"\s+w/\s*(.+)$", name, re.I)
     if m:
-        found.append(m.group(1).strip())
-        name = name[:m.start()]
-    found += [p.strip() for p in re.findall(r"\(([^()]*)\)", name)]
-    name = re.sub(r"\s*\([^()]*\)", "", name)
+        after = m.group(1)
+        runs = [r.group(1) for r in _TAG_RUN.finditer(after)]
+        found.append(_squash(_TAG_RUN.sub(" ", after)).strip(" ,&-–"))
+        name = name[:m.start()] + (" " + ", ".join(runs) if runs else "")
+    found += [p.strip() for p in re.findall(r"\(([^()]*)\)", name) if not _TAG_RUN.search(p)]
+    name = re.sub(r"\s*\((?![^()]*" + _TAG + r")[^()]*\)", "", name)
     return _squash(name).strip(" -–,"), [f for f in found if f]
 
 
 def _by_family(kind: str, tags: list[str], quantity) -> list[tuple[str, object]]:
-    """One header per family, stacked: the tags grouped by prefix (then by stem, when one prefix is too
-    long for a header), packed while a header fits; a group too long alone is cut."""
-    def fits(chunk):
-        return len(f"{kind} {tag_list(chunk)}") <= MAX_HEADER
+    """One header per family (tag prefix), stacked. A family is never cut in two, however long its header."""
+    families: list[list[str]] = []
+    for tag in tags:
+        if families and _tag_prefix(families[-1][-1]) == _tag_prefix(tag):
+            families[-1].append(tag)
+        else:
+            families.append([tag])
+    return [(f"{kind} {tag_list(family)}", None if quantity is None else len(family)) for family in families]
 
-    def runs(seq, key):
-        out: list[list[str]] = []
-        for tag in seq:
-            if out and key(out[-1][-1]).upper() == key(tag).upper():
-                out[-1].append(tag)
-            else:
-                out.append([tag])
-        return out
 
-    groups: list[list[str]] = []
-    for family in runs(tags, _tag_prefix):
-        groups += [family] if fits(family) else runs(family, _stem)
-    chunks: list[list[str]] = []
-    for group in groups:
-        if chunks and fits(chunks[-1] + group):
-            chunks[-1] += group
-            continue
-        current: list[str] = []
-        for tag in group:
-            if current and not fits(current + [tag]):
-                chunks.append(current)
-                current = []
-            current.append(tag)
-        chunks.append(current)
-    return [(f"{kind} {tag_list(chunk)}", None if quantity is None else len(chunk)) for chunk in chunks]
+def _compact(name: str, tags: list[str]) -> str:
+    """The header with each run of tags it names written the house way ("VAV-4-1 thru 7, VAV-5-1 thru 8")."""
+    def compact(m: re.Match) -> str:
+        named = _named_tags(m.group(1))
+        own = [t for t in tags if t.upper() in set(named)] or named
+        return tag_list(own) if len(own) > 1 else m.group(1)
+    return _squash(_TAG_RUN.sub(compact, name))
 
 
 def _fit(name: str, tags: list[str], quantity, moved: list[str]) -> list[tuple[str, object]]:
-    """A header piece made to fit: the tags compacted, then the descriptors moved out, then one header per
-    family. Each is (the header without its count, the count)."""
+    """A header piece made to fit: the tags compacted, then the descriptors dropped (into the block's first
+    note), then, for several families, one header per family. The tags are never cut: a header of one family
+    still too long is printed whole. Each is (the header without its count, the count)."""
     if len(name) <= MAX_HEADER:
         return [(name, quantity)]
-    kind, rest = _split_kind(name)
-    if kind and tags and not _TAG_RUN.sub("", rest).strip(" ,&-–"):
-        name = f"{kind} {tag_list(tags)}"
-        if len(name) <= MAX_HEADER:
-            return [(name, quantity)]
+    name = _compact(name, tags)
+    if len(name) <= MAX_HEADER:
+        return [(name, quantity)]
     stripped, found = _strip_descriptors(name)
     if found:
         moved.extend(found)
-        name = stripped
+        name = _compact(stripped, tags)
         if len(name) <= MAX_HEADER:
             return [(name, quantity)]
     kind, _ = _split_kind(name)
     own = [t for t in tags if t.upper() in set(_named_tags(name))] or tags
-    if kind and own:
+    if kind and len({_tag_prefix(t) for t in own}) > 1:
         return _by_family(kind, own, quantity)
-    cut = name[:MAX_HEADER].rsplit(" ", 1)[0]
-    moved.append(name[len(cut):].strip())
-    return [(cut, quantity)]
+    return [(name, quantity)]
+
+
+@lru_cache(maxsize=1)
+def _equipment_names() -> dict[str, str]:
+    from estimator.catalogue.tags import Equipment
+    return {k.upper(): v for k, v in Equipment.load().prefixes.items()}
+
+
+def _with_kind(piece: str, kind: str) -> str:
+    """The header piece with the equipment's name before its tags ("CU-1, 2" is "Condensing Unit CU-1, 2"): the
+    name equipment.json gives the tag's prefix, else the plan's kind."""
+    words, rest = _split_kind(piece)
+    if words or not rest:
+        return piece
+    name = _equipment_names().get(_tag_prefix(rest)) or _squash(kind)
+    return f"{name} {piece}" if name else piece
+
+
+def header_tags(header: str) -> list[str]:
+    """The tags a printed header lists, one by one."""
+    return _named_tags(re.sub(r"^\s*Qty\s*\([^)]*\)\s*", "", header or ""))
 
 
 def _piece_tags(piece: str, tags: list[str]) -> list[str]:
@@ -929,7 +1014,7 @@ def shape_header(system, quantity) -> HeaderShape:
     for piece in pieces:
         own = _piece_tags(piece, tags) if len(pieces) > 1 else tags
         q = len(own) if len(pieces) > 1 and own and quantity is not None else quantity
-        for text, n in _fit(piece, own, q, moved):
+        for text, n in _fit(_with_kind(piece, system.kind or ""), own, q, moved):
             headers.append(_squash(f"Qty ({_count(n)}) {text}"))
             quantities.append(n)
     note = ("**Includes " + "; ".join(moved)) if moved else ""
@@ -1098,8 +1183,15 @@ def _rewritten(refused) -> list[str]:
         if m is None or "verb" not in m.group("why"):
             continue
         text = m.group("text").strip()
-        verb = "Wire" if re.search(r"\(Furnished by", text, re.I) else "Furnish"
-        text = f"{verb} {text}"
+        style = load_house_style()
+        if style.is_spec_wording(text):
+            house = style.house_opening(text)
+            if house is None:
+                continue                      # spec wording with no house verb: it stays out
+            text = house
+        else:
+            verb = "Wire" if re.search(r"\(Furnished by", text, re.I) else "Furnish"
+            text = f"{verb} {text}"
         if load_house_style().check_line(text, 1) is None and not _NEVER.search(text):
             out.append(text)
     return out
@@ -1355,7 +1447,7 @@ def _line_words(text: str, style) -> frozenset[str]:
 def same_line(a: str, b: str, style=None) -> bool:
     """Two scope lines that say the same thing: the same verb and at least 70 % of their words shared."""
     style = style or load_house_style()
-    if _plain(a) == _plain(b):
+    if _plain(a) == _plain(b) or style.same_start(a, b):
         return True
     if not _same_opening(a, b, style):
         return False
@@ -1429,7 +1521,11 @@ def _dedupe_groups(groups: list[list[_Row]], style) -> list[list[_Row]]:
             continue
         old = out[at]
         keep, drop = (old, group) if _better(old[0], head) else (group, old)
-        out[at] = [_combine(keep[0], drop[0])] + _dedupe_flat(keep[1:] + drop[1:], style)
+        if style.is_trio(drop[0].line.text) and not style.is_trio(keep[0].line.text):
+            keep, drop = drop, keep            # two "Map Available Points …" lines: the house's own form stays
+        children = _dedupe_flat(keep[1:] + drop[1:], style)
+        children.sort(key=lambda r: style.is_trio(r.line.text))        # "AME requires …" last
+        out[at] = [_combine(keep[0], drop[0])] + children
     return out
 
 
@@ -1442,6 +1538,68 @@ def _house_order(groups: list[list[_Row]], style) -> list[list[_Row]]:
         previous = previous if rank is None else rank
         ranked.append((group[0].folded, previous, n, group))
     return [group for *_, group in sorted(ranked, key=lambda r: r[:3])]
+
+
+def _mergeable(group: list[_Row], style) -> str | None:
+    """The opening a one-line group may be merged on ("Monitor"): no sub-line, no bracket, no tags and no
+    quantity of its own. None when it may not."""
+    if len(group) != 1:
+        return None
+    row = group[0]
+    text = _squash(row.line.text)
+    opening = next((o for o in style.merge_openings if text.casefold().startswith(o.casefold() + " ")), None)
+    if opening is None or row.line.depth != 1 or "(" in text or row.tags or _QTY_IN_LINE.search(text):
+        return None
+    if re.search(r",|\band\b", text[len(opening):]):
+        return None                            # "Monitor Fan Start/Stop, Status and Fail": already a list
+    if row.own and row.q is not None and row.q != row.units:
+        return None
+    return opening
+
+
+def _joined_objects(opening: str, objects: list[str]) -> str:
+    body = objects[0] if len(objects) == 1 else ", ".join(objects[:-1]) + " and " + objects[-1]
+    return f"{opening} {body}"
+
+
+def _merge_openings(groups: list[list[_Row]], style) -> list[list[_Row]]:
+    """ "Monitor X", "Monitor Y" and "Monitor Z", with no quantity of their own, as one line "Monitor X, Y and Z"
+    where the first was (more lines when one would be too long)."""
+    by_opening: dict[tuple, list[int]] = defaultdict(list)
+    for n, group in enumerate(groups):
+        opening = _mergeable(group, style)
+        if opening is not None:
+            by_opening[(opening, group[0].folded, group[0].system)].append(n)      # one system's lines only
+    replace: dict[int, list[list[_Row]]] = {}
+    gone: set[int] = set()
+    for (opening, _, _), at in by_opening.items():
+        if len(at) < 2:
+            continue
+        rows = [groups[n][0] for n in at]
+        merged: list[list[_Row]] = []
+        chunk: list[_Row] = []
+        for row in rows:
+            objects = [_squash(r.line.text)[len(opening):].strip() for r in chunk + [row]]
+            if chunk and len(_joined_objects(opening, objects)) > style.max_line_length:
+                merged.append(chunk)
+                chunk = []
+            chunk.append(row)
+        merged.append(chunk)
+        out = []
+        for chunk in merged:
+            first = chunk[0]
+            text = _joined_objects(opening, [_squash(r.line.text)[len(opening):].strip() for r in chunk])
+            line = dataclasses.replace(first.line, text=text, confidence=min(r.line.confidence for r in chunk),
+                                       quoted=all(r.line.quoted for r in chunk))
+            out.append([dataclasses.replace(first, line=line)])
+        replace[at[0]] = out
+        gone.update(at[1:])
+    result: list[list[_Row]] = []
+    for n, group in enumerate(groups):
+        if n in gone:
+            continue
+        result += replace.get(n, [group])
+    return result
 
 
 def _with_total(row: _Row, style) -> str:
@@ -1489,15 +1647,92 @@ def _folded_rows(system, rows: list[_Row], evidence: str, templates, name: str) 
     return added, review
 
 
+def _checked_shape(system, check: PlanCheck, shape: HeaderShape, quantity) -> tuple[HeaderShape, list]:
+    """The header check after writing: the tags each header lists add up to its count. When they don't, the
+    plan's own header and quantity are printed, with a review row. A type tag counted many times (one tag, or
+    a count other than the distinct tags agreeing) is no disagreement."""
+    name = _name(system)
+    counted_by_others = {n for label, n in (check.counts or {}).items() if label != "distinct tags"}
+    wrong = []
+    for header, n in zip(shape.headers, shape.quantities):
+        listed = len(header_tags(header))
+        if n is None or listed <= 1 or listed == n or n in counted_by_others:
+            continue
+        wrong.append((header, listed, n))
+    if not wrong:
+        return shape, []
+    base = _base_name(system)
+    if "|" not in base:
+        shape = HeaderShape((_squash(f"Qty ({_count(quantity)}) {_with_kind(base, system.kind or '')}"),),
+                            (quantity,), "", 0)
+    said = "; ".join(f"“{h}” lists {listed} tags for a count of {n}" for h, listed, n in wrong)
+    return shape, [ReviewItem(name, DISCREPANCY, f"{shape.headers[0]}: tag list and quantity disagree — {said}",
+                              f"The plan: “{base}”, {_count(quantity)}", "Correct the count or the tags",
+                              tier=TIER_DISCREPANCY)]
+
+
+_FURNISH = re.compile(r"^furnish\b", re.I)
+
+
+def _unit_maker_sentences(evidence: str, style) -> list[str]:
+    """The sentences of the evidence that give something to the unit's manufacturer."""
+    out = []
+    for sentence in re.split(r"(?<=[.;])\s+|\n", evidence or ""):
+        text = sentence.strip()
+        if text and any(re.search(p, text, re.I) for p in style.by_unit_mfr_patterns):
+            out.append(text)
+    return out
+
+
+def _given_to_unit_maker(rows: list, evidence: str, style) -> tuple[list, list[str]]:
+    """A Master Template line furnishing a device that a schedule note gives to the unit's manufacturer is the
+    house note "*<DEVICE> BY UNIT MFR.", never a furnish line. The AI's own lines are left as written."""
+    sentences = _unit_maker_sentences(evidence, style)
+    if not sentences:
+        return rows, []
+    kept, notes = [], []
+    words_of = [{_singular(w) for w in _plain(s).split()} for s in sentences]
+    for row in rows:
+        text = row.line.text
+        if row.line.origin and row.line.depth == 1 and _FURNISH.match(text):
+            device = style._device(text)
+            wanted = {_singular(w) for w in _plain(device).split() if w not in _LINE_STOP}
+            if wanted and any(wanted <= have for have in words_of):
+                note = style.by_unit_mfr.format(item=_squash(device).upper())
+                if note not in notes:
+                    notes.append(note)
+                continue
+        kept.append(row)
+    return kept, notes
+
+
+def _device_line(rows: list, check: PlanCheck, style, name: str) -> list:
+    """A panel's device count on its device line, "(Qty. N Total)": the sensor or detector line (the one
+    sharing words with the plan's quote first). A review row when no line names the devices."""
+    quote = {_singular(w) for w in _plain(check.system.quantity_quote or "").split()}
+    candidates = [r for r in rows if r.line.depth == 1 and style.line_group(r.line.text) == "sensors"]
+    candidates.sort(key=lambda r: -len(quote & {_singular(w) for w in _plain(style._device(r.line.text)).split()}))
+    if not candidates:
+        return [ReviewItem(name, "", f"{name}: the plan counts {check.devices} devices, but no line names them",
+                           check.system.quantity_quote or "", "Add the device line with (Qty. N Total)")]
+    row = candidates[0]
+    stated = _QTY_IN_LINE.search(row.line.text)
+    if stated is None or int(stated.group(1)) == check.devices:
+        row.q, row.own = check.devices, True
+    return []
+
+
 def _written_part(system, check: PlanCheck, scope, got, dossier, templates, style) -> _Part:
     """One planned system written: its checked lines polished and counted, its notes, its tech hours. A
     system with no usable line falls back to the Master Template; one with no quantity is "Qty (##)"."""
     name = _name(system)
-    quantity = system.quantity
+    quantity = check.quantity if check.quantity is not None or check.category == PENDING else system.quantity
     kept, scope_review = got if got is not None else ([], [])
     review = [*check.review, *scope_review]
     evidence = system_evidence(system, dossier)
     shape = shape_header(system, quantity)
+    shape, disagree = _checked_shape(system, check, shape, quantity)
+    review += disagree
     fallback = ""
     if not kept:
         kept, fallback = _fallback(system, scope, dossier, templates)
@@ -1507,7 +1742,7 @@ def _written_part(system, check: PlanCheck, scope, got, dossier, templates, styl
                                     "and the sequence", tier=TIER_FIRST))
     one_kind = "|" not in _base_name(system)          # a pipe's families count their own units
     parents = len(shape.headers) - shape.folded
-    if one_kind and parents > 1 and quantity is not None and check.category != DISCREPANCY \
+    if one_kind and parents > 1 and quantity is not None and check.category != DISCREPANCY and not disagree \
             and sum(n for n in shape.quantities[:parents] if n is not None) != quantity:
         review.append(ReviewItem(name, DISCREPANCY, f"The plan counts {quantity} for {name}; its stacked headers "
                                  f"count their own tags: {', '.join(shape.headers[:parents])}", "",
@@ -1520,14 +1755,17 @@ def _written_part(system, check: PlanCheck, scope, got, dossier, templates, styl
             q, own = _line_count(line.text, line.quote, line.quantity, system, quantity)
         tags = frozenset(_named_tags(line.text))
         folded = any(_names_folded(line.text, kind, ftags) for kind, ftags in fold(system).folded)
-        for text in ([line.text] if fallback else polish_line(line.text)):
+        for text in ([style.template_form(line.text)] if fallback else polish_line(line.text)):
             rows.append(_Row(dataclasses.replace(line, text=text), q, own, tags, quantity, name, folded=folded))
     added, folded_review = _folded_rows(system, rows, evidence, templates, name)
     rows += added
     review += folded_review
+    rows, maker_notes = _given_to_unit_maker(rows, evidence, style)
+    if check.devices is not None:
+        review += _device_line(rows, check, style, name)
     pictured = (any(_is_picture(sid, dossier) for sid in _system_ids(system))       # the judge read a picture
                 or any(_is_picture(line.source_id, dossier) for line in kept))     # for this system
-    notes: list[str] = []
+    notes: list[str] = list(maker_notes)
     for note in getattr(scope, "client_notes", ()) or ():
         note = _squash(note)
         text, problem = _client_note(note, evidence, pictured, style)
@@ -1595,6 +1833,7 @@ def _written_system(key: str, parts: list[_Part], template: str | None, dossier=
     hours = None if any(p.hours is None for p in parts) else float(sum(p.hours for p in parts))
     blocks[0] = blocks[0].model_copy(update={"tech_hours": hours})
     groups = _house_order(_dedupe_groups(_group_rows([r for p in parts for r in p.rows]), style), style)
+    groups = _merge_openings(groups, style)
     rows = [r for g in groups for r in g]
     includes = list(dict.fromkeys(p.includes for p in parts if p.includes))
     notes: list[tuple[str, str]] = []
@@ -1615,6 +1854,10 @@ def _written_system(key: str, parts: list[_Part], template: str | None, dossier=
     review = [r for p in parts for r in p.review]
     if len(parts) > 1:
         review = _left_out_rows(review, key, [r.line.text for r in rows], style)
+    if len(rows) > style.block_review_over:
+        review.append(ReviewItem(key, "", f"long block — check for merged or repeated lines: {headers[0]} has "
+                                 f"{len(rows)} lines (the house writes 4 to 9)", "", "Merge or delete lines the job "
+                                 "does not need", tier=TIER_DISAGREE))
     return WrittenSystem(key, tuple(blocks), tuple(lines), tuple(review), printed=True, template=template,
                          tech_hours=hours)
 
@@ -1740,10 +1983,15 @@ def _reconcile_front_end(fe, plan, dossier, style, warranty_block, evidence=()):
                                  f"the specification names it{said}; the AI's plan names it “{name}”", where,
                                  "Check which it is", tier=TIER_DISAGREE))
     have = [i.text for i in fe.items]
-    room = MAX_FRONT_END_LINES - sum(1 for i in fe.items if i.kind == "line" and i.depth == 1)
     lines, notes = _plan_lines(raw.get("lines")), _plan_lines(raw.get("notes"))
     new_lines, new_notes, left, over, warranties, contradicted = [], [], [], [], [], []
     for text, is_note in [(t, False) for t in lines] + [(t, True) for t in notes]:
+        if style.is_spec_wording(text):
+            house = None if is_note else style.house_opening(text)
+            if house is None:
+                left.append(f"“{text}” (it copies the specification's wording, “ATC Contractor to …”)")
+                continue
+            text = house
         if not is_note:
             text = polish_line(text)[0]
         if re.search(r"\bwarrant", text, re.I):
@@ -1767,15 +2015,13 @@ def _reconcile_front_end(fe, plan, dossier, style, warranty_block, evidence=()):
         if problem:
             left.append(f"“{text}” ({problem})")
             continue
-        if not is_note and room <= 0:
-            over.append(text)
-            continue
-        room -= 0 if is_note else 1
         have.append(text)
         item = Item(kind="note" if is_note else "line", runs=(Run(text=text, bold=True),))
         (new_notes if is_note else new_lines).append(item)
         added.append(ScopeLine(_FRONT_END_KEY, text, 1, None, None, ADDED, _ADDED_CONFIDENCE, _source(ids[0]),
                                where, True))
+    fe, new_lines, over = _cap_front_end(fe, new_lines)
+    added = [a for a in added if a.text not in set(over)]
     if new_lines or new_notes:
         review.append(ReviewItem(_FRONT_END_KEY, ADDED, "Front-end lines added from the AI's plan: "
                                  + "; ".join(f"“{i.text}”" for i in new_lines + new_notes), where,
@@ -1817,6 +2063,37 @@ def _reconcile_front_end(fe, plan, dossier, style, warranty_block, evidence=()):
         items[at:at] = new_lines
         fe = fe.model_copy(update={"items": tuple(items + new_notes)})
     return fe, added, review, block
+
+
+@lru_cache(maxsize=1)
+def _standard_front_end() -> frozenset[str]:
+    """The front end's standard lines (front_end.json "keep"): kept first when the front end is capped."""
+    data = _front_end_data(FRONT_END_FILE)
+    return frozenset(_plain(line["text"]) for variant in data.get("variants", {}).values() for line in variant
+                     if line.get("keep"))
+
+
+def _cap_front_end(fe, plan_lines: list) -> tuple[object, list, list[str]]:
+    """The front end at MAX_FRONT_END_LINES lines at most (their sub-lines with them, notes apart): AME's standard
+    lines first, then the other lines the Master Template's front end prints, then the plan's, each in order.
+    Returns (the front end without the lines left out, the plan's lines kept, the lines left out)."""
+    groups: list[list] = []
+    for item in fe.items:
+        if item.kind == "line" and item.depth > 1 and groups and groups[-1][0].kind == "line":
+            groups[-1].append(item)
+        else:
+            groups.append([item])
+    lines = [g for g in groups if g[0].kind == "line"]
+    standard = _standard_front_end()
+    ranked = ([(0, g) for g in lines if _plain(g[0].text) in standard]
+              + [(1, g) for g in lines if _plain(g[0].text) not in standard]
+              + [(2, [item]) for item in plan_lines])
+    keep = {id(g[0]) for _, g in ranked[:MAX_FRONT_END_LINES]}
+    over = [g[0].text for _, g in ranked[MAX_FRONT_END_LINES:]]
+    if not over:
+        return fe, plan_lines, []
+    items = [i for g in groups if g[0].kind != "line" or id(g[0]) in keep for i in g]
+    return fe.model_copy(update={"items": tuple(items)}), [i for i in plan_lines if id(i) in keep], over
 
 
 def _evidence_system(key: str, block: Block, evidence, template: str | None = None) -> WrittenSystem:
@@ -1861,6 +2138,8 @@ def assemble_job(catalogue, reading, dossier, plan, scopes, today, templates=Non
     points, points_evidence = global_points_block(catalogue, templates=templates)
     warranty, warranty_flags, warranty_evidence = extended_warranty_block(catalogue)
     fe, fe_added, fe_review, plan_warranty = _reconcile_front_end(fe, plan, dossier, style, warranty, fe_evidence)
+    printed = {_plain(i.text) for i in fe.items}
+    fe_evidence = [e for e in fe_evidence if _plain(e.line) in printed]      # a line the cap left out is not printed
     if warranty is not None:          # the standalone block carries the warranty: the front end's lines go
         moved = {_plain(i.text) for i in warranty.items}
         fe = fe.model_copy(update={"items": tuple(i for i in fe.items if _plain(i.text) not in moved)})
@@ -2060,6 +2339,9 @@ def _merge_review(items: list[ReviewItem]) -> list[ReviewItem]:
     return _fold(merged)
 
 
+_COUNT_HOSTS = (": counted from the plans", " panel — the documents state no count", ": the header counts the panels")
+
+
 def _fold(merged: list[ReviewItem]) -> list[ReviewItem]:
     """One urgent row per system: a system written with fallback lines and with no count is one row, and a
     system that has an urgent row (fallback lines, no count, a quantity conflict) carries its other rows
@@ -2077,6 +2359,9 @@ def _fold(merged: list[ReviewItem]) -> list[ReviewItem]:
     urgent: dict[str, int] = {}
     for n, item in enumerate(merged):
         if n not in dropped and _tier(item) <= TIER_DISCREPANCY and item.system not in urgent:
+            urgent[item.system] = n
+    for n, item in enumerate(merged):      # a system's count row (counted from the plans, panels) hosts the rest too
+        if n not in dropped and item.system not in urgent and any(h in item.decide for h in _COUNT_HOSTS):
             urgent[item.system] = n
     for n, item in enumerate(merged):
         at = urgent.get(item.system)

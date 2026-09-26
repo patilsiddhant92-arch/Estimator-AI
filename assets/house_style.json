@@ -224,14 +224,70 @@
     ]
   },
   "same_opening": {
-    "about": "Openings that count as the same verb when two lines are compared for a duplicate: an interlock and low-voltage wiring are both interlock wiring.",
+    "about": "Openings that count as the same verb when two lines are compared for a duplicate: an interlock and low-voltage wiring are both interlock wiring; \"Furnish … Status\" and \"Monitor … Status\" are the same point.",
     "families": [
       [
         "Interlock",
         "Low Voltage",
         "Necessary Low Voltage",
         "Necessary Control Wiring"
+      ],
+      [
+        "Monitor",
+        "Furnish"
       ]
     ]
+  },
+  "same_line_starts": {
+    "about": "Two lines of one block that both start with one of these are the same line, whatever follows (the longer one's sub-lines go under the one kept).",
+    "starts": [
+      "Map Available Points"
+    ]
+  },
+  "merge_openings": {
+    "about": "Lines of one block starting with one of these, with no quantity, bracket or sub-line of their own, are merged into one: \"Monitor X\", \"Monitor Y\" and \"Monitor Z\" are \"Monitor X, Y and Z\".",
+    "openings": [
+      "Monitor"
+    ]
+  },
+  "block_lines": {
+    "about": "A block's lines: the house target is 4 to 9; a block still over 'review_over' lines after merging is listed for review, never cut.",
+    "target": [
+      4,
+      9
+    ],
+    "review_over": 12
+  },
+  "panels": {
+    "about": "A system with no tags whose header or kind names a panel or a controller counts panels on its header (Qty (1), or the number of panels its quote states); the devices it counts go on the device line as (Qty. N Total). Patterns are regular expressions, ignoring case.",
+    "kinds": [
+      "\\bpanels?\\b",
+      "\\bcontrollers?\\b",
+      "\\bgas\\s+detection\\b",
+      "\\bleak\\s+detection\\b",
+      "\\bdetection\\s+system\\b"
+    ],
+    "stated": "\\b(?P<n>\\d+|one|two|three|four|five|six|seven|eight|nine|ten)\\s+(?:[A-Za-z/\\-]+\\s+){0,3}?(?:control\\s+)?(?:panels?|controllers?)\\b"
+  },
+  "spec_openings": {
+    "about": "Specification wording at the start of a line (\"ATC Contractor to provide …\") is written in the house verb form; a line whose verb has no house form goes to the review list. 'patterns' find the opening; 'verbs' map the specification's verb to the house verb. Regular expressions, ignoring case.",
+    "patterns": [
+      "^(?:the\\s+)?(?:ATC|BMS|BAS|DDC|EMS|controls?|temperature\\s+controls?|automatic\\s+temperature\\s+controls?)\\s+(?:sub-?)?contractor\\s+(?:to|shall|will|must)\\s+(?:be\\s+responsible\\s+(?:to|for)\\s+)?"
+    ],
+    "verbs": {
+      "furnish and install": "Furnish and Install",
+      "provide and install": "Furnish and Install",
+      "furnish and wire": "Furnish and Wire",
+      "provide and wire": "Furnish and Wire",
+      "install and wire": "Install and wire",
+      "furnish": "Furnish",
+      "provide": "Furnish",
+      "supply": "Furnish",
+      "install": "Install",
+      "wire": "Wire",
+      "monitor": "Monitor",
+      "map": "Map",
+      "interlock": "Interlock"
+    }
   }
 }

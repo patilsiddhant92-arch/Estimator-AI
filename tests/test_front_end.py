@@ -88,8 +88,10 @@ def test_the_wording_is_the_master_templates():
                    "Furnish 3-D Graphics", "Furnish Necessary Training on New Controls", "IT Infrastructure"]
     assert data["variants"]["new-system"][-1]["lines"] == ["Network Switches", "Panels", "Fiber – Ethernet"]
     assert [line["text"] for line in data["variants"]["extend-existing"]] == [
-        "Furnish Network Level Control Panel", "Furnish 3-D Graphics to match existing",
+        "Furnish Network Level Control Panel", "Furnish PC Workstation", "Furnish 3-D Graphics to match existing",
         "Furnish Necessary Training on New Controls"]
+    workstation = [line for v in data["variants"].values() for line in v if line["text"] == "Furnish PC Workstation"]
+    assert all("when" not in line and line["unless"] == "workstation_by_owner" for line in workstation)
 
 
 # --- new versus extension ---------------------------------------------------------
@@ -116,8 +118,8 @@ def test_a_new_system_with_everything_found():
 
 
 def test_a_new_system_with_nothing_found_keeps_only_the_defaults():
-    fe, flags, _ = front_end(_catalogue())
-    assert _texts(fe) == ["Furnish Network Level Control Panel", "Furnish 3-D Graphics",
+    fe, flags, _ = front_end(_catalogue())             # round 4: the PC workstation is always printed
+    assert _texts(fe) == ["Furnish Network Level Control Panel", "Furnish PC Workstation", "Furnish 3-D Graphics",
                           "Furnish Necessary Training on New Controls"]
 
 
@@ -136,8 +138,8 @@ def test_an_extension_of_an_existing_named_system():
     fe, flags, evidence = front_end(_catalogue(overview))
     assert fe.mode == "extend-existing"
     assert fe.existing_system_name == "Honeywell / Niagara N4 / WEBs"
-    assert _texts(fe) == ["Furnish Network Level Control Panel", "Furnish 3-D Graphics to match existing",
-                          "Furnish Necessary Training on New Controls"]
+    assert _texts(fe) == ["Furnish Network Level Control Panel", "Furnish PC Workstation",
+                          "Furnish 3-D Graphics to match existing", "Furnish Necessary Training on New Controls"]
     assert flags == []
     assert any(e.line.startswith("Seamlessly Tie in") and "Honeywell" in e.quote for e in evidence)
 

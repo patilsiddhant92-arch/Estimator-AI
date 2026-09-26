@@ -102,13 +102,20 @@ class FakeJudge:
         self.calls = self.cached = self.answered_in_chat = self.waiting = 0
         self.available, self.model, self.last_error = True, "fake-model", None
         self.requests_dir = "requests"
+        self.old_requests_dir = "requests/old"
+
+    def retire_requests(self, sources=None):
+        return 0
+
+    def stale_requests(self):
+        return 0
 
     def plan_job(self, dossier_text, images, checklist, style_text):
         self.asked.append("plan")
         self.calls += 1
         return self.plan
 
-    def write_system(self, system, evidence_text, images, options, examples, style_text, hours_rule=""):
+    def write_system(self, system, evidence_text, images, options, examples, style_text, hours_rule="", image_ids=None):
         self.asked.append(system.key)
         self.calls += 1
         return self.scopes.get(system.key)
@@ -228,10 +235,10 @@ def test_a_type_row_with_a_quantity_column_is_that_many_units_never_one():
 
 
 def test_no_quantity_is_pending_with_the_counts_as_the_alternatives():
-    check = _check(_vav(quantity=None, quantity_quote="", quantity_source=""))
-    assert check.category == "PENDING"
+    check = _check(_vav(quantity=None, quantity_quote="", quantity_source=""), _dossier(counts={}))
+    assert check.category == "PENDING"               # nothing counts it (round 4: a count the dossier gives is printed)
     [item] = check.review
-    assert item.category == "PENDING" and "3 by distinct tags" in item.evidence
+    assert item.category == "PENDING" and "no count" in item.evidence
     assert check.goes == "the base bid, Qty (##)"
 
 
@@ -393,9 +400,10 @@ def _job_catalogue(**kw):
     return catalogue
 
 
-def _assemble(systems, scopes, catalogue=None, front_end=None, unresolved=()):
+def _assemble(systems, scopes, catalogue=None, front_end=None, unresolved=(), dossier=None):
     plan = JobPlan(tuple(systems), front_end or {}, tuple(unresolved))
-    return assemble_job(catalogue or _job_catalogue(), JOB_READING, _dossier(), plan, scopes, TODAY, TEMPLATES)
+    return assemble_job(catalogue or _job_catalogue(), JOB_READING, dossier or _dossier(), plan, scopes, TODAY,
+                        TEMPLATES)
 
 
 def _headers(job):
@@ -420,7 +428,7 @@ def test_the_job_has_the_planned_blocks_in_order_and_fits_the_price_sheet():
 
 def test_a_pending_quantity_is_printed_as_qty_hash_hash_with_a_count_to_give():
     job, systems, _ = _assemble([_vav(quantity=None, quantity_quote=""), _ef()],
-                                {"VAV": WrittenScope(VAV_LINES), "EF": EF_SCOPE})
+                                {"VAV": WrittenScope(VAV_LINES), "EF": EF_SCOPE}, dossier=_dossier(counts={}))
     assert _headers(job) == ["Qty (##) Variable Air Volume Box VAV-1 thru 3", "Qty (2) Exhaust Fan EF-1, 2"]
     vav = next(s for s in systems if s.bundle_key == "VAV")
     assert vav.printed and all(line.quantity is None for line in vav.lines)

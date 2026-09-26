@@ -203,12 +203,12 @@ def source_key(source: str) -> str:
     return (source or "").strip().strip("[]").strip()
 
 
-def known_ids(text: str, images: Sequence = ()) -> frozenset[str]:
-    """The source ids the dossier text carries, with the pictures' ids (I1, I2, ...)."""
+def known_ids(text: str, images: Sequence = (), ids: Sequence[str] | None = None) -> frozenset[str]:
+    """The source ids the dossier text carries, with the pictures' ids (I1, I2, ..., or the job-wide `ids`)."""
     found = set(_CITED.findall(text or ""))
     if not found:
         return frozenset()
-    return frozenset(found | {f"I{n}" for n in range(1, len(images) + 1)})
+    return frozenset(found | set(_picture_ids(images, ids)))
 
 
 def _ids(value, known: frozenset[str], unknown: list[str]) -> tuple[str, ...]:
@@ -233,6 +233,13 @@ def image_id(number: int) -> str:
     return f"I{number}"
 
 
+def _picture_ids(images: Sequence, ids: Sequence[str] | None = None) -> list[str]:
+    """Each picture's id: the job-wide ids given (I15, I17), else I1 … In in the order given."""
+    if ids is not None and len(ids) == len(images):
+        return [str(i) for i in ids]
+    return [image_id(n) for n in range(1, len(images) + 1)]
+
+
 def image_caption(image) -> str:
     where = [str(image.document or "")]
     if getattr(image, "sheet", None):
@@ -242,39 +249,39 @@ def image_caption(image) -> str:
     return f"{image.what} ({', '.join(w for w in where if w)})"
 
 
-def images_text(images: Sequence) -> str:
+def images_text(images: Sequence, ids: Sequence[str] | None = None) -> str:
     if not images:
         return "Pictures: (none)"
-    lines = [f"- {image_id(n)}: {image_caption(image)}" for n, image in enumerate(images, start=1)]
+    lines = [f"- {pid}: {image_caption(image)}" for pid, image in zip(_picture_ids(images, ids), images)]
     return "Pictures of the documents, attached (cite each by its id):\n" + "\n".join(lines)
 
 
-def images_listing(images: Sequence) -> list[dict]:
-    """The pictures as the chat request lists them, for the chat helper to open."""
-    return [{"id": image_id(n), "path": str(image.path), "what": image.what, "sheet": image.sheet,
-             "document": image.document, "page": image.page} for n, image in enumerate(images, start=1)]
+def images_listing(images: Sequence, ids: Sequence[str] | None = None) -> list[dict]:
+    """The pictures as the chat request lists them, for the chat helper to open, each by its job-wide id."""
+    return [{"id": pid, "path": str(image.path), "what": image.what, "sheet": image.sheet,
+             "document": image.document, "page": image.page} for pid, image in zip(_picture_ids(images, ids), images)]
 
 
-def images_fingerprint(images: Sequence) -> str:
+def images_fingerprint(images: Sequence, ids: Sequence[str] | None = None) -> str:
     """What the pictures are, for the cache key: a changed picture is a new question."""
     if not images:
         return ""
     parts = []
-    for n, image in enumerate(images, start=1):
+    for pid, image in zip(_picture_ids(images, ids), images):
         try:
             digest = hashlib.sha256(Path(image.path).read_bytes()).hexdigest()
         except OSError:
             digest = "missing"
-        parts.append(f"{image_id(n)} {image_caption(image)} {digest}")
+        parts.append(f"{pid} {image_caption(image)} {digest}")
     return "\n\nPictures:\n" + "\n".join(parts)
 
 
-def content_blocks(prompt: str, images: Sequence) -> list[dict]:
+def content_blocks(prompt: str, images: Sequence, ids: Sequence[str] | None = None) -> list[dict]:
     """The API message: the prompt, then each picture after its caption (a base64 PNG). A picture
     that cannot be read, or is too big to send, is named in words instead."""
     blocks: list[dict] = [{"type": "text", "text": prompt}]
-    for n, image in enumerate(images[:MAX_IMAGES], start=1):
-        caption = f"Picture {image_id(n)}: {image_caption(image)}"
+    for pid, image in list(zip(_picture_ids(images, ids), images))[:MAX_IMAGES]:
+        caption = f"Picture {pid}: {image_caption(image)}"
         try:
             data = Path(image.path).read_bytes()
         except OSError:
@@ -521,13 +528,13 @@ def options_text(options) -> str:
 
 
 def write_prompt(system: PlannedSystem, evidence_text: str, images: Sequence, options, examples,
-                 style_text: str, hours_rule: str = "") -> str:
+                 style_text: str, hours_rule: str = "", image_ids: Sequence[str] | None = None) -> str:
     example_text = "\n\n".join(_example_text(e) for e in list(examples or ())[:MAX_EXAMPLES]) or "(none)"
     return "\n\n".join([
         _system_text(system),
         f"The job's evidence for this system, each passage with its source id:\n"
         f"{(evidence_text or '').strip() or '(none)'}",
-        images_text(images),
+        images_text(images, image_ids),
         "The Master Template checklist for the nearest system (usually present; write each one the "
         "evidence supports, and say in review_notes why you leave one out):\n" + options_text(options),
         f"The Master Template's tech-hour rule for the nearest system: {hours_rule or 'none in the template'}",
@@ -588,6 +595,12 @@ def parse_scope(answer: dict, model: str, style: HouseStyle, known: frozenset[st
         if not text:
             continue
         depth = min(_depth(raw.get("depth")), last_depth + 1, MAX_DEPTH)
+        house = style.house_opening(text)      # "ATC Contractor to provide …" is "Furnish …"
+        if house is None:
+            refused.append(f"“{text}” — it copies the specification's wording (“ATC Contractor to …”) with no "
+                           "house verb for it")
+            continue
+        text = house
         reason = style.check_line(text, depth)
         if reason:
             refused.append(f"“{text}” — {reason}")
@@ -617,7 +630,8 @@ def parse_scope(answer: dict, model: str, style: HouseStyle, known: frozenset[st
         note = _text(note)
         if not note:
             continue
-        bad = style.check_note(note)
+        bad = style.check_note(note) or ("it copies the specification's wording (“ATC Contractor to …”)"
+                                         if style.is_spec_wording(note) else None)
         if bad:
             refused.append(f"the note “{note}” — {bad}")
             continue
