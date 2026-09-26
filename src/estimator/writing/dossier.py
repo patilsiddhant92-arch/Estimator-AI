@@ -49,6 +49,8 @@ IMAGE_VERSION = 1            # raise when the way pictures are rendered changes
 IMAGES_FOLDER = "dossier-images"
 PLAN_NOTES_LIMIT = 3_000     # characters of one sheet's notes in 7b
 PLAN_NOTE_DISCIPLINES = ("Mechanical", "Controls", "Plumbing")
+PLAN_TEXT_LIMIT = 2_500     # characters of one plan sheet's own text in 7c
+PLAN_TEXT_TOTAL = 40_000    # characters of all plan sheets' text in 7c
 
 _QUANTITY_HEADERS = ("QTY", "QUANTITY", "NO OF UNITS", "NO. OF UNITS", "NUMBER OF UNITS", "NO. REQ'D", "NO REQD",
                      "UNITS REQUIRED", "COUNT")
@@ -822,6 +824,42 @@ def _plan_sheet_notes(catalogue, reading, ids: _Ids, given: set) -> list[str]:
     return lines
 
 
+def _plan_sheet_text(catalogue, texts: dict, ids: _Ids, printed: _Printed) -> list[str]:
+    """7c: each mechanical, controls and plumbing sheet's own text, squashed and cut at PLAN_TEXT_LIMIT
+    characters. The note reader only catches blocks under a heading ("KEY NOTES"); keyed notes written
+    beside the drawing (a damper actuator, a leak chime) are only here. One id per sheet; a sheet number
+    seen in several documents is given once, an addendum's copy first; pages given above are skipped."""
+    kinds = {d.relative: d.kind for d in getattr(catalogue.job, "documents", ()) or ()}
+    chosen: dict[str, object] = {}
+    for sheet in getattr(catalogue, "sheets", ()) or ():
+        if sheet.discipline not in PLAN_NOTE_DISCIPLINES or (sheet.document, sheet.page) in printed.pages:
+            continue
+        key = sheet.number or f"{sheet.document}#{sheet.page}"
+        held = chosen.get(key)
+        if held is None or (kinds.get(sheet.document) == "addendum" and kinds.get(held.document) != "addendum"):
+            chosen[key] = sheet
+    if not chosen:
+        return []
+    lines = ["--- 7c PLAN SHEET TEXT ---",
+             "(Each mechanical, controls and plumbing sheet's own text, as printed, for notes written beside the "
+             f"drawing; cut at {PLAN_TEXT_LIMIT:,} characters a sheet.)"]
+    used = 0
+    for n, sheet in enumerate(chosen.values()):
+        text = _squash(texts.get((sheet.document, sheet.page)))
+        if not text:
+            continue
+        if used + min(len(text), PLAN_TEXT_LIMIT) > PLAN_TEXT_TOTAL:
+            lines.append(f"(Stopped at {PLAN_TEXT_TOTAL:,} characters: {_plural(len(chosen) - n, 'more sheet')} "
+                         "not given.)")
+            break
+        cut = text[:PLAN_TEXT_LIMIT] + (" …" if len(text) > PLAN_TEXT_LIMIT else "")
+        where = _place(sheet.number, sheet.document, sheet.page)
+        sid = ids.new(f"{where} (sheet text)")
+        lines.append(f"[{sid}] {where} {sheet.title or ''}: {cut}".replace("  ", " "))
+        used += len(cut)
+    return lines
+
+
 # ---- section 8: the controls spec highlights -------------------------------------------------------------
 
 def _spec_section(catalogue, printed: _Printed, texts: dict, ids: _Ids) -> list[str]:
@@ -918,7 +956,7 @@ def build_dossier(catalogue, reading, cache_dir: Path | None) -> Dossier:
     body["counts"] = _counts_section(reading, families, ids)
     device_totals, by_label, names = _device_totals(catalogue, reading, multipliers)
     body["devices"] = _devices_section(device_totals, by_label, names, ids)
-    body["notes"] = _notes_section(catalogue, reading, ids)
+    body["notes"] = _notes_section(catalogue, reading, ids) + _plan_sheet_text(catalogue, texts, ids, printed)
     body["spec"] = _spec_section(catalogue, printed, texts, ids)
 
     empty = {"sequence": "(No sequence of operation found in the documents.)",

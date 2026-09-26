@@ -473,3 +473,22 @@ def test_the_plan_sheet_notes_are_all_given_in_7b_with_ids_capped_per_sheet(tmp_
     _, sections = _sections(d.text)
     assert sorted(sections) == list(range(1, 9))
     assert "7b PLAN SHEET NOTES" in sections[7]
+
+
+def test_each_plan_sheets_own_text_is_given_in_7c_once_per_sheet_number(tmp_path):
+    catalogue, reading = _job()
+    plumbing = "Drawings/Plumb.pdf"
+    catalogue.sheets = catalogue.sheets + (_sheet(1, "P-101", "PLUMBING PLAN", discipline="Plumbing",
+                                                  document=plumbing),
+                                           _sheet(2, "A-101", "FLOOR PLAN", discipline="Architectural",
+                                                  document=plumbing))
+    catalogue.pages = catalogue.pages + (
+        PageRecord(plumbing, 1, "text", "KEYED NOTE 4 PROVIDE 2-POSITION ACTUATOR ON INTAKE DAMPER " + "Y" * 5000, 0),
+        PageRecord(plumbing, 2, "text", "PAINT THE WALLS.", 0))
+    d = build_dossier(catalogue, reading, tmp_path)
+    part = d.text.split("--- 7c PLAN SHEET TEXT ---")[1].split("== 8.")[0]
+    assert "PROVIDE 2-POSITION ACTUATOR ON INTAKE DAMPER" in part and "PAINT THE WALLS." not in part
+    p101 = part.split("P-101")[1]
+    assert len(p101) < 2_700 and "…" in p101
+    for sid in re.findall(r"\[(S\d+)\]", part):
+        assert sid in d.sources
