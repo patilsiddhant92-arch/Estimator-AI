@@ -32,6 +32,7 @@ import re
 from collections import defaultdict
 from dataclasses import dataclass
 from functools import lru_cache
+from types import SimpleNamespace
 from typing import NamedTuple
 
 from estimator.scope import Alternate, Block, Item, Job, Run
@@ -88,7 +89,7 @@ def expand_tags(tags) -> list[str]:
     tuple of such pieces."""
     items = [tags] if isinstance(tags, str) else list(tags or ())
     out: list[str] = []
-    stem = ""
+    stem = head = ""
     for item in items:
         for part in (p.strip() for p in str(item).split(",")):
             if not part:
@@ -97,7 +98,12 @@ def expand_tags(tags) -> list[str]:
             first, last = (m.group(1).strip(), m.group(2).strip()) if m else (part, None)
             if stem and re.fullmatch(r"\d+[A-Za-z]?", first):
                 first = stem + first
+            elif head and re.fullmatch(r"\d+(?:\.\d+)?(?:-\d+(?:\.\d+)?)*[A-Za-z]?", first):
+                segments, previous = first.split("-"), head.split("-")    # "EDH-1-2, 1-3": EDH-1-3
+                if len(previous) > len(segments):                          # "ERV-C-1, 1-1": ERV-1-1
+                    first = "-".join(previous[:len(previous) - len(segments)] + segments)
             stem = _stem(first)
+            head = first
             if last is None:
                 out.append(first)
                 continue
@@ -128,6 +134,69 @@ def source_ids(*values) -> list[str]:
 
 def _system_ids(system) -> list[str]:
     return source_ids(system.quantity_source, system.sequence_sources, system.schedule_sources)
+
+
+_SHEET = re.compile(r"[A-Z]{1,3}-?\d{1,4}(?:\.\d{1,2})?[A-Z]?")
+_SECTION_NUMBER = re.compile(r"^\d{2} \d{2} \d{2}(?: \d{2})?")
+_WHERE_PAGE = re.compile(r",\s*([^,]+?)\s+page\s+(\d+)")
+_ANY_ID = re.compile(r"\[\s*([SI]\d+)\s*\]|(?<![\w\-.])([SI]\d+)(?![\w\-])")
+
+
+def plain_place(where: str) -> str:
+    """A source's place in few words, the sheet or the spec section and the page: "23 09 23 page 10",
+    "H601 page 19", "P502 page 10 (picture)"."""
+    where = _squash(re.sub(r"\s*\(\+\d+ others?\)\s*$", "", _squash(where)))
+    m = re.match(r"^(?P<sheet>\S+) \((?P<doc>[^,]+), page (?P<page>\d+)\)$", where)       # "M-601.00 (Mech.pdf, page 10)"
+    if m:
+        return f"{m.group('sheet')} page {m.group('page')}"
+    m = re.match(r"^[^·]+·\s*(?P<section>[^·]+?)\s*·\s*page (?P<page>\d+)$", where)     # "Specs.pdf · 23 09 23 · page 12"
+    if m:
+        return f"{m.group('section')} page {m.group('page')}"
+    matches = list(_WHERE_PAGE.finditer(where))
+    if not matches:
+        m = re.match(r"^(.*?)\s*\(the document list\)$", where)
+        return m.group(1).rsplit("/", 1)[-1] if m else where
+    m = matches[-1]
+    label, page = where[:m.start()].strip(), m.group(2)
+    picture = " (picture)" if "(picture)" in where else ""
+    section = _SECTION_NUMBER.match(label)
+    if section:
+        return f"{section.group(0)} page {page}{picture}"
+    for piece in reversed([p.strip() for p in label.split(",")]):
+        first = piece.split(" ", 1)[0] if piece else ""
+        if _SHEET.fullmatch(first):
+            return f"{first} page {page}{picture}"
+    short = label if len(label) <= 50 else label[:50].rsplit(" ", 1)[0]
+    return f"{short} page {page}{picture}" if short else f"{m.group(1)} page {page}{picture}"
+
+
+def plain_ids(text: str, dossier, images=None) -> str:
+    """The text with each source id ([S97], I15) replaced by the place it points to. `images` numbers the
+    pictures the way one question did (I1 is its first picture); else the dossier's numbering."""
+    if not text or dossier is None:
+        return text
+
+    def place(m: re.Match) -> str:
+        sid = m.group(1) or m.group(2)
+        if sid.startswith("I") and images is not None:
+            n = int(sid[1:])
+            return plain_place(_image_where(images[n - 1])) if 1 <= n <= len(images) else "a picture"
+        where = (dossier.sources or {}).get(sid)
+        if where:
+            return plain_place(where)
+        if sid.startswith("I"):
+            pictures = list(dossier.images or ())
+            n = int(sid[1:])
+            return plain_place(_image_where(pictures[n - 1])) if 1 <= n <= len(pictures) else "a picture"
+        return "the job's documents"
+
+    return _ANY_ID.sub(place, text)
+
+
+def _image_where(image) -> str:
+    sheet = getattr(image, "sheet", None)
+    label = f"{sheet} {image.what}" if sheet and not str(image.what).startswith(sheet) else image.what
+    return f"{label}, {image.document} page {image.page} (picture)"
 
 
 def cited_text(dossier, source_id: str) -> str:
@@ -245,9 +314,38 @@ def _name(system) -> str:
     return _squash(re.sub(r"^\s*Qty\s*\([^)]*\)\s*", "", system.header or "")) or system.key
 
 
+class Fold(NamedTuple):
+    """A planned system whose header folds other units in ("ERV-C-1, 1-1, 2-1 w/ Electric Duct Heater
+    EDH-C-1, …"): the parent's own tags, and each folded family as (its kind, its tags)."""
+    parent: tuple[str, ...]
+    folded: tuple[tuple[str, tuple[str, ...]], ...]
+
+
+def fold(system) -> Fold:
+    """The parent's tags and the units its header folds in after " w/ ". A folded unit never counts toward
+    the parent's quantity; it gets its own stacked header."""
+    tags = expand_tags(system.tags)
+    name = _name(system)
+    m = re.search(r"\s+w/\s*(.+)$", name, re.I)
+    if m is None or "|" in name:
+        return Fold(tuple(tags), ())
+    kind, rest = _split_kind(m.group(1))
+    named = _named_tags(m.group(1))
+    leftover = re.sub(r"\b(?:thru|and)\b", " ", _TAG_RUN.sub("", rest or ""), flags=re.I)
+    if named and rest and not re.search(r"[A-Za-z]{2,}", leftover):
+        named = [t.upper() for t in expand_tags(re.sub(r"\s*(?:&|\band\b)\s*", ", ", rest))]   # "EDH-1-2, 1-3"
+    if not named:
+        return Fold(tuple(tags), ())
+    folded = [t for t in tags if t.upper() in set(named)] or named
+    kind = kind or _squash(m.group(1))
+    parent = [t for t in tags if t.upper() not in {f.upper() for f in folded}]
+    return Fold(tuple(parent), ((kind, tuple(folded)),))
+
+
 def _counts_for(system, dossier) -> tuple[dict, dict]:
-    """(label -> n to check the quantity against, column -> n summed for the Plan tab)."""
-    tags = {t.upper() for t in expand_tags(system.tags)}
+    """(label -> n to check the quantity against, column -> n summed for the Plan tab). Only the parent's
+    own tags count: the units its header folds in never do."""
+    tags = {t.upper() for t in fold(system).parent}
     if not tags:
         return {}, {}
     families = _families(dossier)
@@ -296,7 +394,7 @@ def _check_system(system, dossier) -> PlanCheck:
     where = (dossier.sources or {}).get(qid, "") if qid else ""
     quote = system.quantity_quote or ""
     found = bool(quote) and (quote_in_dossier(quote, dossier) or _is_picture(qid, dossier))
-    quoted = f"{where + ': ' if where else ''}“{quote}”" if quote else "no quote"
+    quoted = f"{plain_place(where) + ': ' if where else ''}“{quote}”" if quote else "no quote"
     review: list[ReviewItem] = []
     q = system.quantity
     if q is None:
@@ -404,6 +502,7 @@ class CheckedLine:
     why: str
     confidence: float
     quoted: bool             # the quote is in the dossier
+    origin: str = ""         # "" for the AI's line; else where it came from ("the Master Template (fallback)")
 
 
 def system_template(system, templates=None):
@@ -520,54 +619,111 @@ def check_scope(system, scope, dossier, templates=None, style=None, sourced: boo
         if missing:
             review.append(ReviewItem(name, "", f"Usually present in the Master Template's {template.name}; the AI left "
                                      "out: " + "; ".join(missing), "", "Add any line the job needs"))
+    pictures = system_images(system, dossier)       # the question numbered its pictures I1, I2 … in this order
     for note in getattr(scope, "review_notes", ()) or ():
-        review.append(ReviewItem(name, "", _squash(note), "the AI's note", ""))
+        review.append(ReviewItem(name, "", plain_ids(_squash(note), dossier, pictures), "the AI's note", ""))
     return kept, review
 
 
 # --- C1: tech hours -------------------------------------------------------------------------------------------
 
-def _hours(per: str, hours: float, of, quantity: int | None, lines, prefixes) -> float | None:
+_PUMP_NAME = re.compile(r"\b([A-Za-z][A-Za-z-]*)\s+pumps?\b", re.I)
+_COUNTED_RULES = ("hardware_point", "line")
+
+
+def hours_count(system, quantity: int | None) -> int | None:
+    """The count a system's tech hours are counted on: its own quantity, except a single system whose
+    header names several pumps ("Fire Pump Controller Monitoring (Fire Pump and Jockey Pump)"): its pumps."""
+    names = {m.group(1).lower() for m in _PUMP_NAME.finditer(f"{system.header} {system.kind or ''}")}
+    return len(names) if quantity == 1 and len(names) > 1 else quantity
+
+
+def _hardware_point(text: str) -> bool:
+    """A hardware point: a line furnishing a device or a wired point, never an integration line, an
+    interlock, a note or a software point ("… Alarm at BMS")."""
+    style = load_house_style()
+    return (_hardware(text) and not style.is_trio(text) and style.line_group(text) != "integration"
+            and not style.is_software_point(text))
+
+
+def _counted_line(text: str, template) -> bool:
+    """A line a "per line" rule counts: a hardware point, or one of the template's own counted lines
+    ("Fire Pump & Jockey Pump Common Fault Alarm Monitoring")."""
+    if _hardware_point(text):
+        return True
+    return any(line.quantity == "counted" and _plain(line.text) == _plain(text) for line in template.lines)
+
+
+def _lines3(lines) -> list[tuple[str, int | None, int]]:
+    return [(entry[0], entry[1], entry[2] if len(entry) > 2 else 1) for entry in lines]
+
+
+def _hours(per: str, hours: float, of, count: int | None, lines, prefixes, primary: bool, template
+           ) -> float | None:
     if per == "fixed":
         return hours
     if per == "hardware_point":
-        return hours * sum(q or 0 for text, q in lines if _hardware(text))
-    if per == "line":
-        return hours * sum(q or 0 for _, q in lines)
-    if of and not prefixes & set(of):
-        return 0.0
-    return None if quantity is None else hours * quantity
+        return hours * sum(q or 0 for text, q, _ in lines if _hardware_point(text))
+    if per == "line":        # each thing monitored: the system's own count, or more when its lines count more
+        counted = sum(q or 0 for text, q, depth in lines if depth == 1 and _counted_line(text, template))
+        return hours * max(count or 0, counted)
+    if of and (not prefixes & set(of) if prefixes else not primary):
+        return 0.0                                   # another family of the template (the outdoor units, say)
+    return None if count is None else hours * count
+
+
+def _rule_text(template) -> str:
+    """The template's tech-hour rule in words: "16 h per unit", "none (4 h per unit when fan ddc)"."""
+    parts = []
+    for th in (template.tech_hours, *template.extra_tech_hours):
+        per = th.per.replace("_", " ")
+        base = "none" if th.hours is None else f"{th.hours:g} h per {per}"
+        overrides = "; ".join(f"{hours:g} h per {per} when {' and '.join(c.replace('_', ' ') for c in conds)}"
+                              for conds, hours in th.overrides)
+        parts.append(base + (f" ({overrides})" if overrides else ""))
+    return "; ".join(parts)
 
 
 def tech_hours(system, quantity: int | None, lines, hint, templates=None, evidence: str = ""
                ) -> tuple[float | None, ReviewItem | None]:
-    """The system's tech hours and the review line they need. `lines` holds (text, quantity) of the
-    printed lines. The Master Template's rule when it fits the kind; else the AI's suggestion, an
-    ASSUMPTION; else None, with a review line to enter them."""
+    """The system's tech hours and the review line they need. `lines` holds (text, quantity[, depth]) of
+    the printed lines. The nearest Master Template entry's rule, applied to the system's own count (a rule
+    per hardware point counts the hardware-point lines only; one per line, the monitored lines); a rule
+    from an entry that is not the system's own is an ASSUMPTION. When the entry gives no rule, or there is
+    no entry, there are no hours (never the AI's guess), with a review line to enter them. `hint`, the AI's
+    suggestion, is never used for the hours."""
+    templates = templates if templates is not None else load_templates()
     name = _name(system)
-    prefixes = {_tag_prefix(t) for t in expand_tags(system.tags)}
-    template = system_template(system, templates)
-    if template is not None and template.tech_hours.hours is not None:
-        parts = []
-        for th in (template.tech_hours, *template.extra_tech_hours):
+    prefixes = {_tag_prefix(t) for t in fold(system).parent}
+    template = _nearest_template(system, templates)
+    own = system_template(system, templates) is not None
+    count = hours_count(system, quantity)
+    rows = _lines3(lines)
+    if template is not None:
+        parts, counted = [], []
+        for n, th in enumerate((template.tech_hours, *template.extra_tech_hours)):
             hours = th.hours
             for conditions, override in th.overrides:
                 if all(_holds(template.conditions[c], evidence) for c in conditions):
                     hours = override
                     break
-            parts.append(None if hours is None else _hours(th.per, hours, th.of, quantity, lines, prefixes))
-        if all(p is not None for p in parts):
-            return float(sum(parts)), None
-    if hint is not None and getattr(hint, "hours", None) is not None:
-        total = _hours(hint.per, float(hint.hours), (), quantity, lines, prefixes)
-        if total is not None:
-            return total, ReviewItem(name, ASSUMPTION, "Tech hours are the AI's suggestion",
-                                     f"{hint.hours:g} h per {str(hint.per).replace('_', ' ')}"
-                                     + (f", like {hint.like}" if getattr(hint, "like", "") else "")
-                                     + f", {total:g} h in all", "Confirm them")
-    return None, ReviewItem(name, "", f"No tech hours for {name} — enter them",
-                            "No Master Template rule fits it" + ("" if hint is None else ", and the AI's suggestion "
-                                                                 "could not be counted"),
+            value = None if hours is None else _hours(th.per, hours, th.of, count, rows, prefixes, n == 0, template)
+            parts.append(value)
+            counted.append(th.per in _COUNTED_RULES)
+        nothing_counted = all(counted) and all(p == 0 for p in parts if p is not None)
+        if parts and all(p is not None for p in parts) and not nothing_counted:
+            total = float(sum(parts))
+            if own:
+                return total, None
+            return total, ReviewItem(name, ASSUMPTION, f"Tech hours from the nearest Master Template entry, "
+                                     f"{template.name}", f"{_rule_text(template)}; {total:g} h in all",
+                                     "Confirm them")
+        why = (f"The Master Template's {template.name} counts none of its lines" if nothing_counted
+               and all(p is not None for p in parts) else
+               f"The nearest Master Template entry, {template.name}, gives no hours for it ({_rule_text(template)})")
+    else:
+        why = "No Master Template entry is near it"
+    return None, ReviewItem(name, "", f"No tech hours for {name} — enter them", why,
                             "Type the hours on the block's header row of the price sheet")
 
 
@@ -632,10 +788,11 @@ _TAG_RUN = re.compile(rf"(?<![A-Za-z0-9-])({_TAG}(?:\s*(?:,|&|\band\b|\bthru\b)\
 class HeaderShape(NamedTuple):
     """How a planned system's header is printed: one header, or several stacked (one per family),
     each with its count, and the descriptors taken out of a header too long, as a note for the block's
-    first line ("" when none)."""
+    first line ("" when none). The last `folded` headers are the units the header folds in."""
     headers: tuple[str, ...]
     quantities: tuple
     note: str
+    folded: int = 0
 
 
 def _named_tags(text: str) -> list[str]:
@@ -749,7 +906,11 @@ def shape_header(system, quantity) -> HeaderShape:
     """The system's block header(s), in the house style: "Qty (3) Rooftop Unit RTU-1 thru 3", "Qty (##) …"
     when the count is still to fill. A pipe never goes in a header: two families are two stacked headers.
     A header longer than a block header drops the words after " w/ " and its brackets (they go into the
-    block's first line, as a note), and when it is still too long, it is one header per family, stacked."""
+    block's first line, as a note), and when it is still too long, it is one header per family, stacked.
+    The units a header folds in after " w/ " (tagged ones) get their own stacked header, with their count."""
+    folding = fold(system)
+    if folding.folded:
+        return _folded_shape(system, quantity, folding)
     name = _base_name(system)
     tags = expand_tags(system.tags)
     pieces = [p.strip() for p in name.split("|") if p.strip()] or [name]
@@ -762,6 +923,26 @@ def shape_header(system, quantity) -> HeaderShape:
             quantities.append(n)
     note = ("**Includes " + "; ".join(moved)) if moved else ""
     return HeaderShape(tuple(headers), tuple(quantities), note)
+
+
+def _folded_shape(system, quantity, folding: Fold) -> HeaderShape:
+    """The parent's header (its words before " w/ ", with its own tags), then one per folded family."""
+    base = re.split(r"\s+w/\s*", _name(system), maxsplit=1, flags=re.I)[0].strip()
+    parent = list(folding.parent)
+    if parent and not any(t.upper() in set(_named_tags(base)) for t in parent):
+        base = f"{base} {tag_list(parent)}"
+    headers, quantities, moved = [], [], []
+    for text, n in _fit(base, parent, quantity, moved):
+        headers.append(_squash(f"Qty ({_count(n)}) {text}"))
+        quantities.append(n)
+    count = 0
+    for kind, tags in folding.folded:
+        for text, n in _fit(f"{kind} {tag_list(list(tags))}", list(tags), len(tags), moved):
+            headers.append(_squash(f"Qty ({_count(n)}) {text}"))
+            quantities.append(n)
+            count += 1
+    note = ("**Includes " + "; ".join(moved)) if moved else ""
+    return HeaderShape(tuple(headers), tuple(quantities), note, count)
 
 
 def block_header(system, quantity) -> str:
@@ -791,10 +972,13 @@ def _is_room(item: str) -> bool:
 
 
 def _rooms(text: str) -> list[str]:
-    """The rooms a line lists in its "(Location: …)", when it is a list of two or more rooms."""
+    """The rooms a line lists in its "(Location: …)", when it is a list of two or more rooms, or one room
+    with its number ("Fire Pump Room (Location: Room 008)")."""
     items = _location_items(text)
-    if len(items) < 2 or any(re.search(r"\b(?:each|all|every)\b", i, re.I) for i in items):
+    if not items or any(re.search(r"\b(?:each|all|every)\b", i, re.I) for i in items):
         return []
+    if len(items) == 1:
+        return items if re.search(r"\b\d+[A-Za-z]?\b", items[0]) and _is_room(items[0]) else []
     return items if all(_is_room(i) for i in items) else []
 
 
@@ -805,7 +989,13 @@ def _line_count(text: str, quote: str, ai_quantity, system, quantity) -> tuple[i
         return int(m.group(1)), True
     if ai_quantity is not None:
         return ai_quantity, True
-    tags = [t.upper() for t in expand_tags(system.tags)]
+    folding = fold(system)
+    folded = {t.upper() for _, tags in folding.folded for t in tags}
+    if folded:
+        named = [t for t in _named_tags(text) if t in folded]
+        if named:
+            return len(named), True                       # a line for the units the header folds in
+    tags = [t.upper() for t in folding.parent]
     if len(tags) > 1 and (quantity is None or quantity == len(tags)):
         named = [t for t in _named_tags(text) if t in set(tags)]
         if named and len(named) < len(tags):
@@ -836,15 +1026,16 @@ def _template_texts() -> frozenset[str]:
 
 def polish_line(text: str) -> list[str]:
     """The house-style polish: no point-type code ("(AO)"), no trailing "(as per sequence)" unless the line
-    is the template's own, and a line joining two actions with ";" split into two lines."""
+    is the template's own, a line joining two actions with ";" split into two lines, and a Master Template
+    line in the template's own capitals ("AME requires mfr. Rep to assist in integration, …")."""
     text = _squash(_POINT_CODE.sub("", text or ""))
     if _plain(text) not in _template_texts():
         text = _AS_PER_SEQUENCE.sub("", text).strip()
     style = load_house_style()
     parts = [p.strip() for p in text.split(";")]
     if len(parts) > 1 and all(p and (style.verb(p) or style.starts_without_verb(p)) for p in parts):
-        return parts
-    return [text]
+        return [style.template_form(p) for p in parts]
+    return [style.template_form(text)]
 
 
 # --- C2: a system whose lines were all refused ---------------------------------------------------------------
@@ -911,11 +1102,13 @@ def _fallback(system, scope, dossier, templates) -> tuple[list[CheckedLine], str
         lines = _template_defaults(template, system, system_evidence(system, dossier))
         if lines:
             why = f"the Master Template's {template.name} line"
-            return [CheckedLine(text, depth, None, "", "", why, _EVIDENCE_CONFIDENCE[ASSUMPTION], False)
+            return [CheckedLine(text, depth, None, "", "", why, _EVIDENCE_CONFIDENCE[ASSUMPTION], False,
+                                "the Master Template (fallback)")
                     for text, depth in lines], f"the Master Template's {template.name} lines"
     texts = _rewritten(getattr(scope, "refused", ()) if scope is not None else ())
     why = "the AI's line, refused for want of a verb, rewritten with one"
-    return ([CheckedLine(t, 1, None, "", "", why, _EVIDENCE_CONFIDENCE[ASSUMPTION], False) for t in texts],
+    return ([CheckedLine(t, 1, None, "", "", why, _EVIDENCE_CONFIDENCE[ASSUMPTION], False,
+                         "the Master Template (fallback)") for t in texts],
             "the AI's refused lines, rewritten with a verb" if texts else "no line at all")
 
 
@@ -923,19 +1116,38 @@ def _fallback(system, scope, dossier, templates) -> tuple[list[CheckedLine], str
 
 _DEVICE_STOP = frozenset("furnish install and wire the a an of for to with at in on each new per provided by unit "
                          "mfr furnished others qty total location via".split())
+_QUALIFIERS = frozenset("space room dedicated high low alarm alarms temp monitoring bms remote".split())
+
+
+def _singular(word: str) -> str:
+    return word[:-1] if len(word) > 3 and word.endswith("s") and not word.endswith("ss") else word
 
 
 def _device_words(text: str) -> frozenset[str]:
+    """The device a line names, as words: its brackets, its dash clause, the verbs and the words that only
+    qualify it (space, room, high, low, alarm …) left out."""
     text = re.sub(r"\([^)]*\)", " ", text or "")
     text = re.sub(r"\s+[–-]\s+.*$", " ", text)
-    return frozenset(w for w in _plain(text).split() if w not in _DEVICE_STOP and not w.isdigit())
+    return frozenset(_singular(w) for w in _plain(text).split()
+                     if w not in _DEVICE_STOP and w not in _QUALIFIERS and not w.isdigit())
 
 
-def _room_keys(text: str) -> frozenset[str]:
+def _room_keys(text: str, children=()) -> frozenset[str]:
+    """The rooms a line is for: the numbers (else the names) its "(Location: …)" lists, and for each
+    sub-line naming a room ("Fire Pump Room (Location: Room 008)"), its name and number."""
     keys = set()
     for item in _location_items(text):
         numbers = re.findall(r"\b(\d+[A-Za-z]?)\b", item)
         keys.update(n.lower() for n in numbers) if numbers else keys.add(_plain(item))
+    for child in children:
+        items = _location_items(child)
+        if not items:
+            continue                                 # a sub-line naming no room is not a room
+        name = _plain(re.sub(r"\([^)]*\)", " ", child))
+        if name:
+            keys.add(name)
+        for item in items:
+            keys.update(n.lower() for n in re.findall(r"\b(\d+[A-Za-z]?)\b", item))
     return frozenset(keys)
 
 
@@ -945,41 +1157,72 @@ def _names_all(evidence: str, rooms: frozenset[str], tags: frozenset[str]) -> bo
     return bool(wanted) and all(f" {_plain(w)} " in plain for w in wanted)
 
 
+def _heads(kept: list) -> list[tuple[object, list]]:
+    """Each top line with its sub-lines."""
+    out: list[tuple[object, list]] = []
+    for line in kept:
+        if line.depth > 1 and out:
+            out[-1][1].append(line)
+        else:
+            out.append((line, []))
+    return out
+
+
+def _shared_line(text: str) -> bool:
+    """An integration line every system with factory controls carries: never one device in two places."""
+    style = load_house_style()
+    return style.is_trio(text) or style.line_group(text) == "integration"
+
+
 def _one_place(entries: list, dossier) -> None:
     """The same device named for the same rooms or tags in two systems is kept in the system whose cited
-    evidence names them, and taken out of the other, with a review line there. `entries` holds
-    [system, kept lines, review] in the plan's order; they are changed in place."""
+    evidence names them (when both do, the one whose own name names the device, then the one that lists
+    the rooms line by line), and taken out of the other with its sub-lines, with a review line there.
+    `entries` holds [system, kept lines, review] in the plan's order; they are changed in place."""
     evidence = {}
-    for i, (system, kept, _) in enumerate(entries):
+    for i in range(len(entries)):
         for j in range(i + 1, len(entries)):
-            other, other_kept, _ = entries[j]
-            for a in list(kept):
-                for b in list(other_kept):
-                    if a not in kept or b not in other_kept:
+            system, other = entries[i][0], entries[j][0]
+            for a, a_children in _heads(entries[i][1]):
+                for b, b_children in _heads(entries[j][1]):
+                    if a not in entries[i][1] or b not in entries[j][1] or _shared_line(a.text) \
+                            or _shared_line(b.text):
                         continue
                     wa, wb = _device_words(a.text), _device_words(b.text)
                     if not (wa and wb and (wa <= wb or wb <= wa)):
                         continue
-                    ra, rb = _room_keys(a.text), _room_keys(b.text)
+                    ra = _room_keys(a.text, [c.text for c in a_children])
+                    rb = _room_keys(b.text, [c.text for c in b_children])
                     ta, tb = frozenset(_named_tags(a.text)), frozenset(_named_tags(b.text))
-                    if not ((ra and ra == rb) or (not ra and not rb and ta and ta == tb)):
+                    rooms = bool(ra and rb and (ra <= rb or rb <= ra))
+                    if not (rooms or (not ra and not rb and ta and ta == tb)):
                         continue
+                    wanted = (ra & rb) if rooms else frozenset()
                     for s in (system, other):
                         if s.key not in evidence:
                             evidence[s.key] = system_evidence(s, dossier)
-                    first = _names_all(evidence[system.key], ra, ta)
-                    second = _names_all(evidence[other.key], rb, tb)
-                    keep_first = first or not second
-                    winner, loser, line, lines, review = ((system, other, b, other_kept, entries[j][2]) if keep_first
-                                                          else (other, system, a, kept, entries[i][2]))
-                    what = ", ".join(sorted(ra or ta))
-                    lines.remove(line)
-                    why = (f"its evidence names {what}" if (first if keep_first else second)
-                           else "neither system's evidence names them, so it stays where the plan lists it first")
-                    review.append(ReviewItem(_name(loser), "", f"“{line.text}” was named in both {_name(loser)} and "
-                                             f"{_name(winner)}; kept in {_name(winner)} — {why}",
-                                             f"One device, one place: {what}", "Move it back if it belongs here",
-                                             tier=TIER_DISAGREE))
+
+                    def score(s, children):
+                        named = _names_all(evidence[s.key], wanted, ta)
+                        own_name = bool(set(_plain(f"{s.header} {s.kind}").split()) & (wa | wb))
+                        return named, own_name, bool(children)
+
+                    first, second = score(system, a_children), score(other, b_children)
+                    keep_first = first >= second
+                    winner, loser, line, children, at = ((system, other, b, b_children, j) if keep_first
+                                                         else (other, system, a, a_children, i))
+                    what = ", ".join(sorted(wanted or ta))
+                    for gone in (line, *children):
+                        entries[at][1].remove(gone)
+                    kept_score = first if keep_first else second
+                    why = ("its evidence names them" if kept_score[0] else
+                           "neither system's evidence names them, so it stays where the plan lists it first")
+                    if kept_score[0] and kept_score[1] and (second if keep_first else first)[0]:
+                        why = "both name them; it is the system for that device"
+                    entries[at][2].append(ReviewItem(
+                        _name(loser), "", f"“{line.text}” was named in both {_name(loser)} and {_name(winner)}; kept "
+                        f"in {_name(winner)} — {why}", f"One device, one place: {what}",
+                        "Move it back if it belongs here", tier=TIER_DISAGREE))
 
 
 # --- C2: the job from the plan -------------------------------------------------------------------------------
@@ -994,18 +1237,33 @@ _MFR = re.compile(r"\s*(?:,\s*)?(?:(?:is|are|to be|will be)\s+)?(?:furnished\s+|
                   r"(?:the\s+)?(?:unit\s+)?(?:mfr\.?|manufacturer)\b.*$", re.I)
 _MFR_TOPICS = ("leak detect", "transformer", "integral thermostat", "airflow station", "airflow measuring",
                "air flow station", "air flow measuring")
+_LINE_STOP = frozenset("the a an of for to with at in on and each new per via by from between its".split())
+
+
+@dataclass
+class _Row:
+    """One scope line of a system, before a block's lines are merged, ordered and printed."""
+    line: CheckedLine
+    q: int | None
+    own: bool                   # the line's own count, not the system's
+    tags: frozenset             # the tags the AI's line named: duplicates naming different tags add their counts
+    units: int | None           # the system's quantity: a total that is not one a unit is printed "(Qty. N Total)"
+    system: str                 # the system's name, for the Evidence Package
+    hours: float | None = None  # the line's tech hours, for a rule per hardware point
+    folded: bool = False        # a line for the units the header folds in: printed after the parent's
 
 
 @dataclass
 class _Part:
-    """One planned system, written: its headers, items and lines, before a group's headers are stacked."""
+    """One planned system, written: its headers, lines and notes, before a group's headers are stacked."""
     system: object
     headers: tuple
-    items: list
-    lines: list
+    rows: list
+    notes: list                 # the client notes printed, in order
+    includes: str               # "**Includes …": the words taken out of a header too long ("" when none)
     review: list
     hours: float | None
-    printed: bool
+    printed: bool = True
 
     @property
     def header(self) -> str:
@@ -1034,17 +1292,190 @@ def _by_unit_mfr(note: str, evidence: str, pictured: bool) -> str | None:
     return f"*{subject.upper()} BY UNIT MFR." if subject else None
 
 
-def _dedupe(rows: list[tuple]) -> list[tuple]:
-    """(line, quantity, own) rows: the same line twice in a block is kept once; two subset lines that say the
-    same thing (UH-1 thru 6 and UH-7) add their counts."""
-    out: dict[tuple, list] = {}
-    for line, q, own in rows:
-        key = (line.depth, _plain(line.text))
-        if key not in out:
-            out[key] = [line, q, own]
-        elif own and out[key][2] and q is not None:
-            out[key][1] = (out[key][1] or 0) + q
-    return [tuple(v) for v in out.values()]
+def _client_note(note: str, evidence: str, pictured: bool, style) -> tuple[str, str | None]:
+    """(the note as printed, why it cannot be printed or None). A long note giving a device to the unit
+    ("… are coming with the unit per equipment schedule") takes the short house form "*<ITEM> BY UNIT MFR."."""
+    house = _by_unit_mfr(note, evidence, pictured)
+    if house is not None:
+        return house, style.forbidden(house)
+    item = style.by_unit_mfr_item(note) if len(note) > style.long_note else None
+    if item:
+        words = [w for w in _plain(item).split() if len(w) >= 4]
+        have = set(_plain(evidence).split())
+        borne = pictured or (words and sum(w in have for w in words) * 2 >= len(words))
+        short = style.short_note(note)
+        too_long = f"it is longer than {style.max_line_length} characters" if len(short) > style.max_line_length else None
+        return short, style.forbidden(short) or too_long or (None if borne else "the evidence does not bear it out")
+    on_picture = pictured and re.search(r"schedul", note, re.I)          # it rests on the schedule's picture
+    problem = style.check_note(note) or (None if _note_is_borne_out(note, evidence) or on_picture
+                                         else "the evidence does not bear it out")
+    return note, problem
+
+
+# --- a block's lines: one of each, in the house order, with their totals ----------------------------------------
+
+def _opening(text: str, style) -> str:
+    verb = style.verb(text)
+    if verb:
+        return verb.lower()
+    low = _squash(text).lower()
+    start = next((s for s in sorted(style.openings, key=len, reverse=True) if low.startswith(s.lower() + " ")),
+                 None)
+    return start.lower() if start else (low.split(" ", 1)[0] if low else "")
+
+
+def _same_opening(a: str, b: str, style) -> bool:
+    """The same verb, or openings of one family (an interlock and low-voltage wiring)."""
+    oa, ob = _opening(a, style), _opening(b, style)
+    families = style.same_opening or {}
+    return oa == ob or (oa in families and families.get(oa) == families.get(ob))
+
+
+def _line_words(text: str, style) -> frozenset[str]:
+    """A line's words for finding a near-duplicate: without its opening, its brackets, its tags and the
+    small words; plurals as singulars."""
+    text = _squash(text)
+    text = text[len(_opening(text, style)):] if text.lower().startswith(_opening(text, style)) else text
+    text = re.sub(r"\([^)]*\)", " ", text)
+    text = _TAG_RUN.sub(" ", text)
+    return frozenset(_singular(w) for w in _plain(text).split() if w not in _LINE_STOP)
+
+
+def same_line(a: str, b: str, style=None) -> bool:
+    """Two scope lines that say the same thing: the same verb and at least 70 % of their words shared."""
+    style = style or load_house_style()
+    if _plain(a) == _plain(b):
+        return True
+    if not _same_opening(a, b, style):
+        return False
+    wa, wb = _line_words(a, style), _line_words(b, style)
+    return bool(wa and wb) and len(wa & wb) / len(wa | wb) >= style.duplicate_share
+
+
+def _natural_key(tag: str) -> list:
+    return [(0, int(p), "") if p.isdigit() else (1, 0, p) for p in re.split(r"(\d+)", tag)]
+
+
+def _retag(text: str, tags: frozenset) -> str:
+    """The line with its tag list naming all of `tags`."""
+    m = _TAG_RUN.search(text)
+    if m is None:
+        return text
+    return text[:m.start()] + tag_list(sorted(tags, key=_natural_key)) + text[m.end():]
+
+
+def _better(a: _Row, b: _Row) -> bool:
+    """a has the better evidence (its quote found, then its confidence); on a tie, the one saying more."""
+    return (a.line.quoted, a.line.confidence, len(a.line.text)) >= (b.line.quoted, b.line.confidence,
+                                                                    len(b.line.text))
+
+
+def _combine(keep: _Row, drop: _Row) -> _Row:
+    """Two duplicates as one: the better line; their counts added only when they name different tags."""
+    if keep.tags and drop.tags and keep.tags.isdisjoint(drop.tags) and keep.q is not None and drop.q is not None:
+        union = frozenset(keep.tags | drop.tags)
+        line = dataclasses.replace(keep.line, text=_retag(keep.line.text, union))
+        hours = None if keep.hours is None and drop.hours is None else (keep.hours or 0) + (drop.hours or 0)
+        return dataclasses.replace(keep, line=line, q=keep.q + drop.q, tags=union, hours=hours)
+    if keep.q is None and drop.q is not None:
+        return dataclasses.replace(keep, q=drop.q, own=drop.own, hours=drop.hours)
+    return keep
+
+
+def _group_rows(rows: list[_Row]) -> list[list[_Row]]:
+    """Each top line with its sub-lines."""
+    groups: list[list[_Row]] = []
+    for row in rows:
+        if row.line.depth > 1 and groups:
+            groups[-1].append(row)
+        else:
+            groups.append([row])
+    return groups
+
+
+def _dedupe_flat(rows: list[_Row], style) -> list[_Row]:
+    out: list[_Row] = []
+    for row in rows:
+        at = next((k for k, o in enumerate(out) if o.line.depth == row.line.depth
+                   and same_line(o.line.text, row.line.text, style)), None)
+        if at is None:
+            out.append(row)
+        else:
+            out[at] = _combine(out[at], row) if _better(out[at], row) else _combine(row, out[at])
+    return out
+
+
+def _dedupe_groups(groups: list[list[_Row]], style) -> list[list[_Row]]:
+    """Within a block, lines that say the same thing with the same verb are one line (the one with the best
+    evidence, their sub-lines together)."""
+    out: list[list[_Row]] = []
+    for group in groups:
+        head = group[0]
+        at = next((k for k, o in enumerate(out) if o[0].line.depth == head.line.depth
+                   and same_line(o[0].line.text, head.line.text, style)), None)
+        if at is None:
+            out.append([head] + _dedupe_flat(group[1:], style))
+            continue
+        old = out[at]
+        keep, drop = (old, group) if _better(old[0], head) else (group, old)
+        out[at] = [_combine(keep[0], drop[0])] + _dedupe_flat(keep[1:] + drop[1:], style)
+    return out
+
+
+def _house_order(groups: list[list[_Row]], style) -> list[list[_Row]]:
+    """The house order: controller, sensors, points, valves and dampers, integration. A line no group's words
+    are in stays next to the line above it; a sub-line moves with its parent."""
+    ranked, previous = [], 0
+    for n, group in enumerate(groups):
+        rank = style.line_rank(group[0].line.text)
+        previous = previous if rank is None else rank
+        ranked.append((group[0].folded, previous, n, group))
+    return [group for *_, group in sorted(ranked, key=lambda r: r[:3])]
+
+
+def _with_total(row: _Row, style) -> str:
+    """The line with "(Qty. N Total)" when its count is not one a unit and the line does not say it already
+    (by its own total, or by the tags it names)."""
+    text = row.line.text
+    if (row.q is None or row.q <= 1 or row.q == row.units or row.tags or _QTY_IN_LINE.search(text)
+            or style.is_trio(text) or style.line_group(text) == "integration"):
+        return text
+    total = f"{text} (Qty. {row.q} Total)"
+    return total if len(total) <= style.max_line_length else text
+
+
+def _names_folded(text: str, kind: str, tags) -> bool:
+    """The line is for the units a header folds in: it names one of their tags, their tag prefix or the
+    kind's last word ("heater")."""
+    named = set(_named_tags(text))
+    if named & {t.upper() for t in tags}:
+        return True
+    words = {_singular(w) for w in _plain(text).split()}
+    prefixes = {_tag_prefix(t).lower() for t in tags}
+    head = _singular(_plain(kind).split()[-1]) if _plain(kind) else ""
+    return bool(words & prefixes) or (bool(head) and head in words)
+
+
+def _folded_rows(system, rows: list[_Row], evidence: str, templates, name: str) -> tuple[list[_Row], list]:
+    """The lines of the units a header folds in, when the judge wrote none for them: the nearest Master
+    Template entry's usual lines, as ASSUMPTION, with a review line."""
+    added, review = [], []
+    for kind, tags in fold(system).folded:
+        if any(_names_folded(r.line.text, kind, tags) for r in rows):
+            continue
+        near = nearest_templates(kind, _tag_prefix(tags[0]) if tags else "", templates, k=1)
+        if not near:
+            continue
+        template = near[0]
+        lines = _template_defaults(template, SimpleNamespace(tags=tags), evidence)
+        origin = f"the Master Template ({template.name}, for the folded {kind})"
+        why = f"the Master Template's {template.name} line, for the {kind} folded into {name}"
+        added += [_Row(CheckedLine(text, depth, None, "", "", why, _EVIDENCE_CONFIDENCE[ASSUMPTION], False, origin),
+                       len(tags), True, frozenset(), len(tags), name, folded=True) for text, depth in lines]
+        review.append(ReviewItem(name, ASSUMPTION, f"{kind} {tag_list(list(tags))} is folded into {name} with no line "
+                                 f"of its own; it is printed with the Master Template's {template.name} lines",
+                                 "", "Check them against the drawings and the sequence"))
+    return added, review
 
 
 def _written_part(system, check: PlanCheck, scope, got, dossier, templates, style) -> _Part:
@@ -1064,92 +1495,115 @@ def _written_part(system, check: PlanCheck, scope, got, dossier, templates, styl
                                     f"{what}; it is printed with {fallback}", "Rewrite the block from the drawings "
                                     "and the sequence", tier=TIER_FIRST))
     one_kind = "|" not in _base_name(system)          # a pipe's families count their own units
-    if one_kind and len(shape.headers) > 1 and quantity is not None and check.category != DISCREPANCY \
-            and sum(n for n in shape.quantities if n is not None) != quantity:
+    parents = len(shape.headers) - shape.folded
+    if one_kind and parents > 1 and quantity is not None and check.category != DISCREPANCY \
+            and sum(n for n in shape.quantities[:parents] if n is not None) != quantity:
         review.append(ReviewItem(name, DISCREPANCY, f"The plan counts {quantity} for {name}; its stacked headers "
-                                 f"count their own tags: {', '.join(shape.headers)}", "",
+                                 f"count their own tags: {', '.join(shape.headers[:parents])}", "",
                                  "Correct the headers' counts", tier=TIER_DISCREPANCY))
-    rows = []
+    rows: list[_Row] = []
     for line in kept:
         if style.is_trio(line.text) and not style.verb(line.text):
             q, own = None, False               # "Map Available Points …": no count
         else:
             q, own = _line_count(line.text, line.quote, line.quantity, system, quantity)
+        tags = frozenset(_named_tags(line.text))
+        folded = any(_names_folded(line.text, kind, ftags) for kind, ftags in fold(system).folded)
         for text in ([line.text] if fallback else polish_line(line.text)):
-            rows.append((dataclasses.replace(line, text=text), q, own))
-    rows = _dedupe(rows)
-    items = [Item(kind="note", runs=(Run(text=shape.note),))] if shape.note and not style.forbidden(shape.note) else []
-    items += [Item(kind="line", depth=line.depth, runs=(Run(text=line.text),), quantity=q) for line, q, _ in rows]
+            rows.append(_Row(dataclasses.replace(line, text=text), q, own, tags, quantity, name, folded=folded))
+    added, folded_review = _folded_rows(system, rows, evidence, templates, name)
+    rows += added
+    review += folded_review
     pictured = (any(_is_picture(sid, dossier) for sid in _system_ids(system))       # the judge read a picture
                 or any(_is_picture(line.source_id, dossier) for line in kept))     # for this system
-    notes, seen = [], {_plain(i.text) for i in items if i.kind == "note"}
+    notes: list[str] = []
     for note in getattr(scope, "client_notes", ()) or ():
         note = _squash(note)
-        house = _by_unit_mfr(note, evidence, pictured)
-        if house is not None:
-            text, problem = house, style.forbidden(house)
-        else:
-            text = note
-            on_picture = pictured and re.search(r"schedul", note, re.I)    # it rests on the schedule's picture
-            problem = style.check_note(note) or (None if _note_is_borne_out(note, evidence) or on_picture
-                                                 else "the evidence does not bear it out")
+        text, problem = _client_note(note, evidence, pictured, style)
         if problem is None:
-            if _plain(text) in seen:
-                continue
-            seen.add(_plain(text))
-            notes.append(text)
-            items.append(Item(kind="note", runs=(Run(text=text),)))
+            if not any(style.same_note(text, have) for have in notes + ([shape.note] if shape.note else [])):
+                notes.append(text)
         else:
             review.append(ReviewItem(name, "", f"The AI suggests the client note “{note}”, but {problem}", "",
                                      "Add it by hand if it applies"))
-    hours, hours_note = tech_hours(system, quantity, [(line.text, q) for line, q, _ in rows],
-                                   getattr(scope, "tech_hours_hint", None), templates, evidence)
+    count = hours_count(system, quantity)
+    printed = "\n".join(r.line.text for r in rows)    # a rule's "when it gets more points" reads the system's own lines
+    hours, hours_note = tech_hours(system, quantity, [(r.line.text, r.q if r.own else count, r.line.depth)
+                                                      for r in rows],
+                                   getattr(scope, "tech_hours_hint", None), templates, printed)
     if hours_note is not None:
         review.append(hours_note)
-    template = system_template(system, templates)
+    template = _nearest_template(system, templates)
     point = (template.tech_hours.hours if template is not None and template.tech_hours.per == "hardware_point"
              else None)
-    lines = []
-    for line, q, _ in rows:
-        category = ASSUMPTION if fallback or not line.quoted else CONFIRMED
-        where = _where(dossier, line.source_id)
-        said = f"{where + ': ' if where else ''}“{line.quote}”" if line.quote else (line.why or "no quote")
-        line_hours = point * (q or 0) if point is not None and _hardware(line.text) else None
-        lines.append(ScopeLine(name, line.text, line.depth, q, line_hours, category, line.confidence,
-                               "the Master Template (fallback)" if fallback else _source(line.source_id),
-                               said + (f" ({line.why})" if line.why and line.quote else ""), True))
-    if shape.note:
-        lines.insert(0, ScopeLine(name, shape.note, 1, None, None, CONFIRMED, _ADDED_CONFIDENCE, SOURCE,
-                                  f"taken out of the plan's header: “{_base_name(system)}”", True))
-    lines += [ScopeLine(name, n, 1, None, None, CONFIRMED, _ADDED_CONFIDENCE, SOURCE,
-                        "a clarification the evidence bears out", True) for n in notes]
-    return _Part(system, shape.headers, items, lines, review, hours, True)
+    for row in rows:
+        if point is not None and _hardware_point(row.line.text):
+            row.hours = point * (row.q or 0)
+    includes = shape.note if shape.note and not style.forbidden(shape.note) else ""
+    return _Part(system, shape.headers, rows, notes, includes, review, hours)
 
 
-def _merge(items) -> tuple:
-    """Several systems' items under one stack of headers: the same line once, its quantities added."""
-    merged: dict[tuple, Item] = {}
-    for item in items:
-        key = (item.kind, item.depth, _plain(item.text))
-        if key not in merged:
-            merged[key] = item
-        elif item.kind == "line" and (merged[key].quantity is not None or item.quantity is not None):
-            have = merged[key]
-            merged[key] = have.model_copy(update={"quantity": (have.quantity or 0) + (item.quantity or 0)})
-    return tuple(merged.values())
+def _scope_line(row: _Row, text: str, dossier) -> ScopeLine:
+    line = row.line
+    category = ASSUMPTION if line.origin or not line.quoted else CONFIRMED
+    where = _where(dossier, line.source_id)
+    said = f"{where + ': ' if where else ''}“{line.quote}”" if line.quote else (line.why or "no quote")
+    return ScopeLine(row.system, text, line.depth, row.q, row.hours, category, line.confidence,
+                     line.origin or _source(line.source_id), said + (f" ({line.why})" if line.why and line.quote
+                                                                     else ""), True)
 
 
-def _written_system(key: str, parts: list[_Part], template: str | None) -> WrittenSystem:
+def _left_out_rows(review: list, key: str, texts: list[str], style) -> list:
+    """A group's "usually present in the Master Template" rows as one for the block: the lines the merged
+    block has taken out, under the block's name."""
+    lead = "the AI left out: "
+    rows = [r for r in review if r.decide.startswith("Usually present in the Master Template's")]
+    if not rows:
+        return review
+    template = rows[0].decide.split("Master Template's ", 1)[1].split(";", 1)[0]
+    missing = []
+    for r in rows:
+        for entry in r.decide.split(lead, 1)[-1].split("; "):
+            options = entry.split(" or ")
+            if entry and entry not in missing and not any(same_line(o, t, style) for o in options for t in texts):
+                missing.append(entry)
+    out = [r for r in review if r not in rows]
+    if missing:
+        out.append(ReviewItem(key, "", f"Usually present in the Master Template's {template}; the AI left out: "
+                              + "; ".join(missing), "", "Add any line the job needs"))
+    return out
+
+
+def _written_system(key: str, parts: list[_Part], template: str | None, dossier=None, style=None) -> WrittenSystem:
     """One block, or several headers stacked over the lines they share (a group, or one system whose header
-    is one header per family)."""
+    is one header per family or folds other units in). The lines are merged into one set: a line said twice
+    is written once, in the house order, with its total when it is not one a unit."""
+    style = style or load_house_style()
     headers = [h for p in parts for h in p.headers]
     blocks = [Block(header=h, joined=i > 0) for i, h in enumerate(headers)]
     hours = None if any(p.hours is None for p in parts) else float(sum(p.hours for p in parts))
     blocks[0] = blocks[0].model_copy(update={"tech_hours": hours})
-    items = [i for p in parts for i in p.items]
-    blocks[-1] = blocks[-1].model_copy(update={"items": _merge(items) if len(parts) > 1 else tuple(items)})
+    groups = _house_order(_dedupe_groups(_group_rows([r for p in parts for r in p.rows]), style), style)
+    rows = [r for g in groups for r in g]
+    includes = list(dict.fromkeys(p.includes for p in parts if p.includes))
+    notes: list[tuple[str, str]] = []
+    for p in parts:
+        for note in p.notes:
+            if not any(style.same_note(note, have) for have, _ in notes) and note not in includes:
+                notes.append((note, _name(p.system)))
+    texts = [_with_total(r, style) for r in rows]
+    items = [Item(kind="note", runs=(Run(text=n),)) for n in includes]
+    items += [Item(kind="line", depth=r.line.depth, runs=(Run(text=t),), quantity=r.q) for r, t in zip(rows, texts)]
+    items += [Item(kind="note", runs=(Run(text=n),)) for n, _ in notes]
+    blocks[-1] = blocks[-1].model_copy(update={"items": tuple(items)})
+    lines = [ScopeLine(_name(p.system), p.includes, 1, None, None, CONFIRMED, _ADDED_CONFIDENCE, SOURCE,
+                       f"taken out of the plan's header: “{_base_name(p.system)}”", True) for p in parts if p.includes]
+    lines += [_scope_line(r, t, dossier) for r, t in zip(rows, texts)]
+    lines += [ScopeLine(who, n, 1, None, None, CONFIRMED, _ADDED_CONFIDENCE, SOURCE,
+                        "a clarification the evidence bears out", True) for n, who in notes]
     review = [r for p in parts for r in p.review]
-    lines = [line for p in parts for line in p.lines]
+    if len(parts) > 1:
+        review = _left_out_rows(review, key, [r.line.text for r in rows], style)
     return WrittenSystem(key, tuple(blocks), tuple(lines), tuple(review), printed=True, template=template,
                          tech_hours=hours)
 
@@ -1235,27 +1689,45 @@ def _long_warranty(text: str) -> bool:
     return False
 
 
-def _reconcile_front_end(fe, plan, dossier, style, warranty_block):
+def _printed_because(text: str, evidence) -> str:
+    """Why the front end prints a line, in plain words, from its evidence."""
+    found = next((e for e in evidence or () if _plain(e.line) == _plain(text)), None)
+    if found is None:
+        return "the Master Template's front end"
+    quote = f": “{found.quote[:140]}”" if found.quote else ""
+    if found.status != CONFIRMED:
+        return "a Master Template default"
+    if text.startswith("**") and "owner" in text.lower():
+        return f"the specification gives it to the owner — {plain_place(found.where)}{quote}"
+    return f"the specification calls for it — {plain_place(found.where)}{quote}"
+
+
+def _reconcile_front_end(fe, plan, dossier, style, warranty_block, evidence=()):
     """The deterministic front end (the Master Template's lines the Spec overview calls for) is the base.
     A line the plan adds goes in only when it adds something new (not a near-duplicate), cites a source and
     keeps the house style; a contradiction keeps the deterministic answer; the warranty goes into the
     Extended Warranty block, never the front end; the front end holds at most MAX_FRONT_END_LINES lines.
+    Each review row says plainly which line was printed and why (`evidence`: the front end's own).
     Returns (front end, added scope lines, review, an Extended Warranty block the plan gives or None)."""
     raw = getattr(plan, "front_end", None) or {}
     review: list[ReviewItem] = []
     added: list[ScopeLine] = []
     ids = [i for i in source_ids(raw.get("sources", ())) if i in (dossier.sources or {})]
-    where = "; ".join(f"[{i}] {_where(dossier, i)}" for i in ids) or "no source"
+    where = "; ".join(dict.fromkeys(plain_place(_where(dossier, i)) for i in ids)) or "no source"
     mode = raw.get("mode") or ""
     if mode and mode != fe.mode:
-        review.append(ReviewItem(_FRONT_END_KEY, "", f"The AI's plan reads the front end as {mode.replace('-', ' ')}; "
-                                 f"the Spec overview's reading ({fe.mode.replace('-', ' ')}) is kept", where,
+        why = ("the specification asks for a tie-in to the existing system" if fe.mode == "extend-existing"
+               else "the specification asks for no tie-in to an existing system")
+        review.append(ReviewItem(_FRONT_END_KEY, "", f"Printed the {fe.mode.replace('-', ' ')} front end, because "
+                                 f"{why}; the AI's plan reads the front end as {mode.replace('-', ' ')}", where,
                                  "Change the front end by hand if the plan is right", tier=TIER_DISAGREE))
     name = _squash(raw.get("existing_name") or "")
     if name and fe.mode == "extend-existing" and _plain(name) not in _plain(fe.existing_system_name or ""):
-        review.append(ReviewItem(_FRONT_END_KEY, "", f"The AI's plan names the existing BMS “{name}”; the Spec "
-                                 f"overview's “{fe.existing_system_name}” is kept", where, "Check which it is",
-                                 tier=TIER_DISAGREE))
+        heading = next((e for e in evidence or () if e.line.startswith("Seamlessly")), None)
+        said = f" ({plain_place(heading.where)}: “{heading.quote[:140]}”)" if heading and heading.quote else ""
+        review.append(ReviewItem(_FRONT_END_KEY, "", f"Printed the existing BMS as “{fe.existing_system_name}”, as "
+                                 f"the specification names it{said}; the AI's plan names it “{name}”", where,
+                                 "Check which it is", tier=TIER_DISAGREE))
     have = [i.text for i in fe.items]
     room = MAX_FRONT_END_LINES - sum(1 for i in fe.items if i.kind == "line" and i.depth == 1)
     lines, notes = _plan_lines(raw.get("lines")), _plan_lines(raw.get("notes"))
@@ -1275,7 +1747,7 @@ def _reconcile_front_end(fe, plan, dossier, style, warranty_block):
             continue
         against = _contradiction(text, have)
         if against is not None:
-            contradicted.append(f"“{text}” against “{against}”")
+            contradicted.append((text, against))
             continue
         problem = None if ids else "it cites no source"
         if problem is None and _NEVER.search(text):
@@ -1297,9 +1769,9 @@ def _reconcile_front_end(fe, plan, dossier, style, warranty_block):
         review.append(ReviewItem(_FRONT_END_KEY, ADDED, "Front-end lines added from the AI's plan: "
                                  + "; ".join(f"“{i.text}”" for i in new_lines + new_notes), where,
                                  "Check each, and price the lines"))
-    if contradicted:
-        review.append(ReviewItem(_FRONT_END_KEY, "", "The AI's plan contradicts the front end; the front end's "
-                                 "lines are kept: " + "; ".join(contradicted), where,
+    for text, against in contradicted:
+        review.append(ReviewItem(_FRONT_END_KEY, "", f"Printed “{against}” and kept it ({_printed_because(against, evidence)}); "
+                                 f"the AI's plan wrote “{text}”, which contradicts it and was left out", where,
                                  "Change the front end by hand if the plan is right", tier=TIER_DISAGREE))
     if over:
         review.append(ReviewItem(_FRONT_END_KEY, "", f"Spec items the front end could add (it holds "
@@ -1324,8 +1796,9 @@ def _reconcile_front_end(fe, plan, dossier, style, warranty_block):
         missing = [i.text for i in fe.items if i.kind == "line" and i.depth == 1 and _plain(i.text) not in planned
                    and not _near_duplicate(i.text, lines)]
         if missing:
-            review.append(ReviewItem(_FRONT_END_KEY, "", "The AI's plan leaves out front-end lines the Spec overview "
-                                     "gives; they are kept: " + "; ".join(missing), where,
+            review.append(ReviewItem(_FRONT_END_KEY, "", "The AI's plan leaves out front-end lines the specification "
+                                     "or the Master Template gives; they are printed: "
+                                     + "; ".join(f"“{m}” ({_printed_because(m, evidence)})" for m in missing), where,
                                      "Delete any the job does not need", tier=TIER_DISAGREE))
     if new_lines or new_notes:
         items = list(fe.items)
@@ -1376,7 +1849,7 @@ def assemble_job(catalogue, reading, dossier, plan, scopes, today, templates=Non
     fe, fe_flags, fe_evidence = front_end(catalogue, bid_check=getattr(catalogue, "bid", None))
     points, points_evidence = global_points_block(catalogue, templates=templates)
     warranty, warranty_flags, warranty_evidence = extended_warranty_block(catalogue)
-    fe, fe_added, fe_review, plan_warranty = _reconcile_front_end(fe, plan, dossier, style, warranty)
+    fe, fe_added, fe_review, plan_warranty = _reconcile_front_end(fe, plan, dossier, style, warranty, fe_evidence)
     if warranty is not None:          # the standalone block carries the warranty: the front end's lines go
         moved = {_plain(i.text) for i in warranty.items}
         fe = fe.model_copy(update={"items": tuple(i for i in fe.items if _plain(i.text) not in moved)})
@@ -1431,7 +1904,7 @@ def assemble_job(catalogue, reading, dossier, plan, scopes, today, templates=Non
         grouped = len(parts) > 1
         key = _squash(run[0].group) if grouped else parts[0].system.key
         template = system_template(parts[0].system, templates)
-        written = _written_system(key, parts, template.name if template is not None else None)
+        written = _written_system(key, parts, template.name if template is not None else None, dossier, style)
         systems.append(written)
         side = parts[0].system.alternate if parts[0].system.alternate in ("add", "deduct") else ""
         if side:
@@ -1467,6 +1940,14 @@ def assemble_job(catalogue, reading, dossier, plan, scopes, today, templates=Non
 # --- the review list, ranked and short ----------------------------------------------------------------------------
 
 _AI_NOTE = "the AI's note"
+_NEAREST_HOURS = "Tech hours from the nearest Master Template entry"
+_LEFT_OUT = "Usually present in the Master Template's"
+
+
+def _left_out_line(item: ReviewItem) -> str:
+    """ "Usually present in the Master Template's X; the AI left out: a; b" as "System (X): a; b"."""
+    template, _, missing = item.decide[len(_LEFT_OUT):].strip().partition("; the AI left out: ")
+    return f"{item.system} ({template}): {missing}"
 _HOURS_WORDS = re.compile(r"tech[\s-]*hour", re.I)
 
 
@@ -1492,11 +1973,18 @@ def _merge_review(items: list[ReviewItem]) -> list[ReviewItem]:
     rules = [
         ("hours", lambda i: i.decide.startswith("No tech hours for"),
          lambda g: ReviewItem("Tech hours", "", "No tech hours for: " + _joined(g, lambda i: i.system)
-                              + " — enter them", "No Master Template rule fits them, and the AI suggested none "
-                              "that could be counted", "Type the hours on each block's header row of the price sheet")),
-        ("hours-ai", lambda i: i.decide.startswith("Tech hours are the AI's suggestion"),
-         lambda g: ReviewItem("Tech hours", ASSUMPTION, "Tech hours are the AI's suggestion for: "
-                              + _joined(g, lambda i: f"{i.system} ({i.evidence})"), "", "Confirm them")),
+                              + " — enter them", "The nearest Master Template entry gives them no rule, or none is "
+                              "near: " + _joined(g, lambda i: f"{i.system}: {i.evidence}"),
+                              "Type the hours on each block's header row of the price sheet")),
+        ("hours-ai", lambda i: i.decide.startswith(_NEAREST_HOURS),
+         lambda g: ReviewItem("Tech hours", ASSUMPTION, "Tech hours from the nearest Master Template entry, not "
+                              "the system's own: " + _joined(g, lambda i: f"{i.system} "
+                                                             f"({i.decide[len(_NEAREST_HOURS) + 2:]})"),
+                              _joined(g, lambda i: f"{i.system}: {i.evidence}"), "Confirm them")),
+        ("left-out", lambda i: i.decide.startswith(_LEFT_OUT),
+         lambda g: ReviewItem("Master Template", "", f"Lines usually present in the Master Template that the AI "
+                              f"left out, one line per system ({len(g)})",
+                              "\n".join(_left_out_line(i) for i in g), "Add any line the job needs")),
         ("quotes", lambda i: "is not in the job's documents" in i.decide and i.decide.startswith("The quote for"),
          lambda g: ReviewItem("Quotes", "", f"Lines whose quote is not in the job's documents ({len(g)}) — check "
                               "each by hand", _joined(g, lambda i: f"{i.system}: {i.decide[len('The quote for '):]}"
@@ -1530,9 +2018,8 @@ def _merge_review(items: list[ReviewItem]) -> list[ReviewItem]:
     for item in items:
         if "mentioned only in the specs" in item.decide:
             continue
-        left_out = item.decide.startswith("Usually present in the Master Template's")
-        if item.evidence == _AI_NOTE or left_out:
-            if _HOURS_WORDS.search(item.decide) and not left_out:
+        if item.evidence == _AI_NOTE:
+            if _HOURS_WORDS.search(item.decide):
                 continue                                  # the tech-hours row says it
             if item.system not in per_system:
                 out.append(("system", item.system))
@@ -1552,11 +2039,11 @@ def _merge_review(items: list[ReviewItem]) -> list[ReviewItem]:
             merged.append(entry)
         elif entry[0] == "rule":
             group = groups[entry[1]]
-            single = len(group) == 1 and entry[1] not in ("hours", "hours-ai")
+            single = len(group) == 1 and entry[1] not in ("hours", "hours-ai", "left-out")
             merged.append(group[0] if single else build[entry[1]](group))
         else:
             notes = per_system[entry[1]]
-            merged.append(ReviewItem(entry[1], "", f"The AI's notes on {entry[1]} and the lines left out: "
+            merged.append(ReviewItem(entry[1], "", f"The AI's notes on {entry[1]}: "
                                      + " | ".join(dict.fromkeys(i.decide for i in notes)), "the AI's notes",
                                      "Add any line the job needs"))
     return _fold(merged)
@@ -1598,11 +2085,14 @@ def _fold(merged: list[ReviewItem]) -> list[ReviewItem]:
     return [item for n, item in enumerate(merged) if n not in dropped]
 
 
-def review_list(systems, general) -> list[ReviewItem]:
+def review_list(systems, general, dossier=None) -> list[ReviewItem]:
     """Every review row of the job, merged and ranked: a system written with fallback lines or with no count
     first, then the quantity conflicts, the AI's unresolved questions, the rule and AI disagreements, then
-    the rest. Each carries its rank (1 = the most urgent)."""
+    the rest. Each carries its rank (1 = the most urgent). With the dossier, every source id ([S97], I15) is
+    replaced by the place it points to, the sheet or section and the page."""
     items = [item for system in systems for item in system.review] + list(general)
     merged = _merge_review(items)
     ordered = sorted(enumerate(merged), key=lambda pair: (_tier(pair[1]), pair[0]))
-    return [dataclasses.replace(item, rank=n) for n, (_, item) in enumerate(ordered, start=1)]
+    return [dataclasses.replace(item, rank=n, decide=plain_ids(item.decide, dossier),
+                                evidence=plain_ids(item.evidence, dossier), action=plain_ids(item.action, dossier))
+            for n, (_, item) in enumerate(ordered, start=1)]

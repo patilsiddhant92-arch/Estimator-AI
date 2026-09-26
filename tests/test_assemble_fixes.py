@@ -36,10 +36,13 @@ AC_TAGS = ("AC-EMR-1", "AC-EMR-2", "AC-EMR-3", "AC-LOBBY-1", "AC-LOBBY-2", "AC-L
            "AC-ARCS-1", "AC-MDF-1", "AC-IT-1")
 
 
-def test_a_long_header_drops_the_words_after_with_into_a_first_note():
-    shape = shape_header(_system("ERV", ERV_HEADER, ERV_TAGS, 3), 3)
-    assert shape.headers == ("Qty (3) Energy Recovery Ventilator ERV-C-1, ERV-1-1, ERV-2-1",)
-    assert shape.note == "**Includes Electric Duct Heater EDH-C-1, EDH-1-1, EDH-2-1"
+def test_a_long_header_folds_the_tagged_units_after_with_into_their_own_stacked_header():
+    shape = shape_header(_system("ERV", ERV_HEADER, ERV_TAGS, 3), 3)        # round 3: folded units
+    assert shape.headers == ("Qty (3) Energy Recovery Ventilator ERV-C-1, ERV-1-1, ERV-2-1",
+                             "Qty (3) Electric Duct Heater EDH-C-1, EDH-1-1, EDH-2-1")
+    assert shape.note == "" and shape.folded == 1
+    untagged = shape_header(_system("OAF", "Outdoor Air Fan w/ Electric Duct Heater", (), None), None)
+    assert untagged.headers == ("Qty (##) Outdoor Air Fan w/ Electric Duct Heater",) and untagged.folded == 0
 
 
 def test_a_long_header_moves_its_descriptors_into_the_first_note():
@@ -77,8 +80,9 @@ def test_a_long_header_system_is_printed_with_its_headers_stacked():
     job, systems, review = _assemble([erv, ac], {"ERV": WrittenScope((line,)), "AC": WrittenScope((line,))})
     check_fit(job)
     headers = _headers(job)
-    assert headers[0] == "Qty (3) Energy Recovery Ventilator ERV-C-1, ERV-1-1, ERV-2-1"
-    assert job.blocks[0].items[0].text == "**Includes Electric Duct Heater EDH-C-1, EDH-1-1, EDH-2-1"
+    assert headers[:2] == ["Qty (3) Energy Recovery Ventilator ERV-C-1, ERV-1-1, ERV-2-1",
+                           "Qty (3) Electric Duct Heater EDH-C-1, EDH-1-1, EDH-2-1"]
+    assert job.blocks[1].joined and job.blocks[0].items == ()
     stacked = [b for b in job.blocks if "Split System Indoor Unit" in b.header]
     assert len(stacked) > 1 and all(b.joined for b in stacked[1:]) and all(b.items == () for b in stacked[:-1])
 

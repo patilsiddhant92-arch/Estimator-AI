@@ -354,11 +354,15 @@ def test_tech_hours_per_hardware_point_count_the_hardware_lines():
     assert hours == 4.0
 
 
-def test_without_a_template_the_ais_hint_is_an_assumption_else_none_with_a_review_line():
+def test_without_its_own_template_the_nearest_entrys_rule_is_an_assumption_and_the_ais_hint_never_counts():
     pump = PlannedSystem("FP", "Fire Pump", "Fire Pump", (), 1)
+    lines = [("Furnish and Install Current Switch for Pump Status", 1)]
+    hours, note = tech_hours(pump, 1, lines, None, TEMPLATES)       # the nearest: 2 h a hardware point
+    assert hours == 2.0 and note.category == "ASSUMPTION" and "nearest Master Template entry" in note.decide
     hours, note = tech_hours(pump, 1, [], TechHoursHint("unit", 2.0, "Fuel Oil Pump System"), TEMPLATES)
-    assert hours == 2.0 and note.category == "ASSUMPTION"
-    hours, note = tech_hours(pump, 1, [], None, TEMPLATES)
+    assert hours is None and "enter them" in note.decide           # nothing counted, and never the AI's hours
+    odd = PlannedSystem("ZC", "Zamboni Charger", "Zamboni Charger", (), 1)
+    hours, note = tech_hours(odd, 1, [], TechHoursHint("unit", 2.0, "Fuel Oil Pump System"), TEMPLATES)
     assert hours is None and "enter them" in note.decide
 
 
@@ -463,7 +467,7 @@ def test_a_group_stacks_its_headers_over_the_lines_they_share():
     assert second.joined and not first.joined and first.items == ()
     texts = [i.text for i in second.items]
     assert texts.count(shared.text) == 1
-    assert next(i for i in second.items if i.text == shared.text).quantity == 2
+    assert next(i for i in second.items if i.text == shared.text).quantity == 1      # one sensor, named by both
     group = next(s for s in systems if s.bundle_key == "Chilled Water System")
     assert group.template == "Chilled Water System"
 

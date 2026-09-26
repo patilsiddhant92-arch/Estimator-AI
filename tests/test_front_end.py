@@ -580,3 +580,54 @@ def test_based_on_with_no_schedules_or_backbone_attribute_is_unaffected():
     versions = SimpleNamespace(versions=(_version("M-001", 1, dt.date(2026, 1, 1)),))
     header, _ = job_header(_catalogue(folder="26-0001", sheets=sheets), versions, TODAY)
     assert header.based_on == ("M-001 Dated: 01/01/2026",)
+
+
+# --- round 3: the standard lines stay unless the owner clearly furnishes the item --------------------------
+
+def test_an_owner_network_connection_is_not_the_owner_furnishing_the_server():
+    who = ["The owner shall provide a connection to the Internet to enable this access via ISDN, ADSL, or via the "
+           "customer's intranet to a corporate server providing access to an Internet Service Provider (ISP)."]
+    fe, _, _ = front_end(_catalogue(_overview(ALL_FOUND, who=who)))
+    assert "Furnish BMS Server" in _texts(fe) and "**BMS Server by Owner" not in _texts(fe)
+
+
+def test_the_owner_phrase_must_be_in_the_same_sentence_as_the_item():
+    who = ["A new BMS server shall be installed. Graphics licences shall be provided by the owner."]
+    fe, _, _ = front_end(_catalogue(_overview(ALL_FOUND, who=who)))
+    assert "Furnish BMS Server" in _texts(fe) and "**BMS Server by Owner" not in _texts(fe)
+
+
+def test_a_workstation_the_owner_furnishes_is_a_note_not_a_line():
+    fe, _, evidence = front_end(_catalogue(_overview(ALL_FOUND, who=["The operator workstation shall be owner "
+                                                                      "furnished."])))
+    assert "Furnish PC Workstation" not in _texts(fe) and "**PC Workstation by Owner" in _texts(fe)
+    fe, _, _ = front_end(_catalogue(_overview(ALL_FOUND, who=["The workstation shall be located as determined by "
+                                                              "the owner."])))
+    assert "Furnish PC Workstation" in _texts(fe)
+
+
+# --- round 3: the spec section's issue date from its header or footer ----------------------------------------
+
+def test_the_spec_date_comes_from_the_sections_header_or_footer_not_its_body():
+    sections = (SpecSection("23 09 93", "SEQUENCE OF OPERATIONS", SPEC, 40, 41),)
+    body = "\n".join(["Project 2025-38", "SECTION 23 09 93", "1.1 GENERAL", "More text.", "Even more text.", "A.", "B.", "C.",
+                      "Substantial completion by 12/31/2026.", "And more.", "Still more.", "D.", "E.", "Nearly done.",
+                      "Issued for Bid 03/31/2026", "23 09 93 - 1"])
+    pages = [PageRecord(SPEC, n, "text", body, 0) for n in (40, 41)]
+    catalogue = _catalogue(folder="26-0001", sections=sections, pages=pages)
+    reading = SimpleNamespace(versions=(), backbone=(_backbone(SPEC, 40, 41),), schedules=())
+    header, _ = job_header(catalogue, reading, TODAY)
+    assert header.based_on == ("23 09 93 SEQUENCE OF OPERATIONS Dated: 03/31/2026",)
+
+
+def test_the_spec_date_near_the_project_number_on_the_volumes_cover():
+    sections = (SpecSection("23 09 23", "DIRECT DIGITAL CONTROL (DDC) SYSTEM", SPEC, 332, 333),)
+    cover = "NEW GYMNASIUM BUILDING\nFVHD PROJECT #5567F\nConsulting Engineers:\nGillan & Hartmann, Inc.\nAugust 27, 2026\n"
+    pages = [PageRecord(SPEC, 1, "text", cover, 0)]
+    pages += [PageRecord(SPEC, n, "text", "FVHD 5567F\n5:230923 - 1\nSECTION 230923 - GENERAL\nText.", 0)
+              for n in (332, 333)]
+    catalogue = _catalogue(folder="26-0001", sections=sections, pages=pages)
+    reading = SimpleNamespace(versions=(), backbone=(_backbone(SPEC, 332, 333),), schedules=())
+    header, flags = job_header(catalogue, reading, TODAY)
+    assert header.based_on == ("23 09 23 DIRECT DIGITAL CONTROL (DDC) SYSTEM Dated: 08/27/2026",)
+    assert not any("23 09 23" in f for f in flags)

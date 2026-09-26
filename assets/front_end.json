@@ -1,5 +1,5 @@
 {
-  "about": "The Master Template's front end, word for word: the two openings (New, and Extension of Existing), the warranty lines, and when each line is printed. A line's 'when' names a condition below; a line with no 'when' is a template default. The headings are printed by the proposal writer from the mode (estimator.proposal.layout) and are kept here only so the two never drift apart. Every pattern is a regular expression, matched without regard to case. Edit the wording and the words here, never in code.",
+  "about": "The Master Template's front end, word for word: the two openings (New, and Extension of Existing), the warranty lines, and when each line is printed. A line's 'when' names a condition below; a line with no 'when' is a template default. A 'who' condition holds only when the thing and the party are in the same sentence; with 'not_ownership', not when those words stand between them (the owner's network connection or the location the owner sets is not the owner furnishing the item). The headings are printed by the proposal writer from the mode (estimator.proposal.layout) and are kept here only so the two never drift apart. Every pattern is a regular expression, matched without regard to case. Edit the wording and the words here, never in code.",
 
   "headings": {
     "new-system": "Front End Web Enabled BMS System",
@@ -9,7 +9,7 @@
   "variants": {
     "new-system": [
       {"text": "Furnish Network Level Control Panel", "quantity": 1},
-      {"text": "Furnish PC Workstation", "quantity": 1, "when": "workstation"},
+      {"text": "Furnish PC Workstation", "quantity": 1, "when": "workstation", "unless": "workstation_by_owner"},
       {"text": "Furnish BMS Server", "quantity": 1, "when": "server", "unless": "server_by_owner"},
       {"text": "Furnish POT (Laptop or Tablet)", "quantity": 1, "when": "portable_terminal"},
       {"text": "Furnish UPS \u2013 For workstation, server, network level control panel", "quantity": 1, "when": "ups"},
@@ -34,7 +34,10 @@
     "oa_temperature": {"words": ["\\boutside\\s+air\\s+temperature\\b", "\\boutdoor\\s+air\\s+temperature\\b"]},
     "oa_humidity": {"words": ["\\boutside\\s+air\\s+humidity\\b", "\\boutdoor\\s+air\\s+humidity\\b", "\\benthalpy\\b"]},
     "server_by_owner": {"who": ["\\bservers?\\b(?!\\s*(?:rooms?|areas?))"], "party": "owner",
-                        "also_topic": "Server"},
+                        "also_topic": "Server", "not_ownership": "@not_ownership"},
+    "workstation_by_owner": {"who": ["\\b(?:operator(?:'s|’s)?\\s+)?workstations?\\b", "\\bfront[- ]end\\s+PCs?\\b"],
+                             "party": "owner", "also_topic": "Operator workstation / front-end PC",
+                             "not_ownership": "@not_ownership"},
     "network_by_others": {"who": ["\\b(?:network|ethernet|LAN|IP|managed|floor)\\s+switch(?:es)?\\b", "@network_switches",
                                   "\\bIT\\s+infrastructure\\b", "\\bfiber\\b",
                                   "\\b(?:data|network|ethernet|cat\\s*-?\\s*6)\\s+cabl\\w*"],
@@ -44,6 +47,7 @@
   },
 
   "shared_patterns": {
+    "not_ownership": "\\b(?:connections?|network|internet|intranet|ethernet|LAN|WAN|IP|access|locations?|located|space|rooms?)\\b",
     "network_switches": "(?<!end )(?<!flow )(?<!limit )(?<!HOA )(?<!H-O-A )(?<!pressure )(?<!float )(?<!selector )(?<!toggle )(?<!disconnect )(?<!auxiliary )(?<!door )(?<!level )(?<!safety )(?<!transfer )(?<!control )(?<!light )(?<!lighting )(?<!key )(?<!tamper )(?<!current )(?<!temperature )(?<!humidity )(?<!position )(?<!proximity )(?<!reed )\\bswitches\\b"
   },
 
@@ -69,6 +73,7 @@
 
   "client_notes": {
     "server_by_owner": "**BMS Server by Owner",
+    "workstation_by_owner": "**PC Workstation by Owner",
     "switches_by_owner": "**Network Switches by Owner"
   },
 

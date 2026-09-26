@@ -167,16 +167,31 @@ class _Conditions:
         raise ValueError(f"front_end.json: a condition needs a topic, words or who: {condition}")
 
     def _who(self, condition: dict) -> tuple[str, str] | None:
+        """The row whose one sentence names both the thing and the party; with "not_ownership", not when
+        those words stand between them ("the owner shall provide a connection … to a corporate server")."""
         things = _compile(condition["who"], self._shared)
         parties = _compile(self._data["parties"][condition["party"]], self._shared)
+        not_own = _compile([condition["not_ownership"]], self._shared)[0] if condition.get("not_ownership") else None
         rows = list(self._catalogue.overview.who_does_what)
         also = self._topics.get(condition.get("also_topic", ""))
         if also is not None and also.status == FOUND:
             rows.append(also)
         for row in rows:
-            if row.quote and any(p.search(row.quote) for p in things) and any(p.search(row.quote) for p in parties):
+            for sentence in _sentences(row.quote or ""):
+                named = [m for p in things for m in p.finditer(sentence)]
+                given = [m for p in parties for m in p.finditer(sentence)]
+                if not named or not given:
+                    continue
+                if not_own is not None and all(not_own.search(sentence[min(a.end(), b.end()):max(a.start(), b.start())])
+                                               for a in named for b in given):
+                    continue
                 return short_place(row.places), row.quote
         return None
+
+
+def _sentences(text: str) -> list[str]:
+    """The text's sentences: cut after a full stop or semicolon that ends a word (never "1." in a list)."""
+    return [s for s in re.split(r"(?<=[A-Za-z\)][.;])\s+(?=[A-Z])", text) if s.strip()]
 
 
 def _place(record, sheets: dict, controls_sections) -> Place | None:
@@ -502,6 +517,38 @@ def _based_on(catalogue, reading, settings: dict, flags: list[str]) -> list[str]
     return lines
 
 
+_EDGE_LINES = 6                 # a page's header and footer: its first and last lines
+_PROJECT_NUMBER = re.compile(r"\bproject\s*(?:no\.?|number|#)", re.I)
+_NEAR_PROJECT = 300             # characters either side of "Project No." a date is read from
+
+
+def _edge_date(text: str) -> dt.date | None:
+    lines = [line for line in (text or "").splitlines() if line.strip()]
+    return parse_date("\n".join(lines[:_EDGE_LINES] + lines[-_EDGE_LINES:])) if lines else None
+
+
+def _project_date(text: str) -> dt.date | None:
+    for m in _PROJECT_NUMBER.finditer(text or ""):
+        found = parse_date(text[max(0, m.start() - _NEAR_PROJECT):m.end() + _NEAR_PROJECT])
+        if found:
+            return found
+    return None
+
+
+def _section_dates(catalogue, section) -> list[dt.date]:
+    """The spec section's issue dates: from its pages' header or footer ("Issued for Bid 03/31/2026"), else
+    a date near "Project No." on its pages, else near "Project No." elsewhere in the same document (the
+    volume's cover). Never a date from the body's text."""
+    pages = [r for r in catalogue.pages if r.document == section.document]
+    own = [r for r in pages if section.first_page <= r.page <= section.last_page]
+    others = [r for r in pages if not section.first_page <= r.page <= section.last_page]
+    for records, read in ((own, _edge_date), (own, _project_date), (others, _project_date)):
+        dates = [d for d in (read(r.text) for r in records) if d]
+        if dates:
+            return dates
+    return []
+
+
 def _based_on_sections(catalogue, reading, settings: dict) -> tuple[list[str], list[str]]:
     """The controls spec sections that carry a schedule or a sequence of operation, each with its
     date — else "[date]", flagged. The same section number reissued in more than one document (a
@@ -521,9 +568,7 @@ def _based_on_sections(catalogue, reading, settings: dict) -> tuple[list[str], l
                            for document, first, last in sequence_ranges)
         if not (has_schedule or has_sequence):
             continue
-        texts = [r.text for r in catalogue.pages
-                if r.document == section.document and section.first_page <= r.page <= section.last_page]
-        dates = [d for d in (parse_date(t) for t in texts) if d]
+        dates = _section_dates(catalogue, section)
         entry = pooled.setdefault(section.number, {"title": section.title, "dates": []})
         entry["dates"] += dates
         if section.number not in order:

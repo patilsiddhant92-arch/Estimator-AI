@@ -297,7 +297,7 @@ def _estimate_whole_job(args: argparse.Namespace) -> None:
                                                 system_examples(system), style.prompt_text())
     job, systems, review = assemble_job(catalogue, reading, dossier, plan, scopes, today, templates)
     checks, _ = plan_checks(plan, dossier, reading, catalogue)
-    review = review_list(systems, review)              # every system's rows too: merged and ranked
+    review = review_list(systems, review, dossier)     # every system's rows too: merged and ranked, in plain words
     systems = [dataclasses.replace(s, review=()) for s in systems]
     package = write_evidence(package_path, catalogue, reading, systems=systems, review_flags=review, plan=checks)
     for line in whole_job_lines(plan, systems, review, judge, len(catalogue.flags) + len(reading.flags)):

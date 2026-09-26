@@ -1,10 +1,35 @@
 {
   "about": "How AME writes a system's scope, as data: for the AI when it writes a system the Master Template has no entry for, or adds a line beyond the template's options, and for checking what it writes. Taken from the Master Template's 'Scope of Work Format' and 'How to use this template' sections and from system_templates.json. Edit here, never in code.",
   "header": "Qty ({n}) {kind} {tags}",
-  "verbs": ["Furnish and Install", "Furnish", "Furnish and Wire", "Install and Wire", "Install", "Wire"],
+  "verbs": [
+    "Furnish and Install",
+    "Furnish",
+    "Furnish and Wire",
+    "Install and Wire",
+    "Install",
+    "Wire"
+  ],
   "no_verb_starts": {
-    "about": "Line openings the Master Template itself writes without a verb (its no_verb lines): an interlock, a tie-in, low-voltage wiring.",
-    "starts": ["Interlock", "Tie-in", "Tie in", "Tie into", "Low Voltage", "Necessary Low Voltage", "Necessary Control Wiring"]
+    "about": "Line openings the Master Template itself writes without a verb (its no_verb lines and the front end's heading). 'starts' is what the AI is told (an interlock, a tie-in, low-voltage wiring); 'also_accepted' passes the check too (mapping points, monitoring, the integration rep line, relocation work). Any line the Master Template writes word for word also passes, whatever its opening.",
+    "starts": [
+      "Interlock",
+      "Tie-in",
+      "Tie in",
+      "Tie into",
+      "Low Voltage",
+      "Necessary Low Voltage",
+      "Necessary Control Wiring"
+    ],
+    "also_accepted": [
+      "Map",
+      "Monitor",
+      "AME requires",
+      "Seamlessly",
+      "Re-commission",
+      "Demo",
+      "Extend",
+      "Run"
+    ]
   },
   "trailing_forms": [
     "(Furnished by Unit Mfr.)",
@@ -15,10 +40,16 @@
     "(Location: …)"
   ],
   "integration_trio": {
-    "lines": ["Furnish BMS Communication Wiring to {what} Factory Controls",
-              "Map Available Points Via Mfr. Provided BMS Interface",
-              "AME requires mfr. Rep to assist in integration, cost to be incurred by mech contractor"],
-    "depths": [1, 1, 2],
+    "lines": [
+      "Furnish BMS Communication Wiring to {what} Factory Controls",
+      "Map Available Points Via Mfr. Provided BMS Interface",
+      "AME requires mfr. Rep to assist in integration, cost to be incurred by mech contractor"
+    ],
+    "depths": [
+      1,
+      1,
+      2
+    ],
     "applies_when": [
       "the unit comes with the manufacturer's own (factory) controls",
       "the manufacturer provides a gateway or BMS interface (BACnet, Modbus, LonWorks)",
@@ -29,15 +60,71 @@
   "notes": {
     "start": "**",
     "rule": "A note starting with \"**\" is only for a clarification to the client that the evidence supports, such as \"**Start/Stop via Fire Alarm System\" or \"**Refrigeration Leak Detection system is coming with the unit per equipment schedule\". Never an estimating hint (where to look, how to decide), tech hours or prices.",
-    "examples": ["**Start/Stop via Fire Alarm System",
-                 "**Refrigeration Leak Detection system is coming with the unit per equipment schedule"]
+    "examples": [
+      "**Start/Stop via Fire Alarm System",
+      "**Refrigeration Leak Detection system is coming with the unit per equipment schedule"
+    ],
+    "long": 90,
+    "by_unit_mfr": "*{item} BY UNIT MFR.",
+    "by_unit_mfr_about": "A note longer than 'long' characters saying a device comes with the unit, or is furnished by the unit's manufacturer, is shortened to this house form (the item in capitals) rather than dropped.",
+    "by_unit_mfr_patterns": [
+      "\\s*(?:,\\s*)?(?:(?:is|are|to be|will be|shall be)\\s+)?(?:coming|comes?|shipped|provided|furnished|supplied)\\s+(?:loose\\s+)?(?:with|w/)\\s+(?:the\\s+)?(?:unit|fan|equipment|heater)\\b.*$",
+      "\\s*(?:,\\s*)?(?:(?:is|are|to be|will be|shall be)\\s+)?(?:(?:furnished|provided|supplied)\\s+by\\s+(?:the\\s+)?(?:[a-z\\-]+\\s+){0,3}|by\\s+(?:the\\s+)?unit\\s+)(?:mfr\\.?|manufacturer)\\b.*$"
+    ],
+    "duplicate_share": 0.7,
+    "boilerplate_words": [
+      "coming",
+      "comes",
+      "unit",
+      "units",
+      "equipment",
+      "schedule",
+      "per",
+      "as",
+      "furnished",
+      "provided",
+      "manufacturer",
+      "manufacturers",
+      "mfr",
+      "by",
+      "with",
+      "the",
+      "is",
+      "are",
+      "be",
+      "to",
+      "and",
+      "a",
+      "an",
+      "of",
+      "for"
+    ]
   },
   "forbidden": {
     "about": "Never in a line, a header or a note: the client sees these. Words are matched ignoring case; category words as whole words in capitals; patterns ignoring case.",
-    "words": ["$", "confidence", "rule:", "AI:", "tech hour", "price"],
-    "category_words": ["CONFIRMED", "ADDED", "ASSUMPTION", "PENDING", "DISCREPANCY", "EXTRA", "MISSING", "ORPHANED",
-                       "CONFLICT", "EXISTING"],
-    "patterns": ["\\d\\s*-?\\s*(?:hours?|hrs?)\\b"]
+    "words": [
+      "$",
+      "confidence",
+      "rule:",
+      "AI:",
+      "tech hour",
+      "price"
+    ],
+    "category_words": [
+      "CONFIRMED",
+      "ADDED",
+      "ASSUMPTION",
+      "PENDING",
+      "DISCREPANCY",
+      "EXTRA",
+      "MISSING",
+      "ORPHANED",
+      "CONFLICT",
+      "EXISTING"
+    ],
+    "patterns": [
+      "\\d\\s*-?\\s*(?:hours?|hrs?)\\b"
+    ]
   },
   "max_line_length": 160,
   "guide": [
@@ -48,5 +135,103 @@
     "When the unit comes with factory controls, the three integration lines go together: Furnish BMS Communication Wiring to Factory Controls; Map Available Points Via Mfr. Provided BMS Interface; and, one level in, AME requires mfr. Rep to assist in integration, cost to be incurred by mech contractor.",
     "This is guidance, not a bible: it shows how a system is presented.",
     "The points under a system are written from the control information the job gives. It is never a mandatory point list: in a real job the points follow that job's own control information."
-  ]
+  ],
+  "line_order": {
+    "about": "How AME orders a system's lines: the controller first, then the sensors, then the points, then the valves and dampers, then the integration lines, then the notes. A line is put in the first group whose patterns it matches, in 'checked_in_this_order'; 'device' patterns look only at the device the line names (after the verb, before 'for', 'to', 'with', a bracket or a dash). A line no group matches stays next to the line above it. A sub-line moves with its parent. Patterns are regular expressions, ignoring case.",
+    "order": [
+      "controller",
+      "sensors",
+      "points",
+      "valves and dampers",
+      "integration",
+      "notes"
+    ],
+    "checked_in_this_order": [
+      "integration",
+      "controller",
+      "valves and dampers",
+      "sensors",
+      "points"
+    ],
+    "groups": {
+      "integration": {
+        "text": [
+          "^map available points",
+          "^ame requires",
+          "\\bcommunication wiring to\\b.*\\bcontrols?\\b",
+          "\\b(?:bms|bacnet|modbus|serial)\\s+interface\\b",
+          "\\bgateway\\b",
+          "\\bserial\\s+(?:port|communication)\\b"
+        ]
+      },
+      "controller": {
+        "device": [
+          "\\bcontroller\\b",
+          "\\bcontrol\\s+panel\\b",
+          "\\bthermostat\\b",
+          "\\bthermostatic\\b"
+        ]
+      },
+      "valves and dampers": {
+        "device": [
+          "\\bvalves?\\b",
+          "\\bdampers?\\b",
+          "\\bactuators?\\b"
+        ]
+      },
+      "sensors": {
+        "device": [
+          "\\bsensors?\\b",
+          "\\bdetectors?\\b",
+          "\\bdetection\\b",
+          "\\btransmitters?\\b",
+          "\\bswitch(?:es)?\\b",
+          "\\bstations?\\b",
+          "\\bmeters?\\b",
+          "\\bCT\\b",
+          "\\bguards?\\b",
+          "\\bthermistors?\\b"
+        ]
+      },
+      "points": {
+        "text": [
+          "\\bstart\\b",
+          "\\bstop\\b",
+          "\\bstatus\\b",
+          "\\benable\\b",
+          "\\balarms?\\b",
+          "\\bcontrol\\b",
+          "\\bspeed\\b",
+          "\\bcommand\\b",
+          "\\bsetpoint\\b",
+          "\\breset\\b",
+          "\\bfail",
+          "\\block-?\\s?out\\b",
+          "\\bmonitor",
+          "\\bpoints?\\b"
+        ]
+      }
+    },
+    "device_ends": "\\s+(?:for|to|from|between|with|w/|via|at|in|on)\\s+|\\s*\\(|\\s+[-–]\\s+|;"
+  },
+  "software_points": {
+    "about": "A 'Furnish …' line naming one of these is a software point, never a hardware point, for tech hours counted per hardware point.",
+    "patterns": [
+      "\\balarms?\\s+at\\s+(?:the\\s+)?BMS\\b",
+      "\\bsetpoints?\\b",
+      "\\bschedul",
+      "\\btrend"
+    ]
+  },
+  "same_opening": {
+    "about": "Openings that count as the same verb when two lines are compared for a duplicate: an interlock and low-voltage wiring are both interlock wiring.",
+    "families": [
+      [
+        "Interlock",
+        "Low Voltage",
+        "Necessary Low Voltage",
+        "Necessary Control Wiring"
+      ]
+    ]
+  }
 }
