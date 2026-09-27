@@ -406,3 +406,252 @@ def test_the_judge_asks_the_gem_and_reads_its_answer(tmp_path):
     assert call["system"] == WRITE_PROMPT
     assert set(call["output_config"]["format"]["schema"]["required"]) >= {"quick_scan", "qc", "contradictions"}
     assert scope.lines[1].source_id == "[S50]" and scope.quick_scan and scope.qc
+
+
+# --- Part 3: assembly follows the GEM ------------------------------------------------------------------------------
+
+import openpyxl                                                                       # noqa: E402
+
+from estimator.evidence.workbook import GEM_TAB, write_evidence                       # noqa: E402
+from estimator.price_sheet.write import check_fit                                    # noqa: E402
+from estimator.writing.assemble import (TIER_QUANTITY, assemble_job, plan_checks, review_list,  # noqa: E402
+                                        shape_header)
+from estimator.writing.whole_job import Contradiction, JobPlan, QcCheck, WrittenLine  # noqa: E402
+from test_assemble import (JOB_READING, READING, TEMPLATES, TODAY, _dossier, _headers,  # noqa: E402
+                           _job_catalogue)
+
+
+def _gl(text, reference="Job 26-9999", flag="", flag_text="", quote="Job 26-9999", sid="S9", depth=1, quantity=None):
+    return WrittenLine(text, depth, quantity, quote, sid, reference, 0.85, reference, flag, flag_text)
+
+
+def _scope(*lines, **kw):
+    return WrittenScope(tuple(lines), (), None, (), "m", **kw)
+
+
+def _planned(key, header, tags=(), quantity=1, **kw):
+    values = dict(key=key, header=header, kind=kw.pop("kind", header.split(" ")[0]), tags=tuple(tags),
+                  quantity=quantity, quantity_source="S9", quantity_quote="Job 26-9999", sequence_sources=("S9",),
+                  schedule_sources=(), group="", alternate="", exception="", why="")
+    values.update(kw)
+    return PlannedSystem(**values)
+
+
+def _assemble(systems, scopes, dossier=None):
+    plan = JobPlan(tuple(systems), {}, (), "m")
+    return assemble_job(_job_catalogue(), JOB_READING, dossier or _dossier(), plan, scopes, TODAY, TEMPLATES)
+
+
+def _items(job, header):
+    at = next(n for n, b in enumerate(job.blocks) if b.header == header)
+    for block in job.blocks[at:]:
+        if block.items:
+            return [(i.kind, i.text) for i in block.items]
+    return []
+
+
+FANS = _planned("EF", "Exhaust Fan EF-1, 2", ("EF-1", "EF-2"), 2, kind="Exhaust Fan")
+
+
+def test_the_round_four_and_five_trimming_is_gone():
+    lines = (_gl("Furnish EDH Status"), _gl("Furnish Electric Duct Heater Status"),
+             _gl("Monitor Fan Status"), _gl("Monitor Fan Fail Alarm"),
+             _gl("Interlock with Make-Up Air System (as per sequence)"),
+             _gl("Interlock Dryer Exhaust Fan with Make-Up Air Fan"))
+    job, systems, general = _assemble([FANS], {"EF": _scope(*lines)})
+    texts = [t for _, t in _items(job, "Qty (2) Exhaust Fan EF-1, 2")]
+    for text in ("Furnish EDH Status", "Furnish Electric Duct Heater Status", "Monitor Fan Status",
+                 "Monitor Fan Fail Alarm", "Interlock with Make-Up Air System",
+                 "Interlock Dryer Exhaust Fan with Make-Up Air Fan"):
+        assert text in texts, text
+    said = " ".join(r.decide for s in systems for r in s.review)
+    assert "Repeated lines printed once" not in said and "long block" not in said
+
+
+def test_an_exact_repeat_is_printed_once():
+    job, _, _ = _assemble([FANS], {"EF": _scope(_gl("Furnish Fan Start/Stop and Status"),
+                                                _gl("Furnish Fan Start/Stop and Status"))})
+    assert [t for _, t in _items(job, "Qty (2) Exhaust Fan EF-1, 2")].count("Furnish Fan Start/Stop and Status") == 1
+
+
+def test_identical_lines_across_the_units_are_one_line_with_the_total():
+    chillers = _planned("CH", "Chiller CH-1, 2, 3", ("CH-1", "CH-2", "CH-3"), 3, kind="Chiller")
+    lines = (_gl("Furnish CH-1 Enable"), _gl("Furnish CH-2 Enable"), _gl("Furnish CH-3 Enable"),
+             _gl("Furnish and Install Minimum Outdoor Air Damper Actuator"),
+             _gl("Furnish and Install Return Air Damper Actuator"),
+             _gl("Wire Fire Alarm Stop Relay to Supply Fan VFD (Relay Furnished by FA)"),
+             _gl("Wire Fire Alarm Start Relay to DDC Controller (Relay Furnished by FA)"))
+    job, _, _ = _assemble([chillers], {"CH": _scope(*lines)})
+    texts = [t for _, t in _items(job, "Qty (3) Chiller CH-1, 2, 3")]
+    assert "Furnish Chiller Enable (Qty. 3 Total)" in texts
+    assert not any("CH-1 Enable" in t or "CH-2 Enable" in t for t in texts)
+    for distinct in ("Minimum Outdoor Air Damper Actuator", "Return Air Damper Actuator", "Stop Relay", "Start Relay"):
+        assert sum(distinct in t for t in texts) == 1, distinct
+
+
+def test_the_lines_follow_the_gems_sow_positions_with_integration_last():
+    shuffled = (_gl("Map Available Points Via Mfr. Provided BMS Interface"),
+                _gl("AME requires mfr. Rep to assist in integration, cost to be incurred by mech contractor", depth=2),
+                _gl("Wire Fire Alarm Stop Relay to Supply Fan VFD (Relay Furnished by FA)"),
+                _gl("Furnish Supply Fan Start/Stop and Status"),
+                _gl("Furnish and Wire Chilled Water Coil Control Valve and Actuator"),
+                _gl("Install and Wire Space Thermostat (Furnished by Unit Mfr.)"),
+                _gl("Furnish and Install Supply Air Temperature Sensor"),
+                _gl("Furnish BMS Communication Wiring to Factory Controls"),
+                _gl("Furnish and Wire Filter Differential Pressure Switch"),
+                _gl("Furnish and Install Current Switch"),
+                _gl("Furnish Outdoor Air Damper Position Feedback"),
+                _gl("Furnish and Install Return Air Damper Actuator"),
+                _gl("Furnish and Install Freezestat"),
+                _gl("Furnish and Install DDC Controller"))
+    job, _, _ = _assemble([FANS], {"EF": _scope(*shuffled)})
+    texts = [t for _, t in _items(job, "Qty (2) Exhaust Fan EF-1, 2")]
+    expected = ["Furnish and Install DDC Controller", "Furnish and Install Supply Air Temperature Sensor",
+                "Furnish and Install Freezestat", "Furnish and Install Current Switch",
+                "Furnish and Install Return Air Damper Actuator", "Furnish Supply Fan Start/Stop and Status",
+                "Furnish Outdoor Air Damper Position Feedback",
+                "Wire Fire Alarm Stop Relay to Supply Fan VFD (Relay Furnished by FA)",
+                "Furnish and Wire Filter Differential Pressure Switch",
+                "Furnish and Wire Chilled Water Coil Control Valve and Actuator",
+                "Install and wire Space Thermostat (Furnished by Unit Mfr.)",
+                "Furnish BMS Communication Wiring to Factory Controls",
+                "Map Available Points Via Mfr. Provided BMS Interface",
+                "AME requires mfr. Rep to assist in integration, cost to be incurred by mech contractor"]
+    assert texts == expected
+    block = next(b for b in job.blocks if b.items)
+    assert block.items[-1].depth == 2                    # the rep line, one level deeper
+
+
+def test_the_position_table_is_in_the_house_style():
+    positions = {entry["position"] for entry in json.loads(
+        (STYLE_FILE_PATH).read_text(encoding="utf-8"))["sow_positions"]["positions"]}
+    assert set(range(1, 20)) <= positions
+    assert STYLE.sow_position("Furnish BMS Communication Wiring to VFD Controls") == 19
+    assert STYLE.sow_position("Furnish and Install DDC Controller") == 1
+
+
+from estimator.writing.style import STYLE_FILE as STYLE_FILE_PATH                     # noqa: E402
+
+
+def test_flags_print_per_the_doctrine():
+    lines = (_gl("Furnish and Install Spill Air Damper Actuator", flag="red", flag_text="No count for the plenums"),
+             _gl("Furnish Generator Run Status", flag="yellow", flag_text="Generator is a factory unit; no named party"),
+             _gl("Furnish and Install Space Temperature Sensor", flag="orange",
+                 flag_text="Sensor assumed from the space temperature alarm"),
+             _gl("Furnish Fan Start/Stop and Status", flag="green", flag_text="Fan runs continuously"))
+    job, systems, general = _assemble([FANS], {"EF": _scope(*lines)})
+    items = _items(job, "Qty (2) Exhaust Fan EF-1, 2")
+    texts = [t for _, t in items]
+    red = next(t for t in texts if "Spill Air Damper Actuator" in t)
+    assert red == "Furnish and Install Spill Air Damper Actuator (Qty. per Mechanical Schedule)"
+    status = texts.index("Furnish Generator Run Status")
+    assert items[status + 1] == ("note", "*Confirm ownership: Generator is a factory unit; no named party")
+    sensor = texts.index("Furnish and Install Space Temperature Sensor")
+    assert items[sensor + 1] == ("note", "*Assumed: Sensor assumed from the space temperature alarm")
+    assert not any("Fan runs continuously" in t for t in texts)                      # green: review only
+    ranked = review_list(systems, general, _dossier())
+    red_row = next(r for r in ranked if "Spill Air Damper Actuator" in r.decide)
+    assert red_row.tier == TIER_QUANTITY and red_row.category == "PENDING"
+    for words in ("Generator Run Status", "Space Temperature Sensor", "Fan runs continuously"):
+        row = next(r for r in ranked if words in f"{r.decide} {r.evidence}")
+        assert ranked.index(red_row) < ranked.index(row), words
+
+
+def test_the_contradiction_scan_and_the_self_qc_reach_the_review_list_and_c5_prints():
+    scope = _scope(_gl("Furnish Fan Start/Stop and Status"), _gl("Furnish Fan VFD Control"),
+                   contradictions=(Contradiction("C1", "Duct smoke detector", ("by FA", "by BMS"), "yellow"),
+                                   Contradiction("C5", "Fan VFD Control", ("fan with VFD",), "orange")),
+                   qc=(QcCheck("QC-01", "CC term: BMS contractor", True, ""),
+                       QcCheck("QC-08", "FA relays 2 vs 1 Wire line", False, "Added the start relay")))
+    red = _gl("Furnish and Install Current Switch", flag="red", flag_text="No count")
+    job, systems, general = _assemble([FANS], {"EF": dataclasses.replace(scope, lines=scope.lines + (red,))})
+    items = _items(job, "Qty (2) Exhaust Fan EF-1, 2")
+    vfd = items.index(("line", "Furnish Fan VFD Control"))
+    assert items[vfd + 1] == ("note", "*Assumed: Fan VFD Control")
+    ranked = review_list(systems, general, _dossier())
+    c1 = next(r for r in ranked if "Duct smoke detector" in r.decide)
+    qty = next(r for r in ranked if "Current Switch" in r.decide)
+    assert ranked.index(qty) < ranked.index(c1)
+    assert "C1" in c1.decide and "by FA" in c1.evidence
+    assert any("QC-08" in r.decide for r in ranked) and not any("QC-01" in r.decide for r in ranked)
+
+
+def test_misc_responsibilities_are_notes_at_the_end_and_exclusions_are_review_rows():
+    scope = _scope(_gl("Furnish Fan Start/Stop and Status"),
+                   misc_responsibilities=("Demolish the existing pneumatic tubing",),
+                   exclusions=("Fire alarm relays by the Fire Alarm Contractor",))
+    job, systems, general = _assemble([FANS], {"EF": scope})
+    items = _items(job, "Qty (2) Exhaust Fan EF-1, 2")
+    assert items[-1] == ("note", "**Demolish the existing pneumatic tubing")
+    assert not any("Fire alarm relays" in t for _, t in items) and not job.named_exceptions
+    rows = [r for s in systems for r in s.review]
+    assert any("Fire alarm relays by the Fire Alarm Contractor" in r.decide and "exception" in r.action.lower()
+               for r in rows)
+
+
+def test_a_unit_the_quick_scan_says_has_no_cc_scope_is_a_named_exception():
+    generator = _planned("EDG", "Emergency Generator", (), 1, kind="Generator")
+    scope = _scope(quick_scan={"unit_type": "Factory/OEM Controls", "controller": "Factory Controls — No CC DDC "
+                               "Controller", "systems_identified": "Emergency generator — not CC scope"},
+                   exclusions=("Generator controls by the generator manufacturer",))
+    job, systems, _ = _assemble([generator, FANS], {"EDG": scope, "EF": _scope(_gl("Furnish Fan Start/Stop"))})
+    assert "Qty (1) Emergency Generator" not in _headers(job)
+    assert job.named_exceptions == ("EXCEPTION TO ANY WORK WITH Qty (1) EMERGENCY GENERATOR - GENERATOR CONTROLS BY "
+                                    "THE GENERATOR MANUFACTURER",)
+
+
+def test_a_line_total_from_the_drawings_is_kept():
+    garage = _planned("GAR", "Garage Exhaust Fan GXF-C-1", ("GXF-C-1",), 1, kind="Exhaust Fan")
+    job, _, _ = _assemble([garage], {"GAR": _scope(_gl("Furnish and Install CO/NO2 Sensor (Qty. 9 Total)",
+                                                       quantity=9, quote="Job 26-9999"))})
+    assert ("line", "Furnish and Install CO/NO2 Sensor (Qty. 9 Total)") in _items(job, "Qty (1) Garage Exhaust Fan "
+                                                                                    "GXF-C-1")
+    block = next(b for b in job.blocks if b.items)
+    assert block.items[0].quantity == 9
+
+
+DRYERS = _planned("DXF", "Dryer Exhaust and Make-up Air Fans", ("DXF-1-1", "DXF-1-2", "MUAF-1-1", "MUAF-1-2"), 2,
+                  kind="Exhaust Fan", sequence_section="Q2",
+                  families=(Family("Dryer Exhaust Fan DXF-1-1, 2", ("DXF-1-1", "DXF-1-2"), 2, "S9", "Job 26-9999"),
+                            Family("Make-up Air Fan MUAF-1-1, 2", ("MUAF-1-1", "MUAF-1-2"), None, "", "")))
+
+
+def test_one_block_per_planned_system_with_one_header_per_family_stacked_as_the_plan_gives_them():
+    assert shape_header(DRYERS, 2).headers == ("Qty (2) Dryer Exhaust Fan DXF-1-1, 2",
+                                               "Qty (##) Make-up Air Fan MUAF-1-1, 2")
+    job, systems, general = _assemble([DRYERS], {"DXF": _scope(_gl("Furnish Dryer Exhaust Fan Status"),
+                                                               _gl("Interlock Make-up Air Fan with Dryer Exhaust Fan"))})
+    check_fit(job)
+    assert _headers(job) == ["Qty (2) Dryer Exhaust Fan DXF-1-1, 2", "Qty (##) Make-up Air Fan MUAF-1-1, 2"]
+    assert job.blocks[1].joined and job.blocks[0].items == ()
+    assert any("Make-up Air Fan MUAF-1-1, 2" in r.decide and r.category == "PENDING"
+               for s in systems for r in s.review)
+    [check] = plan_checks(JobPlan((DRYERS,), {}, (), "m"), _dossier(), READING)[0]
+    assert len(check.families) == 2
+
+
+def test_the_evidence_package_has_each_lines_reference_and_flag_and_a_gem_qc_tab(tmp_path):
+    scope = _scope(_gl("Furnish Fan Start/Stop and Status", reference="The fans shall run on the BMS schedule"),
+                   _gl("Furnish and Install Current Switch", flag="red", flag_text="No count"),
+                   quick_scan={"unit_type": "Field-Installed DDC", "contractor_name_used": "BMS contractor"},
+                   explanation="The fans run on the BMS schedule.",
+                   contradictions=(Contradiction("C6", "Current switch count", ("no count",), "red"),),
+                   qc=(QcCheck("QC-04", "Fan: Start/Stop and Status yes", True, ""),))
+    _, systems, general = _assemble([FANS], {"EF": scope})
+    from test_evidence import _catalogue as evidence_catalogue
+    path = write_evidence(tmp_path / "e.xlsx", evidence_catalogue(), systems=systems, review_flags=general)
+    book = openpyxl.load_workbook(path)
+    lines = [[c.value for c in row] for row in book["Scope lines"].iter_rows()]
+    assert lines[0][-2:] == ["Reference line", "Flag"]
+    start = next(row for row in lines if row[1] == "Furnish Fan Start/Stop and Status")
+    assert start[-2:] == ["The fans shall run on the BMS schedule", None]
+    switch = next(row for row in lines if row[1] and row[1].startswith("Furnish and Install Current Switch"))
+    assert switch[-1] == "red"
+    gem = [[c.value for c in row] for row in book[GEM_TAB].iter_rows()]
+    flat = " ".join(str(v) for row in gem for v in row if v is not None)
+    for words in ("Exhaust Fan EF-1, 2", "Field-Installed DDC", "BMS contractor", "C6", "Current switch count",
+                  "QC-04", "The fans run on the BMS schedule."):
+        assert words in flat, words
+
+
+import dataclasses                                                                   # noqa: E402

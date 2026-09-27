@@ -114,7 +114,7 @@ def test_with_no_template_the_refused_lines_are_rewritten_with_a_verb():
     job, systems, review = _assemble([odd], {"ODD": WrittenScope((), refused=refused)})
     block = next(b for b in job.blocks if "Zamboni" in b.header)
     texts = [i.text for i in block.items]
-    assert texts == ["Wire Zamboni Charger Status (Furnished by Others)", "Furnish Charger Alarm"]
+    assert texts == ["Furnish Charger Alarm", "Wire Zamboni Charger Status (Furnished by Others)"]   # the GEM's order
     assert review_list(systems, review)[0].decide.startswith("System written with fallback lines — check")
 
 
@@ -226,7 +226,7 @@ def test_a_note_giving_a_device_to_the_unit_manufacturer_is_a_by_unit_mfr_note()
 
 # --- 5. one device, one place ----------------------------------------------------------------------------------
 
-def test_the_same_device_for_the_same_rooms_stays_in_the_system_whose_evidence_names_them():
+def test_the_same_device_in_two_systems_stays_in_both_since_the_gem_round():
     text = _dossier().text + "\n[S20] RTU-4 and RTU-5 serve the team rooms.\n\n" \
                              "[S21] VAV-1 serves Team Room 106A and VAV-2 serves Team Room 108A, each with a CO2 " \
                              "sensor.\n\n"
@@ -245,9 +245,9 @@ def test_the_same_device_for_the_same_rooms_stays_in_the_system_whose_evidence_n
                                         TODAY, TEMPLATES)
     rtu_block = next(b for b in job.blocks if "Rooftop" in b.header)
     vav_block = next(b for b in job.blocks if "Variable Air Volume" in b.header)
-    assert not any("CO2" in i.text for i in rtu_block.items)
+    assert any("CO2" in i.text for i in rtu_block.items)            # each system is its own sequence section
     assert any("Team Room" in i.text for i in vav_block.items)
-    assert any("CO2" in i.decide and "Rooftop Unit" in i.decide for s in systems for i in s.review)
+    assert not any("One device, one place" in i.evidence for s in systems for i in s.review)
 
 
 # --- 6. the front end ---------------------------------------------------------------------------------------------

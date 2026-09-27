@@ -187,24 +187,24 @@ def test_a_panel_with_no_count_prints_one_and_the_stated_number_of_panels_wins()
 
 # --- 4. trim blocks ----------------------------------------------------------------------------------------------
 
-def test_monitor_lines_with_no_quantity_of_their_own_are_merged():
+def test_monitor_lines_are_never_merged_since_the_gem_round():
     fans = _system("EF", "Exhaust Fan EF-1, 2", ("EF-1", "EF-2"), 2, kind="Exhaust Fan")
     lines = (_line("Furnish and Install Current Switch"), _line("Monitor Fan Status"), _line("Monitor Fan Fail Alarm"),
              _line("Monitor High Temperature Alarm"))
     job, _, _ = _job([fans], {"EF": WrittenScope(lines)})
     texts = _texts(job.blocks[0])
-    assert "Monitor Fan Status, Fan Fail Alarm and High Temperature Alarm" in texts
-    assert not any(t in texts for t in ("Monitor Fan Status", "Monitor Fan Fail Alarm"))
+    assert all(t in texts for t in ("Monitor Fan Status", "Monitor Fan Fail Alarm", "Monitor High Temperature Alarm"))
+    assert "Monitor Fan Status, Fan Fail Alarm and High Temperature Alarm" not in texts
 
 
-def test_monitor_lines_merge_only_within_one_system_and_never_a_line_that_is_already_a_list():
+def test_monitor_lines_in_a_group_are_never_merged_since_the_gem_round():
     gas = _system("GAS", "Gas Detection System", (), 1, kind="Gas Detection", group="Garage")
     fan = _system("GXF", "Garage Exhaust Fan GXF-1", ("GXF-1",), 1, kind="Exhaust Fan", group="Garage")
     scopes = {"GAS": WrittenScope((_line("Monitor CO Level"), _line("Monitor High CO Level Alarm"))),
               "GXF": WrittenScope((_line("Monitor Fan Fail Alarm"), _line("Monitor Fan Start/Stop, Status and Fail")))}
     job, _, _ = _job([gas, fan], scopes)
     texts = [i.text for b in job.blocks for i in b.items]
-    assert "Monitor CO Level and High CO Level Alarm" in texts
+    assert "Monitor CO Level" in texts and "Monitor High CO Level Alarm" in texts
     assert "Monitor Fan Fail Alarm" in texts and "Monitor Fan Start/Stop, Status and Fail" in texts
 
 
@@ -218,7 +218,7 @@ def test_type_tags_placed_more_often_than_listed_are_not_counted_from_their_own_
     assert check.category == "PENDING" and check.quantity is None
 
 
-def test_same_meaning_duplicates_are_removed():
+def test_same_meaning_lines_are_kept_since_the_gem_round():
     fans = _system("RX", "Refuse Room Exhaust Fan RXF-1", ("RXF-1",), 1, kind="Exhaust Fan")
     lines = (_line("Furnish Refrigerant Leak Detector Status"), _line("Monitor Refrigerant Leak Detector Status"),
              _line("Furnish BMS Communication Wiring to Factory Controls"),
@@ -227,12 +227,12 @@ def test_same_meaning_duplicates_are_removed():
              _line("Monitor Glycol Feed System Pump Status", depth=2))
     job, _, _ = _job([fans], {"RX": WrittenScope(lines)})
     texts = _texts(job.blocks[0])
-    assert sum(1 for t in texts if "Refrigerant Leak Detector Status" in t) == 1
-    assert sum(1 for t in texts if t.startswith("Map Available Points")) == 1
+    assert sum(1 for t in texts if "Refrigerant Leak Detector Status" in t) == 2
+    assert sum(1 for t in texts if t.startswith("Map Available Points")) == 2
     assert "Monitor Glycol Feed System Pump Status" in texts
 
 
-def test_a_block_still_over_twelve_lines_is_reviewed_never_cut():
+def test_a_long_block_is_never_cut_and_no_longer_reviewed_for_its_length():
     fans = _system("EF", "Exhaust Fan EF-1, 2", ("EF-1", "EF-2"), 2, kind="Exhaust Fan")
     devices = ("Current Switch", "Damper Actuator", "Space Thermostat", "Duct Smoke Detector", "Static Pressure Sensor",
                "Airflow Station", "Hand-Off-Auto Switch", "Relay", "Temperature Sensor", "Humidity Sensor",
@@ -240,7 +240,7 @@ def test_a_block_still_over_twelve_lines_is_reviewed_never_cut():
     lines = tuple(_line(f"Furnish and Install {d}") for d in devices)
     job, systems, general = _job([fans], {"EF": WrittenScope(lines)})
     assert sum(1 for i in job.blocks[0].items if i.kind == "line") == len(devices)
-    assert any(r.decide.startswith("long block — check for merged or repeated lines") for r in _review(systems, general))
+    assert not any(r.decide.startswith("long block") for r in _review(systems, general))   # no 9-line target
 
 
 # --- 5. the front end ----------------------------------------------------------------------------------------------

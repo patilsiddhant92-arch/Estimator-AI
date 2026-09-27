@@ -223,64 +223,45 @@
       "\\btrend"
     ]
   },
-  "same_opening": {
-    "about": "Openings that count as the same verb when two lines are compared for a duplicate: an interlock and low-voltage wiring are both interlock wiring; \"Furnish … Status\" and \"Monitor … Status\" are the same point.",
-    "families": [
-      [
-        "Interlock",
-        "Low Voltage",
-        "Necessary Low Voltage",
-        "Necessary Control Wiring"
-      ],
-      [
-        "Monitor",
-        "Furnish"
-      ]
+  "sow_positions": {
+    "about": "The GEM's SOW ORDER — STANDARD TEMPLATE: the order of the categories of a block's lines, positions 1 to 20 (20, the miscellaneous responsibilities, are printed as '**' notes at the end of the block). A line takes the position of the first entry below it matches, in this order: 'verbs' are the openings it may start with (any when absent); it matches when one of the 'text' patterns is in the whole line or one of the 'device' patterns is in the device it names (after the verb, before a bracket or 'to'/'for'/'with'); an entry with neither matches on its verb alone. A line no entry matches (an interlock, a monitoring line) stays next to the line above it, never after the integration lines. Sub-lines move with their line. Regular expressions, ignoring case.",
+    "positions": [
+      {"position": 19, "name": "Integration lines (always last within scope)",
+       "text": ["^furnish bms communication wiring\\b", "^map available points", "^ame requires", "^◊"]},
+      {"position": 13, "name": "Fire alarm and life safety wire lines", "verbs": ["wire"],
+       "text": ["\\bfire alarm\\b", "\\bFA\\b", "\\bsmoke damper\\b", "fire/smoke", "\\bfurnished by fa\\b"]},
+      {"position": 14, "name": "Furnish and wire: filter DP switches", "verbs": ["furnish and wire"], "device": ["\\bfilter\\b"]},
+      {"position": 15, "name": "Furnish and wire: AFMS", "verbs": ["furnish and wire"],
+       "device": ["\\bairflow\\b", "\\bair flow\\b", "\\bafms\\b", "flow measuring"]},
+      {"position": 16, "name": "Furnish and wire: valves and actuators", "verbs": ["furnish and wire"], "device": ["\\bvalves?\\b"]},
+      {"position": 17, "name": "Install and wire", "verbs": ["install and wire", "install"]},
+      {"position": 18, "name": "Wire (non-FA)", "verbs": ["wire"]},
+      {"position": 1, "name": "DDC controller", "verbs": ["furnish and install", "furnish"],
+       "device": ["\\bcontrollers?\\b", "\\benclosures?\\b", "\\btransformers?\\b", "\\bcontrol panels?\\b"]},
+      {"position": 3, "name": "Safety switches and pressure switches", "verbs": ["furnish and install"],
+       "device": ["freeze", "\\bfroststat", "\\blow limit\\b", "\\bhigh limit\\b", "\\bpressure switch", "\\bsafety\\b"]},
+      {"position": 4, "name": "Leak detectors", "verbs": ["furnish and install"],
+       "device": ["\\bleak\\b", "\\bwater (?:detector|sensor)\\b", "\\bflood\\b"]},
+      {"position": 5, "name": "Current switches (standalone points only)", "verbs": ["furnish and install"],
+       "device": ["\\bcurrent (?:switch|sensor)", "\\bCT\\b"]},
+      {"position": 6, "name": "Interposing relays", "verbs": ["furnish and install", "furnish"], "device": ["\\brelays?\\b"]},
+      {"position": 7, "name": "Damper actuators", "verbs": ["furnish and install"], "device": ["\\bdampers?\\b", "\\bactuators?\\b"]},
+      {"position": 2, "name": "Field-installed sensors and transmitters", "verbs": ["furnish and install"],
+       "device": ["\\bsensors?\\b", "\\btransmitters?\\b", "\\bthermostats?\\b", "\\bdetectors?\\b", "\\bswitch(?:es)?\\b",
+                  "\\bmeters?\\b", "\\bstations?\\b", "stats?\\b"]},
+      {"position": 10, "name": "Hardwired furnish signals: position feedback", "verbs": ["furnish"],
+       "text": ["\\bposition feedback\\b", "\\bopen\\s*/\\s*clos(?:ed|e) status\\b", "\\bend switch"]},
+      {"position": 9, "name": "Hardwired furnish signals: primary equipment", "verbs": ["furnish"],
+       "text": ["\\b(?:boilers?|chillers?|cooling towers?)\\b"]},
+      {"position": 8, "name": "Hardwired furnish signals: fans and pumps", "verbs": ["furnish"],
+       "text": ["\\bstart\\s*/\\s*stop\\b", "\\bstatus\\b", "\\bvfd\\b", "\\bspeed\\b", "\\bmalfunction\\b", "\\bfault\\b",
+                "\\bsafety stop\\b", "\\bfail"]},
+      {"position": 12, "name": "Power wiring", "text": ["\\bpower wiring\\b", "\\bline voltage\\b"]},
+      {"position": 11, "name": "Hardwired furnish signals: other outputs", "verbs": ["furnish"]},
+      {"position": 2, "name": "Other furnish and install lines", "verbs": ["furnish and install"]},
+      {"position": 20, "name": "Miscellaneous responsibilities (printed as '**' notes at the end of the block)",
+       "text": ["^\\*\\*"]}
     ]
-  },
-  "same_line_starts": {
-    "about": "Two lines of one block that both start with one of these are the same line, whatever follows (the longer one's sub-lines go under the one kept).",
-    "starts": [
-      "Map Available Points"
-    ]
-  },
-  "merge_openings": {
-    "about": "Lines of one block starting with one of these, with no quantity, bracket or sub-line of their own, are merged into one: \"Monitor X\", \"Monitor Y\" and \"Monitor Z\" are \"Monitor X, Y and Z\".",
-    "openings": [
-      "Monitor"
-    ]
-  },
-  "repeats": {
-    "about": "Repeated points, found by meaning: each line of a block is read as (device, action). The action comes from the line's opening ('actions'; a sub-line with no verb is a point, 'furnish'); actions in one family of 'same_action' are one action (a point furnished is the point monitored). The device is the noun phrase after the opening, cut where 'device_ends' says, each tag prefix written as the equipment's name, without 'ignore_words'. An interlock's device is what it ties together: the things named after 'with', 'between', 'to' or 'and', without 'partner_ignore_words'; when it names one, the unit the line is written for is the other. Two lines of one block with the same action and the same device (or one listing all the other's devices) are one line: the one with the stronger evidence stays, never when they name different tags or different locations.",
-    "actions": {
-      "furnish and install": "furnish",
-      "furnish and wire": "furnish",
-      "furnish": "furnish",
-      "install and wire": "install",
-      "install": "install",
-      "wire": "wire",
-      "tie-in": "wire",
-      "tie in": "wire",
-      "tie into": "wire",
-      "monitor": "monitor",
-      "map": "monitor",
-      "interlock": "interlock",
-      "low voltage": "interlock",
-      "necessary low voltage": "interlock",
-      "necessary control wiring": "interlock"
-    },
-    "same_action": [["furnish", "monitor"]],
-    "ignore_words": ["electric", "modulating", "control"],
-    "partner_ignore_words": ["fan", "fans", "system", "systems", "unit", "units", "operation", "controls", "control",
-                             "wiring", "associated", "start", "stop", "enable", "signal", "interlock", "interlocked"]
-  },
-  "block_lines": {
-    "about": "A block's lines: the house target is 4 to 9; a block still over 'review_over' lines after merging is listed for review, never cut.",
-    "target": [
-      4,
-      9
-    ],
-    "review_over": 12
   },
   "panels": {
     "about": "A system with no tags whose header or kind names a panel or a controller counts panels on its header (Qty (1), or the number of panels its quote states); the devices it counts go on the device line as (Qty. N Total). Patterns are regular expressions, ignoring case.",

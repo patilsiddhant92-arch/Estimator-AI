@@ -67,6 +67,8 @@ class ScopeLine:
     source: str          # "rule: reheat_hot_water (M-601 VAV BOX SCHEDULE, GPM column)" | "AI: …" | "default"
     evidence: str        # where + quote
     client: bool         # goes into the proposal
+    reference: str = ""  # the GEM's reference line for it (the whole-job method)
+    flag: str = ""       # the GEM's flag: "" | "red" | "yellow" | "orange" | "green"
 
 
 @dataclass(frozen=True)
@@ -96,6 +98,7 @@ class WrittenSystem:
     printed: bool = True                 # False: kept out of the proposal until the estimator writes it
     template: str | None = None
     tech_hours: float | None = None
+    gem: tuple = ()                      # the GEM's checks per planned system (Quick Scan, scan, Self-QC), for the package
 
     @property
     def block(self) -> Block:

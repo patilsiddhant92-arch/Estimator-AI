@@ -113,32 +113,28 @@ def _erv_job():
     return _job([ERV, EDH], {"ERV": WrittenScope(ERV_LINES), "EDH": WrittenScope(EDH_LINES)})
 
 
-def test_the_erv_with_its_duct_heater_points_written_twice_prints_each_point_once():
+def test_the_erv_with_its_duct_heater_points_keeps_every_line_the_judge_wrote_since_the_gem_round():
     job, systems, general = _erv_job()
-    texts = _texts(job)
-    assert sum(1 for t in texts if t.endswith("Status")) == 1
-    assert sum(1 for t in texts if t.endswith("Alarm")) == 1
-    assert sum(1 for t in texts if "Signal" in t) == 1
-    assert sum(1 for t in texts if "DDC Controller" in t) == 1
-    heater_sensor = [t for t in texts if "Discharge Air Temperature Sensor" in t and "Unit Mfr." not in t]
-    assert len(heater_sensor) == 1
+    texts = _texts(job)  # the GEM round: the only consolidation is the GEM's (identical lines across units); nothing else is merged
+    assert sum(1 for t in texts if t.endswith("Status")) == 2
+    assert sum(1 for t in texts if t.endswith("Alarm")) == 2
+    assert sum(1 for t in texts if "DDC Controller" in t) == 2
     assert "Install and wire Discharge Air Temperature Sensor (Furnished by Unit Mfr.)" in texts   # the unit's own
     assert "Interlock Wiring between EDH and ERV Unit Operation" in texts
     assert "Furnish BMS Communication Wiring to Factory Controls (Qty. 3 Total)" in texts
 
 
-def test_each_repeat_removed_gets_a_review_row():
-    _, systems, general = _erv_job()
-    rows = [r for r in _review(systems, general) if r.decide.startswith("Repeated lines printed once")]
-    assert len(rows) == 1
-    for gone in ("Furnish EDH Status", "Monitor EDH Alarm", "Furnish and Install DDC Controller"):
-        assert f"“{gone}”" in rows[0].evidence
+def test_no_line_is_removed_as_a_repeat_by_meaning():
+    job, systems, general = _erv_job()
+    assert not any(r.decide.startswith("Repeated lines printed once") for r in _review(systems, general))
+    for kept in ("Furnish EDH Status", "Monitor EDH Alarm", "Furnish and Install DDC Controller"):
+        assert kept in _texts(job)
 
 
 GARAGE = dict(group="Parking Garage CO")
 
 
-def test_a_garage_block_with_vfd_speed_control_twice_prints_it_once():
+def test_a_garage_block_with_vfd_speed_control_in_two_wordings_keeps_both():
     exhaust = _system("GXF", "Garage Exhaust Fan GXF-C-1", ("GXF-C-1",), 1, kind="Exhaust Fan", **GARAGE)
     circulation = _system("GCF", "Garage Circulation Fan GCF-A", ("GCF-A",), 9, kind="Exhaust Fan", **GARAGE)
     scopes = {"GXF": WrittenScope((_line("Furnish and Install DDC Controller"),
@@ -149,13 +145,13 @@ def test_a_garage_block_with_vfd_speed_control_twice_prints_it_once():
                                          confidence=0.8)))}
     job, _, _ = _job([exhaust, circulation], scopes)
     texts = _texts(job)
-    assert sum(1 for t in texts if "VFD Speed Control" in t) == 1
+    assert sum(1 for t in texts if "VFD Speed Control" in t) == 2  # the GEM round: the only consolidation is the GEM's (identical lines across units); nothing else is merged
     assert "Furnish Fan VFD Speed Control, VFD Speed Feedback and VFD Fault" in texts
-    assert sum(1 for t in texts if "Start / Stop" in t) == 1 and "Furnish Fan Start / Stop and Status" in texts
-    assert sum(1 for t in texts if "DDC Controller" in t) == 1
+    assert "Furnish Fan Start / Stop and Status" in texts and "Furnish Fan Start / Stop" in texts
+    assert sum(1 for t in texts if "DDC Controller" in t) == 1                   # word for word: printed once
 
 
-def test_a_dryer_block_with_the_make_up_air_interlock_three_times_prints_it_once():
+def test_a_dryer_block_with_the_make_up_air_interlock_in_three_wordings_keeps_them():
     dryer = _system("DXF", "Dryer Exhaust Fan DXF-1-1, 2", ("DXF-1-1", "DXF-1-2"), 2, kind="Dryer Exhaust Fan",
                     group="Dryer Exhaust")
     make_up = _system("MUAF", "Laundry Make-up Air Fan MUAF-1-1, 2", ("MUAF-1-1", "MUAF-1-2"), 2,
@@ -167,8 +163,8 @@ def test_a_dryer_block_with_the_make_up_air_interlock_three_times_prints_it_once
                                           "Operation", confidence=0.75),))}
     job, _, _ = _job([dryer, make_up], scopes)
     texts = _texts(job)
-    assert sum(1 for t in texts if "Make-Up Air" in t) == 1
-    assert "Interlock Wiring between Make-Up Air Fan and Dryer Exhaust System Operation" in texts   # the strongest
+    assert sum(1 for t in texts if "Make-Up Air" in t) == 3  # the GEM round: the only consolidation is the GEM's (identical lines across units); nothing else is merged
+    assert "Interlock Wiring between Make-Up Air Fan and Dryer Exhaust System Operation" in texts
     assert "Interlock Wiring between Dryers and Dryer Exhaust Fan Controls" in texts
 
 

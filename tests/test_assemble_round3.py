@@ -87,15 +87,15 @@ def test_folded_units_with_no_line_of_their_own_get_the_nearest_templates_lines_
 
 # --- 2. dedupe after merging, and the house order ----------------------------------------------------------------
 
-def test_near_duplicate_lines_with_the_same_verb_are_one_line_keeping_the_best_evidence():
+def test_near_duplicate_lines_are_all_kept_and_only_an_exact_repeat_is_printed_once():
     lines = VAV_LINES + (
         WrittenLine("Furnish and Install Discharge Air Temperature Sensor (Location: Each Box)", quote="not in there"),
         _line("Install Discharge Air Temperature Sensor", quote="hold the discharge air temperature", sid="S1"))
     job, systems, _ = _assemble([_vav()], {"VAV": WrittenScope(lines)})
-    texts = _texts(job.blocks[0])
+    texts = _texts(job.blocks[0])  # the GEM round: the only consolidation is the GEM's (identical lines across units); nothing else is merged
     assert texts.count("Furnish and Install Discharge Air Temperature Sensor") == 1
-    assert "Furnish and Install Discharge Air Temperature Sensor (Location: Each Box)" not in texts
-    assert "Install Discharge Air Temperature Sensor" in texts                     # another verb: kept
+    assert "Furnish and Install Discharge Air Temperature Sensor (Location: Each Box)" in texts
+    assert "Install Discharge Air Temperature Sensor" in texts
 
 
 def test_duplicates_naming_different_tags_add_their_counts_and_others_do_not():
@@ -106,9 +106,9 @@ def test_duplicates_naming_different_tags_add_their_counts_and_others_do_not():
     job, _, _ = _assemble([fans], {"EF": WrittenScope(lines)})
     items = {i.text: i.quantity for i in job.blocks[0].items}
     start = [t for t in items if t.startswith("Furnish Fan Start / Stop")]
-    assert len(start) == 1 and items[start[0]] == 2
+    assert len(start) == 1 and items[start[0]] == 2 and start[0].endswith("(Qty. 2 Total)")   # the GEM's consolidation
     damper = [t for t in items if t.startswith("Furnish and Install Damper Actuator")]
-    assert len(damper) == 1 and items[damper[0]] == 2
+    assert len(damper) == 2                                          # not the same words: two lines
 
 
 def test_duplicate_client_notes_are_one():
@@ -134,7 +134,7 @@ def test_a_group_is_one_set_of_lines_under_its_stacked_headers():
     job, _, _ = _assemble([indoor, outdoor], scopes)
     last = job.blocks[1]
     texts = _texts(last)
-    assert sum(1 for t in texts if "Communication Wiring" in t) == 1
+    assert sum(1 for t in texts if "Communication Wiring" in t) == 2    # two wordings: two lines (the GEM round)
     assert texts.count("Map Available Points Via Mfr. Provided BMS Interface") == 1
     assert "AME requires mfr. Rep to assist in integration, cost to be incurred by mech contractor" in texts
 
@@ -160,7 +160,7 @@ ROOMS = ("[S30] High temperature alarm in the Fire Pump Room, Electric Room and 
          "sensor in each.")
 
 
-def test_the_same_device_for_the_same_rooms_is_written_once_in_the_dedicated_system():
+def test_the_same_device_in_two_systems_is_written_in_both_since_the_gem_round():
     text = _dossier().text + "\n" + ROOMS + "\n\n"
     dossier = _dossier(text=text, sources=dict(SOURCES, S30="23 09 23, Specs.pdf page 11"))
     fans = _system("EF", "Exhaust Fan EF-1, 2", ("EF-1", "EF-2"), 2, kind="Exhaust Fan", sequence_sources=("S2", "S30"))
@@ -176,9 +176,8 @@ def test_the_same_device_for_the_same_rooms_is_written_once_in_the_dedicated_sys
                 _line("Garage (Location: Room 111)", depth=2, quote="Garage", sid="S30"))
     job, systems, _ = assemble_job(_job_catalogue(), JOB_READING, dossier, JobPlan((fans, alarms)),
                                    {"EF": WrittenScope(ef_lines), "TA": WrittenScope(ta_lines)}, TODAY, TEMPLATES)
-    assert not any("Temperature Sensor" in t for t in _texts(_block(job, "Exhaust")))
+    assert any("Temperature Sensor" in t for t in _texts(_block(job, "Exhaust")))
     assert "Furnish and Install Dedicated Room Temperature Sensor" in _texts(_block(job, "Room Temperature"))
-    assert any("Temperature Sensor" in r.decide for s in systems for r in s.review)
 
 
 # --- 4. tech hours ------------------------------------------------------------------------------------------------
@@ -327,10 +326,10 @@ def test_a_folded_tag_list_with_a_shared_stem_is_read_whole_and_its_lines_follow
     assert _texts(job.blocks[1])[-1].startswith("Furnish and Install DDC Controller for Electric Duct Heater")
 
 
-def test_interlock_wiring_lines_saying_the_same_thing_are_one():
+def test_interlock_wiring_lines_in_other_words_are_all_kept():
     vrf = _system("VRF", "VRF Outdoor Unit ACCU-1, 2", ("ACCU-1", "ACCU-2"), 2, kind="VRF Outdoor Unit")
     lines = (_line("Low Voltage Interlock Wiring between Indoor Units, Branch Circuit Controllers and Condensing Units"),
              _line("Interlock Wiring between each Branch Circuit Controller, its Indoor Units and Condensing Unit"),
              _line("Low Voltage Interlock Wiring between Indoor and Outdoor Units"))
     job, _, _ = _assemble([vrf], {"VRF": WrittenScope(lines)})
-    assert len([t for t in _texts(job.blocks[0]) if "Interlock Wiring" in t]) == 2
+    assert len([t for t in _texts(job.blocks[0]) if "Interlock Wiring" in t]) == 3

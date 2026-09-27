@@ -144,7 +144,7 @@ def test_the_evidence_package_lists_the_review_and_every_scope_line(estimated):
     lines = [[c.value for c in row] for row in workbook["Scope lines"].iter_rows()]
     headings = lines[0]
     assert headings == ["System", "Line", "Quantity", "Tech hours", "Category", "Confidence", "Source", "Evidence",
-                        "In the proposal?"]
+                        "In the proposal?", "Reference line", "Flag"]
     valve = next(row for row in lines if row[1] == "Furnish and Wire Hot Water Control Valve and Actuator")
     assert (valve[2], valve[4], valve[8]) == (3, "CONFIRMED", "yes")
     assert "HW GPM" in valve[7]

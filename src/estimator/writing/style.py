@@ -58,19 +58,31 @@ class HouseStyle:
     order_checks: tuple = ()             # (group, "text" | "device", compiled patterns), in the order they are tried
     device_ends: str = r"\s*\("
     software_points: tuple = ()
-    same_opening: dict = field(default=None, hash=False, compare=False)   # opening -> its family's first
-    same_line_starts: tuple = ()         # two lines of a block both starting so are the same line
-    merge_openings: tuple = ()           # "Monitor X", "Monitor Y": one "Monitor X and Y" line
-    block_review_over: int = 12          # a block still longer than this is listed for review
     panel_kinds: tuple = ()              # compiled: a header or kind naming a panel or a controller
     panels_stated: object = None         # compiled: "two gas detection panels"
     spec_openings: tuple = ()            # compiled: "ATC Contractor to …"
     spec_verbs: dict = field(default=None, hash=False, compare=False)   # the specification's verb -> the house verb
     verb_forms: dict = field(default=None, hash=False, compare=False)   # a verb, casefolded -> the Master Template's form
-    repeat_actions: tuple = ()           # (opening, casefolded; its action), the longest opening first
-    same_action: dict = field(default=None, hash=False, compare=False)  # an action -> its family's first
-    repeat_ignore: frozenset = frozenset()           # words a device is read without ("electric", "modulating")
-    partner_ignore: frozenset = frozenset()          # words an interlock's partner is read without ("fan", "system")
+    sow_positions: tuple = ()            # the GEM's SOW order: (position, verbs, text patterns, device patterns)
+
+    def sow_position(self, text: str) -> int | None:
+        """The GEM's SOW position (1 to 20) of a scope line, or None when no entry of the table fits it (an interlock,
+        a monitoring line): it then stays next to the line above it."""
+        squashed = _squash(text)
+        verb = (self.verb(squashed) or "").casefold()
+        device = None
+        for position, verbs, texts, devices in self.sow_positions:
+            if verbs and verb not in verbs:
+                continue
+            if not texts and not devices:
+                return position
+            if any(p.search(squashed) for p in texts):
+                return position
+            if devices:
+                device = self._device(squashed) if device is None else device
+                if any(p.search(device) for p in devices):
+                    return position
+        return None
 
     @property
     def openings(self) -> tuple[str, ...]:
@@ -135,11 +147,6 @@ class HouseStyle:
         n = m.group("n").lower()
         words = "one two three four five six seven eight nine ten".split()
         return int(n) if n.isdigit() else words.index(n) + 1
-
-    def same_start(self, a: str, b: str) -> bool:
-        """Both lines start with one of the starts that make two lines the same line ("Map Available Points")."""
-        la, lb = _squash(a).casefold(), _squash(b).casefold()
-        return any(la.startswith(s.casefold()) and lb.startswith(s.casefold()) for s in self.same_line_starts)
 
     def is_template_line(self, text: str) -> bool:
         """The line is one the Master Template writes at the top level (under the header), word for word."""
@@ -376,22 +383,16 @@ def _load(path: Path) -> HouseStyle:
         order_checks=order_checks,
         device_ends=(raw.get("line_order") or {}).get("device_ends", r"\s*\("),
         software_points=tuple(re.compile(p, re.I) for p in (raw.get("software_points") or {}).get("patterns", ())),
-        same_opening={o.lower(): family[0].lower() for family in (raw.get("same_opening") or {}).get("families", ())
-                      for o in family},
-        same_line_starts=tuple((raw.get("same_line_starts") or {}).get("starts", ())),
-        merge_openings=tuple((raw.get("merge_openings") or {}).get("openings", ())),
-        block_review_over=int((raw.get("block_lines") or {}).get("review_over", 12)),
         panel_kinds=tuple(re.compile(p, re.I) for p in (raw.get("panels") or {}).get("kinds", ())),
         panels_stated=(re.compile(raw["panels"]["stated"], re.I) if (raw.get("panels") or {}).get("stated")
                        else None),
         spec_openings=tuple(re.compile(p, re.I) for p in (raw.get("spec_openings") or {}).get("patterns", ())),
         spec_verbs={k.casefold(): v for k, v in ((raw.get("spec_openings") or {}).get("verbs") or {}).items()},
         verb_forms=_verb_forms(tuple(raw["verbs"])),
-        repeat_actions=tuple(sorted(((k.casefold(), v) for k, v in (raw.get("repeats") or {}).get("actions", {}).items()),
-                                    key=lambda kv: -len(kv[0]))),
-        same_action={a: family[0] for family in (raw.get("repeats") or {}).get("same_action", ()) for a in family},
-        repeat_ignore=frozenset((raw.get("repeats") or {}).get("ignore_words", ())),
-        partner_ignore=frozenset((raw.get("repeats") or {}).get("partner_ignore_words", ())),
+        sow_positions=tuple((int(e["position"]), tuple(v.casefold() for v in e.get("verbs", ())),
+                             tuple(re.compile(p, re.I) for p in e.get("text", ())),
+                             tuple(re.compile(p, re.I) for p in e.get("device", ())))
+                            for e in (raw.get("sow_positions") or {}).get("positions", ())),
     )
 
 

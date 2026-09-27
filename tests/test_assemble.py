@@ -314,9 +314,10 @@ def test_lines_naming_prices_hours_confidence_or_a_category_are_dropped_and_list
                          WrittenLine("Furnish Sensor — CONFIRMED", quote="each VAV box"),
                          WrittenLine("Space sensors everywhere", quote="each VAV box"))
     kept, review = check_scope(_vav(), WrittenScope(lines), _dossier(), TEMPLATES)
-    assert [k.text for k in kept] == [line.text for line in VAV_LINES]
+    # the GEM round: a line with no house verb is kept in the GEM's words; only what the client must never see goes
+    assert [k.text for k in kept] == [line.text for line in VAV_LINES] + ["Space sensors everywhere"]
     [item] = [i for i in review if "dropped" in i.decide]
-    for text in ("$200", "4 hours", "CONFIRMED", "Space sensors everywhere"):
+    for text in ("$200", "4 hours", "CONFIRMED"):
         assert text in item.evidence
 
 
@@ -416,7 +417,9 @@ def test_the_job_has_the_planned_blocks_in_order_and_fits_the_price_sheet():
     check_fit(job)
     assert _headers(job) == ["Qty (3) Variable Air Volume Box VAV-1 thru 3", "Qty (2) Exhaust Fan EF-1, 2"]
     vav = job.blocks[0]
-    assert [i.text for i in vav.items] == [line.text for line in VAV_LINES]
+    # the GEM's SOW order: the controller and its transformer, the sensors, then the valve
+    assert [i.text for i in vav.items] == [VAV_LINES[0].text, VAV_LINES[4].text, VAV_LINES[1].text,
+                                           VAV_LINES[2].text, VAV_LINES[3].text]
     assert all(i.quantity == 3 for i in vav.items)                 # one per unit when the quote states no count
     assert vav.tech_hours == 12.0
     assert systems[0].bundle_key == "Front end"

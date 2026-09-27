@@ -26,6 +26,8 @@ READING_TABS = ("Equipment", "Schedules", "Devices on plans", "Notes", "Changes"
 ESTIMATE_TABS = ("Review list", "Scope lines")
 # The whole-job method: every system the AI planned, with its quantity checked against the counts.
 PLAN_TAB = "Plan"
+# The GEM's own checks per system (the whole-job method): its Quick Scan, its contradiction scan and its Self-QC.
+GEM_TAB = "GEM QC"
 _GREEN = PatternFill("solid", fgColor="C6EFCE")
 _AMBER = PatternFill("solid", fgColor="FFEB9C")
 _GREY = PatternFill("solid", fgColor="D9D9D9")
@@ -64,6 +66,9 @@ def write_evidence(path: Path, catalogue: Catalogue, reading: JobReading | None 
         _scope_lines(workbook.create_sheet(ESTIMATE_TABS[1]), systems)
     if plan is not None:
         _plan(workbook.create_sheet(PLAN_TAB), plan)
+    gem = [record for system in systems or () for record in getattr(system, "gem", ()) or ()]
+    if gem:
+        _gem(workbook.create_sheet(GEM_TAB), gem)
     _spec_overview(workbook.create_sheet(TABS[1]), catalogue)
     if reading is not None:
         _write_reading(workbook, reading)
@@ -469,7 +474,7 @@ def _review_list(ws, systems, review_flags, flags) -> None:
 def _scope_lines(ws, systems) -> None:
     """Every line the tool wrote or left PENDING, with its category, confidence, source and evidence."""
     _headings(ws, ["System", "Line", "Quantity", "Tech hours", "Category", "Confidence", "Source", "Evidence",
-                   "In the proposal?"])
+                   "In the proposal?", "Reference line", "Flag"])
     ws.freeze_panes = "A2"
     for system in systems:
         headers = [(b.header, b.tech_hours) for b in system.blocks] or [(system.bundle_key, None)]
@@ -478,14 +483,56 @@ def _scope_lines(ws, systems) -> None:
             ws.cell(ws.max_row, 2).font = _BOLD
         for line in system.lines:
             _append(ws, [line.system, line.text, line.quantity, line.tech_hours, line.category,
-                        round(line.confidence, 2), line.source, line.evidence, _yes(line.client)])
+                        round(line.confidence, 2), line.source, line.evidence, _yes(line.client),
+                        getattr(line, "reference", "") or None, getattr(line, "flag", "") or None])
             ws.cell(ws.max_row, 2).alignment = Alignment(indent=line.depth, wrap_text=True, vertical="top")
             fill = _LINE_FILL.get(line.category)
             if fill is not None:
                 ws.cell(ws.max_row, 5).fill = fill
             ws.cell(ws.max_row, 8).alignment = Alignment(wrap_text=True, vertical="top")
+            ws.cell(ws.max_row, 10).alignment = Alignment(wrap_text=True, vertical="top")
+            flag = _FLAG_FILL.get(getattr(line, "flag", "") or "")
+            if flag is not None:
+                ws.cell(ws.max_row, 11).fill = flag
     ws.auto_filter.ref = ws.dimensions
-    _widths(ws, [26, 60, 10, 11, 13, 11, 44, 70, 16])
+    _widths(ws, [26, 60, 10, 11, 13, 11, 44, 70, 16, 60, 10])
+
+
+_FLAG_FILL = {"red": _RED, "yellow": PatternFill("solid", fgColor="FFFF99"), "orange": PatternFill("solid",
+              fgColor="FFD8A8"), "green": _GREEN}
+
+
+def _gem(ws, records) -> None:
+    """The GEM's own checks, system by system: its Quick Scan, its System Explanation, its Contradiction and
+    Assumption scan and its Self-QC table, as it answered them."""
+    for record in records:
+        _section_heading(ws, record.get("system") or "System")
+        _append(ws, ["Quick Scan"])
+        ws.cell(ws.max_row, 1).font = _BOLD
+        for key, value in (record.get("quick_scan") or {}).items():
+            _append(ws, [key.replace("_", " ").upper(), value])
+        if record.get("explanation"):
+            _append(ws, ["System Explanation", record["explanation"]])
+            ws.cell(ws.max_row, 1).font = _BOLD
+            ws.cell(ws.max_row, 2).alignment = Alignment(wrap_text=True, vertical="top")
+        _append(ws, ["Contradictions and assumptions"])
+        ws.cell(ws.max_row, 1).font = _BOLD
+        contradictions = record.get("contradictions") or ()
+        if not contradictions:
+            _append(ws, ["", "No contradictions or unresolved assumptions identified."])
+        for c in contradictions:
+            _append(ws, [c.type, c.item, " / ".join(c.quotes), c.flag or None])
+        _append(ws, ["Self-QC"])
+        ws.cell(ws.max_row, 1).font = _BOLD
+        for q in record.get("qc") or ():
+            _append(ws, [q.check, q.evidence, "PASS" if q.passed else "FAIL", q.fix or None])
+            ws.cell(ws.max_row, 3).fill = _GREEN if q.passed else _RED
+        for title, key in (("Miscellaneous responsibilities", "misc_responsibilities"), ("Exclusions", "exclusions")):
+            if record.get(key):
+                _append(ws, [title, "\n".join(record[key])])
+                ws.cell(ws.max_row, 1).font = _BOLD
+        _append(ws, [])
+    _widths(ws, [34, 80, 40, 30])
 
 
 _PLAN_FILL = {"CONFIRMED": _GREEN, "CONFIRMED-on-plans": _AMBER, "ASSUMPTION": _AMBER, "DISCREPANCY": _RED,
@@ -493,12 +540,24 @@ _PLAN_FILL = {"CONFIRMED": _GREEN, "CONFIRMED-on-plans": _AMBER, "ASSUMPTION": _
 _PLAN_COUNTS = ("schedule_rows", "quantity_column", "distinct_tags", "plan_placements", "riser")
 
 
+def _families_text(system, check) -> str:
+    """ "Dryer Exhaust Fan DXF-1-1, 2 (2); Make-up Air Fan MUAF-1-1, 2 (##)": each family with the count printed."""
+    families = getattr(system, "families", ()) or ()
+    checks = getattr(check, "families", ()) or ()
+    out = []
+    for n, family in enumerate(families):
+        count = checks[n].quantity if n < len(checks) and checks[n].quantity is not None else family.quantity
+        out.append(f"{family.header} ({'##' if count is None else count})")
+    return "; ".join(out)
+
+
 def _plan(ws, checks) -> None:
     """Every system the AI planned: its quantity, where it comes from and the words that state it,
     the counts it was checked against, and its category."""
     _headings(ws, ["Key", "System", "Kind", "Tags", "Quantity", "Category", "Quantity source", "Where",
                    "The words that state it", "Schedule rows", "QUANTITY column", "Distinct tags",
-                   "Placements on the plans", "Riser", "Group", "Alternate", "Exception", "Goes in", "Why"])
+                   "Placements on the plans", "Riser", "Group", "Alternate", "Exception", "Goes in", "Why",
+                   "Sequence section", "Families"])
     ws.freeze_panes = "A2"
     for check in checks:
         s = check.system
@@ -507,7 +566,8 @@ def _plan(ws, checks) -> None:
         _append(ws, [s.key, s.header, s.kind, tags or None, printed if printed is not None else s.quantity, check.category, s.quantity_source or None,
                      check.where or None, s.quantity_quote or None,
                      *[check.columns.get(c) for c in _PLAN_COUNTS],
-                     s.group or None, s.alternate or None, s.exception or None, check.goes, s.why or None])
+                     s.group or None, s.alternate or None, s.exception or None, check.goes, s.why or None,
+                     getattr(s, "sequence_section", "") or None, _families_text(s, check) or None])
         fill = _PLAN_FILL.get(check.category)
         if fill is not None:
             ws.cell(ws.max_row, 6).fill = fill
@@ -516,4 +576,4 @@ def _plan(ws, checks) -> None:
     if not checks:
         _append(ws, ["", "The AI planned no system."])
     ws.auto_filter.ref = ws.dimensions
-    _widths(ws, [12, 44, 26, 30, 10, 14, 14, 40, 50, 10, 10, 10, 12, 8, 20, 10, 40, 20, 50])
+    _widths(ws, [12, 44, 26, 30, 10, 14, 14, 40, 50, 10, 10, 10, 12, 8, 20, 10, 40, 20, 50, 14, 50])
