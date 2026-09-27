@@ -94,6 +94,7 @@ class Dossier:
     counts: dict[str, dict]         # family prefix -> {"schedule_rows", "quantity_column", "plan_placements",
                                     #                   "riser", "distinct_tags"}
     stats: dict[str, int]           # characters per section, page counts, image count
+    sections: dict = field(default_factory=dict)   # "Q7" -> (the sequence heading, the source ids under it)
 
 
 # ---- small helpers ------------------------------------------------------------------------------
@@ -127,17 +128,90 @@ def _place(sheet: str | None, document: str, page: int) -> str:
 
 
 class _Ids:
-    """Source ids, short and unique, each resolving to the place it came from."""
+    """Source ids, short and unique, each resolving to the place it came from; and the sequence's (and the
+    points list's) section blocks, Q1, Q2 …, each with its heading and the paragraphs under it."""
 
     def __init__(self) -> None:
         self.where: dict[str, str] = {}
         self._n = 0
+        self.sections: dict[str, tuple[str, list[str]]] = {}
 
     def new(self, where: str) -> str:
         self._n += 1
         sid = f"S{self._n}"
         self.where[sid] = where
         return sid
+
+    def section(self, heading: str, where: str) -> str:
+        qid = f"Q{len(self.sections) + 1}"
+        self.sections[qid] = (heading, [])
+        self.where[qid] = f"sequence section “{heading}”, {where}"
+        return qid
+
+
+# ---- the sequence's section headings ---------------------------------------------------------------------
+
+_SECTION_MARKER = re.compile(r"^(?P<marker>[A-Z][.)]|\d{1,2}\.\d{1,2}\.?|\d{1,2}[.)])\s+(?P<title>\S.*)$")
+_SECTION_VERBS = re.compile(r"\b(?:shall|will|must|should|may|is|are|be|provide|provided|refer|submit|comply|"
+                            r"coordinate|confirm|store|conceal|include|includes|furnish|install)\b", re.I)
+SECTION_MARK = "--- [{qid}] {heading} ---"
+_SECTION_LINE = re.compile(r"^--- \[(Q\d+)\] (.+?) ---$")
+_ID_LINE = re.compile(r"^\[([A-Z]{1,3}\d+)\]")
+_BLOCK_END = re.compile(r"^(?:== \d|--- 7[bc] )")
+_PAGE_LINE = re.compile(r"^--- (.+) page \d+ ---$")
+SECTION_WORDS = 12          # a heading is a title: at most this many words
+SECTION_CHARACTERS = 90
+
+
+def is_section_heading(paragraph: str) -> bool:
+    """A lettered or numbered title of the sequence ("C. DRYER EXHAUST AND MAKE-UP AIR FANS", "1. RTU-1 AND RTU-2",
+    "3.1 AIR HANDLING UNITS", "D. Outdoor Air Fan:"), never a sentence ("A. AHU-1 shall run …"), a list item ("a.
+    Outdoor air temperature"), a sub-list label ("1. DDC points:") or a definition ("H. E/P: Electric to pneumatic.").
+    A plain number ("1.") starts a heading only in capitals."""
+    text = _squash(paragraph)
+    m = _SECTION_MARKER.match(text)
+    if m is None or len(text) > SECTION_CHARACTERS:
+        return False
+    marker, title = m.group("marker"), m.group("title").strip()
+    words = title.split()
+    if len(words) > SECTION_WORDS or _SECTION_VERBS.search(title) or title[-1] in ",;":
+        return False
+    letters = [c for c in title if c.isalpha()]
+    if not letters or not title[0].isalnum():
+        return False
+    if re.fullmatch(r"\d{1,2}[.)]", marker):             # "1." — a heading only in capitals, with no stop or colon
+        upper = sum(c.isupper() for c in letters) / len(letters)
+        return upper >= 0.8 and title[-1] not in ".:"
+    if title.endswith("."):
+        return len(words) <= 6 and ":" not in title
+    return ":" not in title[:-1]
+
+
+def sections_in(text: str) -> dict[str, tuple[str, tuple[str, ...]]]:
+    """The section blocks a dossier's text marks ("--- [Q7] C. DRYER … ---"): each Q id with its heading and the
+    source ids of the paragraphs under it, up to the next section, the next numbered part of the dossier, or the
+    points list's own part. Page lines ("--- … page 3 ---") do not end a section."""
+    found: dict[str, tuple[str, list[str]]] = {}
+    current, place = None, None
+    for line in (text or "").splitlines():
+        m = _SECTION_LINE.match(line)
+        if m:
+            current = m.group(1)
+            found[current] = (m.group(2), [])
+            continue
+        if _BLOCK_END.match(line) or line.startswith("== "):
+            current, place = None, None
+            continue
+        page = _PAGE_LINE.match(line)
+        if page:
+            if page.group(1) != place:                 # another document: no section runs on
+                current = None
+            place = page.group(1)
+            continue
+        sid = _ID_LINE.match(line)
+        if sid and current is not None:
+            found[current][1].append(sid.group(1))
+    return {q: (heading, tuple(ids)) for q, (heading, ids) in found.items()}
 
 
 # ---- the floor multiplier -------------------------------------------------------------------------
@@ -340,6 +414,8 @@ class _Printed:
     norms: dict = field(default_factory=dict)
     sections: set = field(default_factory=set)
     replaced: set = field(default_factory=set)
+    place: tuple = ()               # the (label, document) of the page last printed
+    section: str | None = None      # the sequence section (Q id) the paragraphs now printed belong to
 
 
 def _backbone_section(catalogue, reading, what: str, ids: _Ids, printed: _Printed,
@@ -349,6 +425,7 @@ def _backbone_section(catalogue, reading, what: str, ids: _Ids, printed: _Printe
     items = [b for b in reading.backbone if b.what == what and not b.duplicate_of]
     items.sort(key=lambda b: (order.get(b.document, len(order)), b.first_page))
     lines: list[str] = []
+    printed.place, printed.section = (), None
     # A spec section issued again in an addendum (or a later revision) is replaced by it: the later
     # copy is given, the older one named only.
     by_label: dict[str, list] = defaultdict(list)
@@ -389,9 +466,16 @@ def _backbone_section(catalogue, reading, what: str, ids: _Ids, printed: _Printe
             if page != current:
                 current = page
                 page_count += 1
+                if (label, _name(b.document)) != printed.place:      # another document: no section runs on
+                    printed.place, printed.section = (label, _name(b.document)), None
                 lines.append(f"--- {label}, {_name(b.document)} page {page} ---")
+            if is_section_heading(text):
+                printed.section = ids.section(_squash(text), f"{label}, {_name(b.document)} page {page}")
+                lines.append(SECTION_MARK.format(qid=printed.section, heading=_squash(text)))
             sid = ids.new(f"{label}, {_name(b.document)} page {page}")
             lines.append(f"[{sid}] {text}")
+            if printed.section is not None:
+                ids.sections[printed.section][1].append(sid)
         for page, text in paragraphs:
             printed.norms.setdefault(_norm(text), label)
         printed.pages.update((b.document, page) for page in range(b.first_page, b.last_page + 1))
@@ -968,7 +1052,10 @@ def build_dossier(catalogue, reading, cache_dir: Path | None) -> Dossier:
     stats: dict[str, int] = {}
     parts = [f"JOB DOSSIER — {catalogue.job.name}",
              "Everything controls-relevant in the bid documents. Every paragraph and row starts with its source "
-             "id in square brackets (S1, S2 and so on); pictures are named I1, I2 and so on. Cite them."]
+             "id in square brackets (S1, S2 and so on); pictures are named I1, I2 and so on. Each lettered or "
+             "numbered heading of the sequence starts a section block, named Q1, Q2 and so on in square brackets on "
+             "its own line, with the heading; the paragraphs under it keep their own ids. "
+             "Cite them."]
     sequence_chars = sum(len(line) + 1 for line in body["sequence"])
     if sequence_chars > SEQUENCE_LIMIT:
         parts.append(f"(The sequence of operation runs to {sequence_chars:,} characters, more than "
@@ -982,5 +1069,6 @@ def build_dossier(catalogue, reading, cache_dir: Path | None) -> Dossier:
     stats.update(total=len(text), sequence_pages=sequence_pages, points_pages=points_pages,
                  images=len(all_images), sources=len(ids.where),
                  sequence_over_limit=int(sequence_chars > SEQUENCE_LIMIT), families=len(families))
+    sections = {q: (heading, tuple(sids)) for q, (heading, sids) in ids.sections.items()}
     return Dossier(catalogue.job.name, text, tuple(all_images), dict(ids.where), tuple(reading.totals),
-                   device_totals, _counts_dict(families), stats)
+                   device_totals, _counts_dict(families), stats, sections)

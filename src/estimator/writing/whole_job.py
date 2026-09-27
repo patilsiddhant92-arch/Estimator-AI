@@ -59,6 +59,16 @@ documents give controls scope to.
 as "Rooftop Unit RTU-1 thru 3".
 - kind: the kind of equipment in plain words; the Master Template system name when one fits.
 - tags: every equipment tag the system covers, as the documents write them.
+- One system per sequence section. A section that describes several equipment families together (dryer \
+exhaust fans and their make-up air fans; a fan and its damper; a chiller plant) is ONE system with one header \
+per family. Give each system its `Q` id(s), and every equipment family it covers with the family's count. A \
+family that no sequence section covers becomes its own system, citing its schedule row or plan count.
+- sequence_section: the id of the sequence section the system is, such as "[Q7]" (several, comma-separated, \
+when it takes more than one); "" when no sequence section covers it.
+- families: every equipment family the system covers, each with its header (the kind, then its tags, without \
+the count, such as "Dryer Exhaust Fan DXF-1-1, 2"), its tags, and its quantity with quantity_source and \
+quantity_quote under the same rules as the system's. For a system of one family, the system's own header, tags \
+and quantity are that family's.
 - Split a family into two systems where the sequence treats some of its units differently from the \
 rest (for example exhaust fans interlocked with a unit, and exhaust fans on the BMS schedule).
 - quantity: a type row with a QUANTITY column, or a tag placed many times on the plans, is that many \
@@ -68,8 +78,8 @@ quantity_quote the words or numbers stating it, copied exactly. Never invent a n
 source states it, the quantity is null and why says what is missing.
 - sequence_sources and schedule_sources: the source ids of the sequence paragraphs and the schedule \
 rows about this system. A picture is cited by its image id, such as "[I2]".
-- group: when several systems share one block (for example a chilled water plant's chillers and \
-pumps), the same group name on each; otherwise "".
+- group: "" as a rule: the families one sequence section describes together are one system's families. \
+Only when two systems must still share one block, the same group name on each.
 - alternate: "add" or "deduct" only when the documents say the system is an alternate (for example \
 in-apartment equipment the documents price separately); otherwise "". Residential or in-apartment \
 equipment priced per unit, or counted in the hundreds (apartment heat pumps such as HPAC, apartment \
@@ -83,7 +93,7 @@ plan it, never drop it, and say in why that the documents give no control inform
 the quantity with its source, and list the others in why.
 - Secondary tagged equipment that serves or goes with a system keeps its own count, the way the \
 estimator writes it: list its tags in the system's tags, and when it is a different kind of unit give \
-it its own header or say in why that it gets its own quantity line (for example gravity intake dampers \
+it its own family (its own header) or say in why that it gets its own quantity line (for example gravity intake dampers \
 GD-1 thru 6 under the exhaust fans they open with; a fire pump and its jockey pump are 2 pumps on one \
 controller, so the controller's alarm lines are "(Qty. 2 Total)").
 - Split systems: when the documents show refrigerant leak detection, say in why that the system needs \
@@ -155,6 +165,16 @@ class DossierImage(Protocol):
 
 
 @dataclass(frozen=True)
+class Family:
+    """One equipment family a planned system covers: its own header and count (a stacked header)."""
+    header: str               # house form without the Qty: "Dryer Exhaust Fan DXF-1-1, 2"
+    tags: tuple[str, ...]
+    quantity: int | None      # only when a source states it
+    quantity_source: str      # "[S41]" | ""
+    quantity_quote: str
+
+
+@dataclass(frozen=True)
 class PlannedSystem:
     key: str                  # short unique key the judge chooses, e.g. "RTU-1-3"
     header: str               # house form without the Qty: "Rooftop Unit RTU-1 thru 3"
@@ -169,6 +189,8 @@ class PlannedSystem:
     alternate: str            # "" | "add" | "deduct" — when the documents say it's an alternate
     exception: str            # "" or the one-line exception text in capitals
     why: str
+    sequence_section: str = ""                 # the sequence section(s) it is: "Q7" (or "Q7, Q8"), "" when none
+    families: tuple[Family, ...] = ()          # two or more: one stacked header each; () for a one-family system
 
 
 @dataclass(frozen=True)
@@ -368,6 +390,18 @@ def plan_prompt(dossier_text: str, images: Sequence, checklist, style_text: str,
 
 def plan_schema() -> dict:
     ids = {"type": "array", "items": {"type": "string"}}
+    family = {
+        "type": "object",
+        "properties": {
+            "header": {"type": "string"},
+            "tags": {"type": "array", "items": {"type": "string"}},
+            "quantity": {"anyOf": [{"type": "integer"}, {"type": "null"}]},
+            "quantity_source": {"type": "string"},
+            "quantity_quote": {"type": "string"},
+        },
+        "required": ["header", "tags", "quantity", "quantity_source", "quantity_quote"],
+        "additionalProperties": False,
+    }
     system = {
         "type": "object",
         "properties": {
@@ -384,9 +418,12 @@ def plan_schema() -> dict:
             "alternate": {"type": "string", "enum": list(ALTERNATES)},
             "exception": {"type": "string"},
             "why": {"type": "string"},
+            "sequence_section": {"type": "string"},
+            "families": {"type": "array", "items": family},
         },
         "required": ["key", "header", "kind", "tags", "quantity", "quantity_source", "quantity_quote",
-                     "sequence_sources", "schedule_sources", "group", "alternate", "exception", "why"],
+                     "sequence_sources", "schedule_sources", "group", "alternate", "exception", "why",
+                     "sequence_section", "families"],
         "additionalProperties": False,
     }
     front_end = {
@@ -471,13 +508,24 @@ def parse_plan(answer: dict, model: str, style: HouseStyle, known: frozenset[str
         if key.lower() in keys:
             key = f"{key}-{len(systems) + 1}"
         keys.add(key.lower())
+        families = _families(raw.get("families"), name, style, known, unknown, unresolved)
+        tags = tuple(_texts(raw.get("tags")))
+        quantity_source = quantity_sources[0] if quantity_sources else ""
+        if len(families) == 1:                 # one family is the system itself
+            only = families[0]
+            header, tags = only.header or header, only.tags or tags
+            if only.quantity is not None or quantity is None:
+                quantity, quantity_source, quote = only.quantity, only.quantity_source, only.quantity_quote
+            families = []
+        sections = [x.strip("[]") for x in _ids(raw.get("sequence_section") or "", known, unknown)]
         system = PlannedSystem(
-            key=key, header=header, kind=kind, tags=tuple(_texts(raw.get("tags"))), quantity=quantity,
-            quantity_source=quantity_sources[0] if quantity_sources else "", quantity_quote=quote,
+            key=key, header=header, kind=kind, tags=tags, quantity=quantity,
+            quantity_source=quantity_source, quantity_quote=quote,
             sequence_sources=_ids(raw.get("sequence_sources") or [], known, unknown),
             schedule_sources=_ids(raw.get("schedule_sources") or [], known, unknown),
             group=_text(raw.get("group")), alternate=alternate if alternate in ALTERNATES else "",
-            exception=_exception(exception), why=_text(raw.get("why")))
+            exception=_exception(exception), why=_text(raw.get("why")),
+            sequence_section=", ".join(sections), families=tuple(families))
         if unknown:
             unresolved.append(f"The AI cited {', '.join(f'[{u}]' for u in dict.fromkeys(unknown))} for "
                               f"“{name}”, which the dossier does not have; left out.")
@@ -488,6 +536,34 @@ def parse_plan(answer: dict, model: str, style: HouseStyle, known: frozenset[str
             unresolved.append(question)
     return JobPlan(systems=tuple(systems), front_end=front_end, unresolved=tuple(unresolved), model=model,
                    dropped=tuple(dropped))
+
+
+def _families(raw, name: str, style: HouseStyle, known: frozenset[str], unknown: list[str],
+              unresolved: list[str]) -> list[Family]:
+    """The families a planned system covers. A family's count with no words stating it is cleared and put to the
+    estimator (the system stays); a family header the client must never see is left out and named."""
+    out: list[Family] = []
+    for item in raw if isinstance(raw, (list, tuple)) else []:
+        if not isinstance(item, dict):
+            continue
+        header = _squash(re.sub(r"^\s*Qty\s*\([^)]*\)\s*", "", _text(item.get("header"))))
+        tags = tuple(_texts(item.get("tags")))
+        if not header and not tags:
+            continue
+        bad = style.forbidden(header) if header else None
+        if bad:
+            unresolved.append(f"A family header the AI wrote for “{name}” was left out ({bad}).")
+            continue
+        quantity, quote = _quantity(item.get("quantity")), _text(item.get("quantity_quote"))
+        sources = _ids(item.get("quantity_source"), known, unknown)
+        if quantity is not None and not quote:
+            unresolved.append(f"The AI counts {quantity} × “{header or name}” in “{name}” but quoted no words stating "
+                              "the number, so the count was left out: how many are there?")
+            quantity, sources = None, ()
+        out.append(Family(header=header or name, tags=tags, quantity=quantity,
+                          quantity_source=sources[0] if sources else "",
+                          quantity_quote=quote if quantity is not None else ""))
+    return out
 
 
 def _front_end(raw, known: frozenset[str], unresolved: list[str]) -> dict:
