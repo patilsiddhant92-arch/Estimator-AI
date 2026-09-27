@@ -23,14 +23,14 @@ from __future__ import annotations
 import base64
 import hashlib
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Protocol, Sequence
 
 from estimator.writing.judge import (MAX_DEPTH, MAX_EXAMPLES, NO_EVIDENCE_CONFIDENCE, TECH_HOUR_BASES,
                                      TechHoursHint, _confidence, _depth, _example_text, _quantity, _squash,
                                      _tech_hours, _template_text)
-from estimator.writing.style import HouseStyle
+from estimator.writing.style import ASSETS, HouseStyle
 
 SPLIT_LIMIT = 400_000        # characters of dossier read in one pass (about 100,000 tokens — well inside one request; splitting loses the sequence for the later parts)
 MAX_IMAGES = 100             # pictures sent with one question
@@ -110,49 +110,68 @@ for the client, each starting with "**"; sources: the source ids they rest on.
 - unresolved: plain questions for the estimator, about anything the documents leave open.
 - Cite a source id for everything. Never write prices, tech hours, confidence or category words."""
 
-WRITE_PROMPT = """\
-You are an HVAC controls estimator at AME. You are writing the scope of work for one system of a \
-building controls proposal. The whole job has already been read and this system planned: you are \
-given what the plan says about it, the passages of the job's documents it rests on (each with its \
-source id in brackets, such as [S12]), the Master Template's lines for the nearest system as a \
-checklist, blocks AME wrote for similar systems in past proposals, and the house style. Write this \
-system's scope lines from the evidence, the way AME writes them.
+# --- the write step's system prompt: the estimator's GEM ----------------------------------------------------------
 
-How to answer:
-- lines: the scope lines this system's evidence calls for, in the order a proposal lists them, in \
-the house style. Depth 1 sits under the header; depth 2 under the line above it. Never write the \
-header or the count: they are added for you.
-- The Master Template lines are a checklist, not a closed menu. They are usually present for a \
-system like this: write each one the evidence supports, and when you leave one out, say why in \
-review_notes. Write the lines the evidence calls for that the checklist does not have, in the house \
-style.
-- Every line needs the source id of the passage it rests on, a quote (the words from that passage \
-that call for it, copied exactly) and a one-sentence reason in plain English.
-- Give a quantity only when the evidence states a count for that line. Otherwise the quantity is \
-null. Never work one out or guess one.
-- Confidence is a number from 0 to 1.
-- client_notes: short clarifications for the client that the evidence supports, each starting \
-with "**". Never estimating hints, tech hours or prices.
-- tech_hours: from the Master Template's tech-hour rule given for the nearest system: what they are \
-counted per, how many hours, and which entry they are like (its name exactly as given). When the rule \
-is "none in the template" (or gives no hours), tech_hours is null and review_notes says "none in the \
-template".
-- Write each line once. Put point totals as '(Qty. N Total)' when the evidence gives them. Use the house \
-order: controller, sensors, points, valves and dampers, integration, notes.
-- Secondary tagged equipment gets its own quantity line, the way the estimator writes it: for example \
-gravity intake dampers GD-1 thru 6 under the exhaust fans get their own damper line with "(Qty. 6 \
-Total)"; a fire pump and its jockey pump are 2 pumps on one controller, so each alarm line carries \
-"(Qty. 2 Total)".
-- Who furnishes: on fans and ERVs with no factory controls, AME furnishes and installs the actuators, \
-DDC controllers and sensors, unless the documents give them to others ("furnished by …", "by the unit \
-manufacturer", or a schedule note). Write "(Furnished by Others)" or "(Furnished by Unit Mfr.)" only \
-with a quote that says so.
-- Split systems: when the documents show refrigerant leak detection, write the refrigerant shut-off \
-valve wiring and the leak-alarm or chime interlock lines, wherever the plan or sheet notes call for \
-them. Otherwise, ask in review_notes whether they are needed.
-- review_notes: plain remarks for the estimator, never printed for the client: a checklist line \
-left out and why, documents that disagree, anything to confirm.
-- Never write prices, tech hours, confidence or category words in a line or a note."""
+GEM_FILE = ASSETS / "gem" / "BMS_DDC_GEM_v3.2.txt"
+GEM_START, GEM_END = "WHO YOU ARE", "END OF INSTRUCTIONS"
+# The GEM's chat mechanics, left out: (the first line cut, the line the text goes on from).
+GEM_CUTS = (("RESET PROTOCOL", "STEP 0 — PROJECT QUICK SCAN"),                     # and the auto-start note
+            ("PHASE 2 — CLEAN SOW", "CONTRADICTION AND ASSUMPTION SCAN"),
+            ("DISPLAY FORMAT — after every SOW output", "If any check shows FAIL"),
+            ("OPTION: SEQUENCE HARDWARE HIGHLIGHT", GEM_END))
+GEM_OUTPUT = """\
+OUTPUT
+Answer as JSON in the schema given. Put the Quick Scan, the System Explanation, the scope lines (each with its \
+reference line and flag), the Contradiction and Assumption scan, the Miscellaneous Responsibilities, the Exclusions \
+and the Self-QC results in their fields.
+  quick_scan: the eight Quick Scan fields, as the block fills them.
+  explanation: the System Explanation.
+  lines: one per scope line, in SOW order. text: the scope line as the SOW writes it, with its quantity note on the \
+same line, without the flag symbol. reference: the words of its reference line, without the brackets. flag: "red", \
+"yellow", "orange", "green", or "" for none. flag_text: what the flag says (what to confirm, or the exact basis of \
+the assumption). quantity: the number its quantity note states, or null. quote: the exact words of the evidence it \
+rests on, copied from it. source_id: the id of that passage, such as "[S12]". depth: 1, or 2 for a line one level \
+in (the ◊ line). The system's header and count are printed for you: never write them as a line.
+  contradictions: one entry per hit of the scan (type C1 to C6, the item, the snippets quoted, the flag); none when \
+there is nothing to flag.
+  misc_responsibilities: the Miscellaneous Responsibilities, one plain statement each.
+  exclusions: the Exclusions, one plain line each.
+  qc: QC-01 to QC-10, each with its evidence token, whether it passes, and the fix applied when it fails.
+  client_notes: clarifications for the client, each starting with "**"; never estimating hints, tech hours or \
+prices. tech_hours: from the Master Template tech-hour rule given, or null when it gives none. review_notes: the \
+A&C notes and anything else for the estimator."""
+
+
+def gem_prompt(path: Path = GEM_FILE) -> str:
+    """The GEM's text from "WHO YOU ARE" to "END OF INSTRUCTIONS", word for word, without its chat mechanics (the
+    RESET protocol and the auto-start note, the Phase 2 clean SOW on confirmation, the display table, the hardware
+    highlight option), and with the OUTPUT section before its end. The dump's "[?] " line marks are taken off."""
+    lines = [re.sub(r"^\[\?\]\s?", "", line.rstrip()) for line in path.read_text(encoding="utf-8-sig").splitlines()]
+    first = next(n for n, line in enumerate(lines) if line.strip().startswith(GEM_START))
+    last = next(n for n, line in enumerate(lines) if line.strip().startswith(GEM_END))
+    body = lines[first:last + 1]
+    for cut, resume in GEM_CUTS:
+        at = next((n for n, line in enumerate(body) if line.strip().startswith(cut)), None)
+        if at is None:
+            continue
+        back = next(n for n in range(at + 1, len(body)) if body[n].strip().startswith(resume))
+        body = body[:at] + body[back:]
+    end = next(n for n, line in enumerate(body) if line.strip().startswith(GEM_END))
+    return "\n".join(body[:end] + GEM_OUTPUT.splitlines() + body[end:])
+
+
+WRITE_PROMPT = gem_prompt()
+FLAGS = ("", "red", "yellow", "orange", "green")
+_FLAG_SYMBOLS = {"\U0001F534": "red", "\U0001F7E1": "yellow", "\U0001F7E0": "orange", "\U0001F7E2": "green"}
+CONFLICT_TYPES = tuple(f"C{n}" for n in range(1, 7))
+QC_CHECKS = tuple(f"QC-{n:02d}" for n in range(1, 11))
+QUICK_SCAN = ("systems_identified", "unit_type", "controller", "submittal_status", "blanket_wiring_clause",
+              "fa_interface_present", "point_list_provided", "contractor_name_used")
+TEMPLATE_WORDS = ("The Standard Template defines the ORDER OF CATEGORIES in the output. It does not define device "
+                  "names.")
+NO_REFERENCE = "No reference line: nothing in the sequence was quoted for it"
+_DIAMOND = re.compile(r"^\s*◊\s*(?:the\s+)?(?:controls\s+contractor|cc)\s+requires\s+mfr\.?\s+rep\b", re.I)
+REFERENCED_CONFIDENCE, UNREFERENCED_CONFIDENCE = 0.85, 0.5
 
 
 class DossierImage(Protocol):
@@ -204,7 +223,7 @@ class JobPlan:
 
 @dataclass(frozen=True)
 class WrittenLine:
-    """One scope line the judge wrote for a planned system."""
+    """One scope line the judge wrote for a planned system: the GEM's scope line with its reference line and flag."""
     text: str
     depth: int
     quantity: int | None      # only when the evidence states the count (then the quote holds it)
@@ -212,6 +231,27 @@ class WrittenLine:
     source_id: str            # "[S12]" | ""
     why: str
     confidence: float
+    reference: str = ""       # the GEM's indented reference line
+    flag: str = ""            # "" | "red" | "yellow" | "orange" | "green"
+    flag_text: str = ""       # what the flag says: what to confirm, or the basis of an assumption
+
+
+@dataclass(frozen=True)
+class Contradiction:
+    """One hit of the GEM's Contradiction and Assumption scan."""
+    type: str                 # "C1" … "C6"
+    item: str
+    quotes: tuple[str, ...]
+    flag: str
+
+
+@dataclass(frozen=True)
+class QcCheck:
+    """One of the GEM's ten evidence-based Self-QC checks."""
+    check: str                # "QC-01" … "QC-10"
+    evidence: str
+    passed: bool
+    fix: str
 
 
 @dataclass(frozen=True)
@@ -222,6 +262,12 @@ class WrittenScope:
     review_notes: tuple[str, ...]           # the judge's remarks for the estimator, never printed
     model: str
     refused: tuple[str, ...] = ()           # what it wrote that could not be used, and why
+    quick_scan: dict = field(default_factory=dict)          # the GEM's Quick Scan, field by field
+    explanation: str = ""                                   # the GEM's System Explanation
+    contradictions: tuple[Contradiction, ...] = ()
+    misc_responsibilities: tuple[str, ...] = ()             # printed as "**" notes at the end of the block
+    exclusions: tuple[str, ...] = ()                        # review rows proposing named exceptions
+    qc: tuple[QcCheck, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -596,6 +642,15 @@ def _system_text(system: PlannedSystem) -> str:
         lines.append(f"Alternate: {system.alternate} (the documents price it separately)")
     if system.exception:
         lines.append(f"Exception: {system.exception}")
+    section = getattr(system, "sequence_section", "")
+    lines.append(f"Sequence section: {section or '(none: no sequence section covers it)'}")
+    families = getattr(system, "families", ()) or ()
+    if families:
+        lines.append("Families (one stacked header each, in this order):")
+        for family in families:
+            count = ("not stated" if family.quantity is None
+                     else f"{family.quantity}, from {family.quantity_source or 'no source'}: “{family.quantity_quote}”")
+            lines.append(f"- {family.header}: {count}")
     lines.append(f"Sources the plan cited: sequence {', '.join(system.sequence_sources) or '(none)'}; "
                  f"schedules {', '.join(system.schedule_sources) or '(none)'}")
     if system.why:
@@ -624,32 +679,51 @@ def options_text(options) -> str:
 
 def write_prompt(system: PlannedSystem, evidence_text: str, images: Sequence, options, examples,
                  style_text: str, hours_rule: str = "", image_ids: Sequence[str] | None = None) -> str:
-    example_text = "\n\n".join(_example_text(e) for e in list(examples or ())[:MAX_EXAMPLES]) or "(none)"
+    """The GEM's input for one system: the plan's system (its section and families), its evidence in the GEM's
+    order (the whole sequence section, the points list, the schedule, the plan notes, the counts), its pictures,
+    the nearest Master Template block introduced in the GEM's own words, and the template's tech-hour rule.
+    `examples` and `style_text` are no longer asked: the GEM decides the wording."""
     return "\n\n".join([
         _system_text(system),
         f"The job's evidence for this system, each passage with its source id:\n"
         f"{(evidence_text or '').strip() or '(none)'}",
         images_text(images, image_ids),
-        "The Master Template checklist for the nearest system (usually present; write each one the "
-        "evidence supports, and say in review_notes why you leave one out):\n" + options_text(options),
-        f"The Master Template's tech-hour rule for the nearest system: {hours_rule or 'none in the template'}",
-        f"Blocks AME wrote for similar systems in past proposals:\n{example_text}",
-        (style_text or "").strip() or "(no house style given)"])
+        f"The Master Template block for the nearest system. {TEMPLATE_WORDS}\n" + options_text(options),
+        f"The Master Template's tech-hour rule for the nearest system: {hours_rule or 'none in the template'}"])
 
 
 def write_schema() -> dict:
+    text = {"type": "string"}
+    texts = {"type": "array", "items": text}
     line = {
         "type": "object",
         "properties": {
-            "text": {"type": "string"},
-            "depth": {"type": "integer"},
+            "text": text,
+            "reference": text,
+            "flag": {"type": "string", "enum": list(FLAGS)},
+            "flag_text": text,
             "quantity": {"anyOf": [{"type": "integer"}, {"type": "null"}]},
-            "quote": {"type": "string"},
-            "source_id": {"type": "string"},
-            "why": {"type": "string"},
-            "confidence": {"type": "number"},
+            "quote": text,
+            "source_id": text,
+            "depth": {"type": "integer"},
         },
-        "required": ["text", "depth", "quantity", "quote", "source_id", "why", "confidence"],
+        "required": ["text", "reference", "flag", "flag_text", "quantity", "quote", "source_id", "depth"],
+        "additionalProperties": False,
+    }
+    quick_scan = {"type": "object", "properties": {k: text for k in QUICK_SCAN}, "required": list(QUICK_SCAN),
+                  "additionalProperties": False}
+    contradiction = {
+        "type": "object",
+        "properties": {"type": {"type": "string", "enum": list(CONFLICT_TYPES)}, "item": text, "quotes": texts,
+                       "flag": {"type": "string", "enum": list(FLAGS)}},
+        "required": ["type", "item", "quotes", "flag"],
+        "additionalProperties": False,
+    }
+    qc = {
+        "type": "object",
+        "properties": {"check": {"type": "string", "enum": list(QC_CHECKS)}, "evidence": text,
+                       "pass": {"type": "boolean"}, "fix": text},
+        "required": ["check", "evidence", "pass", "fix"],
         "additionalProperties": False,
     }
     hours = {
@@ -662,52 +736,94 @@ def write_schema() -> dict:
         "required": ["per", "hours", "like"],
         "additionalProperties": False,
     }
-    return {
-        "type": "object",
-        "properties": {
-            "lines": {"type": "array", "items": line},
-            "client_notes": {"type": "array", "items": {"type": "string"}},
-            "tech_hours": {"anyOf": [hours, {"type": "null"}]},
-            "review_notes": {"type": "array", "items": {"type": "string"}},
-        },
-        "required": ["lines", "client_notes", "tech_hours", "review_notes"],
-        "additionalProperties": False,
+    properties = {
+        "quick_scan": quick_scan,
+        "explanation": text,
+        "lines": {"type": "array", "items": line},
+        "contradictions": {"type": "array", "items": contradiction},
+        "misc_responsibilities": texts,
+        "exclusions": texts,
+        "qc": {"type": "array", "items": qc},
+        "client_notes": texts,
+        "tech_hours": {"anyOf": [hours, {"type": "null"}]},
+        "review_notes": texts,
     }
+    return {"type": "object", "properties": properties, "required": list(properties), "additionalProperties": False}
+
+
+def _flag(value) -> str:
+    """ "red" / "🔴" / "RED" as "red"; anything else as ""."""
+    text = _text(value).strip()
+    if text in _FLAG_SYMBOLS:
+        return _FLAG_SYMBOLS[text]
+    low = text.lower()
+    return low if low in FLAGS else ""
+
+
+def _without_flag(text: str) -> tuple[str, str]:
+    """(the line without a flag symbol written into it, the flag it named or "")."""
+    found = ""
+    for symbol, flag in _FLAG_SYMBOLS.items():
+        if symbol in text:
+            found = found or flag
+            text = text.replace(symbol, " ")
+    return _squash(text), found
+
+
+def _diamond(text: str, style: HouseStyle) -> str | None:
+    """The GEM's "◊ Controls Contractor requires mfr. rep …" line as the Master Template writes it."""
+    if not _DIAMOND.match(text):
+        return None
+    return next((line for line in style.trio if line.lower().startswith("ame requires")), None)
 
 
 def parse_scope(answer: dict, model: str, style: HouseStyle, known: frozenset[str] = frozenset()) -> WrittenScope:
-    """Read the AI's scope: a line that breaks the house style is refused; a number with no words
-    stating it is taken off its line; a line with no quote keeps a confidence of 0.5 at most; a source
-    id the evidence does not have is cleared. Each is listed in `refused`."""
+    """Read the GEM's answer. Every line is kept, in the GEM's words: a line with no reference line is flagged
+    orange (its flag_text says so), never dropped. Only a line the client must never see (prices, hours, a
+    category word) or one copying the specification's wording with no house verb is refused. A number with no
+    words stating it is taken off its line; a source id the evidence does not have is cleared. The GEM's "◊"
+    line is the Master Template's "AME requires mfr. Rep …" line, one level deeper. Each refusal is listed."""
     refused: list[str] = []
     lines: list[WrittenLine] = []
-    seen: set[str] = set()
+    seen: set[tuple[str, int]] = set()
     last_depth = 0
     for raw in answer.get("lines") or []:
         if not isinstance(raw, dict):
             continue
-        text = _text(raw.get("text"))
+        text, written_flag = _without_flag(_text(raw.get("text")))
         if not text:
             continue
-        depth = min(_depth(raw.get("depth")), last_depth + 1, MAX_DEPTH)
-        house = style.house_opening(text)      # "ATC Contractor to provide …" is "Furnish …"
-        if house is None:
-            refused.append(f"“{text}” — it copies the specification's wording (“ATC Contractor to …”) with no "
-                           "house verb for it")
+        diamond = _diamond(text, style)
+        if diamond is not None:
+            text, depth = diamond, min(max(last_depth, 1) + 1, MAX_DEPTH)
+        else:
+            depth = min(_depth(raw.get("depth")), last_depth + 1, MAX_DEPTH)
+            house = style.house_opening(text)      # "ATC Contractor to provide …" is "Furnish …"
+            if house is None:
+                refused.append(f"“{text}” — it copies the specification's wording (“ATC Contractor to …”) with no "
+                               "house verb for it")
+                continue
+            text = house
+        bad = style.forbidden(text)
+        if bad:
+            refused.append(f"“{text}” — {bad}")
             continue
-        text = house
-        reason = style.check_line(text, depth)
-        if reason:
-            refused.append(f"“{text}” — {reason}")
+        if (text.lower(), depth) in seen:          # an exact repeat
             continue
-        if depth == 1 and text.lower() in seen:
-            continue
-        quote, why = _text(raw.get("quote")), _text(raw.get("why"))
+        legacy = "reference" not in raw           # an answer from before the GEM: no reference line to ask for
+        reference = _text(raw.get("reference"))
+        flag, flag_text = _flag(raw.get("flag")) or written_flag, _text(raw.get("flag_text"))
+        quote, why = _text(raw.get("quote")), _text(raw.get("why")) or reference
+        if not legacy and not reference and flag in ("", "green"):
+            flag, flag_text = "orange", flag_text or NO_REFERENCE
         quantity = _quantity(raw.get("quantity"))
-        confidence = _confidence(raw.get("confidence"))
         if quantity is not None and not quote:
             refused.append(f"the AI gave {quantity} for “{text}” with no words stating it; the number was left out")
             quantity = None
+        if "confidence" in raw:
+            confidence = _confidence(raw.get("confidence"))
+        else:
+            confidence = REFERENCED_CONFIDENCE if reference and quote else UNREFERENCED_CONFIDENCE
         if not quote:
             confidence = min(confidence, NO_EVIDENCE_CONFIDENCE)
         unknown: list[str] = []
@@ -715,11 +831,11 @@ def parse_scope(answer: dict, model: str, style: HouseStyle, known: frozenset[st
         if unknown:
             refused.append(f"“{text}” cites {', '.join(f'[{u}]' for u in unknown)}, which the evidence does "
                            "not have; the source was left out")
-        if depth == 1:
-            seen.add(text.lower())
+        seen.add((text.lower(), depth))
         last_depth = depth
         lines.append(WrittenLine(text=text, depth=depth, quantity=quantity, quote=quote,
-                                 source_id=sources[0] if sources else "", why=why, confidence=confidence))
+                                 source_id=sources[0] if sources else "", why=why, confidence=confidence,
+                                 reference=reference, flag=flag, flag_text=flag_text))
     notes = []
     for note in answer.get("client_notes") or []:
         note = _text(note)
@@ -735,7 +851,41 @@ def parse_scope(answer: dict, model: str, style: HouseStyle, known: frozenset[st
     hint = _tech_hours(answer.get("tech_hours"), refused)
     return WrittenScope(lines=tuple(lines), client_notes=tuple(notes), tech_hours_hint=hint,
                         review_notes=tuple(_texts(answer.get("review_notes"))), model=model,
-                        refused=tuple(refused))
+                        refused=tuple(refused), quick_scan=_quick_scan(answer.get("quick_scan")),
+                        explanation=_text(answer.get("explanation")),
+                        contradictions=_contradictions(answer.get("contradictions")),
+                        misc_responsibilities=tuple(_texts(answer.get("misc_responsibilities"))),
+                        exclusions=tuple(_texts(answer.get("exclusions"))), qc=_qc(answer.get("qc")))
+
+
+def _quick_scan(raw) -> dict:
+    raw = raw if isinstance(raw, dict) else {}
+    return {k: _text(raw.get(k)) for k in QUICK_SCAN if _text(raw.get(k))}
+
+
+def _contradictions(raw) -> tuple[Contradiction, ...]:
+    out = []
+    for item in raw if isinstance(raw, (list, tuple)) else []:
+        if not isinstance(item, dict):
+            continue
+        kind = _text(item.get("type")).upper()
+        what = _text(item.get("item"))
+        if kind not in CONFLICT_TYPES or not what:
+            continue
+        out.append(Contradiction(kind, what, tuple(_texts(item.get("quotes"))), _flag(item.get("flag"))))
+    return tuple(out)
+
+
+def _qc(raw) -> tuple[QcCheck, ...]:
+    out = []
+    for item in raw if isinstance(raw, (list, tuple)) else []:
+        if not isinstance(item, dict):
+            continue
+        check = _text(item.get("check")).upper()
+        if check not in QC_CHECKS:
+            continue
+        out.append(QcCheck(check, _text(item.get("evidence")), item.get("pass") is True, _text(item.get("fix"))))
+    return tuple(out)
 
 
 # --- a dossier too long to read at once -------------------------------------------------------------------

@@ -468,8 +468,10 @@ class Judge:
         ids = list(image_ids) if image_ids is not None and len(image_ids) == len(images) else None
         known = wj.known_ids(evidence_text, images, ids)
         if known:
-            plan_ids = (system.quantity_source, *system.sequence_sources, *system.schedule_sources)
-            known = known | {wj.source_key(s) for s in plan_ids if s}
+            plan_ids = (system.quantity_source, *system.sequence_sources, *system.schedule_sources,
+                        *str(getattr(system, "sequence_section", "") or "").split(","),
+                        *(f.quantity_source for f in getattr(system, "families", ()) or ()))
+            known = known | {wj.source_key(s) for s in plan_ids if s and s.strip()}
         prompt = wj.write_prompt(system, evidence_text, images, options, examples, style_text, hours_rule, ids)
         got = self._answer_with_images(WRITE_SYSTEM, system.header, wj.WRITE_PROMPT, prompt, wj.write_schema(),
                                        {"plan_key": system.key, "images": wj.images_listing(images, ids)}, images,

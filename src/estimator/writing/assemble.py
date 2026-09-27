@@ -670,28 +670,200 @@ def system_template(system, templates=None):
     return template_for(prefix, system.kind or "", templates)
 
 
-def system_evidence(system, dossier) -> str:
-    """What the judge reads to write one planned system: the units, the counts, the devices on the
-    plans, and every dossier paragraph the plan cited."""
+COUNTS_INTRO = ("Counts from the drawings (a count on the drawings is a confirmed quantity — Quantity rules, Rule 1 "
+                "and 2):")
+PLAN_NOTES_EVIDENCE = 12_000      # characters of plan sheet notes naming the system's tags, in one system's evidence
+_ENTRY_ID = re.compile(r"^\[([A-Z]{1,3}\d+)\]")
+_DEVICE_SHEETS = re.compile(r"—\s*(.+)$")
+_SHEETS_IN_COUNTS = re.compile(r"plan placements \d+ \(([^)]*)\)")
+
+
+def system_tags(system) -> list[str]:
+    """Every tag the system covers, its families' too, one by one."""
     tags = expand_tags(system.tags)
+    for family in getattr(system, "families", ()) or ():
+        tags += [t for t in expand_tags(family.tags) if t not in tags]
+    return tags
+
+
+def system_sections(system) -> list[str]:
+    """The sequence sections ("Q7") the plan says the system is."""
+    return re.findall(r"Q\d+", str(getattr(system, "sequence_section", "") or ""))
+
+
+def _entries(text: str) -> list[tuple[str | None, str]]:
+    """A dossier part's entries: each line starting with a source id, with the indented lines under it (a
+    schedule's columns); other lines (a page line, a remark in brackets) as entries of their own, with no id."""
+    out: list[list] = []
+    for line in (text or "").splitlines():
+        if not line.strip():
+            continue
+        m = _ENTRY_ID.match(line)
+        if m:
+            out.append([m.group(1), line])
+        elif line[:1].isspace() and out and out[-1][0]:
+            out[-1][1] += "\n" + line
+        else:
+            out.append([None, line])
+    return [(sid, body) for sid, body in out]
+
+
+def _dossier_parts(dossier) -> dict[int, str]:
+    from estimator.writing.whole_job import _sections as dossier_sections
+    return dossier_sections(dossier.text or "")[1]
+
+
+def _names_any(text: str, tags: set[str], prefixes: set[str]) -> bool:
+    """The text names one of the tags (a "thru" range counts each tag), or starts a schedule row with one of the
+    type codes (a type row: "HPAC | 719")."""
+    body = _ENTRY_ID.sub("", text).strip()
+    if tags and set(_named_tags(body)) & tags:
+        return True
+    first = body.split("|", 1)[0].strip().upper() if "|" in body else ""
+    return bool(first) and (first in tags or first in prefixes)
+
+
+def _dossier_sections_of(dossier) -> dict:
+    sections = getattr(dossier, "sections", None)
+    if sections:
+        return sections
+    from estimator.writing.dossier import sections_in
+    return sections_in(dossier.text or "")
+
+
+def system_evidence(system, dossier) -> str:
+    """What the GEM reads to write one planned system, in the GEM's order, each passage with its source id: the
+    full sequence section(s) the plan says it is (every paragraph, not only the ones the plan cited); the points
+    list's rows for its equipment; its schedule rows with the schedule's notes; the plan sheet notes naming its
+    tags; its counts from the drawings (the counts, the placements by sheet, the device labels on its sheets); then
+    any other passage the plan cited."""
+    tags = system_tags(system)
+    own = {t.upper() for t in tags if is_equipment_tag(t)}
+    prefixes = {_tag_prefix(t) for t in own}
     parts = [f"System: {_name(system)} ({system.kind})",
              f"Tags: {tag_list(tags) if tags else 'none'}",
              f"Planned quantity: {system.quantity if system.quantity is not None else 'not stated'}"
              + (f" — {system.quantity_source} “{system.quantity_quote}”" if system.quantity_quote else "")]
-    prefixes = list(dict.fromkeys(_tag_prefix(t) for t in tags))
+    given: set[str] = set()
+    cited = _system_ids(system) + [i for f in getattr(system, "families", ()) or ()
+                                   for i in source_ids(f.quantity_source)]
+    dossier_parts = _dossier_parts(dossier)
+
+    def block(title: str, entries: list[tuple[str | None, str]]) -> None:
+        entries = [(sid, body) for sid, body in entries if sid is None or sid not in given]
+        if not any(sid for sid, _ in entries):
+            return
+        parts.append(f"\n{title}")
+        for sid, body in entries:
+            parts.append(body)
+            if sid:
+                given.add(sid)
+
+    # 1. the sequence section(s), whole
+    sections = _dossier_sections_of(dossier)
+    wanted = [q for q in system_sections(system) if q in sections]
+    sequence: list[tuple[str | None, str]] = []
+    for q in wanted:
+        heading, ids = sections[q]
+        sequence.append((None, f"--- [{q}] {heading} ---"))
+        sequence += [(sid, cited_text(dossier, sid) or f"[{sid}]") for sid in ids]
+    if not wanted:                     # no section: the sequence paragraphs the plan cited
+        sequence = [(sid, cited_text(dossier, sid)) for sid in source_ids(system.sequence_sources)
+                    if cited_text(dossier, sid)]
+    block(f"The sequence of operation for this system{' (' + ', '.join(wanted) + ')' if wanted else ''}:", sequence)
+
+    # 2. the points list's rows for its equipment
+    points = _entries(dossier_parts.get(3, ""))
+    section_ids = {sid for q in wanted for sid in sections[q][1]}
+    rows = [(sid, body) for sid, body in points if sid and (sid in section_ids or sid in cited
+                                                           or _names_any(body, own, prefixes))]
+    block("The points list rows for its equipment:", rows)
+
+    # 3. its schedule rows and the schedule's notes
+    block("Its schedule rows and the schedule's notes:", _schedule_evidence(dossier_parts.get(4, ""), own, prefixes,
+                                                                           set(cited)))
+
+    # 4. the plan sheet notes naming its tags
+    notes, used, left = [], 0, 0
+    for sid, body in _entries(dossier_parts.get(7, "")):
+        if sid and (sid in cited or _names_any(body, own, set())):
+            if used + len(body) > PLAN_NOTES_EVIDENCE:
+                left += 1
+                continue
+            notes.append((sid, body))
+            used += len(body)
+    if left:
+        notes.append((None, f"({left} more plan sheet notes name it; not given here)"))
+    block("Plan sheet notes that name its tags:", notes)
+
+    # 5. its counts from the drawings
     counts = {k.upper(): v for k, v in (dossier.counts or {}).items()}
-    for p in prefixes:
+    count_rows: list[tuple[str | None, str]] = []
+    for p in sorted(prefixes):
         if p in counts:
             shown = ", ".join(f"{k.replace('_', ' ')}: {v}" for k, v in counts[p].items() if v is not None)
-            parts.append(f"Counts for {p}: {shown}")
-    if dossier.device_totals:
-        parts.append("Devices counted on the plans (whole job): "
-                     + "; ".join(f"{label}: {n}" for label, n in dossier.device_totals.items()))
-    for sid in _system_ids(system):
-        where = (dossier.sources or {}).get(sid, "")
-        body = cited_text(dossier, sid)
-        parts.append(f"[{sid}] {where}\n{body}" if body else f"[{sid}] {where}")
+            count_rows.append((None, f"Counts for {p}: {shown}"))
+    sheets: set[str] = set()
+    for sid, body in _entries(dossier_parts.get(5, "")):
+        head = _ENTRY_ID.sub("", body).strip()
+        if sid and head.split(" ", 1)[0].upper() in prefixes:
+            count_rows.append((sid, body))
+            m = _SHEETS_IN_COUNTS.search(head)
+            if m:
+                sheets |= {piece.strip().split(" ", 1)[0] for piece in m.group(1).split(";") if piece.strip()}
+    devices = [(sid, body) for sid, body in _entries(dossier_parts.get(6, "")) if sid]
+    if devices:
+        for sid, body in devices:
+            m = _DEVICE_SHEETS.search(body)
+            on = {piece.strip().split(" ", 1)[0] for piece in m.group(1).split(";")} if m else set()
+            if not sheets or on & sheets or sid in cited:
+                count_rows.append((sid, body))
+    elif dossier.device_totals:
+        count_rows.append((None, "Devices counted on the plans (whole job): "
+                           + "; ".join(f"{label}: {n}" for label, n in dossier.device_totals.items())))
+    if count_rows:
+        parts.append(f"\n{COUNTS_INTRO}")
+        for sid, body in count_rows:
+            if sid is None or sid not in given:
+                parts.append(body)
+                if sid:
+                    given.add(sid)
+
+    # 6. anything else the plan cited
+    block("Other passages the plan cited:", [(sid, f"[{sid}] {(dossier.sources or {}).get(sid, '')}\n"
+                                                   f"{cited_text(dossier, sid)}".rstrip())
+                                            for sid in dict.fromkeys(cited) if not sid.startswith(("I", "Q"))])
     return "\n".join(parts)
+
+
+def _schedule_evidence(text: str, tags: set[str], prefixes: set[str], cited: set[str]) -> list:
+    """The schedule rows naming the system's tags (or the rows the plan cited), each under its schedule's title,
+    with that schedule's notes."""
+    out: list = []
+    title, rows, notes = None, [], []
+
+    def flush():
+        if rows:
+            if title is not None:
+                out.append(title)
+            out.extend(rows)
+            out.extend(notes)
+
+    for sid, body in _entries(text):
+        plain_body = _ENTRY_ID.sub("", body).strip()
+        if sid is None:
+            continue
+        if plain_body.startswith(("Note:", "Unit controls by:")):
+            notes.append((sid, body))
+        elif "|" not in plain_body.split("\n", 1)[0]:
+            flush()
+            title, rows, notes = (sid, body), [], []
+            if sid in cited:
+                rows.append((None, ""))           # the plan cites the schedule itself: its notes too
+        elif sid in cited or _names_any(plain_body.split("\n", 1)[0], tags, prefixes):
+            rows.append((sid, body))
+    flush()
+    return [(sid, body) for sid, body in out if body]
 
 
 def _holds(condition, evidence: str) -> bool:

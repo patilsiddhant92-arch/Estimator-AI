@@ -415,28 +415,28 @@ def test_the_scope_is_read_into_written_lines(tmp_path):
     assert scope.refused == ()
 
 
-def test_the_scope_request_carries_the_plan_evidence_checklist_examples_and_style(tmp_path):
+def test_the_scope_request_carries_the_plan_evidence_and_the_template_in_the_gems_words(tmp_path):
     fake = FakeClient(_response(_scope_answer()))
     _write(tmp_path, fake, images=_images(tmp_path))
 
     (call,) = fake.calls
     assert call["system"] == WRITE_PROMPT
     schema = call["output_config"]["format"]["schema"]
-    assert set(schema["required"]) == {"lines", "client_notes", "tech_hours", "review_notes"}
+    assert set(schema["required"]) >= {"lines", "client_notes", "tech_hours", "review_notes"}
     assert "source_id" in schema["properties"]["lines"]["items"]["required"]
     content = call["messages"][0]["content"]
     text = "\n".join(block["text"] for block in content if block["type"] == "text")
     for part in ("Rooftop Unit RTU-1 thru 3", "RTU-1, RTU-2, RTU-3", "[S4]", EVIDENCE.strip(), *OPTIONS,
-                 "25-0101", "STYLE TEXT", "H601 HVAC SCHEDULES"):
+                 "H601 HVAC SCHEDULES", "The Standard Template defines the ORDER OF CATEGORIES"):
         assert part in text
-    assert "checklist" in text.lower() and "usually present" in text.lower()
+    assert "25-0101" not in text and "STYLE TEXT" not in text      # the GEM decides the wording
     assert [block["type"] for block in content].count("image") == 1
 
 
-def test_the_write_prompt_treats_the_template_as_a_checklist_and_asks_for_sources():
+def test_the_write_prompt_asks_for_sources_quotes_and_reference_lines():
     low = WRITE_PROMPT.lower()
-    for words in ("checklist", "not a closed menu", "source id", "quote", "never work one out", "review_notes"):
-        assert words in low
+    for words in ("source_id", "quote", "reference line", "review_notes", "never invent a number"):
+        assert words in low, words
 
 
 def test_lines_that_break_the_house_style_are_refused(tmp_path):
@@ -446,8 +446,9 @@ def test_lines_that_break_the_house_style_are_refused(tmp_path):
     answer["client_notes"] += ["no stars here", "**$500 allowance"]
     scope = _write(tmp_path, FakeClient(_response(answer)))
 
-    assert [l.text for l in scope.lines] == [OPTIONS[0], OPTIONS[1], "Discharge Air Temperature"]
-    assert len(scope.refused) == 5
+    # the GEM's words stand: only what the client must never see is refused (the GEM round)
+    assert [l.text for l in scope.lines] == [OPTIONS[0], OPTIONS[1], "Discharge Air Temperature", "Some wiring maybe"]
+    assert len(scope.refused) == 4
     assert scope.client_notes == ("**Start/Stop via BMS schedule",)
 
 
@@ -478,8 +479,8 @@ def test_a_line_too_deep_for_its_place_is_raised(tmp_path):
                                   _line(OPTIONS[0], depth=1), _line("Filter Alarm", depth=4)])
     scope = _write(tmp_path, FakeClient(_response(answer)))
 
-    assert [(l.text, l.depth) for l in scope.lines] == [(OPTIONS[0], 1), ("Filter Alarm", 2)]
-    assert any("Discharge Air Temperature Sensor" in r for r in scope.refused)
+    assert [(l.text, l.depth) for l in scope.lines] == [("Discharge Air Temperature Sensor", 1), (OPTIONS[0], 1),
+                                                         ("Filter Alarm", 2)]
 
 
 def test_unknown_fields_are_ignored_and_bad_tech_hours_dropped(tmp_path):
@@ -547,10 +548,10 @@ def test_the_plan_prompt_counts_untagged_symbols_keeps_no_info_systems_and_price
         assert words in low, words
 
 
-def test_the_write_prompt_asks_for_each_line_once_totals_and_the_house_order():
-    assert ("Write each line once. Put point totals as '(Qty. N Total)' when the evidence gives them. Use the house "
-            "order: controller, sensors, points, valves and dampers, integration, notes.") in WRITE_PROMPT
-    assert "none in the template" in WRITE_PROMPT
+def test_the_write_prompt_consolidates_identical_lines_with_totals_in_the_gems_order():
+    for words in ("CONSOLIDATING IDENTICAL SCOPE LINES", "Default format: (Qty. ## Total)", "SOW ORDER — STANDARD TEMPLATE",
+                  "tech-hour rule given"):
+        assert words in WRITE_PROMPT, words
 
 
 def test_the_scope_request_carries_the_templates_tech_hour_rule(tmp_path):
@@ -575,25 +576,21 @@ def test_the_tech_hour_rule_is_the_nearest_templates_in_words():
 
 # --- round 4, Part B: the questions ---------------------------------------------------------------------------
 
-def test_the_prompts_give_secondary_tagged_equipment_its_own_quantity():
-    for prompt in (PLAN_PROMPT, WRITE_PROMPT):
+def test_the_plan_prompt_gives_secondary_tagged_equipment_its_own_quantity():
+    for prompt in (PLAN_PROMPT,):
         low = prompt.lower()
         for words in ("secondary tagged equipment", "gravity intake dampers", "jockey pump", "(qty. 2 total)"):
             assert words in low, words
 
 
-def test_the_write_prompt_gives_ame_the_actuators_controllers_and_sensors_by_default():
-    low = WRITE_PROMPT.lower()
-    for words in ("no factory controls", "ame furnishes and installs the actuators, ddc controllers and sensors",
-                  "unless the documents give them to others", "by the unit manufacturer", "schedule note",
-                  "(furnished by others)", "only with a quote that says so"):
+def test_the_write_prompt_gives_the_controls_contractor_what_no_one_else_is_named_for_on_a_field_ddc_unit():
+    for words in ("No named party + field DDC unit → CC furnishes it.", "EXPLICIT ASSIGNMENT ALWAYS WINS.",
+                  "No named party + packaged/factory controls unit"):
+        assert words in WRITE_PROMPT, words
+
+
+def test_the_plan_prompt_asks_for_the_split_system_leak_detection_lines_or_asks():
+    low = PLAN_PROMPT.lower()
+    for words in ("split system", "refrigerant leak detection", "shut-off valve", "chime"):
         assert words in low, words
-
-
-def test_the_prompts_write_the_split_system_leak_detection_lines_or_ask():
-    for prompt in (PLAN_PROMPT, WRITE_PROMPT):
-        low = prompt.lower()
-        for words in ("split system", "refrigerant leak detection", "shut-off valve", "chime"):
-            assert words in low, words
-    assert "otherwise ask" in PLAN_PROMPT.lower() or "unresolved" in PLAN_PROMPT.lower()
-    assert "otherwise, ask in review_notes" in WRITE_PROMPT.lower()
+    assert "otherwise ask" in low or "unresolved" in low
