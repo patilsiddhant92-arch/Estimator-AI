@@ -119,6 +119,68 @@ GEM_CUTS = (("RESET PROTOCOL", "STEP 0 — PROJECT QUICK SCAN"),                
             ("PHASE 2 — CLEAN SOW", "CONTRADICTION AND ASSUMPTION SCAN"),
             ("DISPLAY FORMAT — after every SOW output", "If any check shows FAIL"),
             ("OPTION: SEQUENCE HARDWARE HIGHLIGHT", GEM_END))
+# Inside the tool the GEM reads more than a pasted sequence: this section, after the GEM's INPUT HANDLING, tells it
+# how the other documents connect. (The controller's addendum to the GEM round.)
+GEM_AFTER = "INPUT HANDLING — SEQUENCE AND POINT LIST"
+GEM_CONNECTING = """\
+CONNECTING THE DOTS — THE OTHER DOCUMENTS (addendum for use inside the estimating tool)
+The sequence is not the only document here. With each system's sequence
+you are given the other documents of the bid set. Read them all and
+connect the dots.
+SOURCE PRIORITY — EXTENDED PAST THE POINT LIST
+Sequence is Source Priority 1. Point List is Source Priority 2.
+  Priority 3 — Equipment schedules and their notes
+  Priority 4 — Plans: device labels and symbols, keyed and general notes,
+               typical-floor labels
+  Priority 5 — Details and risers: valves, DP sensors, damper actuators,
+               the network riser (who furnishes fiber, switches,
+               workstations)
+  Priority 6 — The specification: ownership clauses, front end, warranty,
+               training
+The sequence still governs control logic and ownership wording.
+The later sources fill what it leaves out.
+When two sources disagree → flag C1 / C2 with both snippets quoted.
+QUANTITIES — FROM THE DOCUMENTS (Quantity rules, Rule 1 and 2)
+Never take a quantity from the sequence's wording alone. Count from:
+— the schedule row count, or its QUANTITY column
+— the plan placements × the floors a typical plan serves
+— the riser count
+— the device labels counted on the plans
+A count given in the evidence's "Counts from the drawings" is a
+confirmed quantity → write (Qty. N Total).
+Only when no document counts it → flag 🔴 and write
+(Qty. per Mechanical Schedule) or (Qty. per Drawing).
+UNIT TYPE — FROM THE SCHEDULE WHEN THE SEQUENCE IS SILENT
+Schedule note "factory-mounted DDC controls" / "controls by unit
+manufacturer" / "BACnet gateway", or a CONTROLS column
+  → Factory/OEM Controls.
+"Controls by ATC/BMS contractor" / "DDC controller furnished to the
+factory"
+  → Field-Installed DDC.
+Cite the note.
+DEVICES SHOWN ON THE PLANS — NOT IN THE SEQUENCE
+A thermostat label, a CO2 label, a damper actuator keynote on the plans
+  → Scope line required, flagged:
+    (As per Plan — not called in sequence)
+  → Same treatment as point-list-only items.
+A keyed note that assigns work to CC is a reference line like any
+sequence sentence.
+SCHEDULE NOTES — OWNERSHIP UNDER QUESTION 1
+A schedule note decides who furnishes, exactly like a sequence sentence:
+  "furnished with unit" / "shipped loose" / "24V transformer with unit" /
+  "thermostat by unit manufacturer" → OEM furnishes.
+  → Write Install and Wire / Wire lines and the "*… BY UNIT MFR." note
+    accordingly.
+WHAT THE SPEC ASSIGNS — CATEGORY B
+A warranty term, training hours, the front end, "all control wiring by
+this contractor": when the spec names CC, it is a CC obligation under
+Category B.
+REFERENCE LINES — NAME THE SOURCE
+Each reference line names its source: the sequence snippet, or
+  (Schedule note 4, H601)
+  (Keyed note 7, H111)
+  (Plan count, M-101 × 10 floors)
+  (Spec 23 09 23 §3.4)"""
 GEM_OUTPUT = """\
 OUTPUT
 Answer as JSON in the schema given. Put the Quick Scan, the System Explanation, the scope lines (each with its \
@@ -142,10 +204,19 @@ prices. tech_hours: from the Master Template tech-hour rule given, or null when 
 A&C notes and anything else for the estimator."""
 
 
+def _gem_heading(line: str) -> bool:
+    """A GEM section heading: a line in capitals at the margin, not a label ending in a colon ("PRIORITY RULE:")."""
+    text = line.rstrip()
+    letters = [c for c in text if c.isalpha()]
+    return (bool(text) and not text[0].isspace() and len(letters) >= 6 and text == text.upper()
+            and not text.endswith(":"))
+
+
 def gem_prompt(path: Path = GEM_FILE) -> str:
     """The GEM's text from "WHO YOU ARE" to "END OF INSTRUCTIONS", word for word, without its chat mechanics (the
     RESET protocol and the auto-start note, the Phase 2 clean SOW on confirmation, the display table, the hardware
-    highlight option), and with the OUTPUT section before its end. The dump's "[?] " line marks are taken off."""
+    highlight option), with the section connecting the other documents after its INPUT HANDLING, and with the
+    OUTPUT section before its end. The dump's "[?] " line marks are taken off."""
     lines = [re.sub(r"^\[\?\]\s?", "", line.rstrip()) for line in path.read_text(encoding="utf-8-sig").splitlines()]
     first = next(n for n, line in enumerate(lines) if line.strip().startswith(GEM_START))
     last = next(n for n, line in enumerate(lines) if line.strip().startswith(GEM_END))
@@ -156,6 +227,9 @@ def gem_prompt(path: Path = GEM_FILE) -> str:
             continue
         back = next(n for n in range(at + 1, len(body)) if body[n].strip().startswith(resume))
         body = body[:at] + body[back:]
+    heading = next(n for n, line in enumerate(body) if line.strip().startswith(GEM_AFTER))
+    after = next(n for n in range(heading + 1, len(body)) if _gem_heading(body[n]))
+    body = body[:after] + GEM_CONNECTING.splitlines() + body[after:]
     end = next(n for n, line in enumerate(body) if line.strip().startswith(GEM_END))
     return "\n".join(body[:end] + GEM_OUTPUT.splitlines() + body[end:])
 

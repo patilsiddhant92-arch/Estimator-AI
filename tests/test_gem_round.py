@@ -199,6 +199,22 @@ def test_the_system_prompt_is_the_gem_without_its_chat_mechanics():
     assert prompt.index("OUTPUT\nAnswer as JSON") < prompt.index("END OF INSTRUCTIONS")
 
 
+def test_the_gem_connects_the_dots_with_the_other_documents_after_its_input_handling():
+    prompt = WRITE_PROMPT
+    heading = "CONNECTING THE DOTS — THE OTHER DOCUMENTS (addendum for use inside the estimating tool)"
+    assert heading in prompt
+    assert (prompt.index("INPUT HANDLING — SEQUENCE AND POINT LIST") < prompt.index("PRIORITY RULE:")
+            < prompt.index(heading) < prompt.index("POINT LIST INTEGRATION RULE (MANDATORY)"))
+    section = prompt[prompt.index(heading):prompt.index("POINT LIST INTEGRATION RULE (MANDATORY)")]
+    for words in ("Priority 3 — Equipment schedules and their notes", "Priority 6 — The specification",
+                  "flag C1 / C2 with both snippets quoted", "(Quantity rules, Rule 1 and 2)",
+                  "Counts from the drawings", "(Qty. N Total)", "(Qty. per Mechanical Schedule) or (Qty. per Drawing)",
+                  "Factory/OEM Controls", "Field-Installed DDC", "(As per Plan — not called in sequence)",
+                  "BY UNIT MFR.", "Category B", "(Schedule note 4, H601)", "(Plan count, M-101 × 10 floors)",
+                  "(Spec 23 09 23 §3.4)"):
+        assert words in section, words
+
+
 GEM_TEXT = "\n".join([
     "== 1. JOB ==", "[S1] Job: 26-9999", "",
     "== 2. SEQUENCE OF OPERATION ==",
