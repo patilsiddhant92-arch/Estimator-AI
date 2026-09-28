@@ -113,6 +113,8 @@ for the client, each starting with "**"; sources: the source ids they rest on.
 # --- the write step's system prompt: the estimator's GEM ----------------------------------------------------------
 
 GEM_FILE = ASSETS / "gem" / "BMS_DDC_GEM_v3.2.txt"
+PRACTICE_FILE = ASSETS / "gem" / "ame_practice.txt"      # the estimators' own rules, added to as plain text
+PROPOSED_PRACTICE_FILE = ASSETS / "gem" / "ame_practice_proposed.txt"   # rules from corrections, for approval
 GEM_START, GEM_END = "WHO YOU ARE", "END OF INSTRUCTIONS"
 # The GEM's chat mechanics, left out: (the first line cut, the line the text goes on from).
 GEM_CUTS = (("RESET PROTOCOL", "STEP 0 — PROJECT QUICK SCAN"),                     # and the auto-start note
@@ -212,11 +214,21 @@ def _gem_heading(line: str) -> bool:
             and not text.endswith(":"))
 
 
-def gem_prompt(path: Path = GEM_FILE) -> str:
+def ame_practice(path: Path = PRACTICE_FILE) -> list[str]:
+    """The estimators' own rules (assets/gem/ame_practice.txt), as plain text lines; none when the file is not there."""
+    try:
+        text = path.read_text(encoding="utf-8-sig")
+    except OSError:
+        return []
+    return [line.rstrip() for line in text.strip().splitlines()]
+
+
+def gem_prompt(path: Path = GEM_FILE, practice: Path = PRACTICE_FILE) -> str:
     """The GEM's text from "WHO YOU ARE" to "END OF INSTRUCTIONS", word for word, without its chat mechanics (the
     RESET protocol and the auto-start note, the Phase 2 clean SOW on confirmation, the display table, the hardware
-    highlight option), with the section connecting the other documents after its INPUT HANDLING, and with the
-    OUTPUT section before its end. The dump's "[?] " line marks are taken off."""
+    highlight option), with the section connecting the other documents after its INPUT HANDLING, followed by the
+    estimators' AME practice rules (assets/gem/ame_practice.txt), and with the OUTPUT section before its end. The
+    dump's "[?] " line marks are taken off."""
     lines = [re.sub(r"^\[\?\]\s?", "", line.rstrip()) for line in path.read_text(encoding="utf-8-sig").splitlines()]
     first = next(n for n, line in enumerate(lines) if line.strip().startswith(GEM_START))
     last = next(n for n, line in enumerate(lines) if line.strip().startswith(GEM_END))
@@ -229,7 +241,7 @@ def gem_prompt(path: Path = GEM_FILE) -> str:
         body = body[:at] + body[back:]
     heading = next(n for n, line in enumerate(body) if line.strip().startswith(GEM_AFTER))
     after = next(n for n in range(heading + 1, len(body)) if _gem_heading(body[n]))
-    body = body[:after] + GEM_CONNECTING.splitlines() + body[after:]
+    body = body[:after] + GEM_CONNECTING.splitlines() + ame_practice(practice) + body[after:]
     end = next(n for n, line in enumerate(body) if line.strip().startswith(GEM_END))
     return "\n".join(body[:end] + GEM_OUTPUT.splitlines() + body[end:])
 

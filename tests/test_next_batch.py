@@ -63,3 +63,28 @@ def test_the_furnished_by_unit_mfr_line_stays_in_the_house_form():
 def test_the_standard_note_is_a_bracket_too():
     assert with_clarifications("Furnish and Install VAV Transformer", [STANDARD_NOTE]) == (
         "Furnish and Install VAV Transformer (*Assumed per AME standard — confirm)")
+
+
+# --- 2. the AME practice rules in the GEM prompt -----------------------------------------------------------------------
+
+def test_the_gem_prompt_carries_the_ame_practice_rules_after_connecting_the_dots():
+    from estimator.writing.whole_job import PRACTICE_FILE, WRITE_PROMPT
+    assert PRACTICE_FILE.name == "ame_practice.txt" and PRACTICE_FILE.exists()
+    for words in ("FACTORY CONTROLS — AME PRACTICE: the controller and every end device on a factory/OEM-controls unit "
+                  "belong to the unit manufacturer",
+                  "'Install and Wire <device> (Furnished by Unit Mfr.)' or 'Wire <device> (Furnished by Unit Mfr.)'",
+                  "explicit assignment always wins",
+                  "SPLIT SYSTEMS AND VRF — AME PRACTICE: write 'Low Voltage Interlock Wiring between Indoor and "
+                  "Outdoor Unit' when the units are field-connected",
+                  "write the wiring lines for them unless another party is named"):
+        assert words in WRITE_PROMPT, words
+    assert WRITE_PROMPT.index("CONNECTING THE DOTS") < WRITE_PROMPT.index("FACTORY CONTROLS — AME PRACTICE")
+    assert WRITE_PROMPT.index("SPLIT SYSTEMS AND VRF") < WRITE_PROMPT.index("OUTPUT\n")
+
+
+def test_a_rule_the_user_adds_to_the_practice_file_reaches_the_prompt(tmp_path):
+    from estimator.writing.whole_job import GEM_FILE, gem_prompt
+    rules = tmp_path / "ame_practice.txt"
+    rules.write_text("AME PRACTICE\nPUMPS — AME PRACTICE: a synthetic rule for the test.\n", encoding="utf-8")
+    assert "PUMPS — AME PRACTICE: a synthetic rule for the test." in gem_prompt(GEM_FILE, rules)
+    assert "FACTORY CONTROLS — AME PRACTICE" not in gem_prompt(GEM_FILE, tmp_path / "none.txt")

@@ -2050,9 +2050,8 @@ def _plain_assumption(text: str, style) -> str | None:
 
 def flag_review(name: str, text: str, line, style) -> tuple[ReviewItem | None, str | None]:
     """The GEM's flag on one line: (its review row, the "*" clarification printed in brackets at the end of the line, or
-    None). Only a
-    clarification the client needs prints: "*Confirm quantity: <device>" after a red line (or a yellow one about a
-    quantity) and "*Assumed: <what>" after an orange one, in plain words about the scope, never the AI's reasoning (that
+    None). Only a clarification the client needs prints: "*Confirm quantity: <device>" on a red line (or a yellow one
+    about a quantity) and "*Assumed: <what>" on an orange one, in plain words about the scope, never the AI's reasoning (that
     stays in the Evidence Package). A yellow ownership flag and a green note are review rows only."""
     flag = getattr(line, "flag", "") or ""
     if not flag:

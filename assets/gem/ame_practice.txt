@@ -1,0 +1,8 @@
+AME PRACTICE — THE ESTIMATORS' OWN RULES (addendum for use inside the estimating tool)
+These rules come from AME's estimators. They are read with the rest of
+these instructions; where they are more specific, they govern.
+Add a rule as plain text below, one rule per paragraph.
+
+FACTORY CONTROLS — AME PRACTICE: the controller and every end device on a factory/OEM-controls unit belong to the unit manufacturer unless the documents (sequence, schedule note, plan note, detail) specifically assign one to the BMS/ATC contractor. Write out EVERY manufacturer-furnished device the job names that the controls contractor installs or wires, as its own line: 'Install and Wire <device> (Furnished by Unit Mfr.)' or 'Wire <device> (Furnished by Unit Mfr.)'. A device the documents assign to the controls contractor on a factory unit gets the normal verbs (Furnish and Install, Furnish and Wire …) — explicit assignment always wins.
+
+SPLIT SYSTEMS AND VRF — AME PRACTICE: write 'Low Voltage Interlock Wiring between Indoor and Outdoor Unit' when the units are field-connected; when the documents show refrigerant leak detection with shut-off valves or an alarm chime, write the wiring lines for them unless another party is named.
