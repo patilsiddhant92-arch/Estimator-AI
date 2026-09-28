@@ -8,7 +8,8 @@ from pdfs import FILLER, Page, make_pdf
 
 
 @pytest.mark.parametrize("text", ["M001.00", "M-101", "M1.01", "M00-03", "TC00-00", "H-301", "M-111",
-                                  "FP-101A", "MSK-001", "E-1.01", "M001.3", "M 101", "P01-00A1.1"])
+                                  "FP-101A", "MSK-001", "E-1.01", "M001.3", "M 101", "P01-00A1.1",
+                                  "H3T-M-611", "H5-P-501", "HEL03-M-101", "H3-C-876"])
 def test_sheet_number_shapes(text):
     assert SHEET_NUMBER.fullmatch(text)
 
@@ -194,3 +195,39 @@ def test_a_label_or_a_long_line_before_the_number_is_not_a_title(before):
 def test_a_title_block_title_is_marked_as_such():
     spans = [_span("HVAC SCHEDULES SHEET 3", 20.4, 0.91, 0.851, w=0.07), _span("M006.00", 41, 0.935, 0.92, h=0.02)]
     assert read_title_block(spans).source == "title block"
+
+
+# --- prefixed sheet numbers, and the label-then-value layout (synthetic, ~11.5 pt throughout) ----------
+
+
+def test_a_prefixed_number_in_the_size_based_layout():
+    # No labels at all: the largest text above the number is still the title, and the prefixed
+    # number still wins over the size threshold on its own (11.5 pt is below MIN_NUMBER_SIZE,
+    # so this only works once the number is large enough — here it is, unlike the labelled case below).
+    spans = [_span("CHILLED WATER PIPING FLOW DIAGRAM", 20.4, 0.90, 0.85, w=0.09),
+             _span("H3T-M-611", 41, 0.935, 0.92, h=0.02)]
+    block = read_title_block(spans)
+    assert block.number == "H3T-M-611"
+    assert block.title == "CHILLED WATER PIPING FLOW DIAGRAM"
+
+
+def test_the_labelled_layout_reads_a_small_prefixed_number_and_title():
+    # Synthetic version of the real shape: a small "SHEET NAME" label, 2-3 lines of ~11.5 pt title text,
+    # then a small "SHEET NUMBER" label, then the ~11.5 pt prefixed number directly below it — all of it
+    # below MIN_NUMBER_SIZE / MIN_TITLE_SIZE (12 pt), so only the labelled reading finds it.
+    spans = [
+        _span("SHEET NAME", 8, 0.90, 0.780),
+        _span("MECHANICAL - TECHNOLOGY CHILLED WATER PIPING", 11.5, 0.90, 0.795, w=0.09),
+        _span("FLOW DIAGRAM - ITE BLOCK - 3 CDU CONFIGURATION", 11.5, 0.90, 0.808, w=0.09),
+        _span("SHEET NUMBER", 8, 0.90, 0.900),
+        _span("H3T-M-611", 11.5, 0.90, 0.915),
+    ]
+    block = read_title_block(spans)
+    assert block.number == "H3T-M-611"
+    assert block.title == ("MECHANICAL - TECHNOLOGY CHILLED WATER PIPING "
+                            "FLOW DIAGRAM - ITE BLOCK - 3 CDU CONFIGURATION")
+
+
+def test_an_existing_unprefixed_number_still_reads_the_same():
+    spans = [_span("HVAC SCHEDULES SHEET 3", 20.4, 0.91, 0.851, w=0.07), _span("M006.00", 41, 0.935, 0.92, h=0.02)]
+    assert read_title_block(spans) == TitleBlock("M006.00", "HVAC SCHEDULES SHEET 3")

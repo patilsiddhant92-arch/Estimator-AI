@@ -20,6 +20,21 @@ SHEET_TYPES = ASSETS / "reading_lists" / "sheet_types.json"
 TYPES = ("Schedules", "Plans", "Details", "Air riser", "Water riser", "Network riser", "Control diagrams", "Diagrams",
          "Sections and elevations", "Demolition", "Specifications", "Notes and legends")
 _LETTERS = re.compile(r"^([A-Z]{1,3})")
+# A number with a building/phase prefix segment ("H3T-M-611", "HEL03-M-101"): the discipline letters
+# are read from the segment after the prefix, not the prefix itself.
+_PREFIXED_LETTERS = re.compile(r"^(?=[A-Z0-9]{1,6}-)[A-Z0-9]*[A-Z][A-Z0-9]*-([A-Z]{1,3})(?=[-\s.]?\d)")
+
+# A document's file name marks a single discipline when one of these tokens is set off by
+# "-", "_", space or ".": "M" / "MECH" / "MECHANICAL" and the like.
+_FILENAME_DISCIPLINES = {
+    "M": "Mechanical", "MECH": "Mechanical", "MECHANICAL": "Mechanical",
+    "P": "Plumbing", "PLUMB": "Plumbing", "PLUMBING": "Plumbing",
+    "E": "Electrical", "ELEC": "Electrical", "ELECTRICAL": "Electrical",
+    "C": "Civil", "CIVIL": "Civil",
+    "A": "Architectural", "ARCH": "Architectural",
+    "FP": "Fire protection",
+}
+_FILENAME_TOKEN = re.compile(r"[-_ .]")
 
 
 @dataclass(frozen=True)
@@ -60,13 +75,22 @@ def discipline_of(number: str | None, title: str | None, reading: SheetTypes) ->
         for name, patterns in reading.by_title:
             if any(p.search(title) for p in patterns):
                 return name
-    letters = _LETTERS.match(number or "")
+    prefixed = _PREFIXED_LETTERS.match(number or "")
+    letters = prefixed or _LETTERS.match(number or "")
     if letters:
         code = letters.group(1)
         for length in range(len(code), 0, -1):
             if code[:length] in reading.by_letters:
                 return reading.by_letters[code[:length]]
     return "Unknown"
+
+
+def discipline_from_filename(name: str) -> str | None:
+    """The single discipline a document's file name marks, when exactly one of its
+    "-"/"_"/space/"."-separated tokens names one (design §9.2's document fallback)."""
+    tokens = [t.upper() for t in _FILENAME_TOKEN.split(Path(name).stem) if t]
+    found = {_FILENAME_DISCIPLINES[t] for t in tokens if t in _FILENAME_DISCIPLINES}
+    return next(iter(found)) if len(found) == 1 else None
 
 
 def classify_sheet(record: PageRecord, block: TitleBlock, reading: SheetTypes | None = None) -> Sheet:

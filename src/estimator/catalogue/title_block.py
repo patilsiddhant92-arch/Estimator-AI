@@ -17,7 +17,10 @@ from dataclasses import dataclass, field
 
 from estimator.catalogue.pdf import Span
 
-SHEET_NUMBER = re.compile(r"[A-Z]{1,3}[-\s.]?\d{1,4}(?:-\d{1,3}(?:[A-Z]\d{0,3})?)?(?:\.\d{1,3})?[A-Z]?")
+SHEET_NUMBER = re.compile(
+    r"(?:(?=[A-Z0-9]{1,6}-)[A-Z0-9]*[A-Z][A-Z0-9]*-)?"     # an optional building/phase prefix ("H3T-", "HEL03-")
+    r"[A-Z]{1,3}[-\s.]?\d{1,4}(?:-\d{1,3}(?:[A-Z]\d{0,3})?)?(?:\.\d{1,3})?[A-Z]?"
+)
 MIN_NUMBER_SIZE = 12      # points: sheet numbers measured 19–56 pt; a cross-reference is ~10
 MIN_TITLE_SIZE = 12       # points: titles measured 15–25 pt; labels, names and notes are 7–10
 LABEL_SIZE = 12           # labels ("DRAWING TITLE:", "SCALE", "Drawing No.:") are smaller than this
@@ -25,9 +28,10 @@ TITLE_REACH = 0.18        # how far above the number, as a fraction of the sheet
 COLUMN_SLACK = 0.06       # how far left of the number's column a title line can begin
 SAME_SIZE = 0.9           # title lines are within 10% of the title's largest line
 MAX_TITLE_CHARS = 90      # a longer line is a paragraph — a disclaimer or a note — not a title line
-_TITLE_LABEL = re.compile(r"^(?:(?:SHEET|DRAWING)\s*)?TITLE\s*:?$", re.I)
+_TITLE_LABEL = re.compile(r"^(?:SHEET\s*(?:TITLE|NAME)|DRAWING\s*TITLE|TITLE)\s*:?$", re.I)
+_NUMBER_LABEL = re.compile(r"^(?:SHEET|DRAWING|DWG)\s*(?:NUMBER|NO)\s*[:.]{0,2}$", re.I)
 _NOT_TITLE = re.compile(
-    r"^(?:(?:SHEET|DRAWING|DWG)\s*(?:NO\.?|NUMBER|TITLE)|SCALE|DATE|REV|REVISION|REVISIONS|PROJECT|PROJ|DRAWN|CHECKED|"
+    r"^(?:(?:SHEET|DRAWING|DWG)\s*(?:NO\.?|NUMBER|TITLE|NAME)|SCALE|DATE|REV|REVISION|REVISIONS|PROJECT|PROJ|DRAWN|CHECKED|"
     r"ISSUED|JOB|SEAL|KEY PLAN|NORTH|TRUE NORTH|NOT FOR CONSTRUCTION|INTERNAL|THIS DRAWING|COPYRIGHT|PRINCIPAL)\b"
     r"|^[\d/.\-: ]+$|^[A-Z]:\\", re.I)   # the last: a file path printed on the sheet edge
 
@@ -98,13 +102,15 @@ def read_drawing_index(texts: Iterable[str]) -> dict[str, str]:
 
 
 def read_title_block(spans: Sequence[Span], index: Mapping[str, str] | None = None) -> TitleBlock:
-    numbers = [s for s in spans if s.size >= MIN_NUMBER_SIZE and SHEET_NUMBER.fullmatch(s.text)]
-    if not numbers:
-        return TitleBlock(None, None)
-    # A real sheet number almost always carries two digits in a row somewhere ("M00-03", "P01-00A1.1");
-    # a keyplan grid label or grid line ("D1", "B.9", "V4") does not — prefer the real number over those,
-    # then the larger text, then whichever sits lower on the sheet.
-    number = max(numbers, key=lambda s: (bool(re.search(r"\d{2}", s.text)), s.size, s.y0))
+    number = _number_by_label(spans)
+    if number is None:
+        numbers = [s for s in spans if s.size >= MIN_NUMBER_SIZE and SHEET_NUMBER.fullmatch(s.text)]
+        if not numbers:
+            return TitleBlock(None, None)
+        # A real sheet number almost always carries two digits in a row somewhere ("M00-03", "P01-00A1.1");
+        # a keyplan grid label or grid line ("D1", "B.9", "V4") does not — prefer the real number over those,
+        # then the larger text, then whichever sits lower on the sheet.
+        number = max(numbers, key=lambda s: (bool(re.search(r"\d{2}", s.text)), s.size, s.y0))
     text = " ".join(number.text.split())
     title = _title_by_label(spans, number) or _title_above(spans, number)
     if title:
@@ -113,6 +119,22 @@ def read_title_block(spans: Sequence[Span], index: Mapping[str, str] | None = No
         return TitleBlock(text, index[index_key(text)], DRAWING_INDEX)
     title = _title_beside(spans, number)
     return TitleBlock(text, title, BESIDE_NUMBER) if title else TitleBlock(text, None)
+
+
+def _number_by_label(spans: Sequence[Span]) -> Span | None:
+    """When the strip labels the sheet number ("SHEET NUMBER", "SHEET NO", "DRAWING NUMBER",
+    "DRAWING NO", "DWG NO"), the sheet-number-shaped text directly below it or to its right on
+    the same line is the number, whatever its size."""
+    label = next((s for s in spans if _NUMBER_LABEL.match(s.text.strip()) and s.size < LABEL_SIZE), None)
+    if label is None:
+        return None
+    candidates = [
+        s for s in spans
+        if s is not label and SHEET_NUMBER.fullmatch(" ".join(s.text.split()))
+        and ((label.y0 - 0.004 <= s.y0 <= label.y0 + 0.10 and label.x0 - 0.01 <= s.x0 <= label.x0 + 0.12)
+             or (abs(s.y0 - label.y0) < 0.006 and s.x0 > label.x0))
+    ]
+    return min(candidates, key=lambda s: (round(s.y0, 3), s.x0)) if candidates else None
 
 
 def _title_beside(spans: Sequence[Span], number: Span) -> str | None:
@@ -134,7 +156,7 @@ def _join(lines: list[Span]) -> str:
 def _is_label(span: Span) -> bool:
     text = span.text.strip()
     return span.size < LABEL_SIZE and (text.endswith(":") or bool(_NOT_TITLE.search(text))
-                                       or text.upper() in {"DRAWING", "SHEET", "TITLE"})
+                                       or text.upper() in {"DRAWING", "SHEET", "TITLE", "NAME"})
 
 
 def _title_by_label(spans: Sequence[Span], number: Span) -> str | None:
@@ -151,7 +173,7 @@ def _title_by_label(spans: Sequence[Span], number: Span) -> str | None:
                 if lines:
                     break
                 continue
-            if span.size >= MIN_TITLE_SIZE and len(span.text) <= MAX_TITLE_CHARS and not SHEET_NUMBER.fullmatch(span.text):
+            if len(span.text) <= MAX_TITLE_CHARS and not SHEET_NUMBER.fullmatch(span.text):
                 lines.append(span)
         if lines:
             return _join(lines)

@@ -206,3 +206,28 @@ def test_a_sheet_whose_title_block_gives_no_title_takes_it_from_the_drawing_inde
     result = catalogue_job(root, tmp_path / "cache")
     sheet = next(s for s in result.sheets if s.number == "H601")
     assert (sheet.title, sheet.title_source, sheet.types) == ("HVAC SCHEDULES", "drawing index", ("Schedules",))
+
+
+def test_a_sheet_with_no_discipline_takes_it_from_the_document_name(tmp_path):
+    # Neither the title nor the sheet number's letters name a discipline, but the file name does.
+    root = tmp_path / "26-9999"
+    base = root / "2. Takeoffs" / "1. Base Takeoff"
+    plan = Page(width=3024, height=2160, texts=((200, 300, FILLER, 12), (2640, 1860, "SOMETHING", 20),
+                                                (2800, 2000, "X-1", 40)))
+    make_pdf(base / "20260917-PROJ-TFO-M-IFR.pdf", plan)
+    result = catalogue_job(root, tmp_path / "cache")
+    [sheet] = result.sheets
+    assert (sheet.number, sheet.discipline) == ("X-1", "Mechanical")
+
+
+def test_a_non_drawing_document_is_not_given_a_discipline_by_its_file_name(tmp_path):
+    # The document fallback only applies to a drawing set, not a bulletin/addendum (or a spec
+    # book) that happens to carry a discipline token in its name.
+    root = tmp_path / "26-9999"
+    base = root / "2. Takeoffs" / "1. Base Takeoff"
+    plan = Page(width=3024, height=2160, texts=((200, 300, FILLER, 12), (2640, 1860, "SOMETHING", 20),
+                                                (2800, 2000, "X-1", 40)))
+    make_pdf(base / "Addendum 1 - M.pdf", plan)
+    result = catalogue_job(root, tmp_path / "cache")
+    [sheet] = result.sheets
+    assert sheet.discipline == "Unknown"

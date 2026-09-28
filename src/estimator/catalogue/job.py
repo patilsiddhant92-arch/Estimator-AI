@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from collections import Counter, defaultdict
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 from estimator.catalogue.documents import JobFolder, find_documents
@@ -10,7 +10,7 @@ from estimator.catalogue.overview import FOUND, STANDARD_EXCLUSION, SpecOverview
 from estimator.catalogue.pdf import tessdata
 from estimator.catalogue.qualify import BidCheck, check_bid
 from estimator.catalogue.register import PageRecord, register_job
-from estimator.catalogue.sheet_types import Sheet, classify_sheet
+from estimator.catalogue.sheet_types import Sheet, classify_sheet, discipline_from_filename
 from estimator.catalogue.spec_sections import SpecSection, index_sections
 from estimator.catalogue.tags import TagEntry, index_tags
 from estimator.catalogue.title_block import read_drawing_index, read_title_block
@@ -41,6 +41,9 @@ def catalogue_job(root: Path, cache_dir: Path | None = None, workers: int = 1,
     index = read_drawing_index(record.text for record in pages if record.status in ("text", "ocr"))
     sheets = tuple(classify_sheet(record, read_title_block(record.edge_spans, index))
                    for record in pages if record.large_sheet)
+    # A sheet whose discipline is still unknown takes it from its document's file name, when the
+    # name carries a single discipline token — but never for a spec book, which isn't a drawing set.
+    sheets = tuple(_with_filename_discipline(sheet, kinds) for sheet in sheets)
     by_sheet = {(s.document, s.page): s for s in sheets}
     written = [record for record in pages if kinds[record.document] != "drawings"]
     sections = tuple(index_sections(written))
@@ -54,6 +57,13 @@ def catalogue_job(root: Path, cache_dir: Path | None = None, workers: int = 1,
 
 def _name(relative: str) -> str:
     return relative.rsplit("/", 1)[-1]
+
+
+def _with_filename_discipline(sheet: Sheet, kinds: dict[str, str]) -> Sheet:
+    if sheet.discipline != "Unknown" or kinds.get(sheet.document) != "drawings":
+        return sheet
+    discipline = discipline_from_filename(_name(sheet.document))
+    return replace(sheet, discipline=discipline) if discipline else sheet
 
 
 def _ranges(numbers: list[int]) -> str:

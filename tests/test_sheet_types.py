@@ -1,7 +1,9 @@
 import pytest
 
 from estimator.catalogue.register import PageRecord
-from estimator.catalogue.sheet_types import Sheet, SheetTypes, TYPES, classify_sheet, discipline_of, types_of
+from estimator.catalogue.sheet_types import (
+    Sheet, SheetTypes, TYPES, classify_sheet, discipline_from_filename, discipline_of, types_of,
+)
 from estimator.catalogue.title_block import TitleBlock
 
 READING = SheetTypes.load()
@@ -62,6 +64,31 @@ def test_types_from_the_title(title, types):
 ])
 def test_discipline_from_the_title_first_then_the_letters(number, title, discipline):
     assert discipline_of(number, title, READING) == discipline
+
+
+@pytest.mark.parametrize("number, title, discipline", [
+    ("H3T-M-611", None, "Mechanical"),
+    ("H5-P-501", None, "Plumbing"),
+    ("HEL03-M-101", None, "Mechanical"),
+    ("H3-C-876", None, "Civil"),
+])
+def test_discipline_of_a_prefixed_number(number, title, discipline):
+    assert discipline_of(number, title, READING) == discipline
+
+
+@pytest.mark.parametrize("name, discipline", [
+    ("20260917-PROJ-TFO-M-IFR.pdf", "Mechanical"),
+    ("20260917-PROJ-TFO-MECH-IFR.pdf", "Mechanical"),
+    ("Plumbing Set.pdf", "Plumbing"),
+    ("PROJ_ELEC_IFR.pdf", "Electrical"),
+    ("PROJ.C.IFR.pdf", "Civil"),
+    ("PROJ-ARCH-IFR.pdf", "Architectural"),
+    ("PROJ-FP-IFR.pdf", "Fire protection"),
+    ("PROJ-IFR.pdf", None),                    # no discipline token at all
+    ("PROJ-M-E-IFR.pdf", None),                 # two different disciplines named — not a single one
+])
+def test_discipline_from_filename(name, discipline):
+    assert discipline_from_filename(name) == discipline
 
 
 def test_a_sheet_record():
