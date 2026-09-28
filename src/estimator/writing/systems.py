@@ -27,7 +27,7 @@ from dataclasses import dataclass, field
 from functools import lru_cache
 from pathlib import Path
 
-from estimator.catalogue.tags import Equipment, find_tags
+from estimator.catalogue.tags import Equipment, find_tags, tag_prefix
 from estimator.reading.inventory import COUNTED, _one_copy_per_sheet, compact_tags
 from estimator.reading.sequences import POINTS, SEQUENCE
 
@@ -168,7 +168,7 @@ def _rules(path: Path = GROUPS_FILE) -> _Rules:
 # --- small helpers ---------------------------------------------------------------------------------
 
 def _prefix(tag: str) -> str:
-    return tag.split("-", 1)[0]
+    return tag_prefix(tag)
 
 
 def _name(document: str) -> str:

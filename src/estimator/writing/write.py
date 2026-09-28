@@ -151,8 +151,12 @@ def _sentence(text: str, start: int, end: int) -> str:
 
 
 def tag_list(tags) -> str:
-    """The tags as the proposal writes them: "VAV-21-01 thru 12", "AHU-1, 2, 3"."""
+    """The tags as the proposal writes them: "VAV-21-01 thru 12", "AHU-1, 2, 3", "HEL03_04_FCU01 thru 04"."""
     def stem(tag: str) -> str:
+        if "_" in tag:                  # HEL03_04_FCU01: the shared part runs to the unit's number
+            m = re.match(r"^(.*_[A-Z]+[-‐‑–—]?)\d", tag)
+            if m:
+                return m.group(1)
         cut = max(tag.rfind("-"), tag.rfind("."))
         return tag[:cut + 1] if cut > 0 else ""
 

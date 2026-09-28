@@ -7,10 +7,16 @@ from estimator.catalogue.tags import Equipment, TagEntry, find_tags, index_tags,
 EQUIPMENT = Equipment.load()
 
 
-@pytest.mark.parametrize("written", ["AHU-1", "AHU 1", "AHU#1", "AHU–1", "AHU — 1", "AHU No. 1", "AHU1",
+@pytest.mark.parametrize("written", ["AHU-1", "AHU 1", "AHU#1", "AHU–1", "AHU — 1", "AHU No. 1",
                                      "Air Handling Unit No. 1", "AIR HANDLING UNIT #1"])
 def test_every_spelling_is_one_tag(written):
     assert find_tags(f"serves {written}, on the roof", EQUIPMENT) == ["AHU-1"]
+
+
+def test_a_tag_with_no_dash_is_one_tag_in_a_series_or_a_tag_cell():
+    assert find_tags("serves AHU1, on the roof", EQUIPMENT) == []
+    assert find_tags("serves AHU1, on the roof", EQUIPMENT, joined=True) == ["AHU-1"]
+    assert find_tags("AHU1 AHU2 AHU3", EQUIPMENT) == ["AHU-1", "AHU-2", "AHU-3"]
 
 
 def test_ahu_1_is_never_ahu_10():

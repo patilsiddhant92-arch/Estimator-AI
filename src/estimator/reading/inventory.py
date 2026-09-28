@@ -16,7 +16,7 @@ from collections.abc import Collection, Iterable, Sequence
 from dataclasses import dataclass, field, replace
 
 from estimator.catalogue.job import CONTROLS_DISCIPLINES
-from estimator.catalogue.tags import Equipment
+from estimator.catalogue.tags import Equipment, tag_prefix
 from estimator.reading.revisions import governing_pages
 from estimator.reading.schedules import (BY_EYE, EQUIPMENT, Schedule, header_key, kind_from_title, quantity_header,
                                         vocabulary)
@@ -86,7 +86,7 @@ def _sheets(n: int) -> str:
 def compact_tags(tags) -> str:
     """Runs of three or more consecutive tags shown as "VAV-101 thru VAV-112"."""
     parts: list[str] = []
-    run: list[tuple[str, str, int, str]] = []
+    run: list[tuple[str, int, int, str, str]] = []
 
     def close():
         if len(run) >= 3:
@@ -103,9 +103,11 @@ def compact_tags(tags) -> str:
             continue
         stem, digits = m.groups()
         width = len(digits) if digits.startswith("0") else 0
-        if run and not (run[-1][0] == stem and run[-1][1] == width and run[-1][2] + 1 == int(digits)):
+        # CDU09 → CDU10 runs on (same width); VAV-9 → VAV-10 too (neither padded); VAV-9 → VAV-010 doesn't
+        same_width = run and (len(run[-1][4]) == len(digits) or not (run[-1][1] or width))
+        if run and not (run[-1][0] == stem and same_width and run[-1][2] + 1 == int(digits)):
             close()
-        run.append((stem, width, int(digits), tag))
+        run.append((stem, width, int(digits), tag, digits))
     close()
     return ", ".join(parts)
 
@@ -219,6 +221,8 @@ def _as_type(tag: str, kind: str, schedule: Schedule, row, placed: Placements | 
     size, when its schedule has a QUANTITY column, or when the plans label it four or more times on one sheet
     (floors counted)."""
     column = quantity_header(schedule)
+    if getattr(row, "shares", 1) > 1:
+        return None      # the row lists several tags ("A THRU C"): the tags are the count, one unit each
     if _DECIMAL_TYPE.match(tag):
         why = f"its tag has a decimal size, {tag}"
     elif column:
@@ -284,7 +288,7 @@ def build_inventory(catalogue, schedules: list[Schedule], typicals: Sequence = (
         if tag in new_kinds:
             return new_kinds[tag]
         entry = entries.get(tag)
-        return entry.kind if entry else equipment.prefixes.get(tag.split("-", 1)[0], "Equipment")
+        return entry.kind if entry else equipment.prefixes.get(tag_prefix(tag), "Equipment")
 
     # A tag named only in the specifications — a paragraph or page reference, a model number — and on no
     # drawing sheet isn't a unit: it's left out, and listed once.
@@ -318,13 +322,16 @@ def build_inventory(catalogue, schedules: list[Schedule], typicals: Sequence = (
                 continue
             listings[row.tag].append((_label(schedule), _place(schedule)))
             first_row.setdefault(row.tag, (schedule, row))
+            if getattr(row, "shares", 1) > 1 and getattr(first_row[row.tag][1], "shares", 1) == 1:
+                first_row[row.tag] = (schedule, row)   # named in a series ("A THRU C"): one unit, whatever another
+                                                       # schedule's QUANTITY column says of its own row
             if schedule.from_text:
                 from_text.setdefault(row.tag, _label(schedule))
             if schedule.source == BY_EYE:
                 by_eye.add(row.tag)
             if row.existing:
                 existing.add(row.tag)
-    scheduled_prefixes = {tag.split("-", 1)[0] for tag in listings}
+    scheduled_prefixes = {tag_prefix(tag) for tag in listings}
     spec_only = [tag for tag in spec_only if tag not in listings]
     # What the schedules read from each sheet say outside their tag column: models, remarks, notes.
     read_places = {_place(schedule) for schedule in schedules}
@@ -340,7 +347,7 @@ def build_inventory(catalogue, schedules: list[Schedule], typicals: Sequence = (
         note there (a model number, "AS LOW AS 8HZ") and on no plan."""
         if not entry.on_schedules or not all(p in read_places for p in entry.on_schedules):
             return False
-        if entry.tag.split("-", 1)[0] in equipment.schedule_only:
+        if tag_prefix(entry.tag) in equipment.schedule_only:
             return True
         return (any(_compact(entry.tag) in other_text[p] for p in entry.on_schedules)
                 and not any(p in drawings for p in entry.elsewhere))
@@ -389,6 +396,13 @@ def build_inventory(catalogue, schedules: list[Schedule], typicals: Sequence = (
             elif tag in by_eye:
                 item = items[-1]
                 items[-1] = replace(item, reason=f"{item.reason} — {READ_BY_EYE}")
+            first_schedule, first = first_row[tag]
+            column = quantity_header(first_schedule)
+            stated = _count_in(first.cells.get(column)) if column and getattr(first, "shares", 1) > 1 else None
+            if stated is not None and stated != first.shares:
+                item = items[-1]
+                items[-1] = replace(item, reason=f"{item.reason} — its schedule row lists {first.shares} tags but its "
+                                                 f"{column} column says {stated}; check the count", action="confirm")
             continue
         if tag in spec_only:
             continue
@@ -410,7 +424,7 @@ def build_inventory(catalogue, schedules: list[Schedule], typicals: Sequence = (
                                        f"Appears only once in the whole set ({_list(seen)}) and on no schedule — "
                                        f"unclear scope; don't price until confirmed", "exclude pending"))
         else:
-            why = ("but not on any schedule" if tag.split("-", 1)[0] in scheduled_prefixes
+            why = ("but not on any schedule" if tag_prefix(tag) in scheduled_prefixes
                    else "and no schedule lists this kind of equipment")
             items.append(InventoryItem(tag, kind, "EXTRA", None, None, seen,
                                        f"Shown on {_list(seen)} {why} — don't price until confirmed",
@@ -456,7 +470,7 @@ def _plan_families(catalogue, entries, scheduled_prefixes) -> tuple[set[str], se
     controls = {p for p, s in place.items() if s.discipline in CONTROLS_DISCIPLINES}
     families: dict[str, list] = defaultdict(list)
     for entry in entries:
-        prefix = entry.tag.split("-", 1)[0]
+        prefix = tag_prefix(entry.tag)
         if prefix not in scheduled_prefixes:
             families[prefix].append(entry)
     on_plans: set[str] = set()
@@ -475,7 +489,7 @@ def _from_text_flags(from_text: dict[str, str]) -> list[str]:
     """One line per family counted from a schedule sheet's text."""
     by_prefix: dict[str, list[str]] = defaultdict(list)
     for tag, label in from_text.items():
-        by_prefix[tag.split("-", 1)[0]].append(label)
+        by_prefix[tag_prefix(tag)].append(label)
     return [f"{len(labels)} {prefix} counted from the text of {', '.join(dict.fromkeys(labels))} — the table itself "
             f"couldn't be read; check the count" for prefix, labels in by_prefix.items()]
 
@@ -530,7 +544,7 @@ def _new_prefix_flags(schedules: list[Schedule]) -> list[str]:
     """One line per schedule that lists units whose prefix isn't in the equipment list yet."""
     flags = []
     for schedule in schedules:
-        prefixes = list(dict.fromkeys(row.tag.split("-", 1)[0] for row in schedule.rows if row.tag and row.kind))
+        prefixes = list(dict.fromkeys(tag_prefix(row.tag) for row in schedule.rows if row.tag and row.kind))
         if prefixes:
             kind = next(row.kind for row in schedule.rows if row.kind)
             flags.append(f"{_label(schedule)}: {'prefix' if len(prefixes) == 1 else 'prefixes'} {', '.join(prefixes)} "
@@ -543,19 +557,19 @@ def _new_prefix_flags(schedules: list[Schedule]) -> list[str]:
 def _totals(items: list[InventoryItem], schedules: list[Schedule], equipment: Equipment,
             new_kinds: dict[str, str] | None = None, from_text: set[str] | None = None) -> list[FamilyTotal]:
     new_kinds = new_kinds or {}
-    texted = {tag.split("-", 1)[0] for tag in from_text or ()}
-    kinds = {tag.split("-", 1)[0]: kind for tag, kind in new_kinds.items()}
+    texted = {tag_prefix(tag) for tag in from_text or ()}
+    kinds = {tag_prefix(tag): kind for tag, kind in new_kinds.items()}
     order: list[str] = []
     for schedule in schedules:
         for row in schedule.rows:
-            if row.tag and row.tag.split("-", 1)[0] not in order:
-                order.append(row.tag.split("-", 1)[0])
+            if row.tag and tag_prefix(row.tag) not in order:
+                order.append(tag_prefix(row.tag))
     by_prefix: dict[str, dict[str, list[str]]] = defaultdict(lambda: defaultdict(list))
     quantity: dict[str, int] = {}
     item_kinds: dict[str, str] = {}
     for item in items:
         if item.category != "TYPE ONLY":
-            prefix = item.tag.split("-", 1)[0]
+            prefix = tag_prefix(item.tag)
             typed = item.reason.startswith(_A_TYPE)
             by_prefix[prefix]["TYPE PENDING" if typed and item.category == "PENDING" else item.category].append(item.tag)
             quantity[item.tag] = item.quantity or 0

@@ -21,7 +21,7 @@ import pymupdf
 
 from estimator.catalogue.job import CONTROLS_DISCIPLINES
 from estimator.catalogue.pdf import clean_text
-from estimator.catalogue.tags import Equipment, find_tags, sheet_number_tags
+from estimator.catalogue.tags import Equipment, find_tags, located_tags, sheet_number_tags, tag_prefix
 from estimator.reading.pages import unreadable_page
 
 ASSETS = Path(__file__).resolve().parents[3] / "assets"
@@ -39,6 +39,7 @@ class ScheduleRow:
     model: str | None
     existing: bool = False     # the row says EXISTING, EXIST., (E) or TO REMAIN: not new work
     kind: str | None = None    # set only when the tag's prefix isn't in equipment.json: the schedule's title says what it is
+    shares: int = 1            # how many tags the schedule row lists ("A THRU C", several tags in one cell)
 
 
 @dataclass(frozen=True)
@@ -130,7 +131,7 @@ _SPLIT = re.compile(r"^(.*?)(\d+)$")
 
 
 def _one_tag(text: str, equipment: Equipment) -> str | None:
-    found = find_tags(text, equipment)
+    found = find_tags(text, equipment, joined=True)
     return found[0] if len(found) == 1 else None
 
 
@@ -147,6 +148,11 @@ def expand_tags(text: str, equipment: Equipment | None = None, range_words: tupl
     token = rf"[A-Z][A-Z0-9#{_DASH}]*\d"
     found: list[tuple[int, str]] = []
     spans: list[tuple[int, int]] = []
+    for start, end, tags in located_tags(text, equipment):     # HEL03_04_FCU01, HEL03_04_TWAS01 THRU TWAS03
+        found += [(start, tag) for tag in tags]
+        spans.append((start, end))
+    if spans:
+        text = "".join(" " if any(a <= i < b for a, b in spans) else ch for i, ch in enumerate(text))
     for m in re.finditer(rf"(?<![A-Z0-9])({token})\s*(?:{words})\s*((?:[A-Z][A-Z0-9#{_DASH}]*)?\d+)(?![A-Z0-9])", text):
         first = _one_tag(m.group(1), equipment)
         if first is None or not _SPLIT.match(first):
@@ -175,7 +181,7 @@ def expand_tags(text: str, equipment: Equipment | None = None, range_words: tupl
         spans.append(m.span())
     rest = "".join(" " if any(a <= i < b for a, b in spans) else ch for i, ch in enumerate(text))
     by_code, by_name = equipment.patterns()
-    found += [(m.start(), tag) for m in by_code.finditer(rest) for tag in find_tags(m.group(0), equipment)[:1]]
+    found += [(m.start(), tag) for m in by_code.finditer(rest) for tag in find_tags(m.group(0), equipment, joined=True)[:1]]
     found += [(m.start(), tag) for m in by_name.finditer(rest) for tag in find_tags(m.group(0), equipment)[:1]]
     return [tag for _, tag in sorted(found, key=lambda f: f[0])]
 
@@ -450,7 +456,7 @@ def _schedule(grid: _Grid, words: _Words, head: _Head, vocab: Vocabulary, equipm
         if in_notes:
             note_lines.append(" ".join(grid.text(r, c) for c in range(head.col, head.end_col) if grid.text(r, c)))
             continue
-        tags = expand_tags(tag_text, equipment) if _names_a_unit(tag_text, vocab) else []
+        tags = expand_tags(tag_text, equipment) if _names_a_unit(tag_text, vocab, equipment) else []
         if tags and not _compact(re.sub(r"^\(E\)\s*", "", tag_text, flags=re.I)).startswith(_compact(tags[0])):
             tags = []   # a line of text that mentions a unit, not the unit's own row
         if not tags and tag_text and wide_x1 > tag_x1 and _names_a_unit(tag_text, vocab):
@@ -469,9 +475,10 @@ def _schedule(grid: _Grid, words: _Words, head: _Head, vocab: Vocabulary, equipm
         existing = bool(vocab.existing.search(tag_text) or vocab.existing.search(remarks))
         found = [] if tags or head.kind != "tag" or not _names_a_unit(tag_text, vocab) else loose_tags(tag_text, equipment)
         if tags:
-            tagged += [ScheduleRow(tag, cells, maker, model, existing) for tag in tags]
+            tagged += [ScheduleRow(tag, cells, maker, model, existing, shares=len(tags)) for tag in tags]
         elif found:
-            loose.append((len(tagged), [ScheduleRow(tag, cells, maker, model, existing, kind) for tag in found]))
+            loose.append((len(tagged), [ScheduleRow(tag, cells, maker, model, existing, kind, len(found))
+                                        for tag in found]))
         if not tags and tag_text and len(tag_text) <= 12 and not vocab.note_number.match(tag_text):
             typed.append(ScheduleRow(None, cells, maker, model, existing))
             bare += not found and header_key(tag_text) not in vocab.tag_headers
@@ -503,10 +510,18 @@ def _compact(text: str) -> str:
     return re.sub(rf"[\s{_DASH}#.]", "", text).upper()
 
 
-def _names_a_unit(tag_text: str, vocab: Vocabulary) -> bool:
-    """A tag cell starts with the unit's tag and says little else ("VAV-1 THRU VAV-12", "(E) AHU-3");
-    a numbered note or a sentence running through the column is not a unit's row."""
-    return bool(tag_text) and not vocab.note_number.match(tag_text) and len(tag_text.split()) <= 4
+def _names_a_unit(tag_text: str, vocab: Vocabulary, equipment: Equipment | None = None) -> bool:
+    """A tag cell starts with the unit's tag and says little else ("VAV-1 THRU VAV-12", "(E) AHU-3"), or
+    lists only tags (five FCUs in one cell); a numbered note or a sentence running through the column is not
+    a unit's row."""
+    if not tag_text or vocab.note_number.match(tag_text):
+        return False
+    words = tag_text.split()
+    if len(words) <= 4:
+        return True
+    joiners = {w.upper() for w in vocab.range_words} | {"&", ",", "AND"}
+    return equipment is not None and all(w.upper() in joiners or find_tags(w.strip(",;&"), equipment, joined=True)
+                                         for w in words)
 
 
 def _inside(x: float, y: float, box: tuple) -> bool:
@@ -569,7 +584,7 @@ def schedule_from_cells(title: str, headers: Iterable[str], rows: Iterable, note
         tag_text = cells.get(key, "")
         if not any(cells.values()) or not tag_text or vocab.note_number.match(tag_text):
             continue
-        tags = expand_tags(tag_text, equipment) if _names_a_unit(tag_text, vocab) else []
+        tags = expand_tags(tag_text, equipment) if _names_a_unit(tag_text, vocab, equipment) else []
         if tags and not _compact(re.sub(r"^\(E\)\s*", "", tag_text, flags=re.I)).startswith(_compact(tags[0])):
             tags = []
         maker = next((cells[n] for n in makers if cells.get(n)), None)
@@ -578,9 +593,10 @@ def schedule_from_cells(title: str, headers: Iterable[str], rows: Iterable, note
         existing = bool(vocab.existing.search(tag_text) or vocab.existing.search(remarks))
         found = [] if tags or not by_tag or not _names_a_unit(tag_text, vocab) else loose_tags(tag_text, equipment)
         if tags:
-            tagged += [ScheduleRow(tag, cells, maker, model, existing) for tag in tags]
+            tagged += [ScheduleRow(tag, cells, maker, model, existing, shares=len(tags)) for tag in tags]
         elif found:
-            loose.append((len(tagged), [ScheduleRow(tag, cells, maker, model, existing, kind) for tag in found]))
+            loose.append((len(tagged), [ScheduleRow(tag, cells, maker, model, existing, kind, len(found))
+                                        for tag in found]))
         if not tags and len(tag_text) <= 12:
             typed.append(ScheduleRow(None, cells, maker, model, existing))
             bare += not found and header_key(tag_text) not in vocab.tag_headers
@@ -653,8 +669,9 @@ def schedules_from_text(text: str, where: tuple[str, int, str | None], vocab: Vo
         tags = expand_tags(cell, equipment) if cell else []
         if not tags or not _compact(cell).startswith(_compact(tags[0])):
             continue
-        prefix = tags[0].split("-", 1)[0]
-        if cell[len(prefix):len(prefix) + 1].isspace() or (len(prefix) == 1 and not re.match(rf"{prefix}[{_DASH}]", cell)):
+        prefix = tag_prefix(tags[0])
+        spaced = cell[len(prefix):len(prefix) + 1].isspace() or (len(prefix) == 1 and not re.match(rf"{prefix}[{_DASH}]", cell))
+        if spaced and "_" not in tags[0]:      # an underscore-joined tag starts with its location, not its prefix
             continue
         for tag in tags:
             if tag in seen:
@@ -705,14 +722,14 @@ def _plan_tags(catalogue) -> dict[str, set[str]]:
     found: dict[str, set[str]] = {}
     for entry in catalogue.tags:
         if any(p in plans for p in entry.elsewhere):
-            found.setdefault(entry.tag.split("-", 1)[0], set()).add(entry.tag)
+            found.setdefault(tag_prefix(entry.tag), set()).add(entry.tag)
     return found
 
 
 def _thin(found: list[Schedule], plan_tags: dict[str, set[str]]) -> bool:
     """Fewer units on the sheet's schedules than the plans show tags of those families."""
     tags = {row.tag for s in found for row in s.rows if row.tag}
-    families = {tag.split("-", 1)[0] for tag in tags}
+    families = {tag_prefix(tag) for tag in tags}
     return bool(families) and len(tags) < len(set().union(*(plan_tags.get(f, set()) for f in families)))
 
 

@@ -27,7 +27,7 @@ import pymupdf
 
 from estimator.catalogue.job import CONTROLS_DISCIPLINES
 from estimator.catalogue.overview import FOUND, RULED_OUT, STANDARD_CLARIFICATION, STANDARD_EXCLUSION
-from estimator.catalogue.tags import Equipment, find_tags
+from estimator.catalogue.tags import Equipment, find_tags, tag_location, tag_prefix
 from estimator.reading.revisions import governing_pages
 from estimator.reading.schedules import header_key, vocabulary
 from estimator.reading.sequences import POINTS, SEQUENCE
@@ -116,7 +116,7 @@ def _natural(tag: str) -> list:
 
 
 def _prefix(tag: str) -> str:
-    return tag.split("-", 1)[0]
+    return tag_prefix(tag)
 
 
 def _plural(n: int, word: str, many: str | None = None) -> str:
@@ -713,6 +713,7 @@ def _counts(catalogue, reading, counted: frozenset, multipliers: dict) -> dict[s
     blocks: set = set()
     on_page: dict[tuple[str, int], Counter] = defaultdict(Counter)
     codes: set[str] = set()
+    counted_rows: set[int] = set()
     for schedule in reading.schedules:
         block = (schedule.document, schedule.page, tuple(row.tag for row in schedule.rows))
         if len(block[2]) >= 2 and all(block[2]) and block in blocks:
@@ -736,6 +737,9 @@ def _counts(catalogue, reading, counted: frozenset, multipliers: dict) -> dict[s
             if row.tag:
                 family.scheduled.add(row.tag)
             n = _number(row.cells.get(quantity)) if quantity else None
+            if n is not None and id(row.cells) in counted_rows:
+                continue             # one row naming several tags ("A THRU C"): its quantity counted once
+            counted_rows.add(id(row.cells))
             if n is not None:
                 family.quantity = (family.quantity or 0) + n
     valid = {t.tag for t in catalogue.tags} | {t for f in families.values() for t in f.scheduled}
@@ -820,6 +824,9 @@ def _counts_section(reading, families: dict[str, _Family], ids: _Ids) -> list[st
                 f"riser {f.riser or '—'}.")
         if tags:
             text += f" Tags: {tag_list(tags)}."
+        places = Counter(place for tag in tags if (place := tag_location(tag)))
+        if places:
+            text += f" By location: {'; '.join(f'{place} {n}' for place, n in sorted(places.items()))}."
         if total and total.flags:
             text += f" Reading notes: {'; '.join(total.flags)}."
         lines.append(text)
