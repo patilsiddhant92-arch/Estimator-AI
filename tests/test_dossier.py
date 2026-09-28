@@ -483,12 +483,12 @@ def test_each_plan_sheets_own_text_is_given_in_7c_once_per_sheet_number(tmp_path
                                            _sheet(2, "A-101", "FLOOR PLAN", discipline="Architectural",
                                                   document=plumbing))
     catalogue.pages = catalogue.pages + (
-        PageRecord(plumbing, 1, "text", "KEYED NOTE 4 PROVIDE 2-POSITION ACTUATOR ON INTAKE DAMPER " + "Y" * 5000, 0),
+        PageRecord(plumbing, 1, "text", "KEYED NOTE 4 PROVIDE 2-POSITION ACTUATOR ON INTAKE DAMPER " + "Y" * 9000, 0),
         PageRecord(plumbing, 2, "text", "PAINT THE WALLS.", 0))
     d = build_dossier(catalogue, reading, tmp_path)
     part = d.text.split("--- 7c PLAN SHEET TEXT ---")[1].split("== 8.")[0]
     assert "PROVIDE 2-POSITION ACTUATOR ON INTAKE DAMPER" in part and "PAINT THE WALLS." not in part
     p101 = part.split("P-101")[1]
-    assert len(p101) < 2_700 and "…" in p101
+    assert len(p101) < 8_200 and "…" in p101
     for sid in re.findall(r"\[(S\d+)\]", part):
         assert sid in d.sources

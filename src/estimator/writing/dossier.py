@@ -49,8 +49,8 @@ IMAGE_VERSION = 1            # raise when the way pictures are rendered changes
 IMAGES_FOLDER = "dossier-images"
 PLAN_NOTES_LIMIT = 3_000     # characters of one sheet's notes in 7b
 PLAN_NOTE_DISCIPLINES = ("Mechanical", "Controls", "Plumbing")
-PLAN_TEXT_LIMIT = 2_500     # characters of one plan sheet's own text in 7c
-PLAN_TEXT_TOTAL = 40_000    # characters of all plan sheets' text in 7c
+PLAN_TEXT_LIMIT = 8_000     # characters of one plan sheet's own text in 7c (repeats collapsed first)
+PLAN_TEXT_TOTAL = 400_000   # characters of all plan sheets' text in 7c
 
 _QUANTITY_HEADERS = ("QTY", "QUANTITY", "NO OF UNITS", "NO. OF UNITS", "NUMBER OF UNITS", "NO. REQ'D", "NO REQD",
                      "UNITS REQUIRED", "COUNT")
@@ -105,6 +105,15 @@ def _name(document: str) -> str:
 
 def _squash(text: str | None) -> str:
     return " ".join((text or "").split())
+
+
+_REPEAT = re.compile(r"(?<!\S)(\S{1,24})(?: \1(?!\S)){2,}")
+
+
+def _collapse_repeats(text: str) -> str:
+    """A label printed at every symbol on a plan ("EPIV EPIV EPIV …") is given once with its count ("EPIV ×9"),
+    so the sheet's notes are not cut away behind the labels."""
+    return _REPEAT.sub(lambda m: f"{m.group(1)} ×{len(m.group(0).split())}", text)
 
 
 def _norm(text: str) -> str:
@@ -936,7 +945,7 @@ def _plan_sheet_text(catalogue, texts: dict, ids: _Ids, printed: _Printed) -> li
              f"drawing; cut at {PLAN_TEXT_LIMIT:,} characters a sheet.)"]
     used = 0
     for n, sheet in enumerate(chosen.values()):
-        text = _squash(texts.get((sheet.document, sheet.page)))
+        text = _collapse_repeats(_squash(texts.get((sheet.document, sheet.page))))
         if not text:
             continue
         if used + min(len(text), PLAN_TEXT_LIMIT) > PLAN_TEXT_TOTAL:
