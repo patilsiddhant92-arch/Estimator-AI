@@ -88,3 +88,25 @@ def test_a_rule_the_user_adds_to_the_practice_file_reaches_the_prompt(tmp_path):
     rules.write_text("AME PRACTICE\nPUMPS — AME PRACTICE: a synthetic rule for the test.\n", encoding="utf-8")
     assert "PUMPS — AME PRACTICE: a synthetic rule for the test." in gem_prompt(GEM_FILE, rules)
     assert "FACTORY CONTROLS — AME PRACTICE" not in gem_prompt(GEM_FILE, tmp_path / "none.txt")
+
+
+# --- 6. the requests folder cleaned ------------------------------------------------------------------------------------
+
+def test_a_chat_run_moves_requests_with_no_job_recorded_and_this_jobs_older_ones_into_old(tmp_path):
+    import json
+    from estimator.writing.judge import Judge
+    judge = Judge(tmp_path / "cache", mode="chat", job="99-0001, Synthetic School")
+    requests = judge.requests_dir
+    requests.mkdir(parents=True)
+    files = {"mine": {"key": "a", "kind": "write_system", "job": "99-0001, Synthetic School", "prompt": "x"},
+             "other": {"key": "b", "kind": "write_system", "job": "99-0002, Other Synthetic", "prompt": "x"},
+             "nojob": {"key": "c", "kind": "write_system", "prompt": "no job recorded"},
+             "nojob-plan": {"key": "d", "kind": "plan_job", "prompt": "The dossier:\n[S1] Job: 99-0002"}}
+    for name, data in files.items():
+        (requests / f"{name}.json").write_text(json.dumps(data), encoding="utf-8")
+    (requests / "broken.json").write_text("{not json", encoding="utf-8")
+    assert judge.retire_requests() == 4
+    assert sorted(p.name for p in requests.glob("*.json")) == ["other.json"]
+    assert sorted(p.name for p in (requests / "old").glob("*.json")) == ["broken.json", "mine.json", "nojob-plan.json",
+                                                                        "nojob.json"]
+    assert judge.stale_requests() == 1 and judge.unrecorded == 3

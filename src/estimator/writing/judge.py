@@ -190,6 +190,7 @@ class Judge:
         self._style = style
         self.job = job                  # the job a chat request is for (written into each request)
         self.retired: list[str] = []    # this job's requests moved into requests/old/ at the start of the run
+        self.unrecorded = 0             # requests recording no job, moved into requests/old/ at the start of the run
         self.last_error: str | None = None
         self.calls = 0              # answers the AI service gave on this run
         self.cached = 0             # answers taken from the cache, at no cost
@@ -209,11 +210,12 @@ class Judge:
         return self.requests_dir / "old"
 
     def retire_requests(self, sources: dict | None = None) -> int:
-        """At the start of a chat run: every request in the requests folder for this job moves into
-        requests/old/. The questions the run still asks are written again (and leave old/); the answers are
-        never touched. A request says its job; one from before requests did is this job's when it is a plan
-        whose dossier names the job's number, or a scope question whose places are this dossier's (`sources`).
-        Returns how many were moved."""
+        """At the start of a chat run the requests folder is cleaned: every request for this job (all of them
+        are from an older run of it) and every request whose job is not recorded moves into requests/old/.
+        Only another job's requests stay. The questions the run still asks are written again (and leave old/);
+        the answers are never touched. A request from before requests said their job is this job's when it is a
+        plan whose dossier names the job's number, or a scope question whose places are this dossier's
+        (`sources`); either way it moves. Returns how many were moved."""
         if self.mode != CHAT or not self.job or not self.requests_dir.is_dir():
             return 0
         moved = 0
@@ -221,16 +223,21 @@ class Judge:
             try:
                 request = json.loads(path.read_text(encoding="utf-8"))
             except (OSError, ValueError):
-                continue
-            if not isinstance(request, dict) or not _for_job(request, self.job, sources):
-                continue
+                request = None                      # it records no job that can be read
+            recorded = isinstance(request, dict) and bool(request.get("job"))
+            mine = isinstance(request, dict) and _for_job(request, self.job, sources)
+            if recorded and not mine:
+                continue                            # another job's request
             try:
                 self.old_requests_dir.mkdir(parents=True, exist_ok=True)
                 os.replace(path, self.old_requests_dir / path.name)
             except OSError:
                 continue
             moved += 1
-            self.retired.append(path.name)
+            if mine:
+                self.retired.append(path.name)
+            else:
+                self.unrecorded += 1
         return moved
 
     def stale_requests(self) -> int:

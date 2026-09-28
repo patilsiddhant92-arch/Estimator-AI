@@ -299,6 +299,10 @@ def _estimate_whole_job(args: argparse.Namespace) -> None:
                                                 system_examples(system), style.prompt_text(),
                                                 hours_rule=tech_hour_rule(system, templates),
                                                 image_ids=[pid for pid, _ in pictures])
+    unrecorded = getattr(judge, "unrecorded", 0)
+    if unrecorded:
+        print(f"Moved {unrecorded} {'request' if unrecorded == 1 else 'requests'} that recorded no job into "
+              f"{judge.old_requests_dir}.")
     stale = judge.stale_requests()
     if stale:
         print(f"Moved {stale} earlier {'request' if stale == 1 else 'requests'} for this job that this run does not "
