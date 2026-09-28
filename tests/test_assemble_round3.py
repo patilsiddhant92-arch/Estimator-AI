@@ -149,7 +149,7 @@ def test_lines_are_in_the_house_order_with_their_sub_lines_and_notes_last():
     scope = WrittenScope(lines, client_notes=("**Space temperature and CO2 setpoints by FA",))
     job, _, _ = _assemble([_vav()], {"VAV": scope})
     assert _texts(job.blocks[0]) == ["Furnish DDC Controller to the Factory for Installation",
-                                     "Furnish and Install VAV Transformer", "*Assumed per AME standard — confirm",
+                                     "Furnish and Install VAV Transformer (*Assumed per AME standard — confirm)",
                                      "Furnish and Install Space Temperature Sensor",
                                      "Furnish Fan Start / Stop and Status", "Interlock Fan with Valve",
                                      "Furnish and Wire Hot Water Control Valve and Actuator",

@@ -543,12 +543,12 @@ def test_flags_print_per_the_doctrine():
     items = _items(job, "Qty (2) Exhaust Fan EF-1, 2")
     texts = [t for _, t in items]
     red = next(t for t in texts if "Spill Air Damper Actuator" in t)
-    assert red == "Furnish and Install Spill Air Damper Actuator (Qty. per Mechanical Schedule)"
-    assert items[texts.index(red) + 1] == ("note", "*Confirm quantity: Spill Air Damper Actuator")
-    status = texts.index("Furnish Generator Run Status")          # yellow: an ownership question, review only
-    assert status + 1 == len(items) or not items[status + 1][1].startswith("*")
-    sensor = texts.index("Furnish and Install Space Temperature Sensor")
-    assert items[sensor + 1] == ("note", "*Assumed: Sensor assumed from the space temperature alarm")
+    assert red == ("Furnish and Install Spill Air Damper Actuator (Qty. per Mechanical Schedule) "
+                   "(*Confirm quantity: Spill Air Damper Actuator)")
+    assert "Furnish Generator Run Status" in texts          # yellow: an ownership question, review only, no bracket
+    assert ("Furnish and Install Space Temperature Sensor (*Assumed: Sensor assumed from the space temperature alarm)"
+            in texts)
+    assert not any(kind == "note" and t.startswith("*") for kind, t in items)
     assert not any("Fan runs continuously" in t for t in texts)                      # green: review only
     ranked = review_list(systems, general, _dossier())
     red_row = next(r for r in ranked if "Spill Air Damper Actuator" in r.decide)
@@ -567,8 +567,7 @@ def test_the_contradiction_scan_and_the_self_qc_reach_the_review_list_and_c5_pri
     red = _gl("Furnish and Install Current Switch", flag="red", flag_text="No count")
     job, systems, general = _assemble([FANS], {"EF": dataclasses.replace(scope, lines=scope.lines + (red,))})
     items = _items(job, "Qty (2) Exhaust Fan EF-1, 2")
-    vfd = items.index(("line", "Furnish Fan VFD Control"))
-    assert items[vfd + 1] == ("note", "*Assumed: Fan VFD Control")
+    assert ("line", "Furnish Fan VFD Control (*Assumed: Fan VFD Control)") in items
     ranked = review_list(systems, general, _dossier())
     c1 = next(r for r in ranked if "Duct smoke detector" in r.decide)
     qty = next(r for r in ranked if "Current Switch" in r.decide)

@@ -23,7 +23,7 @@ lines, marked ASSUMPTION. The review list is ranked, the most urgent first, and 
 Each block follows the estimator's GEM (the GEM round): every line the GEM wrote is printed in its words, the only
 consolidation being the GEM's own (identical lines across the units of one system, one line with its total), in
 the GEM's SOW order with the integration lines last; its flags print per the estimator's doctrine (a red line
-with its "(Qty. per Mechanical Schedule)", a "*" clarification after a yellow or orange one) and its
+with its "(Qty. per Mechanical Schedule)", a "*" clarification in brackets at the end of a yellow or orange line) and its
 contradiction scan, Self-QC failures and exclusions reach the review list.
 
 The shapes it reads are the plan's (docs/superpowers/plans/2026-09-26-whole-job-writing.md): a
@@ -1987,6 +1987,50 @@ _NOT_A_DEVICE = re.compile(r"\s+(?:(?:furnishing|installing|wiring|mounting)(?:\
 _WIRING = re.compile(r"\bwir(?:e|es|ed|ing)\b", re.I)
 
 
+def with_clarifications(text: str, notes) -> str:
+    """A line with its "*" clarifications in brackets at its end, the house's form: "Furnish and Install EDH DDC
+    Controller (Qty. 3 Total) (*Assumed: One electric duct heater DDC controller per heater assumed)"."""
+    for note in _unique([_squash(n) for n in notes or () if _squash(n)]):
+        bracket = f"({note})"
+        if bracket not in text:
+            text = f"{text} {bracket}"
+    return text
+
+
+_MAKER_NOTE = re.compile(r"^\*\s*(?P<item>.+?)\s+BY\s+UNIT\s+MFR\.?$", re.I)
+_KEEP_CAPS = frozenset("VAV DDC BMS BAS VFD AHU RTU ERV ERU HRV DOAS CO CO2 NO2 DP VRF VRV FCU UH CUH EF HVAC ATC CC "
+                       "AFMS LED UPS GFCI HOA EMS FA IP OEM DX EC ECM CT DCV UV PIR FSD SD MUA MAU A2L BTU SCR "
+                       "EDH EUH HP HW CHW".split())
+_SMALL_WORDS = frozenset("and or of to the a an in on for with at by".split())
+
+
+def _device_title(item: str) -> str:
+    """ "REFRIGERANT LEAK DETECTION" as "Refrigerant Leak Detection"; acronyms and words with digits stay in capitals."""
+    def word(w: str, first: bool) -> str:
+        if w.upper() == "BACNET":
+            return "BACnet"
+        if any(c.isdigit() for c in w) or w.upper() in _KEEP_CAPS:
+            return w.upper()
+        if not first and w.lower() in _SMALL_WORDS:
+            return w.lower()
+        return w[:1].upper() + w[1:].lower()
+    out = []
+    for n, token in enumerate(item.split()):
+        out.append("/".join("-".join(word(p, n == 0 and i == 0) for i, p in enumerate(part.split("-")))
+                            for part in token.split("/")))
+    return " ".join(out)
+
+
+def maker_line(note: str) -> str:
+    """A device the unit's manufacturer furnishes and AME does nothing with, as its own bracketed line in the block:
+    "*REFRIGERANT LEAK DETECTION BY UNIT MFR." prints "(*Refrigerant Leak Detection by Unit Mfr.)". Any other note is
+    printed as it is."""
+    m = _MAKER_NOTE.match(_squash(note))
+    if m is None:
+        return note
+    return f"(*{_device_title(m.group('item'))} by Unit Mfr.)"
+
+
 def _star_device(text: str, style) -> str:
     """The device a line names, in the client's words, for its "*" clarification."""
     device = _QTY_NOTE.sub("", style._device(text) or text)
@@ -2005,7 +2049,8 @@ def _plain_assumption(text: str, style) -> str | None:
 
 
 def flag_review(name: str, text: str, line, style) -> tuple[ReviewItem | None, str | None]:
-    """The GEM's flag on one line: (its review row, the "*" clarification printed after the line or None). Only a
+    """The GEM's flag on one line: (its review row, the "*" clarification printed in brackets at the end of the line, or
+    None). Only a
     clarification the client needs prints: "*Confirm quantity: <device>" after a red line (or a yellow one about a
     quantity) and "*Assumed: <what>" after an orange one, in plain words about the scope, never the AI's reasoning (that
     stays in the Evidence Package). A yellow ownership flag and a green note are review rows only."""
@@ -2520,7 +2565,8 @@ def _written_system(key: str, parts: list[_Part], template: str | None, dossier=
     """One block, or several headers stacked over the lines they share (a group, or one system of several families
     or whose header folds other units in). A line written twice word for word is printed once; identical lines
     across the units are one line with its total (the GEM's consolidation); the lines follow the GEM's SOW order,
-    each flagged line followed by its "*" clarification, then the client notes and the "**" responsibilities."""
+    each flagged line with its "*" clarification in brackets at its end, then the client notes (a device the unit's
+    manufacturer furnishes as its own bracketed line) and the "**" responsibilities."""
     style = style or load_house_style()
     headers = [style.client_text(h) for p in parts for h in p.headers]
     blocks = [Block(header=h, joined=i > 0) for i, h in enumerate(headers)]
@@ -2542,17 +2588,11 @@ def _written_system(key: str, parts: list[_Part], template: str | None, dossier=
     printed = []
     for group in groups:
         for r in group:
-            text = _with_total(r, style)
+            text = with_clarifications(_with_total(r, style), r.after)
             printed.append(r.line.text)
             items.append(Item(kind="line", depth=r.line.depth, runs=(Run(text=text),), quantity=r.q))
             lines.append(_scope_line(r, text, dossier))
-        for note in _unique([n for r in group for n in r.after]):
-            items.append(Item(kind="note", runs=(Run(text=note),)))
-            lines.append(ScopeLine(group[0].system, note, 1, None, None, ASSUMPTION, _ADDED_CONFIDENCE,
-                                   STANDARD_REFERENCE if note == STANDARD_NOTE else "the AI's flag",
-                                   f"after “{group[0].line.text}”", True, "",
-                                   "red" if note.startswith("*Confirm") else "orange"))
-    notes = [(n, who) for n, who in notes if not style.internal(n)]       # nothing internal reaches the client
+    notes = [(maker_line(n), who) for n, who in notes if not style.internal(n)]   # nothing internal reaches the client
     misc = [(n, who) for n, who in misc if not style.internal(n)]
     items += [Item(kind="note", runs=(Run(text=n),)) for n, _ in notes]
     lines += [ScopeLine(who, n, 1, None, None, CONFIRMED, _ADDED_CONFIDENCE, SOURCE,

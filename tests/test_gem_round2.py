@@ -97,8 +97,9 @@ def test_nothing_the_gem_writes_for_the_estimator_reaches_the_client():
         assert not re.search(r"(?<![\w-])[SIQ]\d{1,4}\b", text), text
         assert not re.search("[\U0001F300-\U0001FAFF◊]", text), text
     lines = [t for kind, t in _items(job, "Qty (2) Exhaust Fan EF-1, 2") if kind == "line"]
-    assert "Furnish and Install Space Temperature Sensor" in lines
-    assert "Furnish and Install Current Switch (Qty. per Mechanical Schedule)" in lines
+    assert "Furnish and Install Space Temperature Sensor (*Assumed: Space temperature sensor furnished by AME)" in lines
+    assert any(t.startswith("Furnish and Install Current Switch (Qty. per Mechanical Schedule) (*Confirm quantity:")
+               for t in lines)
     assert "AME requires mfr. Rep to assist in integration, cost to be incurred by mech contractor" in lines
 
 
@@ -131,9 +132,9 @@ def test_an_assumption_prints_once_under_its_line_in_plain_words():
                                                        "CC", ("wire guard",), "orange"),))
     job, _, _, _ = _assemble([FANS], {"EF": scope})
     items = _items(job, "Qty (2) Exhaust Fan EF-1, 2")
-    guard = items.index(("line", "Furnish and Install Heavy-Gauge Ventilated Wire Guard for Space Sensors (Qty. 9 Total)"))
-    assert items[guard + 1] == ("note", "*Assumed: Wire guards for gymnasium and weight room sensors furnished by AME")
-    assert sum(t.startswith("*Assumed") for _, t in items) == 1
+    assert ("line", "Furnish and Install Heavy-Gauge Ventilated Wire Guard for Space Sensors (Qty. 9 Total) "
+                    "(*Assumed: Wire guards for gymnasium and weight room sensors furnished by AME)") in items
+    assert sum(t.count("*Assumed") for _, t in items) == 1
 
 
 def test_a_red_line_asks_for_its_quantity_and_a_yellow_line_prints_no_star():
@@ -143,10 +144,9 @@ def test_a_red_line_asks_for_its_quantity_and_a_yellow_line_prints_no_star():
                        flag_text="Confirm the manufacturer ships the thermostat loose (S172)."))
     job, systems, general, ranked = _assemble([FANS], {"EF": scope})
     items = _items(job, "Qty (2) Exhaust Fan EF-1, 2")
-    door = items.index(("line", "Furnish and Install RTU-3 Roll-Up Door Position Sensor (Qty. per Drawing)"))
-    assert items[door + 1] == ("note", "*Confirm quantity: RTU-3 Roll-Up Door Position Sensor")
-    stat = items.index(("line", "Install and wire Space Thermostat (Furnished by Unit Mfr., Shipped Loose)"))
-    assert stat + 1 == len(items) or not items[stat + 1][1].startswith("*")
+    assert ("line", "Furnish and Install RTU-3 Roll-Up Door Position Sensor (Qty. per Drawing) "
+                    "(*Confirm quantity: RTU-3 Roll-Up Door Position Sensor)") in items
+    assert ("line", "Install and wire Space Thermostat (Furnished by Unit Mfr., Shipped Loose)") in items
     assert any("Space Thermostat" in r.decide for r in ranked)                 # the ownership question stays
 
 
@@ -200,10 +200,10 @@ def test_a_device_the_unit_manufacturer_furnishes_prints_in_its_block_not_on_the
                  exclusions=("Refrigerant leak detection sensors (factory-provided with the rooftop units).",))
     job, _, _, ranked = _assemble([RTUS, VAVS], {"RTU": rtu, "VAV": vav})
     notes = [t for kind, t in _items(job, "Qty (2) Packaged Rooftop Unit RTU-1, 2") if kind == "note"]
-    for note in ("*AIRFLOW MEASURING STATIONS BY UNIT MFR.", "*SMOKE DETECTORS BY UNIT MFR.",
-                 "*REFRIGERANT LEAK DETECTION BY UNIT MFR."):
+    for note in ("(*Airflow Measuring Stations by Unit Mfr.)", "(*Smoke Detectors by Unit Mfr.)",
+                 "(*Refrigerant Leak Detection by Unit Mfr.)"):
         assert note in notes, note
-    assert not any("BY UNIT MFR" in t for _, t in _items(job, "Qty (3) VAV Box VAV-1 thru 3"))
+    assert not any("by Unit Mfr" in t for _, t in _items(job, "Qty (3) VAV Box VAV-1 thru 3"))
     listed = " ".join(f"{r.decide} {r.evidence}" for r in ranked)
     assert "airflow measuring stations" not in listed.lower()
     assert "fire alarm panel" in listed.lower()
@@ -316,9 +316,8 @@ def test_a_vav_without_a_transformer_line_gets_the_standard_one_marked_as_an_ass
                    kind="Variable Air Volume Box")
     job, systems, _, _ = _assemble([vav], {"VAV": _scope(_gl("Furnish DDC Controller to the Factory for Installation"))})
     items = _items(job, "Qty (3) Variable Air Volume Box VAV-1 thru 3")
-    at = items.index(("line", "Furnish and Install VAV Transformer"))
-    assert items[at + 1] == ("note", STANDARD_NOTE)
-    line = next(l for l in _scope_lines(systems) if l.text == "Furnish and Install VAV Transformer")
+    assert ("line", f"Furnish and Install VAV Transformer ({STANDARD_NOTE})") in items
+    line = next(l for l in _scope_lines(systems) if l.text.startswith("Furnish and Install VAV Transformer"))
     assert (line.category, line.reference) == ("ASSUMPTION", STANDARD)
 
 
@@ -330,7 +329,8 @@ def test_a_transformer_the_unit_brings_is_the_by_unit_mfr_line_and_one_the_gem_w
                                "terminal manufacturer, schedule notes 3 and 4).",))
     job, _, _, _ = _assemble([vav], {"VAV": scope})
     texts = [t for _, t in _items(job, "Qty (3) Variable Air Volume Box VAV-1 thru 3")]
-    assert "24V Transformer by Unit Mfr." in texts and "Furnish and Install VAV Transformer" not in texts
+    assert f"24V Transformer by Unit Mfr. ({STANDARD_NOTE})" in texts
+    assert not any(t.startswith("Furnish and Install VAV Transformer") for t in texts)
     written = _scope(_gl("Furnish DDC Controller to the Factory for Installation"), _gl("Run 24V Transformer Wiring"))
     job, _, _, _ = _assemble([vav], {"VAV": written})
     assert not any("VAV Transformer" in t for _, t in _items(job, "Qty (3) Variable Air Volume Box VAV-1 thru 3"))
@@ -340,8 +340,7 @@ def test_a_split_system_gets_its_indoor_outdoor_interlock_unless_the_gem_wrote_o
     split = _planned("SS", "Split System CU-1, 2", ("CU-1", "CU-2"), 2, kind="Split System")
     job, _, _, _ = _assemble([split], {"SS": _scope(_gl("Furnish BMS Communication Wiring to Factory Controls"))})
     items = _items(job, "Qty (2) Split System CU-1, 2")
-    at = items.index(("line", "Wire Low Voltage Interlock between Indoor and Outdoor Unit"))
-    assert items[at + 1] == ("note", STANDARD_NOTE)
+    assert ("line", f"Wire Low Voltage Interlock between Indoor and Outdoor Unit ({STANDARD_NOTE})") in items
     excluded = _scope(_gl("Furnish BMS Communication Wiring to Factory Controls"),
                       exclusions=("Indoor-to-outdoor unit interconnect wiring and refrigerant piping (mechanical "
                                   "contractor).",))
@@ -361,15 +360,15 @@ def test_a_fan_with_a_damper_gets_the_damper_actuator_and_on_field_ddc_its_start
                                                                                  "Controller"})
     job, _, _, _ = _assemble([fans], {"EF": scope}, dossier=dossier)
     texts = [t for _, t in _items(job, "Qty (2) Exhaust Fan EF-1, 2")]
-    assert "Furnish and Install Damper Actuator w/ End Switch" in texts
-    assert "Furnish Fan Start / Stop and Status" in texts
+    assert f"Furnish and Install Damper Actuator w/ End Switch ({STANDARD_NOTE})" in texts
+    assert f"Furnish Fan Start / Stop and Status ({STANDARD_NOTE})" in texts
     wrote = _scope(_gl("Furnish and Install DDC Controller"), _gl("Furnish Exhaust Fan Start/Stop and Status"),
                    _gl("Furnish and Install Associated Damper Actuator Interlocked with the Fan"),
                    quick_scan={"unit_type": "Field-Installed DDC"})
     job, _, _, _ = _assemble([fans], {"EF": wrote}, dossier=dossier)
     texts = [t for _, t in _items(job, "Qty (2) Exhaust Fan EF-1, 2")]
     assert not any(t.startswith("Furnish and Install Damper Actuator") for t in texts)
-    assert "Furnish Fan Start / Stop and Status" not in texts
+    assert not any(t.startswith("Furnish Fan Start / Stop and Status") for t in texts)
 
 
 FACTORY = {"unit_type": "Factory/OEM Controls", "controller": "Factory Controls — No CC DDC Controller",
@@ -409,7 +408,7 @@ def test_a_factory_units_device_wired_by_ame_is_a_wire_line_and_one_another_trad
     items = _items(job, "Qty (2) Packaged Rooftop Unit RTU-1, 2")
     assert ("line", "Wire Unit Condensate Overflow Switch (Furnished by Unit Mfr.)") in items
     assert not any("Smoke Detector" in t and kind == "line" for kind, t in items)
-    assert ("note", "*SMOKE DETECTORS BY UNIT MFR.") in items
+    assert ("note", "(*Smoke Detectors by Unit Mfr.)") in items
 
 
 def test_a_device_the_documents_give_to_ame_on_a_factory_unit_keeps_its_own_verb():

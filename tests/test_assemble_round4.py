@@ -283,7 +283,7 @@ def test_a_template_line_a_schedule_note_gives_to_the_unit_maker_is_a_by_unit_mf
     job, _, _ = _job([fan], {"EF": None}, dossier=dossier)       # not written yet: the Master Template's lines
     texts = _texts(job.blocks[0])
     assert not any(t.startswith("Furnish") and "Damper Actuator" in t for t in texts)
-    assert "*DAMPER ACTUATOR BY UNIT MFR." in texts
+    assert "(*Damper Actuator by Unit Mfr.)" in texts
 
 
 # --- 6. case and wording ---------------------------------------------------------------------------------------------

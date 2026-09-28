@@ -221,7 +221,7 @@ def test_a_note_giving_a_device_to_the_unit_manufacturer_is_a_by_unit_mfr_note()
                                                        "manufacturer",))
     job, _, _ = assemble_job(_job_catalogue(), JOB_READING, _dossier(text=text), JobPlan((ef,)), {"EF": scope},
                              TODAY, TEMPLATES)
-    assert "*REFRIGERANT LEAK DETECTION BY UNIT MFR." in [i.text for i in _all_items(job)]
+    assert "(*Refrigerant Leak Detection by Unit Mfr.)" in [i.text for i in _all_items(job)]
 
 
 # --- 5. one device, one place ----------------------------------------------------------------------------------
