@@ -38,3 +38,6 @@ out/
 # Helper worktrees and working notes
 .claude/worktrees/
 .superpowers/
+
+# Proposed rules drafted from the estimator's corrections (may carry job wording; NDA) — reviewed by hand before adopting
+assets/gem/ame_practice_proposed.txt
