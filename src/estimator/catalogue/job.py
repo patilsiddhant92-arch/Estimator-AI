@@ -31,8 +31,10 @@ class Catalogue:
 CONTROLS_DISCIPLINES = ("Mechanical", "Controls", "Plumbing", "Fire protection", "Unknown")
 
 
-def catalogue_job(root: Path, cache_dir: Path | None = None, workers: int = 1) -> Catalogue:
-    job = find_documents(root)
+def catalogue_job(root: Path, cache_dir: Path | None = None, workers: int = 1,
+                  documents: str | Path | None = None) -> Catalogue:
+    """The job folder `root` catalogued; with `documents`, only that subfolder of it is read."""
+    job = find_documents(root, documents)
     pages = tuple(register_job(job, cache_dir, workers))
     kinds = {d.relative: d.kind for d in job.documents}
     # A sheet whose title block gives no title takes it from the drawing index, wherever the job lists one.

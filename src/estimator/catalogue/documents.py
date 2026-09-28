@@ -68,10 +68,16 @@ def _is_nested_job(folder: Path) -> bool:
         return False
 
 
-def find_documents(root: Path) -> JobFolder:
+def find_documents(root: Path, documents: str | Path | None = None) -> JobFolder:
+    """The bid documents in the job folder `root`. With `documents` (a subfolder of the job, such as
+    "1. Project Documents") only that subfolder is read; the job's name still comes from the job folder,
+    and each document's path is still given inside the job folder."""
     root = Path(root)
     if not root.is_dir():
         raise FileNotFoundError(2, "No such folder", str(root))
+    start = root / documents if documents else root
+    if not start.is_dir():
+        raise FileNotFoundError(2, "No such folder", str(start))
     paths, notes, left_out, nested_jobs, other_files = [], [], [], [], []
 
     def _on_error(error: OSError) -> None:
@@ -82,7 +88,7 @@ def find_documents(root: Path) -> JobFolder:
             pass
         notes.append(f"Could not open folder {where.as_posix()} — {error.strerror or error}")
 
-    for folder, subfolders, files in os.walk(root, onerror=_on_error):
+    for folder, subfolders, files in os.walk(start, onerror=_on_error):
         here = Path(folder)
         kept = []
         for name in sorted(subfolders):
@@ -90,7 +96,7 @@ def find_documents(root: Path) -> JobFolder:
                 relative = (here / name).relative_to(root).as_posix()
                 notes.append(f"{name} is another job's folder inside this one — catalogue it on its own")
                 nested_jobs.append(relative)
-            elif here == root and _LEFT_OUT.match(name):
+            elif here == start and _LEFT_OUT.match(name):
                 left_out.append((here / name).relative_to(root).as_posix())
             else:
                 kept.append(name)

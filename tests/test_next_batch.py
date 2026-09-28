@@ -110,3 +110,53 @@ def test_a_chat_run_moves_requests_with_no_job_recorded_and_this_jobs_older_ones
     assert sorted(p.name for p in (requests / "old").glob("*.json")) == ["broken.json", "mine.json", "nojob-plan.json",
                                                                         "nojob.json"]
     assert judge.stale_requests() == 1 and judge.unrecorded == 3
+
+
+# --- 4. the --documents input folder -----------------------------------------------------------------------------------
+
+def _job_folder(tmp_path):
+    from pdfs import Page, make_pdf
+    root = tmp_path / "99-0001, Synthetic School"
+    drawing = Page(width=3024, height=2160, texts=((200, 200, "FLOOR PLAN", 20),))
+    make_pdf(root / "1. Project Documents" / "1. Base" / "Mech.pdf", drawing)
+    make_pdf(root / "1. Project Documents" / "2. Addenda" / "Addendum 1.pdf", Page(texts=((72, 72, "Words", 12),)))
+    make_pdf(root / "2. Takeoffs" / "1. Base Takeoff" / "Marked_Mech.pdf", drawing)
+    return root
+
+
+def test_only_the_documents_subfolder_is_read_and_the_name_comes_from_the_job_folder(tmp_path):
+    from estimator.catalogue.documents import find_documents
+    root = _job_folder(tmp_path)
+    whole = find_documents(root)
+    assert len(whole.documents) == 3
+    folder = find_documents(root, "1. Project Documents")
+    assert folder.name == "99-0001" and folder.root == root
+    assert [d.relative for d in folder.documents] == ["1. Project Documents/1. Base/Mech.pdf",
+                                                      "1. Project Documents/2. Addenda/Addendum 1.pdf"]
+    import pytest
+    with pytest.raises(FileNotFoundError):
+        find_documents(root, "9. Nowhere")
+
+
+def test_catalogue_and_estimate_take_documents(tmp_path, monkeypatch):
+    import estimator.__main__ as cli
+    from estimator.catalogue.job import catalogue_job
+    root = _job_folder(tmp_path)
+    result = catalogue_job(root, tmp_path / "cache", documents="1. Project Documents")
+    assert result.job.name == "99-0001" and len(result.job.documents) == 2
+    for command in ("catalogue", "estimate"):
+        assert cli._parser().parse_args([command, "JOB", "--out", "OUT"]).documents is None
+        args = cli._parser().parse_args([command, "JOB", "--out", "OUT", "--documents", "1. Project Documents"])
+        assert args.documents == "1. Project Documents"
+    seen = []
+
+    def _fake(job, cache, workers, **kw):
+        seen.append(kw)
+        raise SystemExit
+
+    monkeypatch.setattr(cli, "catalogue_job", _fake)
+    import pytest
+    for command in ("catalogue", "estimate"):
+        with pytest.raises(SystemExit):
+            cli.main([command, str(root), "--out", str(tmp_path / "out"), "--documents", "1. Project Documents"])
+    assert seen == [{"documents": "1. Project Documents"}] * 2

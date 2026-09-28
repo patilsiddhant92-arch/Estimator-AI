@@ -3,9 +3,12 @@
     python -m estimator build JOB.json --out FOLDER
     python -m estimator import-sent PROPOSAL.docx WORKUP.xlsx --out JOB.json
     python -m estimator price-check GENERATED.xlsx SENT.xlsx --out REPORT.md
-    python -m estimator catalogue JOB_FOLDER --out FOLDER
+    python -m estimator catalogue JOB_FOLDER --out FOLDER [--documents SUBFOLDER]
     python -m estimator estimate JOB_FOLDER --out FOLDER [--workers N] [--ai chat|api|off] [--cache FOLDER]
-                                 [--method whole-job|rules]
+                                 [--method whole-job|rules] [--documents SUBFOLDER]
+
+--documents reads only that subfolder of the job folder (such as "1. Project Documents"); the job's name still
+comes from the job folder.
 
 --ai picks who answers: "api" (Claude through the Anthropic API, the default when ANTHROPIC_API_KEY is
 set), "chat" (the questions are written to a requests folder for Claude to answer in the Claude Code
@@ -61,6 +64,10 @@ PRICE_BOOK = ASSETS / "price_book" / "AME Std Pricing Spreadsheet.xlsx"
 ALIASES = ASSETS / "price_book" / "aliases.json"
 
 
+DOCUMENTS_HELP = ('read only this subfolder of the job folder, such as "1. Project Documents" (default: the whole '
+                  "job folder); the job's name still comes from the job folder")
+
+
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="estimator")
     commands = parser.add_subparsers(dest="command", required=True)
@@ -86,12 +93,14 @@ def _parser() -> argparse.ArgumentParser:
     catalogue.add_argument("job", type=Path)
     catalogue.add_argument("--out", type=Path, required=True)
     catalogue.add_argument("--workers", type=int, default=min(4, os.cpu_count() or 1))
+    catalogue.add_argument("--documents", metavar="SUBFOLDER", help=DOCUMENTS_HELP)
 
     estimate = commands.add_parser("estimate", help="write the proposal, price sheet and Evidence Package "
                                                     "from a job folder")
     estimate.add_argument("job", type=Path)
     estimate.add_argument("--out", type=Path, required=True)
     estimate.add_argument("--workers", type=int, default=min(4, os.cpu_count() or 1))
+    estimate.add_argument("--documents", metavar="SUBFOLDER", help=DOCUMENTS_HELP)
     ai = estimate.add_mutually_exclusive_group()
     ai.add_argument("--ai", choices=(CHAT, API, OFF),
                     help="who judges the template lines: the chat, the API, or no one "
@@ -111,6 +120,12 @@ def ai_mode(args: argparse.Namespace) -> str:
     if args.ai:
         return args.ai
     return API if os.environ.get(KEY_VARIABLE) else CHAT
+
+
+def _documents(args: argparse.Namespace) -> dict:
+    """The --documents subfolder for catalogue_job, when one is given."""
+    folder = getattr(args, "documents", None)
+    return {"documents": folder} if folder else {}
 
 
 def _safe_filename(text: str) -> str:
@@ -236,7 +251,7 @@ def _run(args: argparse.Namespace) -> int:
         print(f"Wrote {args.out}")
     elif args.command == "catalogue":
         workers = max(1, min(args.workers, 61, os.cpu_count() or 1))
-        result = catalogue_job(args.job, args.out / ".cache", workers)
+        result = catalogue_job(args.job, args.out / ".cache", workers, **_documents(args))
         reading = read_job(result, cache_dir=args.out / ".cache")
         package = write_evidence(args.out / f"{_safe_filename(result.job.name)} Evidence Package.xlsx", result, reading)
         for line in summary_lines(result) + reading_lines(reading):
@@ -260,7 +275,7 @@ def _estimate_whole_job(args: argparse.Namespace) -> None:
     written first, so they are there even when the AI has not answered yet."""
     workers = max(1, min(args.workers, 61, os.cpu_count() or 1))
     cache = args.cache or args.out / ".cache"
-    catalogue = catalogue_job(args.job, cache, workers)
+    catalogue = catalogue_job(args.job, cache, workers, **_documents(args))
     reading = read_job(catalogue, cache_dir=cache)
     today = dt.date.today()
     header, _ = job_header(catalogue, reading, today)
@@ -368,7 +383,7 @@ def _estimate_rules(args: argparse.Namespace) -> None:
     Evidence Package is written first, so the review list is there even when the proposal can't be."""
     workers = max(1, min(args.workers, 61, os.cpu_count() or 1))
     cache = args.cache or args.out / ".cache"
-    catalogue = catalogue_job(args.job, cache, workers)
+    catalogue = catalogue_job(args.job, cache, workers, **_documents(args))
     mode = ai_mode(args)
     judge = None if mode == OFF else Judge(cache, mode=mode)
     reading = read_job(catalogue, cache_dir=cache, judge=judge)   # the judge also reads schedules that are pictures
