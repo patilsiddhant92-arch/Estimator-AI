@@ -34,7 +34,7 @@ from estimator.reading.sequences import POINTS, SEQUENCE
 from estimator.writing.systems import _paragraphs
 from estimator.writing.write import tag_list
 
-SEQUENCE_LIMIT = 400_000     # characters: a longer sequence is kept whole, flagged; the judge splits its passes
+SEQUENCE_LIMIT = 1_200_000     # characters: a longer sequence is kept whole, flagged; the judge splits its passes
 SPEC_LIMIT = 12_000          # characters of controls spec highlights
 COPY_SHARE = 0.5             # share of a backbone's text already given above that makes it a copy of it
 RUNNING_SHARE = 0.6          # a line on this share of a backbone's pages (3 at least) is a running header
