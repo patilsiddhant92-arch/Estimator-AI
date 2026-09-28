@@ -24,8 +24,7 @@ sys.path.insert(0, str(ROOT / "src"))
 
 from estimator.catalogue.tags import Equipment, find_tags  # noqa: E402
 from estimator.files import open_docx  # noqa: E402
-from estimator.proposal.read import ProposalFormatError, read_scope  # noqa: E402
-from estimator.proposal.word import WordLists  # noqa: E402
+from estimator.proposal.read import ProposalFormatError, read_blocks_fallback, read_scope  # noqa: E402
 from estimator.text import squash  # noqa: E402
 
 LEARN = Path(r"D:\Estimation Assistant\Learn")
@@ -37,13 +36,10 @@ EXCLUDED = ("26-0478", "26-0193")    # the answer key of a comparison that is ru
 READ_SCOPE, FALLBACK = "read_scope", "(xN) fallback"
 
 _JOB = re.compile(r"^\d{2}-\d{4}")
-_HEADER = re.compile(r"^\*?\s*(?:\(x\s*\d+\)|Qty\s*\(\s*[\d#]+\s*\))", re.I)
 _QTY = re.compile(r"^\*?\s*(?:\(x\s*\d+\)|Qty\s*\(\s*[\d#?]+\s*\))\s*", re.I)
 _TRAILING_X = re.compile(r"\s*[-–]?\s*\(x\s*\d+\)\s*$", re.I)
-_END = ("ADD ALTERNATE", "DEDUCT ALTERNATE", "CLARIFICATIONS", "EXCEPTIONS AND EXCLUSIONS", "BASE PRICE")
 _HOURS = re.compile(r"\d\s*-?\s*(?:hours?|hrs?)\b|tech\s*hour", re.I)
 _TAGGISH = re.compile(r"^[A-Z]{1,6}(?:[-–.#]|\d)")    # EWH-1, CHLR-#-#, VAV-21-01, AHU1
-_STEP = 360                          # twips between one depth and the next
 
 
 def job_of(name: str) -> str | None:
@@ -123,42 +119,9 @@ def _from_read_scope(document, job: str, equipment: Equipment) -> list[dict]:
 
 
 def _fallback(document, job: str, equipment: Equipment) -> list[dict]:
-    """The "(xN)" style: a header line starting "(xN)" or "Qty (N)", then the lines under it until
-    the next header. A deeper "(xN)" line is a sub-header: its tags join the block's."""
-    lists = WordLists(document)
-    started, header_indent = False, None
-    blocks: list[dict] = []
-    for paragraph in document.paragraphs:
-        text = squash(paragraph.text)
-        if not text:
-            continue
-        if not started:
-            started = text.upper().startswith("SCOPE OF WORK")
-            continue
-        if text.upper().startswith(_END):
-            break
-        indent = lists.left_indent(paragraph)
-        if _HEADER.match(text) and (header_indent is None or indent <= header_indent):
-            header_indent = indent if header_indent is None else header_indent
-            blocks.append({"header": text, "lines": [], "notes": [], "base": None, "previous": 0})
-            continue
-        if not blocks:
-            continue                                    # the front end
-        block = blocks[-1]
-        if _HEADER.match(text):
-            if not block["lines"]:
-                block["header"] += " / " + text
-            continue
-        if text.startswith("*"):
-            block["notes"].append(text)
-            continue
-        if block["base"] is None:
-            block["base"] = indent
-        depth = 1 + max(0, round((indent - block["base"]) / _STEP))
-        depth = max(1, min(depth, block["previous"] + 1, 5))
-        block["previous"] = depth
-        block["lines"].append((_TRAILING_X.sub("", text), depth))
-    return [entry(job, b["header"], b["lines"], b["notes"], equipment) for b in blocks]
+    """The "(xN)" style (estimator.proposal.read.read_blocks_fallback), each line's own "- (xN)" taken off."""
+    return [entry(job, b["header"], [(_TRAILING_X.sub("", text), depth) for text, depth in b["lines"]], b["notes"],
+                  equipment) for b in read_blocks_fallback(document)]
 
 
 def read_blocks(path: Path, job: str, equipment: Equipment | None = None) -> tuple[list[dict], str]:

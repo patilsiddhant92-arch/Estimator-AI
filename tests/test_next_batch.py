@@ -307,3 +307,92 @@ def test_the_next_estimate_of_the_job_applies_its_corrections_file(job, tmp_path
     assert row[8] == "no" and row[6] == "Deleted by the estimator"
     review = [[c.value for c in row] for row in book["Review list"].iter_rows()]
     assert any(r[3] == f"Deleted by the estimator: “{sensor}”" for r in review)
+
+
+# --- 5. the scoreboard -------------------------------------------------------------------------------------------------
+
+def _line(text, depth=1):
+    from estimator.scope import Item, Run
+    return Item(kind="line", depth=depth, runs=(Run(text=text),))
+
+
+def _proposals(tmp_path, bare_job, proposal_template):
+    """A synthetic draft and a synthetic sent proposal, both written on the AME template."""
+    from estimator.proposal.write import write_proposal
+    from estimator.scope import Block
+    sent = bare_job.model_copy(update={"blocks": (
+        Block(header="Qty (2) Exhaust Fan EF-1, 2", items=(
+            _line("Furnish Fan Start / Stop and Status"), _line("Furnish and Install Damper Actuator (Qty. 2 Total)"),
+            _line("Wire Fire Alarm Shutdown Relay"))),
+        Block(header="Qty (3) Electric Duct Heater EDH-1 thru 3", items=(
+            _line("Furnish and Install EDH DDC Controller (Qty. 3 Total)"), _line("Furnish Heater Enable"))),
+        Block(header="Qty (1) Fire Pump FP-1", items=(_line("Furnish and Wire Fire Pump Running Alarm"),)))})
+    draft = bare_job.model_copy(update={"blocks": (
+        Block(header="Qty (2) Exhaust Fan EF-1, 2", items=(
+            _line("Furnish Exhaust Fan Start/Stop and Status"),
+            _line("Furnish and Install Damper Actuator (Qty. 4 Total) (*Assumed: One damper per fan)"),
+            _line("Furnish and Install Space Temperature Sensor"))),
+        Block(header="Qty (2) Electric Duct Heater EDH-1 thru 3", items=(
+            _line("Furnish and Install EDH DDC Controller (Qty. 3 Total)"), _line("Furnish Heater Enable"))),
+        Block(header="Qty (1) Generator GEN-1", items=(_line("Furnish Generator Run Status"),)))})
+    return (write_proposal(draft, proposal_template, tmp_path / "99-0001 Proposal.docx"),
+            write_proposal(sent, proposal_template, tmp_path / "sent.docx"))
+
+
+def test_lines_are_compared_by_verb_and_device_words():
+    from estimator.score import line_overlap, line_quantity, line_tokens
+    assert line_tokens("Furnish and Install Damper Actuator (Qty. 4 Total) (*Assumed: One per fan)") == (
+        "furnish and install", frozenset({"damper", "actuator"}))
+    assert line_overlap("Furnish Fan Start / Stop and Status", "Furnish Exhaust Fan Start/Stop and Status") >= 0.6
+    assert line_overlap("Furnish Fan Start / Stop and Status", "Wire Fire Alarm Shutdown Relay") < 0.6
+    assert (line_quantity("Furnish X (Qty. 4 Total)"), line_quantity("Furnish X - (x2)"), line_quantity("Furnish X")) \
+        == (4, 2, None)
+
+
+def test_the_scoreboard_compares_systems_lines_and_counts(tmp_path, bare_job, proposal_template):
+    from estimator.score import read_blocks, score
+    draft, sent = _proposals(tmp_path, bare_job, proposal_template)
+    result = score(read_blocks(draft), read_blocks(sent), "99-0001")
+    systems = {(row[0], row[1]): row[2] for row in result.systems}
+    assert systems[("Qty (2) Exhaust Fan EF-1, 2", "Qty (2) Exhaust Fan EF-1, 2")] == "matched"
+    assert systems[("Qty (3) Electric Duct Heater EDH-1 thru 3", "Qty (2) Electric Duct Heater EDH-1 thru 3")] \
+        == "quantity differs"
+    assert systems[("Qty (1) Fire Pump FP-1", None)] == "missing"
+    assert systems[(None, "Qty (1) Generator GEN-1")] == "extra"
+    lines = {(row[1], row[2]): row[3] for row in result.lines}
+    assert lines[("Furnish Fan Start / Stop and Status", "Furnish Exhaust Fan Start/Stop and Status")] == \
+        "worded differently"
+    assert lines[("Furnish Heater Enable", "Furnish Heater Enable")] == "matched"
+    assert lines[("Wire Fire Alarm Shutdown Relay", None)] == "missing"
+    assert lines[(None, "Furnish and Install Space Temperature Sensor")] == "extra"
+    damper = next(row for row in result.lines if row[1] == "Furnish and Install Damper Actuator (Qty. 2 Total)")
+    assert (damper[3], damper[5], damper[6], damper[7]) == ("matched", 2, 4, "differ")
+    assert result.summary == "systems 2/3, lines 4/6, counts 2/4"
+
+
+def test_the_score_command_writes_the_workbook_and_the_summary_line(tmp_path, bare_job, proposal_template, capsys):
+    import docx
+    import openpyxl
+    import estimator.__main__ as cli
+    draft, sent = _proposals(tmp_path, bare_job, proposal_template)
+    out = tmp_path / "score"
+    assert cli.main(["score", str(draft), str(sent), "--out", str(out)]) == 0
+    printed = capsys.readouterr().out
+    assert "Score for 99-0001: systems 2/3, lines 4/6, counts 2/4." in printed
+    book = openpyxl.load_workbook(out / "99-0001 Score.xlsx")
+    assert book.sheetnames == ["Summary", "Systems", "Lines"]
+    assert book["Summary"]["A2"].value == "systems 2/3, lines 4/6, counts 2/4"
+    assert "not a judge" in book["Summary"]["A3"].value and "miscount" in book["Summary"]["A3"].value
+    assert [p.name for p in out.iterdir()] == ["99-0001 Score.xlsx"]              # nothing else is written
+    code = cli.main(["score", str(draft), str(sent), "--out", str(cli.ROOT / "tests" / "no-score-here")])
+    assert code == 1 and "under" in capsys.readouterr().err
+    assert not (cli.ROOT / "tests" / "no-score-here").exists()
+    # the older "(xN)" style is read by the phrasing bank's fallback
+    old = docx.Document()
+    for text in ("SCOPE OF WORK – ", "(x2) Exhaust Fan EF-1, 2", "Furnish Fan Start / Stop and Status - (x2)",
+                 "CLARIFICATIONS"):
+        old.add_paragraph(text)
+    old.save(tmp_path / "old.docx")
+    from estimator.score import read_blocks
+    (block,) = read_blocks(tmp_path / "old.docx")
+    assert (block.header, block.quantity, block.tags) == ("(x2) Exhaust Fan EF-1, 2", 2, frozenset({"EF-1", "EF-2"}))

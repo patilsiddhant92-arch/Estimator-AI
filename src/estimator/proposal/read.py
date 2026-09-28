@@ -363,3 +363,51 @@ def _block(raw: dict) -> Block:
 
 def _alternate(raw: dict) -> Alternate:
     return Alternate(label=raw["label"], blocks=tuple(_block(b) for b in raw["blocks"]))
+
+
+# --- the older "(xN)" style ---------------------------------------------------------------
+
+_XN_HEADER = re.compile(r"^\*?\s*(?:\(x\s*\d+\)|Qty\s*\(\s*[\d#]+\s*\))", re.I)
+_XN_END = ("ADD ALTERNATE", "DEDUCT ALTERNATE", "CLARIFICATIONS", "EXCEPTIONS AND EXCLUSIONS", "BASE PRICE")
+_XN_STEP = 360                          # twips between one depth and the next
+
+
+def read_blocks_fallback(document: DocxDocument) -> list[dict]:
+    """A proposal written in the older "(xN)" style, which `read_scope` cannot read: a header line starting "(xN)"
+    or "Qty (N)", then the lines under it until the next header. A deeper "(xN)" line right under a header is a
+    sub-header, joined to it with " / ". Each block: {"header", "lines": [(text, depth)], "notes"}, the texts as
+    written (a line's own "- (xN)" is kept)."""
+    lists = WordLists(document)
+    started, header_indent = False, None
+    blocks: list[dict] = []
+    for paragraph in document.paragraphs:
+        text = squash(paragraph.text)
+        if not text:
+            continue
+        if not started:
+            started = text.upper().startswith("SCOPE OF WORK")
+            continue
+        if text.upper().startswith(_XN_END):
+            break
+        indent = lists.left_indent(paragraph)
+        if _XN_HEADER.match(text) and (header_indent is None or indent <= header_indent):
+            header_indent = indent if header_indent is None else header_indent
+            blocks.append({"header": text, "lines": [], "notes": [], "base": None, "previous": 0})
+            continue
+        if not blocks:
+            continue                                    # the front end
+        block = blocks[-1]
+        if _XN_HEADER.match(text):
+            if not block["lines"]:
+                block["header"] += " / " + text
+            continue
+        if text.startswith("*"):
+            block["notes"].append(text)
+            continue
+        if block["base"] is None:
+            block["base"] = indent
+        depth = 1 + max(0, round((indent - block["base"]) / _XN_STEP))
+        depth = max(1, min(depth, block["previous"] + 1, 5))
+        block["previous"] = depth
+        block["lines"].append((text, depth))
+    return [{"header": b["header"], "lines": b["lines"], "notes": b["notes"]} for b in blocks]

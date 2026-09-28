@@ -7,10 +7,15 @@
     python -m estimator estimate JOB_FOLDER --out FOLDER [--workers N] [--ai chat|api|off] [--cache FOLDER]
                                  [--method whole-job|rules] [--documents SUBFOLDER]
     python -m estimator corrections EVIDENCE.xlsx [--folder FOLDER]
+    python -m estimator score DRAFT_PROPOSAL.docx SENT_PROPOSAL.docx --out FOLDER
 
 corrections reads the estimator's decisions (keep / delete / change) from an Evidence Package's Scope lines and
 Review list tabs into out/corrections/<job>.json, and adds each reason given, made general, to
 assets/gem/ame_practice_proposed.txt for approval; the next estimate of the job applies them.
+
+score compares the tool's draft proposal with the one the estimator sent and writes FOLDER/<job> Score.xlsx and a
+summary line ("systems a/b, lines c/d, counts e/f"). It is a first measure, not a judge. It runs on this machine only
+and writes nothing but that file; inside this project, FOLDER must be under out/.
 
 --documents reads only that subfolder of the job folder (such as "1. Project Documents"); the job's name still
 comes from the job folder.
@@ -123,6 +128,10 @@ def _parser() -> argparse.ArgumentParser:
     corrections.add_argument("evidence", type=Path)
     corrections.add_argument("--folder", type=Path, default=None,
                              help="where the job's corrections file goes (default: out/corrections)")
+    scoring = commands.add_parser("score", help="compare the tool's draft proposal with the one the estimator sent")
+    scoring.add_argument("draft", type=Path)
+    scoring.add_argument("sent", type=Path)
+    scoring.add_argument("--out", type=Path, required=True)
     return parser
 
 
@@ -274,7 +283,24 @@ def _run(args: argparse.Namespace) -> int:
         _estimate(args)
     elif args.command == "corrections":
         _corrections(args)
+    elif args.command == "score":
+        _score(args)
     return 0
+
+
+def _score(args: argparse.Namespace) -> None:
+    from estimator.score import CAVEAT, score_proposals
+    folder = args.out.resolve()
+    if folder.is_relative_to(ROOT) and not folder.is_relative_to(ROOT / "out"):
+        raise ValueError(f"the score reads the jobs' proposals, so inside this project it goes under "
+                         f"{ROOT / 'out'}, not {args.out}")
+    for path in (args.draft, args.sent):
+        if not path.exists():
+            raise FileNotFoundError(2, "No such file", str(path))
+    path, result = score_proposals(args.draft, args.sent, args.out)
+    print(f"Score for {result.job}: {result.summary}.")
+    print(CAVEAT)
+    print(f"Wrote {path}")
 
 
 def _corrections(args: argparse.Namespace) -> None:
