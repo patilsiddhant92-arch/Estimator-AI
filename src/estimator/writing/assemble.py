@@ -79,6 +79,7 @@ _NUMBER_WORDS = {w: n for n, w in enumerate(
     "zero one two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen sixteen "
     "seventeen eighteen nineteen twenty".split())}
 _ID = re.compile(r"\[?\s*([A-Z]{1,3}\d+)\s*\]?")
+_REP_LINE = re.compile(r"^\s*(?:◊\s*)?(?:the\s+)?(?:controls\s+contractor|cc|ame)\s+requires\s+mfr\.?\s+rep\b", re.I)
 _NEVER = re.compile(r"\$|\bhours?\b|\bhrs?\b|confidence|\brule:|\bAI:", re.I)
 
 
@@ -442,7 +443,8 @@ def family_systems(system) -> list:
     out = []
     for family in families:
         values = dict(base, header=family.header, tags=tuple(family.tags), quantity=family.quantity,
-                      quantity_source=family.quantity_source, quantity_quote=family.quantity_quote, families=())
+                      quantity_source=family.quantity_source, quantity_quote=family.quantity_quote, families=(),
+                      family=True)
         out.append(SimpleNamespace(**values))
     return out
 
@@ -551,27 +553,30 @@ def _on_drawings(system, dossier) -> bool:
     return bool(tags & known) or any(_tag_prefix(t) in counted for t in tags)
 
 
-def _named_in_sequence(system, dossier) -> bool:
-    """A sequence paragraph the plan cites names the system: every word of its name in one paragraph."""
-    words = {_singular(w) for w in _plain(_TAG_RUN.sub(" ", _name(system))).split() if w not in _LINE_STOP}
-    if not words:
-        return False
-    for sid in source_ids(system.sequence_sources):
-        have = {_singular(w) for w in _plain(cited_text(dossier, sid)).split()}
-        if words <= have:
-            return True
-    return False
-
-
 def _nothing_behind(system, dossier) -> bool:
     """Nothing on the drawings shows the system (it has no count, so this is asked only then): no schedule row and
-    none of its tags on a schedule or the plans. A system with no tags at all is still printed when a sequence
-    paragraph it cites names it (a monitoring system whose equipment is not tagged: "Plumbing Pumps")."""
+    none of its tags on a schedule or the plans. A system with no tags at all is a phantom even when the sequence has
+    a section for it ("Outdoor Air Fan"), unless it is a monitor-only system whose equipment is not tagged ("Plumbing
+    Pumps", "Domestic Water Heaters") or names a device, which is counted per drawing, never scheduled."""
     if source_ids(system.schedule_sources) or is_panel_system(system) or _on_drawings(system, dossier):
         return False
     if expand_tags(system.tags):
         return True                    # the plan names units that no schedule and no plan shows
-    return not _named_in_sequence(system, dossier)
+    return not _untagged_kind(system)
+
+
+def _untagged_kind(system) -> bool:
+    """A system or family whose equipment is never tagged: a monitor-only system or a device (a sensor, a panel)."""
+    style = load_house_style()
+    words = f"{_name(system)} {'' if getattr(system, 'family', False) else getattr(system, 'kind', '') or ''}"
+    return style.is_monitoring(words) or style.is_device(_name(system))
+
+
+def phantom_family(family, quantity) -> bool:
+    """A family of a planned system with no equipment tag, no count (the plan's or a line's) and no source: a unit
+    nothing on the drawings shows ("Garage Make-Up Air Fan"). Never a monitor-only kind or a device."""
+    return (quantity is None and not any(is_equipment_tag(t) for t in expand_tags(family.tags))
+            and not source_ids(family.quantity_source) and not _untagged_kind(family))
 
 
 def _places(system, dossier) -> str:
@@ -618,8 +623,10 @@ def _counted(counts: dict, columns: dict | None = None) -> tuple[int, str] | Non
 
 def is_panel_system(system) -> bool:
     """A system with no tags whose header or kind names a panel or a controller ("Gas Detection System",
-    "Fire Pump Controller", "Heat Tracing Control Panel"): its header counts panels."""
-    return not expand_tags(system.tags) and load_house_style().is_panel(f"{system.header} {system.kind or ''}")
+    "Fire Pump Controller", "Heat Tracing Control Panel"): its header counts panels. A family of a system is judged
+    by its own header ("CO Sensor" in a "CO Detection System" counts its sensors)."""
+    words = system.header if getattr(system, "family", False) else f"{system.header} {system.kind or ''}"
+    return not expand_tags(system.tags) and load_house_style().is_panel(words)
 
 
 def _existing(reading) -> set[str]:
@@ -960,15 +967,18 @@ def check_scope(system, scope, dossier, templates=None, style=None, sourced: boo
     previous = 0
     for line in scope.lines:
         text = _squash(line.text)
+        rep = _REP_LINE.match(text) is not None     # "◊ Controls Contractor requires mfr. rep …": the house's own line
+        text = style.trio[2] if rep else text
         house = style.house_opening(text)      # "ATC Contractor to provide …" is "Furnish …"
-        text = house if house is not None else text
+        text = style.client_text(house) if house is not None else text
+        internal = style.internal(text)
         problem = ("it copies the specification's wording (“ATC Contractor to …”)" if house is None else
                    "it names prices, hours, confidence or the tool's own words" if _NEVER.search(text)
-                   else style.forbidden(text))
+                   else style.forbidden(text) or (f"it names the AI's own words (“{internal}”)" if internal else None))
         if problem:
             dropped.append(f"“{text}” ({problem})")
             continue
-        depth = max(1, min(int(line.depth or 1), previous + 1))
+        depth = 2 if rep and previous else max(1, min(int(line.depth or 1), previous + 1))
         previous = depth
         quote = line.quote or ""
         sid = (source_ids(getattr(line, "source_id", "") or "") or [""])[0]
@@ -1579,8 +1589,8 @@ class _Part:
     review: list
     hours: float | None
     printed: bool = True
-    tail: list = dataclasses.field(default_factory=list)    # "*" clarifications matched to no line (the GEM's C5)
     misc: list = dataclasses.field(default_factory=list)    # the GEM's miscellaneous responsibilities, as "**" notes
+    unprinted: list = dataclasses.field(default_factory=list)   # the AI's notes kept for the Evidence Package only
     gem: dict | None = None     # the GEM's Quick Scan, explanation, scan and Self-QC, for the Evidence Package
 
     @property
@@ -1959,83 +1969,202 @@ def _flag_evidence(line) -> str:
     return said + (f" — reference: ({line.reference})" if line.reference else "")
 
 
+STANDARD_REFERENCE = "AME standard line (Master Template)"
+STANDARD_NOTE = "*Assumed per AME standard — confirm"
+FACTORY_ORIGIN = "the AI's flags and exclusions (a factory-controls unit's device)"
+_QUANTITY_FLAG = re.compile(r"^\s*confirm\s+quantity\b", re.I)
+_MATCH_GENERIC = frozenset("furnish install wired furnished installed carried assumed assume cc ame qty "
+                           "total per drawing mechanical schedule controls contractor by provided provide".split())
+_STANDARD_GENERIC = frozenset("furnish install wire wiring and the low voltage unit units between w with vav 24v coming "
+                              "is by mfr a an for of to associated".split())
+_NAME_GENERIC = frozenset("fan fans unit units system systems controller controllers pump pumps and w".split())
+_OTHER_TRADE = re.compile(r"\b(?:mechanical|electrical|plumbing|fire\s+alarm|sheet\s+metal|fire\s+protection|general)\s+"
+                          r"(?:sub-?)?contractor|\bby\s+others\b|\bdiv(?:ision|\.)?\s*\d{2}\b|\b(?:EC|MC|FA|FAC|SMC)\b",
+                          re.I)
+_LOOSE = re.compile(r"shipped\s+loose|\bremote\b|field[- ]mounted|wall[- ]mounted|\bloose\b", re.I)
+_NOT_A_DEVICE = re.compile(r"\s+(?:(?:furnishing|installing|wiring|mounting)(?:\s+and\s+\w+)?\s+party|installer|"
+                           r"ownership|quantity|count|party)\b.*$|\s+(?:not\s+named|no\s+named\s+party)\b.*$", re.I)
+_WIRING = re.compile(r"\bwir(?:e|es|ed|ing)\b", re.I)
+
+
+def _star_device(text: str, style) -> str:
+    """The device a line names, in the client's words, for its "*" clarification."""
+    device = _QTY_NOTE.sub("", style._device(text) or text)
+    return _squash(style.client_text(device)).strip(" ,.-–")
+
+
+def _plain_assumption(text: str, style) -> str | None:
+    """An assumption in few plain words about the scope ("Wire guards … furnished by AME"), or None when what the AI
+    wrote is its reasoning (its rule names, its evidence) rather than the scope."""
+    t = style.client_text(text or "")
+    t = re.sub(r"^\s*(?:assumed|assumption)\s*[:\-–—]?\s*", "", t, flags=re.I)
+    t = re.split(r"\s+[—–]\s+|\s+-\s+|;|:\s|\.\s|\s*\(", t)[0].strip(" .,")
+    if not t or len(t) > 130 or style.internal(t) or style.forbidden(t):
+        return None
+    return t[0].upper() + t[1:]
+
+
 def flag_review(name: str, text: str, line, style) -> tuple[ReviewItem | None, str | None]:
-    """The GEM's flag on one line, per the estimator's doctrine: (its review row, the "*" clarification printed after
-    the line or None). Red, the quantity unknown: a top-ranked row. Yellow (ownership or gap) and orange (assumed):
-    a row, and "*Confirm ownership: …" / "*Assumed: …" after the line. Green: a row only."""
+    """The GEM's flag on one line: (its review row, the "*" clarification printed after the line or None). Only a
+    clarification the client needs prints: "*Confirm quantity: <device>" after a red line (or a yellow one about a
+    quantity) and "*Assumed: <what>" after an orange one, in plain words about the scope, never the AI's reasoning (that
+    stays in the Evidence Package). A yellow ownership flag and a green note are review rows only."""
     flag = getattr(line, "flag", "") or ""
     if not flag:
         return None, None
     evidence = _flag_evidence(line)
+    device = _star_device(text, style)
+    about = _squash(f"{device} {_plain_assumption(line.flag_text, style) or ''}")    # what the decision is about
+    note = None
     if flag == "red":
-        return ReviewItem(name, PENDING, f"Give the quantity for “{text}”", evidence, "Count it on the drawings or the "
-                          "schedule and put the count in the line", tier=TIER_QUANTITY), None
-    if flag == "green":
-        return ReviewItem(name, "", f"Note on “{text}”: {line.flag_text or 'no remark given'}", evidence, "",
-                          tier=TIER_REST), None
-    if flag == "orange" and line.flag_text == NO_REFERENCE:     # the tool's own flag: nothing to tell the client
-        return ReviewItem(name, ASSUMPTION, f"No reference line for “{text}”", evidence, "Find what in the documents "
-                          "calls for it, or delete the line", tier=TIER_DISAGREE), None
-    device = style._device(text) or text
-    if flag == "yellow":
-        note = f"*Confirm ownership: {line.flag_text or device}"
+        row = ReviewItem(name, PENDING, f"Give the quantity for “{text}”", evidence, "Count it on the drawings or the "
+                         "schedule and put the count in the line", tier=TIER_QUANTITY, device=device, kind="red")
+        note = f"*Confirm quantity: {device}"
+    elif flag == "green":
+        row = ReviewItem(name, "", f"Note on “{text}”: {line.flag_text or 'no remark given'}", evidence, "",
+                         tier=TIER_REST, device=device, kind="green")
+    elif flag == "orange" and line.flag_text == NO_REFERENCE:     # the tool's own flag: nothing to tell the client
+        row = ReviewItem(name, ASSUMPTION, f"No reference line for “{text}”", evidence, "Find what in the documents "
+                         "calls for it, or delete the line", tier=TIER_DISAGREE, device=device, kind="no reference")
+    elif flag == "yellow":
         row = ReviewItem(name, "", f"Confirm ownership: “{text}”", evidence, "Confirm who furnishes, installs and "
-                         "wires it; the proposal prints a * clarification after the line", tier=TIER_DISAGREE)
+                         "wires it", tier=TIER_DISAGREE, device=about, kind="yellow")
+        note = f"*Confirm quantity: {device}" if _QUANTITY_FLAG.match(line.flag_text or "") else None
     else:
-        note = f"*Assumed: {line.flag_text or device}"
         row = ReviewItem(name, ASSUMPTION, f"Assumed: “{text}”", evidence, "Confirm the assumption; the proposal "
-                         "prints a * clarification after the line", tier=TIER_DISAGREE)
-    return row, (None if style.forbidden(note) else _squash(note))
+                         "prints a * clarification after the line", tier=TIER_DISAGREE, device=about, kind="orange")
+        note = f"*Assumed: {_plain_assumption(line.flag_text, style) or device}"
+    if note is not None and (style.forbidden(note) or style.internal(note)):
+        note = None
+    return row, (_squash(note) if note else None)
 
 
 def _words(text: str) -> set[str]:
     return {_singular(w) for w in _plain(text).split() if w not in _LINE_STOP}
 
 
+def _match_words(text: str) -> set[str]:
+    return {w for w in _words(_QTY_NOTE.sub(" ", text)) if w not in _MATCH_GENERIC}
+
+
 def _best_row(rows: list, item: str):
-    """The line a contradiction's item names best (half its words at least), or None."""
-    wanted = _words(item)
+    """The line a contradiction's item names best: two of its words, or half of them, and an orange line first on a
+    tie; None when no line is named."""
+    wanted = _match_words(item)
     if not wanted:
         return None
-    scored = [(len(wanted & _words(r.line.text)) / len(wanted), -n, r) for n, r in enumerate(rows)]
-    share, _, row = max(scored, default=(0, 0, None), key=lambda x: (x[0], x[1]))
-    return row if share >= 0.5 else None
+    for row in rows:                          # the orange line whose own flag says the same assumption
+        if row.line.flag == "orange" and not row.line.origin and _same_device(item, row.line.flag_text or ""):
+            return row
+    best, score = None, (0.0, 0, False)
+    for row in rows:
+        if row.line.origin:
+            continue
+        have = _match_words(row.line.text)
+        shared = len(wanted & have)
+        share = shared / min(len(wanted), len(have) or 1)
+        key = (share, shared, row.line.flag == "orange")
+        if (shared >= 2 or share >= 0.5) and key > score:
+            best, score = row, key
+    return best
 
 
-def gem_review(name: str, scope, rows: list, style) -> tuple[list[ReviewItem], list[str], list[str]]:
-    """The GEM's Contradiction and Assumption scan, its failed Self-QC checks and its exclusions as review rows (the
-    scan ranked after the quantities); a C5 assumption also prints "*Assumed: …" after the line it names (or at the
-    end of the lines); the miscellaneous responsibilities as "**" notes. (rows, tail notes, "**" notes)"""
-    review, tail = [], []
+def _conflict_row(name: str, c) -> ReviewItem:
+    return ReviewItem(name, ASSUMPTION if c.type == "C5" else PENDING if c.type == "C6" else "",
+                      f"{c.type} {_CONFLICT_NAMES.get(c.type, 'conflict')}: {c.item}",
+                      " / ".join(f"“{q}”" for q in c.quotes) or "no snippet quoted",
+                      "Decide it and change the block if needed", tier=TIER_QUESTION, device=c.item, kind=c.type)
+
+
+def _other_unit(exclusion: str, system) -> bool:
+    """The exclusion gives the device to another unit than the system's own ("… factory-provided with the rooftop
+    units" in a VAV block)."""
+    m = re.search(r"\bwith\s+(?:the\s+|each\s+)?([A-Za-z][A-Za-z \-/]*?)\s*(?:[),.;]|$)", exclusion)
+    if m is None:
+        return False
+    named = {w for w in _words(m.group(1)) if w not in {"unit", "equipment"}}
+    own = _words(f"{_name(system)} {getattr(system, 'kind', '') or ''}")
+    return bool(named) and not named & own
+
+
+def _clarification(note: str, style) -> str:
+    """A note in the client's words, "**" or "*" opening kept, no space after it."""
+    return re.sub(r"^(\*+)\s+", r"\1", style.client_text(note))
+
+
+@lru_cache(maxsize=1)
+def _template_clarifications() -> tuple[str, ...]:
+    """The Master Template's own "**" clarifications (its examples, each system's client notes, the schedule rules')."""
+    import json
+    from estimator.writing.templates import TEMPLATES_FILE
+    raw = json.loads(TEMPLATES_FILE.read_text(encoding="utf-8"))
+    notes = list(raw.get("client_note_examples", ()))
+    notes += [n for s in raw.get("systems", ()) for n in s.get("client_notes", ())]
+    notes += [r["note"] for r in (raw.get("schedule_overrides") or {}).get("rules", ()) if r.get("note")]
+    return tuple(dict.fromkeys(_squash(n) for n in notes if n))
+
+
+def client_facing(note: str, style) -> bool:
+    """The note is a clarification the client needs: a "**" note giving an item to the owner or another party (not one
+    the standard exclusions already cover), or one of the Master Template's own; a "*" note saying who furnishes,
+    installs or wires, or an integral-thermostat or manufacturer-switch note. Never one restating the controls
+    contractor's software work, or naming the AI's own words."""
+    body = note.lstrip("*").strip()
+    if not body or style.internal(note) or style.forbidden(note) or style.is_software_work(note):
+        return False
+    templates = list(_template_clarifications()) + list(style.note_examples)
+    if note.startswith("**"):
+        mine = style.note_words(note)
+        if any(mine and len(mine & style.note_words(t)) >= 0.7 * max(len(mine), len(style.note_words(t)))
+               for t in templates):
+            return True
+        return style.names_other_party(body) and not style.covered_exclusion(body)
+    return style.names_other_party(body) or style.is_unit_note(body) or "BY UNIT MFR" in body.upper()
+
+
+def gem_review(name: str, scope, rows: list, style, system=None
+               ) -> tuple[list[ReviewItem], list[str], list[str], list[str]]:
+    """The GEM's Contradiction and Assumption scan and its exclusions as review rows (its Self-QC stays in the GEM QC
+    tab). A C5 assumption prints "*Assumed: …" once, under the line it names (in place of the line's own orange note,
+    in plain words), never at the end of the block; one naming no line is a review row only. An exclusion naming a
+    device the unit's manufacturer furnishes is the block's "*<DEVICE> BY UNIT MFR." note; one the standard exclusions
+    already cover is dropped. A miscellaneous responsibility prints as a "**" note only when it is client-facing.
+    (rows, "*… BY UNIT MFR." notes, "**" notes printed, notes kept for the Evidence Package only)"""
+    review = []
     for c in getattr(scope, "contradictions", ()) or ():
-        review.append(ReviewItem(name, "", f"{c.type} {_CONFLICT_NAMES.get(c.type, 'conflict')}: {c.item}",
-                                 " / ".join(f"“{q}”" for q in c.quotes) or "no snippet quoted",
-                                 "Decide it and change the block if needed", tier=TIER_QUESTION))
-        if c.type == "C5":
-            note = _squash(f"*Assumed: {c.item}")
-            if style.forbidden(note):
-                continue
-            row = _best_row(rows, c.item)
-            have = {_plain(n) for r in rows for n in r.after} | {_plain(n) for n in tail}
-            if _plain(note) in have:
-                continue
-            (row.after if row is not None else tail).append(note)
-    for q in getattr(scope, "qc", ()) or ():
-        if not q.passed:
-            review.append(ReviewItem(name, "", f"The GEM's self-check {q.check} failed: {q.evidence}",
-                                     q.fix or "no fix given", "Check the block", tier=TIER_DISAGREE))
+        review.append(_conflict_row(name, c))
+        if c.type != "C5":
+            continue
+        row = _best_row(rows, c.item)
+        if row is None:
+            continue
+        what = _plain_assumption(c.item, style)
+        others = [n for n in row.after if not n.startswith("*Assumed:")]
+        mine = [n for n in row.after if n.startswith("*Assumed:")]
+        if what is not None:
+            row.after = others + [_squash(f"*Assumed: {what}")]
+        elif not mine and not others:
+            row.after = [_squash(f"*Assumed: {_star_device(row.line.text, style)}")]
+    makers = []
     for x in getattr(scope, "exclusions", ()) or ():
-        review.append(ReviewItem(name, "", f"Exclusion the GEM names: {x}", "", "Add it as a named exception "
-                                 "(EXCEPTION TO ANY WORK WITH …) if the job needs it", tier=TIER_REST))
-    misc = []
+        devices = style.unit_maker_devices(x) if system is not None and not _other_unit(x, system) else []
+        if devices:
+            makers += [style.by_unit_mfr.format(item=d) for d in devices if style.by_unit_mfr.format(item=d) not in makers]
+            continue
+        if style.covered_exclusion(x):
+            continue
+        review.append(ReviewItem(name, "", f"Exclusion the AI names: {x}", "", "Add it as a named exception "
+                                 "(EXCEPTION TO ANY WORK WITH …) if the job needs it", tier=TIER_REST, device=x,
+                                 kind="exclusion"))
+    misc, kept = [], []
     for m in getattr(scope, "misc_responsibilities", ()) or ():
-        note = _squash(m if m.startswith("*") else f"**{m}")
-        if style.forbidden(note):
-            review.append(ReviewItem(name, "", f"A responsibility the GEM names was not printed: {m}",
-                                     style.forbidden(note), "Add it by hand if it applies"))
-        elif note not in misc:
-            misc.append(note)
-    return review, tail, misc
+        note = _clarification(m if m.startswith("*") else f"**{m}", style)
+        if client_facing(note, style):
+            if note not in misc:
+                misc.append(note)
+        else:
+            kept.append(_squash(m))
+    return review, makers, misc, kept
 
 
 def gem_record(system, headers, scope) -> dict | None:
@@ -2057,24 +2186,213 @@ def no_cc_scope(scope) -> bool:
     return any(_NO_CC_SCOPE.search(str(v)) for v in (getattr(scope, "quick_scan", None) or {}).values())
 
 
+def _unit_type(scope) -> str:
+    return str((getattr(scope, "quick_scan", None) or {}).get("unit_type", "") or "").strip().casefold()
+
+
+# --- AME's standard lines, and a factory-controls unit's devices -----------------------------------------------------
+
+def _standard_words(text: str) -> set[str]:
+    text = re.split(r"\s+w/\s*", re.sub(r"\([^)]*\)", " ", text or ""), maxsplit=1)[0]
+    return {w for w in _words(text) if w not in _STANDARD_GENERIC}
+
+
+def _written_already(words: set[str], texts: list[str]) -> bool:
+    return bool(words) and any(words <= _standard_words(t) | _words(t) for t in texts)
+
+
+def _excluded_already(words: set[str], exclusions) -> bool:
+    for x in exclusions:
+        have = _words(x)
+        shared = len(words & have)
+        if words and (words <= have or (len(words) >= 2 and shared * 3 >= 2 * len(words))):
+            return True
+    return False
+
+
+def _standard_template(system, templates):
+    """The Master Template entry whose standard lines apply: the system's own, else the nearest one when it shares a
+    real word of its name (never only "fan" or "unit")."""
+    own = system_template(system, templates)
+    if own is not None:
+        return own
+    near = _nearest_template(system, templates)
+    if near is None:
+        return None
+    mine = {w for w in _words(f"{_name(system)} {system.kind or ''}") if w not in _NAME_GENERIC}
+    theirs = {w for w in _words(" ".join((near.name, *near.kinds))) if w not in _NAME_GENERIC}
+    return near if mine & theirs else None
+
+
+def standard_rows(system, rows: list, scope, evidence: str, templates, quantity, name: str) -> list:
+    """AME's standard lines of the system's Master Template entry that the GEM neither wrote nor excluded: the VAV
+    transformer (by the unit's manufacturer when the schedule or the AI's exclusions say so), the split system's
+    indoor/outdoor interlock wiring, and on field-DDC fans and ERVs the damper actuator (w/ end switch when the
+    evidence proves position) and the start/stop and status. Each is an ASSUMPTION with "*Assumed per AME standard —
+    confirm"."""
+    template = _standard_template(system, templates)
+    if template is None:
+        return []
+    field_ddc = _unit_type(scope).startswith("field-installed ddc")
+    written = [r.line.text for r in rows]
+    exclusions = list(getattr(scope, "exclusions", ()) or ())
+    seen = "\n".join([evidence, *exclusions])
+    groups: dict[str, list] = defaultdict(list)
+    for line in (*template.lines, *template.standard_lines):
+        if line.standard:
+            groups[line.standard_group or line.text].append(line)
+    out = []
+    for members in groups.values():
+        if any(_written_already(_standard_words(m.standard_text or m.text), written)
+               or _written_already(_standard_words(m.text), written) for m in members):
+            continue
+        usable = [m for m in members if (field_ddc or not m.standard_field_ddc)
+                  and all(re.search(p, evidence, re.I) for p in m.standard_needs)]
+        pick = (next((m for m in usable if m.standard_if and any(re.search(p, seen, re.I) for p in m.standard_if)),
+                     None) or next((m for m in usable if not m.standard_if), None))
+        if pick is None:
+            continue
+        text = pick.standard_text or pick.text
+        by_maker = re.search(r"\bby\s+unit\s+mfr\b|\(furnished\s+by", text, re.I)
+        if not by_maker and _excluded_already(_standard_words(pick.text), exclusions):
+            continue
+        line = CheckedLine(text, 1, None, "", "", STANDARD_REFERENCE, _EVIDENCE_CONFIDENCE[ASSUMPTION], False,
+                           STANDARD_REFERENCE, STANDARD_REFERENCE)
+        q = None if pick.quantity == "none" else quantity
+        out.append(_Row(line, q, False, frozenset(), quantity, name, after=[STANDARD_NOTE]))
+    return out
+
+
+def _title(text: str) -> str:
+    small = {"and", "or", "of", "to", "the", "a", "an", "in", "on", "for", "with", "at", "by"}
+    def cap(word: str) -> str:
+        return "-".join(p[:1].upper() + p[1:] if p[:1].islower() else p for p in word.split("-"))
+    return " ".join(w if n and w.lower() in small else cap(w) for n, w in enumerate(text.split()))
+
+
+def factory_rows(system, rows: list, scope, style, quantity, name: str) -> list:
+    """A factory-controls unit (the GEM's Quick Scan: Factory/OEM Controls): each device the unit's manufacturer
+    furnishes that the AI names only in its ownership flags or its exclusions, and that AME installs and wires
+    (shipped loose, remote or field-mounted) or wires (the wiring is the point, or a blanket wiring clause), written as
+    its own line: "Install and Wire <device> (Furnished by Unit Mfr.)" or "Wire <device> (Furnished by Unit Mfr.)", its
+    reference the AI's own words, with no "*Assumed". A device another trade installs or wires is never written; one
+    nobody installs or wires stays a "*… BY UNIT MFR." note."""
+    if not _unit_type(scope).startswith("factory"):
+        return []
+    quick = getattr(scope, "quick_scan", None) or {}
+    blanket = str(quick.get("blanket_wiring_clause", "") or "").strip().casefold().startswith("yes")
+    flags = [c.item for c in getattr(scope, "contradictions", ()) or () if c.type in ("C1", "C4")]
+    exclusions = list(getattr(scope, "exclusions", ()) or ())
+    texts = [r.line.text for r in rows]
+    out = []
+    for item in flags + exclusions:
+        head = re.split(r"\s+[—–]\s+|;|\s*\(", style.client_text(item))[0]
+        device = re.sub(r"^(?:the\s+)?(?:mounting|installation|installing|wiring)(?:\s+and\s+wiring)?\s+of\s+(?:the\s+)?",
+                        "", head, flags=re.I)
+        device = re.sub(r"^(?:unit\s+)?(?:manufacturer'?s|factory)\s+", "", device, flags=re.I)
+        device = re.split(r"\s+(?:to|from|on|with|by|in)\s+", device, maxsplit=1)[0].strip(" ,.")
+        device = _NOT_A_DEVICE.sub("", device).strip(" ,.")
+        if not device or len(device) > 80 or not style.is_device(device):
+            continue
+        words = _match_words(device)
+        if not words or any(_OTHER_TRADE.search(x) and (words <= _words(x) or len(words & _words(x)) * 3 >= 2 * len(words))
+                            for x in [item, *exclusions]):
+            continue
+        if re.search(r"\bno\s+line\s+written\b|\boem\s+scope\b", item, re.I):
+            continue                          # the AI's own ruling: the manufacturer's alone
+        if _LOOSE.search(item):
+            verb = "Install and Wire"
+        elif _WIRING.search(item) or (blanket and item in flags):
+            verb = "Wire"
+        else:
+            continue
+        if any(words <= _match_words(t) or len(words & _match_words(t)) * 3 >= 2 * len(words) for t in texts):
+            continue
+        text = f"{verb} {_title(device)} (Furnished by Unit Mfr.)"
+        line = CheckedLine(text, 1, None, item, "", "a device the unit's manufacturer furnishes that AME "
+                           f"{'installs and wires' if verb.startswith('Install') else 'wires'}",
+                           _EVIDENCE_CONFIDENCE[ASSUMPTION], False, FACTORY_ORIGIN, _squash(item))
+        out.append(_Row(line, quantity, False, frozenset(), quantity, name))
+        texts.append(text)
+    return out
+
+
+# --- a block's families: their counts from the lines, the ones nothing shows -----------------------------------------
+
+def _family_words(family) -> set[str]:
+    return {w for w in _words(_TAG_RUN.sub(" ", family.header or "")) if w not in {"qty"}}
+
+
+def _count_from_lines(family, count, kept) -> int | None:
+    """A family's count: the plan's, else the "(Qty. N Total)" of a line naming it ("CO Sensor (Qty. 9 Total)")."""
+    if count is not None:
+        return count
+    words = _family_words(family)
+    for line in kept:
+        m = _QTY_IN_LINE.search(line.text)
+        if m and words and words <= _words(line.text):
+            return int(m.group(1))
+    return None
+
+
+def _phantom_question(family, system, dossier, written: list[str]) -> ReviewItem:
+    name = _name(family)
+    said = ("The AI wrote for it: " + "; ".join(f"“{t}”" for t in written)) if written else "The AI wrote no line for it"
+    return ReviewItem(name, "", f"Does {name} exist on this job? The plan wrote it inside {_name(system)} from "
+                      f"{_places(system, dossier)}; no tag, schedule or count shows it.", said,
+                      "If it exists, add its header with its count and its lines; if not, nothing to do",
+                      tier=TIER_FIRST)
+
+
+def _families_shown(system, check: PlanCheck, kept, dossier):
+    """The system with only the families something on the drawings shows, each family's count (the plan's or a line's)
+    and the check's rows that still apply, the lines kept (not those of a family nothing shows) and the questions.
+    (system, family counts or None, check rows, kept lines, questions)"""
+    families = list(getattr(system, "families", ()) or ())
+    if len(families) < 2 or len(check.families) != len(families):
+        return system, None, list(check.review), kept, []
+    counts = [c.quantity if c.quantity is not None or c.category == PENDING else f.quantity
+              for c, f in zip(check.families, families)]
+    counts = [_count_from_lines(f, n, kept) for f, n in zip(families, counts)]
+    filled = {_name(f) for f, c, n in zip(families, check.families, counts) if c.quantity is None and n is not None}
+    gone = [f for f, n in zip(families, counts) if phantom_family(f, n)]
+    names = {_name(f) for f in gone}
+    rows = [r for r in check.review if r.system not in names and not (r.system in filled and r.category == PENDING)]
+    questions, lines = [], list(kept)
+    for family in gone:
+        words = _family_words(family)
+        theirs = [line for line in lines if words and words <= _words(line.text)]
+        lines = [line for line in lines if line not in theirs]
+        questions.append(_phantom_question(family, system, dossier, [line.text for line in theirs]))
+    if not gone:
+        return system, counts, rows, kept, []
+    left = [(f, n) for f, n in zip(families, counts) if f not in gone]
+    if len(left) == 1:
+        family, n = left[0]
+        return (_with_fields(system, header=family.header, tags=tuple(family.tags), families=(), quantity=n),
+                None, rows, lines, questions)
+    return (_with_fields(system, families=tuple(f for f, _ in left)), [n for _, n in left], rows, lines, questions)
+
+
 def _written_part(system, check: PlanCheck, scope, got, dossier, templates, style) -> _Part:
     """One planned system written: its checked lines polished and counted, its notes, its tech hours. A
-    system with no usable line falls back to the Master Template; one with no quantity is "Qty (##)"."""
+    system with no usable line falls back to the Master Template; one with no quantity is "Qty (##)". A family nothing
+    on the drawings shows is left out (a question); a family's count a line gives goes on its header."""
     name = _name(system)
+    kept, scope_review = got if got is not None else ([], [])
+    evidence = system_evidence(system, dossier)
+    system, family_quantities, check_rows, kept, questions = _families_shown(system, check, kept, dossier)
     quantity = check.quantity if check.quantity is not None or check.category == PENDING else system.quantity
     families = family_systems(system)
-    family_quantities = None
-    if families and len(check.families) == len(families):
-        family_quantities = [c.quantity if c.quantity is not None or c.category == PENDING else f.quantity
-                             for c, f in zip(check.families, families)]
+    if family_quantities is not None:
         known = [n for n in family_quantities if n is not None]
         quantity = sum(known) if known else None
-    kept, scope_review = got if got is not None else ([], [])
-    review = [*check.review, *scope_review]
-    evidence = system_evidence(system, dossier)
+    elif not families and getattr(check.system, "families", ()):
+        quantity = system.quantity                  # one family left of several: its own count
+    review = [*questions, *check_rows, *scope_review]
     shape = shape_header(system, quantity, family_quantities)
     disagree = []
-    if not families:                                  # a family's header is printed exactly as the plan gives it
+    if not families and not getattr(check.system, "families", ()):   # a family's header prints as the plan gives it
         shape, disagree = _checked_shape(system, check, shape, quantity)
     review += disagree
     fallback = ""
@@ -2117,15 +2435,28 @@ def _written_part(system, check: PlanCheck, scope, got, dossier, templates, styl
     review += folded_review
     rows = _location_row(system, rows, quantity, name) + rows
     rows, maker_notes = _given_to_unit_maker(rows, evidence, style)
+    if scope is not None and not fallback:
+        extra = factory_rows(system, rows, scope, style, quantity, name)
+        extra += standard_rows(system, rows + extra, scope, evidence, templates, quantity, name)
+        rows += extra
+        standard = [r.line.text for r in extra if r.line.origin == STANDARD_REFERENCE]
+        if standard:
+            review.append(ReviewItem(name, ASSUMPTION, "AME standard lines added (Master Template): "
+                                     + "; ".join(standard), "The AI neither wrote nor excluded them",
+                                     "Confirm each, or delete it", tier=TIER_REST, kind="standard"))
     if check.devices is not None:
         review += _device_line(rows, check, style, name)
     pictured = (any(_is_picture(sid, dossier) for sid in _system_ids(system))       # the judge read a picture
                 or any(_is_picture(line.source_id, dossier) for line in kept))     # for this system
     notes: list[str] = list(maker_notes)
+    unprinted: list[str] = []
     for note in getattr(scope, "client_notes", ()) or ():
         note = _squash(note)
         text, problem = _client_note(note, evidence, pictured, style)
-        if problem is None:
+        text = _clarification(text, style)
+        if problem is None and not client_facing(text, style):
+            unprinted.append(note)
+        elif problem is None:
             if not any(style.same_note(text, have) for have in notes + ([shape.note] if shape.note else [])):
                 notes.append(text)
         else:
@@ -2145,10 +2476,11 @@ def _written_part(system, check: PlanCheck, scope, got, dossier, templates, styl
         if point is not None and _hardware_point(row.line.text):
             row.hours = point * (row.q or 0)
     includes = shape.note if shape.note and not style.forbidden(shape.note) else ""
-    gem_rows, tail, misc = gem_review(name, scope, rows, style)
+    gem_rows, makers, misc, kept_misc = gem_review(name, scope, rows, style, system)
+    notes += [m for m in makers if not any(style.same_note(m, have) for have in notes)]
     review += gem_rows
-    return _Part(system, shape.headers, rows, notes, includes, review, hours, tail=tail, misc=misc,
-                 gem=gem_record(system, shape.headers, scope))
+    return _Part(system, shape.headers, rows, notes, includes, review, hours, misc=misc,
+                 gem=gem_record(system, shape.headers, scope), unprinted=unprinted + kept_misc)
 
 
 def _scope_line(row: _Row, text: str, dossier) -> ScopeLine:
@@ -2156,9 +2488,10 @@ def _scope_line(row: _Row, text: str, dossier) -> ScopeLine:
     category = ASSUMPTION if line.origin or not line.quoted else CONFIRMED
     where = _where(dossier, line.source_id)
     said = f"{where + ': ' if where else ''}“{line.quote}”" if line.quote else (line.why or "no quote")
+    said += f" ({line.why})" if line.why and line.quote else ""
+    said += f" — the AI's flag: {line.flag_text}" if getattr(line, "flag_text", "") else ""   # its reasoning stays here
     return ScopeLine(row.system, text, line.depth, row.q, row.hours, category, line.confidence,
-                     line.origin or _source(line.source_id), said + (f" ({line.why})" if line.why and line.quote
-                                                                     else ""), True,
+                     line.origin or _source(line.source_id), said, True,
                      getattr(line, "reference", "") or "", getattr(line, "flag", "") or "")
 
 
@@ -2189,7 +2522,7 @@ def _written_system(key: str, parts: list[_Part], template: str | None, dossier=
     across the units are one line with its total (the GEM's consolidation); the lines follow the GEM's SOW order,
     each flagged line followed by its "*" clarification, then the client notes and the "**" responsibilities."""
     style = style or load_house_style()
-    headers = [h for p in parts for h in p.headers]
+    headers = [style.client_text(h) for p in parts for h in p.headers]
     blocks = [Block(header=h, joined=i > 0) for i, h in enumerate(headers)]
     hours = None if any(p.hours is None for p in parts) else float(sum(p.hours for p in parts))
     blocks[0] = blocks[0].model_copy(update={"tech_hours": hours})
@@ -2202,7 +2535,6 @@ def _written_system(key: str, parts: list[_Part], template: str | None, dossier=
         for note in p.notes:
             if not any(style.same_note(note, have) for have, _ in notes) and note not in includes:
                 notes.append((note, _name(p.system)))
-    tail = [(n, _name(p.system)) for p in parts for n in p.tail]
     misc = [(n, _name(p.system)) for p in parts for n in p.misc]
     items = [Item(kind="note", runs=(Run(text=n),)) for n in includes]
     lines = [ScopeLine(_name(p.system), p.includes, 1, None, None, CONFIRMED, _ADDED_CONFIDENCE, SOURCE,
@@ -2217,12 +2549,11 @@ def _written_system(key: str, parts: list[_Part], template: str | None, dossier=
         for note in _unique([n for r in group for n in r.after]):
             items.append(Item(kind="note", runs=(Run(text=note),)))
             lines.append(ScopeLine(group[0].system, note, 1, None, None, ASSUMPTION, _ADDED_CONFIDENCE,
-                                   "the GEM's flag", f"after “{group[0].line.text}”", True, "",
-                                   "yellow" if note.startswith("*Confirm") else "orange"))
-    for note, who in tail:
-        items.append(Item(kind="note", runs=(Run(text=note),)))
-        lines.append(ScopeLine(who, note, 1, None, None, ASSUMPTION, _ADDED_CONFIDENCE, "the GEM's scan (C5)",
-                               "an assumption the GEM's contradiction scan names", True, "", "orange"))
+                                   STANDARD_REFERENCE if note == STANDARD_NOTE else "the AI's flag",
+                                   f"after “{group[0].line.text}”", True, "",
+                                   "red" if note.startswith("*Confirm") else "orange"))
+    notes = [(n, who) for n, who in notes if not style.internal(n)]       # nothing internal reaches the client
+    misc = [(n, who) for n, who in misc if not style.internal(n)]
     items += [Item(kind="note", runs=(Run(text=n),)) for n, _ in notes]
     lines += [ScopeLine(who, n, 1, None, None, CONFIRMED, _ADDED_CONFIDENCE, SOURCE,
                         "a clarification the evidence bears out", True) for n, who in notes]
@@ -2231,6 +2562,12 @@ def _written_system(key: str, parts: list[_Part], template: str | None, dossier=
             items.append(Item(kind="note", runs=(Run(text=note),)))
             lines.append(ScopeLine(who, note, 1, None, None, CONFIRMED, _ADDED_CONFIDENCE, "the GEM's miscellaneous "
                                    "responsibilities", "a responsibility the GEM names", True))
+    for p in parts:                           # the AI's notes the client never sees: the Evidence Package keeps them
+        for note in p.unprinted:
+            lines.append(ScopeLine(_name(p.system), note if note.startswith("*") else f"**{note}", 1, None, None,
+                                   ASSUMPTION, _ADDED_CONFIDENCE, "the AI's note (not printed)",
+                                   "not a clarification the client needs: the AI's reasoning or the controls "
+                                   "contractor's own software work", False))
     blocks[-1] = blocks[-1].model_copy(update={"items": tuple(items)})
     review = [r for p in parts for r in p.review]
     if len(parts) > 1:
@@ -2266,11 +2603,12 @@ def _asks_about(question: str, key: str, plan) -> bool:
 def _exception(system, check: PlanCheck, style) -> tuple[WrittenSystem, str | None]:
     """A unit that needs no BMS work: its one line goes into the proposal's exceptions."""
     name = _name(system)
-    text = _squash(system.exception)
+    text = style.client_text(_squash(system.exception))
     review = list(check.review)
     ids = _system_ids(system)
     evidence = (system.quantity_quote or system.why or "") + (f" [{', '.join(ids)}]" if ids else "")
-    bad = style.forbidden(text) or ("it names prices, hours or confidence" if _NEVER.search(text) else None)
+    bad = (style.forbidden(text) or ("it names prices, hours or confidence" if _NEVER.search(text) else None)
+           or (f"it names the AI's own words (“{style.internal(text)}”)" if style.internal(text) else None))
     if bad:
         review.insert(0, ReviewItem(name, "", f"The AI's exception for {name} was left out — {bad}", text,
                                     "Write the exception by hand"))
@@ -2305,7 +2643,7 @@ def _gem_exception(system, check: PlanCheck, scope, style) -> tuple[WrittenSyste
     quick = "; ".join(f"{k.replace('_', ' ')}: {v}" for k, v in (getattr(scope, "quick_scan", None) or {}).items())
     extra = ReviewItem(_name(system), "", f"The GEM finds no Controls Contractor scope for {_name(system)}: printed as "
                        "a named exception", quick, "Price it if the job wants the BMS to see it", tier=TIER_DISAGREE)
-    rows, _, _ = gem_review(_name(system), scope, [], style)
+    rows = gem_review(_name(system), scope, [], style)[0]
     written = dataclasses.replace(written, review=written.review + (extra,) + tuple(rows),
                                   gem=tuple(g for g in (gem_record(system, (), scope),) if g))
     return written, printed
@@ -2529,6 +2867,10 @@ def _reconcile_front_end(fe, plan, dossier, style, warranty_block, evidence=(), 
             text = house
         if not is_note:
             text = polish_line(text)[0]
+        text = _clarification(text, style) if is_note else style.client_text(text)    # no id, glyph or "CC"
+        if style.internal(text):
+            left.append(f"“{text}” (it names the AI's own words)")
+            continue
         if re.search(r"\bwarrant", text, re.I):
             m = _WARRANTY_CLAUSE.match(text)
             if m and len(_fe_words(m.group("rest"))) >= 2:
@@ -2672,6 +3014,32 @@ def _order(plan) -> list[list]:
     return runs
 
 
+def _monitor_only(part: _Part, style) -> bool:
+    """A monitor-only system (plumbing pumps, water heaters, glycol, gas booster, heat tracing, a generator) with few
+    lines and no controller of its own: it goes under the Misc Monitoring Systems block."""
+    system = part.system
+    lines = [r.line.text for r in part.rows]
+    return (style.is_monitoring(f"{_name(system)} {system.kind or ''}") and not system.alternate
+            and len(lines) <= style.monitoring_max_lines
+            and not any(style.own_controller is not None and style.own_controller.search(t) for t in lines))
+
+
+def misc_monitoring(runs: list[tuple[str, list]], style) -> list[tuple[str, list]]:
+    """The written systems in the plan's order, the monitor-only ones (two or more) gathered as stacked headers under
+    one "Misc Monitoring Systems" block, where the first of them is, as the Master Template writes it."""
+    alone = [n for n, (_, parts) in enumerate(runs) if len(parts) == 1 and _monitor_only(parts[0], style)]
+    if len(alone) < 2:
+        return runs
+    gathered = [runs[n][1][0] for n in alone]
+    out = []
+    for n, run in enumerate(runs):
+        if n == alone[0]:
+            out.append((style.monitoring_block, gathered))
+        elif n not in alone:
+            out.append(run)
+    return out
+
+
 def assemble_job(catalogue, reading, dossier, plan, scopes, today, templates=None
                  ) -> tuple[Job, list[WrittenSystem], list[ReviewItem]]:
     """The Job from the whole-job plan and each system's scope, the written systems for the Evidence
@@ -2730,6 +3098,7 @@ def assemble_job(catalogue, reading, dossier, plan, scopes, today, templates=Non
             entries.append([system, kept, review])
             checked[id(system)] = entries[-1]
 
+    written_runs: list[tuple[str, list]] = []
     for run in _order(plan):
         parts = []
         for system in run:
@@ -2756,10 +3125,10 @@ def assemble_job(catalogue, reading, dossier, plan, scopes, today, templates=Non
             got = (entry[1], entry[2]) if entry is not None else None
             parts.append(_written_part(system, check, (scopes or {}).get(system.key), got, dossier, templates,
                                        style))
-        if not parts:
-            continue
+        if parts:
+            written_runs.append((_squash(run[0].group) if len(parts) > 1 else parts[0].system.key, parts))
+    for key, parts in misc_monitoring(written_runs, style):
         grouped = len(parts) > 1
-        key = _squash(run[0].group) if grouped else parts[0].system.key
         template = system_template(parts[0].system, templates)
         written = _written_system(key, parts, template.name if template is not None else None, dossier, style)
         systems.append(written)
@@ -2831,11 +3200,97 @@ def _joined(items, what) -> str:
     return "; ".join(dict.fromkeys(what(i) for i in items if what(i)))
 
 
+_DECISION_ORDER = ("red", "C6", "yellow", "C1", "C4", "C2", "C3", "orange", "C5", "no reference", "green")
+
+
+def _same_device(a: str, b: str) -> bool:
+    wa, wb = _match_words(a), _match_words(b)
+    shared = len(wa & wb)
+    return bool(shared) and (shared >= 2 or shared / min(len(wa), len(wb)) >= 0.6)
+
+
+def _one_decision(rows: list[ReviewItem]) -> ReviewItem:
+    """The rows of one decision (a flag, a scan hit, on one device of one system) as one row: the most urgent one's
+    words, the others' in its evidence."""
+    rows = sorted(rows, key=lambda r: _DECISION_ORDER.index(r.kind) if r.kind in _DECISION_ORDER else 99)
+    first = rows[0]
+    if len(rows) == 1:
+        return first
+    kinds = {r.kind for r in rows}
+    category = (PENDING if kinds & {"red", "C6"} else ASSUMPTION if kinds & {"orange", "C5", "no reference"}
+                else first.category)
+    also = " | ".join(dict.fromkeys(f"{r.decide} ({r.evidence})" if r.evidence else r.decide for r in rows[1:]))
+    return dataclasses.replace(first, category=category, tier=min(_tier(r) for r in rows),
+                               evidence=_squash(f"{first.evidence} — also: {also}"))
+
+
+def _decisions(items: list[ReviewItem]) -> list[ReviewItem]:
+    """One row per decision: a system's flag rows and scan rows on the same device merged (with the AI's own notes on
+    it); every exclusion the AI names in one row for the job; the same row for several systems once."""
+    out: list = []
+    clusters: list[list[ReviewItem]] = []
+    exclusions: list[ReviewItem] = []
+    notes: list[ReviewItem] = []
+    for item in items:
+        if item.kind == "exclusion":
+            if not exclusions:
+                out.append(("exclusions",))
+            exclusions.append(item)
+        elif item.kind in _DECISION_ORDER:
+            home = next((c for c in clusters if c[0].system == item.system
+                         and any(_same_device(item.device, r.device) for r in c)), None)
+            if home is None:
+                clusters.append([item])
+                out.append(("cluster", len(clusters) - 1))
+            else:
+                home.append(item)
+        elif item.evidence == _AI_NOTE:
+            notes.append(item)
+            out.append(item)
+        else:
+            out.append(item)
+    merged = [_one_decision(c) for c in clusters]
+    for note in notes:                        # the AI's notes on a system go with the decision they are about
+        mine = [n for n, r in enumerate(merged) if r.system == note.system]
+        if not mine:
+            continue
+        at = max(mine, key=lambda n: (len(_match_words(note.decide) & _match_words(merged[n].device)), -n))
+        merged[at] = dataclasses.replace(merged[at], evidence=_squash(f"{merged[at].evidence} — the AI's note: "
+                                                                      f"{note.decide}"))
+        out = [e for e in out if e is not note]
+    rows = []
+    for entry in out:
+        if isinstance(entry, ReviewItem):
+            rows.append(entry)
+        elif entry[0] == "cluster":
+            rows.append(merged[entry[1]])
+        else:
+            listed = "\n".join(f"{r.system}: {r.device}" for r in exclusions)
+            rows.append(ReviewItem("Exclusions", "", f"Exclusions the AI names ({len(exclusions)}) — add any the job "
+                                   "needs as a named exception (EXCEPTION TO ANY WORK WITH …)", listed,
+                                   "Add the ones the job needs; the proposal's standard exclusions cover power "
+                                   "wiring, disconnects, piping and ductwork", tier=TIER_REST, kind="exclusions"))
+    same: dict[tuple, int] = {}
+    final: list[ReviewItem] = []
+    for row in rows:                          # the same row for several systems: once, naming them all
+        key = (row.kind, row.decide) if row.kind in _DECISION_ORDER else None
+        if key is not None and key in same:
+            at = same[key]
+            final[at] = dataclasses.replace(final[at], system=f"{final[at].system}; {row.system}")
+            continue
+        if key is not None:
+            same[key] = len(final)
+        final.append(row)
+    return final
+
+
 def _merge_review(items: list[ReviewItem]) -> list[ReviewItem]:
-    """Repeated rows as one: every system with no tech hours in one row, every quote not found in one, the
+    """Repeated rows as one: one row per decision (the AI's flags and scan on one device, its notes on it), every
+    exclusion the AI names in one, every system with no tech hours in one row, every quote not found in one, the
     AI's own notes on a system in one row per system (its remarks on tech hours folded into the tech-hours
     row), the lines dropped for the house style in one, the client notes not borne out in one, the counts
-    with nothing to check them against in one, the exceptions in one."""
+    with nothing to check them against in one, the exceptions in one, AME's standard lines added in one."""
+    items = _decisions(items)
     rules = [
         ("hours", lambda i: i.decide.startswith("No tech hours for"),
          lambda g: ReviewItem("Tech hours", "", "No tech hours for: " + _joined(g, lambda i: i.system)
@@ -2878,6 +3333,11 @@ def _merge_review(items: list[ReviewItem]) -> list[ReviewItem]:
          lambda g: ReviewItem("Repeated lines", "", f"Repeated lines printed once, one line per block ({len(g)})",
                               "\n".join(f"{i.system}: {i.evidence}" for i in g), "Put a line back if it is for "
                               "another unit", tier=TIER_REST)),
+        ("standard", lambda i: i.kind == "standard",
+         lambda g: ReviewItem("AME standard lines", ASSUMPTION, "AME standard lines added (Master Template) — confirm "
+                              f"each ({sum(len(i.decide.split(': ', 1)[1].split('; ')) for i in g)})",
+                              "\n".join(f"{i.system}: {i.decide.split(': ', 1)[1]}" for i in g),
+                              "Confirm each, or delete it", tier=TIER_REST)),
         ("exceptions", lambda i: i.decide.endswith("not priced — put in the exceptions"),
          lambda g: ReviewItem("Exceptions", "", "Not priced — put in the exceptions: " + _joined(g, lambda i: i.system),
                               _joined(g, lambda i: f"{i.system}: {i.evidence}"), "Price any the job wants the BMS to see")),

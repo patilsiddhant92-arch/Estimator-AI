@@ -83,6 +83,8 @@ class ReviewItem:
                          # count, 2 a quantity conflict, 3 the AI's question, 4 the rules and the AI disagree, 5 the
                          # rest; 0 means "work it out from the category"
     rank: int = 0        # its place on the ranked review list (1 = the most urgent); 0 before it is ranked
+    device: str = ""     # the device a row of the AI's flags or scan is about: its rows are one decision
+    kind: str = ""       # which of the AI's rows it is: a flag colour, a scan type (C1 … C6), "exclusion", …
 
     def __str__(self) -> str:
         head = f"{self.system}: {self.decide}" if self.system else self.decide

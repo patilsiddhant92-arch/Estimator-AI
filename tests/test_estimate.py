@@ -9,7 +9,8 @@ from estimator.__main__ import _parser, ai_mode, main
 from estimator.evidence.workbook import ESTIMATE_TABS, PLAN_TAB, TABS
 from estimator.proposal.sections import scope_texts
 from pdfs import FILLER, Page, make_pdf
-from test_assemble import Dossier, FakeJudge, JobPlan, PlannedSystem, WrittenLine, WrittenScope
+from estimator.writing.whole_job import Contradiction, QcCheck, WrittenLine as GemLine, WrittenScope as GemScope
+from test_assemble import Dossier, FakeJudge, JobPlan, PlannedSystem
 from test_schedules import grid
 
 W, H = 3024, 2160
@@ -18,7 +19,17 @@ VAV_ROWS = [["VAV BOX SCHEDULE", "", "", "", ""],
             ["VAV-1", "OFFICE 101", "600", "1.5", "TITUS"],
             ["VAV-2", "OFFICE 102", "700", "1.5", "TITUS"],
             ["VAV-3", "OFFICE 103", "500", "1.0", "TITUS"]]
-INTERNAL = ("confidence", "ASSUMPTION", "CONFIRMED", "rule:", "AI:", "tech hour", "PENDING", "ADDED", "EXTRA")
+INTERNAL = ("confidence", "ASSUMPTION", "CONFIRMED", "rule:", "AI:", "tech hour", "PENDING", "ADDED", "EXTRA",
+            # what the estimator's GEM writes for the estimator: flag glyphs, source ids, its word for the controls
+            # contractor, its reasoning words and labels written twice
+            "🔴", "🟡", "🟠", "🟢", "◊", "(S170)", "S480", "[Q7]", "I14", "CC",
+            "factory-controls rule", "field DDC default", "Mandatory minimum", "term inferred", "per GEM", "Quick Scan",
+            "C1", "C2", "C3", "C4", "C5", "C6", "QC-", "*Assumed: ASSUMED:", "Confirm ownership: CONFIRM QUANTITY")
+
+
+def _leaks(word: str, text: str) -> bool:
+    """The word is in the text: a word starting with a letter, as a word; anything else, anywhere."""
+    return bool(re.search(rf"\b{re.escape(word)}" if word[0].isalpha() else re.escape(word), text))
 
 
 def _schedule_sheet() -> Page:
@@ -126,7 +137,7 @@ def test_nothing_internal_reaches_the_proposal(estimated):
     out, _ = estimated
     scope = "\n".join(scope_texts(out / "26-9999 Proposal.docx"))
     for word in INTERNAL:
-        assert not re.search(rf"\b{re.escape(word)}", scope), word
+        assert not _leaks(word, scope), word
     whole = _proposal_text(out / "26-9999 Proposal.docx")
     for word in ("confidence", "ASSUMPTION", "CONFIRMED", "rule:", "AI:", "tech hour", "PENDING"):
         assert word not in whole, word
@@ -177,15 +188,35 @@ JOB_PLAN = JobPlan((
     PlannedSystem("EF", "Exhaust Fan EF-1, 2", "Exhaust Fan", ("EF-1", "EF-2"), 2, "S7", "Exhaust fans EF-1 and EF-2",
                   ("S7",), exception="EXCEPTION TO ANY WORK WITH Qty (2) EF-1, 2 - LINE-VOLTAGE THERMOSTAT"),
 ))
-SCOPES = {"VAV": WrittenScope((
-    WrittenLine("Furnish DDC Controller to the Factory for Installation", quote="each VAV box shall maintain",
-                source_id="S2", why="a VAV box controller"),
-    WrittenLine("Furnish and Install Space Temperature / CO2 Sensor", quote="space temperature and CO2 setpoints",
-                source_id="S2", why="the sequence names CO2"),
-    WrittenLine("Furnish and Wire Hot Water Control Valve and Actuator (confidence 0.9)", quote="1.5",
-                source_id="S4"),
-    WrittenLine("Furnish and Install VAV Transformer", quote="each VAV box", source_id="S2"),
-))}
+# the GEM's reasoning, written into every field of its answer: none of it may reach the proposal
+GEM_WORDS = ("per the factory-controls rule, field DDC default, term inferred, Mandatory minimum, per GEM "
+             "(Quick Scan; QC-04; S480; I14) (S170)")
+SCOPES = {"VAV": GemScope((
+    GemLine("Furnish DDC Controller to the Factory for Installation", 1, None, "each VAV box shall maintain", "S2",
+            "a VAV box controller", 0.9),
+    GemLine("Furnish and Install Space Temperature / CO2 Sensor", 1, None, "space temperature and CO2 setpoints", "S2",
+            "the sequence names CO2", 0.9),
+    GemLine("Furnish and Wire Hot Water Control Valve and Actuator (confidence 0.9)", 1, None, "1.5", "S4", "", 0.9),
+    GemLine("Furnish and Install VAV Transformer", 1, None, "each VAV box", "S2", "", 0.9),
+    GemLine("Furnish and Install Discharge Air Temperature Sensor (S170)", 1, None, "each VAV box shall maintain", "S2",
+            "", 0.9, "Mandatory minimum point — per GEM", "orange",
+            f"ASSUMED: CC furnishes it {GEM_WORDS} 🟠"),
+    GemLine("Furnish Fan Enable [Q7]", 1, None, "each VAV box shall maintain", "S2", "", 0.9, "", "red",
+            f"CONFIRM QUANTITY: {GEM_WORDS} 🔴"),
+    GemLine("Wire Fire Alarm Relay (Relay Furnished by FA)", 1, None, "each VAV box shall maintain", "S2", "", 0.9, "",
+            "yellow", f"CONFIRM QUANTITY: {GEM_WORDS} 🟡"),
+    GemLine("Controls Contractor requires mfr. rep to assist in integration, cost to be incurred by mech contractor", 2,
+            None, "each VAV box shall maintain", "S2", "", 0.9),
+), ("*Assumed: ASSUMED: the sensor by CC (S170)", "*Confirm ownership: CONFIRM QUANTITY: ◊ per GEM",
+    "**Wiring of the VAV power is by the Electrical Contractor (S214) 🔴"), None, (), "m",
+    contradictions=tuple(Contradiction(f"C{n}", f"Discharge air sensor furnished by CC — {GEM_WORDS}", ("q",),
+                                       "orange") for n in range(1, 7)),
+    misc_responsibilities=(f"Program the VAV schedule {GEM_WORDS} 🟢",
+                           f"Provide additional controllers {GEM_WORDS}. 🟠",
+                           "Wiring of the VAV power is by the Electrical Contractor (S214) 🔴"),
+    exclusions=(f"Airflow stations by CC — {GEM_WORDS} 🟡",
+                "Supply airflow measuring stations (furnished with the unit, S170)."),
+    qc=(QcCheck("QC-01", f"CC term: BMS contractor (C1) {GEM_WORDS}", False, "per GEM"),))}
 
 
 @pytest.fixture
@@ -232,7 +263,9 @@ def test_the_whole_job_method_writes_the_planned_blocks_and_nothing_internal(job
     assert "Hot Water Control Valve" not in text               # it named its confidence: dropped
     scope = "\n".join(scope_texts(proposal))
     for word in INTERNAL + ("[S", "whole job", "DISCREPANCY"):
-        assert not re.search(rf"\b{re.escape(word)}" if word[0].isalpha() else re.escape(word), scope), word
+        assert not _leaks(word, scope), word
+    for word in INTERNAL:                                      # the front end, the exceptions and the notes too
+        assert not _leaks(word, text), word
     for word in ("confidence", "ASSUMPTION", "CONFIRMED", "rule:", "AI:", "tech hour", "PENDING", "AI (whole job)"):
         assert word not in text, word
 
@@ -245,7 +278,7 @@ def test_the_whole_job_method_writes_the_planned_blocks_and_nothing_internal(job
     sensor = next(row for row in lines if row[1] == "Furnish and Install Space Temperature / CO2 Sensor")
     assert sensor[6] == "AI (whole job) [S2]" and sensor[8] == "yes"
     review = [[c.value for c in row] for row in workbook["Review list"].iter_rows()]
-    assert any(row[3] and "dropped" in row[3] for row in review)
+    assert any("dropped" in f"{row[3]} {row[4]}" for row in review)
 
     assert "Systems planned: 2; 1 written in the proposal, 1 put in the exceptions." in printed
     assert "AI: 2 calls to fake-model, 0 answered from the cache at no cost." in printed

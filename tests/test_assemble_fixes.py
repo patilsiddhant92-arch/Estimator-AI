@@ -143,7 +143,7 @@ def test_nothing_planned_vanishes():
             assert system.exception in job.named_exceptions
             continue
         first = system.header.split(" w/ ")[0].split(" ")[0]
-        if system.key in ("PP", "CHWP"):   # nothing on the drawings shows it: the top question, never lost
+        if system.key == "CHWP":           # nothing on the drawings shows it: the top question, never lost
             name = system.header
             assert any(r.decide.startswith(f"Does {name} exist") for r in review_list(systems, review))
             continue
@@ -209,9 +209,9 @@ def test_a_quote_from_a_picture_is_accepted_at_point_seven_at_most():
 
 
 def test_a_client_note_resting_on_a_picture_is_not_rejected():
-    scope = WrittenScope(VAV_LINES, client_notes=("**Boxes shown with integral airflow rings on the schedule",))
+    scope = WrittenScope(VAV_LINES, client_notes=("**Integral airflow rings furnished with the boxes per the schedule",))
     job, _, _ = _assemble([_vav(schedule_sources=("S3", "I1"))], {"VAV": scope})     # the plan cites picture I1
-    assert "**Boxes shown with integral airflow rings on the schedule" in [i.text for i in _all_items(job)]
+    assert "**Integral airflow rings furnished with the boxes per the schedule" in [i.text for i in _all_items(job)]
 
 
 def test_a_note_giving_a_device_to_the_unit_manufacturer_is_a_by_unit_mfr_note():
@@ -311,11 +311,11 @@ def test_the_polish():
 def test_duplicate_lines_and_notes_in_a_block_are_removed():
     lines = VAV_LINES + (WrittenLine("Furnish and Install Space Temperature / CO2 Sensor (as per sequence)",
                                      quote="space temperature and CO2 setpoints", source_id="S1"),)
-    scope = WrittenScope(lines, client_notes=("**Maintain the CO2 setpoints", "**Maintain the CO2 setpoints."))
+    scope = WrittenScope(lines, client_notes=("**Space temperature and CO2 setpoints by FA", "**Space temperature and CO2 setpoints by FA."))
     job, _, _ = _assemble([_vav()], {"VAV": scope})
     texts = [i.text for i in job.blocks[0].items]
     assert texts.count("Furnish and Install Space Temperature / CO2 Sensor") == 1
-    assert sum(1 for t in texts if t.startswith("**Maintain")) == 1
+    assert sum(1 for t in texts if t.startswith("**Space temperature")) == 1
 
 
 # --- 9. the review list, ranked and short ------------------------------------------------------------------------

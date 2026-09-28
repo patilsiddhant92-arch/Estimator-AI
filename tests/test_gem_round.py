@@ -544,8 +544,9 @@ def test_flags_print_per_the_doctrine():
     texts = [t for _, t in items]
     red = next(t for t in texts if "Spill Air Damper Actuator" in t)
     assert red == "Furnish and Install Spill Air Damper Actuator (Qty. per Mechanical Schedule)"
-    status = texts.index("Furnish Generator Run Status")
-    assert items[status + 1] == ("note", "*Confirm ownership: Generator is a factory unit; no named party")
+    assert items[texts.index(red) + 1] == ("note", "*Confirm quantity: Spill Air Damper Actuator")
+    status = texts.index("Furnish Generator Run Status")          # yellow: an ownership question, review only
+    assert status + 1 == len(items) or not items[status + 1][1].startswith("*")
     sensor = texts.index("Furnish and Install Space Temperature Sensor")
     assert items[sensor + 1] == ("note", "*Assumed: Sensor assumed from the space temperature alarm")
     assert not any("Fan runs continuously" in t for t in texts)                      # green: review only
@@ -573,16 +574,18 @@ def test_the_contradiction_scan_and_the_self_qc_reach_the_review_list_and_c5_pri
     qty = next(r for r in ranked if "Current Switch" in r.decide)
     assert ranked.index(qty) < ranked.index(c1)
     assert "C1" in c1.decide and "by FA" in c1.evidence
-    assert any("QC-08" in r.decide for r in ranked) and not any("QC-01" in r.decide for r in ranked)
+    assert not any("QC-" in r.decide for r in ranked)            # the Self-QC stays in the GEM QC tab
 
 
 def test_misc_responsibilities_are_notes_at_the_end_and_exclusions_are_review_rows():
     scope = _scope(_gl("Furnish Fan Start/Stop and Status"),
-                   misc_responsibilities=("Demolish the existing pneumatic tubing",),
+                   misc_responsibilities=("Demolition of the existing pneumatic tubing by others",
+                                          "Program the fan schedule"),
                    exclusions=("Fire alarm relays by the Fire Alarm Contractor",))
     job, systems, general = _assemble([FANS], {"EF": scope})
     items = _items(job, "Qty (2) Exhaust Fan EF-1, 2")
-    assert items[-1] == ("note", "**Demolish the existing pneumatic tubing")
+    assert items[-1] == ("note", "**Demolition of the existing pneumatic tubing by others")
+    assert not any("Program the fan schedule" in t for _, t in items)
     assert not any("Fire alarm relays" in t for _, t in items) and not job.named_exceptions
     rows = [r for s in systems for r in s.review]
     assert any("Fire alarm relays by the Fire Alarm Contractor" in r.decide and "exception" in r.action.lower()

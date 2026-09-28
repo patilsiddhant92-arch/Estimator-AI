@@ -113,8 +113,8 @@ def test_duplicates_naming_different_tags_add_their_counts_and_others_do_not():
 
 def test_duplicate_client_notes_are_one():
     scope = WrittenScope(VAV_LINES, client_notes=(
-        "**Boxes to be started and commissioned by factory authorized personnel per equipment schedule",
-        "**VAV boxes to be started/commissioned by factory authorized personnel per equipment schedule"))
+        "**Boxes to be started and commissioned by the unit manufacturer's factory personnel per equipment schedule",
+        "**VAV boxes to be started/commissioned by the unit manufacturer's factory personnel per equipment schedule"))
     job, _, _ = _assemble([_vav(schedule_sources=("S3", "I1"))], {"VAV": scope})
     notes = [i.text for i in job.blocks[0].items if i.kind == "note"]
     assert len(notes) == 1
@@ -146,14 +146,15 @@ def test_lines_are_in_the_house_order_with_their_sub_lines_and_notes_last():
              _line("Interlock Fan with Valve", depth=2),
              _line("Furnish and Install Space Temperature Sensor"),
              _line("Furnish DDC Controller to the Factory for Installation"))
-    scope = WrittenScope(lines, client_notes=("**Maintain the CO2 setpoints",))
+    scope = WrittenScope(lines, client_notes=("**Space temperature and CO2 setpoints by FA",))
     job, _, _ = _assemble([_vav()], {"VAV": scope})
     assert _texts(job.blocks[0]) == ["Furnish DDC Controller to the Factory for Installation",
+                                     "Furnish and Install VAV Transformer", "*Assumed per AME standard — confirm",
                                      "Furnish and Install Space Temperature Sensor",
                                      "Furnish Fan Start / Stop and Status", "Interlock Fan with Valve",
                                      "Furnish and Wire Hot Water Control Valve and Actuator",
                                      "Map Available Points Via Mfr. Provided BMS Interface",
-                                     "**Maintain the CO2 setpoints"]
+                                     "**Space temperature and CO2 setpoints by FA"]
 
 
 ROOMS = ("[S30] High temperature alarm in the Fire Pump Room, Electric Room and Garage: provide a room temperature "

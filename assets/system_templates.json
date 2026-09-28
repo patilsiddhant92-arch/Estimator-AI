@@ -1,5 +1,6 @@
 {
   "about": "The estimator's Master Template as data: how each system looks, which line to pick when, and tech hours. Guidance, not a mandatory point list. Edit here, never in code. Words in a condition are matched as whole words, ignoring case; a condition holds when any one of its words is found in any one of its places. Job details the template's samples carry (tag lists, 'Qty. N Total', valve sizes, sheet references, floor locations) are left out of the line texts: the writer adds the job's own.",
+  "standard_lines_about": "Lines AME writes by house practice even when the GEM leaves them out (the fans' and ERVs' damper actuator and start/stop on field DDC, the split system's indoor/outdoor interlock wiring, the VAV transformer): a line marked 'standard', or listed under a system's 'standard_lines' (never offered to the AI as options), is added after the GEM's answer when the GEM neither wrote nor excluded it, as an ASSUMPTION with '*Assumed per AME standard - confirm'. 'standard_text' prints instead of the line's text; 'standard_if' (patterns in the evidence or the GEM's exclusions) picks that line of its choice or 'standard_group'; 'standard_needs' must be in the evidence; 'standard_field_ddc' only on a unit the GEM reads as Field-Installed DDC. Regular expressions, ignoring case.",
   "verbs": ["Furnish and Install", "Furnish", "Furnish and Wire", "Install and Wire", "Install", "Wire"],
   "integration_trio": [
     "Furnish BMS Communication Wiring to {what} Factory Controls",
@@ -90,8 +91,8 @@
         {"text": "Furnish Electric Heat Enable (DO)", "when": ["reheat_electric"], "unless": ["reheat_electric_scr", "reheat_hot_water"], "quantity": "per_unit"},
         {"text": "Furnish Electric Heat SCR Control (AO)", "when": ["reheat_electric_scr"], "unless": ["reheat_hot_water"], "quantity": "per_unit"},
         {"text": "Run 24V Power Loop to VAVs", "choice": "power_24v", "when": ["power_24v_by_bms"], "quantity": "per_unit", "no_verb": true},
-        {"text": "Furnish and Install VAV Transformer", "choice": "power_24v", "default": true, "quantity": "per_unit"},
-        {"text": "24V VAV Transformer is Coming with the Unit", "choice": "power_24v", "when": ["transformer_with_unit"], "quantity": "none", "no_verb": true}
+        {"text": "Furnish and Install VAV Transformer", "choice": "power_24v", "default": true, "quantity": "per_unit", "standard": true},
+        {"text": "24V VAV Transformer is Coming with the Unit", "choice": "power_24v", "when": ["transformer_with_unit"], "quantity": "none", "no_verb": true, "standard": true, "standard_text": "24V Transformer by Unit Mfr.", "standard_if": ["transformers?[^.;]{0,80}\\b(?:by|with|from)\\s+(?:the\\s+)?(?:[a-z]+\\s+){0,2}(?:unit|manufacturer|mfr)\\b", "\\b(?:manufacturer'?s?|factory|unit)\\s+(?:mounted\\s+)?(?:control\\s+)?(?:power\\s+)?transformers?\\b"]}
       ],
       "client_notes": [],
       "hints": [
@@ -268,6 +269,11 @@
         "duct_static": {"sequence": ["duct static", "static pressure"]},
         "bipolar_ionization": {"schedule": ["BIPOLAR", "IONIZATION", "NPBI"], "sequence": ["bipolar", "ionization"]}
       },
+      "standard_lines": [
+        {"text": "Furnish and Install Damper Actuator", "standard_group": "damper", "standard_needs": ["\\bdampers?\\b"], "standard_field_ddc": true},
+        {"text": "Furnish and Install Damper Actuator w/ End Switch", "standard_group": "damper", "standard_needs": ["\\bdampers?\\b"], "standard_if": ["\\bend\\s+switch", "\\bdamper\\s+position\\b", "\\bproven?\\s+open\\b", "\\bdamper\\s+status\\b"], "standard_field_ddc": true},
+        {"text": "Furnish Fan Start / Stop and Status", "standard_field_ddc": true}
+      ],
       "lines": [
         {"text": "Install and wire Space Thermostat (Furnished by Unit Mfr.)", "when": ["space_thermostat"]},
         {"text": "Install and wire Supply Air Temperature Sensor (Furnished by Unit Mfr.)", "when": ["supply_air_sensor"]},
@@ -305,10 +311,10 @@
         {"text": "Furnish and Install DDC Controller", "choice": "ef_control", "when": ["fan_ddc"]},
         {"text": "Furnish and Install Space Temperature Sensor", "when": ["fan_ddc", "fan_space_temp"]},
         {"text": "Furnish and Install Duct Static Pressure Sensor", "when": ["fan_ddc", "fan_duct_static"]},
-        {"text": "Furnish Fan Start / Stop and Status", "when": ["fan_ddc"]},
+        {"text": "Furnish Fan Start / Stop and Status", "when": ["fan_ddc"], "standard": true, "standard_field_ddc": true},
         {"text": "Furnish Fan VFD Control", "when": ["fan_ddc", "fan_vfd"]},
-        {"text": "Furnish and Install Damper Actuator", "choice": "ef_damper", "default": true},
-        {"text": "Furnish and Install Damper Actuator w/ End Switch", "choice": "ef_damper", "when": ["end_switch"]}
+        {"text": "Furnish and Install Damper Actuator", "choice": "ef_damper", "default": true, "standard": true, "standard_needs": ["\\bdampers?\\b"], "standard_field_ddc": true},
+        {"text": "Furnish and Install Damper Actuator w/ End Switch", "choice": "ef_damper", "when": ["end_switch"], "standard": true, "standard_needs": ["\\bdampers?\\b"], "standard_if": ["\\bend\\s+switch", "\\bdamper\\s+position\\b", "\\bproven?\\s+open\\b", "\\bdamper\\s+status\\b"], "standard_field_ddc": true}
       ],
       "client_notes": [],
       "hints": [
@@ -324,9 +330,13 @@
       "conditions": {
         "timeclock": {"sequence": ["time clock", "timeclock", "time-clock", "stand-alone", "standalone"]}
       },
+      "standard_lines": [
+        {"text": "Furnish and Install Damper Actuator", "standard_group": "damper", "standard_needs": ["\\bdampers?\\b"], "standard_field_ddc": true},
+        {"text": "Furnish Fan Start / Stop and Status", "standard_field_ddc": true}
+      ],
       "lines": [
         {"text": "Furnish and Install Timeclock", "when": ["timeclock"]},
-        {"text": "Furnish and Install Damper Actuator w/ End Switch", "default": true}
+        {"text": "Furnish and Install Damper Actuator w/ End Switch", "default": true, "standard": true, "standard_group": "damper", "standard_needs": ["\\bdampers?\\b"], "standard_if": ["\\bend\\s+switch", "\\bdamper\\s+position\\b", "\\bproven?\\s+open\\b", "\\bdamper\\s+status\\b"], "standard_field_ddc": true}
       ],
       "client_notes": [],
       "hints": [
@@ -340,9 +350,13 @@
       "applies_to": {"prefixes": ["DX"], "kinds": []},
       "header": "Qty ({n}) Laundry / Dryer Exhaust Fan {tags}",
       "conditions": {},
+      "standard_lines": [
+        {"text": "Furnish and Install Damper Actuator w/ End Switch", "standard_group": "damper", "standard_needs": ["\\bdampers?\\b"], "standard_if": ["\\bend\\s+switch", "\\bdamper\\s+position\\b", "\\bproven?\\s+open\\b", "\\bdamper\\s+status\\b"], "standard_field_ddc": true},
+        {"text": "Furnish Fan Start / Stop and Status", "standard_field_ddc": true}
+      ],
       "lines": [
         {"text": "Interlock wiring to Differential Pressure Controller (Furnished by Unit Mfr.)", "default": true, "no_verb": true},
-        {"text": "Furnish and Install Damper Actuator", "default": true},
+        {"text": "Furnish and Install Damper Actuator", "default": true, "standard": true, "standard_group": "damper", "standard_needs": ["\\bdampers?\\b"], "standard_field_ddc": true},
         {"text": "Furnish BMS Communication Wiring to Factory Controls", "default": true},
         {"text": "Map Available Points Via Mfr. Provided BMS Interface", "default": true, "quantity": "none"},
         {"text": "AME requires mfr. Rep to assist in integration, cost to be incurred by mech contractor", "default": true, "quantity": "none", "depth": 2}
@@ -396,7 +410,7 @@
       },
       "lines": [
         {"text": "Furnish and Install DDC Controller", "default": true},
-        {"text": "Furnish Fan Start / Stop and Status", "default": true},
+        {"text": "Furnish Fan Start / Stop and Status", "default": true, "standard": true, "standard_field_ddc": true},
         {"text": "Furnish Fan VFD control", "when": ["fan_vfd"]},
         {"text": "Furnish and Install Stairwell Pressure Sensor", "default": true, "quantity": "counted"},
         {"text": "Furnish and Install Damper Actuator w/ End Switch", "default": true},
@@ -1140,7 +1154,7 @@
         {"text": "Furnish and Install Leak Sensor", "when": ["leak_sensor"], "of": ["CU", "AC", "IU", "SS"]},
         {"text": "Furnish and Install Local RAM Module", "when": ["ram_module"], "of": ["CU", "AC", "IU", "SS"]},
         {"text": "Tie-in Condensate Pump Float Switch (Furnished by Mfr.)", "when": ["condensate_pump"], "of": ["CU", "AC", "IU", "SS"], "no_verb": true},
-        {"text": "Low Voltage Interlock Wiring between Indoor and Outdoor Unit", "default": true, "of": ["CU", "AC", "IU", "SS"], "no_verb": true},
+        {"text": "Low Voltage Interlock Wiring between Indoor and Outdoor Unit", "default": true, "of": ["CU", "AC", "IU", "SS"], "no_verb": true, "standard": true, "standard_text": "Wire Low Voltage Interlock between Indoor and Outdoor Unit"},
         {"text": "Furnish BMS Communication Wiring to Factory Controls", "default": true, "of": ["CU", "AC", "IU", "SS"]},
         {"text": "Map Available Points Via Mfr. Provided BMS Interface", "default": true, "quantity": "none"},
         {"text": "AME requires mfr. Rep to assist in integration, cost to be incurred by mech contractor", "default": true, "quantity": "none", "depth": 2}

@@ -294,5 +294,106 @@
       "map": "Map",
       "interlock": "Interlock"
     }
+  },
+  "internal": {
+    "about": "What the estimator's GEM writes for the estimator that the client must never see: its flag glyphs, the source ids of the job's documents, its word for the controls contractor ('CC', which the proposal writes 'AME'), its reasoning words and a label written twice. Checked on every header, line, note and exception the proposal prints. 'glyphs' and 'source_ids' are taken out; 'contractor' is replaced; a note naming one of 'words' or 'patterns' is never printed (it stays in the Evidence Package). Regular expressions, ignoring case, except 'contractor'.",
+    "glyphs": "[\\U0001F000-\\U0001FAFF\\u2190-\\u21FF\\u2600-\\u27BF\\u2B00-\\u2BFF\\u25A0-\\u25FF\\uFE0F\\u200D]",
+    "source_ids": [
+      "\\s*[\\(\\[]\\s*(?:[SIQ]\\d{1,4}\\s*(?:[,;&/]|\\band\\b)?\\s*)+[\\)\\]]",
+      "(?<![\\w\\-./])[SIQ]\\d{1,4}(?![\\w\\-/])"
+    ],
+    "contractor": [["\\b([Aa]) CC\\b", "\\1n AME"], ["\\bCC\\b", "AME"]],
+    "words": [
+      "factory-controls rule",
+      "factory controls rule",
+      "field DDC default",
+      "mandatory minimum",
+      "term inferred",
+      "per GEM",
+      "Quick Scan",
+      "Self-QC"
+    ],
+    "patterns": [
+      "\\bC[1-6]\\b",
+      "\\bQC-\\d*",
+      "\\bGEM\\b"
+    ],
+    "doubled_labels": "^(\\*+\\s*(?:Assumed|Confirm ownership|Confirm quantity)\\s*:)\\s*(?:ASSUMED|ASSUMPTION|CONFIRM(?:\\s*(?:OWNERSHIP|QUANTITY|SCOPE|/))*|Assumed)\\s*:?\\s*"
+  },
+  "clarifications": {
+    "about": "Which '*' and '**' notes the client sees. A '**' note prints only when it gives an item to the owner or to another party (another trade, the unit's manufacturer, others) or is one of the Master Template's own '**' clarifications; a '*' note only when it says who furnishes, installs or wires, or is an integral-thermostat or manufacturer-switch note. A note restating the controls contractor's software work ('**Program …', '**Set up …') never prints: it stays in the Evidence Package. 'parties' find another party ('ours' are the controls contractor's own names, which never count); 'unit_notes' find the integral-thermostat and manufacturer-switch notes; 'software_work' the openings of a note restating software work. Regular expressions, ignoring case.",
+    "parties": [
+      "\\bby\\s+(?:the\\s+)?(?:owner|others|other\\s+trades)\\b",
+      "\\bowner\\s+(?:to|shall|will|furnishes|provides)\\b",
+      "\\b(?:by|from)\\s+(?:the\\s+|each\\s+)?(?:[A-Za-z/\\-]+\\s+){0,3}(?:contractor|trade|supplier|vendor|manufacturer|mfr\\.?|installer)",
+      "\\bby\\s+(?:the\\s+)?(?:EC|MC|FA|FAC|GC|PC|FPC)\\b",
+      "\\bdiv(?:ision|\\.)?\\s*\\d{2}\\b",
+      "\\b(?:furnished|provided|supplied|shipped|coming|comes)\\s+(?:loose\\s+)?(?:with|w/)\\s+(?:the\\s+|each\\s+)?[A-Za-z]",
+      "\\bby\\s+unit\\s+mfr\\b"
+    ],
+    "ours": [
+      "\\b(?:controls?|ATC|BMS|BAS|DDC|temperature\\s+controls?|automation)\\s+(?:sub-?)?contractor\\b",
+      "\\bAME\\b",
+      "\\bCC\\b"
+    ],
+    "unit_notes": [
+      "\\bintegral\\s+(?:factory[- ]mounted\\s+|unit[- ]mounted\\s+)?thermostats?\\b",
+      "\\b(?:manufacturer'?s?|mfr\\.?|unit)\\s+(?:manual\\s+)?(?:on\\s*/\\s*off\\s+)?(?:and\\s+speed\\s+control\\s+)?switch(?:es)?\\b"
+    ],
+    "software_work": [
+      "^\\*+\\s*(?:program|set\\s+up|setup|configure|coordinate|provide\\s+all\\s+programming|display|track|translate|review|land|arrange|connect|obtain|initialize|trend|graphic)"
+    ]
+  },
+  "unit_maker_devices": {
+    "about": "A device the unit's manufacturer furnishes, named in the GEM's exclusions for a system, prints in that block as '*<NAME> BY UNIT MFR.' (the estimator's form) instead of going to the review list. An exclusion counts when it names one of the devices and says the manufacturer or the unit furnishes it ('maker'); one saying the device comes with another unit ('with the rooftop units' in a VAV block) does not. Regular expressions, ignoring case.",
+    "maker": "\\b(?:manufacturer|mfr)\\b|\\bfactory\\b|\\b(?:furnished|provided|supplied|shipped|coming|comes)\\s+(?:loose\\s+)?(?:with|w/)\\s+(?:the\\s+)?(?:unit|units|equipment)\\b",
+    "devices": [
+      {"name": "AIRFLOW MEASURING STATIONS", "patterns": ["\\bair\\s*flow\\s+(?:measuring\\s+|monitoring\\s+)?stations?\\b", "\\bAFMS\\b"]},
+      {"name": "REFRIGERANT LEAK DETECTION", "patterns": ["\\brefrigerant\\s+(?:leak|gas)\\s+(?:detect\\w*|sensors?|alarm\\w*)", "\\bA2L\\b[^,.;]{0,30}\\bsensors?\\b", "\\bR-?\\d{2,3}\\s+leak\\b", "\\bleak\\s+detection\\s+sensors?\\b"]},
+      {"name": "SMOKE DETECTORS", "patterns": ["\\bsmoke\\s+detectors?\\b"]},
+      {"name": "FACTORY-MOUNTED SENSORS", "patterns": ["\\bfactory[- ](?:mounted\\s+)?sensors?\\b"]}
+    ]
+  },
+  "misc_monitoring": {
+    "about": "The monitor-only systems (plumbing pumps, water heaters, water heat pumps, glycol, gas booster, heat tracing, a generator) are gathered as stacked headers under one block, as the Master Template's 'Misc Monitoring Systems' is written, when each has fewer than 'max_lines' + 1 lines and no controller of its own ('own_controller' in one of its lines). 'kinds' find such a system by its header or kind. Regular expressions, ignoring case.",
+    "block": "Misc Monitoring Systems",
+    "kinds": [
+      "\\bplumbing\\s+pumps?\\b",
+      "\\bwater\\s+heaters?\\b",
+      "\\bwater\\s+heat\\s+pumps?\\b",
+      "\\bglycol\\b",
+      "\\bgas\\s+booster\\b",
+      "\\bheat\\s+trac\\w*",
+      "\\bgenerators?\\b",
+      "\\bsump\\s+pumps?\\b",
+      "\\bejectors?\\b"
+    ],
+    "max_lines": 4,
+    "own_controller": "\\bDDC\\s+controllers?\\b",
+    "devices_about": "A planned system or family with no equipment tag, no schedule row and no count is not printed (it becomes a question) unless it is a monitor-only system or names a device ('devices'): a device is counted per drawing, never scheduled.",
+    "devices": "\\b(?:sensors?|detectors?|detection|dampers?|actuators?|switch(?:es)?|panels?|controllers?|stations?|meters?|thermostats?|valves?|relays?|transmitters?|interfaces?)\\b"
+  },
+  "review": {
+    "about": "The review list: an exclusion the GEM names that only lists items the proposal's standard exclusions already cover (power wiring, disconnects, piping, ductwork …) is not listed. 'covered_items' match one item of an exclusion's list (split on commas and 'and'); the exclusion is covered when every item matches. Regular expressions, ignoring case.",
+    "covered_items": [
+      "\\bpower\\b",
+      "\\bline[- ]voltage\\b",
+      "\\bdisconnects?\\b",
+      "\\bconduit\\b",
+      "\\bpiping\\b",
+      "\\bduct\\s*work\\b",
+      "\\bcurbs?\\b",
+      "\\bvent(?:s|ing)?\\b",
+      "\\bflues?\\b",
+      "\\breceptacles?\\b",
+      "\\boutlets?\\b",
+      "\\bGFI\\b",
+      "\\binstallation\\b",
+      "\\bsetting\\b",
+      "\\bmounting\\b",
+      "\\bstart-?up\\b",
+      "\\brefrigerant\\s+work\\b",
+      "\\bjunction\\s+box\\b"
+    ]
   }
 }

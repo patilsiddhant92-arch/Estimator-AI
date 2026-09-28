@@ -64,6 +64,108 @@ class HouseStyle:
     spec_verbs: dict = field(default=None, hash=False, compare=False)   # the specification's verb -> the house verb
     verb_forms: dict = field(default=None, hash=False, compare=False)   # a verb, casefolded -> the Master Template's form
     sow_positions: tuple = ()            # the GEM's SOW order: (position, verbs, text patterns, device patterns)
+    internal_words: tuple = ()           # the GEM's reasoning words: a note naming one never prints
+    internal_patterns: tuple = ()        # compiled, the same ("C1" … "C6", "QC-", "GEM")
+    glyphs: object = None                # compiled: the GEM's flag glyphs and other emoji, taken out
+    source_id_patterns: tuple = ()       # compiled: "(S170)", "[Q7]", "S480", taken out
+    contractor: tuple = ()               # (compiled, replacement): "CC" is "AME"
+    doubled_label: object = None         # compiled: "*Assumed: ASSUMED: …" is "*Assumed: …"
+    parties: tuple = ()                  # compiled: a note giving an item to another party
+    our_parties: tuple = ()              # compiled: the controls contractor's own names, never another party
+    unit_notes: tuple = ()               # compiled: an integral-thermostat or manufacturer-switch note
+    software_work: tuple = ()            # compiled: a note restating the controls contractor's software work
+    unit_maker: object = None            # compiled: an exclusion saying the unit's manufacturer furnishes it
+    unit_devices: tuple = ()             # (name, compiled patterns): a device the unit's manufacturer furnishes
+    monitoring_kinds: tuple = ()         # compiled: a monitor-only system (plumbing pumps, water heaters …)
+    monitoring_block: str = "Misc Monitoring Systems"
+    monitoring_max_lines: int = 4
+    own_controller: object = None        # compiled: a line furnishing the system's own controller
+    devices: object = None               # compiled: a header naming a device (counted per drawing, never scheduled)
+    covered_items: tuple = ()            # compiled: an exclusion item the standard exclusions already cover
+
+    # -- what the client must never see (the GEM's own words)
+    def internal(self, text: str) -> str | None:
+        """The GEM's reasoning word, glyph or source id the text names (the client must never see it), or None."""
+        low = (text or "").casefold()
+        for word in self.internal_words:
+            if word.casefold() in low:
+                return word
+        for pattern in self.internal_patterns:
+            m = pattern.search(text or "")
+            if m:
+                return m.group(0)
+        if self.glyphs is not None and self.glyphs.search(text or ""):
+            return "a flag glyph"
+        for pattern in self.source_id_patterns:
+            m = pattern.search(text or "")
+            if m:
+                return m.group(0).strip()
+        for pattern, _ in self.contractor:
+            m = pattern.search(text or "")
+            if m:
+                return m.group(0)
+        return None
+
+    def client_text(self, text: str) -> str:
+        """The text as the client may read it: no flag glyph, no source id, "CC" written "AME", a label written once
+        ("*Assumed: ASSUMED: …" is "*Assumed: …"), a bracket naming the GEM's reasoning taken out."""
+        out = text or ""
+        if self.glyphs is not None:
+            out = self.glyphs.sub("", out)
+        for pattern in self.source_id_patterns:
+            out = pattern.sub("", out)
+        for pattern, replacement in self.contractor:
+            out = pattern.sub(replacement, out)
+        out = re.sub(r"\(\s*[,;]?\s*\)", "", out)
+        out = re.sub(r"\(([^()]*)\)", lambda m: "" if self._reasoning(m.group(1)) else m.group(0), out)
+        out = _squash(re.sub(r"\s+([,.;:)])", r"\1", re.sub(r"\(\s+", "(", out)))
+        if self.doubled_label is not None:
+            out = self.doubled_label.sub(r"\1 ", out)
+        return _squash(out).rstrip(" ,;–-")
+
+    def _reasoning(self, text: str) -> bool:
+        low = text.casefold()
+        return (any(w.casefold() in low for w in self.internal_words)
+                or any(p.search(text) for p in self.internal_patterns))
+
+    # -- which notes the client sees
+    def names_other_party(self, text: str) -> bool:
+        """The note gives an item to the owner or another party (another trade, the unit's manufacturer, others);
+        the controls contractor's own names never count."""
+        for pattern in self.parties:
+            for m in pattern.finditer(text or ""):
+                if not any(o.search(m.group(0)) for o in self.our_parties):
+                    return True
+        return False
+
+    def is_unit_note(self, text: str) -> bool:
+        """An integral-thermostat or manufacturer-switch note."""
+        return any(p.search(text or "") for p in self.unit_notes)
+
+    def is_software_work(self, text: str) -> bool:
+        """A note restating the controls contractor's software work ("**Program …", "**Set up …")."""
+        return any(p.search(_squash(text)) for p in self.software_work)
+
+    def unit_maker_devices(self, text: str) -> list[str]:
+        """The devices the unit's manufacturer furnishes that an exclusion names, in the house's words, or []."""
+        if self.unit_maker is None or not self.unit_maker.search(text or ""):
+            return []
+        return [name for name, patterns in self.unit_devices if any(p.search(text) for p in patterns)]
+
+    def is_monitoring(self, text: str) -> bool:
+        """A monitor-only system (plumbing pumps, water heaters, glycol, gas booster, heat tracing, a generator)."""
+        return any(p.search(text or "") for p in self.monitoring_kinds)
+
+    def is_device(self, text: str) -> bool:
+        """The words name a device (a sensor, a damper, a panel …), counted per drawing and never scheduled."""
+        return self.devices is not None and bool(self.devices.search(text or ""))
+
+    def covered_exclusion(self, text: str) -> bool:
+        """Every item of the exclusion's list is one the proposal's standard exclusions cover (power wiring,
+        disconnects, piping, ductwork …)."""
+        head = re.split(r"\s*\(|,?\s+by\s+|\s+—\s+|:\s", _squash(text), maxsplit=1)[0]
+        items = [i.strip(" .") for i in re.split(r",|\band\b|;|/", head) if i.strip(" .")]
+        return bool(items) and all(any(p.search(i) for p in self.covered_items) for i in items)
 
     def sow_position(self, text: str) -> int | None:
         """The GEM's SOW position (1 to 20) of a scope line, or None when no entry of the table fits it (an interlock,
@@ -349,6 +451,39 @@ def _order(raw: dict) -> tuple[tuple, tuple]:
     return tuple(order.get("order", ())), tuple(checks)
 
 
+def _compiled(patterns) -> tuple:
+    return tuple(re.compile(p, re.I) for p in patterns or ())
+
+
+def _gem_words(raw: dict) -> dict:
+    """The house style's checks on what the GEM writes: what the client never sees, which notes print, the devices
+    the unit's manufacturer furnishes, the monitor-only systems and the exclusions already covered."""
+    internal = raw.get("internal") or {}
+    notes = raw.get("clarifications") or {}
+    makers = raw.get("unit_maker_devices") or {}
+    monitoring = raw.get("misc_monitoring") or {}
+    return dict(
+        internal_words=tuple(internal.get("words", ())),
+        internal_patterns=_compiled(internal.get("patterns")),
+        glyphs=re.compile(internal["glyphs"]) if internal.get("glyphs") else None,
+        source_id_patterns=tuple(re.compile(p) for p in internal.get("source_ids", ())),
+        contractor=tuple((re.compile(p), r) for p, r in internal.get("contractor", ())),
+        doubled_label=re.compile(internal["doubled_labels"]) if internal.get("doubled_labels") else None,
+        parties=_compiled(notes.get("parties")),
+        our_parties=_compiled(notes.get("ours")),
+        unit_notes=_compiled(notes.get("unit_notes")),
+        software_work=_compiled(notes.get("software_work")),
+        unit_maker=re.compile(makers["maker"], re.I) if makers.get("maker") else None,
+        unit_devices=tuple((d["name"], _compiled(d.get("patterns"))) for d in makers.get("devices", ())),
+        monitoring_kinds=_compiled(monitoring.get("kinds")),
+        monitoring_block=monitoring.get("block", "Misc Monitoring Systems"),
+        monitoring_max_lines=int(monitoring.get("max_lines", 4)),
+        own_controller=re.compile(monitoring["own_controller"], re.I) if monitoring.get("own_controller") else None,
+        devices=re.compile(monitoring["devices"], re.I) if monitoring.get("devices") else None,
+        covered_items=_compiled((raw.get("review") or {}).get("covered_items")),
+    )
+
+
 @lru_cache(maxsize=2)
 def _load(path: Path) -> HouseStyle:
     raw = json.loads(path.read_text(encoding="utf-8"))
@@ -356,6 +491,7 @@ def _load(path: Path) -> HouseStyle:
     notes = raw["notes"]
     line_order, order_checks = _order(raw)
     return HouseStyle(
+        **_gem_words(raw),
         header=raw["header"],
         verbs=tuple(raw["verbs"]),
         no_verb_starts=tuple(raw["no_verb_starts"]["starts"]),

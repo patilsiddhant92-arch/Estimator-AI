@@ -535,8 +535,9 @@ def test_a_client_note_the_evidence_does_not_bear_out_is_reviewed_not_printed():
     scope = WrittenScope(VAV_LINES, client_notes=("**Space sensors by others", "**Maintain the CO2 setpoints"))
     job, systems, _ = _assemble([_vav()], {"VAV": scope})
     notes = [i.text for i in job.blocks[0].items if i.kind == "note"]
-    assert notes == ["**Maintain the CO2 setpoints"]
+    assert "**Maintain the CO2 setpoints" not in notes            # borne out, but the controls contractor's own work
     vav = next(s for s in systems if s.bundle_key == "VAV")
+    assert any(l.text == "**Maintain the CO2 setpoints" and not l.client for l in vav.lines)
     assert any("Space sensors by others" in i.decide for i in vav.review)
 
 

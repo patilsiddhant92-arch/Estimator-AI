@@ -47,6 +47,12 @@ class TemplateLine:
     trio: bool = False               # one of the three integration lines
     no_verb: bool = False            # the template writes this line without a verb (an interlock, a tie-in, ...)
     of: tuple[str, ...] = ()         # per_unit counts only these families (plant and group systems)
+    standard: bool = False           # AME writes it by house practice: added when the GEM neither wrote nor excluded it
+    standard_text: str = ""          # what prints for it as a standard line, when not its own text
+    standard_if: tuple[str, ...] = ()     # patterns (evidence, exclusions) picking it among its choice or group
+    standard_needs: tuple[str, ...] = ()  # patterns the evidence must hold for it to be added
+    standard_field_ddc: bool = False      # added only on a unit the GEM reads as Field-Installed DDC
+    standard_group: str | None = None     # the standard lines of one group: one of them is added
 
 
 @dataclass(frozen=True)
@@ -83,6 +89,7 @@ class SystemTemplate:
     extra_tech_hours: tuple[TechHours, ...] = ()   # added to tech_hours (gas detection: per panel and per fan)
     family_names: dict[str, str] = field(default_factory=dict)  # the template's own name for a family in a group header
     becomes_exception_when: ExceptionRule | None = None
+    standard_lines: tuple[TemplateLine, ...] = ()  # AME's standard lines the template does not offer as options
 
 
 @lru_cache(maxsize=4)
@@ -120,6 +127,14 @@ def _tech_hours(raw: dict, where: str) -> TechHours:
     return TechHours(per, None if hours is None else float(hours), overrides, tuple(raw.get("of", ())))
 
 
+def _standard(item: dict) -> dict:
+    """A line's standard-line fields (AME's house practice)."""
+    return dict(standard=bool(item.get("standard", False)), standard_text=item.get("standard_text", ""),
+                standard_if=tuple(item.get("standard_if", ())), standard_needs=tuple(item.get("standard_needs", ())),
+                standard_field_ddc=bool(item.get("standard_field_ddc", False)),
+                standard_group=item.get("standard_group") or item.get("choice"))
+
+
 def _system(raw: dict, top: dict) -> SystemTemplate:
     name = raw["name"]
     verbs = tuple(top["verbs"])
@@ -147,7 +162,7 @@ def _system(raw: dict, top: dict) -> SystemTemplate:
             text=text, depth=int(item.get("depth", 1)), when=when, unless=unless,
             choice=item.get("choice"), default=bool(item.get("default", False)), quantity=quantity,
             hardware_point=bool(hardware), verb=verb, trio=bool(is_trio),
-            no_verb=bool(item.get("no_verb", False)), of=tuple(item.get("of", ())),
+            no_verb=bool(item.get("no_verb", False)), of=tuple(item.get("of", ())), **_standard(item),
         ))
     groups: dict[str, list[TemplateLine]] = {}
     for line in lines:
@@ -188,6 +203,10 @@ def _system(raw: dict, top: dict) -> SystemTemplate:
         extra_tech_hours=tuple(parsed[1:]),
         family_names=dict(raw.get("family_names", {})),
         becomes_exception_when=rule,
+        standard_lines=tuple(TemplateLine(text=item["text"], depth=int(item.get("depth", 1)), when=(), unless=(),
+                                          choice=None, default=False, quantity=item.get("quantity", "per_unit"),
+                                          hardware_point=False, **dict(_standard(item), standard=True))
+                             for item in raw.get("standard_lines", ())),
     )
 
 
