@@ -349,6 +349,27 @@ def test_lines_are_compared_by_verb_and_device_words():
         == (4, 2, None)
 
 
+def test_tags_are_normalised_and_stemmed_by_type():
+    from estimator.score import normalize_tag, tag_stem
+    assert normalize_tag("RTU-CR-1") == normalize_tag("RTU_CR 1") == "RTUCR1"
+    assert tag_stem("HEL05_01_CRAH01") == "CRAH"
+    assert tag_stem("RTU-CR-1") == tag_stem("RTU-CR1") == "RTUCR"
+    assert tag_stem("CRAH-#") == "CRAH"
+    assert tag_stem("DOAU##") == "DOAU"
+    assert tag_stem("FCU-#") == "FCU"
+
+
+def test_kind_words_expand_abbreviations_both_ways():
+    from estimator.score import _block
+    vav = _block(["Qty (57) VAV with Electric Reheat"], [])
+    vav_box = _block(["Qty (57) VAV Box VAV-100 thru VAV-521"], [])
+    assert {"variable", "air", "volume"} <= vav.kind
+    assert {"variable", "air", "volume"} <= vav_box.kind
+    chillers = _block(["Qty (112) Chillers"], [])
+    air_cooled = _block(["Qty (112) Air-Cooled Chiller HEL05_01_CH01"], [])
+    assert chillers.kind <= air_cooled.kind and "chiller" in chillers.kind
+
+
 def test_the_scoreboard_compares_systems_lines_and_counts(tmp_path, bare_job, proposal_template):
     from estimator.score import read_blocks, score
     draft, sent = _proposals(tmp_path, bare_job, proposal_template)
@@ -383,6 +404,8 @@ def test_the_score_command_writes_the_workbook_and_the_summary_line(tmp_path, ba
     assert book.sheetnames == ["Summary", "Systems", "Lines"]
     assert book["Summary"]["A2"].value == "systems 2/3, lines 4/6, counts 2/4"
     assert "not a judge" in book["Summary"]["A3"].value and "miscount" in book["Summary"]["A3"].value
+    summary_rows = [row[0].value for row in book["Summary"].iter_rows()]
+    assert "Systems matched by kind or tag type only (check these)" in summary_rows
     assert [p.name for p in out.iterdir()] == ["99-0001 Score.xlsx"]              # nothing else is written
     code = cli.main(["score", str(draft), str(sent), "--out", str(cli.ROOT / "tests" / "no-score-here")])
     assert code == 1 and "under" in capsys.readouterr().err
@@ -395,4 +418,56 @@ def test_the_score_command_writes_the_workbook_and_the_summary_line(tmp_path, ba
     old.save(tmp_path / "old.docx")
     from estimator.score import read_blocks
     (block,) = read_blocks(tmp_path / "old.docx")
-    assert (block.header, block.quantity, block.tags) == ("(x2) Exhaust Fan EF-1, 2", 2, frozenset({"EF-1", "EF-2"}))
+    assert (block.header, block.quantity, block.tags) == ("(x2) Exhaust Fan EF-1, 2", 2, frozenset({"EF1", "EF2"}))
+
+
+def test_house_short_forms_are_matched_against_long_names_and_joined_tags():
+    # Sent proposals write systems in the house short form; the draft writes long names and joined tags.
+    from estimator.score import _block, score
+    sent = [
+        _block(["Qty (8) DOAU##"], []),
+        _block(["Qty (80) ITE (Data Hall) CRAH-#"], []),
+        _block(["Qty (112) Chillers"], []),
+        _block(["Qty (3) RTU-CR-1, RTU-CR-2, RTU-CR-3"], []),
+    ]
+    draft = [
+        _block(["Qty (8) Dedicated Outdoor Air Unit HEL05_01_DOAU01, 02 thru 08"], []),
+        _block(["Qty (80) Computer Room Air Handler HEL05_01_CRAH01 thru 80"], []),
+        _block(["Qty (112) Air-Cooled Chiller HEL05_01_CH01 thru 28"], []),
+        _block(["Qty (3) Rooftop Unit RTU-CR1 thru CR3"], []),
+    ]
+    result = score(draft, sent, "99-0002")
+    systems = {row[0]: row[2] for row in result.systems}
+    assert systems["Qty (8) DOAU##"] == "matched"
+    assert systems["Qty (80) ITE (Data Hall) CRAH-#"] == "matched"
+    assert systems["Qty (112) Chillers"] == "matched"
+    assert systems["Qty (3) RTU-CR-1, RTU-CR-2, RTU-CR-3"] == "matched"
+
+
+def test_two_unrelated_blocks_do_not_pair():
+    from estimator.score import _block, score
+    result = score([_block(["Qty (1) Generator GEN-1"], [])], [_block(["Qty (1) Boiler B-1"], [])], "99-0004")
+    assert result.systems == [
+        ["Qty (1) Boiler B-1", None, "missing", 1, None, None],
+        [None, "Qty (1) Generator GEN-1", "extra", None, 1, None],
+    ]
+
+
+def test_a_family_split_lets_each_part_match_a_different_sent_block():
+    from estimator.score import _block, score
+    sent = [
+        _block(["Qty (57) VAV with Electric Reheat"], [("Furnish VAV-100 DDC Controller", 1)]),
+        _block(["Qty (9) Constant Air Volume Box"], [("Furnish CAV-1 DDC Controller", 1)]),
+    ]
+    draft = [_block(
+        ["Qty (57) VAV Box VAV-100 thru VAV-521", "Qty (9) Constant Air Volume Box CAV-1 thru 9"],
+        [("Furnish VAV-100 DDC Controller", 1), ("Furnish CAV-1 DDC Controller", 1)],
+    )]
+    result = score(draft, sent, "99-0003")
+    systems = {row[0]: (row[1], row[2]) for row in result.systems}
+    assert systems["Qty (57) VAV with Electric Reheat"] == ("Qty (57) VAV Box VAV-100 thru VAV-521", "matched")
+    assert systems["Qty (9) Constant Air Volume Box"] == \
+        ("Qty (9) Constant Air Volume Box CAV-1 thru 9", "matched")
+    lines = {(row[1], row[2]): row[3] for row in result.lines}
+    assert lines[("Furnish VAV-100 DDC Controller", "Furnish VAV-100 DDC Controller")] == "matched"
+    assert lines[("Furnish CAV-1 DDC Controller", "Furnish CAV-1 DDC Controller")] == "matched"

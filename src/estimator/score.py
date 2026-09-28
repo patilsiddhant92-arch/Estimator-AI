@@ -5,8 +5,10 @@
 It reads both proposals on this machine and writes only FOLDER/<job> Score.xlsx and a summary line: nothing it reads
 is copied anywhere else. It is a first measure, not a judge: it matches on words, so it will miscount some wording.
 
-- Systems: each block of the sent proposal matched to the draft's by its tags and its kind words: matched, quantity
-  differs, missing (sent, not in the draft) or extra (in the draft, not sent).
+- Systems: each block of the sent proposal matched to the draft's by its tags (normalised, and by type when the
+  exact tag differs) and its kind words (abbreviations expanded both ways): matched, quantity differs, missing
+  (sent, not in the draft) or extra (in the draft, not sent). A draft block printed as several stacked headers
+  ("Qty (a) X / Qty (b) Y") is split into one part per header first, so each can match a different sent block.
 - Lines: within matched blocks, each sent line matched to a draft line by its house verb and device words
   (quantities, brackets and punctuation taken off; a token overlap of at least 0.6): matched, worded differently,
   missing or extra.
@@ -14,6 +16,7 @@ is copied anywhere else. It is a first measure, not a judge: it matches on words
 """
 from __future__ import annotations
 
+import json
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -26,6 +29,9 @@ from estimator.proposal.read import ProposalFormatError, read_blocks_fallback, r
 from estimator.text import squash
 
 LINE_OVERLAP = 0.6
+MIN_SYSTEM_SCORE = 0.3      # below this, two blocks are treated as unrelated and never paired
+QUANTITY_BONUS = 0.25       # equal block/line quantities
+QUANTITY_PENALTY = 0.5      # quantities more than 50% apart
 MATCHED, DIFFERS, MISSING, EXTRA, WORDED = "matched", "quantity differs", "missing", "extra", "worded differently"
 EQUAL, COUNT_DIFFERS = "equal", "differ"
 CAVEAT = ("A first measure, not a judge: systems are matched by their tags and kind words, lines by their verb and "
@@ -38,6 +44,17 @@ _HEADER_QTY = re.compile(r"^\*?\s*(?:\(\s*x\s*(\d+)\s*\)|Qty\s*\(\s*([\d#?]+)\s*
 _LINE_QTY = re.compile(r"\(\s*Qty\.?\s*(\d+)\s*(?:Total)?\s*\)|\(\s*x\s*(\d+)\s*\)|\bQty\.?\s*\(\s*(\d+)\s*\)", re.I)
 _BRACKETS = re.compile(r"\([^()]*\)|\[[^\[\]]*\]")
 _JOB = re.compile(r"\b\d{2}-\d{4}\b")
+ASSETS = Path(__file__).resolve().parents[2] / "assets"
+ABBREVIATIONS_FILE = ASSETS / "score_abbreviations.json"
+
+
+def _load_abbreviations() -> dict[str, str]:
+    """House abbreviation (upper-cased) -> the words it stands for (assets/score_abbreviations.json)."""
+    data = json.loads(ABBREVIATIONS_FILE.read_text(encoding="utf-8"))
+    return {k.upper(): v for k, v in data.items() if k.lower() != "about"}
+
+
+ABBREVIATIONS = _load_abbreviations()
 
 
 @dataclass
@@ -45,7 +62,8 @@ class ScoreBlock:
     headers: list[str]
     quantity: int | None
     lines: list[tuple[str, int]] = field(default_factory=list)      # (text, depth)
-    tags: frozenset = frozenset()
+    tags: frozenset = frozenset()        # normalised tags ("-", "_", spaces and "#" dropped)
+    stems: frozenset = frozenset()       # each tag's type (its letters before the trailing number)
     kind: frozenset = frozenset()
 
     @property
@@ -65,9 +83,54 @@ def _header_quantity(header: str) -> int | None:
     return total if found else None
 
 
-def _tags(header: str) -> frozenset:
+_WORDLIKE = re.compile(r"[A-Za-z0-9#][A-Za-z0-9#_-]*")
+_PURE_NUM = re.compile(r"^[0-9#]+$")
+_LETTERS_THEN_NUM = re.compile(r"^([A-Za-z]+)[0-9#]*$")
+_PURE_LETTERS = re.compile(r"^[A-Za-z]+$")
+
+
+def normalize_tag(text: str) -> str:
+    """A tag as it is compared: capitals, with "-", "_", spaces and "#" dropped."""
+    return re.sub(r"[-_ #]", "", text.upper())
+
+
+def tag_stem(tag: str) -> str | None:
+    """A tag's type: its last letters group before the trailing number, with any site/floor prefix
+    dropped ("HEL05_01_CRAH01" -> "CRAH", "RTU-CR-1" and "RTU-CR1" -> "RTUCR", "DOAU##" -> "DOAU").
+    A placeholder ("CRAH-#") gives only this. None when the tag carries no letters to read from."""
+    segments = [s for s in re.split(r"[-_]", tag.upper()) if s]
+    i = len(segments) - 1
+    while i >= 0 and _PURE_NUM.fullmatch(segments[i]):
+        i -= 1
+    if i < 0:
+        return None
+    anchor = _LETTERS_THEN_NUM.fullmatch(segments[i])
+    if not anchor:
+        return None
+    tail = anchor.group(1)
+    i -= 1
+    qualifiers = []
+    while i >= 0 and _PURE_LETTERS.fullmatch(segments[i]):
+        qualifiers.append(segments[i])
+        i -= 1
+    return "".join(reversed(qualifiers)) + tail
+
+
+def _looks_like_tag(token: str) -> bool:
+    return bool(re.search(r"[A-Za-z]", token)) and bool(re.search(r"[0-9#]", token)) and tag_stem(token) is not None
+
+
+def _raw_tags(header: str) -> list[str]:
+    """The tag-like tokens a header names, upper-cased, in the order they appear: the dash-joined tags
+    the phrasing bank already expands ("EF-1, 2" -> "EF-1", "EF-2"), plus whatever that misses — an
+    underscore-joined tag ("HEL05_01_CRAH01") or a placeholder ("CRAH-#", "DOAU##")."""
     from estimator.writing.assemble import header_tags
-    return frozenset(t for piece in header.split(" / ") for t in header_tags(_HEADER_QTY.sub("", piece.strip())))
+    out = []
+    for piece in header.split(" / "):
+        rest = _HEADER_QTY.sub("", piece.strip())
+        out += [t.upper() for t in header_tags(rest)]
+        out += [t.upper() for t in _WORDLIKE.findall(rest) if _looks_like_tag(t)]
+    return list(dict.fromkeys(out))
 
 
 def _singular(word: str) -> str:
@@ -84,18 +147,23 @@ def _kind_words(header: str, tags: frozenset) -> frozenset:
         rest = _HEADER_QTY.sub("", piece.strip())
         for token in re.split(r"[\s,/&()|:;]+", rest):
             token = token.strip("-–.*")
-            if not token or token.upper() in tags or re.search(r"\d|#", token):
+            if not token or re.search(r"\d|#", token) or normalize_tag(token) in tags:
                 continue
-            word = _singular(token.casefold())
-            if len(word) >= 2 and word not in _KIND_STOP and re.search(r"[a-z]", word):
-                words.add(word)
+            expansion = ABBREVIATIONS.get(token.upper())
+            pieces = expansion.split() if expansion else re.split(r"[-–]+", token)
+            for piece_word in pieces:
+                word = _singular(piece_word.casefold())
+                if len(word) >= 2 and word not in _KIND_STOP and re.search(r"[a-z]", word):
+                    words.add(word)
     return frozenset(words)
 
 
 def _block(headers: list[str], lines: list[tuple[str, int]]) -> ScoreBlock:
     header = " / ".join(headers)
-    tags = _tags(header)
-    return ScoreBlock(headers, _header_quantity(header), lines, tags, _kind_words(header, tags))
+    raw = _raw_tags(header)
+    tags = frozenset(normalize_tag(t) for t in raw)
+    stems = frozenset(stem for t in raw if (stem := tag_stem(t)) is not None)
+    return ScoreBlock(headers, _header_quantity(header), lines, tags, stems, _kind_words(header, tags))
 
 
 def read_blocks(path: Path) -> list[ScoreBlock]:
@@ -129,14 +197,55 @@ def _share(a: frozenset, b: frozenset) -> float:
     return len(a & b) / len(a | b) if a and b else 0.0
 
 
-def _system_score(sent: ScoreBlock, draft: ScoreBlock) -> float:
-    """How well two blocks match: their tags first, their kind words after; 0 when they are not the same system."""
-    tags, kind = _share(sent.tags, draft.tags), _share(sent.kind, draft.kind)
-    if sent.tags and draft.tags:
-        if tags >= 0.5 or (sent.tags & draft.tags and kind >= 0.5):
-            return 1 + tags + kind / 10
+def _quantity_adjustment(sent_qty: int | None, draft_qty: int | None) -> float:
+    if sent_qty is None or draft_qty is None or not sent_qty:
         return 0.0
-    return kind if kind >= LINE_OVERLAP else 0.0
+    if sent_qty == draft_qty:
+        return QUANTITY_BONUS
+    if abs(draft_qty - sent_qty) / sent_qty > 0.5:
+        return -QUANTITY_PENALTY
+    return 0.0
+
+
+def _system_score(sent: ScoreBlock, draft: ScoreBlock) -> float:
+    """How well two blocks match: tag-stem overlap, kind-word overlap (after abbreviation expansion) and
+    quantity agreement; 0 when they share neither a tag/stem nor a kind word at all."""
+    tags = max(_share(sent.tags, draft.tags), _share(sent.stems, draft.stems))
+    kind = _share(sent.kind, draft.kind)
+    if not tags and not kind:
+        return 0.0
+    value = tags + kind + _quantity_adjustment(sent.quantity, draft.quantity)
+    return value if value >= MIN_SYSTEM_SCORE else 0.0
+
+
+def _line_belongs(text: str, part: ScoreBlock) -> bool:
+    normalized = normalize_tag(text)
+    if any(tag and tag in normalized for tag in part.tags):
+        return True
+    if any(stem and stem in normalized for stem in part.stems):
+        return True
+    _, words = line_tokens(text)
+    return bool(words & part.kind)
+
+
+def _split_families(blocks: list[ScoreBlock]) -> list[ScoreBlock]:
+    """A block printed as several stacked headers ("Qty (a) X / Qty (b) Y") split into one block per
+    header, each free to match a different sent block. A line that names one part's tag, tag type or
+    kind words is theirs; a line that names none, or more than one, goes to every part — the whole
+    block's lines, when the lines can't be split."""
+    out = []
+    for block in blocks:
+        if len(block.headers) <= 1:
+            out.append(block)
+            continue
+        parts = [_block([header], []) for header in block.headers]
+        buckets: list[list[tuple[str, int]]] = [[] for _ in parts]
+        for line in block.lines:
+            hits = [i for i, part in enumerate(parts) if _line_belongs(line[0], part)]
+            for i in (hits or range(len(parts))):
+                buckets[i].append(line)
+        out += [_block(part.headers, lines) for part, lines in zip(parts, buckets)]
+    return out
 
 
 def _pairs(sent: list, draft: list, score) -> list[tuple[int, int, float]]:
@@ -203,6 +312,7 @@ class Score:
     matched_lines: int = 0
     counts_equal: int = 0
     counts_compared: int = 0
+    weak_systems: int = 0        # matched systems with no exact tag in common — by kind or tag type only
 
     @property
     def summary(self) -> str:
@@ -211,6 +321,7 @@ class Score:
 
 
 def score(draft: list[ScoreBlock], sent: list[ScoreBlock], job: str = "") -> Score:
+    draft = _split_families(draft)
     result = Score(job, sent_systems=len(sent), sent_lines=sum(len(b.lines) for b in sent))
 
     def counted(state: str) -> None:
@@ -230,6 +341,8 @@ def score(draft: list[ScoreBlock], sent: list[ScoreBlock], job: str = "") -> Sco
         state = _count(block.quantity, other.quantity)
         counted(state)
         result.matched_systems += 1
+        if not (block.tags & other.tags):
+            result.weak_systems += 1
         status = DIFFERS if state == COUNT_DIFFERS else MATCHED
         result.systems.append([block.header, other.header, status, block.quantity, other.quantity, state or None])
         sent_texts, draft_texts = [t for t, _ in block.lines], [t for t, _ in other.lines]
@@ -307,7 +420,8 @@ def write_score(result: Score, folder: Path) -> Path:
                          ("Lines in the sent proposal", result.sent_lines),
                          ("Found in the draft (matched or worded differently)", result.matched_lines),
                          ("Counts compared (block and line quantities the sent proposal states)", result.counts_compared),
-                         ("Counts equal", result.counts_equal)):
+                         ("Counts equal", result.counts_equal),
+                         ("Systems matched by kind or tag type only (check these)", result.weak_systems)):
         ws.append([label, value])
     ws.column_dimensions["A"].width = 70
     ws.column_dimensions["B"].width = 12
