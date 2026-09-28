@@ -12,6 +12,7 @@ from pathlib import Path
 from openpyxl import Workbook
 from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
+from openpyxl.worksheet.datavalidation import DataValidation
 
 from estimator.catalogue.job import Catalogue
 from estimator.catalogue.overview import (FOUND, RULED_OUT, STANDARD_CLARIFICATION, STANDARD_EXCLUSION,
@@ -28,6 +29,11 @@ ESTIMATE_TABS = ("Review list", "Scope lines")
 PLAN_TAB = "Plan"
 # The GEM's own checks per system (the whole-job method): its Quick Scan, its contradiction scan and its Self-QC.
 GEM_TAB = "GEM QC"
+# The estimator's corrections, read back by `estimator corrections` (estimator.corrections).
+DECISION, CHANGE_TO = "Estimator decision", "Change to / why"
+DECISIONS = ("keep", "delete", "change")
+_DECISION_NOTE = ('keep, delete or change. For "change": the new text, then "why:" and the reason; for keep or '
+                  'delete: the reason. Read back by: estimator corrections EVIDENCE.xlsx')
 _GREEN = PatternFill("solid", fgColor="C6EFCE")
 _AMBER = PatternFill("solid", fgColor="FFEB9C")
 _GREY = PatternFill("solid", fgColor="D9D9D9")
@@ -460,21 +466,33 @@ def _review_list(ws, systems, review_flags, flags) -> None:
     table = [[k, *row] for k, (*_, row) in enumerate(rows, start=1)]
     table += [[None, "Reading the job", "", flag, None, "See the Flags tab"] for flag in flags
               if _SPEC_ONLY not in flag]
-    _table(ws, ["Rank", "System", "Category", "What to decide", "Evidence", "Suggested action"],
-           table or [[None, "", "", "Nothing to review.", None, None]])
+    _table(ws, ["Rank", "System", "Category", "What to decide", "Evidence", "Suggested action", DECISION, CHANGE_TO],
+           [row + [None, None] for row in table] or [[None, "", "", "Nothing to review.", None, None, None, None]])
     for r in range(2, ws.max_row + 1):
         fill = _LINE_FILL.get(ws.cell(r, 3).value)
         if fill is not None:
             ws.cell(r, 3).fill = fill
-        for column in (4, 5, 6):
+        for column in (4, 5, 6, 8):
             ws.cell(r, column).alignment = Alignment(wrap_text=True, vertical="top")
-    _widths(ws, [7, 30, 14, 70, 60, 44])
+    _decision_columns(ws, 7)
+    _widths(ws, [7, 30, 14, 70, 60, 44, 12, 50])
+
+
+def _decision_columns(ws, column: int) -> None:
+    """The estimator's two columns: a keep / delete / change choice, then the new text or the reason."""
+    letter, last = get_column_letter(column), max(ws.max_row, 2)
+    choice = DataValidation(type="list", formula1='"' + ",".join(DECISIONS) + '"', allow_blank=True,
+                            showErrorMessage=False, prompt=_DECISION_NOTE, showInputMessage=True)
+    ws.add_data_validation(choice)
+    choice.add(f"{letter}2:{letter}{last + 500}")
+    for c in (column, column + 1):
+        ws.cell(1, c).fill = _AMBER
 
 
 def _scope_lines(ws, systems) -> None:
     """Every line the tool wrote or left PENDING, with its category, confidence, source and evidence."""
     _headings(ws, ["System", "Line", "Quantity", "Tech hours", "Category", "Confidence", "Source", "Evidence",
-                   "In the proposal?", "Reference line", "Flag"])
+                   "In the proposal?", "Reference line", "Flag", DECISION, CHANGE_TO])
     ws.freeze_panes = "A2"
     for system in systems:
         headers = [(b.header, b.tech_hours) for b in system.blocks] or [(system.bundle_key, None)]
@@ -494,8 +512,9 @@ def _scope_lines(ws, systems) -> None:
             flag = _FLAG_FILL.get(getattr(line, "flag", "") or "")
             if flag is not None:
                 ws.cell(ws.max_row, 11).fill = flag
+    _decision_columns(ws, 12)
     ws.auto_filter.ref = ws.dimensions
-    _widths(ws, [26, 60, 10, 11, 13, 11, 44, 70, 16, 60, 10])
+    _widths(ws, [26, 60, 10, 11, 13, 11, 44, 70, 16, 60, 10, 12, 50])
 
 
 _FLAG_FILL = {"red": _RED, "yellow": PatternFill("solid", fgColor="FFFF99"), "orange": PatternFill("solid",

@@ -160,3 +160,150 @@ def test_catalogue_and_estimate_take_documents(tmp_path, monkeypatch):
         with pytest.raises(SystemExit):
             cli.main([command, str(root), "--out", str(tmp_path / "out"), "--documents", "1. Project Documents"])
     assert seen == [{"documents": "1. Project Documents"}] * 2
+
+
+# --- 3. the estimator's corrections are read back ----------------------------------------------------------------------
+
+def _corrected_package(tmp_path):
+    """A synthetic job written, its Evidence Package filled in the way the estimator fills it."""
+    import openpyxl
+    from estimator.evidence.workbook import write_evidence
+    from test_evidence import _catalogue as evidence_catalogue
+    scope = _scope(_gl("Furnish and Install EDH DDC Controller (Qty. 3 Total)", quantity=3),
+                   _gl("Furnish Heater Enable"),
+                   _gl("Furnish Heater Status"),
+                   _gl("Furnish and Install Airflow Switch"))
+    job, systems, general, ranked = _assemble([EDH], {"EDH": scope})
+    path = write_evidence(tmp_path / "99-0001 Evidence Package.xlsx", evidence_catalogue(), systems=systems,
+                          review_flags=ranked)
+    book = openpyxl.load_workbook(path)
+    ws = book["Scope lines"]
+    heads = [c.value for c in ws[1]]
+    at, change = heads.index("Estimator decision") + 1, heads.index("Change to / why") + 1
+    fill = {"Furnish Heater Status": ("Delete", "Status comes from the heater's own current switch, never a separate "
+                                               "point on EDH-1 thru 3 (Job 99-0001, M-601)."),
+            "Furnish Heater Enable": ("change", "Furnish Heater Enable / Disable why: AME writes enable and disable "
+                                                "as one line."),
+            "Furnish and Install Airflow Switch": ("keep", "")}
+    for row in range(2, ws.max_row + 1):
+        text = ws.cell(row, 2).value
+        if text in fill:
+            ws.cell(row, at).value, ws.cell(row, change).value = fill[text]
+    review = book["Review list"]
+    heads = [c.value for c in review[1]]
+    decide_at = heads.index("Estimator decision") + 1
+    first = review.cell(2, heads.index("What to decide") + 1).value
+    review.cell(2, decide_at).value = "delete"
+    book.save(path)
+    return path, job, systems, ranked, first
+
+
+def test_the_evidence_package_has_the_estimators_two_columns(tmp_path):
+    import openpyxl
+    path, *_ = _corrected_package(tmp_path)
+    book = openpyxl.load_workbook(path)
+    for tab in ("Scope lines", "Review list"):
+        heads = [c.value for c in book[tab][1]]
+        assert heads[-2:] == ["Estimator decision", "Change to / why"], tab
+        assert book[tab].data_validations.dataValidation, tab            # keep / delete / change to choose from
+
+
+def test_the_filled_columns_are_read_saved_under_out_and_merged(tmp_path):
+    from estimator.corrections import load_corrections, read_corrections, save_corrections
+    path, _, _, _, first = _corrected_package(tmp_path)
+    corrections, problems = read_corrections(path)
+    assert problems == [] and corrections["job"] == "26-9999"
+    by_text = {e["text"]: e for e in corrections["lines"]}
+    assert set(by_text) == {"Furnish Heater Status", "Furnish Heater Enable", "Furnish and Install Airflow Switch"}
+    assert by_text["Furnish Heater Status"]["decision"] == "delete"
+    assert by_text["Furnish Heater Enable"]["change_to"] == "Furnish Heater Enable / Disable"
+    assert by_text["Furnish Heater Enable"]["why"] == "AME writes enable and disable as one line."
+    assert by_text["Furnish and Install Airflow Switch"]["decision"] == "keep"
+    assert [(e["text"], e["decision"]) for e in corrections["review"]] == [(first, "delete")]
+    folder = tmp_path / "out" / "corrections"
+    saved = save_corrections(corrections, folder)
+    assert saved == folder / "26-9999.json"
+    later = {"job": "26-9999", "lines": [dict(by_text["Furnish and Install Airflow Switch"], decision="delete")],
+             "review": []}
+    data = load_corrections(save_corrections(later, folder))
+    decisions = {e["text"]: e["decision"] for e in data["lines"]}
+    assert decisions == {"Furnish Heater Status": "delete", "Furnish Heater Enable": "change",
+                         "Furnish and Install Airflow Switch": "delete"}          # the new decision replaces the old
+
+
+def test_each_reason_is_proposed_as_a_general_rule_with_no_job_content(tmp_path):
+    from estimator.corrections import general_rule, propose_rules, read_corrections
+    path, *_ = _corrected_package(tmp_path)
+    corrections, _ = read_corrections(path)
+    rules = tmp_path / "ame_practice_proposed.txt"
+    added = propose_rules(corrections, rules)
+    assert added == ["- Status comes from the heater's own current switch, never a separate point.",
+                     "- AME writes enable and disable as one line."]
+    text = rules.read_text(encoding="utf-8")
+    for leak in ("EDH-1", "99-0001", "M-601", "26-9999"):
+        assert leak not in text, leak
+    assert propose_rules(corrections, rules) == []                                # once each
+    assert general_rule('Per note "EF-2 shall be interlocked" [S12] on sheet M-101.', "") is None
+    assert general_rule("Write the chime interlock for every “leak” alarm the plans show.", "") == (
+        "Write the chime interlock for every alarm the plans show.")
+
+
+def test_the_next_run_applies_the_corrections(tmp_path):
+    from estimator.corrections import apply_corrections, read_corrections
+    path, job, systems, ranked, first = _corrected_package(tmp_path)
+    corrections, _ = read_corrections(path)
+    job, systems, ranked = apply_corrections(job, systems, ranked, corrections)
+    texts = [t for _, t in _items(job, EDH_HEADER)]
+    assert "Furnish Heater Status" not in texts
+    assert "Furnish Heater Enable / Disable" in texts and "Furnish Heater Enable" not in texts
+    assert "Furnish and Install Airflow Switch" in texts
+    assert "Furnish and Install EDH DDC Controller (Qty. 3 Total)" in texts            # no decision: as it was
+    lines = {line.text: line for s in systems for line in s.lines}
+    assert lines["Furnish Heater Status"].client is False
+    assert "was “Furnish Heater Enable”" in lines["Furnish Heater Enable / Disable"].evidence
+    rows = [r for s in systems for r in s.review]
+    assert any(r.decide == "Deleted by the estimator: “Furnish Heater Status”" for r in rows)
+    assert first not in [r.decide for r in ranked]
+
+
+def test_the_corrections_command_and_the_estimate_that_applies_them(tmp_path, capsys, monkeypatch):
+    import estimator.__main__ as cli
+    import estimator.writing.whole_job as wj
+    path, *_ = _corrected_package(tmp_path)
+    assert cli.main(["corrections", str(path)]) == 0
+    printed = capsys.readouterr().out
+    assert "Read 3 line decisions and 1 review decision for 26-9999." in printed
+    assert (cli.CORRECTIONS / "26-9999.json").exists()
+    assert "Added 2 proposed rules" in printed and wj.PROPOSED_PRACTICE_FILE.exists()
+    empty = tmp_path / "empty"
+    empty.mkdir()
+    from estimator.evidence.workbook import write_evidence
+    from test_evidence import _catalogue as evidence_catalogue
+    blank = write_evidence(empty / "e.xlsx", evidence_catalogue(), systems=[], review_flags=[])
+    assert cli.main(["corrections", str(blank), "--folder", str(empty)]) == 0
+    assert "nothing to read" in capsys.readouterr().out
+    assert cli.main(["corrections", str(tmp_path / "missing.xlsx")]) == 1
+
+
+from test_estimate import job, whole_job, _proposal_text     # noqa: E402,F401  (the estimate's synthetic job)
+
+
+def test_the_next_estimate_of_the_job_applies_its_corrections_file(job, tmp_path, capsys, whole_job):  # noqa: F811
+    import json
+    import openpyxl
+    import estimator.__main__ as cli
+    sensor = "Furnish and Install Space Temperature / CO2 Sensor"
+    cli.CORRECTIONS.mkdir(parents=True)
+    (cli.CORRECTIONS / "26-9999.json").write_text(json.dumps({"job": "26-9999", "review": [], "lines": [
+        {"kind": "lines", "system": "", "text": sensor, "decision": "delete", "change_to": "",
+         "why": "Synthetic reason."}]}), encoding="utf-8")
+    out = tmp_path / "out"
+    assert cli.main(["estimate", str(job), "--out", str(out), "--ai", "api", "--workers", "1"]) == 0
+    assert "Applied the estimator's corrections" in capsys.readouterr().out
+    assert sensor not in _proposal_text(out / "26-9999 Proposal.docx")
+    book = openpyxl.load_workbook(out / "26-9999 Evidence Package.xlsx")
+    lines = [[c.value for c in row] for row in book["Scope lines"].iter_rows()]
+    row = next(r for r in lines if r[1] == sensor)
+    assert row[8] == "no" and row[6] == "Deleted by the estimator"
+    review = [[c.value for c in row] for row in book["Review list"].iter_rows()]
+    assert any(r[3] == f"Deleted by the estimator: “{sensor}”" for r in review)

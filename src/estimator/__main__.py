@@ -6,6 +6,11 @@
     python -m estimator catalogue JOB_FOLDER --out FOLDER [--documents SUBFOLDER]
     python -m estimator estimate JOB_FOLDER --out FOLDER [--workers N] [--ai chat|api|off] [--cache FOLDER]
                                  [--method whole-job|rules] [--documents SUBFOLDER]
+    python -m estimator corrections EVIDENCE.xlsx [--folder FOLDER]
+
+corrections reads the estimator's decisions (keep / delete / change) from an Evidence Package's Scope lines and
+Review list tabs into out/corrections/<job>.json, and adds each reason given, made general, to
+assets/gem/ame_practice_proposed.txt for approval; the next estimate of the job applies them.
 
 --documents reads only that subfolder of the job folder (such as "1. Project Documents"); the job's name still
 comes from the job folder.
@@ -34,6 +39,8 @@ from docx.opc.exceptions import PackageNotFoundError
 from pydantic import ValidationError
 
 from estimator.catalogue.job import catalogue_job, summary_lines
+from estimator.corrections import (apply_corrections, corrections_file, load_corrections, propose_rules,
+                                   read_corrections, save_corrections)
 from estimator.evidence.workbook import write_evidence
 from estimator.files import open_docx
 from estimator.price_sheet.check import price_check
@@ -62,6 +69,7 @@ PROPOSAL_TEMPLATE = ASSETS / "templates" / "AME_nordomatic Proposal Template.doc
 WORKUP_TEMPLATE = ASSETS / "templates" / "PriceWorkup_Template - 12-21-25.xlsx"
 PRICE_BOOK = ASSETS / "price_book" / "AME Std Pricing Spreadsheet.xlsx"
 ALIASES = ASSETS / "price_book" / "aliases.json"
+CORRECTIONS = ROOT / "out" / "corrections"       # the estimator's corrections, per job: under out\ (NDA), never the repo
 
 
 DOCUMENTS_HELP = ('read only this subfolder of the job folder, such as "1. Project Documents" (default: the whole '
@@ -110,6 +118,11 @@ def _parser() -> argparse.ArgumentParser:
     estimate.add_argument("--method", choices=(WHOLE_JOB, RULES), default=WHOLE_JOB,
                           help="whole-job: the AI reads the whole job and writes every system, and the counts "
                                "check it (the default); rules: each system from its Master Template entry")
+    corrections = commands.add_parser("corrections", help="read the estimator's decisions from an Evidence Package, "
+                                                          "for the next run of the job")
+    corrections.add_argument("evidence", type=Path)
+    corrections.add_argument("--folder", type=Path, default=None,
+                             help="where the job's corrections file goes (default: out/corrections)")
     return parser
 
 
@@ -259,7 +272,30 @@ def _run(args: argparse.Namespace) -> int:
         print(f"Wrote {package}")
     elif args.command == "estimate":
         _estimate(args)
+    elif args.command == "corrections":
+        _corrections(args)
     return 0
+
+
+def _corrections(args: argparse.Namespace) -> None:
+    from estimator.writing.whole_job import PROPOSED_PRACTICE_FILE
+    if not args.evidence.exists():
+        raise FileNotFoundError(2, "No such file", str(args.evidence))
+    corrections, problems = read_corrections(args.evidence)
+    for problem in problems:
+        print(problem)
+    counts = {kind: len(corrections[kind]) for kind in ("lines", "review")}
+    if not counts["lines"] and not counts["review"]:
+        print("No decisions filled in: nothing to read (the Estimator decision column is empty).")
+        return
+    path = save_corrections(corrections, args.folder or CORRECTIONS)
+    print(f"Read {counts['lines']} line {'decision' if counts['lines'] == 1 else 'decisions'} and {counts['review']} "
+          f"review {'decision' if counts['review'] == 1 else 'decisions'} for {corrections['job']}.")
+    print(f"Wrote {path} — the next estimate of this job applies it.")
+    added = propose_rules(corrections, PROPOSED_PRACTICE_FILE)
+    if added:
+        print(f"Added {len(added)} proposed {'rule' if len(added) == 1 else 'rules'} to {PROPOSED_PRACTICE_FILE} "
+              "for approval.")
 
 
 def _estimate(args: argparse.Namespace) -> None:
@@ -326,6 +362,10 @@ def _estimate_whole_job(args: argparse.Namespace) -> None:
     checks, _ = plan_checks(plan, dossier, reading, catalogue)
     review = review_list(systems, review, dossier)     # every system's rows too: merged and ranked, in plain words
     systems = [dataclasses.replace(s, review=()) for s in systems]
+    corrections = load_corrections(corrections_file(CORRECTIONS, catalogue.job.name))
+    if corrections:
+        job, systems, review = apply_corrections(job, systems, review, corrections)
+        print(f"Applied the estimator's corrections from {corrections_file(CORRECTIONS, catalogue.job.name)}.")
     package = write_evidence(package_path, catalogue, reading, systems=systems, review_flags=review, plan=checks)
     for line in whole_job_lines(plan, systems, review, judge, len(catalogue.flags) + len(reading.flags)):
         print(line)

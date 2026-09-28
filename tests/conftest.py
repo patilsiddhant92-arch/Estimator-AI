@@ -157,3 +157,13 @@ def price_book():
 @pytest.fixture(scope="session")
 def test_job():
     return Job.model_validate_json(TEST_JOB_FILE.read_text(encoding="utf-8"))
+
+
+@pytest.fixture(autouse=True)
+def _corrections_stay_in_tmp(tmp_path_factory, monkeypatch):
+    """No test reads or writes the real out/corrections folder or the proposed rules in assets/gem."""
+    import estimator.__main__ as cli
+    import estimator.writing.whole_job as wj
+    folder = tmp_path_factory.mktemp("corrections")
+    monkeypatch.setattr(cli, "CORRECTIONS", folder / "out" / "corrections")
+    monkeypatch.setattr(wj, "PROPOSED_PRACTICE_FILE", folder / "ame_practice_proposed.txt")

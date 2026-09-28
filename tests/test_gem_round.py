@@ -644,11 +644,11 @@ def test_the_evidence_package_has_each_lines_reference_and_flag_and_a_gem_qc_tab
     path = write_evidence(tmp_path / "e.xlsx", evidence_catalogue(), systems=systems, review_flags=general)
     book = openpyxl.load_workbook(path)
     lines = [[c.value for c in row] for row in book["Scope lines"].iter_rows()]
-    assert lines[0][-2:] == ["Reference line", "Flag"]
+    assert lines[0][9:11] == ["Reference line", "Flag"]
     start = next(row for row in lines if row[1] == "Furnish Fan Start/Stop and Status")
-    assert start[-2:] == ["The fans shall run on the BMS schedule", None]
+    assert start[9:11] == ["The fans shall run on the BMS schedule", None]
     switch = next(row for row in lines if row[1] and row[1].startswith("Furnish and Install Current Switch"))
-    assert switch[-1] == "red"
+    assert switch[10] == "red"
     gem = [[c.value for c in row] for row in book[GEM_TAB].iter_rows()]
     flat = " ".join(str(v) for row in gem for v in row if v is not None)
     for words in ("Exhaust Fan EF-1, 2", "Field-Installed DDC", "BMS contractor", "C6", "Current switch count",
