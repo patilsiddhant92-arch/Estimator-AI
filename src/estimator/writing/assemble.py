@@ -484,7 +484,10 @@ def _check_one(system, dossier, may_hold: bool = True) -> PlanCheck:
             review.append(ReviewItem(name, "", f"{name}: the header counts the panels ({printed}); the plan's count "
                                      f"({q}) is the devices, printed on the device line", quoted,
                                      "Check the panels and the devices", tier=TIER_DISAGREE))
-    counted = _counted(counts, columns) if q is None and not panel else None
+    # a system from the job ledger: its count (already the higher one) stands, and its "*" note carries any
+    # disagreement; the dossier's counts neither replace it nor send it to review
+    ledger = bool(getattr(system, "facts", ()))
+    counted = _counted(counts, columns) if q is None and not panel and not ledger else None
     if q is None and panel:
         category = ASSUMPTION
         if not system.exception:
@@ -508,7 +511,7 @@ def _check_one(system, dossier, may_hold: bool = True) -> PlanCheck:
                                      f"The plan gives no quantity. The counts: {_counts_text(counts)}. The plan says: "
                                      f"{system.why or 'nothing'}", "Count the units and type the count in the header",
                                      tier=TIER_QUANTITY))
-    elif counts and q in counts.values() and not _one_per_type(q, counts, columns):
+    elif ledger or (counts and q in counts.values() and not _one_per_type(q, counts, columns)):
         category = CONFIRMED
     elif counts:
         category = DISCREPANCY

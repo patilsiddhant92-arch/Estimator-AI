@@ -570,3 +570,16 @@ def test_a_contradicted_count_prints_its_note_and_a_review_row():
     assert row.category == "DISCREPANCY" and row.tier == 2
     assert row.decide == "Two counts for Variable Air Volume Box VAV-1 thru 14: *Qty. (14) per M-201, Drawings.pdf page 3; equipment counts for VAV lists (12)."
     assert count_notes(written, [SimpleNamespace(system=SimpleNamespace(header="x", count_note=""))]) == written
+
+
+def test_a_ledger_system_keeps_its_count_when_the_dossier_counts_disagree():
+    check = _check(_vav(quantity=4, facts=("F1", "F2")))
+    assert check.category == "CONFIRMED" and check.quantity == 4
+    assert not any(item.category == "DISCREPANCY" for item in check.review)
+
+
+def test_a_ledger_system_with_no_count_is_pending_not_counted_from_the_plans():
+    plain = _check(_vav(quantity=None, quantity_quote="", quantity_source=""))
+    assert plain.category == "CONFIRMED-on-plans" and plain.quantity == 3                     # the old plan: counted from the plans
+    ledger = _check(_vav(quantity=None, quantity_quote="", quantity_source="", facts=("F1",)))
+    assert ledger.category == "PENDING" and ledger.quantity is None

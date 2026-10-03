@@ -686,8 +686,8 @@ _QTY_IN_TEXT = re.compile(r"\(?\bQty\.?\s*\(?\s*(\d+)", re.I)   # "(Qty. 12 Tota
 
 def ledger_check(scope: WrittenScope, facts: frozenset[str], counts: frozenset[int]) -> WrittenScope:
     """The two ledger rules on a written scope: with `facts`, a line naming none of them is refused; with `counts`,
-    a line whose quantity, or a count written in its text ("(Qty. 12 Total)"), is none of them is refused. Each
-    refusal is listed in plain words."""
+    a line whose quantity, or a count written in its text ("(Qty. 12 Total)"), is none of them is refused; with
+    facts but no counts, a line giving any count is refused. Each refusal is listed in plain words."""
     if not facts and not counts:
         return scope
     kept, refused = [], list(scope.refused)
@@ -695,6 +695,11 @@ def ledger_check(scope: WrittenScope, facts: frozenset[str], counts: frozenset[i
         if facts and not (set(line.fact_ids) & set(facts)):
             refused.append(f"“{line.text}” names no fact of this system's ledger entry; left out")
             continue
+        if facts and not counts:                 # the entry holds no count: a line may give none
+            given = line.quantity if line.quantity is not None else                 next((int(m) for m in _QTY_IN_TEXT.findall(line.text)), None)
+            if given is not None:
+                refused.append(f"“{line.text}” gives {given}, but this system's ledger entry holds no count; left out")
+                continue
         if counts and line.quantity is not None and line.quantity not in counts:
             refused.append(f"“{line.text}” gives {line.quantity}, which is no count in this system's ledger entry; "
                            "left out")

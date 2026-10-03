@@ -438,3 +438,17 @@ def test_ledger_check_keeps_a_ledger_count_written_in_the_text():
                         "m", style, frozenset({"S2"}))
     checked = ledger_check(scope, frozenset({"F1"}), frozenset({12, 14}))
     assert [line.text for line in checked.lines] == ["Furnish and Install VAV Controller (Qty. 12 Total)"]
+
+
+def test_ledger_check_refuses_any_count_when_the_entry_holds_none():
+    style = load_house_style()
+    scope = parse_scope(_ledger_answer(_ledger_line("Furnish and Install VAV Controller", 12),
+                                       _ledger_line("Furnish and Install Space Sensor (Qty. 13 Total)"),
+                                       _ledger_line("Furnish and Install Discharge Air Temperature Sensor")),
+                        "m", style, frozenset({"S2"}))
+    checked = ledger_check(scope, frozenset({"F1"}), frozenset())
+    assert [line.text for line in checked.lines] == ["Furnish and Install Discharge Air Temperature Sensor"]
+    assert checked.refused[-2:] == (
+        "“Furnish and Install VAV Controller” gives 12, but this system's ledger entry holds no count; left out",
+        "“Furnish and Install Space Sensor (Qty. 13 Total)” gives 13, but this system's ledger entry holds no count; "
+        "left out")
