@@ -296,6 +296,8 @@ class PlannedSystem:
     why: str
     sequence_section: str = ""                 # the sequence section(s) it is: "Q7" (or "Q7, Q8"), "" when none
     families: tuple[Family, ...] = ()          # two or more: one stacked header each; () for a one-family system
+    count_note: str = ""                       # "*Qty. (14) per …; … lists (12)." when the ledger's count is contradicted
+    facts: tuple[str, ...] = ()                # the ledger fact ids it rests on (F1, F9, …)
 
 
 @dataclass(frozen=True)
