@@ -59,6 +59,8 @@ def served_systems(ledger, plan, system) -> list:
         subject, value = _squash(fact.subject), _squash(fact.value)
         if any(_word(n, subject) for n in names) and not any(_word(n, value) for n in names):
             found.append(value)
+        elif is_duct_heater(system) and any(_word(n, value) for n in names) and not any(_word(n, subject) for n in names):
+            found.append(subject)           # the link may be written from the unit's side: the unit is the partner
     for fact in ledger.of_kind("provider") + ledger.of_kind("note"):
         if any(_word(n, fact.subject) for n in names):
             found += _SERVES.findall(_squash(fact.value))

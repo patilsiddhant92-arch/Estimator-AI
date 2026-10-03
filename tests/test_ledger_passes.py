@@ -332,3 +332,19 @@ def test_the_sequence_prompt_lists_the_match_values_and_asks_for_general_rules()
     assert ('notes with subject "general" for rules the sequence sets for the whole job (fire/smoke damper control, '
             'who wires non-FSD actuators, global points)') in text
     assert "Match values you may use" not in prompt(pass_named("plans"), ledger, "[S8] OCC")
+
+
+def test_a_sequence_match_must_equal_a_live_name_not_merely_contain_it():
+    ledger = seed(_dossier())
+    refused = apply(pass_named("sequence"), ledger, _answer(facts=[
+        {"kind": "sequence_match", "subject": "VAV BOXES", "value": "VAV-1 boxes", "source_id": "[Q1]", "quote": "VAV BOXES"},
+        {"kind": "sequence_match", "subject": "OTHER", "value": "vav", "source_id": "[Q1]", "quote": "OTHER"}]),
+        _known(ledger))
+    assert refused == ["sequence_match VAV BOXES = VAV-1 boxes names no system the ledger holds; left out"]
+    assert ledger.find("sequence_match", "OTHER").value == "vav"
+
+
+def test_a_float_count_is_read_as_a_whole_number_only_when_whole():
+    from estimator.ledger.passes import _value
+    assert _value(16.0, "count") == 16 and isinstance(_value(16.0, "count"), int)
+    assert _value(16.5, "count") is None

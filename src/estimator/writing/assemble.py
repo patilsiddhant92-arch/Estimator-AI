@@ -3347,8 +3347,10 @@ def assemble_job(catalogue, reading, dossier, plan, scopes, today, templates=Non
     general += questions
     dropped = [_squash(str(d)) for d in getattr(plan, "dropped", ()) or ()]
     if dropped:
-        general.append(ReviewItem("The plan", "", "The AI planned systems that could not be used; they were thrown "
-                                  "away", "; ".join(dropped), "Add a block by hand for any the job needs",
+        what = ("Groups the reading split because their members follow different sequence sections"
+                if getattr(plan, "model", "") == "ledger" else
+                "The AI planned systems that could not be used; they were thrown away")
+        general.append(ReviewItem("The plan", "", what, "; ".join(dropped), "Add a block by hand for any the job needs",
                                   tier=TIER_FIRST))
     return job, [front] + systems, general
 

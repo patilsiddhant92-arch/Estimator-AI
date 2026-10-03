@@ -353,8 +353,12 @@ def ledger_plan(ledger: Ledger) -> JobPlan:
             systems.append(_group_system(ledger, group, members))
     systems = _link_dampers(ledger, systems)
     questions = [_squash(f.value) for f in ledger.of_kind("note") if f.subject.casefold() == "question"]
-    questions += [f"Sequence section {_squash(f.subject)} matched no system; which system is it?"
-                  for f in ledger.of_kind("sequence_match") if not _squash(f.value)]
+    taken = {i for s in systems for i in s.facts}
+    for f in ledger.of_kind("sequence_match"):
+        if f.id in taken:
+            continue
+        named = f" (it named {_squash(f.value)})" if _squash(f.value) else ""
+        questions.append(f"Sequence section {_squash(f.subject)} matched no system{named}; which system is it?")
     return JobPlan(systems=tuple(systems), front_end=_front_end(ledger), unresolved=tuple(questions), model="ledger",
                    dropped=tuple(dropped))
 

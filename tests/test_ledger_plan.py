@@ -349,3 +349,12 @@ def test_a_contradicted_group_gives_one_note_per_family():
     (plant,) = ledger_plan(ledger).systems
     assert plant.count_note.split("\n") == ["CH: *Qty. (3) per M-201; schedule rows 2.",
                                             "CHWP: *Qty. (4) per M-201; schedule rows 2."]
+
+
+def test_a_match_valued_with_a_dropped_group_is_asked_about_and_the_split_is_listed():
+    ledger = _rtu_and_fan(both_matched=True)
+    ledger.add("sequence_match", "CORRIDOR AIR", "corridor air", "[Q1]", "CORRIDOR AIR", "sequence", SETTLED)
+    plan = ledger_plan(ledger)
+    assert ("Sequence section CORRIDOR AIR matched no system (it named corridor air); which system is it?"
+            in plan.unresolved)
+    assert "TXF" in plan.dropped[0]

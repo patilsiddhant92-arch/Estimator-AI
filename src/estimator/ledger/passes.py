@@ -208,6 +208,8 @@ def _value(value, kind: str = ""):
         return None if kind == "count" else str(value)
     if isinstance(value, int):
         return value
+    if isinstance(value, float):
+        return int(value) if value.is_integer() else (None if kind == "count" else str(value))
     text = _text(value)
     if kind in ("count", "device"):
         match = _LEADING_NUMBER.match(text)
@@ -222,9 +224,9 @@ def _naming(name: str) -> re.Pattern:
 
 
 def _names_a_system(value: str, names: list[str]) -> bool:
-    """The value names one of the ledger's family prefixes or group subjects, as a whole word, in any case."""
-    value = _text(value)
-    return any(_naming(name).search(value) for name in names if name)
+    """The value IS one of the ledger's family prefixes or group subjects (spaces squashed, any case)."""
+    value = _text(value).casefold()
+    return any(_text(name).casefold() == value for name in names if _text(name))
 
 
 def _number(value) -> int | None:

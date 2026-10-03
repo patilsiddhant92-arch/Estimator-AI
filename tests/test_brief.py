@@ -107,3 +107,9 @@ def test_a_damper_labelled_in_words_still_belongs_to_its_fan():
     L = _ledger()
     L.add("link", "MD on EF-2 duct", "EF-2", "[S10]", "MD EF-2", "plans", SETTLED)
     assert shared_owners(L, ledger_plan(L))["damper actuator MD on EF-2 duct"] == "EF"
+
+
+def test_a_heater_reads_its_link_partner_from_either_side():
+    L, plan, edh, served_class = _heaters()
+    L.add("link", "ERV-1", "EDH-1", "[S10]", "ERV-1 EDH-1", "plans", SETTLED)
+    assert served_class(L, plan, edh) == "packaged"
