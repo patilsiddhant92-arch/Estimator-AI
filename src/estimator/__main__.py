@@ -48,6 +48,8 @@ from estimator.corrections import (apply_corrections, corrections_file, load_cor
                                    read_corrections, save_corrections)
 from estimator.evidence.workbook import write_evidence
 from estimator.files import open_docx
+from estimator.ledger.run import read_job as read_ledger
+from estimator.ledger.to_plan import entry_text, ledger_plan, system_counts
 from estimator.price_sheet.check import price_check
 from estimator.price_sheet.price_book import PriceBook
 from estimator.price_sheet.write import check_fit, write_price_sheet
@@ -358,13 +360,15 @@ def _estimate_whole_job(args: argparse.Namespace) -> None:
     judge = Judge(cache, mode=mode, job=dossier.job_name)
     judge.retire_requests(dossier.sources)     # this job's requests the run does not ask again end in requests/old/
     templates, style = load_templates(), load_house_style()
-    plan = judge.plan_job(dossier.text, dossier.images, checklist_text(templates), style.prompt_text())
-    if plan is None:
-        package = write_evidence(package_path, catalogue, reading)
-        for line in whole_job_lines(None, [], [], judge):
+    ledger = read_ledger(judge, dossier, catalogue, save_to=args.out / f"{quote} Ledger.json")
+    print(f"Wrote {args.out / f'{quote} Ledger.json'}")
+    if not ledger.complete:
+        package = write_evidence(package_path, catalogue, reading, ledger=ledger)
+        for line in whole_job_lines(None, [], [], judge, ledger=ledger):
             print(line)
         print(f"Wrote {package}")
         return
+    plan = ledger_plan(ledger)
 
     scopes = {}
     for system in plan.systems:
@@ -375,7 +379,9 @@ def _estimate_whole_job(args: argparse.Namespace) -> None:
                                                 [image for _, image in pictures], template_options(system, templates),
                                                 system_examples(system), style.prompt_text(),
                                                 hours_rule=tech_hour_rule(system, templates),
-                                                image_ids=[pid for pid, _ in pictures])
+                                                image_ids=[pid for pid, _ in pictures],
+                                                ledger_text=entry_text(system, ledger), facts=system.facts,
+                                                counts=system_counts(system, ledger))
     unrecorded = getattr(judge, "unrecorded", 0)
     if unrecorded:
         print(f"Moved {unrecorded} {'request' if unrecorded == 1 else 'requests'} that recorded no job into "
@@ -392,8 +398,10 @@ def _estimate_whole_job(args: argparse.Namespace) -> None:
     if corrections:
         job, systems, review = apply_corrections(job, systems, review, corrections)
         print(f"Applied the estimator's corrections from {corrections_file(CORRECTIONS, catalogue.job.name)}.")
-    package = write_evidence(package_path, catalogue, reading, systems=systems, review_flags=review, plan=checks)
-    for line in whole_job_lines(plan, systems, review, judge, len(catalogue.flags) + len(reading.flags)):
+    package = write_evidence(package_path, catalogue, reading, systems=systems, review_flags=review, plan=checks,
+                             ledger=ledger)
+    for line in whole_job_lines(plan, systems, review, judge, len(catalogue.flags) + len(reading.flags),
+                                ledger=ledger):
         print(line)
     print(f"Wrote {package}")
     if getattr(judge, "mode", API) == CHAT and judge.waiting:
@@ -404,9 +412,21 @@ def _estimate_whole_job(args: argparse.Namespace) -> None:
     print(f"Wrote {sheet}")
 
 
-def whole_job_lines(plan, systems, review, judge, reading_flags: int = 0) -> list[str]:
+def whole_job_lines(plan, systems, review, judge, reading_flags: int = 0, ledger=None) -> list[str]:
     """The whole-job run's summary, in plain words."""
     summary = []
+    if ledger is not None and not getattr(ledger, "complete", True):
+        from estimator.ledger.passes import pass_named
+        title = pass_named(ledger.stopped_at).title if ledger.stopped_at else "first"
+        summary.append(f"Reading the job: stopped at the {title} pass — {judge.last_error or 'no answer'}.")
+    elif ledger is not None:
+        facts = list(ledger.facts.values())
+        settled = sum(1 for f in facts if f.state in ("settled", "contradicted"))
+        contradicted = sum(1 for f in facts if f.state == "contradicted")
+        read = sum(1 for words in ledger.understanding.values() if not words.startswith("nothing to read"))
+        summary.append(f"Reading the job: {settled} {'fact' if settled == 1 else 'facts'} settled in {read} "
+                       f"{'pass' if read == 1 else 'passes'}; {contradicted} "
+                       f"{'contradiction' if contradicted == 1 else 'contradictions'}.")
     if plan is not None:
         planned = list(plan.systems)
         excepted = sum(1 for s in planned if s.exception)
@@ -439,7 +459,7 @@ def whole_job_lines(plan, systems, review, judge, reading_flags: int = 0) -> lis
     else:
         summary.append(f"AI: {judge.calls} {'call' if judge.calls == 1 else 'calls'} to {judge.model}, "
                        f"{judge.cached} answered from the cache at no cost.")
-        if plan is None:
+        if plan is None and ledger is None:
             summary.append(f"The AI gave no plan — {judge.last_error or 'no answer'}. No proposal was written.")
     return summary
 

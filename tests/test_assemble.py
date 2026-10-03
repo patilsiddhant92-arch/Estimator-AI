@@ -61,6 +61,8 @@ class PlannedSystem:
     alternate: str = ""
     exception: str = ""
     why: str = ""
+    facts: tuple = ()
+    count_note: str = ""
 
 
 @dataclass(frozen=True)
@@ -115,7 +117,8 @@ class FakeJudge:
         self.calls += 1
         return self.plan
 
-    def write_system(self, system, evidence_text, images, options, examples, style_text, hours_rule="", image_ids=None):
+    def write_system(self, system, evidence_text, images, options, examples, style_text, hours_rule="", image_ids=None,
+                     ledger_text="", facts=(), counts=()):
         self.asked.append(system.key)
         self.calls += 1
         return self.scopes.get(system.key)

@@ -1,4 +1,5 @@
 """The estimate command: from a job folder to the proposal, the price sheet and the Evidence Package."""
+import json
 import re
 
 import openpyxl
@@ -6,7 +7,7 @@ import pytest
 from docx import Document
 
 from estimator.__main__ import _parser, ai_mode, main
-from estimator.evidence.workbook import ESTIMATE_TABS, PLAN_TAB, TABS
+from estimator.evidence.workbook import ESTIMATE_TABS, LEDGER_TAB, PLAN_TAB, READ_TAB, TABS
 from estimator.proposal.sections import scope_texts
 from pdfs import FILLER, Page, make_pdf
 from estimator.writing.whole_job import Contradiction, QcCheck, WrittenLine as GemLine, WrittenScope as GemScope
@@ -182,6 +183,18 @@ def _fake_dossier(catalogue, reading, cache_dir):
                                                        "plan_placements": 3, "riser": None, "distinct_tags": 3}}, {})
 
 
+def _fake_ledger(save_to=None):
+    from estimator.ledger.facts import SETTLED, Ledger
+    ledger = Ledger({"S1": "the job"})
+    ledger.add("family", "VAV", "Variable Air Volume Box", "[S1]", "VAV", "seed", SETTLED)
+    ledger.understanding = {"schedules": "A school with VAV boxes."}
+    ledger.complete = True
+    ledger.job_name = "26-9999"
+    if save_to is not None:
+        ledger.save(save_to)
+    return ledger
+
+
 JOB_PLAN = JobPlan((
     PlannedSystem("VAV", "Variable Air Volume Box VAV-1 thru 3", "Variable Air Volume Box", ("VAV-1", "VAV-2", "VAV-3"),
                   3, "S3", "M-601 VAV BOX SCHEDULE", ("S2",), ("S3", "S4", "S5", "S6"), why="three scheduled"),
@@ -222,6 +235,9 @@ SCOPES = {"VAV": GemScope((
 @pytest.fixture
 def whole_job(monkeypatch):
     monkeypatch.setattr("estimator.__main__.build_dossier", _fake_dossier)
+    monkeypatch.setattr("estimator.__main__.read_ledger",
+                        lambda judge, dossier, catalogue, save_to=None: _fake_ledger(save_to))
+    monkeypatch.setattr("estimator.__main__.ledger_plan", lambda ledger: JOB_PLAN)
     judges = []
 
     def make(cache, mode, job=None):
@@ -253,7 +269,7 @@ def test_the_whole_job_method_writes_the_planned_blocks_and_nothing_internal(job
     out = tmp_path / "out"
     assert main(["estimate", str(job), "--out", str(out), "--ai", "api", "--workers", "1"]) == 0
     printed = capsys.readouterr().out
-    assert whole_job[0].asked == ["plan", "VAV"]              # the exception needs no scope
+    assert whole_job[0].asked == ["VAV"]                      # the exception needs no scope
     proposal = out / "26-9999 Proposal.docx"
     assert proposal.exists() and (out / "26-9999 Price Sheet.xlsx").exists()
     text = _proposal_text(proposal)
@@ -270,7 +286,7 @@ def test_the_whole_job_method_writes_the_planned_blocks_and_nothing_internal(job
         assert word not in text, word
 
     workbook = openpyxl.load_workbook(out / "26-9999 Evidence Package.xlsx")
-    assert workbook.sheetnames[:4] == [TABS[0], *ESTIMATE_TABS, PLAN_TAB]
+    assert workbook.sheetnames[:6] == [TABS[0], READ_TAB, *ESTIMATE_TABS, PLAN_TAB, LEDGER_TAB]
     plan = [[c.value for c in row] for row in workbook[PLAN_TAB].iter_rows()]
     vav = next(row for row in plan if row[0] == "VAV")
     assert (vav[4], vav[5], vav[11]) == (3, "CONFIRMED", 3)
@@ -281,7 +297,7 @@ def test_the_whole_job_method_writes_the_planned_blocks_and_nothing_internal(job
     assert any("dropped" in f"{row[3]} {row[4]}" for row in review)
 
     assert "Systems planned: 2; 1 written in the proposal, 1 put in the exceptions." in printed
-    assert "AI: 2 calls to fake-model, 0 answered from the cache at no cost." in printed
+    assert "AI: 1 call to fake-model, 0 answered from the cache at no cost." in printed
     assert f"Wrote {out / '26-9999 Dossier.txt'}" in printed
 
 
@@ -297,11 +313,38 @@ def test_in_chat_mode_the_whole_job_method_waits_for_the_answers(job, tmp_path, 
 
 
 class _Waiting(FakeJudge):
-    """The chat has not answered the plan yet."""
+    """The chat has not answered the system's scope yet."""
 
     def __init__(self, mode):
         super().__init__(None, {}, mode=mode)
 
-    def plan_job(self, *args):
-        self.waiting += 1
+    def write_system(self, system, *args, **kwargs):
+        self.waiting = 1
         return None
+
+
+def test_the_whole_job_method_writes_the_ledger_and_its_tabs(job, tmp_path, capsys, whole_job):
+    main(["estimate", str(job), "--out", str(tmp_path / "out"), "--ai", "api"])
+    out = tmp_path / "out"
+    ledger = next(out.glob("* Ledger.json"))
+    assert json.loads(ledger.read_text(encoding="utf-8"))["complete"] is True
+    from openpyxl import load_workbook
+    book = load_workbook(next(out.glob("* Evidence Package.xlsx")))
+    assert "How the job was read" in book.sheetnames and "Job ledger" in book.sheetnames
+    printed = capsys.readouterr().out
+    assert "Reading the job: 1 fact settled in 1 pass; 0 contradictions." in printed
+
+
+def test_when_a_pass_is_waiting_the_run_stops_after_the_evidence_package(job, tmp_path, capsys, monkeypatch, whole_job):
+    def waiting(judge, dossier, catalogue, save_to=None):
+        ledger = _fake_ledger(save_to)
+        ledger.complete, ledger.stopped_at = False, "plans"
+        judge.last_error = "judgement pending — waiting for an answer in the chat"
+        return ledger
+
+    monkeypatch.setattr("estimator.__main__.read_ledger", waiting)
+    main(["estimate", str(job), "--out", str(tmp_path / "out"), "--ai", "api"])
+    out = tmp_path / "out"
+    assert next(out.glob("* Evidence Package.xlsx"), None) is not None
+    assert next(out.glob("*.docx"), None) is None
+    assert "Reading the job: stopped at the Plans pass — judgement pending" in capsys.readouterr().out
