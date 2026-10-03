@@ -482,6 +482,12 @@ class Judge:
         return self._answer_with_images(READ_PASS, name, system_prompt, prompt, schema,
                                         {**(extra or {}), "images": wj.images_listing(images, ids)}, images, ids)
 
+    def qc_job(self, name: str, system_prompt: str, prompt: str, schema: dict,
+               extra: dict | None = None) -> tuple[dict, str] | None:
+        """The proposal QC pass over the written draft (or one part of it; see qc.py): the answer and the model,
+        or None with `last_error` set (in chat mode, a request written for the chat and `waiting` counted)."""
+        return self._answer_with_images(QC_JOB, name, system_prompt, prompt, schema, dict(extra or {}), [])
+
     def _answer_with_images(self, kind: str, name: str, system_prompt: str, prompt: str, schema: dict,
                             extra: dict, images, ids=None) -> tuple[dict, str] | None:
         """As `_answer`, for a long question that may carry pictures: the pictures' contents are part
@@ -531,13 +537,13 @@ _CITED_PLACE = re.compile(r"^\[S\d+\]\s+(.+?)\s*$", re.M)
 
 def _for_job(request: dict, job: str, sources: dict | None) -> bool:
     """The request is for this job: it says so, or (a request from before requests said their job) it is a
-    reading pass whose prompt names the job's number, or a scope question whose cited places are this dossier's."""
+    reading pass or a QC pass whose prompt names the job's number, or a scope question whose cited places are this dossier's."""
     said = request.get("job")
     if said:
         return said == job
     number = _JOB_NUMBER.search(job or "")
     prompt = str(request.get("prompt") or "")
-    if request.get("kind") == READ_PASS:
+    if request.get("kind") in (READ_PASS, QC_JOB):
         return bool(number) and number.group(0) in prompt[:400]      # a pass prompt starts "Job: <name>"
     if request.get("kind") == WRITE_SYSTEM and sources:
         places = set(sources.values())
@@ -960,6 +966,9 @@ def _plain(error: Exception) -> str:
 WRITE_SYSTEM = "write_system"
 KINDS = KINDS + (WRITE_SYSTEM, READ_PASS)
 _MAIN_LIST.update({WRITE_SYSTEM: "lines"})
+QC_JOB = "qc_job"                  # the proposal QC pass (qc.py)
+KINDS = KINDS + (QC_JOB,)
+_MAIN_LIST[QC_JOB] = "findings"
 WHOLE_JOB_MAX_TOKENS = 64000       # a reading pass or a system's scope, plus the thinking; streamed
 WHOLE_JOB_TIMEOUT_SECONDS = 600.0
 
