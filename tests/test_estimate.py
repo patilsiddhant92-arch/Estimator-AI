@@ -236,7 +236,7 @@ SCOPES = {"VAV": GemScope((
 def whole_job(monkeypatch):
     monkeypatch.setattr("estimator.__main__.build_dossier", _fake_dossier)
     monkeypatch.setattr("estimator.__main__.read_ledger",
-                        lambda judge, dossier, catalogue, save_to=None: _fake_ledger(save_to))
+                        lambda judge, dossier, catalogue, save_to=None, pictures=True: _fake_ledger(save_to))
     monkeypatch.setattr("estimator.__main__.ledger_plan", lambda ledger: JOB_PLAN)
     judges = []
 
@@ -246,6 +246,11 @@ def whole_job(monkeypatch):
 
     monkeypatch.setattr("estimator.__main__.Judge", make)
     return judges
+
+
+def test_no_pictures_is_an_estimate_option():
+    assert _parser().parse_args(["estimate", "JOB", "--out", "OUT", "--no-pictures"]).no_pictures is True
+    assert _parser().parse_args(["estimate", "JOB", "--out", "OUT"]).no_pictures is False
 
 
 def test_whole_job_is_the_default_method():
@@ -336,7 +341,7 @@ def test_the_whole_job_method_writes_the_ledger_and_its_tabs(job, tmp_path, caps
 
 
 def test_when_a_pass_is_waiting_the_run_stops_after_the_evidence_package(job, tmp_path, capsys, monkeypatch, whole_job):
-    def waiting(judge, dossier, catalogue, save_to=None):
+    def waiting(judge, dossier, catalogue, save_to=None, pictures=True):
         ledger = _fake_ledger(save_to)
         ledger.complete, ledger.stopped_at = False, "plans"
         judge.last_error = "judgement pending — waiting for an answer in the chat"

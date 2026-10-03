@@ -492,3 +492,18 @@ def test_each_plan_sheets_own_text_is_given_in_7c_once_per_sheet_number(tmp_path
     assert len(p101) < 8_200 and "…" in p101
     for sid in re.findall(r"\[(S\d+)\]", part):
         assert sid in d.sources
+
+
+def test_sheet_pictures_render_whole_sheets_once(tmp_path):
+    from estimator.writing.dossier import sheet_pictures
+    catalogue, _reading = _picture_job(tmp_path)
+    images, flags = sheet_pictures(catalogue, tmp_path / "cache", [("H.pdf", 1)], "plan sheet")
+    assert flags == [] and len(images) == 1
+    path = Path(images[0].path)
+    assert path.suffix == ".png" and path.read_bytes()[:8] == b"\x89PNG\r\n\x1a\n"
+    assert images[0].what == "H601 HVAC SCHEDULES — plan sheet"
+    assert (images[0].sheet, images[0].document, images[0].page) == ("H601", "H.pdf", 1)
+    again, _ = sheet_pictures(catalogue, tmp_path / "cache", [("H.pdf", 1)], "plan sheet")
+    assert again[0].path == images[0].path
+    missing, flags = sheet_pictures(catalogue, tmp_path / "cache", [("H.pdf", 9)], "plan sheet")
+    assert missing == [] and len(flags) == 1

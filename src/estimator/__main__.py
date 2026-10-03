@@ -122,6 +122,8 @@ def _parser() -> argparse.ArgumentParser:
                          "(default: api when ANTHROPIC_API_KEY is set, otherwise chat)")
     ai.add_argument("--no-ai", action="store_true", help="the same as --ai off: its lines stay PENDING")
     estimate.add_argument("--cache", type=Path, help="where to keep what was read (default: OUT/.cache)")
+    estimate.add_argument("--no-pictures", action="store_true",
+                          help="the plans and risers passes read the sheets' text only, without whole-sheet pictures")
     estimate.add_argument("--method", choices=(WHOLE_JOB, RULES), default=WHOLE_JOB,
                           help="whole-job: the AI reads the whole job and writes every system, and the counts "
                                "check it (the default); rules: each system from its Master Template entry")
@@ -360,7 +362,8 @@ def _estimate_whole_job(args: argparse.Namespace) -> None:
     judge = Judge(cache, mode=mode, job=dossier.job_name)
     judge.retire_requests(dossier.sources)     # this job's requests the run does not ask again end in requests/old/
     templates, style = load_templates(), load_house_style()
-    ledger = read_ledger(judge, dossier, catalogue, save_to=args.out / f"{quote} Ledger.json")
+    ledger = read_ledger(judge, dossier, catalogue, save_to=args.out / f"{quote} Ledger.json",
+                         pictures=not getattr(args, "no_pictures", False))
     print(f"Wrote {args.out / f'{quote} Ledger.json'}")
     if not ledger.complete:
         package = write_evidence(package_path, catalogue, reading, ledger=ledger)

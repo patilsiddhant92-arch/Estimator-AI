@@ -67,3 +67,26 @@ def test_a_long_pass_is_split_and_each_part_applied_in_turn(tmp_path):
     assert ledger.understanding["schedules"] == "part one part two"     # every part's understanding is kept
     assert ledger.find("provider", "VAV controller") is not None
     assert "F" in str(second["messages"][0]["content"])   # the second part saw the first part's facts
+
+
+def test_the_plans_pass_lists_its_pictures_and_respects_the_cap(tmp_path, monkeypatch):
+    from estimator.ledger import run as run_module
+    rendered = []
+    def fake_pictures(catalogue, cache_dir, keys, what):
+        rendered.extend(keys)
+        return [SimpleNamespace(path=str(tmp_path / f"{d}-{p}.png"), what=f"{d} {p} — {what}", sheet=None, document=d, page=p) for d, p in keys], []
+    monkeypatch.setattr(run_module, "sheet_pictures", fake_pictures)
+    client = FakeClient(*[_reply("ok") for _ in range(6)])
+    judge = Judge(tmp_path / "cache", model="test-model", client=client)
+    read_job(judge, _dossier(), CATALOGUE, picture_cap=1)
+    plans_call = next(c for c in client.calls if "This is the Plans pass" in str(c["messages"][0]["content"]))
+    content = str(plans_call["messages"][0]["content"])
+    assert rendered == [("Drawings.pdf", 3)]          # the one plan sheet in the fixture
+    assert "Picture I1" in content or "I1" in content
+
+
+def test_no_pictures_keeps_the_passes_text_only(tmp_path, monkeypatch):
+    from estimator.ledger import run as run_module
+    monkeypatch.setattr(run_module, "sheet_pictures", lambda *a, **k: (_ for _ in ()).throw(AssertionError("rendered")))
+    client = FakeClient(*[_reply("ok") for _ in range(6)])
+    read_job(Judge(tmp_path / "cache", model="test-model", client=client), _dossier(), CATALOGUE, pictures=False)

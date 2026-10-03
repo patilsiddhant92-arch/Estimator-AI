@@ -46,6 +46,7 @@ class Pass:
     with_images: bool
     instructions: str
     not_sheet_types: tuple[str, ...] = ()   # sheets of these types are another pass's, even when typed for this one
+    picture_types: tuple[str, ...] = ()     # its sheets of these types are also sent as whole-sheet pictures
 
     @property
     def kinds(self) -> tuple[str, ...]:
@@ -64,7 +65,8 @@ PASSES: tuple[Pass, ...] = (
          "on the plans that no schedule lists may only be added, with the subject \"seen on plans, not scheduled\" "
          "in its quote's words; it is flagged later. Give the count you can see, citing the sheet. When a motorized "
          "damper sits on a fan's duct or next to a fan on the plan, record a link: subject the damper's tag or label, "
-         "value the fan's tag."),
+         "value the fan's tag.",
+         picture_types=("Plans",)),
     Pass("details", "Details and control diagrams", ("device", "link"), (), (), ("Details", "Control diagrams", "Diagrams"), False,
          "For units already in the ledger, settle what the details and control diagrams add: control valves, damper "
          "actuators, fire and smoke damper integration, expansion tank sensors, anything touching a scheduled "
@@ -74,7 +76,8 @@ PASSES: tuple[Pass, ...] = (
          "Settle how the systems fit together: which unit serves which (a link: subject the served unit, value the "
          "serving unit), the plant loop (a group: subject the plant's name, value the families in it, comma "
          "separated), and the sensors on the risers (pressure, differential pressure, stair pressurisation). "
-         "Equipment on a riser that neither the schedule nor the plans showed may only be added, quoting the riser."),
+         "Equipment on a riser that neither the schedule nor the plans showed may only be added, quoting the riser.",
+         picture_types=("Air riser", "Water riser")),
     Pass("network", "Network riser", ("provider", "link"), (), (), ("Network riser",), False,
          "Settle who provides the backbone (fibre or Ethernet), the network switches, the server, the workstation "
          "or laptop, and every integration callout (VFDs, plumbing, electrical, lighting): a provider fact per item, "
@@ -136,7 +139,7 @@ def documents(pass_, dossier, catalogue) -> str:
 
 # --- the question ----------------------------------------------------------------------------------------------
 
-def prompt(pass_, ledger, text: str, images=()) -> str:
+def prompt(pass_, ledger, text: str, images=(), ids=None, notes=()) -> str:
     from estimator.writing.whole_job import images_text
     job = getattr(ledger, "job_name", "") or "(unnamed job)"
     understood = "\n".join(f"- after the {name} pass: {words}" for name, words in ledger.understanding.items()) or "(nothing yet)"
@@ -147,7 +150,8 @@ def prompt(pass_, ledger, text: str, images=()) -> str:
         f"The job ledger so far (id, kind, subject = value [source] “quote” (state, pass)):\n{ledger.table() or '(empty)'}",
         f"This pass settles these kinds of fact: {kinds}.\n{pass_.instructions}",
         f"The documents for this pass, each paragraph with its source id:\n{text}",
-        images_text(list(images)) if images else "",
+        images_text(list(images), ids) if images else "",
+        "\n".join(notes),
     ]))
 
 

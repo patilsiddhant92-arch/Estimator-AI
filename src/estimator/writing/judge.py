@@ -473,14 +473,14 @@ class Judge:
         scope = wj.ledger_check(scope, frozenset(facts or ()), frozenset(int(c) for c in (counts or ())))
         return house_check(scope, system, klass, dict(owned_elsewhere or ()), self.style)
 
-    def ask_pass(self, name: str, system_prompt: str, prompt: str, schema: dict, images=(), extra: dict | None = None
-                 ) -> tuple[dict, str] | None:
+    def ask_pass(self, name: str, system_prompt: str, prompt: str, schema: dict, images=(), extra: dict | None = None,
+                 ids=None) -> tuple[dict, str] | None:
         """One reading pass of the job ledger (estimator.ledger.passes): the answer and the model, or None with
         `last_error` set (in chat mode, a request written for the chat and `waiting` counted)."""
         from estimator.writing import whole_job as wj
         images = list(images or ())
         return self._answer_with_images(READ_PASS, name, system_prompt, prompt, schema,
-                                        {**(extra or {}), "images": wj.images_listing(images)}, images)
+                                        {**(extra or {}), "images": wj.images_listing(images, ids)}, images, ids)
 
     def _answer_with_images(self, kind: str, name: str, system_prompt: str, prompt: str, schema: dict,
                             extra: dict, images, ids=None) -> tuple[dict, str] | None:

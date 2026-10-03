@@ -629,6 +629,46 @@ def _schedule_images(catalogue, reading, counted: frozenset, cache_dir: Path | N
     return images, why, flags
 
 
+def sheet_pictures(catalogue, cache_dir: Path | None, keys: list[tuple[str, int]], what: str
+                   ) -> tuple[list[DossierImage], list[str]]:
+    """Whole-sheet pictures of the (document, page) sheets given, at SHEET_DPI, for a reading pass (plans,
+    risers). The render key is the schedules pass's whole-sheet key, so a sheet already pictured is reused. A
+    sheet that cannot be pictured gives no picture and a flag."""
+    sheets = {(s.document, s.page): s for s in getattr(catalogue, "sheets", ()) or ()}
+    job = getattr(catalogue, "job", None)
+    paths = {d.relative: Path(d.path) for d in getattr(job, "documents", ()) or ()}
+    folder = Path(cache_dir).resolve() / IMAGES_FOLDER if cache_dir is not None else None
+    images: list[DossierImage] = []
+    flags: list[str] = []
+    opened: dict[str, pymupdf.Document] = {}
+    try:
+        for document, number in keys:
+            sheet = sheets.get((document, number))
+            label = " ".join(x for x in (sheet.number if sheet else None, sheet.title if sheet else None) if x)
+            label = label or f"{_name(document)} page {number}"
+            if folder is None:
+                flags.append(f"{label}: not pictured — no cache folder to keep pictures in")
+                continue
+            try:
+                if document not in paths:
+                    raise ValueError(f"{_name(document)} is not among the job's documents")
+                if document not in opened:
+                    opened[document] = pymupdf.open(str(paths[document]))
+                if not 1 <= number <= opened[document].page_count:
+                    raise IndexError(f"page {number} is not in {_name(document)}")
+                page = opened[document][number - 1]
+                key = f"v{IMAGE_VERSION}|{document}|{_file_key(paths[document])}|{number}|sheet|{SHEET_DPI}"
+                path = _render(page, None, SHEET_DPI, folder, key)
+                images.append(DossierImage(str(path), f"{label} — {what}", sheet.number if sheet else None,
+                                           document, number))
+            except Exception as error:
+                flags.append(f"{label}: could not be pictured — {_squash(str(error)) or type(error).__name__}")
+    finally:
+        for pdf in opened.values():
+            pdf.close()
+    return images, flags
+
+
 def _cell(text: str | None) -> str:
     return _squash(text) or "-"
 
