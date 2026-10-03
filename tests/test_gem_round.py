@@ -142,8 +142,8 @@ def test_the_gem_connects_the_dots_with_the_other_documents_after_its_input_hand
                   "flag C1 / C2 with both snippets quoted", "(Quantity rules, Rule 1 and 2)",
                   "Counts from the drawings", "(Qty. N Total)", "(Qty. per Mechanical Schedule) or (Qty. per Drawing)",
                   "Factory/OEM Controls", "Field-Installed DDC", "(As per Plan — not called in sequence)",
-                  "BY UNIT MFR.", "Category B", "(Schedule note 4, H601)", "(Plan count, M-101 × 10 floors)",
-                  "(Spec 23 09 23 §3.4)"):
+                  "BY UNIT MFR.", "Category B", "(Schedule note 4, H601)", "(Plan count, M-101 times 10 floors)",
+                  "(Spec 23 09 23 paragraph 3.4)"):
         assert words in section, words
 
 

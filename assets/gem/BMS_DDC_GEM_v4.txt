@@ -540,6 +540,7 @@ There are four flags, written as words.
   ASSUMED: an assumption was made; the item was added by judgment and IS priced by the controls contractor.
   NOTE: an informational note with no scope impact.
 Each flag carries the exact phrase from the sequence it rests on.
+The flag word goes in the answer's flag field, never in the text of the scope line.
 ONE CLARIFICATION PER BLOCK (the estimator, 2026-10-03)
 In the draft, write one "*" clarification per block, naming the lines it covers: the quantities to confirm and the assumptions made.
 Do not put a bracket on every line.
@@ -601,7 +602,7 @@ No verb-group headers, such as "FURNISH AND INSTALL:".
 Every line is self-contained, and its verb is part of the line.
 Each line starts directly with its verb.
 Device names are in Title Case.
-The reference line goes on the next line below each scope line, indented, in brackets.
+The reference line goes on the next line below each scope line, indented, in parentheses.
 Quantity notes, context notes and the flag stay with the device's own line.
 The reference line is always on the line immediately below.
 

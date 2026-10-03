@@ -51,3 +51,24 @@ def test_the_prompt_still_starts_and_ends_at_the_anchors_and_carries_the_output_
     assert prompt.rstrip().endswith(GEM_END)
     assert "OUTPUT" in prompt and '"red" for CONFIRM QUANTITY' in prompt
     assert "CONNECTING THE DOTS" in prompt and "AME PRACTICE" in prompt
+
+
+def test_the_assembled_prompt_has_no_glyph_or_arrow():
+    prompt = gem_prompt()
+    found = EMOJI.search(prompt)
+    assert not found, prompt[max(0, found.start() - 60):found.end()]
+    assert "→" not in prompt
+    assert "flag CONFIRM QUANTITY and write" in prompt          # the connecting section's quantity flag, in words
+
+
+def test_the_rep_line_without_its_diamond_is_the_house_line_one_level_in():
+    from estimator.writing.style import load_house_style
+    from estimator.writing.whole_job import parse_scope
+    line = {"reference": "the unit has factory controls", "flag": "", "flag_text": "", "quantity": None,
+            "quote": "", "source_id": ""}
+    answer = {"lines": [dict(line, text="Map Available Points Via Mfr. Provided BMS Interface", depth=1),
+                        dict(line, text="Controls Contractor requires mfr. rep to assist in integration, cost to be "
+                                        "incurred by mech contractor", depth=1)]}
+    scope = parse_scope(answer, "m", load_house_style())
+    assert [(written.text, written.depth) for written in scope.lines][-1] == (
+        "AME requires mfr. Rep to assist in integration, cost to be incurred by mech contractor", 2)

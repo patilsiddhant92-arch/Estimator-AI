@@ -70,38 +70,37 @@ Sequence is Source Priority 1. Point List is Source Priority 2.
                training
 The sequence still governs control logic and ownership wording.
 The later sources fill what it leaves out.
-When two sources disagree → flag C1 / C2 with both snippets quoted.
+When two sources disagree, flag C1 / C2 with both snippets quoted.
 QUANTITIES — FROM THE DOCUMENTS (Quantity rules, Rule 1 and 2)
 Never take a quantity from the sequence's wording alone. Count from:
 — the schedule row count, or its QUANTITY column
-— the plan placements × the floors a typical plan serves
+— the plan placements times the floors a typical plan serves
 — the riser count
 — the device labels counted on the plans
 A count given in the evidence's "Counts from the drawings" is a
-confirmed quantity → write (Qty. N Total).
-Only when no document counts it → flag 🔴 and write
+confirmed quantity: write (Qty. N Total).
+Only when no document counts it, flag CONFIRM QUANTITY and write
 (Qty. per Mechanical Schedule) or (Qty. per Drawing).
 UNIT TYPE — FROM THE SCHEDULE WHEN THE SEQUENCE IS SILENT
-Schedule note "factory-mounted DDC controls" / "controls by unit
-manufacturer" / "BACnet gateway", or a CONTROLS column
-  → Factory/OEM Controls.
+A schedule note "factory-mounted DDC controls" / "controls by unit
+manufacturer" / "BACnet gateway", or a CONTROLS column, means the unit
+is Factory/OEM Controls.
 "Controls by ATC/BMS contractor" / "DDC controller furnished to the
-factory"
-  → Field-Installed DDC.
+factory" means the unit is Field-Installed DDC.
 Cite the note.
 DEVICES SHOWN ON THE PLANS — NOT IN THE SEQUENCE
-A thermostat label, a CO2 label, a damper actuator keynote on the plans
-  → Scope line required, flagged:
+A thermostat label, a CO2 label or a damper actuator keynote on the plans
+needs a scope line, flagged:
     (As per Plan — not called in sequence)
-  → Same treatment as point-list-only items.
+It is treated the same way as a point-list-only item.
 A keyed note that assigns work to CC is a reference line like any
 sequence sentence.
 SCHEDULE NOTES — OWNERSHIP UNDER QUESTION 1
 A schedule note decides who furnishes, exactly like a sequence sentence:
   "furnished with unit" / "shipped loose" / "24V transformer with unit" /
-  "thermostat by unit manufacturer" → OEM furnishes.
-  → Write Install and Wire / Wire lines and the "*… BY UNIT MFR." note
-    accordingly.
+  "thermostat by unit manufacturer" means the unit manufacturer furnishes it.
+  Write the Install and Wire / Wire lines and the "*... BY UNIT MFR." note
+  accordingly.
 WHAT THE SPEC ASSIGNS — CATEGORY B
 A warranty term, training hours, the front end, "all control wiring by
 this contractor": when the spec names CC, it is a CC obligation under
@@ -110,8 +109,8 @@ REFERENCE LINES — NAME THE SOURCE
 Each reference line names its source: the sequence snippet, or
   (Schedule note 4, H601)
   (Keyed note 7, H111)
-  (Plan count, M-101 × 10 floors)
-  (Spec 23 09 23 §3.4)"""
+  (Plan count, M-101 times 10 floors)
+  (Spec 23 09 23 paragraph 3.4)"""
 GEM_OUTPUT = """\
 OUTPUT
 Answer as JSON in the schema given. Put the Quick Scan, the System Explanation, the scope lines (each with its \
@@ -185,7 +184,7 @@ QUICK_SCAN = ("systems_identified", "unit_type", "controller", "submittal_status
 TEMPLATE_WORDS = ("The Standard Template defines the ORDER OF CATEGORIES in the output. It does not define device "
                   "names.")
 NO_REFERENCE = "No reference line: nothing in the sequence was quoted for it"
-_DIAMOND = re.compile(r"^\s*◊\s*(?:the\s+)?(?:controls\s+contractor|cc)\s+requires\s+mfr\.?\s+rep\b", re.I)
+_DIAMOND = re.compile(r"^\s*(?:◊\s*)?(?:the\s+)?(?:controls\s+contractor|cc)\s+requires\s+mfr\.?\s+rep\b", re.I)
 REFERENCED_CONFIDENCE, UNREFERENCED_CONFIDENCE = 0.85, 0.5
 
 
@@ -593,7 +592,8 @@ def _without_flag(text: str) -> tuple[str, str]:
 
 
 def _diamond(text: str, style: HouseStyle) -> str | None:
-    """The GEM's "◊ Controls Contractor requires mfr. rep …" line as the Master Template writes it."""
+    """The GEM's "Controls Contractor requires mfr. rep …" line (v3.2 marked it "◊"; v4 does not) as the Master
+    Template writes it."""
     if not _DIAMOND.match(text):
         return None
     return next((line for line in style.trio if line.lower().startswith("ame requires")), None)
