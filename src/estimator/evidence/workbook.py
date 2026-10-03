@@ -7,6 +7,7 @@ is visible, never missing.
 from __future__ import annotations
 
 import re
+from dataclasses import dataclass
 from pathlib import Path
 
 from openpyxl import Workbook
@@ -32,6 +33,16 @@ LEDGER_TAB = "Job ledger"
 # The proposal QC pass's findings (writing/qc.py), right after Scope lines, with the estimator's decision columns.
 QC_TAB = "Proposal QC"
 QC_HEADING = "What the QC pass said about the draft"
+
+
+@dataclass(frozen=True)
+class QcNoAnswer:
+    """The QC pass was asked and gave no answer (an API failure): the tabs say so, with the reason."""
+    reason: str
+
+    @property
+    def words(self) -> str:
+        return f"The QC pass gave no answer: {self.reason or 'no answer'}"
 # The GEM's own checks per system (the whole-job method): its Quick Scan, its contradiction scan and its Self-QC.
 GEM_TAB = "GEM QC"
 # The estimator's corrections, read back by `estimator corrections` (estimator.corrections).
@@ -69,7 +80,7 @@ def write_evidence(path: Path, catalogue: Catalogue, reading: JobReading | None 
     no system: a family on the drawings but on no schedule, as a flag's text, or a ReviewItem (the
     whole-job method). `plan` is the whole-job plan's checked systems (PlanCheck), for the Plan tab. `brief` (the job
     brief) prints first on How the job was read, and `qc` (the proposal QC pass's report) adds its notes there and
-    its findings on the Proposal QC tab, right after Scope lines."""
+    its findings on the Proposal QC tab, right after Scope lines; a `QcNoAnswer` puts its reason in both places."""
     workbook = Workbook()
     workbook.remove(workbook.active)
     _bid_check(workbook.create_sheet(TABS[0]), catalogue)
@@ -134,7 +145,9 @@ def _how_read(ws, ledger, brief=None, qc=None) -> None:
         for p in PASSES:
             refused = "; ".join(ledger.refused.get(p.name, ()) or ()) or None
             row([p.title, ledger.understanding.get(p.name) or "(not read)", refused])
-    if qc is not None:
+    if isinstance(qc, QcNoAnswer):
+        _section_heading(ws, qc.words)            # in place of the heading: the pass was asked and gave no answer
+    elif qc is not None:
         _section_heading(ws, QC_HEADING)
         for key, note in qc.block_notes.items():
             row([key, note, None])
@@ -147,6 +160,11 @@ def _proposal_qc(ws, report) -> None:
     on the next run, "change" with the new text changes the line."""
     _headings(ws, ["System", "Line", "Kind", "Severity", "What is wrong", "Change to", "Rests on", DECISION, CHANGE_TO])
     ws.freeze_panes = "A2"
+    if isinstance(report, QcNoAnswer):
+        _append(ws, ["", report.words])
+        _decision_columns(ws, 8)
+        _widths(ws, [24, 60, 14, 10, 60, 60, 44, 12, 50])
+        return
     findings = sorted(report.findings, key=lambda f: f.severity != "must-fix")
     for f in findings:
         _append(ws, [f.system, f.line or None, f.kind, f.severity, f.say, f.fix or None, f.quote or None, None, None])

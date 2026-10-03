@@ -372,3 +372,39 @@ def test_no_qc_skips_the_pass(job, tmp_path, capsys, whole_job):
     main(["estimate", str(job), "--out", str(tmp_path / "out"), "--ai", "api", "--no-qc"])
     assert "QC: skipped" in capsys.readouterr().out
     assert whole_job[-1].qc_calls == 0
+
+
+def test_a_failed_qc_call_in_api_mode_does_not_hold_the_proposal(job, tmp_path, capsys, monkeypatch, whole_job):
+    def no_answer(self, *args, **kwargs):
+        self.qc_calls += 1
+        self.last_error = "the API timed out"
+        return None
+
+    monkeypatch.setattr(FakeJudge, "qc_job", no_answer)
+    out = tmp_path / "out"
+    assert main(["estimate", str(job), "--out", str(out), "--ai", "api"]) == 0
+    assert "QC: not answered — the API timed out." in capsys.readouterr().out
+    assert (out / "26-9999 Proposal.docx").exists() and (out / "26-9999 Price Sheet.xlsx").exists()
+    book = openpyxl.load_workbook(out / "26-9999 Evidence Package.xlsx")
+    rows = list(book["Proposal QC"].iter_rows(values_only=True))
+    assert rows[1][1] == "The QC pass gave no answer: the API timed out" and len(rows) == 2
+    read = [r[0] for r in book["How the job was read"].iter_rows(values_only=True)]
+    assert "The QC pass gave no answer: the API timed out" in read
+
+
+def test_in_chat_mode_a_waiting_qc_request_holds_the_proposal(job, tmp_path, capsys, monkeypatch, whole_job):
+    def waiting(self, *args, **kwargs):
+        self.qc_calls += 1
+        self.waiting += 1
+        self.last_error = "judgement pending — waiting for an answer in the chat"
+        return None
+
+    monkeypatch.setattr(FakeJudge, "qc_job", waiting)
+    out = tmp_path / "out"
+    assert main(["estimate", str(job), "--out", str(out), "--ai", "chat"]) == 0
+    printed = capsys.readouterr().out
+    assert "QC: waiting for the chat's answer." in printed
+    assert "1 request waiting" in printed
+    assert (out / "26-9999 Evidence Package.xlsx").exists()
+    assert not (out / "26-9999 Proposal.docx").exists()
+    assert whole_job[-1].qc_calls == 1

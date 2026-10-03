@@ -24,6 +24,7 @@ SCOPE_TAB, REVIEW_TAB, BID_TAB, QC_TAB = "Scope lines", "Review list", "Bid chec
 DELETED = "Deleted by the estimator"
 CHANGED = "Changed by the estimator"
 _WHY = re.compile(r"\bwhy\s*:\s*", re.I)
+_QTY_SUFFIX = re.compile(r"\s*\(\s*Qty\.?\s*\d+\s*Total\s*\)\s*$", re.I)
 _BAD_FILENAME = re.compile(r'[<>:"/\\|?*]')
 
 
@@ -215,9 +216,14 @@ def propose_rules(corrections: dict, path: Path) -> list[str]:
 
 # --- applying them on the next run --------------------------------------------------------------------------------
 
+def _line_key(text) -> str:
+    """A line's text for matching: the Proposal QC tab prints a line with its "(Qty. N Total)", the line may not."""
+    return _key(_QTY_SUFFIX.sub("", _squash(text)))
+
+
 def _match(entries: list[dict], system_names: set[str], text: str) -> dict | None:
     """The correction for this line: the one naming its text and system, else the one naming its text alone."""
-    same = [e for e in entries if _key(e.get("text")) == _key(text)]
+    same = [e for e in entries if _line_key(e.get("text")) == _line_key(text)]
     if not same:
         return None
     return next((e for e in same if _key(e.get("system")) in system_names), None) or (same[0] if len(same) == 1
@@ -271,7 +277,7 @@ def apply_corrections(job, systems, review, corrections: dict):
         new_systems.append(dataclasses.replace(system, blocks=blocks, lines=tuple(lines), review=tuple(rows)))
 
     def everywhere(text: str):
-        return next((e for _, e in applied if _key(e.get("text")) == _key(text)), None)
+        return next((e for _, e in applied if _line_key(e.get("text")) == _line_key(text)), None)
 
     def block(b):
         return replaced.get(id(b)) or b.model_copy(update={"items": _items(b.items, everywhere)})

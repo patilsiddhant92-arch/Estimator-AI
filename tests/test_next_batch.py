@@ -471,3 +471,39 @@ def test_a_family_split_lets_each_part_match_a_different_sent_block():
     lines = {(row[1], row[2]): row[3] for row in result.lines}
     assert lines[("Furnish VAV-100 DDC Controller", "Furnish VAV-100 DDC Controller")] == "matched"
     assert lines[("Furnish CAV-1 DDC Controller", "Furnish CAV-1 DDC Controller")] == "matched"
+
+
+def test_a_qc_line_with_its_quantity_matches_the_scope_line_without_it():
+    from estimator.corrections import apply_corrections
+    scope = _scope(_gl("Furnish Heater Enable"), _gl("Furnish Heater Status"))
+    job, systems, general, ranked = _assemble([EDH], {"EDH": scope})
+    corrections = {"job": "26-9999", "review": [],
+                   "lines": [{"kind": "lines", "system": "EDH", "text": "Furnish Heater Status (Qty. 3 Total)",
+                              "decision": "change", "change_to": "Furnish Heater Status Alarm", "why": ""}]}
+    job, systems, ranked = apply_corrections(job, systems, ranked, corrections)
+    texts = [t for _, t in _items(job, EDH_HEADER)]
+    assert "Furnish Heater Status Alarm" in texts and "Furnish Heater Status" not in texts
+
+
+def test_a_kept_qc_finding_is_taken_off_the_review_list_next_run(tmp_path):
+    import openpyxl
+    from estimator.corrections import apply_corrections, read_corrections
+    from estimator.evidence.workbook import write_evidence
+    from estimator.writing.assemble import review_list
+    from estimator.writing.qc import QcFinding, QcReport, qc_review_rows
+    from test_evidence import _catalogue as evidence_catalogue
+    finding = QcFinding("EDH", "", "missing", "No airflow switch is written for the duct heater.",
+                        "Furnish and Install Airflow Switch", "check", "")
+    report = QcReport((finding,), {}, "", "m", ())
+    rows = review_list([], qc_review_rows(report))
+    assert rows[0].decide == finding.say                     # the review row is worded as the finding
+    path = write_evidence(tmp_path / "e.xlsx", evidence_catalogue(), systems=[], qc=report)
+    book = openpyxl.load_workbook(path)
+    book["Proposal QC"].cell(2, 8).value = "keep"
+    book.save(path)
+    corrections, problems = read_corrections(path)
+    assert problems == []
+    scope = _scope(_gl("Furnish Heater Enable"))
+    job, systems, _, _ = _assemble([EDH], {"EDH": scope})
+    _, _, left = apply_corrections(job, systems, rows, corrections)
+    assert finding.say not in [r.decide for r in left]

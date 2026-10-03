@@ -46,7 +46,7 @@ from pydantic import ValidationError
 from estimator.catalogue.job import catalogue_job, summary_lines
 from estimator.corrections import (apply_corrections, corrections_file, load_corrections, propose_rules,
                                    read_corrections, save_corrections)
-from estimator.evidence.workbook import write_evidence
+from estimator.evidence.workbook import QcNoAnswer, write_evidence
 from estimator.files import open_docx
 from estimator.ledger.run import read_job as read_ledger
 from estimator.ledger.to_plan import entry_text, ledger_plan, system_counts
@@ -404,8 +404,8 @@ def _estimate_whole_job(args: argparse.Namespace) -> None:
         qc = QC_SKIPPED
     elif all(scopes.get(s.key) is not None for s in plan.systems if not s.exception):
         qc = _proposal_qc(judge, plan, scopes, ledger, brief, templates, style)
-        if qc is None:
-            qc = QC_NO_ANSWER
+        if qc is None:                           # the chat's answer comes next run; an API failure does not hold
+            qc = QC_WAITING if getattr(judge, "mode", API) == CHAT else QcNoAnswer(judge.last_error or "no answer")
     else:
         qc = QC_NOT_RUN
     job, systems, review = assemble_job(catalogue, reading, dossier, plan, scopes, today, templates)
@@ -419,22 +419,23 @@ def _estimate_whole_job(args: argparse.Namespace) -> None:
         job, systems, review = apply_corrections(job, systems, review, corrections)
         print(f"Applied the estimator's corrections from {corrections_file(CORRECTIONS, catalogue.job.name)}.")
     package = write_evidence(package_path, catalogue, reading, systems=systems, review_flags=review, plan=checks,
-                             ledger=ledger, qc=qc if isinstance(qc, QcReport) else None, brief=brief)
+                             ledger=ledger, qc=qc if isinstance(qc, (QcReport, QcNoAnswer)) else None,
+                             brief=brief)
     for line in whole_job_lines(plan, systems, review, judge, len(catalogue.flags) + len(reading.flags),
                                 ledger=ledger, qc=qc):
         print(line)
     print(f"Wrote {package}")
     if getattr(judge, "mode", API) == CHAT and judge.waiting:
         return                                   # the proposal waits for the chat's answers
-    if qc == QC_NO_ANSWER:
-        return                                   # the proposal waits for the QC pass's answer
+    if qc == QC_WAITING:
+        return                                   # the proposal waits for the chat's answer to the QC request
     book = PriceBook.load(PRICE_BOOK, ALIASES)
     proposal, sheet = _build(job, PROPOSAL_TEMPLATE, WORKUP_TEMPLATE, book, args.out)
     print(f"Wrote {proposal}")
     print(f"Wrote {sheet}")
 
 
-QC_SKIPPED, QC_NO_ANSWER, QC_NOT_RUN = "skipped", "no answer", "not run"
+QC_SKIPPED, QC_WAITING, QC_NOT_RUN = "skipped", "waiting", "not run"
 
 
 def qc_blocks(plan, scopes, ledger, templates) -> list[QcBlock]:
@@ -490,10 +491,10 @@ def _qc_line(qc, judge) -> str | None:
         return "QC: skipped (--no-qc)."
     if qc == QC_NOT_RUN:
         return "QC: not run — it reads the draft once every system is written."
-    if qc == QC_NO_ANSWER:
-        if getattr(judge, "mode", API) == CHAT:
-            return "QC: waiting for the chat's answer. No proposal was written yet."
-        return f"QC: no answer — {judge.last_error or 'no answer'}. No proposal was written; run estimate again."
+    if qc == QC_WAITING:
+        return "QC: waiting for the chat's answer. No proposal was written yet."
+    if isinstance(qc, QcNoAnswer):
+        return f"QC: not answered — {qc.reason}."
     n = len(qc.findings)
     m = sum(1 for f in qc.findings if f.severity == MUST_FIX)
     k = len({f.system for f in qc.findings})
@@ -501,8 +502,8 @@ def _qc_line(qc, judge) -> str | None:
 
 
 def whole_job_lines(plan, systems, review, judge, reading_flags: int = 0, ledger=None, qc=None) -> list[str]:
-    """The whole-job run's summary, in plain words. `qc` is the QC pass's report, or QC_SKIPPED, QC_NO_ANSWER or
-    QC_NOT_RUN; None (a run that stopped before writing) prints no QC line."""
+    """The whole-job run's summary, in plain words. `qc` is the QC pass's report, a QcNoAnswer (an API failure), or
+    QC_SKIPPED, QC_WAITING or QC_NOT_RUN; None (a run that stopped before writing) prints no QC line."""
     summary = []
     if ledger is not None and not getattr(ledger, "complete", True):
         from estimator.ledger.passes import pass_named
