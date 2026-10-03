@@ -105,7 +105,8 @@ from test_whole_job import FakeClient, _response                                
 
 
 def test_the_gem_is_copied_into_the_assets():
-    assert GEM_FILE.name == "BMS_DDC_GEM_v3.2.txt" and GEM_FILE.parent.name == "gem"
+    assert GEM_FILE.name == "BMS_DDC_GEM_v4.txt" and GEM_FILE.parent.name == "gem"
+    assert (GEM_FILE.parent / "BMS_DDC_GEM_v3.2.txt").exists()       # kept for comparison
     assert "DEVICE OWNERSHIP RESOLUTION" in GEM_FILE.read_text(encoding="utf-8")
 
 
@@ -113,11 +114,11 @@ def test_the_system_prompt_is_the_gem_without_its_chat_mechanics():
     prompt = WRITE_PROMPT
     assert prompt == gem_prompt()
     assert prompt.startswith("WHO YOU ARE")
-    assert prompt.rstrip().endswith("END OF INSTRUCTIONS — v3.2")
+    assert prompt.rstrip().endswith("END OF INSTRUCTIONS")
     for kept in ("DEVICE OWNERSHIP RESOLUTION", "SELF-QC", "CONTRADICTION AND ASSUMPTION SCAN",
                  "DAMPER ACTUATOR RULE — DISTINCT TYPES, DISTINCT LINES", "CONSOLIDATING IDENTICAL SCOPE LINES",
-                 "No named party + packaged/factory controls unit",
-                 "POSITION 19 — INTEGRATION LINES (always last within scope)",
+                 "No party is named, on a packaged or factory-controls unit: it is the unit manufacturer's scope.",
+                 "19. Integration lines (always last within the scope)",
                  "If any check shows FAIL: state the issue and the fix applied.", "STEP 0 — PROJECT QUICK SCAN",
                  "Unknown quantities: (Qty. per Mechanical Schedule) / (Qty. per Drawing)"):
         assert kept in prompt, kept

@@ -41,7 +41,7 @@ _CHECKLIST_LINE = 300        # characters of one checklist line
 
 # --- the write step's system prompt: the estimator's GEM ----------------------------------------------------------
 
-GEM_FILE = ASSETS / "gem" / "BMS_DDC_GEM_v3.2.txt"
+GEM_FILE = ASSETS / "gem" / "BMS_DDC_GEM_v4.txt"         # v3.2 stays beside it for comparison
 PRACTICE_FILE = ASSETS / "gem" / "ame_practice.txt"      # the estimators' own rules, added to as plain text
 PROPOSED_PRACTICE_FILE = ASSETS / "gem" / "ame_practice_proposed.txt"   # rules from corrections, for approval
 GEM_START, GEM_END = "WHO YOU ARE", "END OF INSTRUCTIONS"
@@ -120,11 +120,11 @@ and the Self-QC results in their fields.
   quick_scan: the eight Quick Scan fields, as the block fills them.
   explanation: the System Explanation.
   lines: one per scope line, in SOW order. text: the scope line as the SOW writes it, with its quantity note on the \
-same line, without the flag symbol. reference: the words of its reference line, without the brackets. flag: "red", \
-"yellow", "orange", "green", or "" for none. flag_text: what the flag says (what to confirm, or the exact basis of \
+same line, without the flag. reference: the words of its reference line, without the brackets. flag: "red" for \
+CONFIRM QUANTITY, "yellow" for CONFIRM OWNERSHIP, "orange" for ASSUMED, "green" for NOTE, or "" for none. flag_text: what the flag says (what to confirm, or the exact basis of \
 the assumption). quantity: the number its quantity note states, or null. quote: the exact words of the evidence it \
 rests on, copied from it. source_id: the id of that passage, such as "[S12]". depth: 1, or 2 for a line one level \
-in (the ◊ line). The system's header and count are printed for you: never write them as a line.
+in (the manufacturer's representative line). The system's header and count are printed for you: never write them as a line.
   contradictions: one entry per hit of the scan (type C1 to C6, the item, the snippets quoted, the flag); none when \
 there is nothing to flag.
   misc_responsibilities: the Miscellaneous Responsibilities, one plain statement each.

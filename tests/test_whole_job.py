@@ -324,8 +324,9 @@ def test_the_tech_hour_rule_is_the_nearest_templates_in_words():
 # --- round 4, Part B: the questions ---------------------------------------------------------------------------
 
 def test_the_write_prompt_gives_the_controls_contractor_what_no_one_else_is_named_for_on_a_field_ddc_unit():
-    for words in ("No named party + field DDC unit → CC furnishes it.", "EXPLICIT ASSIGNMENT ALWAYS WINS.",
-                  "No named party + packaged/factory controls unit"):
+    for words in ("No party is named, on a field DDC unit: the controls contractor furnishes it.",
+                  "EXPLICIT ASSIGNMENT ALWAYS WINS.",
+                  "No party is named, on a packaged or factory-controls unit: it is the unit manufacturer's scope."):
         assert words in WRITE_PROMPT, words
 
 
