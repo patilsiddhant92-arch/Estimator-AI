@@ -302,7 +302,7 @@ def test_the_answer_schema_has_the_gems_fields():
             "client_notes", "tech_hours"} <= set(schema["required"])
     line = schema["properties"]["lines"]["items"]
     assert set(line["required"]) == {"text", "reference", "flag", "flag_text", "quantity", "quote", "source_id",
-                                     "depth"}
+                                     "depth", "fact_ids"}
     assert line["properties"]["flag"]["enum"] == ["", "red", "yellow", "orange", "green"]
     scan = schema["properties"]["quick_scan"]
     assert set(scan["required"]) == {"systems_identified", "unit_type", "controller", "submittal_status",

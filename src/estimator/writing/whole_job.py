@@ -21,6 +21,7 @@ API it goes as an image block with its caption; in the chat the request lists th
 from __future__ import annotations
 
 import base64
+import dataclasses
 import hashlib
 import re
 from dataclasses import dataclass, field
@@ -322,6 +323,7 @@ class WrittenLine:
     reference: str = ""       # the GEM's indented reference line
     flag: str = ""            # "" | "red" | "yellow" | "orange" | "green"
     flag_text: str = ""       # what the flag says: what to confirm, or the basis of an assumption
+    fact_ids: tuple[str, ...] = ()  # the ledger facts the line rests on (F1, F9)
 
 
 @dataclass(frozen=True)
@@ -766,18 +768,24 @@ def options_text(options) -> str:
 
 
 def write_prompt(system: PlannedSystem, evidence_text: str, images: Sequence, options, examples,
-                 style_text: str, hours_rule: str = "", image_ids: Sequence[str] | None = None) -> str:
+                 style_text: str, hours_rule: str = "", image_ids: Sequence[str] | None = None,
+                 ledger_text: str = "") -> str:
     """The GEM's input for one system: the plan's system (its section and families), its evidence in the GEM's
     order (the whole sequence section, the points list, the schedule, the plan notes, the counts), its pictures,
     the nearest Master Template block introduced in the GEM's own words, and the template's tech-hour rule.
-    `examples` and `style_text` are no longer asked: the GEM decides the wording."""
-    return "\n\n".join([
+    `examples` and `style_text` are no longer asked: the GEM decides the wording. `ledger_text`, the system's
+    ledger entry, goes right after the system, before the evidence."""
+    ledger_block = (f"The job ledger's facts for this system. Every line you write names, in fact_ids, the ids of the "
+                    f"facts it rests on; a count in a line is one of these facts' counts:\n{ledger_text.strip()}"
+                    if ledger_text.strip() else "")
+    return "\n\n".join(filter(None, [
         _system_text(system),
+        ledger_block,
         f"The job's evidence for this system, each passage with its source id:\n"
         f"{(evidence_text or '').strip() or '(none)'}",
         images_text(images, image_ids),
         f"The Master Template block for the nearest system. {TEMPLATE_WORDS}\n" + options_text(options),
-        f"The Master Template's tech-hour rule for the nearest system: {hours_rule or 'none in the template'}"])
+        f"The Master Template's tech-hour rule for the nearest system: {hours_rule or 'none in the template'}"]))
 
 
 def write_schema() -> dict:
@@ -794,8 +802,9 @@ def write_schema() -> dict:
             "quote": text,
             "source_id": text,
             "depth": {"type": "integer"},
+            "fact_ids": {"type": "array", "items": text},
         },
-        "required": ["text", "reference", "flag", "flag_text", "quantity", "quote", "source_id", "depth"],
+        "required": ["text", "reference", "flag", "flag_text", "quantity", "quote", "source_id", "depth", "fact_ids"],
         "additionalProperties": False,
     }
     quick_scan = {"type": "object", "properties": {k: text for k in QUICK_SCAN}, "required": list(QUICK_SCAN),
@@ -837,6 +846,14 @@ def write_schema() -> dict:
         "review_notes": texts,
     }
     return {"type": "object", "properties": properties, "required": list(properties), "additionalProperties": False}
+
+
+_FACT_ID = re.compile(r"^\s*\[?\s*(F\d+)\s*\]?\s*$")
+
+
+def _plain_fact_id(value) -> str:
+    match = _FACT_ID.match(str(value or ""))
+    return match.group(1) if match else ""
 
 
 def _flag(value) -> str:
@@ -921,9 +938,10 @@ def parse_scope(answer: dict, model: str, style: HouseStyle, known: frozenset[st
                            "not have; the source was left out")
         seen.add((text.lower(), depth))
         last_depth = depth
+        fact_ids = tuple(i for i in (_plain_fact_id(f) for f in (raw.get("fact_ids") or ())) if i)
         lines.append(WrittenLine(text=text, depth=depth, quantity=quantity, quote=quote,
                                  source_id=sources[0] if sources else "", why=why, confidence=confidence,
-                                 reference=reference, flag=flag, flag_text=flag_text))
+                                 reference=reference, flag=flag, flag_text=flag_text, fact_ids=fact_ids))
     notes = []
     for note in answer.get("client_notes") or []:
         note = _text(note)
@@ -944,6 +962,24 @@ def parse_scope(answer: dict, model: str, style: HouseStyle, known: frozenset[st
                         contradictions=_contradictions(answer.get("contradictions")),
                         misc_responsibilities=tuple(_texts(answer.get("misc_responsibilities"))),
                         exclusions=tuple(_texts(answer.get("exclusions"))), qc=_qc(answer.get("qc")))
+
+
+def ledger_check(scope: WrittenScope, facts: frozenset[str], counts: frozenset[int]) -> WrittenScope:
+    """The two ledger rules on a written scope: with `facts`, a line naming none of them is refused; with `counts`,
+    a line whose quantity is none of them is refused. Each refusal is listed in plain words."""
+    if not facts and not counts:
+        return scope
+    kept, refused = [], list(scope.refused)
+    for line in scope.lines:
+        if facts and not (set(line.fact_ids) & set(facts)):
+            refused.append(f"“{line.text}” names no fact of this system's ledger entry; left out")
+            continue
+        if counts and line.quantity is not None and line.quantity not in counts:
+            refused.append(f"“{line.text}” gives {line.quantity}, which is no count in this system's ledger entry; "
+                           "left out")
+            continue
+        kept.append(line)
+    return dataclasses.replace(scope, lines=tuple(kept), refused=tuple(refused))
 
 
 def _quick_scan(raw) -> dict:

@@ -626,3 +626,63 @@ def test_in_chat_mode_a_pass_waits_as_a_request_of_its_own_kind(tmp_path):
     assert judge.waiting == 1
     request = json.loads(next(judge.requests_dir.glob("*.json")).read_text(encoding="utf-8"))
     assert request["kind"] == READ_PASS and request["system"] == "the schedules pass" and request["job"] == "26-9999 Somerville"
+
+
+# --- writing from the ledger entry ------------------------------------------------------------------------
+
+from estimator.writing.whole_job import ledger_check, parse_scope, write_prompt, write_schema
+from estimator.writing.style import load_house_style
+
+
+def _ledger_answer(*lines):
+    return {"lines": list(lines), "client_notes": [], "review_notes": [], "tech_hours": None,
+            "quick_scan": {}, "explanation": "", "contradictions": [], "misc_responsibilities": [],
+            "exclusions": [], "qc": []}
+
+
+def _ledger_line(text, quantity=None, fact_ids=("F1",)):
+    return {"text": text, "reference": "each VAV box shall maintain", "flag": "", "flag_text": "", "quantity": quantity,
+            "quote": "twelve boxes" if quantity is not None else "", "source_id": "[S2]", "depth": 1,
+            "fact_ids": list(fact_ids)}
+
+
+def test_the_write_prompt_puts_the_ledger_entry_before_the_evidence():
+    system = PlannedSystem(**{k: v for k, v in _system().items()})
+    text = write_prompt(system, "[S2] evidence", [], [], [], "", ledger_text="F1 family VAV = Variable Air Volume Box [S5] “x” (settled, seed)")
+    assert text.index("The job ledger's facts for this system") < text.index("[S2] evidence")
+    assert "names, in fact_ids, the ids of the facts it rests on" in text
+    assert "fact_ids" in write_schema()["properties"]["lines"]["items"]["required"]
+
+
+def test_parse_scope_reads_the_fact_ids():
+    style = load_house_style()
+    scope = parse_scope(_ledger_answer(_ledger_line("Furnish and Install Space Temperature Sensor", fact_ids=["[F1]", "F9", "nonsense"])),
+                        "m", style, frozenset({"S2"}))
+    assert scope.lines[0].fact_ids == ("F1", "F9")
+
+
+def test_ledger_check_refuses_lines_naming_no_fact_or_a_count_the_ledger_lacks():
+    style = load_house_style()
+    scope = parse_scope(_ledger_answer(
+        _ledger_line("Furnish and Install Space Temperature Sensor (Qty. 12 Total)", 12),
+        _ledger_line("Furnish and Install Discharge Air Temperature Sensor", fact_ids=[]),
+        _ledger_line("Furnish and Install VAV Controller", 13)), "m", style, frozenset({"S2"}))
+    checked = ledger_check(scope, frozenset({"F1", "F2"}), frozenset({12, 14}))
+    assert [line.text for line in checked.lines] == ["Furnish and Install Space Temperature Sensor (Qty. 12 Total)"]
+    assert checked.refused[-2:] == (
+        "“Furnish and Install Discharge Air Temperature Sensor” names no fact of this system's ledger entry; left out",
+        "“Furnish and Install VAV Controller” gives 13, which is no count in this system's ledger entry; left out")
+    assert ledger_check(scope, frozenset(), frozenset()) == scope
+
+
+def test_write_system_carries_the_ledger_entry_and_checks_the_lines(tmp_path):
+    reply = _ledger_answer(_ledger_line("Furnish and Install Space Temperature Sensor"),
+                          _ledger_line("Furnish and Install VAV Controller", 13))
+    client = FakeClient(_response(reply))
+    judge = _judge(tmp_path, client)
+    system = PlannedSystem(**{k: v for k, v in _system().items()})
+    scope = judge.write_system(system, "[S2] evidence", [], [], [], "", ledger_text="F1 family VAV = x [S5] “x” (settled, seed)",
+                               facts=("F1",), counts=(12,))
+    assert "F1 family VAV" in str(client.calls[0]["messages"][0]["content"])
+    assert [line.text for line in scope.lines] == ["Furnish and Install Space Temperature Sensor"]
+    assert any("gives 13" in r for r in scope.refused)

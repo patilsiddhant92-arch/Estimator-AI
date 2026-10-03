@@ -465,7 +465,7 @@ class Judge:
         return plans[0] if len(parts) == 1 else wj.merge_plans(plans, len(dossier_text or ""))
 
     def write_system(self, system, evidence_text: str, images, options, examples, style_text: str,
-                     hours_rule: str = "", image_ids=None):
+                     hours_rule: str = "", image_ids=None, ledger_text: str = "", facts=(), counts=()):
         """Write one planned system's scope (a `whole_job.WrittenScope`) from its evidence, with the
         nearest Master Template's lines as a checklist (`options`: a template, its lines or plain
         texts), its tech-hour rule in words (`hours_rule`) and up to 4 phrasing-bank `examples`. None,
@@ -480,14 +480,16 @@ class Judge:
                         *str(getattr(system, "sequence_section", "") or "").split(","),
                         *(f.quantity_source for f in getattr(system, "families", ()) or ()))
             known = known | {wj.source_key(s) for s in plan_ids if s and s.strip()}
-        prompt = wj.write_prompt(system, evidence_text, images, options, examples, style_text, hours_rule, ids)
+        prompt = wj.write_prompt(system, evidence_text, images, options, examples, style_text, hours_rule, ids,
+                                 ledger_text=ledger_text)
         got = self._answer_with_images(WRITE_SYSTEM, system.header, wj.WRITE_PROMPT, prompt, wj.write_schema(),
                                        {"plan_key": system.key, "images": wj.images_listing(images, ids)}, images,
                                        ids)
         if got is None:
             return None
         answer, model = got
-        return wj.parse_scope(answer, model, self.style, known)
+        scope = wj.parse_scope(answer, model, self.style, known)
+        return wj.ledger_check(scope, frozenset(facts or ()), frozenset(int(c) for c in (counts or ())))
 
     def ask_pass(self, name: str, system_prompt: str, prompt: str, schema: dict, images=(), extra: dict | None = None
                  ) -> tuple[dict, str] | None:
