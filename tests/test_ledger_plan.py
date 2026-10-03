@@ -184,7 +184,9 @@ def test_two_questions_and_two_front_end_lines_all_reach_the_plan():
         {"kind": "front_end", "subject": "line", "value": "Provide one workstation", "source_id": "[S13]", "quote": "workstation"}]))
     assert len(ledger.of_kind("note")) + len(ledger.of_kind("front_end")) == 4
     plan = ledger_plan(ledger)
-    assert plan.unresolved == ("Is the existing BMS kept?", "Who provides the VFDs?")
+    assert plan.unresolved == ("Is the existing BMS kept?", "Who provides the VFDs?",          # then the sections
+                               "Sequence section VAV BOXES matched no system; which system is it?",   # no pass matched
+                               "Sequence section EXHAUST FANS matched no system; which system is it?")
     assert plan.front_end["lines"] == ["Provide a new Niagara N4 front end", "Provide one workstation"]
 
 
@@ -239,3 +241,78 @@ def test_when_every_damper_is_linked_there_is_no_damper_block():
     ledger.add("count", "EF", 1, "[S10]", "EF-1", "plans")
     ledger.add("link", "MD-1", "EF-1", "[S10]", "MD-1 at EF-1", "plans", SETTLED)
     assert [s.key for s in ledger_plan(ledger).systems if s.key == "MD"] == []
+
+
+# --- groups are plants; a section that matched nothing is asked ----------------------------------------------
+
+def _rtu_and_fan(both_matched: bool):
+    ledger = Ledger(SOURCES)
+    ledger.add("family", "RTU", "Rooftop Unit", "[S5]", "RTU: schedule rows 2", "seed", SETTLED)
+    ledger.add("count", "RTU", 2, "[S5]", "schedule rows 2", "seed", SETTLED)
+    ledger.add("family", "TXF", "Toilet Exhaust Fan", "[S6]", "TXF: schedule rows 3", "seed", SETTLED)
+    ledger.add("count", "TXF", 3, "[S6]", "schedule rows 3", "seed", SETTLED)
+    ledger.add("group", "corridor air", "RTU, TXF", "[S10]", "CS 1 TX 1", "risers", SETTLED)
+    ledger.add("sequence_match", "ROOFTOP UNITS", "RTU", "[Q1]", "ROOFTOP UNITS", "sequence", SETTLED)
+    if both_matched:
+        ledger.add("sequence_match", "TOILET EXHAUST FANS", "TXF", "[Q2]", "TOILET EXHAUST FANS", "sequence", SETTLED)
+    return ledger
+
+
+def test_a_group_whose_families_match_two_sections_is_dropped_and_they_stand_alone():
+    plan = ledger_plan(_rtu_and_fan(both_matched=True))
+    assert [s.key for s in plan.systems] == ["RTU", "TXF"]
+    assert all(s.group == "" for s in plan.systems)
+    assert plan.systems[0].sequence_section == "[Q1]" and plan.systems[1].sequence_section == "[Q2]"
+    assert len(plan.dropped) == 1 and "corridor air" in plan.dropped[0] and "RTU" in plan.dropped[0]
+    assert "TXF" in plan.dropped[0]
+
+
+def test_a_group_with_one_matched_family_is_kept():
+    plan = ledger_plan(_rtu_and_fan(both_matched=False))
+    assert [s.key for s in plan.systems] == ["corridor air"] and plan.dropped == ()
+
+
+def test_a_damper_linked_to_a_fan_inside_a_group_joins_the_group():
+    ledger = _ledger()
+    ledger.add("family", "MD", "Motorized Damper", "[S10]", "MD", "plans")
+    ledger.add("count", "MD", 2, "[S10]", "MD x2", "plans")
+    ledger.add("family", "EF", "Exhaust Fan", "[S10]", "EF-1", "plans")
+    ledger.add("count", "EF", 1, "[S10]", "EF-1", "plans")
+    ledger.add("unit", "EF", "EF-1", "[S10]", "EF-1", "plans")
+    ledger.add("group", "Garage Exhaust", "EF", "[S10]", "GARAGE EXHAUST", "risers", SETTLED)
+    link = ledger.add("link", "MD on garage exhaust duct", "EF-1", "[S10]", "MD EF-1", "plans", SETTLED)
+    plan = ledger_plan(ledger)
+    garage = next(s for s in plan.systems if s.key == "Garage Exhaust")
+    md = next(s for s in plan.systems if s.key == "MD")
+    assert garage.linked_dampers == 1 and link.id in garage.facts
+    assert md.quantity == 1
+
+
+def test_a_damper_family_inside_a_group_gives_up_the_dampers_a_fan_claims():
+    ledger = _ledger()
+    ledger.add("family", "EF", "Exhaust Fan", "[S10]", "EF-1", "plans")
+    ledger.add("count", "EF", 1, "[S10]", "EF-1", "plans")
+    ledger.add("unit", "EF", "EF-1", "[S10]", "EF-1", "plans")
+    ledger.add("family", "MD", "Motorized Damper", "[S10]", "MD", "plans")
+    ledger.add("count", "MD", 1, "[S10]", "MD x1", "plans")
+    ledger.add("group", "Shaft Ventilation", "EF, MD", "[S10]", "SHAFT VENTILATION", "risers", SETTLED)
+    ledger.add("link", "MD-1", "EF-1", "[S10]", "MD-1 EF-1", "plans", SETTLED)
+    (shaft,) = [s for s in ledger_plan(ledger).systems if s.key == "Shaft Ventilation"]
+    assert shaft.linked_dampers == 1
+    assert [f.header for f in shaft.families] == ["Exhaust Fan EF-1"]       # the one damper is the fan's
+
+
+def test_a_sequence_section_that_matched_nothing_is_asked():
+    ledger = _read(("sequence", [{"kind": "sequence_match", "subject": "VAV BOXES", "value": "VAV", "source_id": "[Q1]",
+                                  "quote": "VAV BOXES"}]))
+    plan = ledger_plan(ledger)
+    assert plan.unresolved == ("Sequence section EXHAUST FANS matched no system; which system is it?",)
+
+
+def test_a_damper_is_told_from_a_fire_or_smoke_damper_by_its_tag_and_phrases_not_bare_words():
+    from estimator.ledger.to_plan import _is_motorized_damper
+    assert _is_motorized_damper("MD on 88x40 smoke purge duct", ("MD",))
+    assert _is_motorized_damper("motorized damper at the fire pump room louver", ("MD",))
+    assert not _is_motorized_damper("FSD-1", ("MD",))
+    assert not _is_motorized_damper("combination fire/smoke damper", ("MD",))
+    assert not _is_motorized_damper("SD at the corridor", ("MD",))

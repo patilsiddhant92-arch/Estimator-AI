@@ -187,13 +187,23 @@ def _damper_prefixes() -> tuple[str, ...]:
     return tuple(p.upper() for p in getattr(style, "packaged_units", {}).get("damper_prefixes", ("MD",)))
 
 
+_FIRE_SMOKE_PREFIXES = ("FSD", "FD", "SD")
+_FIRE_SMOKE_WORDS = re.compile(r"\bfire\s+dampers?\b|\bsmoke\s+dampers?\b|\bfire\s*/\s*smoke\b|\bfire\s+smoke\b", re.I)
+
+
+def _lead(subject: str) -> str:
+    """A tag or label's leading token in capitals: "MD-1" and "MD on 88x40 duct" both lead with "MD"."""
+    return re.split(r"[\s\-(/,]", _squash(subject), maxsplit=1)[0].upper()
+
+
 def _is_motorized_damper(subject: str, prefixes: tuple[str, ...]) -> bool:
-    """A motorized damper's tag or label: its prefix is a damper prefix ("MD-1") or it says "damper"; a fire or
-    smoke damper is not one (those stay where they are)."""
-    words = _squash(subject).casefold()
-    if "fire" in words or "smoke" in words:
+    """A motorized damper's tag or label: it leads with a damper prefix ("MD-1", "MD on 88x40 smoke purge duct") or
+    says "damper". A fire or smoke damper is not one (those stay where they are): it leads with FSD, FD or SD, or
+    says "fire damper", "smoke damper", "fire/smoke" or "fire smoke". A smoke purge duct is not a smoke damper."""
+    text = _squash(subject)
+    if _lead(text) in _FIRE_SMOKE_PREFIXES or _FIRE_SMOKE_WORDS.search(text):
         return False
-    return _squash(subject).split("-")[0].upper() in prefixes or "damper" in words
+    return _lead(text) in prefixes or "damper" in text.casefold()
 
 
 def _names_of(system: PlannedSystem) -> list[str]:
@@ -213,12 +223,37 @@ def _sheets(ledger: Ledger, facts: list[Fact]) -> list[str]:
     return sheets
 
 
+def _family_prefix(family: Family) -> str:
+    """A family's prefix, from its first tag ("MD-1" or "MD")."""
+    return _lead(family.tags[0]) if family.tags else ""
+
+
+def _less_dampers(system: PlannedSystem, links_of: dict[str, list[Fact]]) -> PlannedSystem:
+    """A group holding a damper family gives up the dampers a fan claims: the family's count drops by the links,
+    and the family (with its tags) leaves the group when every damper is claimed."""
+    families, changed = [], False
+    for family in system.families:
+        links = links_of.get(_family_prefix(family), [])
+        if links and family.quantity is not None:
+            changed = True
+            left = family.quantity - len(links)
+            if left <= 0:
+                continue
+            family = replace(family, quantity=left)
+        families.append(family)
+    if not changed:
+        return system
+    return replace(system, families=tuple(families), tags=tuple(t for f in families for t in f.tags))
+
+
 def _link_dampers(ledger: Ledger, systems: list[PlannedSystem]) -> list[PlannedSystem]:
-    """A motorized damper linked to a fan joins that fan: the link and the damper's unit and location facts go to
-    the fan's facts and the fan counts it. The damper family keeps only the dampers no fan claims, naming the sheets
-    to look at; when every damper is claimed, there is no damper system."""
+    """A motorized damper linked to a fan joins that fan (or the group the fan is in): the link and the damper's
+    unit and location facts go to the fan's facts and the fan counts it. The damper family, alone or inside a group,
+    keeps only the dampers no fan claims, naming the sheets to look at; when every damper is claimed, there is no
+    damper system (or no damper family in the group)."""
     prefixes = _damper_prefixes()
     damper_keys = {s.key.upper() for s in systems if not s.group and s.key.upper() in prefixes}
+    grouped = {_family_prefix(f) for s in systems if s.group for f in s.families} & set(prefixes)
     joined: dict[str, list[str]] = {}
     links_of: dict[str, list[Fact]] = {}
     for link in ledger.of_kind("link"):
@@ -227,18 +262,21 @@ def _link_dampers(ledger: Ledger, systems: list[PlannedSystem]) -> list[PlannedS
             continue
         value = _squash(link.value)
         target = next((s for s in systems if s.key.upper() not in damper_keys
-                       and any(_naming(n).search(value) for n in _names_of(s))), None)
+                       and any(_naming(n).search(value) for n in _names_of(s) if n.upper() not in prefixes)), None)
         if target is None:
             continue
         own = [f.id for f in ledger.about(subject) if f.kind in ("unit", "location")]
         joined.setdefault(target.key, []).extend([link.id, *own])
-        family = subject.split("-")[0].upper()
-        family = family if family in damper_keys else next(iter(sorted(damper_keys)), "")
+        family = _lead(subject)
+        if family not in damper_keys and family not in grouped:
+            family = next(iter(sorted(damper_keys)), "") or next(iter(sorted(grouped)), "")
         links_of.setdefault(family, []).append(link)
     if not joined:
         return systems
     planned: list[PlannedSystem] = []
     for system in systems:
+        if system.group:
+            system = _less_dampers(system, links_of)
         if system.key in joined:
             ids = joined[system.key]
             facts = tuple(dict.fromkeys([*system.facts, *ids]))
@@ -259,10 +297,26 @@ def _link_dampers(ledger: Ledger, systems: list[PlannedSystem]) -> list[PlannedS
     return planned
 
 
+def _split_group(ledger: Ledger, group: Fact) -> list[str]:
+    """The families of a group that each match their own sequence section (two or more distinct sequence_match
+    values among its members): such a group is not one plant, so it is not kept. [] when the group holds."""
+    prefixes = [p.strip() for p in _squash(group.value).split(",") if p.strip()]
+    families = {f.subject.casefold() for f in ledger.of_kind("family")}
+    matched = [p for p in prefixes if p.casefold() in families and _matches(ledger, p)]
+    values = {_squash(m.value).casefold() for m in _matches(ledger, *matched)}
+    return matched if len(values) >= 2 else []
+
+
 def ledger_plan(ledger: Ledger) -> JobPlan:
     groups = ledger.of_kind("group")
     member_of: dict[str, Fact] = {}
+    dropped: list[str] = []
     for group in groups:
+        split = _split_group(ledger, group)
+        if split:
+            dropped.append(f"The group “{_squash(group.subject)}” is not kept: its families {', '.join(split)} each "
+                           "match their own sequence section, so each is written on its own.")
+            continue
         for prefix in (p.strip() for p in _squash(group.value).split(",")):
             if prefix:
                 member_of.setdefault(prefix.casefold(), group)
@@ -277,8 +331,11 @@ def ledger_plan(ledger: Ledger) -> JobPlan:
             members = [f for f in ledger.of_kind("family") if member_of.get(f.subject.casefold()) is group]
             systems.append(_group_system(ledger, group, members))
     systems = _link_dampers(ledger, systems)
-    questions = tuple(_squash(f.value) for f in ledger.of_kind("note") if f.subject.casefold() == "question")
-    return JobPlan(systems=tuple(systems), front_end=_front_end(ledger), unresolved=questions, model="ledger")
+    questions = [_squash(f.value) for f in ledger.of_kind("note") if f.subject.casefold() == "question"]
+    questions += [f"Sequence section {_squash(f.subject)} matched no system; which system is it?"
+                  for f in ledger.of_kind("sequence_match") if not _squash(f.value)]
+    return JobPlan(systems=tuple(systems), front_end=_front_end(ledger), unresolved=tuple(questions), model="ledger",
+                   dropped=tuple(dropped))
 
 
 def entry_text(system: PlannedSystem, ledger: Ledger) -> str:

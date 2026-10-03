@@ -254,3 +254,81 @@ def test_the_plans_pass_may_settle_a_damper_link():
     refused = apply(pass_named("plans"), ledger, _answer(facts=[
         {"kind": "link", "subject": "MD-1", "value": "EF-1", "source_id": "[S10]", "quote": "MD-1 EF-1"}]), _known(ledger))
     assert refused == [] and ledger.find("link", "MD-1").state == SETTLED
+
+
+# --- counts are numbers, groups are plants, a sequence match names a live system -------------------------------
+
+def test_a_count_given_in_words_keeps_its_leading_number():
+    ledger = seed(_dossier())
+    ef = ledger.find("count", "EF")
+    refused = apply(pass_named("plans"), ledger, _answer(contradictions=[
+        {"fact_id": ef.id, "value": "55 placements on the plans", "source_id": "[S10]", "quote": "EF-1 x55"}]),
+        _known(ledger))
+    after = ledger.facts[ef.id]
+    assert refused == []
+    assert after.contradictions[0].value == 55 and ledger.printed_count(ef.id) == 55
+
+
+def test_a_count_with_no_number_is_refused():
+    ledger = seed(_dossier())
+    ef = ledger.find("count", "EF")
+    refused = apply(pass_named("plans"), ledger, _answer(
+        facts=[{"kind": "count", "subject": "EF", "value": "many", "source_id": "[S10]", "quote": "EF everywhere"}],
+        contradictions=[{"fact_id": ef.id, "value": "lots more", "source_id": "[S10]", "quote": "EF everywhere"}]),
+        _known(ledger))
+    assert len(refused) == 2
+    assert all("a count must be a number; the words go in the quote; left out" in r for r in refused)
+    assert ledger.facts[ef.id].contradictions == ()
+
+
+def test_a_device_count_in_words_keeps_its_number_and_a_device_name_stays_text():
+    ledger = seed(_dossier())
+    apply(pass_named("plans"), ledger, _answer(facts=[
+        {"kind": "device", "subject": "T-STAT", "value": "4 thermostats", "source_id": "[S10]", "quote": "T x4"},
+        {"kind": "device", "subject": "keynote 3", "value": "damper actuator by ATC", "source_id": "[S10]", "quote": "KEY NOTES 3"}]),
+        _known(ledger))
+    assert ledger.find("device", "T-STAT").value == 4
+    assert ledger.find("device", "keynote 3").value == "damper actuator by ATC"
+
+
+def test_the_plans_and_risers_passes_ask_for_whole_number_counts():
+    for name in ("plans", "risers"):
+        assert "a count's value is a whole number; put the words in the quote" in pass_named(name).instructions
+
+
+def test_the_risers_pass_asks_for_plants_not_risers():
+    words = pass_named("risers").instructions
+    assert "never a riser, a shaft or a drain route" in words and "at most five words" in words
+
+
+def test_a_group_named_in_more_than_six_words_is_refused():
+    ledger = seed(_dossier())
+    refused = apply(pass_named("risers"), ledger, _answer(facts=[
+        {"kind": "group", "subject": "toilet exhaust riser one with branch per floor", "value": "EF, VAV",
+         "source_id": "[S10]", "quote": "TX 1"}]), _known(ledger))
+    assert len(refused) == 1 and "toilet exhaust riser one" in refused[0] and "left out" in refused[0]
+    assert ledger.of_kind("group") == []
+
+
+def test_a_sequence_match_naming_no_system_is_refused():
+    ledger = seed(_dossier())
+    ledger.add("group", "Air Plant", "VAV, EF", "[S10]", "AIR PLANT", "risers", SETTLED)
+    refused = apply(pass_named("sequence"), ledger, _answer(facts=[
+        {"kind": "sequence_match", "subject": "VAV BOXES", "value": "vav", "source_id": "[Q1]", "quote": "VAV BOXES"},
+        {"kind": "sequence_match", "subject": "EXHAUST FANS", "value": "AHU", "source_id": "[Q2]", "quote": "EXHAUST FANS"},
+        {"kind": "sequence_match", "subject": "PLANT", "value": "Air Plant", "source_id": "[Q2]", "quote": "PLANT"},
+        {"kind": "sequence_match", "subject": "OTHER", "value": "", "source_id": "[Q2]", "quote": "OTHER"}]),
+        _known(ledger))
+    assert refused == ["sequence_match EXHAUST FANS = AHU names no system the ledger holds; left out"]
+    assert ledger.find("sequence_match", "VAV BOXES").value == "vav"
+    assert ledger.find("sequence_match", "PLANT").value == "Air Plant"
+
+
+def test_the_sequence_prompt_lists_the_match_values_and_asks_for_general_rules():
+    ledger = seed(_dossier())
+    ledger.add("group", "Air Plant", "VAV, EF", "[S10]", "AIR PLANT", "risers", SETTLED)
+    text = prompt(pass_named("sequence"), ledger, "[S2] Each VAV box")
+    assert "Match values you may use: VAV, EF, T, Air Plant" in text
+    assert ('notes with subject "general" for rules the sequence sets for the whole job (fire/smoke damper control, '
+            'who wires non-FSD actuators, global points)') in text
+    assert "Match values you may use" not in prompt(pass_named("plans"), ledger, "[S8] OCC")

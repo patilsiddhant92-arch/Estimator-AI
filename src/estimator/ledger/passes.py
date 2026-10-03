@@ -8,6 +8,7 @@ kind this pass settles takes the pass's value and is settled; a count that chang
 so the higher still prints."""
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 
 from estimator.ledger.facts import ADDED, KINDS, SETTLED, Ledger, plain_id
@@ -65,7 +66,7 @@ PASSES: tuple[Pass, ...] = (
          "on the plans that no schedule lists may only be added, with the subject \"seen on plans, not scheduled\" "
          "in its quote's words; it is flagged later. Give the count you can see, citing the sheet. When a motorized "
          "damper sits on a fan's duct or next to a fan on the plan, record a link: subject the damper's tag or label, "
-         "value the fan's tag.",
+         "value the fan's tag. Note: a count's value is a whole number; put the words in the quote.",
          picture_types=("Plans",)),
     Pass("details", "Details and control diagrams", ("device", "link"), (), (), ("Details", "Control diagrams", "Diagrams"), False,
          "For units already in the ledger, settle what the details and control diagrams add: control valves, damper "
@@ -76,7 +77,10 @@ PASSES: tuple[Pass, ...] = (
          "Settle how the systems fit together: which unit serves which (a link: subject the served unit, value the "
          "serving unit), the plant loop (a group: subject the plant's name, value the families in it, comma "
          "separated), and the sensors on the risers (pressure, differential pressure, stair pressurisation). "
-         "Equipment on a riser that neither the schedule nor the plans showed may only be added, quoting the riser.",
+         "A group is one plant that one sequence controls (a chilled water plant, a VRF system), never a riser, a "
+         "shaft or a drain route; its subject is a short plant name of at most five words. "
+         "Equipment on a riser that neither the schedule nor the plans showed may only be added, quoting the riser. "
+         "Note: a count's value is a whole number; put the words in the quote.",
          picture_types=("Air riser", "Water riser")),
     Pass("network", "Network riser", ("provider", "link"), (), (), ("Network riser",), False,
          "Settle who provides the backbone (fibre or Ethernet), the network switches, the server, the workstation "
@@ -89,7 +93,9 @@ PASSES: tuple[Pass, ...] = (
          "only when the section itself states a count, quoting it; otherwise write a note fact with the subject "
          "\"named in sequence, not found on drawings\". Notes are also for alternates (subject \"alternate\", value "
          "\"add\" or \"deduct\" and the family), exceptions (subject \"exception\", value the one-line exception in "
-         "capitals) and questions for the estimator (subject \"question\")."),
+         "capitals), questions for the estimator (subject \"question\"), and "
+         "notes with subject \"general\" for rules the sequence sets for the whole job (fire/smoke damper control, "
+         "who wires non-FSD actuators, global points)."),
     Pass("spec", "Controls specification", ("front_end", "provider", "note"), (), (1, 8), (), False,
          "Settle the front end: a front_end fact with subject \"mode\" and value \"new-system\" or "
          "\"extend-existing\" (and one with subject \"existing_name\" when extending), one per front end line the "
@@ -139,16 +145,25 @@ def documents(pass_, dossier, catalogue) -> str:
 
 # --- the question ----------------------------------------------------------------------------------------------
 
+def _match_values(ledger) -> list[str]:
+    """What a sequence_match's value may be: the ledger's family prefixes, then its group subjects."""
+    names = [f.subject for f in ledger.of_kind("family")] + [g.subject for g in ledger.of_kind("group")]
+    return [n for n in dict.fromkeys(_text(n) for n in names) if n]
+
+
 def prompt(pass_, ledger, text: str, images=(), ids=None, notes=()) -> str:
     from estimator.writing.whole_job import images_text
     job = getattr(ledger, "job_name", "") or "(unnamed job)"
     understood = "\n".join(f"- after the {name} pass: {words}" for name, words in ledger.understanding.items()) or "(nothing yet)"
     kinds = ", ".join(pass_.settles) + (f"; may only add: {', '.join(pass_.may_add)}" if pass_.may_add else "")
+    instructions = pass_.instructions
+    if "sequence_match" in pass_.settles:
+        instructions += f"\nMatch values you may use: {', '.join(_match_values(ledger)) or '(none yet)'}"
     return "\n\n".join(filter(None, [
         f"Job: {job}\nThis is the {pass_.title} pass ({pass_.name}).",
         f"What the earlier passes understood:\n{understood}",
         f"The job ledger so far (id, kind, subject = value [source] “quote” (state, pass)):\n{ledger.table() or '(empty)'}",
-        f"This pass settles these kinds of fact: {kinds}.\n{pass_.instructions}",
+        f"This pass settles these kinds of fact: {kinds}.\n{instructions}",
         f"The documents for this pass, each paragraph with its source id:\n{text}",
         images_text(list(images), ids) if images else "",
         "\n".join(notes),
@@ -180,13 +195,36 @@ def _text(value) -> str:
     return " ".join(str(value if value is not None else "").split())
 
 
-def _value(value):
+_LEADING_NUMBER = re.compile(r"^\s*(?:about\s+)?(\d+)(?![\w\-/]|\.\d)", re.I)
+NOT_A_NUMBER = "a count must be a number; the words go in the quote; left out"
+GROUP_WORDS = 6          # a group's subject is a plant's short name: more words than this is a riser or a route
+
+
+def _value(value, kind: str = ""):
+    """The value as the ledger keeps it. A count is a whole number: its leading number ("55 placements on the
+    plans" is 55, "about 27" is 27), or None when it has none (refused). A device takes its leading number when it
+    has one, else keeps its words. Any other kind: a number when it is all digits, else the words."""
     if isinstance(value, bool):
-        return str(value)
+        return None if kind == "count" else str(value)
     if isinstance(value, int):
         return value
     text = _text(value)
+    if kind in ("count", "device"):
+        match = _LEADING_NUMBER.match(text)
+        if match:
+            return int(match.group(1))
+        return None if kind == "count" else text
     return int(text) if text.isdigit() else text
+
+
+def _naming(name: str) -> re.Pattern:
+    return re.compile(rf"(?<![A-Za-z0-9]){re.escape(name)}(?![A-Za-z0-9])", re.I)
+
+
+def _names_a_system(value: str, names: list[str]) -> bool:
+    """The value names one of the ledger's family prefixes or group subjects, as a whole word, in any case."""
+    value = _text(value)
+    return any(_naming(name).search(value) for name in names if name)
 
 
 def _number(value) -> int | None:
@@ -225,12 +263,15 @@ def apply(pass_, ledger: Ledger, answer: dict, known: frozenset[str]) -> list[st
     def known_source(sid: str) -> bool:
         return bool(sid) and (sid in prompt_ids or ledger.knows(sid))
 
+    answered = [_text(raw.get("subject")) for raw in answer.get("facts") or []      # names this answer adds
+                if isinstance(raw, dict) and _text(raw.get("kind")) in ("family", "group")]
     for raw in answer.get("facts") or []:
         if not isinstance(raw, dict):
             continue
-        kind, subject, value = _text(raw.get("kind")), _text(raw.get("subject")), _value(raw.get("value"))
+        kind, subject = _text(raw.get("kind")), _text(raw.get("subject"))
+        value = _value(raw.get("value"), kind)
         sid, quote = plain_id(raw.get("source_id")), _text(raw.get("quote"))
-        label = f"{kind} {subject} = {value}"
+        label = f"{kind} {subject} = {value if value is not None else _text(raw.get('value'))}"
         if kind not in pass_.kinds:
             refused.append(f"the {pass_.name} pass may not write a {kind or 'nameless'} fact ({subject} = {value}); left out")
             continue
@@ -239,6 +280,16 @@ def apply(pass_, ledger: Ledger, answer: dict, known: frozenset[str]) -> list[st
             continue
         if not quote:
             refused.append(f"{label} has no quote; left out")
+            continue
+        if value is None:
+            refused.append(f"{label}: {NOT_A_NUMBER}")
+            continue
+        if kind == "group" and len(subject.split()) > GROUP_WORDS:
+            refused.append(f"{label}: a group is one plant with a short name, never a riser, a shaft or a drain "
+                           "route; left out")
+            continue
+        if kind == "sequence_match" and value != "" and not _names_a_system(str(value), _match_values(ledger) + answered):
+            refused.append(f"{label} names no system the ledger holds; left out")
             continue
         if _many_valued(kind, subject):              # notes, front-end lines and notes, locations: one fact per value
             same = ledger.find_value(kind, subject, value)
@@ -275,7 +326,12 @@ def apply(pass_, ledger: Ledger, answer: dict, known: frozenset[str]) -> list[st
         if not quote:
             refused.append(f"the contradiction of {fid} has no quote; left out")
             continue
-        _take(ledger, pass_, ledger.facts[fid], _value(raw.get("value")), sid, quote)
+        held = ledger.facts[fid]
+        value = _value(raw.get("value"), held.kind)
+        if value is None:
+            refused.append(f"the contradiction of {fid} ({_text(raw.get('value'))}): {NOT_A_NUMBER}")
+            continue
+        _take(ledger, pass_, held, value, sid, quote)
 
     for raw in answer.get("confirmations") or []:
         fid = plain_id(raw) or _text(raw)
