@@ -69,7 +69,7 @@ PASSES: tuple[Pass, ...] = (
          "serving unit), the plant loop (a group: subject the plant's name, value the families in it, comma "
          "separated), and the sensors on the risers (pressure, differential pressure, stair pressurisation). "
          "Equipment on a riser that neither the schedule nor the plans showed may only be added, quoting the riser."),
-    Pass("network", "Network riser", ("provider", "link"), (), (1,), ("Network riser",), False,
+    Pass("network", "Network riser", ("provider", "link"), (), (), ("Network riser",), False,
          "Settle who provides the backbone (fibre or Ethernet), the network switches, the server, the workstation "
          "or laptop, and every integration callout (VFDs, plumbing, electrical, lighting): a provider fact per item, "
          "subject the item, value the provider in the documents' words."),
