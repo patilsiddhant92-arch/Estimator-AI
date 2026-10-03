@@ -24,7 +24,11 @@ Read `.claude/run-job.json`: `judge_model` (reading passes), `writer_model` (wri
 1. Run `.venv/Scripts/python.exe tools/run_job.py status <job> --out <out> [--cache <cache>]`. It runs the
    estimate and ends with a block listing the requests still waiting and the proposal path, if any.
    A non-zero exit from `status` while requests are waiting is expected; go by the block, not the exit code.
-2. If `proposal` is set, go to the finish. Otherwise handle the waiting requests by kind:
+2. If `proposal` is set, go to the finish.
+   Stop rule: no waiting requests and no proposal: report the last summary and stop.
+   A request listed with `"rejected": true` was answered but the estimator could not use the answer (its
+   `reason` says why, when the run printed one); its answer file is already deleted and the attempt counted, so
+   dispatch it again. Otherwise handle the waiting requests by kind:
    - `read_pass`: one at a time, in the order listed (each reading depends on the one before).
    - `write_system`: up to 4 at once, each in its own subagent, all dispatched in one message.
    - `qc_job`: alone.
@@ -42,8 +46,8 @@ Read `.claude/run-job.json`: `judge_model` (reading passes), `writer_model` (wri
 3. When a subagent is done, run `.venv/Scripts/python.exe tools/run_job.py check <answer_file> <request file>`.
    If it fails, delete the answer file and dispatch that request again. Stop retrying a request once it has
    failed `max_attempts` times (the `attempts` count in the status block); report which request and why, and stop.
-4. Run `status` again and go back to step 2. Stop when `proposal` is set, or when a request has failed
-   `max_attempts` times.
+4. Run `status` again and go back to step 2. Stop when `proposal` is set, when a request has failed (or been
+   rejected) `max_attempts` times, or when nothing is waiting and there is no proposal.
 
 ## Finish
 

@@ -50,6 +50,8 @@ DECISION, CHANGE_TO = "Estimator decision", "Change to / why"
 DECISIONS = ("keep", "delete", "change")
 _DECISION_NOTE = ('keep, delete or change. For "change": the new text, then "why:" and the reason; for keep or '
                   'delete: the reason. Read back by: estimator corrections EVIDENCE.xlsx')
+_QC_DECISION_NOTE = ("keep = dismiss this finding; delete = remove the line from the proposal; change = the new line "
+                     "text, then why")
 _GREEN = PatternFill("solid", fgColor="C6EFCE")
 _AMBER = PatternFill("solid", fgColor="FFEB9C")
 _GREY = PatternFill("solid", fgColor="D9D9D9")
@@ -156,13 +158,14 @@ def _how_read(ws, ledger, brief=None, qc=None) -> None:
 
 
 def _proposal_qc(ws, report) -> None:
-    """One row per QC finding, must-fix first, with the estimator's decision columns: "keep" dismisses the finding
-    on the next run, "change" with the new text changes the line."""
+    """One row per QC finding, must-fix first, with the estimator's decision columns and their own note: "keep"
+    dismisses the finding on the next run, "delete" removes the finding's line, "change" with the new text changes
+    the line."""
     _headings(ws, ["System", "Line", "Kind", "Severity", "What is wrong", "Change to", "Rests on", DECISION, CHANGE_TO])
     ws.freeze_panes = "A2"
     if isinstance(report, QcNoAnswer):
         _append(ws, ["", report.words])
-        _decision_columns(ws, 8)
+        _decision_columns(ws, 8, _QC_DECISION_NOTE)
         _widths(ws, [24, 60, 14, 10, 60, 60, 44, 12, 50])
         return
     findings = sorted(report.findings, key=lambda f: f.severity != "must-fix")
@@ -174,7 +177,7 @@ def _proposal_qc(ws, report) -> None:
             ws.cell(ws.max_row, column).alignment = Alignment(wrap_text=True, vertical="top")
     if not findings:
         _append(ws, ["", "The QC pass found nothing to change."])
-    _decision_columns(ws, 8)
+    _decision_columns(ws, 8, _QC_DECISION_NOTE)
     _widths(ws, [24, 60, 14, 10, 60, 60, 44, 12, 50])
 
 
@@ -570,11 +573,12 @@ def _review_list(ws, systems, review_flags, flags) -> None:
     _widths(ws, [7, 30, 14, 70, 60, 44, 12, 50])
 
 
-def _decision_columns(ws, column: int) -> None:
-    """The estimator's two columns: a keep / delete / change choice, then the new text or the reason."""
+def _decision_columns(ws, column: int, note: str = _DECISION_NOTE) -> None:
+    """The estimator's two columns: a keep / delete / change choice, then the new text or the reason; `note` says
+    what each choice does on this tab."""
     letter, last = get_column_letter(column), max(ws.max_row, 2)
     choice = DataValidation(type="list", formula1='"' + ",".join(DECISIONS) + '"', allow_blank=True,
-                            showErrorMessage=False, prompt=_DECISION_NOTE, showInputMessage=True)
+                            showErrorMessage=False, prompt=note, showInputMessage=True)
     ws.add_data_validation(choice)
     choice.add(f"{letter}2:{letter}{last + 500}")
     for c in (column, column + 1):

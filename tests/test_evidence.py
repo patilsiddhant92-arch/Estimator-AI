@@ -306,3 +306,24 @@ def test_the_corrections_read_the_qc_tab(tmp_path):
         ("Wire Sensor", "change", "Install and Wire Sensor")]
     assert [(e["system"], e["text"], e["decision"]) for e in corrections["review"]] == [
         ("RTU", "no smoke detector", "delete")]
+
+
+def test_the_qc_tab_says_what_each_decision_does_and_keep_and_delete_do_that(tmp_path):
+    from openpyxl import load_workbook
+    from estimator.corrections import read_corrections
+    from estimator.evidence.workbook import write_evidence
+    from estimator.writing.qc import QcFinding, QcReport
+    report = QcReport((QcFinding("RTU", "Wire Sensor", "ownership", "ships loose", "", "must-fix", ""),
+                       QcFinding("RTU", "Furnish Relay", "duplicate", "written twice", "", "must-fix", ""),
+                       QcFinding("RTU", "", "missing", "no smoke detector", "", "check", "")), {}, "", "m", ())
+    path = write_evidence(tmp_path / "e.xlsx", _catalogue(), systems=[], qc=report)
+    book = load_workbook(path)
+    ws = book["Proposal QC"]
+    assert [v.prompt for v in ws.data_validations.dataValidation] == [
+        "keep = dismiss this finding; delete = remove the line from the proposal; change = the new line text, then why"]
+    ws.cell(2, 8, "keep"), ws.cell(3, 8, "delete"), ws.cell(4, 8, "delete")
+    book.save(path)
+    corrections, problems = read_corrections(path)
+    assert problems == []
+    assert [(e["text"], e["decision"]) for e in corrections["lines"]] == [("Furnish Relay", "delete")]
+    assert [(e["text"], e["decision"]) for e in corrections["review"]] == [("ships loose", "delete")]

@@ -30,3 +30,24 @@ def test_status_lists_only_this_jobs_requests(tmp_path):
             {"key": name, "kind": "qc_job", "job": job, "system": None, "answer_file": str(tmp_path / f"{name}-ans.json")}), encoding="utf-8")
     waiting = run_job.waiting_requests(tmp_path, run_job.job_name(Path("X/26-0001, Some School")), {})
     assert [Path(w["file"]).name for w in waiting] == ["a.json"]
+
+
+def test_a_request_whose_answer_was_rejected_is_listed_and_its_answer_removed(tmp_path):
+    sys.path.insert(0, "tools")
+    import run_job
+    answer = tmp_path / "a-ans.json"
+    answer.write_text(json.dumps({"lines": "not a list"}), encoding="utf-8")
+    (tmp_path / "a.json").write_text(json.dumps(
+        {"key": "a", "kind": "write_system", "job": "26-0001", "system": "Rooftop Unit RTU-1", "answer_file": str(answer)}),
+        encoding="utf-8")
+    attempts = {}
+    printed = "Writing systems: 1 request waiting\n  the answer for Rooftop Unit RTU-1 could not be read\n"
+    waiting = run_job.waiting_requests(tmp_path, "26-0001", attempts, printed)
+    assert len(waiting) == 1 and waiting[0]["rejected"] is True
+    assert waiting[0]["reason"] == "the answer for Rooftop Unit RTU-1 could not be read"
+    assert not answer.exists() and attempts == {"a": 1} and waiting[0]["attempts"] == 1
+
+
+def test_the_skill_stops_when_nothing_waits_and_no_proposal_was_written():
+    text = Path(".claude/skills/run-job/SKILL.md").read_text(encoding="utf-8")
+    assert "no waiting requests and no proposal: report the last summary and stop" in text

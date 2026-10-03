@@ -104,8 +104,9 @@ def _read_tab(ws, kind: str, text_heading: str) -> tuple[list[dict], list[str]]:
 
 
 def _read_qc_tab(ws) -> tuple[list[dict], list[dict], list[str]]:
-    """The Proposal QC tab's decisions: "change" (or "delete") acts on the line the finding names, as on the Scope
-    lines tab; "keep" dismisses the finding, so its review row (worded as the finding) is taken off the list."""
+    """The Proposal QC tab's decisions: "keep" dismisses the finding, so its review row (worded as the finding) is
+    taken off the list; "delete" removes the line the finding names, only when it names one; "change" gives that
+    line its new text, as on the Scope lines tab."""
     lines, problems = _read_tab(ws, LINES, "Line")
     findings, _ = _read_tab(ws, REVIEW, "What is wrong")
     return ([e for e in lines if e["decision"] != KEEP],

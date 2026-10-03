@@ -4,8 +4,10 @@
     python tools/run_job.py check ANSWER_FILE REQUEST_FILE
 
 `status` runs `estimate --ai chat`, prints the tool's summary, then one JSON block listing the requests still
-waiting for an answer and the proposal path once it is written. `check` only reads JSON (no estimator import).
-Failed checks are counted per request key in OUT/.run-job-attempts.json.
+waiting for an answer and the proposal path once it is written. A request still present although its answer file
+exists was rejected by the estimator: it is listed with `"rejected": true` and the estimator's reason, its answer
+file is deleted and an attempt is counted. `check` only reads JSON (no estimator import).
+Failed checks and rejected answers are counted per request key in OUT/.run-job-attempts.json.
 """
 import argparse
 import json
@@ -79,8 +81,22 @@ def job_name(job: Path) -> str:
     return Path(job).name.split(",")[0].strip()
 
 
-def waiting_requests(requests: Path, job: str, attempts: dict) -> list:
-    """This job's requests (by `job`) whose answer file does not exist yet."""
+def _reason(text: str, system) -> str:
+    """The estimator's words about this request's answer in the run's output ("the answer for X could not be
+    read"), or ""."""
+    if not system:
+        return ""
+    for line in (text or "").splitlines():
+        found = re.search(rf"the answer for {re.escape(str(system))}[^;\n]*", line)
+        if found:
+            return found.group(0).strip().rstrip(".")
+    return ""
+
+
+def waiting_requests(requests: Path, job: str, attempts: dict, text: str = "") -> list:
+    """Every request file of this job (by `job`) still present after the run. The estimator deletes a request
+    once it uses the answer, so one whose answer file exists was rejected: it is listed with `rejected` and the
+    reason the run printed (`text`), its answer file is deleted and an attempt counted in `attempts`."""
     waiting = []
     for path in sorted(requests.glob("*.json")):
         try:
@@ -91,10 +107,17 @@ def waiting_requests(requests: Path, job: str, attempts: dict) -> list:
             continue
         answer = request.get("answer_file", "")
         answer_path = Path(answer) if Path(answer).is_absolute() else ROOT / answer
-        if answer_path.exists():
-            continue
-        waiting.append({"file": str(path), "kind": request.get("kind"), "system": request.get("system"),
-                        "answer_file": answer, "attempts": attempts.get(request.get("key"), 0)})
+        entry = {"file": str(path), "kind": request.get("kind"), "system": request.get("system"), "answer_file": answer}
+        if answer and answer_path.exists():
+            key = request.get("key")
+            try:
+                answer_path.unlink()
+            except OSError:
+                pass
+            if key:
+                attempts[key] = attempts.get(key, 0) + 1
+            entry |= {"rejected": True, "reason": _reason(text, request.get("system"))}
+        waiting.append(entry | {"attempts": attempts.get(request.get("key"), 0)})
     return waiting
 
 
@@ -112,7 +135,9 @@ def cmd_status(args) -> int:
     waiting = []
     if requests.is_dir():
         (requests / OUT_MARKER).write_text(str(out.resolve()), encoding="utf-8")
-        waiting = waiting_requests(requests, job_name(args.job), attempts)
+        waiting = waiting_requests(requests, job_name(args.job), attempts, text)
+        if any(w.get("rejected") for w in waiting):
+            (out / ATTEMPTS).write_text(json.dumps(attempts, indent=1), encoding="utf-8")
     proposal = None
     if not waiting:
         for line in text.splitlines():
