@@ -64,6 +64,6 @@ def test_a_long_pass_is_split_and_each_part_applied_in_turn(tmp_path):
     ledger = read_job(judge, _dossier(text=long_text), CATALOGUE, limit=1500)
     first, second = client.calls[0], client.calls[1]
     assert "part 1 of 2" not in str(first)          # the part number is in the request name, not the prompt
-    assert ledger.understanding["schedules"] == "part two"
+    assert ledger.understanding["schedules"] == "part one part two"     # every part's understanding is kept
     assert ledger.find("provider", "VAV controller") is not None
     assert "F" in str(second["messages"][0]["content"])   # the second part saw the first part's facts

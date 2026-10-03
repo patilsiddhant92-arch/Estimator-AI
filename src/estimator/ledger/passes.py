@@ -3,7 +3,9 @@
 so far and the earlier passes' understanding, and answers with facts, contradictions, confirmations and its own
 understanding. `apply` turns an answer into ledger changes and refuses, in plain words, whatever cannot be
 trusted: a kind the pass may not write, a source the documents do not have, a fact with no quote. A different
-value for a settled fact is never a change: it is a contradiction beside the fact."""
+value for a settled fact is never a change: it is a contradiction beside the fact. A provisional (added) fact of a
+kind this pass settles takes the pass's value and is settled; a count that changes keeps the old count beside it,
+so the higher still prints."""
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -43,6 +45,7 @@ class Pass:
     sheet_types: tuple[str, ...]    # sheet-text lines (7c) it reads, by the sheet's type
     with_images: bool
     instructions: str
+    not_sheet_types: tuple[str, ...] = ()   # sheets of these types are another pass's, even when typed for this one
 
     @property
     def kinds(self) -> tuple[str, ...]:
@@ -63,7 +66,8 @@ PASSES: tuple[Pass, ...] = (
     Pass("details", "Details and control diagrams", ("device", "link"), (), (), ("Details", "Control diagrams", "Diagrams"), False,
          "For units already in the ledger, settle what the details and control diagrams add: control valves, damper "
          "actuators, fire and smoke damper integration, expansion tank sensors, anything touching a scheduled "
-         "unit. Write nothing about equipment the ledger does not hold."),
+         "unit. Write nothing about equipment the ledger does not hold.",
+         not_sheet_types=("Air riser", "Water riser", "Network riser")),
     Pass("risers", "Air and water risers", ("link", "group", "device"), ("family", "unit", "count"), (), ("Air riser", "Water riser"), False,
          "Settle how the systems fit together: which unit serves which (a link: subject the served unit, value the "
          "serving unit), the plant loop (a group: subject the plant's name, value the families in it, comma "
@@ -120,9 +124,9 @@ def documents(pass_, dossier, catalogue) -> str:
             parts.append(text)
     if pass_.sheet_types:
         types = _types_by_number(catalogue)
-        wanted = set(pass_.sheet_types)
+        wanted, others = set(pass_.sheet_types), set(pass_.not_sheet_types)
         lines = [line for _sid, number, line in sheet_text_lines(dossier.text)
-                 if number and wanted & set(types.get(number, ()))]
+                 if number and wanted & set(types.get(number, ())) and not others & set(types.get(number, ()))]
         if lines:
             parts.append("\n".join([f"== SHEET TEXT: {', '.join(pass_.sheet_types)} ==", *lines]))
     return "\n\n".join(parts)
@@ -179,6 +183,21 @@ def _value(value):
     return int(text) if text.isdigit() else text
 
 
+def _number(value) -> int | None:
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value
+    text = _text(value)
+    return int(text) if text.isdigit() else None
+
+
+def _many_valued(kind: str, subject: str) -> bool:
+    """Kinds that hold many values for one subject: every note, the front end's lines and client notes, every
+    location. Each value is its own fact; the rest hold one value per kind and subject."""
+    return kind in ("note", "location") or (kind == "front_end" and subject.casefold() in ("line", "note"))
+
+
 def apply(pass_, ledger: Ledger, answer: dict, known: frozenset[str]) -> list[str]:
     """Write the pass's answer into the ledger; the refusals, in plain words."""
     refused: list[str] = []
@@ -202,6 +221,13 @@ def apply(pass_, ledger: Ledger, answer: dict, known: frozenset[str]) -> list[st
         if not quote:
             refused.append(f"{label} has no quote; left out")
             continue
+        if _many_valued(kind, subject):              # notes, front-end lines and notes, locations: one fact per value
+            same = ledger.find_value(kind, subject, value)
+            if same is None:
+                ledger.add(kind, subject, value, sid, quote, pass_.name, SETTLED if kind in pass_.settles else ADDED)
+            elif kind in pass_.settles:
+                ledger.settle(same.id)
+            continue
         held = ledger.find(kind, subject)
         if held is not None and held.state != ADDED and str(held.value) != str(value):
             ledger.contradict(held.id, value, sid, quote, pass_.name)
@@ -210,10 +236,16 @@ def apply(pass_, ledger: Ledger, answer: dict, known: frozenset[str]) -> list[st
             if kind in pass_.settles:
                 ledger.settle(held.id)
             continue
-        state = SETTLED if kind in pass_.settles else ADDED
-        if held is not None and held.state == ADDED:      # a seed candidate with another value: kept beside it,
-            ledger.contradict(held.id, value, sid, quote, pass_.name)     # the higher count prints
+        if held is not None and held.state == ADDED:
+            if kind not in pass_.settles:                 # a pass that may only add: kept beside it, the higher prints
+                ledger.contradict(held.id, value, sid, quote, pass_.name)
+                continue
+            old, new = _number(held.value), _number(value)
+            ledger.resolve(held.id, value, sid, quote, pass_.name)          # the pass that owns the kind answers it
+            if kind in ("count", "device") and old is not None and new is not None and old != new:
+                ledger.contradict(held.id, held.value, held.source_id, held.quote, held.stage)   # the higher prints
             continue
+        state = SETTLED if kind in pass_.settles else ADDED
         ledger.add(kind, subject, value, sid, quote, pass_.name, state)
 
     for raw in answer.get("contradictions") or []:

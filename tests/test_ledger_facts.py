@@ -109,3 +109,34 @@ def test_the_ledger_round_trips_through_json(tmp_path):
 def test_where_short_drops_the_parenthetical():
     assert where_short("M-201, Drawings.pdf page 3 (sheet text)") == "M-201, Drawings.pdf page 3"
     assert where_short("equipment counts for VAV (schedules and plans)") == "equipment counts for VAV"
+
+
+def test_resolving_an_added_fact_takes_the_passs_value_and_settles_it():
+    ledger = _ledger()
+    ledger.add("count", "VAV", 2, "[S60]", "plan placements 2", "seed")
+    fact = ledger.resolve("F1", 3, "[S41]", "QUANTITY 3", "schedules")
+    assert fact.id == "F1" and ledger.facts["F1"] is fact
+    assert (fact.value, fact.source_id, fact.quote, fact.stage, fact.state) == (3, "S41", "QUANTITY 3", "schedules", SETTLED)
+
+
+def test_resolving_refuses_a_settled_fact_an_empty_quote_or_an_unknown_source():
+    ledger = _ledger()
+    ledger.add("count", "VAV", 12, "[S41]", "QUANTITY 12", "schedules", SETTLED)
+    ledger.add("count", "EF", 2, "[S60]", "plan placements 2", "seed")
+    with pytest.raises(ValueError, match="only a fact still waiting"):
+        ledger.resolve("F1", 14, "[S12]", "VAV-1 … VAV-14", "plans")
+    with pytest.raises(ValueError, match="quote"):
+        ledger.resolve("F2", 3, "[S41]", "  ", "schedules")
+    with pytest.raises(ValueError, match="source"):
+        ledger.resolve("F2", 3, "[S99]", "three", "schedules")
+    with pytest.raises(ValueError, match="pass"):
+        ledger.resolve("F2", 3, "[S41]", "three", "dreams")
+    assert ledger.facts["F2"].value == 2 and ledger.facts["F2"].state == ADDED
+
+
+def test_find_value_matches_the_subject_loosely_and_the_value_exactly():
+    ledger = _ledger()
+    ledger.add("note", "question", "Is the  existing BMS kept?", "[S41]", "existing BMS", "spec", SETTLED)
+    assert ledger.find_value("note", "QUESTION", "Is the existing BMS kept?").id == "F1"
+    assert ledger.find_value("note", "question", "is the existing bms kept?") is None
+    assert ledger.find_value("front_end", "question", "Is the existing BMS kept?") is None

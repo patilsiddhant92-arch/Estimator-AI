@@ -1,6 +1,6 @@
 """The ledger's seed (design 2026-09-29 §1.3): the facts the readers already found, written into the ledger before
 the AI reads a single pass. A schedule's own count is settled; a count from the plans or the tags alone is added,
-for the schedules pass to confirm. Every seed fact cites the dossier line it comes from."""
+for the schedules pass to confirm, and so is every family's name. Every seed fact cites the dossier line it comes from."""
 from __future__ import annotations
 
 import re
@@ -44,15 +44,16 @@ def sheet_text_lines(text: str) -> list[tuple[str, str, str]]:
     return lines
 
 
-def _count_lines(sections: dict[int, str]) -> dict[str, tuple[str, str, str]]:
-    """prefix -> (source id, the quote: the line up to its first full stop, the whole line)."""
+def _count_lines(sections: dict[int, str]) -> dict[str, tuple[str, str, str, str]]:
+    """prefix -> (source id, the quote: the line up to its first full stop, the whole line, the kind the line names
+    in brackets)."""
     found = {}
     for line in sections.get(5, "").splitlines():
         match = _COUNT_LINE.match(line)
         if match:
             body = match.group("body")
             head = f"{match.group('prefix')} ({match.group('kind')}): {body.split('.')[0]}"
-            found[match.group("prefix")] = (match.group(1), head, line)
+            found[match.group("prefix")] = (match.group(1), head, line, match.group("kind").strip())
     return found
 
 
@@ -74,10 +75,10 @@ def seed(dossier) -> Ledger:
     for prefix, counts in (getattr(dossier, "counts", None) or {}).items():
         if prefix not in count_lines:
             continue                      # no dossier line to cite: no fact
-        sid, quote, line = count_lines[prefix]
+        sid, quote, line, kind_from_line = count_lines[prefix]
         rows = _positive(counts.get("schedule_rows"))
-        ledger.add("family", prefix, kinds.get(prefix) or "equipment", sid, quote, "seed",
-                   SETTLED if rows else ADDED)
+        # the kind's name is the catalogue's guess, not the schedule's words: the schedules pass settles it
+        ledger.add("family", prefix, kinds.get(prefix) or kind_from_line or "equipment", sid, quote, "seed", ADDED)
         settled = _positive(counts.get("quantity_column")) or rows
         added = _positive(counts.get("plan_placements")) or _positive(counts.get("distinct_tags"))
         if settled:

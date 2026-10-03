@@ -115,3 +115,103 @@ def test_the_understanding_is_kept_per_pass():
     ledger = seed(_dossier())
     apply(pass_named("schedules"), ledger, _answer(understanding="  Twelve VAV boxes.  "), _known(ledger))
     assert ledger.understanding == {"schedules": "Twelve VAV boxes."}
+
+
+# --- a pass's answer to a provisional fact --------------------------------------------------------------------
+
+def test_a_count_the_schedules_pass_corrects_is_settled_with_the_seed_beside_it():
+    ledger = seed(_dossier())
+    ef = ledger.find("count", "EF")
+    assert ef.state == ADDED and ef.value == 2
+    refused = apply(pass_named("schedules"), ledger, _answer(facts=[
+        {"kind": "count", "subject": "EF", "value": 3, "source_id": "[S4]", "quote": "EF-1, EF-2, EF-3"}]), _known(ledger))
+    after = ledger.facts[ef.id]
+    assert refused == []
+    assert after.value == 3 and after.source_id == "S4" and after.stage == "schedules"
+    assert after.state == CONTRADICTED
+    assert [(c.value, c.source_id, c.stage) for c in after.contradictions] == [(2, "S6", "seed")]
+    assert ledger.printed_count(ef.id) == 3
+    assert len(ledger.of_kind("count")) == 2
+
+
+def test_a_lower_count_from_the_schedules_pass_still_prints_the_higher():
+    ledger = seed(_dossier())
+    ef = ledger.find("count", "EF")
+    apply(pass_named("schedules"), ledger, _answer(facts=[
+        {"kind": "count", "subject": "EF", "value": 1, "source_id": "[S4]", "quote": "EF-1"}]), _known(ledger))
+    assert ledger.facts[ef.id].value == 1 and ledger.printed_count(ef.id) == 2
+
+
+def test_a_name_the_schedules_pass_gives_replaces_the_catalogues_guess():
+    ledger = seed(_dossier())
+    family = ledger.find("family", "EF")
+    apply(pass_named("schedules"), ledger, _answer(facts=[
+        {"kind": "family", "subject": "EF", "value": "Toilet Exhaust Fan", "source_id": "[S4]", "quote": "TOILET EXHAUST FAN"}]),
+        _known(ledger))
+    after = ledger.facts[family.id]
+    assert after.value == "Toilet Exhaust Fan" and after.state == SETTLED and after.contradictions == ()
+    assert len(ledger.of_kind("family")) == 3
+
+
+def test_a_blank_sequence_heading_is_answered_by_the_sequence_pass():
+    ledger = seed(_dossier())
+    heading = ledger.find("sequence_match", "VAV BOXES")
+    apply(pass_named("sequence"), ledger, _answer(facts=[
+        {"kind": "sequence_match", "subject": "VAV BOXES", "value": "VAV", "source_id": "[Q1]", "quote": "VAV BOXES"}]),
+        _known(ledger))
+    after = ledger.facts[heading.id]
+    assert after.value == "VAV" and after.state == SETTLED and after.contradictions == ()
+
+
+def test_a_provisional_count_a_pass_may_only_add_is_kept_beside_it():
+    ledger = seed(_dossier())
+    ef = ledger.find("count", "EF")
+    apply(pass_named("plans"), ledger, _answer(facts=[
+        {"kind": "count", "subject": "EF", "value": 5, "source_id": "[S10]", "quote": "EF-1 … EF-5"}]), _known(ledger))
+    after = ledger.facts[ef.id]
+    assert after.value == 2 and after.state == CONTRADICTED and after.contradictions[0].value == 5
+
+
+# --- facts that hold many values ------------------------------------------------------------------------------
+
+def test_notes_front_end_lines_and_locations_are_kept_one_fact_per_value():
+    ledger = seed(_dossier())
+    apply(pass_named("spec"), ledger, _answer(facts=[
+        {"kind": "note", "subject": "question", "value": "Is the existing BMS kept?", "source_id": "[S13]", "quote": "existing BMS"},
+        {"kind": "note", "subject": "question", "value": "Who provides the VFDs?", "source_id": "[S13]", "quote": "VFDs"},
+        {"kind": "front_end", "subject": "line", "value": "Provide a new Niagara N4 front end", "source_id": "[S13]", "quote": "Niagara N4"},
+        {"kind": "front_end", "subject": "line", "value": "Provide one workstation", "source_id": "[S13]", "quote": "workstation"},
+        {"kind": "note", "subject": "QUESTION", "value": "Is the existing BMS kept?", "source_id": "[S13]", "quote": "existing BMS"},
+    ]), _known(ledger))
+    apply(pass_named("plans"), ledger, _answer(facts=[
+        {"kind": "location", "subject": "VAV", "value": "floor 1", "source_id": "[S10]", "quote": "FIRST FLOOR PLAN"},
+        {"kind": "location", "subject": "VAV", "value": "floor 2", "source_id": "[S10]", "quote": "SECOND FLOOR PLAN"}]),
+        _known(ledger))
+    assert [f.value for f in ledger.of_kind("note")] == ["Is the existing BMS kept?", "Who provides the VFDs?"]
+    assert [f.value for f in ledger.of_kind("front_end")] == ["Provide a new Niagara N4 front end", "Provide one workstation"]
+    assert [f.value for f in ledger.of_kind("location")] == ["floor 1", "floor 2"]
+    assert all(f.state == SETTLED and f.contradictions == () for f in ledger.of_kind("note") + ledger.of_kind("location"))
+
+
+def test_the_front_end_mode_is_still_one_value():
+    ledger = seed(_dossier())
+    apply(pass_named("spec"), ledger, _answer(facts=[
+        {"kind": "front_end", "subject": "mode", "value": "new-system", "source_id": "[S13]", "quote": "new BMS"},
+        {"kind": "front_end", "subject": "mode", "value": "extend-existing", "source_id": "[S13]", "quote": "extend"}]),
+        _known(ledger))
+    (mode,) = ledger.of_kind("front_end")
+    assert mode.value == "new-system" and mode.state == CONTRADICTED
+
+
+# --- riser sheets belong to the risers pass -------------------------------------------------------------------
+
+def test_the_details_pass_leaves_riser_sheets_to_the_risers_pass():
+    sheets = (SimpleNamespace(document="Drawings.pdf", page=3, number="M-201", title="RISER", discipline="Mechanical",
+                              types=("Details", "Air riser")),
+              SimpleNamespace(document="Drawings.pdf", page=12, number="M-601", title="DETAILS", discipline="Mechanical",
+                              types=("Details",)))
+    catalogue = SimpleNamespace(sheets=sheets)
+    details = documents(pass_named("details"), _dossier(), catalogue)
+    assert "[S11] M-601" in details and "[S10] M-201" not in details
+    assert "[S10] M-201" in documents(pass_named("risers"), _dossier(), catalogue)
+    assert pass_named("details").not_sheet_types == ("Air riser", "Water riser", "Network riser")

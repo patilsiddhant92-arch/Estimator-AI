@@ -74,7 +74,7 @@ def test_a_scheduled_family_seeds_a_settled_family_and_count():
     ledger = seed(_dossier())
     family = ledger.find("family", "VAV")
     count = ledger.find("count", "VAV")
-    assert family.value == "Variable Air Volume Box" and family.state == SETTLED and family.source_id == "S5"
+    assert family.value == "Variable Air Volume Box" and family.state == ADDED and family.source_id == "S5"   # the name is the catalogue's guess
     assert family.quote == "VAV (Variable Air Volume Box): schedule rows 12; QUANTITY column total 12; distinct tags 12; plan placements 14 (M-201 6, M-202 8); riser —"
     assert count.value == 12 and count.state == SETTLED and count.stage == "seed"
     assert ledger.find("unit", "VAV").value == "VAV-1 thru 12"
@@ -106,3 +106,15 @@ def test_the_seed_keeps_the_dossier_sources_and_names_the_job():
     ledger = seed(_dossier())
     assert ledger.sources == SOURCES and ledger.job_name == "26-9999"
     assert ledger.understanding == {} and ledger.complete is False
+
+
+def test_a_family_the_readers_did_not_name_takes_the_kind_from_its_count_line():
+    ledger = seed(_dossier(families=()))
+    assert ledger.find("family", "VAV").value == "Variable Air Volume Box"
+    assert ledger.find("family", "EF").value == "Exhaust Fan"
+
+
+def test_every_seeded_family_waits_for_the_schedules_pass():
+    ledger = seed(_dossier())
+    assert {f.subject: f.state for f in ledger.of_kind("family")} == {"VAV": ADDED, "EF": ADDED, "T": ADDED}
+    assert ledger.find("count", "VAV").state == SETTLED and ledger.find("count", "EF").state == ADDED

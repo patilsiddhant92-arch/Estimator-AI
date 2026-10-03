@@ -117,6 +117,24 @@ class Ledger:
             self.facts[fact.id] = fact
         return fact
 
+    def resolve(self, fact_id: str, value, source_id: str, quote: str, stage: str) -> Fact:
+        """The pass that owns a provisional fact's kind gives its value: the fact takes that value, source, quote and
+        pass, keeps its id and becomes settled. Only a fact still waiting (added) can be resolved."""
+        fact = self.facts[plain_id(fact_id) or fact_id]
+        if fact.state != ADDED:
+            raise ValueError(f"{fact.id} is {fact.state}: only a fact still waiting for its pass can take a new value")
+        if stage not in STAGES:
+            raise ValueError(f"a fact's pass must be one of {', '.join(STAGES)}, not {stage!r}")
+        sid = plain_id(source_id)
+        if not self.knows(sid):
+            raise ValueError(f"the source {source_id!r} is not one the dossier or the ledger has")
+        quote = " ".join(str(quote or "").split())
+        if not quote:
+            raise ValueError("a fact needs a quote: the words or numbers stating it")
+        fact = replace(fact, value=value, source_id=sid, quote=quote, stage=stage, state=SETTLED)
+        self.facts[fact.id] = fact
+        return fact
+
     def contradict(self, fact_id: str, value, source_id: str, quote: str, stage: str) -> Fact:
         """A different value for a fact, kept beside it with its own source; the fact's value stays."""
         fact = self.facts[plain_id(fact_id) or fact_id]
@@ -151,6 +169,13 @@ class Ledger:
     def find(self, kind: str, subject: str) -> Fact | None:
         key = subject.casefold()
         return next((f for f in self.facts.values() if f.kind == kind and f.subject.casefold() == key), None)
+
+    def find_value(self, kind: str, subject: str, value) -> Fact | None:
+        """The fact of this kind and subject holding this value (the subject in any case, the value word for word
+        once its spaces are squashed); None when there is none."""
+        key, wanted = subject.casefold(), " ".join(str(value).split())
+        return next((f for f in self.facts.values() if f.kind == kind and f.subject.casefold() == key
+                     and " ".join(str(f.value).split()) == wanted), None)
 
     def table(self, fact_ids=None) -> str:
         facts = self.facts.values() if fact_ids is None else [self.facts[plain_id(i) or i] for i in fact_ids

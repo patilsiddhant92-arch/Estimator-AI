@@ -138,3 +138,71 @@ def test_a_highest_count_stored_as_text_with_spaces_still_plans():
     (vav,) = ledger_plan(ledger).systems
     assert vav.quantity == 14 and vav.quantity_source == "[S5]" and vav.quantity_quote == "QUANTITY column total 14"
     assert vav.count_note == "*Qty. (14) per equipment counts for VAV; M-201, Drawings.pdf page 3 lists (12)."
+
+
+# --- from the seed, through the passes, to the plan ---------------------------------------------------------
+
+from estimator.ledger.facts import ADDED
+from estimator.ledger.passes import apply, pass_named
+from estimator.ledger.seed import seed
+from tests.test_ledger_seed import _dossier
+
+
+def _read(*answers):
+    """The seed of the test job, then each (pass name, facts) answer applied in turn."""
+    ledger = seed(_dossier())
+    for name, facts in answers:
+        known = frozenset(ledger.sources) | frozenset(ledger.facts)
+        assert apply(pass_named(name), ledger, {"facts": facts, "contradictions": [], "confirmations": [],
+                                                "understanding": "ok"}, known) == []
+    return ledger
+
+
+def _by_key(plan):
+    return {s.key: s for s in plan.systems}
+
+
+def test_the_sequence_pass_answer_lands_on_the_systems_sequence_section():
+    ledger = _read(("sequence", [{"kind": "sequence_match", "subject": "VAV BOXES", "value": "VAV", "source_id": "[Q1]",
+                                  "quote": "VAV BOXES"}]))
+    vav = _by_key(ledger_plan(ledger))["VAV"]
+    assert vav.sequence_section == "[Q1]" and vav.sequence_sources == ("[Q1]",)
+
+
+def test_the_schedules_pass_name_is_the_planned_header():
+    ledger = _read(("schedules", [{"kind": "family", "subject": "EF", "value": "Toilet Exhaust Fan", "source_id": "[S4]",
+                                   "quote": "TOILET EXHAUST FAN"}]))
+    ef = _by_key(ledger_plan(ledger))["EF"]
+    assert ef.header == "Toilet Exhaust Fan EF-1, EF-2" and ef.kind == "Toilet Exhaust Fan"
+
+
+def test_two_questions_and_two_front_end_lines_all_reach_the_plan():
+    ledger = _read(("spec", [
+        {"kind": "note", "subject": "question", "value": "Is the existing BMS kept?", "source_id": "[S13]", "quote": "existing BMS"},
+        {"kind": "note", "subject": "question", "value": "Who provides the VFDs?", "source_id": "[S13]", "quote": "VFDs"},
+        {"kind": "front_end", "subject": "line", "value": "Provide a new Niagara N4 front end", "source_id": "[S13]", "quote": "Niagara N4"},
+        {"kind": "front_end", "subject": "line", "value": "Provide one workstation", "source_id": "[S13]", "quote": "workstation"}]))
+    assert len(ledger.of_kind("note")) + len(ledger.of_kind("front_end")) == 4
+    plan = ledger_plan(ledger)
+    assert plan.unresolved == ("Is the existing BMS kept?", "Who provides the VFDs?")
+    assert plan.front_end["lines"] == ["Provide a new Niagara N4 front end", "Provide one workstation"]
+
+
+def test_a_corrected_count_prints_the_higher_of_the_pass_and_the_seed():
+    ledger = _read(("schedules", [{"kind": "count", "subject": "EF", "value": 3, "source_id": "[S4]", "quote": "EF-1, EF-2, EF-3"}]))
+    ef = _by_key(ledger_plan(ledger))["EF"]
+    assert ef.quantity == 3 and ef.quantity_source == "[S4]" and "(2)" in ef.count_note
+    ledger = _read(("schedules", [{"kind": "count", "subject": "EF", "value": 1, "source_id": "[S4]", "quote": "EF-1"}]))
+    ef = _by_key(ledger_plan(ledger))["EF"]
+    assert ef.quantity == 2 and ef.quantity_source == "[S6]" and "(1)" in ef.count_note
+
+
+def test_why_a_family_is_flagged_follows_its_count_not_its_name():
+    ledger = seed(_dossier())
+    assert ledger.find("family", "VAV").state == ADDED
+    plan = _by_key(ledger_plan(ledger))
+    assert plan["VAV"].why.startswith("From the job ledger")          # a settled schedule count
+    assert plan["EF"].why == "Seen on the drawings but on no schedule; confirm it exists."     # a plan count only
+    assert plan["T"].why == "Seen on the drawings but on no schedule; confirm it exists."      # no count at all
+    ledger.add("family", "OAF", "Outdoor Air Fan", "[Q2]", "OUTDOOR AIR FAN", "sequence")
+    assert _by_key(ledger_plan(ledger))["OAF"].why == "Named in the sequence of operation; no drawing shows it."

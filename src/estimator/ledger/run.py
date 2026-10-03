@@ -30,6 +30,7 @@ def read_job(judge, dossier, catalogue, save_to: Path | None = None, limit: int 
         parts = wj._chunks(text, limit) if len(text) > limit else [text]
         pass_images = images if pass_.with_images else []
         refused: list[str] = []
+        understood: list[str] = []
         for n, part in enumerate(parts, start=1):
             name = f"the {pass_.title} pass" + (f" (part {n} of {len(parts)})" if len(parts) > 1 else "")
             extra = {"pass": pass_.name} | ({"part": f"{n} of {len(parts)}"} if len(parts) > 1 else {})
@@ -42,6 +43,8 @@ def read_job(judge, dossier, catalogue, save_to: Path | None = None, limit: int 
                 return ledger
             known = wj.known_ids(part, pass_images) | frozenset(ledger.facts) | known_all
             refused += apply(pass_, ledger, got[0], known)
+            understood.append(ledger.understanding.get(pass_.name, ""))
+        ledger.understanding[pass_.name] = " ".join(u for u in understood if u)   # every part's understanding
         ledger.refused[pass_.name] = refused
         save()
     ledger.complete = True
