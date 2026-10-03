@@ -16,6 +16,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 ATTEMPTS = ".run-job-attempts.json"
+MAIN_LIST = {"read_pass": "facts", "write_system": "lines", "qc_job": "findings"}   # the answer's main list, by kind
 OUT_MARKER = ".run-job-out"          # beside the requests: which out folder the last status run used
 
 
@@ -45,6 +46,9 @@ def check_answer(answer_file: Path, request_file: Path) -> str | None:
     missing = [k for k in schema.get("required", []) if k not in answer]
     if missing:
         return "the answer is missing: " + ", ".join(missing)
+    main = MAIN_LIST.get(_load(request_file).get("kind"))
+    if main and not isinstance(answer.get(main), list):
+        return f"'{main}' must be a list"
     for key, prop in (schema.get("properties") or {}).items():
         if isinstance(prop, dict) and prop.get("type") == "array" and key in answer and not isinstance(answer[key], list):
             return f"'{key}' must be a list"
@@ -70,6 +74,30 @@ def cmd_check(args) -> int:
     return 1
 
 
+def job_name(job: Path) -> str:
+    """The name the estimator writes as a request's `job`: the job folder's name up to the first comma."""
+    return Path(job).name.split(",")[0].strip()
+
+
+def waiting_requests(requests: Path, job: str, attempts: dict) -> list:
+    """This job's requests (by `job`) whose answer file does not exist yet."""
+    waiting = []
+    for path in sorted(requests.glob("*.json")):
+        try:
+            request = _load(path)
+        except ValueError:
+            continue
+        if not isinstance(request, dict) or request.get("job") != job:
+            continue
+        answer = request.get("answer_file", "")
+        answer_path = Path(answer) if Path(answer).is_absolute() else ROOT / answer
+        if answer_path.exists():
+            continue
+        waiting.append({"file": str(path), "kind": request.get("kind"), "system": request.get("system"),
+                        "answer_file": answer, "attempts": attempts.get(request.get("key"), 0)})
+    return waiting
+
+
 def cmd_status(args) -> int:
     out = args.out
     out.mkdir(parents=True, exist_ok=True)
@@ -84,17 +112,7 @@ def cmd_status(args) -> int:
     waiting = []
     if requests.is_dir():
         (requests / OUT_MARKER).write_text(str(out.resolve()), encoding="utf-8")
-        for path in sorted(requests.glob("*.json")):
-            try:
-                request = _load(path)
-            except ValueError:
-                continue
-            answer = request.get("answer_file", "")
-            answer_path = Path(answer) if Path(answer).is_absolute() else ROOT / answer
-            if answer_path.exists():
-                continue
-            waiting.append({"file": str(path), "kind": request.get("kind"), "system": request.get("system"),
-                            "answer_file": answer, "attempts": attempts.get(request.get("key"), 0)})
+        waiting = waiting_requests(requests, job_name(args.job), attempts)
     proposal = None
     if not waiting:
         for line in text.splitlines():

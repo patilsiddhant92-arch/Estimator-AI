@@ -23,17 +23,22 @@ Read `.claude/run-job.json`: `judge_model` (reading passes), `writer_model` (wri
 
 1. Run `.venv/Scripts/python.exe tools/run_job.py status <job> --out <out> [--cache <cache>]`. It runs the
    estimate and ends with a block listing the requests still waiting and the proposal path, if any.
+   A non-zero exit from `status` while requests are waiting is expected; go by the block, not the exit code.
 2. If `proposal` is set, go to the finish. Otherwise handle the waiting requests by kind:
    - `read_pass`: one at a time, in the order listed (each reading depends on the one before).
    - `write_system`: up to 4 at once, each in its own subagent, all dispatched in one message.
    - `qc_job`: alone.
 
-   For each request, start one subagent on the model for its kind, with exactly this prompt (put in the path):
+   For each request, start one subagent whose Agent `model` parameter is `judge_model` for `read_pass`,
+   `writer_model` for `write_system` and `qc_model` for `qc_job`. Give it exactly this prompt, with `<path>`
+   taken from the status block's `file` (and its `answer_file` from the block's `answer_file`):
 
    "You are the AI judge of the estimating tool. Read the request file <path>. Its `system_prompt` is your
    instructions; answer its `prompt` exactly in the JSON shape of its `schema`; write the JSON to its
    `answer_file` (relative to the repo root), UTF-8; do not spawn subagents; do not run the estimator; reply
    with one line."
+
+   Add to the prompt that the subagent must create the answer file's parent folder if it is missing.
 3. When a subagent is done, run `.venv/Scripts/python.exe tools/run_job.py check <answer_file> <request file>`.
    If it fails, delete the answer file and dispatch that request again. Stop retrying a request once it has
    failed `max_attempts` times (the `attempts` count in the status block); report which request and why, and stop.
