@@ -964,9 +964,13 @@ def parse_scope(answer: dict, model: str, style: HouseStyle, known: frozenset[st
                         exclusions=tuple(_texts(answer.get("exclusions"))), qc=_qc(answer.get("qc")))
 
 
+_QTY_IN_TEXT = re.compile(r"\(?\bQty\.?\s*\(?\s*(\d+)", re.I)   # "(Qty. 12 Total)" written in a line
+
+
 def ledger_check(scope: WrittenScope, facts: frozenset[str], counts: frozenset[int]) -> WrittenScope:
     """The two ledger rules on a written scope: with `facts`, a line naming none of them is refused; with `counts`,
-    a line whose quantity is none of them is refused. Each refusal is listed in plain words."""
+    a line whose quantity, or a count written in its text ("(Qty. 12 Total)"), is none of them is refused. Each
+    refusal is listed in plain words."""
     if not facts and not counts:
         return scope
     kept, refused = [], list(scope.refused)
@@ -976,6 +980,12 @@ def ledger_check(scope: WrittenScope, facts: frozenset[str], counts: frozenset[i
             continue
         if counts and line.quantity is not None and line.quantity not in counts:
             refused.append(f"“{line.text}” gives {line.quantity}, which is no count in this system's ledger entry; "
+                           "left out")
+            continue
+        written = next((n for n in (int(m) for m in _QTY_IN_TEXT.findall(line.text)) if n not in counts), None) \
+            if counts else None
+        if written is not None:
+            refused.append(f"“{line.text}” gives {written}, which is no count in this system's ledger entry; "
                            "left out")
             continue
         kept.append(line)

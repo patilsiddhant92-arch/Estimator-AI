@@ -686,3 +686,22 @@ def test_write_system_carries_the_ledger_entry_and_checks_the_lines(tmp_path):
     assert "F1 family VAV" in str(client.calls[0]["messages"][0]["content"])
     assert [line.text for line in scope.lines] == ["Furnish and Install Space Temperature Sensor"]
     assert any("gives 13" in r for r in scope.refused)
+
+
+def test_ledger_check_refuses_a_count_written_in_the_text_the_ledger_lacks():
+    style = load_house_style()
+    scope = parse_scope(_ledger_answer(_ledger_line("Furnish and Install VAV Controller (Qty. 13 Total)")),
+                        "m", style, frozenset({"S2"}))
+    assert scope.lines[0].quantity is None
+    checked = ledger_check(scope, frozenset({"F1"}), frozenset({12, 14}))
+    assert checked.lines == ()
+    assert checked.refused[-1] == ("“Furnish and Install VAV Controller (Qty. 13 Total)” gives 13, which is no count "
+                                   "in this system's ledger entry; left out")
+
+
+def test_ledger_check_keeps_a_ledger_count_written_in_the_text():
+    style = load_house_style()
+    scope = parse_scope(_ledger_answer(_ledger_line("Furnish and Install VAV Controller (Qty. 12 Total)")),
+                        "m", style, frozenset({"S2"}))
+    checked = ledger_check(scope, frozenset({"F1"}), frozenset({12, 14}))
+    assert [line.text for line in checked.lines] == ["Furnish and Install VAV Controller (Qty. 12 Total)"]
