@@ -27,6 +27,8 @@ READING_TABS = ("Equipment", "Schedules", "Devices on plans", "Notes", "Changes"
 ESTIMATE_TABS = ("Review list", "Scope lines")
 # The whole-job method: every system the AI planned, with its quantity checked against the counts.
 PLAN_TAB = "Plan"
+READ_TAB = "How the job was read"
+LEDGER_TAB = "Job ledger"
 # The GEM's own checks per system (the whole-job method): its Quick Scan, its contradiction scan and its Self-QC.
 GEM_TAB = "GEM QC"
 # The estimator's corrections, read back by `estimator corrections` (estimator.corrections).
@@ -58,7 +60,7 @@ def _append(ws, row: list) -> None:
 
 
 def write_evidence(path: Path, catalogue: Catalogue, reading: JobReading | None = None,
-                   systems=None, review_flags=(), plan=None) -> Path:
+                   systems=None, review_flags=(), plan=None, ledger=None) -> Path:
     """The Evidence Package. With the written systems (build step 5), the review list and every
     scope line come right after the bid check; `review_flags` are the review items that belong to
     no system: a family on the drawings but on no schedule, as a flag's text, or a ReviewItem (the
@@ -66,12 +68,16 @@ def write_evidence(path: Path, catalogue: Catalogue, reading: JobReading | None 
     workbook = Workbook()
     workbook.remove(workbook.active)
     _bid_check(workbook.create_sheet(TABS[0]), catalogue)
+    if ledger is not None:
+        _how_read(workbook.create_sheet(READ_TAB), ledger)
     if systems is not None:
         flags = list(catalogue.flags) + list(reading.flags if reading is not None else ())
         _review_list(workbook.create_sheet(ESTIMATE_TABS[0]), systems, review_flags, flags)
         _scope_lines(workbook.create_sheet(ESTIMATE_TABS[1]), systems)
     if plan is not None:
         _plan(workbook.create_sheet(PLAN_TAB), plan)
+    if ledger is not None:
+        _ledger(workbook.create_sheet(LEDGER_TAB), ledger)
     gem = [record for system in systems or () for record in getattr(system, "gem", ()) or ()]
     if gem:
         _gem(workbook.create_sheet(GEM_TAB), gem)
@@ -102,6 +108,36 @@ def write_evidence(path: Path, catalogue: Catalogue, reading: JobReading | None 
     path.parent.mkdir(parents=True, exist_ok=True)
     workbook.save(str(path))
     return path
+
+
+def _how_read(ws, ledger) -> None:
+    """One row per reading pass, in the estimator's order: what the tool understood after it, and what it refused."""
+    from estimator.ledger.passes import PASSES
+    _headings(ws, ["Pass", "What the tool understood", "What it refused"])
+    for p in PASSES:
+        refused = "; ".join(ledger.refused.get(p.name, ()) or ()) or None
+        _append(ws, [p.title, ledger.understanding.get(p.name) or "(not read)", refused])
+        for column in (2, 3):
+            ws.cell(ws.max_row, column).alignment = Alignment(wrap_text=True, vertical="top")
+    _widths(ws, [30, 90, 60])
+
+
+def _ledger(ws, ledger) -> None:
+    """Every fact of the job ledger: its value, the count that prints, its state and pass, where it comes from and
+    the words that state it, then the other values later passes found."""
+    _headings(ws, ["Id", "Kind", "Subject", "Value", "Printed count", "State", "Pass", "Source", "Where", "Quote",
+                   "Other values"])
+    ws.freeze_panes = "A2"
+    for fact in ledger.facts.values():
+        others = "; ".join(f"{c.stage} says {c.value} [{c.source_id}] “{c.quote}”" for c in fact.contradictions) or None
+        _append(ws, [fact.id, fact.kind, fact.subject, fact.value, ledger.printed_count(fact.id), fact.state, fact.stage,
+                     fact.source_id, ledger.sources.get(fact.source_id) or None, fact.quote, others])
+        for column in (10, 11):
+            ws.cell(ws.max_row, column).alignment = Alignment(wrap_text=True, vertical="top")
+    if not ledger.facts:
+        _append(ws, ["", "The ledger holds no facts."])
+    ws.auto_filter.ref = ws.dimensions
+    _widths(ws, [8, 14, 24, 30, 12, 12, 10, 8, 40, 50, 50])
 
 
 def _section_heading(ws, text: str) -> None:

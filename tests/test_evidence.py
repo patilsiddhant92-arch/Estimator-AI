@@ -248,3 +248,28 @@ def test_the_other_reading_tabs(tmp_path):
 
 def test_without_a_reading_the_workbook_is_as_before(tmp_path):
     assert openpyxl.load_workbook(write_evidence(tmp_path / "e.xlsx", _catalogue())).sheetnames == list(TABS)
+
+
+def test_the_ledger_tabs_show_how_the_job_was_read_and_every_fact(tmp_path):
+    catalogue = _catalogue()
+    from openpyxl import load_workbook
+    from estimator.evidence.workbook import LEDGER_TAB, READ_TAB, write_evidence
+    from estimator.ledger.facts import SETTLED, Ledger
+    ledger = Ledger({"S5": "equipment counts for VAV (schedules and plans)", "S10": "M-201, Drawings.pdf page 3 (sheet text)"})
+    ledger.add("count", "VAV", 12, "[S5]", "QUANTITY column total 12", "seed", SETTLED)
+    ledger.contradict("F1", 14, "[S10]", "VAV-1 … VAV-14", "plans")
+    ledger.understanding = {"schedules": "Twelve VAV boxes.", "plans": "Fourteen placed; two more than scheduled."}
+    ledger.refused = {"plans": ["location EF = roof has no quote; left out"]}
+
+    path = write_evidence(tmp_path / "e.xlsx", catalogue, ledger=ledger)
+    book = load_workbook(path)
+    assert book.sheetnames[:2] == ["Bid check", READ_TAB]
+    read = list(book[READ_TAB].iter_rows(values_only=True))
+    assert read[0] == ("Pass", "What the tool understood", "What it refused")
+    assert read[1] == ("Schedules", "Twelve VAV boxes.", None)
+    assert read[2] == ("Plans", "Fourteen placed; two more than scheduled.", "location EF = roof has no quote; left out")
+    assert read[3][:2] == ("Details and control diagrams", "(not read)")
+    rows = list(book[LEDGER_TAB].iter_rows(values_only=True))
+    assert rows[0] == ("Id", "Kind", "Subject", "Value", "Printed count", "State", "Pass", "Source", "Where", "Quote", "Other values")
+    assert rows[1] == ("F1", "count", "VAV", 12, 14, "contradicted", "seed", "S5", "equipment counts for VAV (schedules and plans)",
+                       "QUANTITY column total 12", "plans says 14 [S10] “VAV-1 … VAV-14”")
