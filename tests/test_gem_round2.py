@@ -474,3 +474,14 @@ def test_the_same_row_for_two_systems_is_one_row():
     _, _, _, ranked = _assemble([RTUS, other], scopes)
     rows = [r for r in ranked if "Unit smoke detector alarm wiring" in r.decide]
     assert len(rows) == 1 and "RTU-1, 2" in rows[0].system and "RTU-3" in rows[0].system
+
+
+def test_an_exclusion_pointing_at_another_block_or_naming_a_tagged_unit_is_never_a_unit_mfr_line():
+    scope = _scope(_gl("Furnish BMS Communication Wiring to Factory Controls"), quick_scan=FACTORY,
+                   exclusions=("Make-up air fan MUAF-1-1, 2 wiring and its dampers, written in the Laundry Make-Up "
+                               "Air Fan block.",
+                               "Wiring of the remote condensate overflow switch to the factory controller."))
+    job, _, _, _ = _assemble([RTUS], {"RTU": scope})
+    items = _items(job, "Qty (2) Packaged Rooftop Unit RTU-1, 2")
+    assert not any("MUAF" in t or "Make-Up Air Fan" in t for _, t in items)
+    assert ("line", "Install and Wire Remote Condensate Overflow Switch (Furnished by Unit Mfr.)") in items

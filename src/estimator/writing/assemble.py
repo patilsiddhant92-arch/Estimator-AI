@@ -2054,6 +2054,7 @@ _LOOSE = re.compile(r"shipped\s+loose|\bremote\b|field[- ]mounted|wall[- ]mounte
 _NOT_A_DEVICE = re.compile(r"\s+(?:(?:furnishing|installing|wiring|mounting)(?:\s+and\s+\w+)?\s+party|installer|"
                            r"ownership|quantity|count|party)\b.*$|\s+(?:not\s+named|no\s+named\s+party)\b.*$", re.I)
 _WIRING = re.compile(r"\bwir(?:e|es|ed|ing)\b", re.I)
+_WRITTEN_ELSEWHERE = re.compile(r"\b(?:written|priced|carried|covered|included)\s+(?:in|under|with)\b.*\bblock\b", re.I)
 
 
 def with_clarifications(text: str, notes) -> str:
@@ -2459,6 +2460,8 @@ def factory_rows(system, rows: list, scope, style, quantity, name: str) -> list:
             continue
         if re.search(r"\bno\s+line\s+written\b|\boem\s+scope\b", item, re.I):
             continue                          # the AI's own ruling: the manufacturer's alone
+        if _WRITTEN_ELSEWHERE.search(item) or _TAG_RUN.search(device):
+            continue                          # "… written in the X block": another block's work; a tagged unit is no device
         if _LOOSE.search(item):
             verb = "Install and Wire"
         elif _WIRING.search(item) or (blanket and item in flags):
