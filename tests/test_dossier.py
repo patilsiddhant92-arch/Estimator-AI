@@ -451,7 +451,7 @@ def test_an_empty_job_still_has_every_section(tmp_path):
 # --- round 3: the plan sheets' own notes (7b) -------------------------------------------------------------
 
 def test_the_plan_sheet_notes_are_all_given_in_7b_with_ids_capped_per_sheet(tmp_path, monkeypatch):
-    from estimator.writing.whole_job import split_dossier, _sections
+    from estimator.writing.whole_job import _sections
     catalogue, reading = _job()
     plumbing = "Drawings/Plumb.pdf"
     catalogue.sheets = catalogue.sheets + (_sheet(1, "P-101", "PLUMBING PLAN", discipline="Plumbing",

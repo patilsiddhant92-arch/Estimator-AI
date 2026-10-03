@@ -6,7 +6,7 @@ import json
 
 from estimator.reading.sequences import POINTS, SEQUENCE
 from estimator.writing.dossier import build_dossier, is_section_heading, sections_in
-from estimator.writing.whole_job import PLAN_PROMPT, Family, parse_plan, plan_schema
+from estimator.writing.whole_job import Family
 from estimator.writing.style import load_house_style
 from test_dossier import SPEC, _backbone, _catalogue, _doc, _job, _page, _reading
 
@@ -92,75 +92,6 @@ def test_a_job_with_no_headings_has_no_sections(tmp_path):
     reading = _reading(backbone=[_backbone(SEQUENCE, "SEQ (Specs.pdf, page 1)", SPEC, 1, 1)])
     d = build_dossier(catalogue, reading, tmp_path)
     assert d.sections == {} and "[Q" not in d.text
-
-
-# --- Part 1: the plan names each system's sequence section and its families ----------------------------------------
-
-def test_the_plan_prompt_makes_one_system_per_sequence_section_with_one_header_per_family():
-    for words in ("One system per sequence section.",
-                  "A section that describes several equipment families together (dryer exhaust fans and their "
-                  "make-up air fans; a fan and its damper; a chiller plant) is ONE system with one header per family.",
-                  "Give each system its `Q` id(s), and every equipment family it covers with the family's count.",
-                  "A family that no sequence section covers becomes its own system, citing its schedule row or plan "
-                  "count."):
-        assert words in PLAN_PROMPT, words
-    system = plan_schema()["properties"]["systems"]["items"]
-    assert {"sequence_section", "families"} <= set(system["required"])
-    family = system["properties"]["families"]["items"]
-    assert set(family["required"]) == {"header", "tags", "quantity", "quantity_source", "quantity_quote"}
-
-
-def _dryer_answer(**families):
-    fams = families.get("families", [
-        {"header": "Dryer Exhaust Fan DXF-1-1, 2", "tags": ["DXF-1-1", "DXF-1-2"], "quantity": 2,
-         "quantity_source": "[S5]", "quantity_quote": "DXF-1-1 | DXF-1-2"},
-        {"header": "Make-up Air Fan MUAF-1-1, 2", "tags": ["MUAF-1-1", "MUAF-1-2"], "quantity": 2,
-         "quantity_source": "[S6]", "quantity_quote": "MUAF-1-1 | MUAF-1-2"}])
-    return {"systems": [{
-        "key": "DXF-MUAF", "header": "Dryer Exhaust and Make-up Air Fans", "kind": "Exhaust Fan",
-        "tags": ["DXF-1-1", "DXF-1-2", "MUAF-1-1", "MUAF-1-2"], "quantity": 2, "quantity_source": "[S5]",
-        "quantity_quote": "DXF-1-1 | DXF-1-2", "sequence_sources": ["[S2]"], "schedule_sources": ["[S5]", "[S6]"],
-        "group": "", "alternate": "", "exception": "", "why": "One sequence section runs them together.",
-        "sequence_section": "[Q3]", "families": fams}],
-        "front_end": {"mode": "new-system", "existing_name": "", "lines": [], "notes": [], "sources": []},
-        "unresolved": []}
-
-
-KNOWN = frozenset({"S2", "S5", "S6", "Q3"})
-
-
-def test_a_system_of_several_families_keeps_its_section_and_each_family_with_its_count():
-    plan = parse_plan(_dryer_answer(), "m", STYLE, KNOWN)
-    (system,) = plan.systems
-    assert system.sequence_section == "Q3"
-    assert system.families == (
-        Family("Dryer Exhaust Fan DXF-1-1, 2", ("DXF-1-1", "DXF-1-2"), 2, "[S5]", "DXF-1-1 | DXF-1-2"),
-        Family("Make-up Air Fan MUAF-1-1, 2", ("MUAF-1-1", "MUAF-1-2"), 2, "[S6]", "MUAF-1-1 | MUAF-1-2"))
-
-
-def test_a_family_count_with_no_words_stating_it_is_cleared_and_asked_but_the_system_stays():
-    answer = _dryer_answer()
-    answer["systems"][0]["families"][1]["quantity_quote"] = ""
-    plan = parse_plan(answer, "m", STYLE, KNOWN)
-    (system,) = plan.systems
-    assert system.families[1].quantity is None
-    assert any("Make-up Air Fan" in q for q in plan.unresolved)
-
-
-def test_one_family_is_the_system_itself():
-    answer = _dryer_answer(families=[{"header": "Dryer Exhaust Fan DXF-1-1, 2", "tags": ["DXF-1-1", "DXF-1-2"],
-                                      "quantity": 2, "quantity_source": "[S5]", "quantity_quote": "DXF-1-1 | DXF-1-2"}])
-    (system,) = parse_plan(answer, "m", STYLE, KNOWN).systems
-    assert system.families == ()
-    assert system.header == "Dryer Exhaust Fan DXF-1-1, 2" and system.tags == ("DXF-1-1", "DXF-1-2")
-
-
-def test_an_old_plan_answer_without_sections_or_families_still_reads():
-    answer = _dryer_answer()
-    for key in ("sequence_section", "families"):
-        del answer["systems"][0][key]
-    (system,) = parse_plan(json.loads(json.dumps(answer)), "m", STYLE, KNOWN).systems
-    assert system.sequence_section == "" and system.families == ()
 
 
 # --- Part 2: the write step runs the GEM ---------------------------------------------------------------------------

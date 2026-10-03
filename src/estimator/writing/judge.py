@@ -10,6 +10,11 @@ Two kinds of question:
 - "compose" (`compose()`): for a system with no template, Claude writes the block itself, in the
   house style, shown the nearest templates and blocks from past proposals as examples.
 
+The whole-job method adds two more (prompts and schemas in `estimator.ledger.passes` and whole_job.py):
+- "read_pass" (`Judge.ask_pass`): one of the seven reading passes of `estimator.ledger`, each adding
+  facts to the job ledger. The job's systems come from that ledger (`estimator.ledger.to_plan`).
+- "write_system" (`Judge.write_system`): one pass per planned system writes its scope lines.
+
 Every line Claude writes is checked against the house style (assets/house_style.json): a line
 that does not start with a house verb, names hours or a price, is too long, or gives a quantity
 or a reason with no quote is dropped and listed in `refused`, and so is a note that does not
@@ -215,7 +220,7 @@ class Judge:
         are from an older run of it) and every request whose job is not recorded moves into requests/old/.
         Only another job's requests stay. The questions the run still asks are written again (and leave old/);
         the answers are never touched. A request from before requests said their job is this job's when it is a
-        plan whose dossier names the job's number, or a scope question whose places are this dossier's
+        reading pass whose prompt names the job's number, or a scope question whose places are this dossier's
         (`sources`); either way it moves. Returns how many were moved."""
         if self.mode != CHAT or not self.job or not self.requests_dir.is_dir():
             return 0
@@ -432,37 +437,9 @@ class Judge:
             raise _Unusable("the AI answer could not be read")
         return answer, getattr(response, "model", None) or self.model
 
-    # -- the whole-job questions (plan_job, write_system): see whole_job.py ----------------------------
+    # -- the whole-job questions (read_pass, write_system): see whole_job.py and estimator.ledger --------
     # Added for the whole-job method; the questions above are unchanged. The shapes, prompts, schemas
     # and checks live in whole_job.py (imported here, not at the top, as it imports this module).
-
-    def plan_job(self, dossier_text: str, images, checklist, style_text: str):
-        """Plan every system of the job from its whole dossier: a `whole_job.JobPlan`, or None with
-        `last_error` set. `checklist` is the Master Template checklist's text (or the templates);
-        `images` are the dossier's pictures (path, what, sheet, document, page). A dossier over
-        `whole_job.SPLIT_LIMIT` characters is asked in parts and the plans merged by key."""
-        from estimator.writing import whole_job as wj
-        images = list(images or ())
-        known = wj.known_ids(dossier_text, images)
-        parts = wj.split_dossier(dossier_text, wj.SPLIT_LIMIT)
-        plans, failed = [], None
-        for part in parts:     # every part is asked, so the chat gets all its requests in one run
-            part_images = images if part.has_schedules else []
-            prompt = wj.plan_prompt(part.text, part_images, checklist, style_text, part)
-            name = "the whole job" if part.of == 1 else f"the whole job (part {part.number} of {part.of})"
-            extra = {"images": wj.images_listing(part_images)}
-            if part.of > 1:
-                extra["part"] = f"{part.number} of {part.of}"
-            got = self._answer_with_images(PLAN_JOB, name, wj.PLAN_PROMPT, prompt, wj.plan_schema(),
-                                           extra, part_images)
-            if got is None:
-                failed = self.last_error
-                continue
-            plans.append(wj.parse_plan(got[0], got[1], self.style, known))
-        if failed is not None or not plans:
-            self.last_error = failed
-            return None
-        return plans[0] if len(parts) == 1 else wj.merge_plans(plans, len(dossier_text or ""))
 
     def write_system(self, system, evidence_text: str, images, options, examples, style_text: str,
                      hours_rule: str = "", image_ids=None, ledger_text: str = "", facts=(), counts=()):
@@ -548,15 +525,13 @@ _CITED_PLACE = re.compile(r"^\[S\d+\]\s+(.+?)\s*$", re.M)
 
 
 def _for_job(request: dict, job: str, sources: dict | None) -> bool:
-    """The request is for this job: it says so, or (a request from before requests said their job) it is a plan
-    whose dossier names the job's number, or a scope question whose cited places are this dossier's."""
+    """The request is for this job: it says so, or (a request from before requests said their job) it is a
+    reading pass whose prompt names the job's number, or a scope question whose cited places are this dossier's."""
     said = request.get("job")
     if said:
         return said == job
     number = _JOB_NUMBER.search(job or "")
     prompt = str(request.get("prompt") or "")
-    if request.get("kind") == PLAN_JOB:
-        return bool(number) and number.group(0) in prompt[:6000]
     if request.get("kind") == READ_PASS:
         return bool(number) and number.group(0) in prompt[:400]      # a pass prompt starts "Job: <name>"
     if request.get("kind") == WRITE_SYSTEM and sources:
@@ -975,12 +950,12 @@ def _plain(error: Exception) -> str:
     return f"the AI call failed: {error}"
 
 
-# --- the whole-job questions: request kinds "plan_job" and "write_system" (see whole_job.py) --------------
+# --- the whole-job questions: request kinds "read_pass" and "write_system" (see whole_job.py) -------------
 
-PLAN_JOB, WRITE_SYSTEM = "plan_job", "write_system"
-KINDS = KINDS + (PLAN_JOB, WRITE_SYSTEM, READ_PASS)
-_MAIN_LIST.update({PLAN_JOB: "systems", WRITE_SYSTEM: "lines"})
-WHOLE_JOB_MAX_TOKENS = 64000       # a whole job's plan, plus the thinking; streamed
+WRITE_SYSTEM = "write_system"
+KINDS = KINDS + (WRITE_SYSTEM, READ_PASS)
+_MAIN_LIST.update({WRITE_SYSTEM: "lines"})
+WHOLE_JOB_MAX_TOKENS = 64000       # a reading pass or a system's scope, plus the thinking; streamed
 WHOLE_JOB_TIMEOUT_SECONDS = 600.0
 
 

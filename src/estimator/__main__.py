@@ -58,7 +58,7 @@ from estimator.reading.job import read_job, reading_lines
 from estimator.scope import Job
 from estimator.sent import job_from_sent
 from estimator.writing.dossier import build_dossier
-from estimator.writing.assemble import (assemble_job, checklist_text, plan_checks, review_list, system_evidence,
+from estimator.writing.assemble import (assemble_job, plan_checks, review_list, system_evidence,
                                         system_examples, system_pictures, tech_hour_rule, template_options)
 from estimator.writing.front_end import job_header
 from estimator.writing.judge import API, CHAT, KEY_VARIABLE, Judge

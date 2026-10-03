@@ -1,13 +1,11 @@
-"""The whole-job judge: one pass plans every system from the dossier, then one pass per system
-writes its scope. Every test uses a fake client: no test touches the network."""
-import base64
+"""The whole-job judge: the reading passes ask through it, and one pass per planned system writes its scope
+(the systems come from the job ledger). Every test uses a fake client: no test touches the network."""
 import json
 from types import SimpleNamespace
 
 from estimator.writing.judge import CHAT_MODEL, Judge, TechHoursHint
 from estimator.writing.templates import load_templates
-from estimator.writing.whole_job import (PLAN_PROMPT, SPLIT_LIMIT, WRITE_PROMPT, JobPlan, PlannedSystem,
-                                         WrittenLine, WrittenScope, checklist_text, split_dossier)
+from estimator.writing.whole_job import WRITE_PROMPT, PlannedSystem, WrittenLine, WrittenScope, checklist_text
 
 DOSSIER = """1. Job
 [S1] Somerville HS New Gym. Controls: new BACnet system.
@@ -37,27 +35,6 @@ def _system(**overrides):
     return system
 
 
-def _plan_answer(**overrides):
-    answer = {
-        "systems": [
-            _system(),
-            _system(key="EF-1-2", header="Exhaust Fan EF-1, 2", kind="Exhaust Fan", tags=["EF-1", "EF-2"],
-                    quantity=None, quantity_source="", quantity_quote="", sequence_sources=["[S3]"],
-                    schedule_sources=[], why="The sequence names two fans; no schedule gives the count."),
-            _system(key="UH-1", header="Unit Heater UH-1", kind="EUH / CUH / UH", tags=["UH-1"], quantity=4,
-                    quantity_source="[S5]", quantity_quote="QUANTITY 4", sequence_sources=[],
-                    schedule_sources=["[S5]"],
-                    exception="exception to any work with Qty (4) UH-1 - integral thermostat",
-                    why="The schedule says they run on integral thermostats."),
-        ],
-        "front_end": {"mode": "new-system", "existing_name": "", "lines": ["Provide a new BACnet BMS"],
-                      "notes": [], "sources": ["[S1]"]},
-        "unresolved": ["Are the exhaust fans on the roof or in the gym?"],
-    }
-    answer.update(overrides)
-    return answer
-
-
 def _response(answer, stop_reason="end_turn", model="claude-opus-5-5"):
     return SimpleNamespace(
         content=[SimpleNamespace(type="thinking", thinking=""),
@@ -70,7 +47,7 @@ class FakeClient:
 
     def __init__(self, *replies, stream=False):
         self.calls = []
-        self._replies = list(replies) or [_response(_plan_answer())]
+        self._replies = list(replies) or [_response({})]
         self.messages = SimpleNamespace(create=self._create)
         if stream:
             self.messages.stream = self._stream
@@ -104,237 +81,6 @@ def _images(tmp_path):
 
 def _judge(tmp_path, client=None, **kwargs):
     return Judge(tmp_path / "cache", model="test-model", client=client, **kwargs)
-
-
-def _plan(tmp_path, client, images=(), text=DOSSIER, **kwargs):
-    return _judge(tmp_path, client, **kwargs).plan_job(text, images, "CHECKLIST TEXT", "STYLE TEXT")
-
-
-# --- B1: plan_job --------------------------------------------------------------------------------------
-
-def test_the_plan_is_read_into_planned_systems(tmp_path):
-    plan = _plan(tmp_path, FakeClient())
-
-    assert isinstance(plan, JobPlan)
-    assert plan.model == "claude-opus-5-5"
-    rtu, ef, uh = plan.systems
-    assert rtu == PlannedSystem(
-        key="RTU-1-3", header="Rooftop Unit RTU-1 thru 3", kind="Packaged ERU / RTU / AHU",
-        tags=("RTU-1", "RTU-2", "RTU-3"), quantity=3, quantity_source="[S4]",
-        quantity_quote="RTU-1 | 5000 CFM ; RTU-2 | 5000 CFM ; RTU-3 | 4000 CFM",
-        sequence_sources=("[S2]",), schedule_sources=("[S4]",), group="", alternate="", exception="",
-        why="The schedule lists three rooftop units and the sequence runs them.")
-    assert ef.quantity is None and ef.quantity_source == ""
-    assert uh.exception == "EXCEPTION TO ANY WORK WITH Qty (4) UH-1 - INTEGRAL THERMOSTAT"
-    assert plan.front_end == {"mode": "new-system", "existing_name": "", "lines": ["Provide a new BACnet BMS"],
-                              "notes": [], "sources": ["[S1]"]}
-    assert plan.unresolved == ("Are the exhaust fans on the roof or in the gym?",)
-
-
-def test_the_request_carries_the_dossier_checklist_style_and_pictures(tmp_path):
-    fake = FakeClient()
-    _plan(tmp_path, fake, images=_images(tmp_path))
-
-    (call,) = fake.calls
-    assert call["model"] == "test-model"
-    assert call["system"] == PLAN_PROMPT
-    assert "tool_choice" not in call and "temperature" not in call
-    fmt = call["output_config"]["format"]
-    assert fmt["type"] == "json_schema"
-    assert set(fmt["schema"]["required"]) == {"systems", "front_end", "unresolved"}
-    content = call["messages"][0]["content"]
-    text = "\n".join(block["text"] for block in content if block["type"] == "text")
-    for part in (DOSSIER.strip(), "CHECKLIST TEXT", "STYLE TEXT", "H601 HVAC SCHEDULES — picture schedule"):
-        assert part in text
-    (image,) = [block for block in content if block["type"] == "image"]
-    assert image["source"] == {"type": "base64", "media_type": "image/png",
-                               "data": base64.standard_b64encode(PNG).decode("ascii")}
-
-
-def test_the_prompt_asks_for_every_system_with_sources_and_no_invented_numbers():
-    low = PLAN_PROMPT.lower()
-    for words in ("every system", "fire pump", "generator", "heat tracing", "destratification",
-                  "quantity column", "never one", "integral thermostat", "alternate", "source id",
-                  "never invent"):
-        assert words in low
-
-
-def test_a_streaming_client_is_used_when_it_has_one(tmp_path):
-    fake = FakeClient(stream=True)
-    plan = _plan(tmp_path, fake)
-
-    assert plan is not None and len(plan.systems) == 3
-    assert fake.calls[0]["max_tokens"] >= 32000
-
-
-def test_a_quantity_with_no_quote_drops_the_system_and_asks_the_estimator(tmp_path):
-    answer = _plan_answer()
-    answer["systems"][0]["quantity_quote"] = ""
-    plan = _plan(tmp_path, FakeClient(_response(answer)))
-
-    assert [s.key for s in plan.systems] == ["EF-1-2", "UH-1"]
-    assert plan.dropped and "Rooftop Unit RTU-1 thru 3" in plan.dropped[0]
-    assert any("Rooftop Unit RTU-1 thru 3" in question and "3" in question for question in plan.unresolved)
-
-
-def test_unknown_fields_are_ignored_and_bad_values_cleaned(tmp_path):
-    answer = _plan_answer(colour="blue")
-    answer["systems"][0].update(extra="ignored", alternate="maybe", header="Qty (3) Rooftop Unit RTU-1 thru 3",
-                                tags=["RTU-1", " RTU-1 ", "RTU-2", "RTU-3"])
-    answer["systems"][1]["quantity"] = -2
-    answer["front_end"]["mode"] = "something else"
-    plan = _plan(tmp_path, FakeClient(_response(answer)))
-
-    rtu, ef, _ = plan.systems
-    assert rtu.alternate == "" and rtu.header == "Rooftop Unit RTU-1 thru 3"
-    assert rtu.tags == ("RTU-1", "RTU-2", "RTU-3")
-    assert ef.quantity is None
-    assert plan.front_end["mode"] == ""
-
-
-def test_a_header_the_client_must_not_see_drops_the_system(tmp_path):
-    answer = _plan_answer()
-    answer["systems"][1]["header"] = "Exhaust Fan EF-1, 2 ($400 each)"
-    plan = _plan(tmp_path, FakeClient(_response(answer)))
-
-    assert [s.key for s in plan.systems] == ["RTU-1-3", "UH-1"]
-    assert any("Exhaust Fan" in d for d in plan.dropped)
-
-
-def test_a_header_longer_than_a_block_header_is_kept_for_the_assembly_to_shorten(tmp_path):
-    answer = _plan_answer()
-    long = "Plumbing Pumps (Domestic Water Pump, HW Circulator, Ejector Pumps, Elevator Sump, Sewage Ejector Pumps)"
-    answer["systems"][1]["header"] = long
-    plan = _plan(tmp_path, FakeClient(_response(answer)))
-
-    assert plan.systems[1].header == long and plan.dropped == ()
-
-
-def test_a_cited_source_the_dossier_does_not_have_is_left_out(tmp_path):
-    answer = _plan_answer()
-    answer["systems"][0]["sequence_sources"] = ["[S2]", "[S999]"]
-    plan = _plan(tmp_path, FakeClient(_response(answer)))
-
-    assert plan.systems[0].sequence_sources == ("[S2]",)
-    assert any("S999" in question for question in plan.unresolved)
-
-
-def test_the_same_plan_is_answered_from_the_cache(tmp_path):
-    fake = FakeClient()
-    judge = _judge(tmp_path, fake)
-    first = judge.plan_job(DOSSIER, _images(tmp_path), "CHECKLIST TEXT", "STYLE TEXT")
-    second = judge.plan_job(DOSSIER, _images(tmp_path), "CHECKLIST TEXT", "STYLE TEXT")
-
-    assert len(fake.calls) == 1
-    assert (judge.calls, judge.cached) == (1, 1)
-    assert second == first
-
-
-def test_a_changed_picture_is_asked_again(tmp_path):
-    fake = FakeClient()
-    judge = _judge(tmp_path, fake)
-    images = _images(tmp_path)
-    judge.plan_job(DOSSIER, images, "CHECKLIST TEXT", "STYLE TEXT")
-    (tmp_path / "H601.png").write_bytes(PNG + b"changed")
-    judge.plan_job(DOSSIER, images, "CHECKLIST TEXT", "STYLE TEXT")
-
-    assert len(fake.calls) == 2
-
-
-def test_no_key_means_no_plan(tmp_path, monkeypatch):
-    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
-    judge = _judge(tmp_path)
-    assert judge.plan_job(DOSSIER, (), "CHECKLIST TEXT", "STYLE TEXT") is None
-    assert "no AI key" in judge.last_error
-
-
-def test_an_unreadable_answer_is_no_plan(tmp_path):
-    judge = _judge(tmp_path, FakeClient(_response({"nope": 1})))
-    assert judge.plan_job(DOSSIER, (), "CHECKLIST TEXT", "STYLE TEXT") is None
-    assert judge.last_error == "the AI answer could not be read"
-
-
-def test_in_the_chat_the_request_lists_the_pictures_and_the_answer_is_picked_up(tmp_path):
-    images = _images(tmp_path)
-    judge = _judge(tmp_path, mode="chat")
-    assert judge.plan_job(DOSSIER, images, "CHECKLIST TEXT", "STYLE TEXT") is None
-    assert judge.waiting == 1
-
-    (request_file,) = judge.requests_dir.glob("*.json")
-    request = json.loads(request_file.read_text(encoding="utf-8"))
-    assert request["kind"] == "plan_job"
-    assert request["system_prompt"] == PLAN_PROMPT
-    assert DOSSIER.strip() in request["prompt"]
-    assert "systems" in request["schema"]["properties"]
-    assert request["images"] == [{"id": "I1", "path": images[0].path, "what": images[0].what,
-                                  "sheet": "H601", "document": "Drawings.pdf", "page": 7}]
-
-    judge.answers_dir.mkdir(parents=True)
-    (judge.answers_dir / request_file.name).write_text(json.dumps(_plan_answer()), encoding="utf-8")
-    again = _judge(tmp_path, mode="chat")
-    plan = again.plan_job(DOSSIER, images, "CHECKLIST TEXT", "STYLE TEXT")
-    assert plan is not None and plan.model == CHAT_MODEL
-    assert [s.key for s in plan.systems] == ["RTU-1-3", "EF-1-2", "UH-1"]
-    assert again.answered_in_chat == 1 and not request_file.exists()
-
-
-def _huge_dossier():
-    sequence = "\n".join(f"[S{n}] {n}. The unit shall run on the BMS schedule and report its alarms. " * 3
-                         for n in range(2, 2 + 6000))
-    counts = "\n".join(f"[C{n}] EF family: {n} placements on the plans." for n in range(1, 400))
-    return (f"1. Job\n[S1] Big job.\n\n2. Sequence of operation\n{sequence}\n\n"
-            f"4. Schedules\n[S5000] RTU SCHEDULE: RTU-1 | 5000 CFM\n\n5. Equipment counts\n{counts}\n\n"
-            "7. Notes\n[N1] Coordinate with the electrician.\n")
-
-
-def test_a_huge_dossier_is_split_and_each_part_keeps_the_job_section():
-    text = _huge_dossier()
-    assert len(text) > SPLIT_LIMIT
-    parts = split_dossier(text, SPLIT_LIMIT)
-
-    assert len(parts) >= 2
-    assert all(len(part.text) <= SPLIT_LIMIT + 200 for part in parts)
-    assert all(part.text.startswith("1. Job") for part in parts)
-    assert sum(part.has_schedules for part in parts) == 1
-    assert "5. Equipment counts" in parts[-1].text and "2. Sequence of operation" not in parts[-1].text
-    assert split_dossier(DOSSIER, SPLIT_LIMIT)[0].text == DOSSIER
-
-
-def test_a_huge_dossier_asks_in_parts_and_merges_the_plans_by_key(tmp_path):
-    first = _plan_answer(unresolved=[])
-    second = _plan_answer(systems=[
-        _system(tags=["RTU-1", "RTU-2", "RTU-3", "RTU-4"], sequence_sources=["[S12]"], quantity=4,
-                quantity_source="[C3]", quantity_quote="4 placements"),
-        _system(key="GEN-1", header="Generator", kind="Generator", tags=[], quantity=1, quantity_source="[N1]",
-                quantity_quote="one generator", sequence_sources=[], schedule_sources=[], why="The notes."),
-    ], unresolved=["Is the generator monitored?"])
-    text = _huge_dossier().replace("[N1] Coordinate with the electrician.", "[N1] one generator")
-    parts = len(split_dossier(text, SPLIT_LIMIT))
-    replies = [_response(first)] + [_response(second)] * (parts - 1)
-    fake = FakeClient(*replies)
-    images = _images(tmp_path)
-    plan = _plan(tmp_path, fake, images=images, text=text)
-
-    assert len(fake.calls) == parts >= 2
-    with_images = [c for c in fake.calls if any(b["type"] == "image" for b in c["messages"][0]["content"])]
-    assert len(with_images) == 1
-    assert [s.key for s in plan.systems] == ["RTU-1-3", "EF-1-2", "UH-1", "GEN-1"]
-    rtu = plan.systems[0]
-    assert rtu.quantity == 3                                   # the first part's number stands
-    assert rtu.tags == ("RTU-1", "RTU-2", "RTU-3", "RTU-4")
-    assert rtu.sequence_sources == ("[S2]", "[S12]")
-    assert any("in parts" in q for q in plan.unresolved)
-    assert any("RTU-1-3" in q and "3" in q and "4" in q for q in plan.unresolved)
-    assert "Is the generator monitored?" in plan.unresolved
-
-
-def test_a_huge_dossier_in_the_chat_writes_one_request_per_part(tmp_path):
-    text = _huge_dossier()
-    judge = _judge(tmp_path, mode="chat")
-    assert judge.plan_job(text, (), "CHECKLIST TEXT", "STYLE TEXT") is None
-    requests = [json.loads(p.read_text(encoding="utf-8")) for p in judge.requests_dir.glob("*.json")]
-    assert len(requests) == len(split_dossier(text, SPLIT_LIMIT)) >= 2
-    assert all(r["kind"] == "plan_job" and "part" in r for r in requests)
 
 
 def test_the_checklist_names_every_master_template_system_on_one_line_each():
@@ -431,6 +177,14 @@ def test_the_scope_request_carries_the_plan_evidence_and_the_template_in_the_gem
         assert part in text
     assert "25-0101" not in text and "STYLE TEXT" not in text      # the GEM decides the wording
     assert [block["type"] for block in content].count("image") == 1
+
+
+def test_a_streaming_client_is_used_when_it_has_one(tmp_path):
+    fake = FakeClient(_response(_scope_answer()), stream=True)
+    scope = _write(tmp_path, fake)
+
+    assert scope is not None and len(scope.lines) == 3
+    assert fake.calls[0]["max_tokens"] >= 32000
 
 
 def test_the_write_prompt_asks_for_sources_quotes_and_reference_lines():
@@ -541,13 +295,6 @@ def test_no_key_means_no_scope(tmp_path, monkeypatch):
 
 # --- round 3, Part B: the questions ---------------------------------------------------------------------------
 
-def test_the_plan_prompt_counts_untagged_symbols_keeps_no_info_systems_and_prices_apartment_units_as_adds():
-    low = PLAN_PROMPT.lower()
-    for words in ("untagged symbols", "no control information", "minimal integration lines",
-                  "alternate: \"add\"", "in the hundreds", "the others in why"):
-        assert words in low, words
-
-
 def test_the_write_prompt_consolidates_identical_lines_with_totals_in_the_gems_order():
     for words in ("CONSOLIDATING IDENTICAL SCOPE LINES", "Default format: (Qty. ## Total)", "SOW ORDER — STANDARD TEMPLATE",
                   "tech-hour rule given"):
@@ -576,24 +323,10 @@ def test_the_tech_hour_rule_is_the_nearest_templates_in_words():
 
 # --- round 4, Part B: the questions ---------------------------------------------------------------------------
 
-def test_the_plan_prompt_gives_secondary_tagged_equipment_its_own_quantity():
-    for prompt in (PLAN_PROMPT,):
-        low = prompt.lower()
-        for words in ("secondary tagged equipment", "gravity intake dampers", "jockey pump", "(qty. 2 total)"):
-            assert words in low, words
-
-
 def test_the_write_prompt_gives_the_controls_contractor_what_no_one_else_is_named_for_on_a_field_ddc_unit():
     for words in ("No named party + field DDC unit → CC furnishes it.", "EXPLICIT ASSIGNMENT ALWAYS WINS.",
                   "No named party + packaged/factory controls unit"):
         assert words in WRITE_PROMPT, words
-
-
-def test_the_plan_prompt_asks_for_the_split_system_leak_detection_lines_or_asks():
-    low = PLAN_PROMPT.lower()
-    for words in ("split system", "refrigerant leak detection", "shut-off valve", "chime"):
-        assert words in low, words
-    assert "otherwise ask" in low or "unresolved" in low
 
 
 # --- the reading passes ask through the judge ------------------------------------------------------------

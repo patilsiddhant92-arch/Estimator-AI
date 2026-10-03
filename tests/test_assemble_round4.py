@@ -366,7 +366,8 @@ def test_a_chat_run_moves_this_jobs_requests_it_does_not_ask_again_into_old(tmp_
     assert sorted(p.name for p in requests.glob("*.json")) == ["b.json"]
     assert sorted(p.name for p in (requests / "old").glob("*.json")) == ["a.json", "c.json"]
     assert (judge.answers_dir / "z.json").exists()
-    assert judge.stale_requests() == 2
+    # the plan pass is gone: an old plan request is no longer this job's, so it moves as one with no job recorded
+    assert judge.stale_requests() == 1 and judge.unrecorded == 1
     # a question asked again is back in the requests folder, not in old
     real = RealPlannedSystem("UH", "Unit Heater UH-1", "EUH / CUH / UH", ("UH-1",), 1, "", "", (), (), "", "", "", "")
     judge.write_system(real, "evidence", [], [], [], "STYLE")

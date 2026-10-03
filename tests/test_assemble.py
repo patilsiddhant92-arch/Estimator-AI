@@ -96,7 +96,7 @@ class WrittenScope:
 
 
 class FakeJudge:
-    """plan_job / write_system answer from canned objects; counts like the real Judge."""
+    """write_system answers from canned objects; counts like the real Judge."""
 
     def __init__(self, plan, scopes, mode="api"):
         self.plan, self.scopes, self.mode = plan, dict(scopes), mode
@@ -111,11 +111,6 @@ class FakeJudge:
 
     def stale_requests(self):
         return 0
-
-    def plan_job(self, dossier_text, images, checklist, style_text):
-        self.asked.append("plan")
-        self.calls += 1
-        return self.plan
 
     def write_system(self, system, evidence_text, images, options, examples, style_text, hours_rule="", image_ids=None,
                      ledger_text="", facts=(), counts=()):
