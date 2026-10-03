@@ -215,10 +215,9 @@ def test_the_write_request_carries_the_system_its_section_and_the_template_in_th
     prompt = write_prompt(system, system_evidence(system, _gem_dossier()), [], ["Furnish and Install DDC Controller"],
                           [], "STYLE", "Exhaust Fan: 4 h per unit")
     assert "Garage Exhaust Fan GXF-C-1" in prompt and "Sequence section: Q1" in prompt
-    assert ("The Standard Template defines the ORDER OF CATEGORIES in the output. It does not define device names."
-            in prompt)
+    assert "How AME writes this kind of system — the frame for this block." in prompt
     assert "- Furnish and Install DDC Controller" in prompt and "Exhaust Fan: 4 h per unit" in prompt
-    assert prompt.index("[S10]") < prompt.index("ORDER OF CATEGORIES")
+    assert prompt.index("the frame for this block") < prompt.index("[S10]")
 
 
 def test_the_write_request_lists_each_family_with_its_count():

@@ -173,7 +173,7 @@ def test_the_scope_request_carries_the_plan_evidence_and_the_template_in_the_gem
     content = call["messages"][0]["content"]
     text = "\n".join(block["text"] for block in content if block["type"] == "text")
     for part in ("Rooftop Unit RTU-1 thru 3", "RTU-1, RTU-2, RTU-3", "[S4]", EVIDENCE.strip(), *OPTIONS,
-                 "H601 HVAC SCHEDULES", "The Standard Template defines the ORDER OF CATEGORIES"):
+                 "H601 HVAC SCHEDULES", "How AME writes this kind of system — the frame for this block"):
         assert part in text
     assert "25-0101" not in text and "STYLE TEXT" not in text      # the GEM decides the wording
     assert [block["type"] for block in content].count("image") == 1
@@ -453,3 +453,25 @@ def test_ledger_check_refuses_any_count_when_the_entry_holds_none():
         "“Furnish and Install VAV Controller” gives 12, but this system's ledger entry holds no count; left out",
         "“Furnish and Install Space Sensor (Qty. 13 Total)” gives 13, but this system's ledger entry holds no count; "
         "left out")
+
+
+def test_the_write_prompt_puts_the_brief_then_the_frame_before_the_evidence():
+    system = PlannedSystem(**{k: v for k, v in _system().items()})
+    text = write_prompt(system, "[S2] evidence", [], ["Furnish and Install DDC Controller"], [], "",
+                        ledger_text="F1 family RTU = x [S5] “x” (settled, seed)", brief="Job: 26-9999\nWhat the job is\nA school.",
+                        klass="packaged")
+    order = [text.index(s) for s in ("What the job is", "the frame for this block", "This unit is packaged",
+                                     "The job ledger's facts", "[S2] evidence")]
+    assert order == sorted(order)
+    assert "Never write a line per monitored point" in text
+
+
+def test_write_system_applies_the_house_check(tmp_path):
+    reply = _ledger_answer(_ledger_line("Furnish Supply Fan Status"),
+                           _ledger_line("Install and Wire Space Temperature Sensor (Furnished by Unit Mfr.)"))
+    judge = _judge(tmp_path, FakeClient(_response(reply)))
+    system = PlannedSystem(**{k: v for k, v in _system().items()})
+    scope = judge.write_system(system, "[S2] evidence", [], [], [], "", ledger_text="F1 family RTU = x [S5] “x” (settled, seed)",
+                               facts=("F1",), brief="Job", klass="packaged")
+    assert [l.text for l in scope.lines] == ["Install and Wire Space Temperature Sensor (Furnished by Unit Mfr.)"]
+    assert any("monitored point on a packaged unit" in r for r in scope.refused)

@@ -183,6 +183,17 @@ QUICK_SCAN = ("systems_identified", "unit_type", "controller", "submittal_status
               "fa_interface_present", "point_list_provided", "contractor_name_used")
 TEMPLATE_WORDS = ("The Standard Template defines the ORDER OF CATEGORIES in the output. It does not define device "
                   "names.")
+FRAME_WORDS = ("How AME writes this kind of system — the frame for this block. Write its lines, in its order, with "
+               "the ownership verb the documents decide. Leave a line out only when the documents exclude it. Add a "
+               "line only when the sequence explicitly assigns a device or work to the controls contractor that no "
+               "template line covers, or names a device the template lacks. Never write a line per monitored point: "
+               "the integration lines cover 'monitor at the BMS'.")
+CLASS_WORDS = {"packaged": "a packaged unit with factory controls: what is inside the unit is never a line; "
+                           "shipped-loose devices are 'Install and Wire … (Furnished by Unit Mfr.)'; the three "
+                           "integration lines cover every monitored point",
+               "field": "a field-DDC system AME controls: write the controller, the sensors, the points and the "
+                        "actuators as the frame gives them"}
+_CLASS_NAMES = {"packaged": "packaged", "field": "field DDC"}
 NO_REFERENCE = "No reference line: nothing in the sequence was quoted for it"
 _DIAMOND = re.compile(r"^\s*(?:◊\s*)?(?:the\s+)?(?:controls\s+contractor|cc)\s+requires\s+mfr\.?\s+rep\b", re.I)
 REFERENCED_CONFIDENCE, UNREFERENCED_CONFIDENCE = 0.85, 0.5
@@ -486,22 +497,30 @@ def options_text(options) -> str:
 
 def write_prompt(system: PlannedSystem, evidence_text: str, images: Sequence, options, examples,
                  style_text: str, hours_rule: str = "", image_ids: Sequence[str] | None = None,
-                 ledger_text: str = "") -> str:
+                 ledger_text: str = "", brief: str = "", klass: str = "") -> str:
     """The GEM's input for one system: the plan's system (its section and families), its evidence in the GEM's
     order (the whole sequence section, the points list, the schedule, the plan notes, the counts), its pictures,
     the nearest Master Template block introduced in the GEM's own words, and the template's tech-hour rule.
     `examples` and `style_text` are no longer asked: the GEM decides the wording. `ledger_text`, the system's
-    ledger entry, goes right after the system, before the evidence."""
+    ledger entry, goes after the frame, before the evidence. The order: the system, the job `brief`, the Master
+    Template block as the frame, the unit's class (`klass`, packaged or field) in one doctrine sentence, the
+    ledger entry, the evidence, the pictures, the tech-hour rule."""
     ledger_block = (f"The job ledger's facts for this system. Every line you write names, in fact_ids, the ids of the "
                     f"facts it rests on; a count in a line is one of these facts' counts:\n{ledger_text.strip()}"
                     if ledger_text.strip() else "")
+    brief_block = (f"The job, as the reading settled it (every system is written knowing this):\n{brief.strip()}"
+                   if (brief or "").strip() else "")
+    class_block = (f"This unit is {_CLASS_NAMES[klass]} per the ledger: {CLASS_WORDS[klass]}"
+                   if klass in CLASS_WORDS else "")
     return "\n\n".join(filter(None, [
         _system_text(system),
+        brief_block,
+        f"{FRAME_WORDS}\n" + options_text(options),
+        class_block,
         ledger_block,
         f"The job's evidence for this system, each passage with its source id:\n"
         f"{(evidence_text or '').strip() or '(none)'}",
         images_text(images, image_ids),
-        f"The Master Template block for the nearest system. {TEMPLATE_WORDS}\n" + options_text(options),
         f"The Master Template's tech-hour rule for the nearest system: {hours_rule or 'none in the template'}"]))
 
 

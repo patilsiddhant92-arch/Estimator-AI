@@ -442,13 +442,17 @@ class Judge:
     # and checks live in whole_job.py (imported here, not at the top, as it imports this module).
 
     def write_system(self, system, evidence_text: str, images, options, examples, style_text: str,
-                     hours_rule: str = "", image_ids=None, ledger_text: str = "", facts=(), counts=()):
+                     hours_rule: str = "", image_ids=None, ledger_text: str = "", facts=(), counts=(),
+                     brief: str = "", klass: str = "", owned_elsewhere=()):
         """Write one planned system's scope (a `whole_job.WrittenScope`) from its evidence, with the
         nearest Master Template's lines as a checklist (`options`: a template, its lines or plain
         texts), its tech-hour rule in words (`hours_rule`) and up to 4 phrasing-bank `examples`. None,
         with `last_error` set, on any failure. `image_ids` are the pictures' job-wide ids (I15, I17): the
-        request cites them as the plan and the dossier do, never renumbered from I1."""
+        request cites them as the plan and the dossier do, never renumbered from I1. `brief` (the job brief) and
+        `klass` (packaged or field) go into the request; after the ledger check the house check runs, with
+        `owned_elsewhere` (item -> the system that owns it) keeping shared items with their owner."""
         from estimator.writing import whole_job as wj
+        from estimator.writing.house_check import house_check
         images = list(images or ())
         ids = list(image_ids) if image_ids is not None and len(image_ids) == len(images) else None
         known = wj.known_ids(evidence_text, images, ids)
@@ -458,7 +462,7 @@ class Judge:
                         *(f.quantity_source for f in getattr(system, "families", ()) or ()))
             known = known | {wj.source_key(s) for s in plan_ids if s and s.strip()}
         prompt = wj.write_prompt(system, evidence_text, images, options, examples, style_text, hours_rule, ids,
-                                 ledger_text=ledger_text)
+                                 ledger_text=ledger_text, brief=brief, klass=klass)
         got = self._answer_with_images(WRITE_SYSTEM, system.header, wj.WRITE_PROMPT, prompt, wj.write_schema(),
                                        {"plan_key": system.key, "images": wj.images_listing(images, ids)}, images,
                                        ids)
@@ -466,7 +470,8 @@ class Judge:
             return None
         answer, model = got
         scope = wj.parse_scope(answer, model, self.style, known)
-        return wj.ledger_check(scope, frozenset(facts or ()), frozenset(int(c) for c in (counts or ())))
+        scope = wj.ledger_check(scope, frozenset(facts or ()), frozenset(int(c) for c in (counts or ())))
+        return house_check(scope, system, klass, dict(owned_elsewhere or ()), self.style)
 
     def ask_pass(self, name: str, system_prompt: str, prompt: str, schema: dict, images=(), extra: dict | None = None
                  ) -> tuple[dict, str] | None:
