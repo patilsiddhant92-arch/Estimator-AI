@@ -395,5 +395,15 @@
       "\\brefrigerant\\s+work\\b",
       "\\bjunction\\s+box\\b"
     ]
+  },
+  "packaged_units": {
+    "about": "The estimator's packaged-unit doctrine (ame_practice.txt, 2026-10-03), enforced on a system the writer declared packaged/factory controls. 'internal' names devices wired inside the unit: a line about one is refused unless its quote names the controls contractor ('cc_terms'). 'shipped_loose' names devices the factory cannot mount: a 'Wire …' line about one becomes 'Install and Wire …'. 'point_line' matches a 'Furnish <point>' line, refused on a packaged unit. 'duct_heater_keep' are the duct heater lines kept on a packaged unit (the rest are refused). 'damper_prefixes' are the tag prefixes of motorized dampers. Regular expressions, ignoring case.",
+    "internal": ["\\bvalve\\b", "\\bdx\\b", "\\bcompressor", "\\breversing\\s+valve", "\\bhot\\s+gas", "\\breheat\\b", "\\bfan\\s+speed", "\\bfilter\\s+(?:dp|differential)", "\\bairflow\\s+switch", "\\bcut-?out", "\\bsafet(?:y|ies)\\b", "\\bcondensate\\s+overflow", "\\bexpansion\\s+valve", "\\binternal\\b", "\\beconomizer\\b", "\\benergy\\s+(?:recovery\\s+)?wheel\\b", "\\bheat\\s+wheel\\b", "\\bleak\\s+detect(?:or|ion)\\b(?!.*shaft)"],
+    "shipped_loose": ["\\bspace\\s+(?:temperature\\s+)?sensor", "\\bthermostat\\b", "\\bsupply\\s+air\\s+temperature", "\\bdischarge\\s+air\\s+temperature", "\\b(?:duct\\s+)?static\\s+pressure", "\\bhumidity\\s+sensor", "\\bco2?\\s+sensor", "\\bshipped\\s+loose", "\\bend\\s+devices?\\b"],
+    "point_line": "^\\s*Furnish\\s+(?!and\\b)(?!BMS\\b)(?!DDC\\b)(?!Network\\b)(?!PC\\b)(?!POT\\b)(?!UPS\\b)(?!3-D\\b)(?!Necessary\\b)",
+    "cc_terms": ["\\bbms\\s+contractor", "\\bcontrols?\\s+contractor", "\\batc\\s+contractor", "\\bthis\\s+contractor", "\\bddc\\s+contractor", "\\bbuilding\\s+automation\\s+contractor", "\\btemperature\\s+controls?\\s+contractor", "\\bame\\b"],
+    "duct_heater_keep": ["\\binterlock", "\\bauxiliary\\s+contact", "\\benable\\b", "\\bremote\\s+(?:unit\\s+)?shutdown"],
+    "duct_heater_words": "\\b(?:electric\\s+)?duct\\s+heater|\\bedh\\b",
+    "damper_prefixes": ["MD"]
   }
 }

@@ -82,6 +82,7 @@ class HouseStyle:
     own_controller: object = None        # compiled: a line furnishing the system's own controller
     devices: object = None               # compiled: a header naming a device (counted per drawing, never scheduled)
     covered_items: tuple = ()            # compiled: an exclusion item the standard exclusions already cover
+    packaged_units: dict = field(default_factory=dict, hash=False, compare=False)   # the packaged-unit doctrine: raw pattern lists, by key
 
     # -- what the client must never see (the GEM's own words)
     def internal(self, text: str) -> str | None:
@@ -525,6 +526,7 @@ def _load(path: Path) -> HouseStyle:
         spec_openings=tuple(re.compile(p, re.I) for p in (raw.get("spec_openings") or {}).get("patterns", ())),
         spec_verbs={k.casefold(): v for k, v in ((raw.get("spec_openings") or {}).get("verbs") or {}).items()},
         verb_forms=_verb_forms(tuple(raw["verbs"])),
+        packaged_units=dict(raw.get("packaged_units") or {}),
         sow_positions=tuple((int(e["position"]), tuple(v.casefold() for v in e.get("verbs", ())),
                              tuple(re.compile(p, re.I) for p in e.get("text", ())),
                              tuple(re.compile(p, re.I) for p in e.get("device", ())))

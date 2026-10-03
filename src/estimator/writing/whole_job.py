@@ -285,6 +285,7 @@ class WrittenScope:
     misc_responsibilities: tuple[str, ...] = ()             # printed as "**" notes at the end of the block
     exclusions: tuple[str, ...] = ()                        # review rows proposing named exceptions
     qc: tuple[QcCheck, ...] = ()
+    changed: tuple[str, ...] = ()                           # lines the house check rewrote, each in plain words
 
 
 # --- source ids ----------------------------------------------------------------------------------------
