@@ -101,7 +101,7 @@ def test_a_different_value_for_a_settled_fact_becomes_a_contradiction():
 def test_contradictions_and_confirmations_by_id():
     ledger = seed(_dossier())
     ef = ledger.find("count", "EF")
-    refused = apply(pass_named("schedules"), ledger, _answer(
+    refused = apply(pass_named("plans"), ledger, _answer(
         contradictions=[{"fact_id": "F1", "value": "Chilled Beam", "source_id": "[S4]", "quote": "VAV BOX SCHEDULE"},
                         {"fact_id": "F99", "value": 3, "source_id": "[S4]", "quote": "three"}],
         confirmations=[ef.id, "F98"]), _known(ledger))
@@ -170,6 +170,38 @@ def test_a_provisional_count_a_pass_may_only_add_is_kept_beside_it():
         {"kind": "count", "subject": "EF", "value": 5, "source_id": "[S10]", "quote": "EF-1 … EF-5"}]), _known(ledger))
     after = ledger.facts[ef.id]
     assert after.value == 2 and after.state == CONTRADICTED and after.contradictions[0].value == 5
+
+
+def test_a_contradiction_from_the_owning_pass_resolves_a_provisional_name():
+    ledger = seed(_dossier())
+    family = ledger.find("family", "EF")
+    refused = apply(pass_named("schedules"), ledger, _answer(contradictions=[
+        {"fact_id": family.id, "value": "Exhaust Fan (roof)", "source_id": "[S6]", "quote": "EF (Exhaust Fan)"}]),
+        _known(ledger))
+    after = ledger.facts[family.id]
+    assert refused == []
+    assert after.value == "Exhaust Fan (roof)" and after.state == SETTLED and after.contradictions == ()
+
+
+def test_a_contradiction_from_the_owning_pass_resolves_a_provisional_count():
+    ledger = seed(_dossier())
+    ef = ledger.find("count", "EF")
+    apply(pass_named("schedules"), ledger, _answer(contradictions=[
+        {"fact_id": ef.id, "value": 3, "source_id": "[S6]", "quote": "EF (Exhaust Fan)"}]), _known(ledger))
+    after = ledger.facts[ef.id]
+    assert after.value == 3 and after.state == CONTRADICTED
+    assert [(c.value, c.stage) for c in after.contradictions] == [(2, "seed")]
+    assert ledger.printed_count(ef.id) == 3
+
+
+def test_a_contradiction_from_a_pass_that_may_only_add_stays_a_contradiction():
+    ledger = seed(_dossier())
+    family = ledger.find("family", "EF")
+    apply(pass_named("plans"), ledger, _answer(contradictions=[
+        {"fact_id": family.id, "value": "Exhaust Fan (roof)", "source_id": "[S6]", "quote": "EF (Exhaust Fan)"}]),
+        _known(ledger))
+    after = ledger.facts[family.id]
+    assert after.value == family.value and after.state == CONTRADICTED and after.contradictions[0].value == "Exhaust Fan (roof)"
 
 
 # --- facts that hold many values ------------------------------------------------------------------------------

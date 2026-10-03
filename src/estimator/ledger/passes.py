@@ -198,6 +198,19 @@ def _many_valued(kind: str, subject: str) -> bool:
     return kind in ("note", "location") or (kind == "front_end" and subject.casefold() in ("line", "note"))
 
 
+def _take(ledger: Ledger, pass_, held, value, sid: str, quote: str) -> None:
+    """A pass's different value for a fact. A provisional (added) fact of a kind the pass settles takes the value
+    and is settled; a count that changes keeps the old count beside it, so the higher prints. Anything else is kept
+    beside the fact as a contradiction."""
+    if held.state != ADDED or held.kind not in pass_.settles:     # a settled fact, or a pass that may only add
+        ledger.contradict(held.id, value, sid, quote, pass_.name)
+        return
+    old, new = _number(held.value), _number(value)
+    ledger.resolve(held.id, value, sid, quote, pass_.name)          # the pass that owns the kind answers it
+    if held.kind in ("count", "device") and old is not None and new is not None and old != new:
+        ledger.contradict(held.id, held.value, held.source_id, held.quote, held.stage)   # the higher prints
+
+
 def apply(pass_, ledger: Ledger, answer: dict, known: frozenset[str]) -> list[str]:
     """Write the pass's answer into the ledger; the refusals, in plain words."""
     refused: list[str] = []
@@ -237,13 +250,7 @@ def apply(pass_, ledger: Ledger, answer: dict, known: frozenset[str]) -> list[st
                 ledger.settle(held.id)
             continue
         if held is not None and held.state == ADDED:
-            if kind not in pass_.settles:                 # a pass that may only add: kept beside it, the higher prints
-                ledger.contradict(held.id, value, sid, quote, pass_.name)
-                continue
-            old, new = _number(held.value), _number(value)
-            ledger.resolve(held.id, value, sid, quote, pass_.name)          # the pass that owns the kind answers it
-            if kind in ("count", "device") and old is not None and new is not None and old != new:
-                ledger.contradict(held.id, held.value, held.source_id, held.quote, held.stage)   # the higher prints
+            _take(ledger, pass_, held, value, sid, quote)
             continue
         state = SETTLED if kind in pass_.settles else ADDED
         ledger.add(kind, subject, value, sid, quote, pass_.name, state)
@@ -262,7 +269,7 @@ def apply(pass_, ledger: Ledger, answer: dict, known: frozenset[str]) -> list[st
         if not quote:
             refused.append(f"the contradiction of {fid} has no quote; left out")
             continue
-        ledger.contradict(fid, _value(raw.get("value")), sid, quote, pass_.name)
+        _take(ledger, pass_, ledger.facts[fid], _value(raw.get("value")), sid, quote)
 
     for raw in answer.get("confirmations") or []:
         fid = plain_id(raw) or _text(raw)
