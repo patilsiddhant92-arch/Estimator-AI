@@ -50,7 +50,7 @@ def test_the_higher_count_is_printed_with_its_note():
     plan = ledger_plan(ledger)
     vav = plan.systems[0]
     assert vav.quantity == 14 and vav.quantity_source == "[S10]" and vav.quantity_quote == "VAV-1 … VAV-14"
-    assert vav.count_note == "*Qty. (14) per M-201, Drawings.pdf page 3; equipment counts for VAV lists (12)."
+    assert vav.count_note == "*Qty. (14) per M-201; QUANTITY column total 12."
     assert count_note(ledger, ledger.facts["F2"]) == vav.count_note
     assert system_counts(vav, ledger) == frozenset({12, 14})
 
@@ -137,7 +137,7 @@ def test_a_highest_count_stored_as_text_with_spaces_still_plans():
     ledger.contradict(count.id, 12, "[S10]", "VAV-1 … VAV-12", "plans")
     (vav,) = ledger_plan(ledger).systems
     assert vav.quantity == 14 and vav.quantity_source == "[S5]" and vav.quantity_quote == "QUANTITY column total 14"
-    assert vav.count_note == "*Qty. (14) per equipment counts for VAV; M-201, Drawings.pdf page 3 lists (12)."
+    assert vav.count_note == "*Qty. (14) per QUANTITY column total 14; M-201 lists (12)."
 
 
 # --- from the seed, through the passes, to the plan ---------------------------------------------------------
@@ -206,3 +206,11 @@ def test_why_a_family_is_flagged_follows_its_count_not_its_name():
     assert plan["T"].why == "Seen on the drawings but on no schedule; confirm it exists."      # no count at all
     ledger.add("family", "OAF", "Outdoor Air Fan", "[Q2]", "OUTDOOR AIR FAN", "sequence")
     assert _by_key(ledger_plan(ledger))["OAF"].why == "Named in the sequence of operation; no drawing shows it."
+
+
+def test_the_count_note_names_the_place_in_plain_words():
+    ledger = _ledger()
+    ledger.contradict("F2", 14, "[S10]", "VAV-1 … VAV-14", "plans")
+    # S10 is "M-201, Drawings.pdf page 3 (sheet text)": the sheet number only; F2's own source is the counts line,
+    # so its quote's words stand in for the place
+    assert count_note(ledger, ledger.facts["F2"]) == "*Qty. (14) per M-201; QUANTITY column total 12."

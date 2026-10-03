@@ -501,6 +501,13 @@ def _check_one(system, dossier, may_hold: bool = True) -> PlanCheck:
                                      f"plans — {printed} by {label}; the plan gave no quantity",
                                      f"The counts: {_counts_text(counts)}. The plan says: {system.why or 'nothing'}",
                                      "Check the count", tier=TIER_DISAGREE))
+    elif q is None and ledger and sequence_only(system):
+        category = PENDING            # printed in the base bid, Qty (##), with its "*Quantity per plumbing drawings"
+        if not system.exception:
+            review.append(ReviewItem(name, PENDING, f"Give the count for {shape_header(system, None).headers[0]}",
+                                     "Named only in the sequence of operation; no drawing shows it",
+                                     "Count it on the plumbing or electrical drawings and type the count in the header",
+                                     tier=TIER_QUANTITY))
     elif q is None:
         category = PENDING
         if not system.exception and may_hold and _nothing_behind(system, dossier):
@@ -556,11 +563,25 @@ def _on_drawings(system, dossier) -> bool:
     return bool(tags & known) or any(_tag_prefix(t) in counted for t in tags)
 
 
+SEQUENCE_ONLY = "Named in the sequence of operation"
+SEQUENCE_ONLY_NOTE = "*Quantity per plumbing drawings"
+
+
+def sequence_only(system) -> bool:
+    """A ledger system named only in the sequence of operation (its family fact's stage is the sequence, which the
+    plan writes as its why): printed in the base bid with "Qty (##)", never held as a question (the estimator,
+    2026-10-03)."""
+    return bool(getattr(system, "facts", ())) and (getattr(system, "why", "") or "").startswith(SEQUENCE_ONLY)
+
+
 def _nothing_behind(system, dossier) -> bool:
     """Nothing on the drawings shows the system (it has no count, so this is asked only then): no schedule row and
     none of its tags on a schedule or the plans. A system with no tags at all is a phantom even when the sequence has
     a section for it ("Outdoor Air Fan"), unless it is a monitor-only system whose equipment is not tagged ("Plumbing
-    Pumps", "Domestic Water Heaters") or names a device, which is counted per drawing, never scheduled."""
+    Pumps", "Domestic Water Heaters") or names a device, which is counted per drawing, never scheduled. A ledger system
+    named only in the sequence is never held: it prints with "Qty (##)"."""
+    if sequence_only(system):
+        return False
     if source_ids(system.schedule_sources) or is_panel_system(system) or _on_drawings(system, dossier):
         return False
     if expand_tags(system.tags):
@@ -953,6 +974,12 @@ def _left_out(template, kept, system, evidence: str) -> list[str]:
     return missing
 
 
+def add_it(missing: list[str]) -> str:
+    """The left-out list's suggested fix: each Master Template line to add back, in the template's own words, one a
+    line, so adding one is a decision, not a rewrite: "Add it: Furnish and Install VAV Transformer"."""
+    return "\n".join(f"Add it: {line}" for line in missing)
+
+
 def check_scope(system, scope, dossier, templates=None, style=None, sourced: bool = True
                 ) -> tuple[list[CheckedLine], list[ReviewItem]]:
     """The lines kept, and the review. Every line the GEM wrote is kept in its words (the GEM round): only a line
@@ -1012,7 +1039,7 @@ def check_scope(system, scope, dossier, templates=None, style=None, sourced: boo
         missing = _left_out(template, kept, system, system_evidence(system, dossier))
         if missing:
             review.append(ReviewItem(name, "", f"Usually present in the Master Template's {template.name}; the AI left "
-                                     "out: " + "; ".join(missing), "", "Add any line the job needs"))
+                                     "out: " + "; ".join(missing), "", add_it(missing)))
     for note in getattr(scope, "review_notes", ()) or ():      # the question cited the pictures by their job-wide ids
         review.append(ReviewItem(name, "", plain_ids(_squash(note), dossier), "the AI's note", ""))
     return kept, review
@@ -1088,14 +1115,35 @@ def tech_hour_rule(system, templates=None) -> str:
     return f"{template.name}: {rule}" if re.search(r"\d", rule) else "none in the template"
 
 
+INTEGRATION_HOURS = 4.0         # AME practice for a system the BMS only integrates (the estimator, 2026-10-03)
+_INTEGRATION_OPENING = re.compile(r"^(?:integrate|tie\s+in(?:to)?)\b", re.I)
+_STATUS_OR_ALARM = re.compile(r"\b(?:status|alarms?)\b", re.I)
+
+
+def _integration_line(text: str, style) -> bool:
+    """An integration line, a "Furnish …" status or alarm point, or an "Integrate …" / "Tie in …" line."""
+    text = _squash(text)
+    return (style.line_group(text) == "integration" or style.is_trio(text) or bool(_INTEGRATION_OPENING.match(text))
+            or (text.lower().startswith("furnish") and bool(_STATUS_OR_ALARM.search(text))))
+
+
+def integration_only(system, lines, style) -> bool:
+    """The system is only integrated: it is named only in the sequence of operation, or every line kept for it is an
+    integration line, a status or alarm point furnished, or an "Integrate …" / "Tie in …" line."""
+    if (getattr(system, "why", "") or "").startswith(SEQUENCE_ONLY):
+        return True
+    texts = [text for text, _, _ in _lines3(lines)]
+    return bool(texts) and all(_integration_line(t, style) for t in texts)
+
+
 def tech_hours(system, quantity: int | None, lines, hint, templates=None, evidence: str = ""
                ) -> tuple[float | None, ReviewItem | None]:
     """The system's tech hours and the review line they need. `lines` holds (text, quantity[, depth]) of
     the printed lines. The nearest Master Template entry's rule, applied to the system's own count (a rule
     per hardware point counts the hardware-point lines only; one per line, the monitored lines); a rule
     from an entry that is not the system's own is an ASSUMPTION. When the entry gives no rule, or there is
-    no entry, there are no hours (never the AI's guess), with a review line to enter them. `hint`, the AI's
-    suggestion, is never used for the hours."""
+    no entry, there are no hours (never the AI's guess), with a review line to enter them, except an
+    integration-only system: 4 h, an assumption to confirm. `hint`, the AI's suggestion, is never used for the hours."""
     templates = templates if templates is not None else load_templates()
     name = _name(system)
     prefixes = {_tag_prefix(t) for t in fold(system).parent}
@@ -1127,6 +1175,10 @@ def tech_hours(system, quantity: int | None, lines, hint, templates=None, eviden
                f"The nearest Master Template entry, {template.name}, gives no hours for it ({_rule_text(template)})")
     else:
         why = "No Master Template entry is near it"
+    if integration_only(system, lines, load_house_style()):
+        return INTEGRATION_HOURS, ReviewItem(name, ASSUMPTION, f"Tech hours for {name}: {INTEGRATION_HOURS:g} h per "
+                                             "integration (AME practice)", "No Master Template rule fits an "
+                                             "integration-only system", "Confirm them")
     return None, ReviewItem(name, "", f"No tech hours for {name} — enter them", why,
                             "Type the hours on the block's header row of the price sheet")
 
@@ -2000,6 +2052,52 @@ def with_clarifications(text: str, notes) -> str:
     return text
 
 
+_CONFIRM_NOTE = "*Confirm quantity:"
+_ASSUMED_NOTE = "*Assumed:"
+_BLOCK_NOTE_ROOM = 60          # the words one block note lists before "and N more"
+
+
+def _listed(items: list[str], sep: str) -> str:
+    """The items joined, as many as fit in the room (always the first), the rest "and N more"."""
+    shown: list[str] = []
+    for item in items:
+        if shown and len(sep.join(shown + [item])) > _BLOCK_NOTE_ROOM:
+            break
+        shown.append(item)
+    rest = len(items) - len(shown)
+    return sep.join(shown) + (f"{sep}and {rest} more" if rest else "")
+
+
+def block_clarifications(rows: list) -> tuple[list, list[str]]:
+    """One "*" clarification per block (the estimator, 2026-10-03): each line's "*Confirm quantity: …" and
+    "*Assumed: …" notes are taken off the line and gathered into one note each, printed after the block's lines:
+    "*Confirm quantities: Sensor A, Sensor C" and "*Assumed: what A; what B" (deduplicated, in line order). Any other
+    note (a "*… BY UNIT MFR." maker note, the AME-standard note) stays on its line. (the rows, the block notes)"""
+    devices: list[str] = []
+    whats: list[str] = []
+    kept = []
+    for row in rows:
+        stay = []
+        for note in row.after:
+            text = _squash(note)
+            if text.startswith(_CONFIRM_NOTE):
+                item, bucket = text[len(_CONFIRM_NOTE):].strip(), devices
+            elif text.startswith(_ASSUMED_NOTE):
+                item, bucket = text[len(_ASSUMED_NOTE):].strip(), whats
+            else:
+                stay.append(note)
+                continue
+            if item and item.casefold() not in {b.casefold() for b in bucket}:
+                bucket.append(item)
+        kept.append(dataclasses.replace(row, after=stay))
+    notes = []
+    if devices:
+        notes.append(f"*Confirm {'quantities' if len(devices) > 1 else 'quantity'}: {_listed(devices, ', ')}")
+    if whats:
+        notes.append(f"*Assumed: {_listed(whats, '; ')}")
+    return kept, notes
+
+
 _MAKER_NOTE = re.compile(r"^\*\s*(?P<item>.+?)\s+BY\s+UNIT\s+MFR\.?$", re.I)
 _KEEP_CAPS = frozenset("VAV DDC BMS BAS VFD AHU RTU ERV ERU HRV DOAS CO CO2 NO2 DP VRF VRV FCU UH CUH EF HVAC ATC CC "
                        "AFMS LED UPS GFCI HOA EMS FA IP OEM DX EC ECM CT DCV UV PIR FSD SD MUA MAU A2L BTU SCR "
@@ -2496,6 +2594,8 @@ def _written_part(system, check: PlanCheck, scope, got, dossier, templates, styl
     pictured = (any(_is_picture(sid, dossier) for sid in _system_ids(system))       # the judge read a picture
                 or any(_is_picture(line.source_id, dossier) for line in kept))     # for this system
     notes: list[str] = list(maker_notes)
+    if sequence_only(system) and quantity is None:     # its count is on no drawing the plan read
+        notes.append(SEQUENCE_ONLY_NOTE)
     unprinted: list[str] = []
     for note in getattr(scope, "client_notes", ()) or ():
         note = _squash(note)
@@ -2544,7 +2644,7 @@ def _scope_line(row: _Row, text: str, dossier) -> ScopeLine:
 
 def _left_out_rows(review: list, key: str, texts: list[str], style) -> list:
     """A group's "usually present in the Master Template" rows as one for the block: the lines the merged
-    block has taken out, under the block's name."""
+    block has taken out, under the block's name, each with its "Add it: <template line>" action."""
     lead = "the AI left out: "
     rows = [r for r in review if r.decide.startswith("Usually present in the Master Template's")]
     if not rows:
@@ -2559,7 +2659,7 @@ def _left_out_rows(review: list, key: str, texts: list[str], style) -> list:
     out = [r for r in review if r not in rows]
     if missing:
         out.append(ReviewItem(key, "", f"Usually present in the Master Template's {template}; the AI left out: "
-                              + "; ".join(missing), "", "Add any line the job needs"))
+                              + "; ".join(missing), "", add_it(missing)))
     return out
 
 
@@ -2588,12 +2688,15 @@ def _written_system(key: str, parts: list[_Part], template: str | None, dossier=
     lines = [ScopeLine(_name(p.system), p.includes, 1, None, None, CONFIRMED, _ADDED_CONFIDENCE, SOURCE,
                        f"taken out of the plan's header: “{_base_name(p.system)}”", True) for p in parts if p.includes]
     printed = []
-    for group in groups:
-        for r in group:
-            text = with_clarifications(_with_total(r, style), r.after)
-            printed.append(r.line.text)
-            items.append(Item(kind="line", depth=r.line.depth, runs=(Run(text=text),), quantity=r.q))
-            lines.append(_scope_line(r, text, dossier))
+    rows, clarified = block_clarifications(rows)       # one "*" clarification per block, after its lines
+    for r in rows:
+        text = with_clarifications(_with_total(r, style), r.after)
+        printed.append(r.line.text)
+        items.append(Item(kind="line", depth=r.line.depth, runs=(Run(text=text),), quantity=r.q))
+        lines.append(_scope_line(r, text, dossier))
+    items += [Item(kind="note", runs=(Run(text=n),)) for n in clarified]
+    lines += [ScopeLine(key, n, 1, None, None, ASSUMPTION, _ADDED_CONFIDENCE, SOURCE,
+                        "the block's lines' flags, gathered into one clarification", True) for n in clarified]
     notes = [(maker_line(n), who) for n, who in notes if not style.internal(n)]   # nothing internal reaches the client
     misc = [(n, who) for n, who in misc if not style.internal(n)]
     items += [Item(kind="note", runs=(Run(text=n),)) for n, _ in notes]
@@ -3368,7 +3471,9 @@ def _merge_review(items: list[ReviewItem]) -> list[ReviewItem]:
         ("left-out", lambda i: i.decide.startswith(_LEFT_OUT),
          lambda g: ReviewItem("Master Template", "", f"Lines usually present in the Master Template that the AI "
                               f"left out, one line per system ({len(g)})",
-                              "\n".join(_left_out_line(i) for i in g), "Add any line the job needs")),
+                              "\n".join(_left_out_line(i) for i in g),
+                              "\n".join(dict.fromkeys(i.action for i in g if i.action))
+                              or "Add any line the job needs")),
         ("quotes", lambda i: "is not in the job's documents" in i.decide and i.decide.startswith("The quote for"),
          lambda g: ReviewItem("Quotes", "", f"Lines whose quote is not in the job's documents ({len(g)}) — check "
                               "each by hand", _joined(g, lambda i: f"{i.system}: {i.decide[len('The quote for '):]}"

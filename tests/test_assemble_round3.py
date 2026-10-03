@@ -195,9 +195,9 @@ def test_a_system_takes_its_nearest_templates_rule_on_its_own_count():
 def test_systems_with_no_template_rule_get_no_hours_and_one_review_row_lists_them():
     planned = [_system("ZC", "Zamboni Charger", (), 1, kind="Zamboni Charger"),
                _system("ICE", "Ice Resurfacer Dock", (), 1, kind="Ice Resurfacer Dock")]
-    scopes = {"ZC": WrittenScope((_line("Furnish Charger Status"),),
+    scopes = {"ZC": WrittenScope((_line("Furnish and Install Charger Current Sensor"),),
                                  tech_hours_hint=TechHoursHint("unit", 2.0, "Fuel Oil Pump System")),
-              "ICE": WrittenScope((_line("Furnish Dock Status"),))}
+              "ICE": WrittenScope((_line("Furnish and Install Dock Door Position Sensor"),))}
     job, systems, review = _assemble(planned, scopes)
     assert all(b.tech_hours is None for b in job.blocks if b.header.startswith(("Qty (1) Zamboni", "Qty (1) Ice")))
     rows = [r for r in review_list(systems, review) if "tech hours" in r.decide.lower()]

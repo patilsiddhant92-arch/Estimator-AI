@@ -583,3 +583,57 @@ def test_a_ledger_system_with_no_count_is_pending_not_counted_from_the_plans():
     assert plain.category == "CONFIRMED-on-plans" and plain.quantity == 3                     # the old plan: counted from the plans
     ledger = _check(_vav(quantity=None, quantity_quote="", quantity_source="", facts=("F1",)))
     assert ledger.category == "PENDING" and ledger.quantity is None
+
+
+# --- one clarification per block, sequence-only systems, integration hours (2026-10-03) ----------------------
+
+def test_one_clarification_per_block():
+    from estimator.writing.assemble import block_clarifications, _Row
+    from types import SimpleNamespace
+    def row(text, after):
+        return _Row(SimpleNamespace(text=text, flag="", source_id="", quote="", quantity=None, depth=1, origin=""), None, True, frozenset(), None, "S", after=list(after))
+    rows = [row("Furnish and Install Sensor A", ["*Confirm quantity: Sensor A"]),
+            row("Wire Relay B", ["*Assumed: the relay comes with the unit", "*RELAY B BY UNIT MFR."]),
+            row("Furnish and Install Sensor C", ["*Confirm quantity: Sensor C"])]
+    kept, notes = block_clarifications(rows)
+    assert [r.after for r in kept] == [[], ["*RELAY B BY UNIT MFR."], []]
+    assert notes == ["*Confirm quantities: Sensor A, Sensor C", "*Assumed: the relay comes with the unit"]
+
+
+def test_a_sequence_only_system_prints_in_the_base_bid_with_its_note():
+    from estimator.writing.assemble import _check_one
+    from estimator.writing.whole_job import PlannedSystem
+    system = PlannedSystem("EG", "Emergency Generator EG", "Emergency Generator", ("EG",), None, "", "", ("[Q21]",), (), "", "", "",
+                           "Named in the sequence of operation; no drawing shows it.", sequence_section="[Q21]", facts=("F171",))
+    check = _check_one(system, _dossier())
+    assert check.held is False and check.category == "PENDING"
+    assert any("Named only in the sequence" in r.evidence for r in check.review)
+
+
+def test_integration_only_systems_get_four_hours():
+    from estimator.writing.assemble import tech_hours
+    from estimator.writing.whole_job import PlannedSystem
+    system = PlannedSystem("HT", "Heat Tracing HT", "Heat Tracing", ("HT",), None, "", "", ("[Q24]",), (), "", "", "",
+                           "Named in the sequence of operation; no drawing shows it.", facts=("F170",))
+    hours, row = tech_hours(system, None, [("Integrate Heat Tracing Control Panel to the BMS via Serial Interface", None),
+                                           ("Map Available Points Via Mfr. Provided BMS Interface", None)], None)
+    assert hours == 4.0 and "4 h per integration" in row.decide
+
+
+def test_the_left_out_list_suggests_the_template_line():
+    _, review = check_scope(_vav(), WrittenScope(VAV_LINES[1:3]), _dossier(), TEMPLATES)
+    [item] = [i for i in review if i.decide.startswith("Usually present")]
+    assert "Add it: Furnish DDC Controller to the Factory for Installation" in item.action.split("\n")
+
+
+def test_a_sequence_only_system_prints_qty_hash_with_its_note_and_four_hours():
+    from estimator.writing.whole_job import PlannedSystem
+    from test_gem_round2 import FANS, _assemble as _gem_assemble, _gl, _scope
+    eg = PlannedSystem("EG", "Emergency Generator EG", "Emergency Generator", ("EG",), None, "", "", ("[S1]",), (), "",
+                       "", "", "Named in the sequence of operation; no drawing shows it.", sequence_section="[S1]",
+                       facts=("F171",))
+    job, _, _, _ = _gem_assemble([FANS, eg], {"EF": _scope(_gl("Furnish Fan Start/Stop and Status")),
+                                              "EG": _scope(_gl("Furnish Generator Run Status"))})
+    block = next(b for b in job.blocks if b.header == "Qty (##) Emergency Generator EG")
+    assert block.tech_hours == 4.0
+    assert [i.text for i in block.items][-1] == "*Quantity per plumbing drawings"

@@ -43,18 +43,38 @@ def _printed(ledger: Ledger, fact: Fact) -> tuple[int | None, str, str]:
     return printed, _bracket(other.source_id), other.quote
 
 
+_COUNTS_LINE = "equipment counts for"
+
+
+def place_words(where: str, quote: str) -> str:
+    """A count's place in plain words: the counts line's own words ("schedule rows 16") when the source is the
+    equipment counts, else the sheet number alone ("M-201"), never the document and page."""
+    where = _squash(where)
+    if where.casefold().startswith(_COUNTS_LINE) and _squash(quote):
+        return _squash(quote)
+    return where_short(where).split(",", 1)[0].strip()
+
+
+def _other_count(where: str, quote: str, value) -> str:
+    """Another count in the note: the counts line's words carry their number; a sheet "lists" it."""
+    place = place_words(where, quote)
+    counts_line = _squash(where).casefold().startswith(_COUNTS_LINE) and _squash(quote)
+    return place if counts_line else f"{place} lists ({value})"
+
+
 def count_note(ledger: Ledger, fact: Fact) -> str:
     """The "*" note under a system whose count is contradicted: the printed count and its place, then each other
-    count and its place. "" when the fact is not contradicted or none of its values is a number."""
+    count and its place, in plain words ("*Qty. (14) per M-201; QUANTITY column total 12."). "" when the fact is not
+    contradicted or none of its values is a number."""
     if fact.state != CONTRADICTED:
         return ""
-    printed, sid, _quote = _printed(ledger, fact)
+    printed, sid, quote = _printed(ledger, fact)
     if printed is None:
         return ""
-    others = [(fact.value, fact.source_id)] + [(c.value, c.source_id) for c in fact.contradictions]
-    others = [(_squash(v), s) for v, s in others if not _same(v, printed)]
-    place = where_short(ledger.sources.get(sid.strip("[]"), sid))
-    rest = "; ".join(f"{where_short(ledger.sources.get(s, s))} lists ({v})" for v, s in others)
+    others = [(fact.value, fact.source_id, fact.quote)] + [(c.value, c.source_id, c.quote) for c in fact.contradictions]
+    others = [(_squash(v), s, q) for v, s, q in others if not _same(v, printed)]
+    place = place_words(ledger.sources.get(sid.strip("[]"), sid), quote)
+    rest = "; ".join(_other_count(ledger.sources.get(s.strip("[]"), s), q, v) for v, s, q in others)
     return f"*Qty. ({printed}) per {place}; {rest}."
 
 

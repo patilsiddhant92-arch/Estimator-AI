@@ -22,28 +22,28 @@ def test_a_clarification_goes_in_brackets_at_the_end_of_its_line():
     assert twice == "Furnish X (*Confirm quantity: X)"
 
 
-def test_the_assumed_confirm_quantity_and_standard_notes_print_on_their_lines_never_as_star_lines():
+def test_the_assumed_and_confirm_quantity_notes_print_once_for_the_block_after_its_lines():
     scope = _scope(_gl("Furnish and Install EDH DDC Controller (Qty. 3 Total)", quantity=3, quote="Job 26-9999",
                        flag="orange", flag_text="One electric duct heater DDC controller per heater assumed"),
                    _gl("Furnish and Install Airflow Switch", flag="red", flag_text="No count on the drawings"))
     job, systems, _, _ = _assemble([EDH], {"EDH": scope})
     items = _items(job, EDH_HEADER)
     texts = [t for _, t in items]
-    assert ("Furnish and Install EDH DDC Controller (Qty. 3 Total) "
-            "(*Assumed: One electric duct heater DDC controller per heater assumed)") in texts
-    assert any(t.startswith("Furnish and Install Airflow Switch (Qty. per Mechanical Schedule) (*Confirm quantity: ")
-               for t in texts)
-    assert not any(kind == "note" and t.startswith("*") and not t.startswith("**") for kind, t in items)
-    scope_texts = [line.text for line in _scope_lines(systems)]
-    assert not any(t.startswith("*Assumed") or t.startswith("*Confirm") for t in scope_texts)
+    # one clarification per block (2026-10-03): the lines carry no bracket; one note each, after the lines
+    assert "Furnish and Install EDH DDC Controller (Qty. 3 Total)" in texts
+    assert "Furnish and Install Airflow Switch (Qty. per Mechanical Schedule)" in texts
+    stars = [t for kind, t in items if kind == "note" and t.startswith("*") and not t.startswith("**")]
+    assert stars[0].startswith("*Confirm quantity: ") and "Airflow Switch" in stars[0]
+    assert stars[1] == "*Assumed: One electric duct heater DDC controller per heater assumed"
+    assert max(i for i, (kind, _) in enumerate(items) if kind == "line") < items.index(("note", stars[0]))
 
 
-def test_a_c5_assumption_goes_in_the_brackets_of_the_line_it_names():
+def test_a_c5_assumption_goes_in_the_block_note():
     scope = _scope(_gl("Furnish and Install EDH DDC Controller"),
                    contradictions=(Contradiction("C5", "One EDH DDC controller per heater assumed", (), "orange"),))
     job, _, _, _ = _assemble([EDH], {"EDH": scope})
     texts = [t for _, t in _items(job, EDH_HEADER)]
-    assert any(t.startswith("Furnish and Install EDH DDC Controller (*Assumed: ") for t in texts), texts
+    assert "Furnish and Install EDH DDC Controller" in texts and any(t.startswith("*Assumed: ") for t in texts), texts
 
 
 def test_a_manufacturer_device_ame_does_nothing_with_is_its_own_bracketed_line():

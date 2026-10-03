@@ -97,9 +97,11 @@ def test_nothing_the_gem_writes_for_the_estimator_reaches_the_client():
         assert not re.search(r"(?<![\w-])[SIQ]\d{1,4}\b", text), text
         assert not re.search("[\U0001F300-\U0001FAFF◊]", text), text
     lines = [t for kind, t in _items(job, "Qty (2) Exhaust Fan EF-1, 2") if kind == "line"]
-    assert "Furnish and Install Space Temperature Sensor (*Assumed: Space temperature sensor furnished by AME)" in lines
-    assert any(t.startswith("Furnish and Install Current Switch (Qty. per Mechanical Schedule) (*Confirm quantity:")
-               for t in lines)
+    notes = [t for kind, t in _items(job, "Qty (2) Exhaust Fan EF-1, 2") if kind == "note"]
+    assert "Furnish and Install Space Temperature Sensor" in lines
+    assert "*Assumed: Space temperature sensor furnished by AME" in notes      # one clarification per block
+    assert "Furnish and Install Current Switch (Qty. per Mechanical Schedule)" in lines
+    assert "*Confirm quantities: Current Switch, Fire Alarm Stop Relay" in notes
     assert "AME requires mfr. Rep to assist in integration, cost to be incurred by mech contractor" in lines
 
 
@@ -132,8 +134,8 @@ def test_an_assumption_prints_once_under_its_line_in_plain_words():
                                                        "CC", ("wire guard",), "orange"),))
     job, _, _, _ = _assemble([FANS], {"EF": scope})
     items = _items(job, "Qty (2) Exhaust Fan EF-1, 2")
-    assert ("line", "Furnish and Install Heavy-Gauge Ventilated Wire Guard for Space Sensors (Qty. 9 Total) "
-                    "(*Assumed: Wire guards for gymnasium and weight room sensors furnished by AME)") in items
+    assert ("line", "Furnish and Install Heavy-Gauge Ventilated Wire Guard for Space Sensors (Qty. 9 Total)") in items
+    assert ("note", "*Assumed: Wire guards for gymnasium and weight room sensors furnished by AME") in items
     assert sum(t.count("*Assumed") for _, t in items) == 1
 
 
@@ -144,8 +146,8 @@ def test_a_red_line_asks_for_its_quantity_and_a_yellow_line_prints_no_star():
                        flag_text="Confirm the manufacturer ships the thermostat loose (S172)."))
     job, systems, general, ranked = _assemble([FANS], {"EF": scope})
     items = _items(job, "Qty (2) Exhaust Fan EF-1, 2")
-    assert ("line", "Furnish and Install RTU-3 Roll-Up Door Position Sensor (Qty. per Drawing) "
-                    "(*Confirm quantity: RTU-3 Roll-Up Door Position Sensor)") in items
+    assert ("line", "Furnish and Install RTU-3 Roll-Up Door Position Sensor (Qty. per Drawing)") in items
+    assert ("note", "*Confirm quantity: RTU-3 Roll-Up Door Position Sensor") in items
     assert ("line", "Install and wire Space Thermostat (Furnished by Unit Mfr., Shipped Loose)") in items
     assert any("Space Thermostat" in r.decide for r in ranked)                 # the ownership question stays
 
