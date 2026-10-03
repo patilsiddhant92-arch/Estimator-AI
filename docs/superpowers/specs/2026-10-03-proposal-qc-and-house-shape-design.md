@@ -297,6 +297,8 @@ integration lines; the one-clarification-per-block rule). The tool loads v4; v3.
 for comparison. `gem_prompt()` keeps its cuts and additions working against the new headings. The
 original `.docx` in the Brain folder is untouched. The rewrite is reviewed by the estimator before it
 replaces v3.2 (a side-by-side of every rule, old and new, in the Evidence of the plan's report).
+Approved by the estimator on 2026-10-03; the side-by-side is kept in
+`docs/superpowers/specs/2026-10-03-gem-v4-changes.md`.
 
 ### 9.2 Running a job from any session
 

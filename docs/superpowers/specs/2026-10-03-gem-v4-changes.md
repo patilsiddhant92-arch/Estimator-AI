@@ -1,4 +1,6 @@
-# GEM v4: what changed from v3.2 (for the estimator's sign-off, spec §9.1)
+# GEM v4: what changed from v3.2 (spec §9.1)
+
+**Status: approved by the estimator on 2026-10-03.** Version 4 replaces version 3.2 as the method. Version 3.2 stays in `assets/gem/` for comparison only.
 
 Copied from the Task 1 implementer's report on 2026-10-03; the rewritten text is assets/gem/BMS_DDC_GEM_v4.txt.
 
