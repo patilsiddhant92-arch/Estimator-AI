@@ -408,3 +408,17 @@ def test_in_chat_mode_a_waiting_qc_request_holds_the_proposal(job, tmp_path, cap
     assert (out / "26-9999 Evidence Package.xlsx").exists()
     assert not (out / "26-9999 Proposal.docx").exists()
     assert whole_job[-1].qc_calls == 1
+
+
+def test_each_write_request_gets_the_class_of_the_unit_a_duct_heater_serves(job, tmp_path, monkeypatch, whole_job):
+    seen = []
+    original = FakeJudge.write_system
+
+    def recording(self, system, *args, **kwargs):
+        seen.append(kwargs.get("heater_class"))
+        return original(self, system, *args, **kwargs)
+
+    monkeypatch.setattr(FakeJudge, "write_system", recording)
+    monkeypatch.setattr("estimator.__main__.served_class", lambda ledger, plan, system: "packaged")
+    main(["estimate", str(job), "--out", str(tmp_path / "out"), "--ai", "api"])
+    assert seen and set(seen) == {"packaged"}

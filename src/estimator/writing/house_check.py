@@ -33,12 +33,20 @@ def _item_words(item: str) -> str:
     return item
 
 
-def house_check(scope, system, klass: str, owned_elsewhere: dict[str, str], style):
+HEATER_UNKNOWN = "duct heater kept in full: the unit it serves is not known"
+
+
+def house_check(scope, system, klass: str, owned_elsewhere: dict[str, str], style, heater_class: str = ""):
+    """`heater_class` is the class of the unit a duct heater serves (brief.served_class): a duct heater's own block
+    keeps only its interlock lines when that unit is packaged, and its full scope when the unit is field or not
+    known (then a note says so). Duct heater lines inside a packaged unit's own block are interlock-only."""
     internal, loose, cc = _patterns(style, "internal"), _patterns(style, "shipped_loose"), _patterns(style, "cc_terms")
     point, exempt = _patterns(style, "point_line"), _patterns(style, "internal_exempt_quote")
     keep, heater = _patterns(style, "duct_heater_keep"), _patterns(style, "duct_heater_words")
     kept, refused, changed = [], list(scope.refused), list(getattr(scope, "changed", ()))
     key = getattr(system, "key", "")
+    heater_block = _any(heater, f"{key} {getattr(system, 'kind', '')} {getattr(system, 'header', '')}")
+    heater_rule = heater_class if heater_block else klass      # the served unit's class, or this unit's own
     for line in scope.lines:
         text, quote = line.text, line.quote or ""
         owner = next((o for item, o in owned_elsewhere.items()
@@ -46,11 +54,14 @@ def house_check(scope, system, klass: str, owned_elsewhere: dict[str, str], styl
         if owner:
             refused.append(f"“{text}” is written under {owner}; left out here")
             continue
-        if klass == "packaged":
-            if _any(heater, text) and not _any(keep, text):
+        if _any(heater, text) and not _any(keep, text):
+            if heater_rule == "packaged":
                 refused.append(f"“{text}”: on a packaged unit AME wires the duct heater's interlock only (AME practice: "
                                "electric duct heaters); left out")
                 continue
+            if heater_block and not heater_class and HEATER_UNKNOWN not in changed:
+                changed.append(HEATER_UNKNOWN)
+        if klass == "packaged":
             hit = [p for p in internal if p.search(text)]
             if hit and not _any(exempt, quote) and not (_any(cc, quote) and any(p.search(quote) for p in hit)):
                 refused.append(f"“{text}” is inside the unit and comes wired from the factory; the integration lines "

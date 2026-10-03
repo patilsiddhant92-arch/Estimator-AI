@@ -316,3 +316,36 @@ def test_a_damper_is_told_from_a_fire_or_smoke_damper_by_its_tag_and_phrases_not
     assert not _is_motorized_damper("FSD-1", ("MD",))
     assert not _is_motorized_damper("combination fire/smoke damper", ("MD",))
     assert not _is_motorized_damper("SD at the corridor", ("MD",))
+
+
+# --- the count notes read as the house writes them ------------------------------------------------------------
+
+COUNTS_QUOTE = ("VAV (Variable Air Volume Box): schedule rows 16; QUANTITY column total —; distinct tags 15; "
+                "plan placements 15 (M-101.00 5; M-102.00 10); riser —")
+
+
+def test_a_counts_line_place_is_the_clause_holding_the_number():
+    from estimator.ledger.to_plan import place_words
+    where = "equipment counts for VAV (schedules and plans)"
+    assert place_words(where, COUNTS_QUOTE, 16) == "schedule rows 16"
+    assert place_words(where, COUNTS_QUOTE, 15) == "distinct tags 15"
+    assert place_words("M-101.00, Drawings.pdf page 4 (sheet text)", "VAV-1") == "M-101.00"
+    assert place_words("M-102.00 SECOND FLOOR PLAN — whole sheet for the Plans pass, Drawings.pdf page 5 (picture)",
+                       "VAV-1") == "M-102.00"
+
+
+def test_a_counts_line_note_names_the_schedule_rows_and_the_other_count():
+    ledger = Ledger(SOURCES)
+    ledger.add("family", "VAV", "Variable Air Volume Box", "[S5]", COUNTS_QUOTE, "seed", SETTLED)
+    count = ledger.add("count", "VAV", 16, "[S5]", COUNTS_QUOTE, "seed", SETTLED)
+    ledger.contradict(count.id, 15, "[S5]", "distinct tags 15", "plans")
+    assert count_note(ledger, ledger.facts[count.id]) == "*Qty. (16) per schedule rows 16; distinct tags 15."
+
+
+def test_a_contradicted_group_gives_one_note_per_family():
+    ledger = _chillers(grouped=True)
+    ledger.contradict(ledger.find("count", "CH").id, 3, "[S10]", "CH-1 CH-2 CH-3", "plans")
+    ledger.contradict(ledger.find("count", "CHWP").id, 4, "[S10]", "CHWP-1 … CHWP-4", "plans")
+    (plant,) = ledger_plan(ledger).systems
+    assert plant.count_note.split("\n") == ["CH: *Qty. (3) per M-201; schedule rows 2.",
+                                            "CHWP: *Qty. (4) per M-201; schedule rows 2."]

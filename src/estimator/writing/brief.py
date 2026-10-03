@@ -10,6 +10,8 @@ import re
 from estimator.writing.style import load_house_style
 
 _MAKER = re.compile(r"\b(?:unit\s+mfr|manufacturer|factory|oem|packaged|comes?\s+with\s+the\s+unit|furnished\s+with\s+the\s+unit)\b", re.I)
+_NOT_MAKER = re.compile(r"\bnot\s+by\b|\bnot\s+the\s+unit\s+mfr", re.I)
+_SERVES = re.compile(r"serves?\s+([A-Z][A-Z0-9-]+)")
 _SPACES = re.compile(r"\s+")
 
 
@@ -31,7 +33,8 @@ def system_class(ledger, system) -> str:
     """"packaged" when a provider fact about the system says the unit maker or the factory controls it; else "field"."""
     names = _names(system)
     for fact in ledger.of_kind("provider"):
-        if any(_word(n, fact.subject) for n in names) and _MAKER.search(_squash(fact.value)):
+        value = _squash(fact.value)
+        if any(_word(n, fact.subject) for n in names) and _MAKER.search(value) and not _NOT_MAKER.search(value):
             return "packaged"
     return "field"
 
@@ -47,15 +50,50 @@ def _system_of(plan, name: str):
     return None
 
 
+def served_systems(ledger, plan, system) -> list:
+    """The systems this one serves: the value of each link whose subject names this system (and whose value names
+    another), and the "serves X" words of a provider or note fact about this system; each once, never itself."""
+    names = _names(system)
+    found: list[str] = []
+    for fact in ledger.of_kind("link"):
+        subject, value = _squash(fact.subject), _squash(fact.value)
+        if any(_word(n, subject) for n in names) and not any(_word(n, value) for n in names):
+            found.append(value)
+    for fact in ledger.of_kind("provider") + ledger.of_kind("note"):
+        if any(_word(n, fact.subject) for n in names):
+            found += _SERVES.findall(_squash(fact.value))
+    systems = []
+    for name in found:
+        other = _system_of(plan, name)
+        if other is not None and other.key != system.key and other not in systems:
+            systems.append(other)
+    return systems
+
+
+def served_class(ledger, plan, system) -> str:
+    """"packaged" when a unit this system serves is packaged, "field" when every one is field, "" when the ledger
+    names none (a duct heater's rule follows the unit it serves)."""
+    classes = [system_class(ledger, other) for other in served_systems(ledger, plan, system)]
+    if not classes:
+        return ""
+    return "packaged" if "packaged" in classes else "field"
+
+
+def is_duct_heater(system, style=None) -> bool:
+    """The system is a duct heater: its key, kind or header says so in the house style's duct heater words."""
+    style = style or load_house_style()
+    raw = (getattr(style, "packaged_units", None) or {}).get("duct_heater_words", ())
+    patterns = [raw] if isinstance(raw, str) else list(raw)
+    words = f"{system.key} {system.kind} {system.header}"
+    return any(re.search(p, words, re.I) for p in patterns)
+
+
 def shared_owners(ledger, plan) -> dict[str, str]:
     """item -> the key of the system that owns it, from the ledger's links."""
-    style = load_house_style()
-    damper_prefixes = tuple(getattr(style, "packaged_units", {}).get("damper_prefixes", ("MD",)))
     owners: dict[str, str] = {}
     for fact in ledger.of_kind("link"):
         subject, value = _squash(fact.subject), _squash(fact.value)
-        prefix = subject.split("-")[0].upper()
-        if prefix in damper_prefixes or "damper" in subject.lower():
+        if _is_damper(subject):
             owner = _system_of(plan, value)
             if owner is not None:
                 owners[f"damper actuator {subject}"] = owner.key
@@ -70,9 +108,11 @@ def shared_owners(ledger, plan) -> dict[str, str]:
 
 
 def _is_damper(subject: str) -> bool:
+    """A damper's tag or label: it leads with a damper prefix ("MD-1", "MD on EF-2 duct") or says "damper"."""
     style = load_house_style()
-    prefixes = tuple(getattr(style, "packaged_units", {}).get("damper_prefixes", ("MD",)))
-    return subject.split("-")[0].upper() in prefixes or "damper" in subject.lower()
+    prefixes = tuple(p.upper() for p in getattr(style, "packaged_units", {}).get("damper_prefixes", ("MD",)))
+    lead = re.split(r"[\s\-(/,]", _squash(subject), maxsplit=1)[0].upper()
+    return lead in prefixes or "damper" in subject.lower()
 
 
 def _links(ledger, system) -> tuple[list[str], list[str]]:
@@ -104,6 +144,11 @@ def job_brief(ledger, plan, templates=None, limit: int = 4000) -> str:
         serves, served = _links(ledger, system)
         qty = f"Qty {system.quantity}" if system.quantity is not None else "Qty ##"
         parts = [system.key, system.header, qty, system.kind, system_class(ledger, system)]
+        if is_duct_heater(system):
+            units = served_systems(ledger, plan, system)
+            if units:
+                parts.append(f"serves: {', '.join(u.key for u in units)} ({served_class(ledger, plan, system)})")
+                served = [v for v in served if _system_of(plan, v) not in units]
         if serves:
             parts.append("serves: " + ", ".join(serves))
         if served:

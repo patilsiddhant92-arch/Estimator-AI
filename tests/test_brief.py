@@ -54,3 +54,56 @@ def test_the_brief_has_the_four_parts_in_order_and_fits_the_limit():
     assert "damper actuator MD-1 — EF" in text
     short = job_brief(L, plan, load_templates(), limit=300)
     assert len(short) <= 310 and short.rstrip().endswith("(cut)")
+
+
+# --- a duct heater follows the unit it serves ----------------------------------------------------------------
+
+def _heaters(link_to=None, provider_serves=None):
+    from estimator.writing.brief import served_class
+    L = Ledger(SOURCES | {"S8": "equipment counts for EDH (schedules and plans)", "S9": "equipment counts for ERV",
+                          "S11": "equipment counts for AHU"})
+    L.add("family", "ERV", "Energy Recovery Ventilator", "[S9]", "ERV", "schedules", SETTLED)
+    L.add("unit", "ERV", "ERV-1", "[S9]", "Tags: ERV-1", "seed", SETTLED)
+    L.add("provider", "ERV-1 controls", "factory mounted controls by unit mfr", "[S9]", "FACTORY CONTROLS", "schedules", SETTLED)
+    L.add("family", "AHU", "Air Handling Unit", "[S11]", "AHU", "schedules", SETTLED)
+    L.add("unit", "AHU", "AHU-1", "[S11]", "Tags: AHU-1", "seed", SETTLED)
+    L.add("family", "EDH", "Electric Duct Heater", "[S8]", "EDH", "schedules", SETTLED)
+    L.add("unit", "EDH", "EDH-1", "[S8]", "Tags: EDH-1", "seed", SETTLED)
+    if link_to:
+        L.add("link", "EDH-1", link_to, "[S10]", f"EDH-1 {link_to}", "plans", SETTLED)
+    if provider_serves:
+        L.add("provider", "EDH-1", f"by AME; serves {provider_serves}", "[S8]", "EDH-1 NOTES", "schedules", SETTLED)
+    plan = ledger_plan(L)
+    edh = next(s for s in plan.systems if s.key == "EDH")
+    return L, plan, edh, served_class
+
+
+def test_a_duct_heater_takes_the_class_of_the_unit_it_serves():
+    L, plan, edh, served_class = _heaters(link_to="ERV-1")
+    assert served_class(L, plan, edh) == "packaged"
+    L, plan, edh, served_class = _heaters(link_to="AHU-1")
+    assert served_class(L, plan, edh) == "field"
+    L, plan, edh, served_class = _heaters(provider_serves="AHU-1")
+    assert served_class(L, plan, edh) == "field"
+    L, plan, edh, served_class = _heaters()
+    assert served_class(L, plan, edh) == ""
+
+
+def test_the_brief_says_which_unit_a_duct_heater_serves_and_its_class():
+    L, plan, edh, _ = _heaters(link_to="ERV-1")
+    assert "EDH | Electric Duct Heater EDH-1 | Qty ## | Electric Duct Heater | field | serves: ERV (packaged)" in job_brief(L, plan)
+
+
+def test_a_provider_saying_not_by_the_unit_maker_is_not_packaged():
+    L = _ledger()
+    L.add("family", "AHU", "Air Handling Unit", "[S5]", "AHU", "schedules", SETTLED)
+    L.add("provider", "AHU controller", "DDC controls by AME, not by unit mfr", "[S20]", "BY ATC", "schedules", SETTLED)
+    L.add("provider", "AHU-2 controller", "controls not the unit mfr's", "[S20]", "BY ATC", "schedules", SETTLED)
+    ahu = next(s for s in ledger_plan(L).systems if s.key == "AHU")
+    assert system_class(L, ahu) == "field"
+
+
+def test_a_damper_labelled_in_words_still_belongs_to_its_fan():
+    L = _ledger()
+    L.add("link", "MD on EF-2 duct", "EF-2", "[S10]", "MD EF-2", "plans", SETTLED)
+    assert shared_owners(L, ledger_plan(L))["damper actuator MD on EF-2 duct"] == "EF"

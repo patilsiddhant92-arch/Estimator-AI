@@ -565,6 +565,20 @@ def _on_drawings(system, dossier) -> bool:
 
 SEQUENCE_ONLY = "Named in the sequence of operation"
 SEQUENCE_ONLY_NOTE = "*Quantity per plumbing drawings"
+_PER_DRAWINGS = "*Quantity per {} drawings"
+_ELECTRICAL_KINDS = re.compile(r"\bgenerators?\b|\bgen\s*set\b", re.I)
+
+
+def per_drawings_note(system, style) -> str:
+    """The note under a sequence-only system printed with "Qty (##)", naming the drawings its count is on: a
+    generator's are the electrical drawings, a plumbing or monitor-only system's (pumps, water heaters, glycol, gas
+    booster, heat tracing) the plumbing drawings, any fan or HVAC unit's the mechanical drawings."""
+    words = f"{getattr(system, 'kind', '') or ''} {getattr(system, 'header', '') or ''}"
+    if _ELECTRICAL_KINDS.search(words):
+        return _PER_DRAWINGS.format("electrical")
+    if style.is_monitoring(words):
+        return _PER_DRAWINGS.format("plumbing")
+    return _PER_DRAWINGS.format("mechanical")
 
 
 def sequence_only(system) -> bool:
@@ -2595,7 +2609,7 @@ def _written_part(system, check: PlanCheck, scope, got, dossier, templates, styl
                 or any(_is_picture(line.source_id, dossier) for line in kept))     # for this system
     notes: list[str] = list(maker_notes)
     if sequence_only(system) and quantity is None:     # its count is on no drawing the plan read
-        notes.append(SEQUENCE_ONLY_NOTE)
+        notes.append(per_drawings_note(system, style))
     unprinted: list[str] = []
     for note in getattr(scope, "client_notes", ()) or ():
         note = _squash(note)
@@ -3190,9 +3204,10 @@ def count_notes(written: WrittenSystem, parts) -> WrittenSystem:
     gets a tier-2 review row for each; unchanged when no part carries a note."""
     notes: list[tuple[str, str]] = []
     for part in parts:
-        note = _squash(getattr(part.system, "count_note", "") or "")
-        if note and note not in [n for _h, n in notes]:
-            notes.append((_squash(getattr(part.system, "header", "") or written.bundle_key), note))
+        for note in str(getattr(part.system, "count_note", "") or "").split("\n"):     # a group: one per family
+            note = _squash(note)
+            if note and note not in [n for _h, n in notes]:
+                notes.append((_squash(getattr(part.system, "header", "") or written.bundle_key), note))
     if not notes or not written.blocks:
         return written
     blocks = list(written.blocks)

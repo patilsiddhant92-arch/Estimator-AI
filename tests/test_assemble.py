@@ -114,7 +114,7 @@ class FakeJudge:
         return 0
 
     def write_system(self, system, evidence_text, images, options, examples, style_text, hours_rule="", image_ids=None,
-                     ledger_text="", facts=(), counts=(), brief="", klass="", owned_elsewhere=()):
+                     ledger_text="", facts=(), counts=(), brief="", klass="", owned_elsewhere=(), heater_class=""):
         self.asked.append(system.key)
         self.calls += 1
         return self.scopes.get(system.key)
@@ -647,4 +647,32 @@ def test_a_sequence_only_system_prints_qty_hash_with_its_note_and_four_hours():
                                               "EG": _scope(_gl("Furnish Generator Run Status"))})
     block = next(b for b in job.blocks if b.header == "Qty (##) Emergency Generator EG")
     assert block.tech_hours == 4.0
-    assert [i.text for i in block.items][-1] == "*Quantity per plumbing drawings"
+    assert [i.text for i in block.items][-1] == "*Quantity per electrical drawings"     # a generator's count
+
+
+def test_each_family_note_of_a_group_is_its_own_note():
+    from types import SimpleNamespace
+    from estimator.writing.assemble import count_notes
+    from estimator.writing.write import WrittenSystem
+    from estimator.scope import Block, Item, Run
+    block = Block(header="Chilled Water Plant", items=(Item(kind="line", runs=(Run(text="Furnish x"),)),))
+    note = "CH: *Qty. (3) per M-201; schedule rows 2.\nCHWP: *Qty. (4) per M-201; schedule rows 2."
+    part = SimpleNamespace(system=SimpleNamespace(header="Chilled Water Plant", count_note=note))
+    written = count_notes(WrittenSystem("Chilled Water Plant", (block,), (), ()), [part])
+    assert [i.text for i in written.blocks[-1].items][-2:] == ["CH: *Qty. (3) per M-201; schedule rows 2.",
+                                                                "CHWP: *Qty. (4) per M-201; schedule rows 2."]
+
+
+def test_the_per_drawings_note_follows_the_kind_of_system():
+    from estimator.writing.assemble import per_drawings_note
+    from estimator.writing.style import load_house_style
+    from estimator.writing.whole_job import PlannedSystem
+    style = load_house_style()
+
+    def system(key, kind):
+        return PlannedSystem(key, f"{kind} {key}", kind, (key,), None, "", "", ("[Q1]",), (), "", "", "",
+                             "Named in the sequence of operation; no drawing shows it.", facts=("F1",))
+
+    assert per_drawings_note(system("OAF", "Outdoor Air Fan"), style) == "*Quantity per mechanical drawings"
+    assert per_drawings_note(system("DWH", "Domestic Water Heater"), style) == "*Quantity per plumbing drawings"
+    assert per_drawings_note(system("EG", "Emergency Generator"), style) == "*Quantity per electrical drawings"

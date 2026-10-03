@@ -90,3 +90,16 @@ def test_no_pictures_keeps_the_passes_text_only(tmp_path, monkeypatch):
     monkeypatch.setattr(run_module, "sheet_pictures", lambda *a, **k: (_ for _ in ()).throw(AssertionError("rendered")))
     client = FakeClient(*[_reply("ok") for _ in range(6)])
     read_job(Judge(tmp_path / "cache", model="test-model", client=client), _dossier(), CATALOGUE, pictures=False)
+
+
+def test_a_picture_source_starts_with_its_sheet_number(tmp_path, monkeypatch):
+    from estimator.ledger import run as run_module
+    from estimator.ledger.to_plan import place_words
+    monkeypatch.setattr(run_module, "sheet_pictures", lambda catalogue, cache_dir, keys, what: (
+        [SimpleNamespace(path=str(tmp_path / f"{p}.png"), what=f"{d} page {p} — {what}", sheet=None, document=d, page=p)
+         for d, p in keys], []))
+    client = FakeClient(*[_reply("ok") for _ in range(6)])
+    ledger = read_job(Judge(tmp_path / "cache", model="test-model", client=client), _dossier(), CATALOGUE)
+    (source,) = [v for v in ledger.sources.values() if v.endswith("(picture)")]
+    assert source.startswith("M-201 ")
+    assert place_words(source, "VAV-1 VAV-2") == "M-201"

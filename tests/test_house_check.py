@@ -75,3 +75,23 @@ def test_an_internal_device_is_refused_when_the_quote_names_the_contractor_but_n
                          quote="The BMS contractor shall connect the DDC controller to the BMS network"))
     out = house_check(scope, RTU, "packaged", {}, STYLE)
     assert out.lines == () and any("inside the unit" in r for r in out.refused)
+
+
+EDH = PlannedSystem("EDH", "Electric Duct Heater EDH-1", "Electric Duct Heater", ("EDH-1",), 1, "[S5]", "1", (), (), "", "", "", "", facts=("F1",))
+HEATER_LINES = ("Furnish Electric Duct Heater SCR Control", "Wire Electric Duct Heater Interlock to Unit Enable")
+
+
+def test_a_duct_heater_serving_a_packaged_unit_keeps_only_its_interlock():
+    out = house_check(_scope(*map(_line, HEATER_LINES)), EDH, "field", {}, STYLE, heater_class="packaged")
+    assert [l.text for l in out.lines] == ["Wire Electric Duct Heater Interlock to Unit Enable"]
+
+
+def test_a_duct_heater_serving_a_field_unit_keeps_its_full_scope():
+    out = house_check(_scope(*map(_line, HEATER_LINES)), EDH, "field", {}, STYLE, heater_class="field")
+    assert [l.text for l in out.lines] == list(HEATER_LINES) and out.refused == () and out.changed == ()
+
+
+def test_a_duct_heater_serving_an_unknown_unit_is_kept_in_full_and_says_so():
+    out = house_check(_scope(*map(_line, HEATER_LINES)), EDH, "field", {}, STYLE)
+    assert [l.text for l in out.lines] == list(HEATER_LINES)
+    assert out.changed == ("duct heater kept in full: the unit it serves is not known",)

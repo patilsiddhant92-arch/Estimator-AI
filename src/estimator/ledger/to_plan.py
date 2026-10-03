@@ -47,18 +47,38 @@ def _printed(ledger: Ledger, fact: Fact) -> tuple[int | None, str, str]:
 _COUNTS_LINE = "equipment counts for"
 
 
-def place_words(where: str, quote: str) -> str:
-    """A count's place in plain words: the counts line's own words ("schedule rows 16") when the source is the
-    equipment counts, else the sheet number alone ("M-201"), never the document and page."""
+_SHEET_NUMBER = re.compile(r"^[A-Z][A-Z0-9.\-]*\d[A-Z0-9.\-]*$")
+
+
+def _clause(quote: str, number) -> str:
+    """The clause of a counts line ("; " between clauses) holding the number, without the line's "PREFIX (kind): "
+    head: "schedule rows 16". The whole quote when no clause holds it."""
+    quote = _squash(quote)
+    if number is None:
+        return quote
+    holds = re.compile(rf"(?<![\w.\-]){re.escape(str(number).strip())}(?![\w.])")
+    for clause in quote.split("; "):
+        clause = re.sub(r"^[^:;]*\):\s*", "", clause).strip()
+        if holds.search(clause):
+            return clause
+    return quote
+
+
+def place_words(where: str, quote: str, number=None) -> str:
+    """A count's place in plain words: the counts line's clause holding the number ("schedule rows 16") when the
+    source is the equipment counts, else the sheet number alone ("M-201", "M-102.00" from a sheet's text or its
+    picture), never the document and page."""
     where = _squash(where)
     if where.casefold().startswith(_COUNTS_LINE) and _squash(quote):
-        return _squash(quote)
-    return where_short(where).split(",", 1)[0].strip()
+        return _clause(quote, number)
+    place = where_short(where).split(",", 1)[0].strip()
+    first = place.split(" ", 1)[0]
+    return first if _SHEET_NUMBER.match(first) else place
 
 
 def _other_count(where: str, quote: str, value) -> str:
     """Another count in the note: the counts line's words carry their number; a sheet "lists" it."""
-    place = place_words(where, quote)
+    place = place_words(where, quote, value)
     counts_line = _squash(where).casefold().startswith(_COUNTS_LINE) and _squash(quote)
     return place if counts_line else f"{place} lists ({value})"
 
@@ -74,7 +94,7 @@ def count_note(ledger: Ledger, fact: Fact) -> str:
         return ""
     others = [(fact.value, fact.source_id, fact.quote)] + [(c.value, c.source_id, c.quote) for c in fact.contradictions]
     others = [(_squash(v), s, q) for v, s, q in others if not _same(v, printed)]
-    place = place_words(ledger.sources.get(sid.strip("[]"), sid), quote)
+    place = place_words(ledger.sources.get(sid.strip("[]"), sid), quote, printed)
     rest = "; ".join(_other_count(ledger.sources.get(s.strip("[]"), s), q, v) for v, s, q in others)
     return f"*Qty. ({printed}) per {place}; {rest}."
 
@@ -158,7 +178,8 @@ def _group_system(ledger: Ledger, group: Fact, members: list[Fact]) -> PlannedSy
     matched = _matches(ledger, group.subject, *prefixes)
     sequence = tuple(_bracket(m.source_id) for m in matched)
     tags =tuple(t for f in families for t in f.tags)
-    notes = [count_note(ledger, ledger.find("count", m.subject)) for m in members if ledger.find("count", m.subject)]
+    notes = [f"{m.subject}: {note}" for m in members if ledger.find("count", m.subject)
+             for note in [count_note(ledger, ledger.find("count", m.subject))] if note]   # one note per family
     return PlannedSystem(key=_squash(group.subject), header=_squash(group.subject), kind=_squash(group.subject),
                          tags=tags, quantity=None, quantity_source="", quantity_quote="", sequence_sources=sequence,
                          schedule_sources=tuple(_bracket(ledger.find("count", m.subject).source_id) for m in members
@@ -167,7 +188,7 @@ def _group_system(ledger: Ledger, group: Fact, members: list[Fact]) -> PlannedSy
                          exception=_note(ledger, "exception", group.subject, *prefixes),
                          why=f"From the job ledger: {len(ids) + len(matched)} facts.",
                          sequence_section=", ".join(sequence), families=tuple(families),
-                         count_note=" ".join(n for n in notes if n), facts=tuple(ids + [m.id for m in matched]))
+                         count_note="\n".join(notes), facts=tuple(ids + [m.id for m in matched]))
 
 
 def _front_end(ledger: Ledger) -> dict:

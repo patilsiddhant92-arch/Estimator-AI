@@ -57,7 +57,7 @@ from estimator.proposal.write import check_template, write_proposal
 from estimator.reading.job import read_job, reading_lines
 from estimator.scope import Job
 from estimator.sent import job_from_sent
-from estimator.writing.brief import job_brief, shared_owners, system_class
+from estimator.writing.brief import job_brief, served_class, shared_owners, system_class
 from estimator.writing.dossier import build_dossier
 from estimator.writing.assemble import (assemble_job, plan_checks, review_list, system_evidence,
                                         system_examples, system_pictures, tech_hour_rule, template_options)
@@ -391,7 +391,8 @@ def _estimate_whole_job(args: argparse.Namespace) -> None:
                                                 image_ids=[pid for pid, _ in pictures],
                                                 ledger_text=entry_text(system, ledger), facts=system.facts,
                                                 counts=system_counts(system, ledger), brief=brief,
-                                                klass=system_class(ledger, system), owned_elsewhere=owners)
+                                                klass=system_class(ledger, system), owned_elsewhere=owners,
+                                                heater_class=served_class(ledger, plan, system))
     unrecorded = getattr(judge, "unrecorded", 0)
     if unrecorded:
         print(f"Moved {unrecorded} {'request' if unrecorded == 1 else 'requests'} that recorded no job into "

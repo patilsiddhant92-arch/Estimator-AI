@@ -44,6 +44,16 @@ def _picture_sheets(pass_, dossier, catalogue, text: str, cap: int) -> tuple[lis
     return [(sheets[n].document, sheets[n].page) for n in kept], left
 
 
+def _picture_source(image, catalogue) -> str:
+    """A whole-sheet picture's source, starting with its sheet number ("M-201 FIRST FLOOR PLAN — whole sheet …,
+    Drawings.pdf page 3 (picture)"), so a count note can name the sheet."""
+    number = getattr(image, "sheet", None) or next(
+        (s.number for s in getattr(catalogue, "sheets", ()) or ()
+         if s.number and s.document == image.document and s.page == image.page), "")
+    what = image.what if not number or image.what.startswith(number) else f"{number} {image.what}"
+    return f"{what}, {Path(image.document).name} page {image.page} (picture)"
+
+
 def read_job(judge, dossier, catalogue, save_to: Path | None = None, limit: int | None = None,
              pictures: bool = True, picture_cap: int = PICTURE_CAP):
     """`pictures=False` keeps every pass text-only. Sheet pictures are kept beside the dossier's own (the judge's
@@ -82,7 +92,7 @@ def read_job(judge, dossier, catalogue, save_to: Path | None = None, limit: int 
                     new_ids = [f"I{next_id + k}" for k in range(1, len(drawn) + 1)]
                     next_id += len(drawn)
                     for pid, image in zip(new_ids, drawn):
-                        ledger.sources.setdefault(pid, f"{image.what}, {Path(image.document).name} page {image.page} (picture)")
+                        ledger.sources.setdefault(pid, _picture_source(image, catalogue))
                     ids = [f"I{k}" for k in range(1, len(part_images) + 1)] + new_ids
                     part_images += drawn
                 if left_out:

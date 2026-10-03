@@ -45,14 +45,14 @@ def sheet_text_lines(text: str) -> list[tuple[str, str, str]]:
 
 
 def _count_lines(sections: dict[int, str]) -> dict[str, tuple[str, str, str, str]]:
-    """prefix -> (source id, the quote: the line up to its first full stop, the whole line, the kind the line names
-    in brackets)."""
+    """prefix -> (source id, the quote: the line up to its first full stop (". ", never the period inside a sheet
+    number such as M-101.00), the whole line, the kind the line names in brackets)."""
     found = {}
     for line in sections.get(5, "").splitlines():
         match = _COUNT_LINE.match(line)
         if match:
             body = match.group("body")
-            head = f"{match.group('prefix')} ({match.group('kind')}): {body.split('.')[0]}"
+            head = f"{match.group('prefix')} ({match.group('kind')}): {re.split(r'\.(?:\s|$)', body, maxsplit=1)[0]}"
             found[match.group("prefix")] = (match.group(1), head, line, match.group("kind").strip())
     return found
 

@@ -118,3 +118,10 @@ def test_every_seeded_family_waits_for_the_schedules_pass():
     ledger = seed(_dossier())
     assert {f.subject: f.state for f in ledger.of_kind("family")} == {"VAV": ADDED, "EF": ADDED, "T": ADDED}
     assert ledger.find("count", "VAV").state == SETTLED and ledger.find("count", "EF").state == ADDED
+
+
+def test_a_counts_line_quote_keeps_sheet_numbers_with_a_period():
+    text = TEXT.replace("plan placements 14 (M-201 6, M-202 8)", "plan placements 14 (M-201.00 6; M-202.00 8)")
+    family = seed(_dossier(text=text)).find("family", "VAV")
+    assert family.quote == ("VAV (Variable Air Volume Box): schedule rows 12; QUANTITY column total 12; distinct tags 12; "
+                            "plan placements 14 (M-201.00 6; M-202.00 8); riser —")
