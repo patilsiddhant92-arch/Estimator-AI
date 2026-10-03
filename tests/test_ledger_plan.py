@@ -214,3 +214,28 @@ def test_the_count_note_names_the_place_in_plain_words():
     # S10 is "M-201, Drawings.pdf page 3 (sheet text)": the sheet number only; F2's own source is the counts line,
     # so its quote's words stand in for the place
     assert count_note(ledger, ledger.facts["F2"]) == "*Qty. (14) per M-201; QUANTITY column total 12."
+
+
+def test_a_damper_linked_to_a_fan_joins_the_fan_and_leaves_the_damper_block():
+    ledger = _ledger()
+    ledger.add("family", "MD", "Motorized Damper", "[S10]", "MD", "plans")
+    ledger.add("count", "MD", 3, "[S10]", "MD ×3", "plans")
+    ledger.add("family", "EF", "Exhaust Fan", "[S10]", "EF-1", "plans")
+    ledger.add("count", "EF", 1, "[S10]", "EF-1", "plans")
+    ledger.add("link", "MD-1", "EF-1", "[S10]", "MD-1 at EF-1", "plans", SETTLED)
+    plan = ledger_plan(ledger)
+    ef = next(s for s in plan.systems if s.key == "EF")
+    md = next(s for s in plan.systems if s.key == "MD")
+    assert ef.linked_dampers == 1 and any(ledger.facts[f].kind == "link" for f in ef.facts)
+    assert md.quantity == 2 and "no fan claims" in md.why
+    assert 1 in system_counts(ef, ledger)
+
+
+def test_when_every_damper_is_linked_there_is_no_damper_block():
+    ledger = _ledger()
+    ledger.add("family", "MD", "Motorized Damper", "[S10]", "MD", "plans")
+    ledger.add("count", "MD", 1, "[S10]", "MD ×1", "plans")
+    ledger.add("family", "EF", "Exhaust Fan", "[S10]", "EF-1", "plans")
+    ledger.add("count", "EF", 1, "[S10]", "EF-1", "plans")
+    ledger.add("link", "MD-1", "EF-1", "[S10]", "MD-1 at EF-1", "plans", SETTLED)
+    assert [s.key for s in ledger_plan(ledger).systems if s.key == "MD"] == []

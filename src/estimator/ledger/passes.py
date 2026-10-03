@@ -58,11 +58,13 @@ PASSES: tuple[Pass, ...] = (
          "rows) and, from the notes under each schedule, who provides the unit controller (\"unit mfr\", \"AME\", "
          "\"owner\", or the words used). A schedule that is a picture is given as an image: read it. Nothing later "
          "can add a scheduled family, so be complete."),
-    Pass("plans", "Plans", ("location", "device"), ("family", "unit", "count"), (6, 7), ("Plans",), False,
+    Pass("plans", "Plans", ("location", "device", "link"), ("family", "unit", "count"), (6, 7), ("Plans",), False,
          "For each family already in the ledger, settle where its units are (floors, zones, rooms) and the devices "
          "around them: sensors, thermostats, damper actuators, and the keynotes that add controls scope. Equipment "
          "on the plans that no schedule lists may only be added, with the subject \"seen on plans, not scheduled\" "
-         "in its quote's words; it is flagged later. Give the count you can see, citing the sheet."),
+         "in its quote's words; it is flagged later. Give the count you can see, citing the sheet. When a motorized "
+         "damper sits on a fan's duct or next to a fan on the plan, record a link: subject the damper's tag or label, "
+         "value the fan's tag."),
     Pass("details", "Details and control diagrams", ("device", "link"), (), (), ("Details", "Control diagrams", "Diagrams"), False,
          "For units already in the ledger, settle what the details and control diagrams add: control valves, damper "
          "actuators, fire and smoke damper integration, expansion tank sensors, anything touching a scheduled "

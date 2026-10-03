@@ -4,6 +4,7 @@ ids of the facts it rests on. The writer, the checks and the Evidence Package re
 from __future__ import annotations
 
 import re
+from dataclasses import replace
 
 from estimator.ledger.facts import ADDED, CONTRADICTED, Fact, Ledger, where_short
 from estimator.writing.whole_job import Family, JobPlan, PlannedSystem
@@ -180,6 +181,84 @@ def _front_end(ledger: Ledger) -> dict:
             "sources": sorted({_bracket(f.source_id) for f in facts if f.source_id})}
 
 
+def _damper_prefixes() -> tuple[str, ...]:
+    from estimator.writing.style import load_house_style
+    style = load_house_style()
+    return tuple(p.upper() for p in getattr(style, "packaged_units", {}).get("damper_prefixes", ("MD",)))
+
+
+def _is_motorized_damper(subject: str, prefixes: tuple[str, ...]) -> bool:
+    """A motorized damper's tag or label: its prefix is a damper prefix ("MD-1") or it says "damper"; a fire or
+    smoke damper is not one (those stay where they are)."""
+    words = _squash(subject).casefold()
+    if "fire" in words or "smoke" in words:
+        return False
+    return _squash(subject).split("-")[0].upper() in prefixes or "damper" in words
+
+
+def _names_of(system: PlannedSystem) -> list[str]:
+    """What a link's value may call the system: its key, its tags and their prefixes."""
+    names = [system.key, *system.tags, *(t.split("-")[0] for t in system.tags)]
+    return [n for n in dict.fromkeys(_squash(n) for n in names) if n]
+
+
+def _sheets(ledger: Ledger, facts: list[Fact]) -> list[str]:
+    """The sheet numbers the facts cite, in order, each once."""
+    sheets: list[str] = []
+    for fact in facts:
+        sid = fact.source_id.strip("[]")
+        sheet = place_words(ledger.sources.get(sid, ""), fact.quote) if sid in ledger.sources else ""
+        if sheet and sheet not in sheets:
+            sheets.append(sheet)
+    return sheets
+
+
+def _link_dampers(ledger: Ledger, systems: list[PlannedSystem]) -> list[PlannedSystem]:
+    """A motorized damper linked to a fan joins that fan: the link and the damper's unit and location facts go to
+    the fan's facts and the fan counts it. The damper family keeps only the dampers no fan claims, naming the sheets
+    to look at; when every damper is claimed, there is no damper system."""
+    prefixes = _damper_prefixes()
+    damper_keys = {s.key.upper() for s in systems if not s.group and s.key.upper() in prefixes}
+    joined: dict[str, list[str]] = {}
+    links_of: dict[str, list[Fact]] = {}
+    for link in ledger.of_kind("link"):
+        subject = _squash(link.subject)
+        if not _is_motorized_damper(subject, prefixes):
+            continue
+        value = _squash(link.value)
+        target = next((s for s in systems if s.key.upper() not in damper_keys
+                       and any(_naming(n).search(value) for n in _names_of(s))), None)
+        if target is None:
+            continue
+        own = [f.id for f in ledger.about(subject) if f.kind in ("unit", "location")]
+        joined.setdefault(target.key, []).extend([link.id, *own])
+        family = subject.split("-")[0].upper()
+        family = family if family in damper_keys else next(iter(sorted(damper_keys)), "")
+        links_of.setdefault(family, []).append(link)
+    if not joined:
+        return systems
+    planned: list[PlannedSystem] = []
+    for system in systems:
+        if system.key in joined:
+            ids = joined[system.key]
+            facts = tuple(dict.fromkeys([*system.facts, *ids]))
+            count = sum(1 for f in ids if ledger.facts[f].kind == "link")
+            system = replace(system, facts=facts, linked_dampers=system.linked_dampers + count)
+        elif system.key.upper() in links_of and not system.group:
+            links = links_of[system.key.upper()]
+            if system.quantity is not None:
+                left = system.quantity - len(links)
+                if left <= 0:
+                    continue
+                system = replace(system, quantity=left)
+            locations = [f for f in ledger.of_kind("location") if _naming(system.key).search(_squash(f.subject))]
+            sheets = _sheets(ledger, locations + links)
+            why = "Dampers no fan claims" + (f"; see {', '.join(sheets)}." if sheets else ".")
+            system = replace(system, why=why)
+        planned.append(system)
+    return planned
+
+
 def ledger_plan(ledger: Ledger) -> JobPlan:
     groups = ledger.of_kind("group")
     member_of: dict[str, Fact] = {}
@@ -197,6 +276,7 @@ def ledger_plan(ledger: Ledger) -> JobPlan:
             placed.add(group.id)
             members = [f for f in ledger.of_kind("family") if member_of.get(f.subject.casefold()) is group]
             systems.append(_group_system(ledger, group, members))
+    systems = _link_dampers(ledger, systems)
     questions = tuple(_squash(f.value) for f in ledger.of_kind("note") if f.subject.casefold() == "question")
     return JobPlan(systems=tuple(systems), front_end=_front_end(ledger), unresolved=questions, model="ledger")
 
@@ -207,8 +287,11 @@ def entry_text(system: PlannedSystem, ledger: Ledger) -> str:
 
 
 def system_counts(system: PlannedSystem, ledger: Ledger) -> frozenset[int]:
-    """Every number a scope line for this system may carry: its count and device facts' values, printed or not."""
+    """Every number a scope line for this system may carry: its count and device facts' values, printed or not, and
+    the count of dampers linked to it."""
     numbers: set[int] = set()
+    if getattr(system, "linked_dampers", 0):
+        numbers.add(system.linked_dampers)          # "Damper Actuator (Qty. n Total)" under the fan
     for fid in getattr(system, "facts", ()) or ():
         fact = ledger.facts.get(fid)
         if fact is None or fact.kind not in ("count", "device"):

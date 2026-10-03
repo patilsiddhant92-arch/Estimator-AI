@@ -247,3 +247,10 @@ def test_the_details_pass_leaves_riser_sheets_to_the_risers_pass():
     assert "[S11] M-601" in details and "[S10] M-201" not in details
     assert "[S10] M-201" in documents(pass_named("risers"), _dossier(), catalogue)
     assert pass_named("details").not_sheet_types == ("Air riser", "Water riser", "Network riser")
+
+
+def test_the_plans_pass_may_settle_a_damper_link():
+    ledger = seed(_dossier())
+    refused = apply(pass_named("plans"), ledger, _answer(facts=[
+        {"kind": "link", "subject": "MD-1", "value": "EF-1", "source_id": "[S10]", "quote": "MD-1 EF-1"}]), _known(ledger))
+    assert refused == [] and ledger.find("link", "MD-1").state == SETTLED
