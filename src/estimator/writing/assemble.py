@@ -62,6 +62,7 @@ UNQUOTED_CAP = 0.5            # a line whose quote is not in the dossier
 PICTURE_CAP = 0.7             # a quote the judge read off a picture (I1, I2 …): it cannot be machine-checked
 COUNT_TO_FILL = "##"          # "Qty (##)": the house form of a count still to be filled
 FALLBACK = "System written with fallback lines — check"
+LEFT_OUT = "Left out of the proposal: the AI wrote no scope line for"
 MAX_FRONT_END_LINES = 6       # the front end's lines (under each, its own sub-lines); the rest go to the review
 NEAR_DUPLICATE = 0.6          # a plan front-end line sharing this share of its words with a line already there
 CONTROLS_TRADES = ("Mechanical", "Controls")     # a schedule on these sheets is the controls trade's
@@ -1597,21 +1598,32 @@ def _rewritten(refused) -> list[str]:
 
 
 def _fallback(system, scope, dossier, templates) -> tuple[list[CheckedLine], str]:
-    """The lines a system is printed with when the AI wrote none that could be used: the nearest Master
-    Template entry's usual lines, else the refused lines rewritten with a verb. (lines, where they came from)."""
-    template = _nearest_template(system, templates)
-    if template is not None:
-        lines = _template_defaults(template, system, system_evidence(system, dossier))
-        if lines:
-            why = f"the Master Template's {template.name} line"
-            return [CheckedLine(text, depth, None, "", "", why, _EVIDENCE_CONFIDENCE[ASSUMPTION], False,
-                                "the Master Template (fallback)")
-                    for text, depth in lines], f"the Master Template's {template.name} lines"
+    """The lines a system is printed with when the AI wrote none that could be used: its own refused lines,
+    rewritten with a verb. Never the Master Template: a block is written from the job's own inputs.
+    (lines, where they came from)."""
     texts = _rewritten(getattr(scope, "refused", ()) if scope is not None else ())
     why = "the AI's line, refused for want of a verb, rewritten with one"
     return ([CheckedLine(t, 1, None, "", "", why, _EVIDENCE_CONFIDENCE[ASSUMPTION], False,
-                         "the Master Template (fallback)") for t in texts],
+                         "the AI's refused line (rewritten)") for t in texts],
             "the AI's refused lines, rewritten with a verb" if texts else "no line at all")
+
+
+def _empty_system(system, check: PlanCheck, scope, scope_review) -> WrittenSystem:
+    """A system the AI wrote no usable line for: not printed (no Master Template lines stand in for the job's
+    inputs); one urgent row says it was left out and gives the AI's own reason, then the AI's other rows."""
+    name = _name(system)
+    if scope is None:
+        reason = "the AI has not written it yet"
+    else:
+        said = [getattr(scope, "explanation", "") or ""]
+        said += list(getattr(scope, "review_notes", ()) or ())
+        said += [f"refused: {r}" for r in getattr(scope, "refused", ()) or ()]
+        said = [_squash(x) for x in said if _squash(x)]
+        reason = "The AI's reason: " + " — ".join(said) if said else "the AI gave no reason"
+    row = ReviewItem(name, "", f"{LEFT_OUT} {name}", reason,
+                     "Read the job's documents for it: write the block by hand if they give it BMS work, "
+                     "or leave it out", tier=TIER_FIRST)
+    return WrittenSystem(system.key, (), (), (row,) + tuple(scope_review) + tuple(check.review), printed=False)
 
 
 def _singular(word: str) -> str:
@@ -2596,12 +2608,13 @@ def _written_part(system, check: PlanCheck, scope, got, dossier, templates, styl
     rows += added
     review += folded_review
     rows = _location_row(system, rows, quantity, name) + rows
-    rows, maker_notes = _given_to_unit_maker(rows, evidence, style)
     if scope is not None and not fallback:
         extra = factory_rows(system, rows, scope, style, quantity, name)
         extra += standard_rows(system, rows + extra, scope, evidence, templates, quantity, name)
         rows += extra
-        standard = [r.line.text for r in extra if r.line.origin == STANDARD_REFERENCE]
+    rows, maker_notes = _given_to_unit_maker(rows, evidence, style)      # after the standard lines: they obey it too
+    if scope is not None and not fallback:
+        standard = [r.line.text for r in rows if r.line.origin == STANDARD_REFERENCE]
         if standard:
             review.append(ReviewItem(name, ASSUMPTION, "AME standard lines added (Master Template): "
                                      + "; ".join(standard), "The AI neither wrote nor excluded them",
@@ -3306,6 +3319,9 @@ def assemble_job(catalogue, reading, dossier, plan, scopes, today, templates=Non
                     exceptions.append(text)
                 continue                  # the GEM finds no Controls Contractor scope: a named exception
             got = (entry[1], entry[2]) if entry is not None else None
+            if not (got and got[0]) and not _rewritten(getattr(scope, "refused", ()) if scope is not None else ()):
+                systems.append(_empty_system(system, check, scope, got[1] if got else ()))
+                continue                  # no line from the job's inputs: left out, with the AI's reason
             parts.append(_written_part(system, check, (scopes or {}).get(system.key), got, dossier, templates,
                                        style))
         if parts:

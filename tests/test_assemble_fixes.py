@@ -89,7 +89,7 @@ def test_a_long_header_system_is_printed_with_its_headers_stacked():
     assert len(stacked) == 1 and stacked[0].items
 
 
-def test_a_system_whose_lines_were_all_refused_falls_back_to_the_master_template():
+def test_a_system_whose_lines_were_all_refused_prints_them_rewritten_never_the_master_template():
     pump = _system("FP", "Fire Pump Controller Monitoring (Fire Pump and Jockey Pump)", (), 1,
                    kind="Misc Monitoring Systems", quantity_source="S8", quantity_quote="Provide two fire pumps",
                    sequence_sources=("S8",))
@@ -98,8 +98,8 @@ def test_a_system_whose_lines_were_all_refused_falls_back_to_the_master_template
                                                       "FP": WrittenScope((), refused=refused)})
     block = next(b for b in job.blocks if "Fire Pump" in b.header)
     texts = [i.text for i in block.items]
-    assert "Map Available Points Via Mfr. Provided BMS Interface or Connect to Nearby DDC Controller" in texts
-    assert "Fire Pump & Jockey Pump Common Fault Alarm Monitoring" in texts          # the evidence names the fire pump
+    assert not any(t.startswith("Map Available Points") for t in texts)              # no Master Template line
+    assert texts and all("Fire Pump" in t for t in texts)                            # the AI's own line, rewritten
     written = next(s for s in systems if s.bundle_key == "FP")
     assert written.printed and all(line.category == "ASSUMPTION" for line in written.lines if line.client)
     top = review_list(systems, review)[0]
@@ -146,6 +146,10 @@ def test_nothing_planned_vanishes():
         if system.key == "CHWP":           # nothing on the drawings shows it: the top question, never lost
             name = system.header
             assert any(r.decide.startswith(f"Does {name} exist") for r in review_list(systems, review))
+            continue
+        if system.key == "NEW":            # not written yet: left out, the top row says so, never lost
+            assert any(r.decide.startswith("Left out of the proposal") and "Gas Booster Pump" in r.decide
+                       for r in review_list(systems, review))
             continue
         assert any(first in header for header in printed), system.key
 

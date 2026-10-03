@@ -231,6 +231,7 @@ def test_a_damper_linked_to_a_fan_joins_the_fan_and_leaves_the_damper_block():
     assert ef.linked_dampers == 1 and any(ledger.facts[f].kind == "link" for f in ef.facts)
     assert md.quantity == 2 and "no fan claims" in md.why
     assert 1 in system_counts(ef, ledger)
+    assert 2 in system_counts(md, ledger)          # the dampers no fan claims: a count its lines may carry
 
 
 def test_when_every_damper_is_linked_there_is_no_damper_block():

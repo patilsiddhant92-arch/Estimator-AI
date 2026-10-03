@@ -369,9 +369,11 @@ def entry_text(system: PlannedSystem, ledger: Ledger) -> str:
 
 
 def system_counts(system: PlannedSystem, ledger: Ledger) -> frozenset[int]:
-    """Every number a scope line for this system may carry: its count and device facts' values, printed or not, and
-    the count of dampers linked to it."""
+    """Every number a scope line for this system may carry: its count and device facts' values, printed or not, the
+    count of dampers linked to it, and its own planned quantity (a damper block's count is what no fan claims)."""
     numbers: set[int] = set()
+    if isinstance(getattr(system, "quantity", None), int):
+        numbers.add(system.quantity)
     if getattr(system, "linked_dampers", 0):
         numbers.add(system.linked_dampers)          # "Damper Actuator (Qty. n Total)" under the fan
     for fid in getattr(system, "facts", ()) or ():

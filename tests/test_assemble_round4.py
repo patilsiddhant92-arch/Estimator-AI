@@ -280,7 +280,10 @@ def test_a_template_line_a_schedule_note_gives_to_the_unit_maker_is_a_by_unit_mf
     dossier = _dossier(text=text, sources={"S3": "M-601, page 5", "S4": "M-601, page 5", "S9": "the job folder"})
     fan = _system("EF", "Exhaust Fan EF-9", ("EF-9",), 1, kind="Exhaust Fan", schedule_sources=("S3", "S4"),
                   quantity_quote="EF-9 | 500 CFM", quantity_source="S3")
-    job, _, _ = _job([fan], {"EF": None}, dossier=dossier)       # not written yet: the Master Template's lines
+    lines = (WrittenLine("Furnish Fan Start / Stop and Status", quote="EF-9 | 500 CFM", source_id="S3"),)
+    from estimator.writing.whole_job import WrittenScope as RealWrittenScope
+    scope = RealWrittenScope(lines, (), None, (), "fake", quick_scan={"unit_type": "Field-Installed DDC"})
+    job, _, _ = _job([fan], {"EF": scope}, dossier=dossier)       # the Master Template's standard damper line
     texts = _texts(job.blocks[0])
     assert not any(t.startswith("Furnish") and "Damper Actuator" in t for t in texts)
     assert "(*Damper Actuator by Unit Mfr.)" in texts

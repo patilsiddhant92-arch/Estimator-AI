@@ -93,6 +93,7 @@ class WrittenScope:
     review_notes: tuple = ()
     model: str = "fake"
     refused: tuple = ()
+    explanation: str = ""
 
 
 class FakeJudge:
@@ -447,12 +448,24 @@ def test_a_pending_quantity_is_printed_as_qty_hash_hash_with_a_count_to_give():
     assert any(i.decide == "Give the count for Qty (##) Variable Air Volume Box VAV-1 thru 3" for i in vav.review)
 
 
-def test_a_system_the_ai_has_not_written_yet_is_printed_with_fallback_lines_and_reviewed():
+def test_a_system_the_ai_has_not_written_yet_is_left_out_with_no_master_template_lines_and_reviewed():
     job, systems, _ = _assemble([_vav(), _ef()], {"VAV": WrittenScope(VAV_LINES), "EF": None})
-    assert _headers(job) == ["Qty (3) Variable Air Volume Box VAV-1 thru 3", "Qty (2) Exhaust Fan EF-1, 2"]
+    assert _headers(job) == ["Qty (3) Variable Air Volume Box VAV-1 thru 3"]
     ef = next(s for s in systems if s.bundle_key == "EF")
-    assert ef.printed and ef.review[0].decide.startswith("System written with fallback lines — check")
-    assert all(line.category == "ASSUMPTION" for line in ef.lines)
+    assert not ef.printed and not ef.lines
+    assert ef.review[0].decide.startswith("Left out of the proposal: the AI wrote no scope line for")
+    assert ef.review[0].evidence == "the AI has not written it yet" and ef.review[0].tier == 1
+
+
+def test_a_block_the_ai_left_empty_on_purpose_is_left_out_with_its_reason():
+    scope = WrittenScope((), explanation="TX is the toilet exhaust riser tag, not a fan.",
+                         review_notes=("Fold it into TXF-R-1.",))
+    job, systems, _ = _assemble([_vav(), _ef()], {"VAV": WrittenScope(VAV_LINES), "EF": scope})
+    assert _headers(job) == ["Qty (3) Variable Air Volume Box VAV-1 thru 3"]
+    ef = next(s for s in systems if s.bundle_key == "EF")
+    assert not ef.printed
+    assert ef.review[0].evidence == ("The AI's reason: TX is the toilet exhaust riser tag, not a fan. — "
+                                     "Fold it into TXF-R-1.")
 
 
 def test_exceptions_and_alternates_go_where_the_plan_puts_them():
