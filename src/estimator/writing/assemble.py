@@ -3079,6 +3079,26 @@ def misc_monitoring(runs: list[tuple[str, list]], style) -> list[tuple[str, list
     return out
 
 
+def count_notes(written: WrittenSystem, parts) -> WrittenSystem:
+    """A system whose ledger count is contradicted prints the "*" note naming both counts under its last block, and
+    gets a tier-2 review row for each; unchanged when no part carries a note."""
+    notes: list[tuple[str, str]] = []
+    for part in parts:
+        note = _squash(getattr(part.system, "count_note", "") or "")
+        if note and note not in [n for _h, n in notes]:
+            notes.append((_squash(getattr(part.system, "header", "") or written.bundle_key), note))
+    if not notes or not written.blocks:
+        return written
+    blocks = list(written.blocks)
+    last = blocks[-1]
+    blocks[-1] = last.model_copy(update={"items": tuple(last.items) + tuple(
+        Item(kind="note", runs=(Run(text=note),)) for _h, note in notes)})
+    review = tuple(ReviewItem(written.bundle_key, "DISCREPANCY", f"Two counts for {header}: {note}", "the job ledger",
+                              "Confirm the count; the higher one is printed", tier=TIER_QUANTITY)
+                   for header, note in notes)
+    return dataclasses.replace(written, blocks=tuple(blocks), review=written.review + review)
+
+
 def assemble_job(catalogue, reading, dossier, plan, scopes, today, templates=None
                  ) -> tuple[Job, list[WrittenSystem], list[ReviewItem]]:
     """The Job from the whole-job plan and each system's scope, the written systems for the Evidence
@@ -3170,6 +3190,7 @@ def assemble_job(catalogue, reading, dossier, plan, scopes, today, templates=Non
         grouped = len(parts) > 1
         template = system_template(parts[0].system, templates)
         written = _written_system(key, parts, template.name if template is not None else None, dossier, style)
+        written = count_notes(written, parts)
         systems.append(written)
         side = parts[0].system.alternate if parts[0].system.alternate in ("add", "deduct") else ""
         if side:

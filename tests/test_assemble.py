@@ -552,3 +552,23 @@ def test_the_fakes_have_the_real_parts_field_names():
         fake_names = {f.name for f in dataclasses.fields(fake)}
         real_names = {f.name for f in dataclasses.fields(real)}
         assert fake_names <= real_names, (fake.__name__, fake_names - real_names)
+
+
+def test_a_contradicted_count_prints_its_note_and_a_review_row():
+    from estimator.writing.assemble import count_notes
+    from estimator.writing.write import ScopeLine, WrittenSystem
+    from estimator.scope import Block, Item, Run
+    from types import SimpleNamespace
+    block = Block(header="Qty (14) Variable Air Volume Box VAV-1 thru 14", items=(Item(kind="line", runs=(Run(text="Furnish x"),)),))
+    written = WrittenSystem("VAV", (block,), (), ())
+    part = SimpleNamespace(system=SimpleNamespace(header="Variable Air Volume Box VAV-1 thru 14",
+                                                  count_note="*Qty. (14) per M-201, Drawings.pdf page 3; equipment counts for VAV lists (12)."))
+
+    noted = count_notes(written, [part])
+
+    assert noted.blocks[0].items[-1].kind == "note"
+    assert noted.blocks[0].items[-1].text == "*Qty. (14) per M-201, Drawings.pdf page 3; equipment counts for VAV lists (12)."
+    row = noted.review[-1]
+    assert row.category == "DISCREPANCY" and row.tier == 2
+    assert row.decide == "Two counts for Variable Air Volume Box VAV-1 thru 14: *Qty. (14) per M-201, Drawings.pdf page 3; equipment counts for VAV lists (12)."
+    assert count_notes(written, [SimpleNamespace(system=SimpleNamespace(header="x", count_note=""))]) == written
