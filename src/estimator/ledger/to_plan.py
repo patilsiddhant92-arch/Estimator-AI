@@ -19,14 +19,27 @@ def _bracket(sid: str) -> str:
     return f"[{sid}]" if sid else ""
 
 
+def _same(value, printed) -> bool:
+    """A value is the printed count when it reads as that number (" 14" is 14)."""
+    return str(value).strip() == str(printed)
+
+
+def _naming(name: str) -> re.Pattern:
+    """The name as a whole word: "CH" finds "CH" and "CH-1" but not "CHWP", "CHILLED" or "EACH"."""
+    return re.compile(rf"(?<![A-Za-z0-9]){re.escape(name)}(?![A-Za-z0-9])", re.I)
+
+
 def _printed(ledger: Ledger, fact: Fact) -> tuple[int | None, str, str]:
-    """(the printed count, its source id in brackets, its quote): the highest value's."""
+    """(the printed count, its source id in brackets, its quote): the highest value's; the fact's own source and
+    quote when no contradiction holds it."""
     printed = ledger.printed_count(fact.id)
     if printed is None:
         return None, _bracket(fact.source_id), fact.quote
-    if str(fact.value) == str(printed):
+    if _same(fact.value, printed):
         return printed, _bracket(fact.source_id), fact.quote
-    other = next(c for c in fact.contradictions if str(c.value) == str(printed))
+    other = next((c for c in fact.contradictions if _same(c.value, printed)), None)
+    if other is None:
+        return printed, _bracket(fact.source_id), fact.quote
     return printed, _bracket(other.source_id), other.quote
 
 
@@ -39,7 +52,7 @@ def count_note(ledger: Ledger, fact: Fact) -> str:
     if printed is None:
         return ""
     others = [(fact.value, fact.source_id)] + [(c.value, c.source_id) for c in fact.contradictions]
-    others = [(v, s) for v, s in others if str(v) != str(printed)]
+    others = [(_squash(v), s) for v, s in others if not _same(v, printed)]
     place = where_short(ledger.sources.get(sid.strip("[]"), sid))
     rest = "; ".join(f"{where_short(ledger.sources.get(s, s))} lists ({v})" for v, s in others)
     return f"*Qty. ({printed}) per {place}; {rest}."
@@ -53,21 +66,31 @@ def _tags(ledger: Ledger, prefix: str) -> tuple[str, ...]:
     return tuple(expand_tags([_squash(unit.value)]) or (prefix,))
 
 
-def _matches(ledger: Ledger, name: str) -> list[Fact]:
-    key = name.casefold()
-    return [f for f in ledger.of_kind("sequence_match") if _squash(f.value).casefold() == key]
+def _matches(ledger: Ledger, *names: str) -> list[Fact]:
+    """The sequence_match facts whose value is one of the names, in the names' order, each fact once."""
+    found: list[Fact] = []
+    for name in names:
+        key = _squash(name).casefold()
+        found += [f for f in ledger.of_kind("sequence_match")
+                  if _squash(f.value).casefold() == key and f not in found]
+    return found
 
 
-def _note(ledger: Ledger, subject: str, prefix: str) -> str:
-    key = prefix.casefold()
-    for fact in ledger.of_kind("note"):
-        if fact.subject.casefold() == subject and key in _squash(fact.value).casefold():
-            return _squash(fact.value)
+def _note(ledger: Ledger, subject: str, *names: str) -> str:
+    """The first note of this subject naming one of the names as a whole word, the names tried in order."""
+    notes = [f for f in ledger.of_kind("note") if f.subject.casefold() == subject]
+    for name in (_squash(n) for n in names):
+        if not name:
+            continue
+        naming = _naming(name)
+        for fact in notes:
+            if naming.search(_squash(fact.value)):
+                return _squash(fact.value)
     return ""
 
 
-def _alternate(ledger: Ledger, prefix: str) -> str:
-    value = _note(ledger, "alternate", prefix).casefold()
+def _alternate(ledger: Ledger, *names: str) -> str:
+    value = _note(ledger, "alternate", *names).casefold()
     return "add" if value.startswith("add") else "deduct" if value.startswith("deduct") else ""
 
 
@@ -106,15 +129,17 @@ def _group_system(ledger: Ledger, group: Fact, members: list[Fact]) -> PlannedSy
         family, member_ids = _family(ledger, member)
         families.append(family)
         ids += member_ids
-    matched = _matches(ledger, group.subject)
+    prefixes = [m.subject for m in members]
+    matched = _matches(ledger, group.subject, *prefixes)
     sequence = tuple(_bracket(m.source_id) for m in matched)
-    tags = tuple(t for f in families for t in f.tags)
+    tags =tuple(t for f in families for t in f.tags)
     notes = [count_note(ledger, ledger.find("count", m.subject)) for m in members if ledger.find("count", m.subject)]
     return PlannedSystem(key=_squash(group.subject), header=_squash(group.subject), kind=_squash(group.subject),
                          tags=tags, quantity=None, quantity_source="", quantity_quote="", sequence_sources=sequence,
                          schedule_sources=tuple(_bracket(ledger.find("count", m.subject).source_id) for m in members
                                                 if ledger.find("count", m.subject)),
-                         group=_squash(group.subject), alternate="", exception="",
+                         group=_squash(group.subject), alternate=_alternate(ledger, group.subject, *prefixes),
+                         exception=_note(ledger, "exception", group.subject, *prefixes),
                          why=f"From the job ledger: {len(ids) + len(matched)} facts.",
                          sequence_section=", ".join(sequence), families=tuple(families),
                          count_note=" ".join(n for n in notes if n), facts=tuple(ids + [m.id for m in matched]))

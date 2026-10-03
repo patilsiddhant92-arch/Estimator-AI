@@ -86,3 +86,55 @@ def test_the_entry_text_lists_the_systems_facts_only():
 def test_planned_system_defaults_keep_old_callers_working():
     system = PlannedSystem("K", "H", "kind", ("T",), 1, "[S1]", "one", (), (), "", "", "", "why")
     assert system.count_note == "" and system.facts == ()
+
+
+def _chillers(grouped: bool):
+    """A CH family and a CHWP family, grouped into the plant or not, with no sequence match of their own."""
+    ledger = Ledger(SOURCES)
+    ledger.add("family", "CH", "Chiller", "[S6]", "CH: schedule rows 2", "seed", SETTLED)
+    ledger.add("count", "CH", 2, "[S6]", "schedule rows 2", "seed", SETTLED)
+    ledger.add("family", "CHWP", "Chilled Water Pump", "[S7]", "CHWP: schedule rows 2", "seed", SETTLED)
+    ledger.add("count", "CHWP", 2, "[S7]", "schedule rows 2", "seed", SETTLED)
+    if grouped:
+        ledger.add("group", "Chilled Water Plant", "CH, CHWP", "[Q2]", "CHILLED WATER PLANT", "risers", SETTLED)
+    return ledger
+
+
+def test_an_exception_naming_chwp_does_not_reach_the_chiller_but_reaches_their_plant():
+    ledger = _chillers(grouped=False)
+    ledger.add("note", "exception", "EXCEPTION TO ANY WORK WITH CHWP-1", "[Q2]", "CHWP-1 by others", "sequence", SETTLED)
+    ch, chwp = ledger_plan(ledger).systems
+    assert ch.exception == "" and chwp.exception == "EXCEPTION TO ANY WORK WITH CHWP-1"
+    ledger = _chillers(grouped=True)
+    ledger.add("note", "exception", "EXCEPTION TO ANY WORK WITH CHWP-1", "[Q2]", "CHWP-1 by others", "sequence", SETTLED)
+    (plant,) = ledger_plan(ledger).systems
+    assert plant.exception == "EXCEPTION TO ANY WORK WITH CHWP-1"
+
+
+def test_an_alternate_for_chwp_does_not_reach_the_chiller_but_reaches_their_plant():
+    ledger = _chillers(grouped=False)
+    ledger.add("note", "alternate", "add: CHWP", "[Q2]", "pumps priced as an add", "sequence", SETTLED)
+    ch, chwp = ledger_plan(ledger).systems
+    assert ch.alternate == "" and chwp.alternate == "add"
+    ledger = _chillers(grouped=True)
+    ledger.add("note", "alternate", "add: CHWP", "[Q2]", "pumps priced as an add", "sequence", SETTLED)
+    (plant,) = ledger_plan(ledger).systems
+    assert plant.alternate == "add"
+
+
+def test_a_sequence_match_for_a_member_prefix_reaches_the_group():
+    ledger = _chillers(grouped=True)
+    match = ledger.add("sequence_match", "PUMPS", "CHWP", "[Q2]", "CHILLED WATER PUMPS", "sequence", SETTLED)
+    (plant,) = ledger_plan(ledger).systems
+    assert plant.sequence_section == "[Q2]" and plant.sequence_sources == ("[Q2]",)
+    assert match.id in plant.facts
+
+
+def test_a_highest_count_stored_as_text_with_spaces_still_plans():
+    ledger = Ledger(SOURCES)
+    ledger.add("family", "VAV", "Variable Air Volume Box", "[S5]", "VAV: schedule rows 14", "seed", SETTLED)
+    count = ledger.add("count", "VAV", " 14", "[S5]", "QUANTITY column total 14", "seed", SETTLED)
+    ledger.contradict(count.id, 12, "[S10]", "VAV-1 … VAV-12", "plans")
+    (vav,) = ledger_plan(ledger).systems
+    assert vav.quantity == 14 and vav.quantity_source == "[S5]" and vav.quantity_quote == "QUANTITY column total 14"
+    assert vav.count_note == "*Qty. (14) per equipment counts for VAV; M-201, Drawings.pdf page 3 lists (12)."
