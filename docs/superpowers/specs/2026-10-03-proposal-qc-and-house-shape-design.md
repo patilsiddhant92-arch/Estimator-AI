@@ -258,3 +258,53 @@ with its packaged/field class and links; the plans pass request lists its pictur
 
 Then the gate: 26-0193 again in chat mode, the estimator reading the VRF, ERV, duct heater and
 damper blocks and the QC tab. No per-job tuning.
+
+---
+
+## 8. The estimator's answers (2026-10-03) — binding on the pieces above
+
+1. A factory-installed device is never a line, blanket wiring clause or not; "Wire X (Furnished by
+   Unit Mfr.)" only when the sequence itself assigns that wiring to the controls contractor.
+2. "Furnish <point>" lines only for a system AME's own DDC controller runs; on packaged units the
+   three integration lines cover every monitored point.
+3. Other trades in brackets: "(Relay Furnished by FA)", "(Furnished by Others)" for dampers and end
+   switches, "(Furnished by Mechanical Contractor)" for condensate pumps and float switches.
+4. Systems the sequence names but no drawing shows print in the base bid with their integration
+   lines, "Qty (##)" and "*Quantity per plumbing drawings"; no longer held back as questions.
+5. Residential equipment in the hundreds stays in the normal scope; an add or deduct alternate only
+   when the documents clearly say so; never invented. Factory-controlled units with no BMS work are a
+   named exception.
+6. Electric unit heater with a factory thermostat: one "Install and Wire Space Thermostat (Furnished
+   by Unit Mfr.)" line with the plan count.
+7. UL-864 UUKL: write the UUKL-listed controls in scope; no exception.
+8. Tech hours for integration-only systems with no template rule: 4 hours each.
+9. One "*" clarification per block, naming the lines; per-line detail in the Evidence Package.
+10. The GEM rewrite keeps its structure; flags become words.
+
+These are recorded in `assets/gem/ame_practice.txt` and govern the writer, the verifier and the QC pass.
+
+## 9. Two more pieces, added at the estimator's request
+
+### 9.1 The GEM in plain language
+
+`assets/gem/BMS_DDC_GEM_v4.txt`, written from v3.2: the same method and structure (Quick Scan,
+contractor-name rule, CC work extraction, scope ownership and device ownership resolution, mandatory
+minimum points, damper and fire-alarm relay rules, factory-controls rule, SOW order, contradiction
+scan, Self-QC), in plain sentences, without emoji or decorative markers; flags as words (CONFIRM
+QUANTITY, CONFIRM OWNERSHIP, ASSUMED, NOTE); the practice rules folded into the sections they refine
+(the factory-controls rule becomes the packaged-unit doctrine; the shipped-loose verb; the three
+integration lines; the one-clarification-per-block rule). The tool loads v4; v3.2 stays in the repo
+for comparison. `gem_prompt()` keeps its cuts and additions working against the new headings. The
+original `.docx` in the Brain folder is untouched. The rewrite is reviewed by the estimator before it
+replaces v3.2 (a side-by-side of every rule, old and new, in the Evidence of the plan's report).
+
+### 9.2 Running a job from any session
+
+A repo command, `/run-job <job folder> [--out …]`, usable in any Claude Code session whatever model it
+runs on. It drives chat mode to completion: run the estimate; for each waiting request, hand the
+request file to a subagent on the configured judge model (default the strongest available, set in
+`.claude/run-job.json`: `judge_model`, `writer_model`, `qc_model`), which writes the answer file;
+run again; stop when the proposal is written or a request fails three times. The session only runs
+commands and copies files. With the API on, the command runs the estimate once and the models per
+pass come from the tool's own setting (§5). The judge subagent's instructions are the request's own
+system prompt and prompt; the command adds only the answer-file contract and the "no subagents" rule.
