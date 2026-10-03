@@ -26,12 +26,6 @@ def _any(patterns, text: str) -> bool:
     return any(p.search(text) for p in patterns)
 
 
-def _is_integration_line(style, text: str) -> bool:
-    trio = getattr(style, "trio", ()) or ()
-    plain = _squash(text).casefold()
-    return any(_squash(t).casefold().split("{what}")[0].rstrip() in plain for t in trio)
-
-
 def _item_words(item: str) -> str:
     for head in ("damper actuator ", "duct heater interlock "):
         if item.startswith(head):
@@ -41,7 +35,7 @@ def _item_words(item: str) -> str:
 
 def house_check(scope, system, klass: str, owned_elsewhere: dict[str, str], style):
     internal, loose, cc = _patterns(style, "internal"), _patterns(style, "shipped_loose"), _patterns(style, "cc_terms")
-    point = _patterns(style, "point_line")
+    point, exempt = _patterns(style, "point_line"), _patterns(style, "internal_exempt_quote")
     keep, heater = _patterns(style, "duct_heater_keep"), _patterns(style, "duct_heater_words")
     kept, refused, changed = [], list(scope.refused), list(getattr(scope, "changed", ()))
     key = getattr(system, "key", "")
@@ -58,11 +52,11 @@ def house_check(scope, system, klass: str, owned_elsewhere: dict[str, str], styl
                                "electric duct heaters); left out")
                 continue
             hit = [p for p in internal if p.search(text)]
-            if hit and not (_any(cc, quote) and any(p.search(quote) for p in hit)):
+            if hit and not _any(exempt, quote) and not (_any(cc, quote) and any(p.search(quote) for p in hit)):
                 refused.append(f"“{text}” is inside the unit and comes wired from the factory; the integration lines "
                                "cover it (AME practice: packaged units); left out")
                 continue
-            if _any(point, text) and not _is_integration_line(style, text):
+            if _any(point, text) and not style.is_trio(text):
                 refused.append(f"“{text}” is a monitored point on a packaged unit; the integration lines cover it "
                                "(AME practice); left out")
                 continue

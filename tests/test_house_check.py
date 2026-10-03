@@ -61,3 +61,17 @@ def test_an_item_another_block_owns_is_refused_here():
     out = house_check(scope, RTU, "field", {"damper actuator MD-1": "EF", "condensate pump float switch": "RTU"}, STYLE)
     assert [l.text for l in out.lines] == ["Tie in Condensate Pump Float Switch"]
     assert out.refused == ("“Furnish and Install Damper Actuator MD-1” is written under EF; left out here",)
+
+
+def test_a_shaft_leak_detector_is_not_an_internal_device():
+    scope = _scope(_line("Furnish and Install Refrigerant Leak Detector",
+                         quote="Provide Refrigerant leak detector within each refrigerant shaft"))
+    out = house_check(scope, RTU, "packaged", {}, STYLE)
+    assert len(out.lines) == 1 and out.refused == ()
+
+
+def test_an_internal_device_is_refused_when_the_quote_names_the_contractor_but_not_the_device():
+    scope = _scope(_line("Wire DX Cooling Control (Each Stage)",
+                         quote="The BMS contractor shall connect the DDC controller to the BMS network"))
+    out = house_check(scope, RTU, "packaged", {}, STYLE)
+    assert out.lines == () and any("inside the unit" in r for r in out.refused)
