@@ -594,3 +594,35 @@ def test_the_plan_prompt_asks_for_the_split_system_leak_detection_lines_or_asks(
     for words in ("split system", "refrigerant leak detection", "shut-off valve", "chime"):
         assert words in low, words
     assert "otherwise ask" in low or "unresolved" in low
+
+
+# --- the reading passes ask through the judge ------------------------------------------------------------
+
+from estimator.writing.judge import READ_PASS
+
+
+def test_a_pass_is_asked_and_its_answer_cached(tmp_path):
+    reply = {"facts": [], "contradictions": [], "confirmations": [], "understanding": "A school."}
+    client = FakeClient(_response(reply))
+    judge = _judge(tmp_path, client)
+
+    got = judge.ask_pass("the schedules pass", "SYSTEM", "PROMPT", {"type": "object"})
+    assert got == (reply, "claude-opus-5-5")
+    assert client.calls[0]["system"] == "SYSTEM"
+    assert judge.calls == 1
+    again = judge.ask_pass("the schedules pass", "SYSTEM", "PROMPT", {"type": "object"})
+    assert again == got and judge.cached == 1 and len(client.calls) == 1
+
+
+def test_an_answer_without_a_facts_list_is_unusable(tmp_path):
+    judge = _judge(tmp_path, FakeClient(_response({"understanding": "nothing else"})))
+    assert judge.ask_pass("the plans pass", "SYSTEM", "PROMPT", {"type": "object"}) is None
+    assert "could not be read" in judge.last_error
+
+
+def test_in_chat_mode_a_pass_waits_as_a_request_of_its_own_kind(tmp_path):
+    judge = Judge(tmp_path / "cache", mode="chat", job="26-9999 Somerville")
+    assert judge.ask_pass("the schedules pass", "SYSTEM", "Job: 26-9999 Somerville\nPROMPT", {"type": "object"}) is None
+    assert judge.waiting == 1
+    request = json.loads(next(judge.requests_dir.glob("*.json")).read_text(encoding="utf-8"))
+    assert request["kind"] == READ_PASS and request["system"] == "the schedules pass" and request["job"] == "26-9999 Somerville"

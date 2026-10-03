@@ -61,8 +61,9 @@ API, CHAT = "api", "chat"
 MODES = (API, CHAT)
 CHAT_MODEL = "claude (chat)"   # the model name chat answers are cached under, apart from the API's
 CHOOSE, COMPOSE = "choose", "compose"
+READ_PASS = "read_pass"
 KINDS = (CHOOSE, COMPOSE)
-_MAIN_LIST = {CHOOSE: "choices", COMPOSE: "lines"}   # the list an answer of each kind must carry
+_MAIN_LIST = {CHOOSE: "choices", COMPOSE: "lines", READ_PASS: "facts"}   # the list an answer of each kind must carry
 MAX_ANALOGS, MAX_EXAMPLES = 3, 4
 MAX_DEPTH = 5
 MAX_HEADER = 80
@@ -488,6 +489,15 @@ class Judge:
         answer, model = got
         return wj.parse_scope(answer, model, self.style, known)
 
+    def ask_pass(self, name: str, system_prompt: str, prompt: str, schema: dict, images=(), extra: dict | None = None
+                 ) -> tuple[dict, str] | None:
+        """One reading pass of the job ledger (estimator.ledger.passes): the answer and the model, or None with
+        `last_error` set (in chat mode, a request written for the chat and `waiting` counted)."""
+        from estimator.writing import whole_job as wj
+        images = list(images or ())
+        return self._answer_with_images(READ_PASS, name, system_prompt, prompt, schema,
+                                        {**(extra or {}), "images": wj.images_listing(images)}, images)
+
     def _answer_with_images(self, kind: str, name: str, system_prompt: str, prompt: str, schema: dict,
                             extra: dict, images, ids=None) -> tuple[dict, str] | None:
         """As `_answer`, for a long question that may carry pictures: the pictures' contents are part
@@ -545,6 +555,8 @@ def _for_job(request: dict, job: str, sources: dict | None) -> bool:
     prompt = str(request.get("prompt") or "")
     if request.get("kind") == PLAN_JOB:
         return bool(number) and number.group(0) in prompt[:6000]
+    if request.get("kind") == READ_PASS:
+        return bool(number) and number.group(0) in prompt[:400]      # a pass prompt starts "Job: <name>"
     if request.get("kind") == WRITE_SYSTEM and sources:
         places = set(sources.values())
         cited = _CITED_PLACE.findall(prompt)
@@ -964,7 +976,7 @@ def _plain(error: Exception) -> str:
 # --- the whole-job questions: request kinds "plan_job" and "write_system" (see whole_job.py) --------------
 
 PLAN_JOB, WRITE_SYSTEM = "plan_job", "write_system"
-KINDS = KINDS + (PLAN_JOB, WRITE_SYSTEM)
+KINDS = KINDS + (PLAN_JOB, WRITE_SYSTEM, READ_PASS)
 _MAIN_LIST.update({PLAN_JOB: "systems", WRITE_SYSTEM: "lines"})
 WHOLE_JOB_MAX_TOKENS = 64000       # a whole job's plan, plus the thinking; streamed
 WHOLE_JOB_TIMEOUT_SECONDS = 600.0
