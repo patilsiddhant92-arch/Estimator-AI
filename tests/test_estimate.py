@@ -7,7 +7,7 @@ import pytest
 from docx import Document
 
 from estimator.__main__ import _parser, ai_mode, main
-from estimator.evidence.workbook import ESTIMATE_TABS, LEDGER_TAB, PLAN_TAB, READ_TAB, TABS
+from estimator.evidence.workbook import ESTIMATE_TABS, LEDGER_TAB, PLAN_TAB, QC_TAB, READ_TAB, TABS
 from estimator.proposal.sections import scope_texts
 from pdfs import FILLER, Page, make_pdf
 from estimator.writing.whole_job import Contradiction, QcCheck, WrittenLine as GemLine, WrittenScope as GemScope
@@ -291,7 +291,7 @@ def test_the_whole_job_method_writes_the_planned_blocks_and_nothing_internal(job
         assert word not in text, word
 
     workbook = openpyxl.load_workbook(out / "26-9999 Evidence Package.xlsx")
-    assert workbook.sheetnames[:6] == [TABS[0], READ_TAB, *ESTIMATE_TABS, PLAN_TAB, LEDGER_TAB]
+    assert workbook.sheetnames[:7] == [TABS[0], READ_TAB, *ESTIMATE_TABS, QC_TAB, PLAN_TAB, LEDGER_TAB]
     plan = [[c.value for c in row] for row in workbook[PLAN_TAB].iter_rows()]
     vav = next(row for row in plan if row[0] == "VAV")
     assert (vav[4], vav[5], vav[11]) == (3, "CONFIRMED", 3)
@@ -353,3 +353,22 @@ def test_when_a_pass_is_waiting_the_run_stops_after_the_evidence_package(job, tm
     assert next(out.glob("* Evidence Package.xlsx"), None) is not None
     assert next(out.glob("*.docx"), None) is None
     assert "Reading the job: stopped at the Plans pass — judgement pending" in capsys.readouterr().out
+
+
+def test_the_run_asks_the_qc_pass_and_writes_its_tab(job, tmp_path, capsys, whole_job):
+    main(["estimate", str(job), "--out", str(tmp_path / "out"), "--ai", "api"])
+    from openpyxl import load_workbook
+    book = load_workbook(next((tmp_path / "out").glob("* Evidence Package.xlsx")))
+    assert "Proposal QC" in book.sheetnames
+    rows = list(book["Proposal QC"].iter_rows(values_only=True))
+    assert rows[0][:7] == ("System", "Line", "Kind", "Severity", "What is wrong", "Change to", "Rests on")
+    assert any(r[2] == "ownership" for r in rows[1:])
+    read = list(book["How the job was read"].iter_rows(values_only=True))
+    assert read[1][0] == "Job brief"
+    assert "QC: 1 findings (1 must-fix)" in capsys.readouterr().out.replace("1 finding (", "1 findings (")
+
+
+def test_no_qc_skips_the_pass(job, tmp_path, capsys, whole_job):
+    main(["estimate", str(job), "--out", str(tmp_path / "out"), "--ai", "api", "--no-qc"])
+    assert "QC: skipped" in capsys.readouterr().out
+    assert whole_job[-1].qc_calls == 0

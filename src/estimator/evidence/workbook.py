@@ -29,6 +29,9 @@ ESTIMATE_TABS = ("Review list", "Scope lines")
 PLAN_TAB = "Plan"
 READ_TAB = "How the job was read"
 LEDGER_TAB = "Job ledger"
+# The proposal QC pass's findings (writing/qc.py), right after Scope lines, with the estimator's decision columns.
+QC_TAB = "Proposal QC"
+QC_HEADING = "What the QC pass said about the draft"
 # The GEM's own checks per system (the whole-job method): its Quick Scan, its contradiction scan and its Self-QC.
 GEM_TAB = "GEM QC"
 # The estimator's corrections, read back by `estimator corrections` (estimator.corrections).
@@ -60,20 +63,24 @@ def _append(ws, row: list) -> None:
 
 
 def write_evidence(path: Path, catalogue: Catalogue, reading: JobReading | None = None,
-                   systems=None, review_flags=(), plan=None, ledger=None) -> Path:
+                   systems=None, review_flags=(), plan=None, ledger=None, qc=None, brief=None) -> Path:
     """The Evidence Package. With the written systems (build step 5), the review list and every
     scope line come right after the bid check; `review_flags` are the review items that belong to
     no system: a family on the drawings but on no schedule, as a flag's text, or a ReviewItem (the
-    whole-job method). `plan` is the whole-job plan's checked systems (PlanCheck), for the Plan tab."""
+    whole-job method). `plan` is the whole-job plan's checked systems (PlanCheck), for the Plan tab. `brief` (the job
+    brief) prints first on How the job was read, and `qc` (the proposal QC pass's report) adds its notes there and
+    its findings on the Proposal QC tab, right after Scope lines."""
     workbook = Workbook()
     workbook.remove(workbook.active)
     _bid_check(workbook.create_sheet(TABS[0]), catalogue)
-    if ledger is not None:
-        _how_read(workbook.create_sheet(READ_TAB), ledger)
+    if ledger is not None or brief or qc is not None:
+        _how_read(workbook.create_sheet(READ_TAB), ledger, brief, qc)
     if systems is not None:
         flags = list(catalogue.flags) + list(reading.flags if reading is not None else ())
         _review_list(workbook.create_sheet(ESTIMATE_TABS[0]), systems, review_flags, flags)
         _scope_lines(workbook.create_sheet(ESTIMATE_TABS[1]), systems)
+    if qc is not None:
+        _proposal_qc(workbook.create_sheet(QC_TAB), qc)
     if plan is not None:
         _plan(workbook.create_sheet(PLAN_TAB), plan)
     if ledger is not None:
@@ -110,16 +117,47 @@ def write_evidence(path: Path, catalogue: Catalogue, reading: JobReading | None 
     return path
 
 
-def _how_read(ws, ledger) -> None:
-    """One row per reading pass, in the estimator's order: what the tool understood after it, and what it refused."""
+def _how_read(ws, ledger, brief=None, qc=None) -> None:
+    """The job brief first, then one row per reading pass, in the estimator's order: what the tool understood after
+    it, and what it refused; then, with the QC pass's report, its note on each block and on the job."""
     from estimator.ledger.passes import PASSES
     _headings(ws, ["Pass", "What the tool understood", "What it refused"])
-    for p in PASSES:
-        refused = "; ".join(ledger.refused.get(p.name, ()) or ()) or None
-        _append(ws, [p.title, ledger.understanding.get(p.name) or "(not read)", refused])
+
+    def row(values):
+        _append(ws, values)
         for column in (2, 3):
             ws.cell(ws.max_row, column).alignment = Alignment(wrap_text=True, vertical="top")
+
+    if brief:
+        row(["Job brief", brief, None])
+    if ledger is not None:
+        for p in PASSES:
+            refused = "; ".join(ledger.refused.get(p.name, ()) or ()) or None
+            row([p.title, ledger.understanding.get(p.name) or "(not read)", refused])
+    if qc is not None:
+        _section_heading(ws, QC_HEADING)
+        for key, note in qc.block_notes.items():
+            row([key, note, None])
+        row(["The job", qc.job_note or "(no note)", "; ".join(qc.dropped) or None])
     _widths(ws, [30, 90, 60])
+
+
+def _proposal_qc(ws, report) -> None:
+    """One row per QC finding, must-fix first, with the estimator's decision columns: "keep" dismisses the finding
+    on the next run, "change" with the new text changes the line."""
+    _headings(ws, ["System", "Line", "Kind", "Severity", "What is wrong", "Change to", "Rests on", DECISION, CHANGE_TO])
+    ws.freeze_panes = "A2"
+    findings = sorted(report.findings, key=lambda f: f.severity != "must-fix")
+    for f in findings:
+        _append(ws, [f.system, f.line or None, f.kind, f.severity, f.say, f.fix or None, f.quote or None, None, None])
+        if f.severity == "must-fix":
+            ws.cell(ws.max_row, 4).fill = _RED
+        for column in (2, 5, 6, 7, 9):
+            ws.cell(ws.max_row, column).alignment = Alignment(wrap_text=True, vertical="top")
+    if not findings:
+        _append(ws, ["", "The QC pass found nothing to change."])
+    _decision_columns(ws, 8)
+    _widths(ws, [24, 60, 14, 10, 60, 60, 44, 12, 50])
 
 
 def _ledger(ws, ledger) -> None:

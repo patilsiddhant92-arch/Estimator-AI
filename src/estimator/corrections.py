@@ -20,7 +20,7 @@ from openpyxl import load_workbook
 KEEP, DELETE, CHANGE = "keep", "delete", "change"
 LINES, REVIEW = "lines", "review"
 DECISION, CHANGE_TO = "Estimator decision", "Change to / why"
-SCOPE_TAB, REVIEW_TAB, BID_TAB = "Scope lines", "Review list", "Bid check"
+SCOPE_TAB, REVIEW_TAB, BID_TAB, QC_TAB = "Scope lines", "Review list", "Bid check", "Proposal QC"
 DELETED = "Deleted by the estimator"
 CHANGED = "Changed by the estimator"
 _WHY = re.compile(r"\bwhy\s*:\s*", re.I)
@@ -102,6 +102,15 @@ def _read_tab(ws, kind: str, text_heading: str) -> tuple[list[dict], list[str]]:
     return out, problems
 
 
+def _read_qc_tab(ws) -> tuple[list[dict], list[dict], list[str]]:
+    """The Proposal QC tab's decisions: "change" (or "delete") acts on the line the finding names, as on the Scope
+    lines tab; "keep" dismisses the finding, so its review row (worded as the finding) is taken off the list."""
+    lines, problems = _read_tab(ws, LINES, "Line")
+    findings, _ = _read_tab(ws, REVIEW, "What is wrong")
+    return ([e for e in lines if e["decision"] != KEEP],
+            [{**e, "decision": DELETE} for e in findings if e["decision"] == KEEP], problems)
+
+
 def read_corrections(path: Path) -> tuple[dict, list[str]]:
     """The decisions the estimator filled in: ({"job", "lines", "review"}, problems in plain words)."""
     book = load_workbook(str(path), read_only=True, data_only=True)
@@ -109,6 +118,9 @@ def read_corrections(path: Path) -> tuple[dict, list[str]]:
         lines, problems = ([], []) if SCOPE_TAB not in book.sheetnames else _read_tab(book[SCOPE_TAB], LINES, "Line")
         review, more = (([], []) if REVIEW_TAB not in book.sheetnames
                         else _read_tab(book[REVIEW_TAB], REVIEW, "What to decide"))
+        if QC_TAB in book.sheetnames:
+            qc_lines, qc_review, qc_problems = _read_qc_tab(book[QC_TAB])
+            lines, review, more = lines + qc_lines, review + qc_review, more + qc_problems
         return {"job": _job_name(book, Path(path)), LINES: lines, REVIEW: review}, problems + more
     finally:
         book.close()

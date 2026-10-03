@@ -57,11 +57,14 @@ from estimator.proposal.write import check_template, write_proposal
 from estimator.reading.job import read_job, reading_lines
 from estimator.scope import Job
 from estimator.sent import job_from_sent
+from estimator.writing.brief import job_brief, shared_owners, system_class
 from estimator.writing.dossier import build_dossier
 from estimator.writing.assemble import (assemble_job, plan_checks, review_list, system_evidence,
                                         system_examples, system_pictures, tech_hour_rule, template_options)
 from estimator.writing.front_end import job_header
 from estimator.writing.judge import API, CHAT, KEY_VARIABLE, Judge
+from estimator.writing.qc import (MUST_FIX, QC_PROMPT, QcBlock, QcReport, parse_qc, qc_prompt, qc_review_rows,
+                                  qc_schema, split_blocks)
 from estimator.writing.style import load_house_style
 from estimator.writing.templates import load_templates
 from estimator.writing.write import build_job
@@ -124,6 +127,8 @@ def _parser() -> argparse.ArgumentParser:
     estimate.add_argument("--cache", type=Path, help="where to keep what was read (default: OUT/.cache)")
     estimate.add_argument("--no-pictures", action="store_true",
                           help="the plans and risers passes read the sheets' text only, without whole-sheet pictures")
+    estimate.add_argument("--no-qc", action="store_true",
+                          help="skip the proposal QC pass (the AI reading the whole draft as a senior estimator)")
     estimate.add_argument("--method", choices=(WHOLE_JOB, RULES), default=WHOLE_JOB,
                           help="whole-job: the AI reads the whole job and writes every system, and the counts "
                                "check it (the default); rules: each system from its Master Template entry")
@@ -372,6 +377,7 @@ def _estimate_whole_job(args: argparse.Namespace) -> None:
         print(f"Wrote {package}")
         return
     plan = ledger_plan(ledger)
+    brief, owners = job_brief(ledger, plan, templates), shared_owners(ledger, plan)
 
     scopes = {}
     for system in plan.systems:
@@ -384,7 +390,8 @@ def _estimate_whole_job(args: argparse.Namespace) -> None:
                                                 hours_rule=tech_hour_rule(system, templates),
                                                 image_ids=[pid for pid, _ in pictures],
                                                 ledger_text=entry_text(system, ledger), facts=system.facts,
-                                                counts=system_counts(system, ledger))
+                                                counts=system_counts(system, ledger), brief=brief,
+                                                klass=system_class(ledger, system), owned_elsewhere=owners)
     unrecorded = getattr(judge, "unrecorded", 0)
     if unrecorded:
         print(f"Moved {unrecorded} {'request' if unrecorded == 1 else 'requests'} that recorded no job into "
@@ -393,7 +400,17 @@ def _estimate_whole_job(args: argparse.Namespace) -> None:
     if stale:
         print(f"Moved {stale} earlier {'request' if stale == 1 else 'requests'} for this job that this run does not "
               f"ask again into {judge.old_requests_dir} (the answers are kept).")
+    if getattr(args, "no_qc", False):
+        qc = QC_SKIPPED
+    elif all(scopes.get(s.key) is not None for s in plan.systems if not s.exception):
+        qc = _proposal_qc(judge, plan, scopes, ledger, brief, templates, style)
+        if qc is None:
+            qc = QC_NO_ANSWER
+    else:
+        qc = QC_NOT_RUN
     job, systems, review = assemble_job(catalogue, reading, dossier, plan, scopes, today, templates)
+    if isinstance(qc, QcReport):
+        review = list(review) + qc_review_rows(qc)
     checks, _ = plan_checks(plan, dossier, reading, catalogue)
     review = review_list(systems, review, dossier)     # every system's rows too: merged and ranked, in plain words
     systems = [dataclasses.replace(s, review=()) for s in systems]
@@ -402,21 +419,90 @@ def _estimate_whole_job(args: argparse.Namespace) -> None:
         job, systems, review = apply_corrections(job, systems, review, corrections)
         print(f"Applied the estimator's corrections from {corrections_file(CORRECTIONS, catalogue.job.name)}.")
     package = write_evidence(package_path, catalogue, reading, systems=systems, review_flags=review, plan=checks,
-                             ledger=ledger)
+                             ledger=ledger, qc=qc if isinstance(qc, QcReport) else None, brief=brief)
     for line in whole_job_lines(plan, systems, review, judge, len(catalogue.flags) + len(reading.flags),
-                                ledger=ledger):
+                                ledger=ledger, qc=qc):
         print(line)
     print(f"Wrote {package}")
     if getattr(judge, "mode", API) == CHAT and judge.waiting:
         return                                   # the proposal waits for the chat's answers
+    if qc == QC_NO_ANSWER:
+        return                                   # the proposal waits for the QC pass's answer
     book = PriceBook.load(PRICE_BOOK, ALIASES)
     proposal, sheet = _build(job, PROPOSAL_TEMPLATE, WORKUP_TEMPLATE, book, args.out)
     print(f"Wrote {proposal}")
     print(f"Wrote {sheet}")
 
 
-def whole_job_lines(plan, systems, review, judge, reading_flags: int = 0, ledger=None) -> list[str]:
-    """The whole-job run's summary, in plain words."""
+QC_SKIPPED, QC_NO_ANSWER, QC_NOT_RUN = "skipped", "no answer", "not run"
+
+
+def qc_blocks(plan, scopes, ledger, templates) -> list[QcBlock]:
+    """Each written system as the QC pass reads it: its lines as the draft prints them, with "(Qty. N Total)" where
+    the line has a quantity, beside its Master Template lines, tech-hour rule, ledger entry and class."""
+    blocks = []
+    for system in plan.systems:
+        scope = scopes.get(system.key)
+        if system.exception or scope is None:
+            continue
+        lines = tuple(line.text if line.quantity is None or "qty" in line.text.lower()
+                      else f"{line.text} (Qty. {line.quantity} Total)" for line in scope.lines)
+        blocks.append(QcBlock(system.key, system.header, system.quantity, system_class(ledger, system), lines,
+                              tuple(template_options(system, templates)), tech_hour_rule(system, templates),
+                              entry_text(system, ledger), getattr(system, "sequence_section", "") or ""))
+    return blocks
+
+
+def _proposal_qc(judge, plan, scopes, ledger, brief, templates, style) -> QcReport | None:
+    """The proposal QC pass over the whole draft, in parts when it is too long for one request (each part told the
+    other parts' headers), merged into one report. None when any part has no answer (in chat mode: waiting)."""
+    from estimator.writing.whole_job import PRACTICE_FILE, SPLIT_LIMIT, ame_practice
+    blocks = qc_blocks(plan, scopes, ledger, templates)
+    practice, guide = "\n".join(ame_practice(PRACTICE_FILE)), style.prompt_text()
+    parts = split_blocks(blocks, max(1, SPLIT_LIMIT - len(brief) - len(practice) - len(guide)))
+    reports, missing = [], False
+    for n, part in enumerate(parts, start=1):
+        others = [b.header for b in blocks if b not in part]
+        name = "Proposal QC" if len(parts) == 1 else f"Proposal QC (part {n} of {len(parts)})"
+        got = judge.qc_job(name, QC_PROMPT, qc_prompt(brief, part, practice, guide, others), qc_schema())
+        if got is None:
+            missing = True                       # every part is asked, so the chat gets all its requests in one run
+            continue
+        answer, model = got
+        reports.append(parse_qc(answer, model, part))
+    if missing:
+        return None
+    if not reports:
+        return QcReport((), {}, "", getattr(judge, "model", ""), ())
+    notes: dict[str, str] = {}
+    for report in reports:
+        notes.update(report.block_notes)
+    return QcReport(tuple(f for r in reports for f in r.findings), notes,
+                    " ".join(dict.fromkeys(r.job_note for r in reports if r.job_note)), reports[0].model,
+                    tuple(d for r in reports for d in r.dropped))
+
+
+def _qc_line(qc, judge) -> str | None:
+    """The QC pass in one line of the summary."""
+    if qc is None:
+        return None
+    if qc == QC_SKIPPED:
+        return "QC: skipped (--no-qc)."
+    if qc == QC_NOT_RUN:
+        return "QC: not run — it reads the draft once every system is written."
+    if qc == QC_NO_ANSWER:
+        if getattr(judge, "mode", API) == CHAT:
+            return "QC: waiting for the chat's answer. No proposal was written yet."
+        return f"QC: no answer — {judge.last_error or 'no answer'}. No proposal was written; run estimate again."
+    n = len(qc.findings)
+    m = sum(1 for f in qc.findings if f.severity == MUST_FIX)
+    k = len({f.system for f in qc.findings})
+    return f"QC: {n} {'finding' if n == 1 else 'findings'} ({m} must-fix) on {k} {'block' if k == 1 else 'blocks'}."
+
+
+def whole_job_lines(plan, systems, review, judge, reading_flags: int = 0, ledger=None, qc=None) -> list[str]:
+    """The whole-job run's summary, in plain words. `qc` is the QC pass's report, or QC_SKIPPED, QC_NO_ANSWER or
+    QC_NOT_RUN; None (a run that stopped before writing) prints no QC line."""
     summary = []
     if ledger is not None and not getattr(ledger, "complete", True):
         from estimator.ledger.passes import pass_named
@@ -464,6 +550,9 @@ def whole_job_lines(plan, systems, review, judge, reading_flags: int = 0, ledger
                        f"{judge.cached} answered from the cache at no cost.")
         if plan is None and ledger is None:
             summary.append(f"The AI gave no plan — {judge.last_error or 'no answer'}. No proposal was written.")
+    qc_line = _qc_line(qc, judge)
+    if qc_line:
+        summary.append(qc_line)
     return summary
 
 

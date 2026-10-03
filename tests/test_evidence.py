@@ -273,3 +273,36 @@ def test_the_ledger_tabs_show_how_the_job_was_read_and_every_fact(tmp_path):
     assert rows[0] == ("Id", "Kind", "Subject", "Value", "Printed count", "State", "Pass", "Source", "Where", "Quote", "Other values")
     assert rows[1] == ("F1", "count", "VAV", 12, 14, "contradicted", "seed", "S5", "equipment counts for VAV (schedules and plans)",
                        "QUANTITY column total 12", "plans says 14 [S10] “VAV-1 … VAV-14”")
+
+
+def test_the_qc_tab_and_the_brief(tmp_path):
+    from estimator.evidence.workbook import write_evidence
+    from estimator.writing.qc import QcFinding, QcReport
+    report = QcReport((QcFinding("RTU", "Wire Sensor", "ownership", "ships loose", "Install and Wire Sensor", "must-fix", "template"),), {"RTU": "Nearly right."}, "Small job.", "m", ())
+    path = write_evidence(tmp_path / "e.xlsx", _catalogue(), systems=[], review_flags=(), qc=report, brief="Job: 26-9999\nWhat the job is\nA school.")
+    from openpyxl import load_workbook
+    book = load_workbook(path)
+    assert "Proposal QC" in book.sheetnames
+    rows = list(book["Proposal QC"].iter_rows(values_only=True))
+    assert rows[1][:6] == ("RTU", "Wire Sensor", "ownership", "must-fix", "ships loose", "Install and Wire Sensor")
+
+
+def test_the_corrections_read_the_qc_tab(tmp_path):
+    from openpyxl import load_workbook
+    from estimator.corrections import read_corrections
+    from estimator.evidence.workbook import write_evidence
+    from estimator.writing.qc import QcFinding, QcReport
+    report = QcReport((QcFinding("RTU", "Wire Sensor", "ownership", "ships loose", "Install and Wire Sensor", "must-fix", ""),
+                       QcFinding("RTU", "", "missing", "no smoke detector", "", "check", "")), {}, "", "m", ())
+    path = write_evidence(tmp_path / "e.xlsx", _catalogue(), systems=[], qc=report)
+    book = load_workbook(path)
+    ws = book["Proposal QC"]
+    ws.cell(2, 8, "change"), ws.cell(2, 9, "Install and Wire Sensor why: it ships loose")
+    ws.cell(3, 8, "keep"), ws.cell(3, 9, "the unit has its own")
+    book.save(path)
+    corrections, problems = read_corrections(path)
+    assert problems == []
+    assert [(e["text"], e["decision"], e["change_to"]) for e in corrections["lines"]] == [
+        ("Wire Sensor", "change", "Install and Wire Sensor")]
+    assert [(e["system"], e["text"], e["decision"]) for e in corrections["review"]] == [
+        ("RTU", "no smoke detector", "delete")]

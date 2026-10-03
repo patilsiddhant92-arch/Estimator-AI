@@ -105,6 +105,7 @@ class FakeJudge:
         self.available, self.model, self.last_error = True, "fake-model", None
         self.requests_dir = "requests"
         self.old_requests_dir = "requests/old"
+        self.qc_calls = 0
 
     def retire_requests(self, sources=None):
         return 0
@@ -113,10 +114,20 @@ class FakeJudge:
         return 0
 
     def write_system(self, system, evidence_text, images, options, examples, style_text, hours_rule="", image_ids=None,
-                     ledger_text="", facts=(), counts=()):
+                     ledger_text="", facts=(), counts=(), brief="", klass="", owned_elsewhere=()):
         self.asked.append(system.key)
         self.calls += 1
         return self.scopes.get(system.key)
+
+    def qc_job(self, name, system_prompt, prompt, schema, extra=None):
+        """A canned QC answer: one ownership must-fix finding on the VAV block's sensor line and one block note."""
+        self.qc_calls += 1
+        return ({"findings": [{"system": "VAV", "line": "Furnish and Install Space Temperature / CO2 Sensor",
+                               "kind": "ownership", "say": "The sensor ships loose with the box; AME installs it.",
+                               "fix": "Install and Wire Space Temperature / CO2 Sensor", "severity": "must-fix",
+                               "quote": "space temperature and CO2 setpoints"}],
+                 "block_notes": [{"system": "VAV", "note": "Nearly right; the sensor's verb is wrong."}],
+                 "job_note": "A small job, written in the house shape."}, "fake-model")
 
 
 # --- a small job ------------------------------------------------------------------------------------------
