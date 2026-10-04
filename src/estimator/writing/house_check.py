@@ -39,31 +39,42 @@ def _item_words(item: str) -> str:
 HEATER_UNKNOWN = "duct heater kept in full: the unit it serves is not known"
 
 
+_LEADING_ID = re.compile(r"^\s*\[[A-Z]{1,3}\d+\]\s*")
+
+
 def heater_control_sentence(text: str, style) -> str:
     """The first sentence of `text` that gives the BMS the duct heater's control: it names the duct heater (the
-    house style's duct heater words) and the BMS or the controls contractor ('heater_control_who'), and, outside
-    those words, provides or controls ('heater_control_what'). "" when none does."""
-    heater, who = _patterns(style, "duct_heater_words"), _patterns(style, "heater_control_who")
-    what = _patterns(style, "heater_control_what")
+    house style's duct heater words), assigns it to the BMS or the controls contractor ('heater_control_assign':
+    the BMS shall provide or control it, field installed controls for it) and gives it to no one else
+    ('heater_control_reject': by others, not by, by the heater or unit mfr, provided by anyone else). A leading
+    source id is not part of the sentence. "" when none does."""
+    heater, assign = _patterns(style, "duct_heater_words"), _patterns(style, "heater_control_assign")
+    reject = _patterns(style, "heater_control_reject")
     for sentence in _SENTENCE.split(str(text or "")):
-        if not (_any(heater, sentence) and _any(who, sentence)):
-            continue
-        rest = sentence
-        for p in who:
-            rest = p.sub(" ", rest)
-        if _any(what, rest):
+        sentence = _LEADING_ID.sub("", sentence)
+        if _any(heater, sentence) and _any(assign, sentence) and not _any(reject, sentence):
             return _squash(sentence)
     return ""
 
 
+def heater_item(assignment) -> str:
+    """The sequence item that gives the BMS the heater's control, as the brief and the house check name it:
+    '[S31] “The BMS will …”'; "" when there is none."""
+    sentence, source = assignment or ("", "")
+    if not sentence:
+        return ""
+    return f"[{source}] “{sentence}”" if source else f"“{sentence}”"
+
+
 def house_check(scope, system, klass: str, owned_elsewhere: dict[str, str], style, heater_class: str = "",
-                heater_home: tuple[str, str] = ("", ""), evidence: str = ""):
+                heater_home: tuple[str, str] = ("", ""), heater_assignment: tuple[str, str] = ("", "")):
     """`heater_class` is the class of the unit a duct heater serves (brief.served_class): a duct heater's own block
     keeps only its interlock lines when that unit is packaged, and its full scope when the unit is field or not
-    known (then a note says so), or when its `evidence` holds a sentence giving the BMS the heater's control (the
-    explicit assignment wins; a note quotes it). `heater_home` (brief.heater_home: the heaters' tags and their
-    block's header) names the block that writes this unit's duct heaters: here every duct heater line is refused.
-    Without a heater block, duct heater lines inside a packaged unit's own block are interlock-only."""
+    known (then a note says so), or when `heater_assignment` (brief.heater_assignment: the sequence sentence giving
+    the BMS the heater's control and its source id) is given: the explicit assignment wins and a note names it.
+    `heater_home` (brief.heater_home: the heaters' tags and their block's header) names the block that writes this
+    unit's duct heaters: here every duct heater line is refused. Without a heater block, duct heater lines inside a
+    packaged unit's own block are interlock-only."""
     internal, loose, cc = _patterns(style, "internal"), _patterns(style, "shipped_loose"), _patterns(style, "cc_terms")
     point, exempt = _patterns(style, "point_line"), _patterns(style, "internal_exempt_quote")
     keep, heater = _patterns(style, "duct_heater_keep"), _patterns(style, "duct_heater_words")
@@ -72,11 +83,10 @@ def house_check(scope, system, klass: str, owned_elsewhere: dict[str, str], styl
     heater_block = _any(heater, f"{key} {getattr(system, 'kind', '')} {getattr(system, 'header', '')}")
     heater_rule = heater_class if heater_block else klass      # the served unit's class, or this unit's own
     home_tags, home_header = heater_home or ("", "")
-    if heater_block and heater_rule == "packaged":
-        assigned = heater_control_sentence(evidence, style)
-        if assigned:                        # the sequence gives the BMS the heater's control: full scope
-            heater_rule = "field"
-            changed.append(f"duct heater kept in full: the sequence gives the BMS the heater's control (“{assigned}”)")
+    item = heater_item(heater_assignment)
+    if heater_block and heater_rule == "packaged" and item:    # the sequence gives the BMS the heater's control
+        heater_rule = "field"
+        changed.append(f"duct heater kept in full: the sequence gives the BMS the heater's control ({item})")
     for line in scope.lines:
         text, quote = line.text, line.quote or ""
         if home_header and not heater_block and _any(heater, text):

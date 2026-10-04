@@ -444,7 +444,7 @@ class Judge:
     def write_system(self, system, evidence_text: str, images, options, examples, style_text: str,
                      hours_rule: str = "", image_ids=None, ledger_text: str = "", facts=(), counts=(),
                      brief: str = "", klass: str = "", owned_elsewhere=(), heater_class: str = "",
-                     heater_home=("", "")):
+                     heater_home=("", ""), heater_assignment=("", "")):
         """Write one planned system's scope (a `whole_job.WrittenScope`) from its evidence, with the
         nearest Master Template's lines as a checklist (`options`: a template, its lines or plain
         texts), its tech-hour rule in words (`hours_rule`) and up to 4 phrasing-bank `examples`. None,
@@ -452,9 +452,10 @@ class Judge:
         request cites them as the plan and the dossier do, never renumbered from I1. `brief` (the job brief) and
         `klass` (packaged or field) go into the request; after the ledger check the house check runs, with
         `owned_elsewhere` (item -> the system that owns it) keeping shared items with their owner, and
-        `heater_class` (the class of the unit a duct heater serves) deciding a duct heater's own lines with the
-        evidence (a sequence giving the BMS the heater's control keeps its full scope), and `heater_home` (the
-        heaters' tags and their block's header) refusing duct heater lines in a unit whose heaters have a block."""
+        `heater_class` (the class of the unit a duct heater serves) deciding a duct heater's own lines unless
+        `heater_assignment` (brief.heater_assignment: the sequence sentence giving the BMS the heater's control, and
+        its source id) keeps its full scope, and `heater_home` (the heaters' tags and their block's header) refusing
+        duct heater lines in a unit whose heaters have a block."""
         from estimator.writing import whole_job as wj
         from estimator.writing.house_check import house_check
         images = list(images or ())
@@ -476,7 +477,8 @@ class Judge:
         scope = wj.parse_scope(answer, model, self.style, known)
         scope = wj.ledger_check(scope, frozenset(facts or ()), frozenset(int(c) for c in (counts or ())))
         return house_check(scope, system, klass, dict(owned_elsewhere or ()), self.style, heater_class=heater_class,
-                           heater_home=tuple(heater_home or ("", "")), evidence=evidence_text)
+                           heater_home=tuple(heater_home or ("", "")),
+                           heater_assignment=tuple(heater_assignment or ("", "")))
 
     def ask_pass(self, name: str, system_prompt: str, prompt: str, schema: dict, images=(), extra: dict | None = None,
                  ids=None) -> tuple[dict, str] | None:

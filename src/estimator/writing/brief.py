@@ -140,23 +140,34 @@ def heater_home(ledger, plan, system) -> tuple[str, str]:
     return ", ".join(dict.fromkeys(tags)), " and ".join(dict.fromkeys(headers))
 
 
-def heater_rules(ledger, plan, heater) -> list[str]:
-    """Per unit the duct heater block serves, the rule that decides the heater's scope and why: a sequence item
-    giving the BMS the heater's control (full scope, quoted), else the house rule (interlock only on a packaged
-    unit, full scope under an AME DDC controller)."""
+def heater_assignment(system, dossier, style=None) -> tuple[str, str]:
+    """The one answer to "does the sequence give the BMS this duct heater's control?": the first sentence of the
+    heater block's sequence paragraphs (its own section and the sections of the units it serves, as the plan gives
+    them) that does (house_check.heater_control_sentence), with its source id; ("", "") when none does, or the
+    system is not a duct heater. The brief and the house check both take this answer; neither reads it again."""
+    style = style or load_house_style()
+    if dossier is None or not is_duct_heater(system, style):
+        return "", ""
+    from estimator.writing.assemble import _dossier_sections_of, cited_text, source_ids, system_sections
     from estimator.writing.house_check import heater_control_sentence
-    style = load_house_style()
+    sections = _dossier_sections_of(dossier)
+    ids = [sid for q in system_sections(system) if q in sections for sid in sections[q][1]]
+    ids += [sid for sid in source_ids(system.sequence_sources) if sid not in ids]
+    for sid in ids:
+        sentence = heater_control_sentence(cited_text(dossier, sid), style)
+        if sentence:
+            return sentence, sid
+    return "", ""
+
+
+def heater_rules(ledger, plan, heater, assignment=("", "")) -> list[str]:
+    """Per unit the duct heater block serves, the rule that decides the heater's scope and why: the sequence item
+    `assignment` (heater_assignment) giving the BMS the heater's control (full scope, named), else the house rule
+    (interlock only on a packaged unit, full scope under an AME DDC controller)."""
+    from estimator.writing.house_check import heater_item
+    item = heater_item(assignment)
     rules = []
     for unit in served_systems(ledger, plan, heater):
-        names = _names(heater) + _names(unit)
-        item = ""
-        for fact in ledger.facts.values():
-            if not any(_word(n, _squash(fact.subject)) for n in names):
-                continue
-            sentence = heater_control_sentence(fact.quote, style) or heater_control_sentence(_squash(fact.value), style)
-            if sentence:
-                item = f"[{fact.source_id}] “{sentence}”"
-                break
         if item:
             rules.append(f"{unit.key}: full field-DDC duct heater scope, as the sequence gives the BMS the heater's "
                          f"control ({item})")
@@ -197,7 +208,9 @@ def _cut(text: str, limit: int) -> str:
     return (head[:stop + 1] if stop > 0 else head).rstrip() + " (cut)"
 
 
-def job_brief(ledger, plan, templates=None, limit: int = 4000) -> str:
+def job_brief(ledger, plan, templates=None, limit: int = 4000, assignments=None) -> str:
+    """`assignments`: heater system key -> heater_assignment's answer, naming the sequence item that decides a duct
+    heater block's scope (none given: the house rule decides)."""
     what = ledger.understanding.get("sequence") or ledger.understanding.get("schedules") or ""
     lines = [f"Job: {getattr(ledger, 'job_name', '') or ''}".rstrip(), "", "What the job is", _cut(_squash(what), 1200), "",
              "The systems (key | header | count | kind | packaged or field | links)"]
@@ -210,7 +223,8 @@ def job_brief(ledger, plan, templates=None, limit: int = 4000) -> str:
             if units:
                 parts.append(f"serves: {', '.join(u.key for u in units)} ({served_class(ledger, plan, system)})")
                 served = [v for v in served if _system_of(plan, v) not in units]
-                parts.append("scope: " + "; ".join(heater_rules(ledger, plan, system)))
+                parts.append("scope: " + "; ".join(heater_rules(ledger, plan, system,
+                                                                 (assignments or {}).get(system.key))))
         if serves:
             parts.append("serves: " + ", ".join(serves))
         if served:

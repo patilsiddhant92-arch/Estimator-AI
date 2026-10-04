@@ -99,23 +99,22 @@ def test_a_duct_heater_serving_an_unknown_unit_is_kept_in_full_and_says_so():
 
 # --- duct heaters written in one place (house rules round 2) ----------------------------------------------------
 
-BMS_EVIDENCE = ("The sequence of operation for this system (Q2):\n[S30] The unit's factory controls run the fans. "
-                "The BMS will provide field installed controls for the electric duct heater.")
+BMS_ITEM = ("The BMS will provide field installed controls for the electric duct heater.", "S31")
 FULL_HEATER = ("Furnish Electric Duct Heater SCR Control", "Furnish and Install Electric Duct Heater Discharge Air Temperature Sensor",
                "Wire Electric Duct Heater Interlock to Unit Enable")
 
 
 def test_a_sequence_giving_the_bms_the_heater_keeps_full_scope_on_a_packaged_unit():
     out = house_check(_scope(*map(_line, FULL_HEATER)), EDH, "field", {}, STYLE, heater_class="packaged",
-                      evidence=BMS_EVIDENCE)
+                      heater_assignment=BMS_ITEM)
     assert [l.text for l in out.lines] == list(FULL_HEATER) and out.refused == ()
-    assert any("gives the BMS the heater's control" in c for c in out.changed)
+    assert out.changed == ("duct heater kept in full: the sequence gives the BMS the heater's control ([S31] “The BMS "
+                           "will provide field installed controls for the electric duct heater.”)",)
 
 
 def test_without_that_sentence_the_heater_on_a_packaged_unit_is_interlock_only():
-    evidence = "The sequence of operation for this system (Q2):\n[S30] The unit's factory controls run the fans."
     out = house_check(_scope(*map(_line, FULL_HEATER)), EDH, "field", {}, STYLE, heater_class="packaged",
-                      evidence=evidence)
+                      heater_assignment=("", ""))
     assert [l.text for l in out.lines] == ["Wire Electric Duct Heater Interlock to Unit Enable"]
 
 
@@ -130,9 +129,26 @@ def test_a_heater_line_in_the_served_units_block_is_refused():
                            "(EDH-1) are written in the Electric Duct Heater EDH-1 block; left out here",)
 
 
-def test_the_heater_control_sentence_needs_the_heater_the_bms_and_the_control():
+NOT_AN_ASSIGNMENT = (
+    "The duct heater shall be enabled by the unit controller and its status monitored by the BMS.",
+    "The duct heater, provided by Division 23, shall be interlocked with the ERV and monitored by the BMS.",
+    "The duct heater interlock shall be wired to the BMS controller.",
+    "The electric duct heater SCR control is by the heater mfr and alarms are reported to the BMS.",
+    "Duct heater controls by others, not by BMS.",
+    "The duct heater interlock is wired by the controls contractor.",
+    "The BMS will provide the supply fan controls.",
+)
+AN_ASSIGNMENT = (
+    "The BMS will provide field installed controls for the electric duct heater serving the OA intake of the unit.",
+    "The BMS shall control the electric duct heater to maintain discharge air temperature.",
+    "The controls contractor shall provide the duct heater control signal.",
+)
+
+
+def test_the_heater_control_sentence_needs_an_assignment_to_the_bms():
     from estimator.writing.house_check import heater_control_sentence
-    assert heater_control_sentence(BMS_EVIDENCE, STYLE) == "The BMS will provide field installed controls for the electric duct heater."
-    assert heater_control_sentence("The controls contractor shall provide the duct heater control signal.", STYLE)
-    assert heater_control_sentence("The duct heater interlock is wired by the controls contractor.", STYLE) == ""
-    assert heater_control_sentence("The BMS will provide the supply fan controls.", STYLE) == ""
+    for sentence in NOT_AN_ASSIGNMENT:
+        assert heater_control_sentence(sentence, STYLE) == "", sentence
+    for sentence in AN_ASSIGNMENT:
+        assert heater_control_sentence(sentence, STYLE) == sentence, sentence
+    assert heater_control_sentence("[S30] The fans run. " + AN_ASSIGNMENT[1], STYLE) == AN_ASSIGNMENT[1]

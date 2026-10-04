@@ -120,7 +120,7 @@ def test_a_heater_reads_its_link_partner_from_either_side():
 BMS_HEATER = "The BMS will provide field installed controls for the electric duct heater."
 
 
-def _served_heater(bms_sentence=False):
+def _served_heater():
     """An invented job: a packaged ERV with its own sequence section, and a duct heater family linked to it."""
     L = Ledger(SOURCES | {"S8": "equipment counts for EDH", "S9": "equipment counts for ERV",
                           "Q2": "sequence section “ERV”, Specs.pdf page 5", "Q3": "sequence section “EDH”, Specs.pdf page 6"})
@@ -132,8 +132,6 @@ def _served_heater(bms_sentence=False):
     L.add("link", "EDH-1", "ERV-1", "[S10]", "EDH-1 ERV-1", "plans", SETTLED)
     L.add("sequence_match", "Energy recovery ventilator", "ERV", "[Q2]", "ENERGY RECOVERY VENTILATOR", "sequence", SETTLED)
     L.add("sequence_match", "Electric duct heater", "EDH", "[Q3]", "ELECTRIC DUCT HEATER", "sequence", SETTLED)
-    if bms_sentence:
-        L.add("note", "ERV-1", "BMS provides field installed controls for the duct heater", "[Q2]", BMS_HEATER, "sequence", SETTLED)
     plan = ledger_plan(L)
     return L, plan, {s.key: s for s in plan.systems}
 
@@ -156,13 +154,61 @@ def test_the_served_unit_is_told_its_heaters_are_written_elsewhere():
             "write no duct heater line here.") in erv_line
 
 
+def _sequence_dossier(bms_sentence: bool):
+    """The invented job's sequence paragraphs: the ERV's section (Q2), with or without the sentence giving the BMS
+    the heater's control, and the heater's own section (Q3). A schedule row naming the BMS and the heater's control
+    sits outside the sequence and never decides."""
+    from types import SimpleNamespace
+    lines = ["== 2. SEQUENCE OF OPERATION ==", "--- 23 09 93 SEQUENCE, Specs.pdf page 5 ---",
+             "--- [Q2] ENERGY RECOVERY VENTILATOR ---", "[S30] The unit's factory controls run the fans."]
+    if bms_sentence:
+        lines.append(f"[S31] {BMS_HEATER}")
+    lines += ["--- [Q3] ELECTRIC DUCT HEATER ---", "[S32] The duct heater shall be interlocked with the unit.", "",
+              "== 4. SCHEDULES ==", "[S40] EDH-1 | 10 kW | the BMS shall control the duct heater", ""]
+    return SimpleNamespace(text="\n".join(lines), sections=None)
+
+
+def test_the_heater_assignment_is_read_from_the_sequence_paragraphs_only():
+    from estimator.writing.brief import heater_assignment
+    L, plan, systems = _served_heater()
+    assert heater_assignment(systems["EDH"], _sequence_dossier(True)) == (BMS_HEATER, "S31")
+    assert heater_assignment(systems["EDH"], _sequence_dossier(False)) == ("", "")
+    assert heater_assignment(systems["ERV"], _sequence_dossier(True)) == ("", "")      # not a duct heater
+
+
 def test_the_heater_brief_says_which_rule_decides_each_served_unit():
     L, plan, _ = _served_heater()
     edh_line = next(line for line in job_brief(L, plan).splitlines() if line.startswith("EDH |"))
     assert "ERV: interlock only" in edh_line and "house rule" in edh_line
-    L, plan, _ = _served_heater(bms_sentence=True)
-    edh_line = next(line for line in job_brief(L, plan).splitlines() if line.startswith("EDH |"))
-    assert "ERV: full field-DDC duct heater scope" in edh_line and BMS_HEATER in edh_line
+    edh_line = next(line for line in job_brief(L, plan, assignments={"EDH": (BMS_HEATER, "S31")}).splitlines()
+                    if line.startswith("EDH |"))
+    assert "ERV: full field-DDC duct heater scope" in edh_line and f"[S31] “{BMS_HEATER}”" in edh_line
+
+
+def test_the_brief_and_the_house_check_agree_on_the_heater_scope():
+    from estimator.writing.brief import heater_assignment, served_class, system_class
+    from estimator.writing.house_check import house_check
+    from estimator.writing.style import load_house_style
+    from estimator.writing.whole_job import WrittenLine, WrittenScope
+    lines = ("Furnish Electric Duct Heater SCR Control", "Wire Electric Duct Heater Interlock to Unit Enable")
+    scope = WrittenScope(lines=tuple(WrittenLine(text=x, depth=1, quantity=None, quote="", source_id="S32", why="",
+                                                 confidence=0.8, reference="", flag="", flag_text="", fact_ids=())
+                                     for x in lines), client_notes=(), tech_hours_hint=None, review_notes=(), model="m")
+    for bms_sentence in (True, False):
+        L, plan, systems = _served_heater()
+        edh = systems["EDH"]
+        assignment = heater_assignment(edh, _sequence_dossier(bms_sentence))
+        edh_line = next(line for line in job_brief(L, plan, assignments={"EDH": assignment}).splitlines()
+                        if line.startswith("EDH |"))
+        out = house_check(scope, edh, system_class(L, edh), {}, load_house_style(),
+                          heater_class=served_class(L, plan, edh), heater_assignment=assignment)
+        if bms_sentence:
+            item = f"[S31] “{BMS_HEATER}”"
+            assert "ERV: full field-DDC duct heater scope" in edh_line and item in edh_line
+            assert [l.text for l in out.lines] == list(lines) and any(item in c for c in out.changed)
+        else:
+            assert "ERV: interlock only" in edh_line
+            assert [l.text for l in out.lines] == [lines[1]]
 
 
 def test_the_heater_family_owns_its_interlock_when_it_has_a_block():

@@ -436,3 +436,27 @@ def test_each_write_request_gets_the_heater_block_that_writes_its_duct_heaters(j
     monkeypatch.setattr("estimator.__main__.heater_home", lambda ledger, plan, system: ("EDH-1", "Electric Duct Heater EDH-1"))
     main(["estimate", str(job), "--out", str(tmp_path / "out"), "--ai", "api"])
     assert seen and set(seen) == {("EDH-1", "Electric Duct Heater EDH-1")}
+
+
+def test_the_brief_and_each_write_request_take_one_heater_assignment(job, tmp_path, monkeypatch, whole_job):
+    seen = []
+    original = FakeJudge.write_system
+    answer = ("The BMS shall control the electric duct heater.", "S99")
+
+    def recording(self, system, *args, **kwargs):
+        seen.append(kwargs.get("heater_assignment"))
+        return original(self, system, *args, **kwargs)
+
+    monkeypatch.setattr(FakeJudge, "write_system", recording)
+    monkeypatch.setattr("estimator.__main__.heater_assignment", lambda system, dossier: answer)
+    asked = []
+    real_brief = __import__("estimator.__main__", fromlist=["job_brief"]).job_brief
+
+    def brief(*args, **kwargs):
+        asked.append(kwargs.get("assignments"))
+        return real_brief(*args, **kwargs)
+
+    monkeypatch.setattr("estimator.__main__.job_brief", brief)
+    main(["estimate", str(job), "--out", str(tmp_path / "out"), "--ai", "api"])
+    assert seen and set(seen) == {answer}
+    assert asked and set(asked[0].values()) == {answer}
