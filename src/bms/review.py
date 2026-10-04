@@ -445,10 +445,10 @@ def _apply_to_devices(devices: tuple[Device, ...], device_id: str, decision: Dec
 
 
 def apply_decisions(job: Job, decisions: Sequence[Decision]) -> Job:
-    """The job with the decisions applied, in order: accept clears the device's flag; delete removes the device (or
-    the system, when no device or family is named); change replaces the device (same id) or the family's Count.
-    A decision naming a system or device the job no longer has is skipped. Pure. System key "" names the front
-    end's devices."""
+    """The job with the decisions applied, in order: accept clears the device's flag, or, for a family, the
+    quantity flags on that system's devices; delete removes the device (or the system, when no device or family is
+    named); change replaces the device (same id) or the family's Count. A decision naming a system or device the
+    job no longer has is skipped. Pure. System key "" names the front end's devices."""
     for decision in decisions:
         job = _apply_one(job, decision)
     return job
@@ -470,7 +470,13 @@ def _apply_one(job: Job, d: Decision) -> Job:
         return job.with_system(dataclasses.replace(
             system, devices=_apply_to_devices(system.devices, d.device_id, d)))
     if d.family_name is not None:
-        if d.action != "change" or d.count is None or not any(f.name == d.family_name for f in system.families):
+        if not any(f.name == d.family_name for f in system.families):
+            return job
+        if d.action == "accept":
+            devices = tuple(dataclasses.replace(dev, flag="none") if dev.flag == "quantity" else dev
+                            for dev in system.devices)
+            return job.with_system(dataclasses.replace(system, devices=devices))
+        if d.action != "change" or d.count is None:
             return job
         families = tuple(dataclasses.replace(f, count=d.count) if f.name == d.family_name else f
                          for f in system.families)

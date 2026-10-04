@@ -211,6 +211,20 @@ def test_change_a_device_keeps_the_id(job):
     assert (changed.id, changed.name, changed.quantity.value) == ("EF.d1", "Changed", 9)
 
 
+def test_accept_a_family_clears_quantity_flags_and_leaves_other_flags(job):
+    system = job.system("EF")
+    devices = list(system.devices)
+    devices[0] = dataclasses.replace(devices[0], flag="quantity")
+    devices[1] = dataclasses.replace(devices[1], flag="assumed")
+    job2 = job.with_system(dataclasses.replace(system, devices=tuple(devices)))
+    family = job2.system("EF").families[0].name
+    result = review.apply_decisions(job2, [Decision("EF", "accept", family_name=family)])
+    flags = [d.flag for d in result.system("EF").devices]
+    assert flags[0] == "none" and flags[1] == "assumed"
+    assert result.system("EF").families == job2.system("EF").families
+    assert review.apply_decisions(job2, [Decision("EF", "accept", family_name="No such family")]) == job2
+
+
 def test_change_a_family_count(job):
     result = review.apply_decisions(job, [Decision("CUH", "change", family_name="Cabinet Unit Heater",
                                                    count=Count(4))])
