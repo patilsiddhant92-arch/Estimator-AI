@@ -162,7 +162,7 @@ def test_sequence_only_system_prints_no_count(job):
     j = edit(job, "DH", devices=(), clarifications=())
     assert [r for r in rules(validate(j, PB)) if r[1] == "DH" and r[3] == "must_fix"]
     j2 = edit(job, "DH", devices=(), families=(Family("Duct Heater", ("DH-1",), Count(None)),))
-    assert rules(validate(j2, PB)) == []
+    assert rules(validate(j2, PB)) == [(RULE["left_out"], "DH", None, "check")]       # left out: no lines written
 
 
 def test_ownership_must_be_a_known_party(job):
@@ -196,6 +196,56 @@ def test_order_is_system_then_device(job):
     j = edit(j, "RTU", clarifications=(Clarification("note", "a"), Clarification("note", "b")))
     got = [(f.system_key, f.device_id) for f in validate(j, PB)]
     assert got == [("RTU", None), ("EF", "EF.d1"), ("EF", "EF.d3")]
+
+
+def test_a_system_with_no_lines_is_a_check_with_the_writers_reason(job):
+    j = edit(job, "DH", devices=(), clarifications=(Clarification("note", "the invented heaters have no BMS work"),))
+    found = [f for f in validate(j, PB) if f.rule == RULE["left_out"]]
+    assert [(f.system_key, f.device_id, f.severity) for f in found] == [("DH", None, "check")]
+    assert "left out: no lines written" in found[0].what
+    assert "the invented heaters have no BMS work" in found[0].what
+
+
+def test_source_ids_in_assumption_or_clarification_wording_are_a_check(job):
+    j = edit_device(job, "RTU", "RTU.d4", assumption=Assumption("one detector per unit", "S12 note 2 says so"))
+    assert (RULE["ids"], "RTU", "RTU.d4", "check") in rules(validate(j, PB))
+    j2 = edit(job, "VRF", clarifications=(Clarification("confirm", "Branch selector count per S41"),))
+    assert (RULE["ids"], "VRF", None, "check") in rules(validate(j2, PB))
+    j3 = edit(job, "VRF", clarifications=(Clarification("confirm", "count per the SD-12 sheet; 5S7 is not an id"),))
+    assert rules(validate(j3, PB), RULE["ids"]) == []
+    assert RULE["ids"] == "Assumption wording has no source ids"
+
+
+def test_a_long_clarification_or_assumption_is_a_check(job):
+    long_text = "x" * 221
+    j = edit(job, "VRF", clarifications=(Clarification("confirm", long_text),))
+    assert (RULE["long_note"], "VRF", None, "check") in rules(validate(j, PB))
+    assert rules(validate(edit(job, "VRF", clarifications=(Clarification("confirm", "x" * 220),)), PB),
+                 RULE["long_note"]) == []
+    j2 = edit_device(job, "RTU", "RTU.d4", assumption=Assumption("y" * 120, "z" * 120))
+    assert (RULE["long_assumption"], "RTU", "RTU.d4", "check") in rules(validate(j2, PB))
+
+
+def test_a_device_quantity_above_the_header_count_is_must_fix(job):
+    j = edit_device(job, "EF", "EF.d3", quantity=Count(9))
+    found = [f for f in validate(j, PB) if f.rule == RULE["header_under"]]
+    assert [(f.system_key, f.device_id, f.severity) for f in found] == [("EF", "EF.d3", "must_fix")]
+    assert found[0].what.endswith("device quantity 9 is higher than the header count 3: print the higher count")
+
+
+def test_a_device_quantity_at_or_below_the_header_count_is_clean(job):
+    j = edit_device(job, "EF", "EF.d3", quantity=Count(3))
+    assert rules(validate(j, PB), RULE["header_under"]) == []
+    # the header already prints the family's highest count: a device at that count is clean
+    fam = Family("Exhaust Fan", ("EF-1",), Count(3, (), (OtherCount(9, REF),)))
+    j2 = edit_device(edit(job, "EF", families=(fam,)), "EF", "EF.d3", quantity=Count(9))
+    assert rules(validate(j2, PB), RULE["header_under"]) == []
+
+
+def test_a_damper_family_under_a_fan_does_not_set_the_header_count(job):
+    ef = job.system("EF")
+    j = edit(job, "EF", families=ef.families + (Family("Motorized Damper", (), Count(1)),))
+    assert rules(validate(j, PB), RULE["header_under"]) == []
 
 
 def test_front_end_is_checked(job):

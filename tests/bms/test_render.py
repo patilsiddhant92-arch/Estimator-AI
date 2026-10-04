@@ -63,8 +63,8 @@ def test_rooftop_block_golden(draft):
         "AME requires mfr. Rep to assist in integration, cost to be incurred by mech contractor",
         "Install and Wire Duct Smoke Detector (Furnished by Unit Mfr.)",
         "*one detector per unit, because the schedule note names a detector for each unit without a count",
-        "*Unit count carried at 2; the roof plan shows 1; Quantity carried: 2; "
-        "other counts in the documents: 1 per M-101, Drawings.pdf page 2",
+        "*Unit count carried at 2; the roof plan shows 1",
+        "*Qty. (2) per M-001; 1 per M-101.",
     ]
 
 
@@ -99,7 +99,7 @@ def test_unknown_count_prints_hashes_and_quantity_unknown(draft):
 def test_confirm_note_and_count_note_for_vrf(draft):
     notes = [l.text for l in draft.lines if l.system_key == "VRF" and l.kind == "note"]
     assert notes == ["*Branch selector count: 2 on the plan picture, 1 on the schedule - to be confirmed",
-                     "*Quantity carried: 2; other counts in the documents: 1 per M-002, Drawings.pdf page 3"]
+                     "*Qty. (2) per M-102; 1 per M-002."]
 
 
 def test_front_end_exceptions_and_alternates(draft):
@@ -168,7 +168,7 @@ def test_the_higher_count_prints_even_when_value_is_lower(job, playbook):
     fam = Family("Exhaust Fan", ("EF-1", "EF-2"), Count(value=2, others=(OtherCount(5, REF),)))
     out = render(one(job, system([device()], families=(fam,))), playbook)
     assert texts(out, "EF")[0] == "Qty (5) Exhaust Fans EF-1, 2"
-    assert texts(out, "EF")[-1] == "*Quantity carried: 5; other counts in the documents: 2"
+    assert texts(out, "EF")[-1] == "*Qty. (5) per M-1; 2 per the documents."
 
 
 def test_count_note_names_the_place_of_every_count(job, playbook):
@@ -176,8 +176,146 @@ def test_count_note_names_the_place_of_every_count(job, playbook):
                                                  others=(OtherCount(3, Ref("S2", "q", "M-301, Specs.pdf page 8")),
                                                          OtherCount(5, Ref("S3", "q", "M-401, Drawings.pdf page 9")))))
     note = texts(render(one(job, system([device()], families=(fam,))), playbook), "EF")[-1]
-    assert note == ("*Quantity carried: 5; other counts in the documents: "
-                    "4 per M-201, Drawings.pdf page 3; 3 per M-301, Specs.pdf page 8")
+    assert note == "*Qty. (5) per M-401; 4 per M-201; 3 per M-301."
+
+
+def test_count_note_uses_sheet_numbers_never_file_names_and_folds_one_place(job, playbook):
+    pb = load_playbook(ROOT / "playbook")
+    fam = Family("Exhaust Fan", ("EF-1",), Count(
+        value=7, sources=(Ref("S1", "q", "equipment counts for EF"),),
+        others=(OtherCount(3, Ref("S2", "q", "Q-210.10, Invented Set - Combined.pdf page 15")),
+                OtherCount(3, Ref("S3", "q", "Q-210.10 whole sheet, Invented Set - Combined.pdf page 15 (picture)")),
+                OtherCount(2, Ref("S4", "q", "INVENTED SCHEDULE, Q-702.00, Invented Set - Combined.pdf page 51")),
+                OtherCount(1, Ref("S5", "q", "Q-305.00, Invented Set.pdf page 4; Q-306.00, Invented Set.pdf page 5")),
+                OtherCount(0, Ref("S6", "q", "Q-305.00 whole sheet, Invented Set.pdf page 4 (picture)")),
+                OtherCount(4, Ref("S7", "q", "99 99 99 Invented Section, invented-spec_Rev_2.pdf page 3")))))
+    out = texts(render(one(job, system([device(qty=7)], families=(fam,), shape="")), pb), "EF")
+    qty = [t for t in out if t.startswith("*Qty.")]
+    assert qty == ["*Qty. (7) per the documents; 3 per Q-210.10; 2 per Q-702.00; 1 and 0 per Q-305.00; "
+                   "4 per 99 99 99 Invented Section."]
+    assert not any(".pdf" in t for t in out)
+
+
+def test_count_note_is_one_line_per_block_beside_the_confirm(job, playbook):
+    pb = load_playbook(ROOT / "playbook")
+    fam = Family("Exhaust Fan", ("EF-1",), Count(value=3, others=(OtherCount(2, Ref("S2", "q", "Q-1, A.pdf page 1")),)))
+    d = device(qty=3, quantity=Count(3, others=(OtherCount(2, Ref("S2", "q", "Q-1, A.pdf page 1")),)))
+    clar = (Clarification("confirm", "Confirm quantity: 3 fans carried per the schedule"),)
+    out = texts(render(one(job, system([d], families=(fam,), shape="", clarifications=clar)), pb), "EF")
+    assert out[-2:] == ["*Confirm quantity: 3 fans carried per the schedule", "*Qty. (3) per the documents; 2 per Q-1."]
+
+
+# ---- the clarification labels (the text's own label is not printed twice) -------------------------------------
+
+@pytest.mark.parametrize("kind, text, printed", [
+    ("confirm", "Confirm ownership: invented relay by others", "*Confirm ownership: invented relay by others"),
+    ("confirm", "Confirm quantity: 4 invented units", "*Confirm quantity: 4 invented units"),
+    ("confirm", "*Confirm quantities: invented sensors", "*Confirm quantities: invented sensors"),
+    ("confirm", "quantity: 4 invented units", "*Confirm quantity: 4 invented units"),
+    ("confirm", "Assumed: invented panel by the maker", "*Confirm invented panel by the maker"),
+    ("assumed", "*Assumed: one invented switch, as the sequence asks", "*Assumed: one invented switch, as the sequence asks"),
+    ("assumed", "Assumed: one invented switch", "*Assumed: one invented switch"),
+    ("per_drawings", "Quantity per plumbing drawings", "*Quantity per plumbing drawings"),
+    ("per_drawings", "*Quantity per plumbing drawings", "*Quantity per plumbing drawings"),
+    ("per_drawings", "plumbing", "*Quantity per plumbing drawings"),
+    ("per_drawings", "quantity per the electrical drawings", "*Quantity per electrical drawings"),
+    ("per_drawings", "Mechanical drawings", "*Quantity per mechanical drawings"),
+])
+def test_a_label_the_text_already_carries_prints_once(job, kind, text, printed):
+    pb = load_playbook(ROOT / "playbook")
+    out = texts(render(one(job, system([device()], clarifications=(Clarification(kind, text),))), pb), "EF")
+    assert out[-1] == printed
+
+
+def test_an_assumption_that_carries_its_own_label_prints_it_once(job):
+    pb = load_playbook(ROOT / "playbook")
+    a = device(assumption=Assumption("Assumed: one invented sensor", "the invented sequence asks for it"))
+    out = texts(render(one(job, system([a])), pb), "EF")
+    assert out[-1] == "*Assumed: one invented sensor, because the invented sequence asks for it"
+
+
+def test_a_long_clarification_prints_whole(job):
+    pb = load_playbook(ROOT / "playbook")
+    long_text = "Confirm quantity: " + "invented words " * 30 + "end"
+    out = texts(render(one(job, system([device()], clarifications=(Clarification("confirm", long_text),))), pb), "EF")
+    assert out[-1] == "*" + long_text
+
+
+# ---- source ids never print ----------------------------------------------------------------------------------
+
+def test_source_ids_in_an_assumption_become_the_sheet_or_section_of_their_ref(job):
+    pb = load_playbook(ROOT / "playbook")
+    refs = (Ref("S41", "q", "Q-701.00, Invented Set.pdf page 50"),
+            Ref("S7", "q", "sequence section B. Invented fans, 99 99 99 INVENTED SEQUENCE, invented.pdf page 3"))
+    a = device(refs=refs, assumption=Assumption(
+        "one invented controller", "S41 note 1 asks for it and S7 paragraph 2 names no party"))
+    out = texts(render(one(job, system([a])), pb), "EF")
+    assert out[-1] == ("*Assumed: one invented controller, because Q-701.00 asks for it and "
+                       "sequence section B. Invented fans names no party")
+
+
+def test_source_ids_with_no_ref_are_dropped_and_the_words_tidied(job):
+    pb = load_playbook(ROOT / "playbook")
+    a = device(assumption=Assumption("one invented sensor per S900", "the schedule (S901, S902) shows one per unit"))
+    b = device(id="X.d2", slot="damper_actuator", name="Damper",
+               assumption=Assumption("one damper", "the plan shows it in S903"))
+    out = texts(render(one(job, system([a, b])), pb), "EF")
+    assert out[-1] == ("*Assumed: one invented sensor, because the schedule shows one per unit; "
+                       "one damper, because the plan shows it")
+    assert "S9" not in out[-1] and "  " not in out[-1]
+
+
+def test_source_ids_in_a_clarification_are_replaced_too(job):
+    pb = load_playbook(ROOT / "playbook")
+    d = device(refs=(Ref("S12", "q", "Q-100.00, Invented.pdf page 3"),))
+    clar = (Clarification("confirm", "Confirm quantity: 4 invented units per S12, 2 per S99"),)
+    out = texts(render(one(job, system([d], clarifications=clar)), pb), "EF")
+    assert out[-1] == "*Confirm quantity: 4 invented units per Q-100.00, 2"
+
+
+# ---- a system with no lines is left out ------------------------------------------------------------------------
+
+def test_a_system_with_no_lines_prints_no_header_and_is_kept_for_the_evidence_package(job, playbook):
+    empty = system([], key="EMPTY", name="Invented Units",
+                   clarifications=(Clarification("note", "the invented units have no BMS work"),))
+    out = render(replace(job, systems=(job.system("EF"), empty)), playbook)
+    assert [b.header for b in out.scope.blocks] == ["Qty (3) Exhaust Fans EF-1 thru 3"]
+    left = [l for l in out.lines if l.system_key == "EMPTY"]
+    assert [(l.kind, l.device_id) for l in left] == [("note", None)]
+    assert "no lines written" in left[0].text and "the invented units have no BMS work" in left[0].text
+
+
+def test_an_alternate_with_no_lines_adds_no_alternate(job, playbook):
+    empty = system([], key="EMPTY", alternate="add")
+    out = render(replace(job, systems=(job.system("EF"), empty)), playbook)
+    assert out.scope.add_alternates == ()
+
+
+# ---- dampers under their fan ----------------------------------------------------------------------------------
+
+def test_a_damper_family_under_a_fan_prints_no_header_of_its_own(job, playbook):
+    ef = job.system("EF")
+    fan_with_damper = replace(ef, families=ef.families + (Family("Motorized Damper", (), Count(value=2)),))
+    damper_only = system([device(id="MD.d1", slot="damper_actuator", name="Motorized Damper Actuator", qty=4)],
+                         key="MD", name="Motorized Dampers", shape="",
+                         families=(Family("Motorized Damper", (), Count(value=4)),))
+    out = render(replace(job, systems=(fan_with_damper, damper_only)), playbook)
+    ef_lines = texts(out, "EF")
+    assert [l.text for l in out.lines if l.system_key == "EF" and l.kind == "header"] == [
+        "Qty (3) Exhaust Fans EF-1 thru 3"]
+    assert ef_lines[1:] == ["Furnish and Install DDC Controller", "Furnish Fan Start / Stop and Status",
+                            "Furnish and Install Motorized Damper Actuator (Qty. 2)"]
+    assert texts(out, "MD")[0] == "Qty (4) Motorized Dampers"
+    assert [b.header for b in out.scope.blocks] == ["Qty (3) Exhaust Fans EF-1 thru 3", "Qty (4) Motorized Dampers"]
+
+
+# ---- the header never undershoots ------------------------------------------------------------------------------
+
+def test_each_family_header_prints_its_highest_count(job, playbook):
+    fams = (Family("Indoor Unit", ("IU-1",), Count(value=4, others=(OtherCount(6, REF), OtherCount(1, REF)))),
+            Family("Condensing Unit", ("CU-1",), Count(value=None, others=(OtherCount(2, REF),))))
+    out = render(one(job, system([device()], families=fams, shape="")), playbook)
+    assert [l.text for l in out.lines if l.kind == "header"] == ["Qty (6) Indoor Unit IU-1", "Qty (2) Condensing Unit CU-1"]
 
 
 def test_a_quantity_prints_only_when_it_differs_from_the_blocks_count(job, playbook):

@@ -197,6 +197,10 @@ information: "*Assumed: duct static pressure sensor shipped loose by the unit ma
 factory sensor". A bare "*Assumed: unit type" is never printed. An assumption is an item AME prices on judgment, so
 it always carries its reason.
 
+### Assumption wording has no source ids
+An assumption or a clarification names the sheet or section it rests on ("M-201", "the fan schedule"), never a
+source id ("S12", "S40 note 1"): source ids are for the Evidence Package only.
+
 ### Client notes
 A client note is a statement to the client that the documents support, such as "**Start/Stop via Fire Alarm
 System". It has no place of its own: it goes into the block's one clarification. When the block has nothing to
