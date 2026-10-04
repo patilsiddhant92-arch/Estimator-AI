@@ -2,12 +2,15 @@
 
     python -m bms estimate JOB_FOLDER --out FOLDER [--cache FOLDER] [--mode chat|api]
     python -m bms playbook-lint [PLAYBOOK_ROOT]
+    python -m bms status OUT [--cache FOLDER]
 
 chat (the default): every AI question is written to CACHE/judge-chat/requests for the chat to answer (the
 /run-job skill and tools/run_job.py drive it); api: Claude through the Anthropic API (ANTHROPIC_API_KEY).
 
 playbook-lint: checks playbook/rules.md, shapes.json and wording.json (default: the repo's playbook/, wherever it is
 run from); prints each problem in plain words and exits 1, or says it is clean and exits 0.
+
+status: says, in plain words, how far a run got, from the files it already wrote. It does not call the AI.
 
 Each subcommand is one entry in COMMANDS (name -> function of the parsed arguments, returning the exit code).
 """
@@ -21,6 +24,7 @@ from typing import Callable
 from bms.playbook import DEFAULT_ROOT
 from bms.playbook_lint import lint_playbook, referenced_rule_names
 from bms.run import MODES, estimate
+from bms.status import report as status_report
 
 
 def parser() -> argparse.ArgumentParser:
@@ -35,6 +39,9 @@ def parser() -> argparse.ArgumentParser:
     lint = commands.add_parser("playbook-lint", help="check playbook/rules.md, shapes.json and wording.json")
     lint.add_argument("root", nargs="?", type=Path, default=DEFAULT_ROOT,
                       help="the Playbook folder (default: the repo's playbook/)")
+    s = commands.add_parser("status", help="say, in plain words, how far a run got, from the files it already wrote")
+    s.add_argument("out", type=Path, help="the output folder")
+    s.add_argument("--cache", type=Path, help="where reading and chat requests are (default: OUT/.cache)")
     return p
 
 
@@ -61,9 +68,16 @@ def _playbook_lint(args: argparse.Namespace) -> int:
     return 0
 
 
+def _status(args: argparse.Namespace) -> int:
+    for line in status_report(args.out, args.cache or args.out / ".cache"):
+        print(line)
+    return 0
+
+
 COMMANDS: dict[str, Callable[[argparse.Namespace], int]] = {
     "estimate": _estimate,
     "playbook-lint": _playbook_lint,
+    "status": _status,
 }
 
 
