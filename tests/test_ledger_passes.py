@@ -362,4 +362,6 @@ def test_plans_and_risers_ask_for_short_names_and_a_note_for_the_reasons():
     for name in ("plans", "risers"):
         pass_ = pass_named(name)
         assert "short kind name" in pass_.instructions and "note fact" in pass_.instructions
+        assert ("the family's prefix as the note's subject (never \"question\" or \"general\")"
+                in pass_.instructions)
         assert "note" in pass_.kinds

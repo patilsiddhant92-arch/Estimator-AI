@@ -103,9 +103,19 @@ def count_note(ledger: Ledger, fact: Fact) -> str:
 
 
 def _tidy(note: str) -> str:
-    """The note without an empty or unbalanced bracket pair."""
+    """The note without an empty bracket pair or a bracket with no partner (only that bracket goes)."""
     note = re.sub(r"\s*\(\s*\)", "", note)
-    return note if note.count("(") == note.count(")") else note.replace("(", "").replace(")", "")
+    open_at, drop = [], set()
+    for i, ch in enumerate(note):
+        if ch == "(":
+            open_at.append(i)
+        elif ch == ")":
+            if open_at:
+                open_at.pop()
+            else:
+                drop.add(i)
+    drop.update(open_at)
+    return "".join(ch for i, ch in enumerate(note) if i not in drop)
 
 
 def _tags(ledger: Ledger, prefix: str) -> tuple[str, ...]:
@@ -144,7 +154,7 @@ def _alternate(ledger: Ledger, *names: str) -> str:
     return "add" if value.startswith("add") else "deduct" if value.startswith("deduct") else ""
 
 
-_PLAN_ONLY_LEAD = re.compile(r"^seen on [^:,]*,\s*not scheduled\s*:\s*", re.I)
+_PLAN_ONLY_LEAD = re.compile(r"^seen on [^:,]*?,?\s*not scheduled\s*(?::|[-–—])\s*", re.I)
 _PLAN_ONLY_WORDS = 8
 
 
@@ -156,7 +166,15 @@ def _short_name(value) -> str:
     lead = _PLAN_ONLY_LEAD.match(text)
     if not lead:
         return text
-    rest = _squash(re.sub(r"\([^()]*\)?", "", text[lead.end():]))
+    description = text[lead.end():]
+    rest, previous = description, None
+    while previous != rest:                       # balanced brackets go, innermost first
+        previous, rest = rest, re.sub(r"\([^()]*\)", "", rest)
+    rest = _squash(re.sub(r"[()]", "", rest))
+    if not rest:                                  # nothing outside the brackets: what is inside, else all of it
+        inner = re.search(r"\(([^()]*)\)", description)
+        rest = _squash(inner.group(1)) if inner else ""
+    return " ".join(rest.split()[:_PLAN_ONLY_WORDS]) or text
     return " ".join(rest.split()[:_PLAN_ONLY_WORDS])
 
 

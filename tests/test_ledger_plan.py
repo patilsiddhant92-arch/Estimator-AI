@@ -572,10 +572,43 @@ def test_a_damper_block_that_lost_dampers_to_fans_says_so():
     assert md.count_note == "*Qty. (2) not claimed by a fan; (3) per M-201, 1 of them listed under their fans."
 
 
-def test_a_count_note_never_prints_an_empty_bracket_pair():
+def test_a_count_note_never_prints_an_empty_or_unbalanced_bracket():
     ledger = Ledger({"S5": "equipment counts for VAV (schedules and plans)", "S9": ", Drawings.pdf page 3"})
-    ledger.add("family", "VAV", "Variable Air Volume Box", "[S5]", "VAV", "seed", SETTLED)
-    count = ledger.add("count", "VAV", 14, "[S5]", "QUANTITY column total 14", "seed", SETTLED)
-    ledger.contradict(count.id, 12, "[S9]", "VAV-1 thru 12", "plans")
+    ledger.add("family", "VAV", "Variable Air Volume Box", "[S9]", "VAV", "seed", SETTLED)
+    count = ledger.add("count", "VAV", 14, "[S9]", "VAV x14", "seed", SETTLED)
+    quote = ("VAV (Variable Air Volume Box): schedule rows 12; QUANTITY column total —; "
+             "plan placements 16 (M-101.00 5; M-102.00 11)")
+    ledger.contradict(count.id, 16, "[S5]", quote, "plans")
     note = count_note(ledger, ledger.facts[count.id])
+    assert note == "*Qty. (16) per plan placements 16; lists (14)."
     assert "()" not in note and note.count("(") == note.count(")")
+
+
+def test_other_count_with_no_place_never_prints_a_bare_bracket():
+    from estimator.ledger.to_plan import _other_count
+    assert _other_count(", Drawings.pdf page 3", "VAV x14", 14) == "lists (14)"
+
+
+def test_tidy_drops_empty_pairs_and_only_the_offending_bracket():
+    from estimator.ledger.to_plan import _tidy
+    assert _tidy("*Qty. (14) per ( ); lists ().") == "*Qty. (14) per; lists."
+    assert _tidy("*Qty. (14) per M-201 (sheet 3; lists 12.") == "*Qty. (14) per M-201 sheet 3; lists 12."
+    assert _tidy("*Qty. (14) per M-201) lists 12.") == "*Qty. (14) per M-201 lists 12."
+
+
+def test_a_plan_only_name_never_comes_out_empty():
+    from estimator.ledger.to_plan import _short_name
+    assert _short_name("seen on plans, not scheduled: (pump)") == "pump"
+    assert _short_name("seen on plans, not scheduled: ()") == "seen on plans, not scheduled: ()"
+    assert _short_name("seen on plans, not scheduled: (a) (b)") == "a"
+
+
+def test_the_plan_only_lead_needs_no_comma_and_takes_a_dash():
+    from estimator.ledger.to_plan import _short_name
+    assert _short_name("seen on plans not scheduled: Sump Pump") == "Sump Pump"
+    assert _short_name("seen on the risers, not scheduled - Sump Pump (drain)") == "Sump Pump"
+
+
+def test_a_nested_parenthetical_is_dropped_whole():
+    from estimator.ledger.to_plan import _short_name
+    assert _short_name("seen on plans, not scheduled: Pump (a (b) c) end") == "Pump end"

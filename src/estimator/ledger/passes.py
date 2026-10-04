@@ -65,7 +65,7 @@ PASSES: tuple[Pass, ...] = (
          "around them: sensors, thermostats, damper actuators, and the keynotes that add controls scope. Equipment "
          "on the plans that no schedule lists may only be added, with the subject \"seen on plans, not scheduled\" "
          "in its quote's words; it is flagged later. Give the family a short kind name (a few words) and put the reasons in "
-         "a note fact, not in the name. Give the count you can see, citing the sheet. When a motorized "
+         "a note fact with the family's prefix as the note's subject (never \"question\" or \"general\"), not in the name. Give the count you can see, citing the sheet. When a motorized "
          "damper sits on a fan's duct or next to a fan on the plan, record a link: subject the damper's tag or label, "
          "value the fan's tag. Note: a count's value is a whole number; put the words in the quote.",
          picture_types=("Plans",)),
@@ -81,7 +81,7 @@ PASSES: tuple[Pass, ...] = (
          "A group is one plant that one sequence controls (a chilled water plant, a VRF system), never a riser, a "
          "shaft or a drain route; its subject is a short plant name of at most five words. "
          "Equipment on a riser that neither the schedule nor the plans showed may only be added, quoting the riser; give "
-         "it a short kind name (a few words) and put the reasons in a note fact, not in the name. "
+         "it a short kind name (a few words) and put the reasons in a note fact with the family's prefix as the note's subject (never \"question\" or \"general\"), not in the name. "
          "Note: a count's value is a whole number; put the words in the quote.",
          picture_types=("Air riser", "Water riser")),
     Pass("network", "Network riser", ("provider", "link"), (), (), ("Network riser",), False,
