@@ -387,3 +387,26 @@ def test_validate_never_raises_on_front_end_variations():
         job = Job("FrontEnd Variations", systems=(), front_end=fe)
         findings = validate(job, playbook)
         assert isinstance(findings, list)
+
+
+def test_one_device_id_in_two_systems_is_a_finding_not_an_exception():
+    """A repeated device id is the 'listed more than once' finding. validate and render both return."""
+    playbook = load_playbook()
+    ref = Ref("S1", "quote", "where")
+    device = Device(
+        id="EF.d1", slot="controller", name="Fan Controller", verb="Furnish",
+        furnished_by="AME", installed_by="AME", wired_by="AME",
+        quantity=Count(1, (ref,)), refs=(ref,),
+    )
+    systems = (
+        System("EF", "Exhaust Fans", "Exhaust Fan", "field", families=(), sequence_refs=(), devices=(device,)),
+        System("RTU", "Rooftops", "Packaged ERU / RTU / AHU", "packaged", families=(), sequence_refs=(),
+               devices=(device,)),
+    )
+    job = Job("Repeated id", systems=systems, header=Header("99-9999", "Invented", "A. Engineer", ("M-1",),
+                                                             "2026-10-04"))
+    findings = validate(job, playbook)
+    assert isinstance(findings, list)
+    assert any(f.severity == "must_fix" and "more than once" in f.what and f.device_id == "EF.d1" for f in findings)
+    draft = render(job, playbook)
+    assert [line.device_id for line in draft.lines].count("EF.d1") == 2
