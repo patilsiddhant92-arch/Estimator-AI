@@ -532,6 +532,25 @@ def test_the_writer_prompts_keep_texts_short_plain_and_free_of_source_ids_and_la
         assert "no_scope_reason" in text, name
 
 
+def test_client_text_never_names_a_playbook_rule_a_finding_or_a_source_id():
+    folder = ROOT / "src" / "bms" / "prompts"
+    for name in ("write_system.md", "revise_system.md", "qc_job.md"):
+        text = (folder / name).read_text(encoding="utf-8")
+        assert "never names a Playbook rule, a rule heading, a finding id or a source id" in text, name
+        assert "the mechanical schedule" in text or name == "revise_system.md", name
+    assert "the Playbook rule that led to it" not in (folder / "write_system.md").read_text(encoding="utf-8")
+
+
+def test_an_assumption_naming_a_playbook_rule_is_refused(job, raw, dossier, playbook):
+    system = skeleton(job.system("EF"))
+    rule = next(iter(playbook.rules))
+    answer = _bad(raw, lambda a: a["devices"][0].update(
+        assumption={"what": "one per fan", "why": f"Playbook rule {rule}"}))
+    with pytest.raises(ai.NoAnswer) as refused:
+        ai.write_system(system, ai.evidence_for(system, dossier), playbook, FakeTransport(answer))
+    assert "names the Playbook" in refused.value.reason
+
+
 def test_the_qc_prompt_never_asks_for_integration_lines_on_factory_controlled_units():
     text = (ROOT / "src" / "bms" / "prompts" / "qc_job.md").read_text(encoding="utf-8")
     assert "factory controls" in text and "ECM fan is not a VFD" in text and "integration lines" in text

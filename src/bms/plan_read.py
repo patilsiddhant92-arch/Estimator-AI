@@ -231,6 +231,25 @@ class Reader:
         self._families[prefix.casefold()] = found
         return found
 
+    def seen_tags(self) -> list[tuple[str, Ref]]:
+        """The tags the ledger records as seen on the drawings but on no family's tag list: the values (and the
+        contradicting values) of each unit fact whose subject is no family's prefix ("seen on plans, not
+        scheduled"), brackets dropped, ranges expanded, each with its ref; each tag once, in ledger order."""
+        prefixes = {squash(f.subject).casefold() for f in self.family_facts()}
+        out: dict[str, tuple[str, Ref]] = {}
+        for fact in self.ledger.of_kind("unit"):
+            if squash(fact.subject).casefold() in prefixes:
+                continue
+            said = [(fact.value, fact.source_id, fact.quote)]
+            said += [(c.value, c.source_id, c.quote) for c in fact.contradictions]
+            for value, sid, quote in said:
+                text = squash(re.sub(r"\([^()]*\)", " ", str(value or "")))
+                for tag in expand([text]) if text else []:
+                    tag = squash(tag)
+                    if tag and re.search(r"[A-Za-z]", tag) and tag.upper() not in out:
+                        out[tag.upper()] = (tag, self.ref(sid, quote))
+        return list(out.values())
+
     def family_by_prefix(self, prefix: str) -> FamilyFacts | None:
         key = squash(prefix).casefold()
         fact = next((f for f in self.family_facts() if squash(f.subject).casefold() == key), None)

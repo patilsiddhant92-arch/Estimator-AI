@@ -24,10 +24,12 @@ from estimator.ledger.facts import Fact, Ledger
 from estimator.writing.dossier import Dossier
 
 from bms.model import Count, Family, FrontEnd, Job, Ref, ScopeException, System
-from bms.plan_groups import members, part_count, parts, split_apart
+from bms.plan_groups import family_of_tag, members, part_count, parts, split_apart
 from bms.plan_read import FamilyFacts, Reader, naming, names_in, squash, tag_words
 from bms.playbook import Playbook, Shape
 
+GLOBAL_POINTS = "Global Points"
+_GLOBAL_WORDS = re.compile(r"\bglobal\b|\bsystem\s+points\b|\bbuilding[\s-]*wide\b", re.I)
 SPLIT_SYSTEM = "Split System"
 VRF_SYSTEM = "VRF System"
 DUCT_HEATERS = "Duct Heaters"
@@ -174,10 +176,33 @@ class _Planner:
                 drafts.append(rest)
         return drafts
 
+    def specific_name(self, family: FamilyFacts) -> str:
+        """The family's name; for a generic kind ("Fan", "Unit", "Equipment") the best specific words the ledger
+        holds: its sequence section's title, else the place its tags are on, cut to at most six words with no tag
+        text, in Title Case, the kind word added when the words lack it. The kind alone when nothing specific."""
+        kind = squash(family.name)
+        if kind.casefold() not in _GENERIC_KINDS:
+            return family.name
+        kind_word = _singular(kind.split()[-1]).casefold()
+        for match in self.reader.matches(family.prefix):
+            words = _specific_words(match.subject, family, cut_place=False)
+            if words:
+                return _with_kind(words, kind, kind_word)
+        own = {t.casefold() for t in family.tags} | {family.prefix.casefold()}
+        for fact in self.ledger.of_kind("location"):
+            named = [t for t in re.findall(r"[A-Za-z]{1,6}-[A-Za-z0-9.\-]+", squash(fact.subject))]
+            if not named or not all(t.casefold() in own or _lead(t) == family.prefix.upper() for t in named):
+                continue
+            words = _specific_words(fact.value, family, cut_place=True)
+            if words:
+                return _with_kind(words, kind, kind_word)
+        return family.name
+
     def _single(self, family: FamilyFacts) -> _Draft:
         reader = self.reader
-        return _Draft(key=family.prefix, name=family.name, kind="single",
-                      families=[_Fam(family.name, family.tags, family.count, family)], prefixes=[family.prefix],
+        name = self.specific_name(family)
+        return _Draft(key=family.prefix, name=name, kind="single",
+                      families=[_Fam(name, family.tags, family.count, family)], prefixes=[family.prefix],
                       matches=reader.matches(family.prefix), alternate=reader.alternate(family.prefix),
                       exception=reader.exception(family.prefix))
 
@@ -427,6 +452,8 @@ class _Planner:
             shape = self._shape_by_kind("vrf") or self.playbook.shape_for(VRF_SYSTEM, draft.prefixes)
         elif draft.kind == "heaters":
             shape = self._shape_by_kind("duct heater") or self.playbook.shape_for(draft.name, draft.prefixes)
+        elif draft.kind == "global":
+            shape = self._shape_by_kind("global")
         else:
             shape = self.playbook.shape_for(draft.name, draft.prefixes)
         families = draft.families
@@ -480,7 +507,9 @@ class _Planner:
     def _control(self, draft: _Draft, vrf: bool) -> str:
         """packaged when a provider fact about the system says the unit maker or the factory controls it;
         integration when one says the BMS integrates it (or the system is a VRF group and none says otherwise);
-        none when one says no controls are in the contract; else field."""
+        none when one says no controls are in the contract; else field. Global points are integration."""
+        if draft.kind == "global":
+            return "integration"
         names = draft.names()
         found = [squash(f.value) for f in self.ledger.of_kind("provider") if names_in(names, f.subject)]
         if any(_MAKER.search(v) and not _NOT_MAKER.search(v) for v in found):
@@ -490,6 +519,84 @@ class _Planner:
         if any(_NO_CONTROLS.search(v) for v in found):
             return "none"
         return "integration" if vrf else "field"
+
+    # -- step 4b: units seen on the drawings but on no schedule join their family's system
+
+    def place_seen(self, drafts: list[_Draft]) -> None:
+        """Each tag the ledger records as seen on the drawings but on no family's tag list, and in no system yet,
+        joins the system holding its family (the family whose prefix it starts with; the system holding the
+        family's rest before a group's part), as a part of that family counted one per tag from the drawings; it
+        asks for confirmation where it lands. Tags no family owns are asked, never dropped."""
+        held = {t.upper() for d in drafts for t in d.tags()}
+        found: dict[tuple[int, str], list[tuple[str, Ref]]] = {}
+        owners: dict[str, FamilyFacts] = {}
+        orphans: list[tuple[str, Ref]] = []
+        for tag, ref in self.reader.seen_tags():
+            if tag.upper() in held:
+                continue
+            family = family_of_tag(self.reader, tag)
+            draft = self._holding(drafts, family) if family is not None else None
+            if draft is None:
+                orphans.append((tag, ref))
+                continue
+            owners[family.prefix] = family
+            found.setdefault((id(draft), family.prefix), []).append((tag, ref))
+            held.add(tag.upper())
+        for draft in drafts:
+            for (key, prefix), seen in found.items():
+                if key != id(draft):
+                    continue
+                family = owners[prefix]
+                tags = tuple(t for t, _ in seen)
+                count = Count(len(tags), tuple(dict.fromkeys(r for _, r in seen)))
+                draft.families.append(_Fam(self.specific_name(family), tags, count,
+                                           replace(family, plan_only=True, sequence_only=False)))
+        if orphans:
+            sheets = list(dict.fromkeys(r.where.split(",")[0].strip() for _, r in orphans if r.where))
+            self.questions.append(
+                f"Equipment tagged {', '.join(t for t, _ in orphans)} is seen on the drawings but on no schedule, "
+                f"and no scheduled family has its prefix; which system is it in, and is it in the BMS scope? "
+                f"See {', '.join(sheets) or 'the plans'}.")
+
+    @staticmethod
+    def _holding(drafts: list[_Draft], family: FamilyFacts) -> _Draft | None:
+        holding = [d for d in drafts for f in d.families
+                   if f.source is not None and f.source.prefix == family.prefix and not f.moved]
+        return next((d for d in holding if d.kind != "group"), holding[0] if holding else None)
+
+    # -- the invariant: nothing the ledger holds is dropped
+
+    def lost(self, drafts: list[_Draft]) -> None:
+        """Every family of the ledger and every tag it lists ends up in a system or in a question: whatever the
+        steps above left in neither is asked here, by family, with its tags."""
+        present = {t.upper() for d in drafts for t in d.tags()}
+        sources = {f.source.prefix.casefold() for d in drafts for f in d.families if f.source is not None}
+        asked = " ".join(self.questions)
+        for fact in self.reader.family_facts():
+            family = self.reader.family(fact)
+            missing = [t for t in family.tags if t.upper() not in present and not naming(t).search(asked)]
+            if family.tags and not missing:
+                continue
+            if not family.tags and family.prefix.casefold() in sources:
+                continue
+            what = ", ".join(missing) if missing else family.prefix
+            self.questions.append(f"{family.name} ({what}) is in the documents but in no block of this plan; "
+                                  "which system is it in?")
+
+    # -- step 6: global points
+
+    def global_points(self, drafts: list[_Draft]) -> list[_Draft]:
+        """A sequence section no system took whose title says it lists points for the whole job (global points,
+        system points, building-wide points) is one "Global Points" system: that section its sequence, control
+        integration, one set for the job."""
+        used = {m.id for d in drafts for m in d.matches}
+        found = [f for f in self.ledger.of_kind("sequence_match")
+                 if f.id not in used and _GLOBAL_WORDS.search(squash(f.subject))]
+        if not found:
+            return []
+        refs = tuple(dict.fromkeys(self.reader.fact_ref(f) for f in found))
+        return [_Draft(key=GLOBAL_POINTS, name=GLOBAL_POINTS, kind="global",
+                       families=[_Fam(GLOBAL_POINTS, (), Count(1, refs[:1]))], prefixes=[], matches=found)]
 
     # -- the questions each family raises where it lands
 
@@ -506,6 +613,46 @@ class _Planner:
                 elif source.sequence_only and fam.count.value is None:
                     self.questions.append(f"{label} is named in the sequence of operation but no drawing or schedule "
                                           f"shows it; how many are there? The {system.name} block reads Qty (##).")
+
+
+_GENERIC_KINDS = frozenset({"fan", "fans", "equipment", "unit", "units", "pump", "pumps", "heater", "heaters",
+                            "damper", "dampers", "device", "devices", "motor", "motors", "system", "systems"})
+_ENUMERATOR = re.compile(r"^\s*(?:[A-Za-z]|\d+(?:\.\d+)*|[ivxIVX]+)[.)]\s+")
+_JOINT = re.compile(r"\s+(?:and|with|for|&|including)\s+|[,:;(/]", re.I)
+_LEVEL = re.compile(r"\b(?:level|floor|lvl)\s+\w+\b|\b(?:typ\.?|typical)\b", re.I)
+_SPECIFIC_WORDS = 6
+
+
+def _singular(word: str) -> str:
+    low = word.casefold()
+    return word[:-1] if low.endswith("s") and not low.endswith("ss") and len(word) > 3 else word
+
+
+def _title(word: str) -> str:
+    return word if word.isupper() and len(word) <= 4 else word[:1].upper() + word[1:].lower()
+
+
+def _specific_words(text, family: FamilyFacts, cut_place: bool) -> list[str]:
+    """A title or a place in at most six words: no enumerator, cut at its first joint ("and", "with", a comma),
+    no tag text, no level words for a place, the last word singular; [] when nothing is left."""
+    text = _ENUMERATOR.sub("", squash(text))
+    text = _JOINT.split(text, maxsplit=1)[0]
+    if cut_place:
+        text = _LEVEL.sub(" ", text)
+    tags = {t.casefold() for t in family.tags} | {family.prefix.casefold()}
+    words = [w for w in text.split() if w.casefold() not in tags and not re.search(r"\d", w)]
+    words = words[:_SPECIFIC_WORDS]
+    if not words:
+        return []
+    words[-1] = _singular(words[-1])
+    return [_title(w) for w in words]
+
+
+def _with_kind(words: list[str], kind: str, kind_word: str) -> str:
+    """The words with the kind's last word added when they do not say it (at most six words in all)."""
+    if kind_word not in {w.casefold() for w in words}:
+        words = words[:_SPECIFIC_WORDS - 1] + [_title(_singular(kind.split()[-1]))]
+    return " ".join(words)
 
 
 def _group_name(reader: Reader, group: Fact) -> str:
@@ -559,13 +706,19 @@ def _unmatched_sections(planner: _Planner, drafts: list[_Draft]) -> list[str]:
     sections: dict[str, list[Fact]] = {}
     for fact in planner.ledger.of_kind("sequence_match"):
         sections.setdefault(squash(fact.subject).casefold(), []).append(fact)
-    asks = []
+    asks, general = [], []
     for facts in sections.values():
         if any(f.id in used for f in facts):
             continue
         named = [squash(f.value) for f in facts if squash(f.value)]
-        it = f" (it named {', '.join(dict.fromkeys(named))})" if named else ""
-        asks.append(f"Sequence section {squash(facts[0].subject)} matched no system{it}; which system is it?")
+        if not named:
+            general.append(squash(facts[0].subject))
+            continue
+        asks.append(f"Sequence section {squash(facts[0].subject)} matched no system (it named "
+                    f"{', '.join(dict.fromkeys(named))}); which system is it?")
+    if general:
+        asks.append("These sequence sections describe no equipment of their own, so no block was written for them: "
+                    f"{'; '.join(general)}. Confirm none of them needs a block of its own.")
     return asks
 
 
@@ -594,10 +747,13 @@ def plan_job(ledger: Ledger, catalogue: Catalogue, dossier: Dossier, playbook: P
     drafts = planner.gather_splits(drafts)
     drafts = planner.gather_heaters(drafts)
     drafts = planner.link_dampers(drafts)
+    planner.place_seen(drafts)
     planner.heater_sequences(drafts)
+    drafts += planner.global_points(drafts)
     keys: set[str] = set()
     systems = [planner.system(d, keys) for d in drafts]
     planner.family_questions(systems, drafts)
+    planner.lost(drafts)
     front_end = _front_end(planner)
     questions = own + planner.questions + _unmatched_sections(planner, drafts)
     name = ledger.job_name or getattr(dossier, "job_name", "") or ""

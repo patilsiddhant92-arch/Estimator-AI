@@ -220,9 +220,115 @@ def test_a_sequence_section_that_matched_no_system_is_asked():
     ledger.add("sequence_match", "EXHAUST FANS", "EF", "Q1", "EXHAUST FANS", "sequence", SETTLED)
     ledger.add("sequence_match", "HEATING PLANT", "", "Q2", "HEATING PLANT", "seed")
     ledger.add("sequence_match", "ROOFTOP UNITS", "RTU", "Q5", "ROOFTOP UNITS", "sequence", SETTLED)
+    ledger.add("sequence_match", "B. BACnet object list", "", "Q3", "B. BACnet object list", "seed")
     job = _plan(ledger)
-    assert job.questions == ("Sequence section HEATING PLANT matched no system; which system is it?",
-                             "Sequence section ROOFTOP UNITS matched no system (it named RTU); which system is it?")
+    assert job.questions == (
+        "Sequence section ROOFTOP UNITS matched no system (it named RTU); which system is it?",
+        "These sequence sections describe no equipment of their own, so no block was written for them: "
+        "HEATING PLANT; B. BACnet object list. Confirm none of them needs a block of its own.")
+
+
+def test_a_global_points_section_becomes_a_global_points_system():
+    ledger = _ledger()
+    _family(ledger, "EF", "Exhaust Fan", "EF-1", 1)
+    ledger.add("sequence_match", "EXHAUST FANS", "EF", "Q1", "EXHAUST FANS", "sequence", SETTLED)
+    ledger.add("sequence_match", "1.2 Global system points", "", "Q2", "1.2 Global system points", "seed")
+    ledger.add("sequence_match", "A. General", "", "Q3", "A. General", "seed")
+    job = _plan(ledger)
+    ef, points = job.systems
+    assert (points.key, points.name, points.control) == ("Global Points", "Global Points", "integration")
+    assert points.sequence_refs == (Ref("Q2", "1.2 Global system points",
+                                        "sequence section “HEATING PLANT”, Specs.pdf page 41"),)
+    (family,) = points.families
+    assert family.name == "Global Points" and family.count.value == 1
+    assert not any("Global" in q for q in job.questions)
+    assert job.questions == ("These sequence sections describe no equipment of their own, so no block was written "
+                             "for them: A. General. Confirm none of them needs a block of its own.",)
+
+
+# ---- nothing is ever dropped ------------------------------------------------------------------------------------------
+
+def _tags_in(job: Job) -> set[str]:
+    return {t.upper() for s in job.systems for f in s.families for t in f.tags}
+
+
+def test_plan_only_units_of_a_split_family_and_a_vrf_group_lose_no_tag():
+    ledger = _vrf()
+    # the plans pass records units seen on the plans but on no schedule, as one unit fact and its contradictions
+    seen = ledger.add("unit", "seen on plans, not scheduled", "CU-ELEC-R", "S2", "CU-ELEC-R", "plans")
+    ledger.contradict(seen.id, "AC-ELEC-R", "S5", "AC-ELEC-R ELEC ROOM", "plans")
+    ledger.contradict(seen.id, "CU-LAUNDRY", "S2", "CU-LAUNDRY", "plans")
+    ledger.contradict(seen.id, "ZZ-1, ZZ-2 (circled tags at the shaft)", "S2", "ZZ-1 ZZ-2", "plans")
+    job = _plan(ledger)
+    every = ["CU-1", "CU-2", "CU-3", "CU-4", "CU-5", "CU-6", "BS-1", "AC-1", "AC-2", "AC-9",
+             "CU-ELEC-R", "AC-ELEC-R", "CU-LAUNDRY"]
+    assert set(every) <= _tags_in(job)
+    split = _by_key(job)["Split System"]
+    seen_cu = [f for f in split.families if "CU-ELEC-R" in f.tags]
+    assert seen_cu and seen_cu[0].tags == ("CU-ELEC-R", "CU-LAUNDRY") and seen_cu[0].count.value == 2
+    assert any("CU-ELEC-R" in q and "no schedule" in q for q in job.questions)
+    assert any("ZZ-1" in q and "ZZ-2" in q for q in job.questions)          # no family owns them: asked, not lost
+
+
+def test_every_family_and_tag_of_the_ledger_is_in_a_system_or_a_question():
+    ledger = _vrf()
+    _family(ledger, "MD", "Motorized Damper", "MD-1, MD-2", 2)
+    _family(ledger, "EF", "Exhaust Fan", "EF-1", 1)
+    ledger.add("link", "MD (roof)", "EF-1", "S2", "MD EF-1", "plans", SETTLED)
+    ledger.add("link", "MD (shaft)", "EF-1", "S2", "MD EF-1 shaft", "plans", SETTLED)
+    job = _plan(ledger)
+    text = " ".join(job.questions)
+    for fact in ledger.of_kind("unit"):
+        from bms.plan_read import expand
+        for tag in expand([fact.value]):
+            assert tag.upper() in _tags_in(job) or tag in text, tag
+
+
+def test_an_emergency_generator_on_the_plans_and_in_the_sequence_is_one_system():
+    ledger = _ledger()
+    ledger.add("family", "GEN", "seen on plans, not scheduled: Emergency Generator (roof)", "S2", "GEN-1", "plans")
+    ledger.add("unit", "GEN", "GEN-1", "S2", "GEN-1", "plans")
+    ledger.add("family", "GEN", "Emergency generator", "Q2", "the emergency generator shall", "sequence")
+    ledger.add("sequence_match", "A. Emergency generator", "GEN", "Q2", "A. Emergency generator", "sequence",
+               SETTLED)
+    job = _plan(ledger)
+    (gen,) = job.systems
+    assert gen.families[0].tags == ("GEN-1",) and len(gen.sequence_refs) == 1
+
+
+# ---- specific names for generic kinds ---------------------------------------------------------------------------------
+
+def test_a_generic_fan_takes_its_sequence_sections_words():
+    ledger = _ledger()
+    _family(ledger, "RXF", "Fan", "RXF-R-1", 1)
+    ledger.add("sequence_match", "F. Refuse room exhaust fans", "RXF", "Q1", "F. Refuse room exhaust fans",
+               "sequence", SETTLED)
+    (rxf,) = _plan(ledger).systems
+    assert rxf.name == "Refuse Room Exhaust Fan" and rxf.families[0].name == "Refuse Room Exhaust Fan"
+
+
+def test_a_long_section_title_is_cut_at_its_first_joint_and_to_six_words():
+    ledger = _ledger()
+    _family(ledger, "GXF", "Fan", "GXF-C-1", 1)
+    ledger.add("sequence_match", "I. Parking Garage Fans and Associated CO Control System", "GXF", "Q1", "I.",
+               "sequence", SETTLED)
+    assert _plan(ledger).systems[0].name == "Parking Garage Fan"
+
+
+def test_a_generic_fan_with_no_section_takes_its_location():
+    ledger = _ledger()
+    _family(ledger, "GCF", "Fan", "GCF-A", 1)
+    ledger.add("location", "GCF-A", "cellar parking garage (M-100)", "S2", "GARAGE DUCT UP GCF-A", "plans", SETTLED)
+    assert _plan(ledger).systems[0].name == "Cellar Parking Garage Fan"
+
+
+def test_a_generic_kind_with_nothing_specific_keeps_its_kind_and_a_specific_kind_is_kept():
+    ledger = _ledger()
+    _family(ledger, "ZF", "Fan", "ZF-1", 1)
+    _family(ledger, "EF", "Exhaust Fan", "EF-1", 1)
+    ledger.add("sequence_match", "HEATING PLANT", "EF", "Q2", "HEATING PLANT", "sequence", SETTLED)
+    zf, ef = _plan(ledger).systems
+    assert zf.name == "Fan" and ef.name == "Exhaust Fan"
 
 
 # ---- groups ---------------------------------------------------------------------------------------------------

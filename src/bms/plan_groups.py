@@ -20,7 +20,7 @@ _TAG_TIMES = re.compile(r"(?<![A-Za-z0-9])([A-Za-z]{1,6}(?:-[A-Za-z0-9.]+)+)(?:\
 Claim = tuple[Fact, "tuple[str, ...] | None"]       # (the group, the tags it takes, None for the whole family)
 
 
-def _family_of_tag(reader: Reader, tag: str) -> FamilyFacts | None:
+def family_of_tag(reader: Reader, tag: str) -> FamilyFacts | None:
     """The family a bare tag belongs to ("WAC-1.0" is WAC's): the longest prefix it starts with, then a dash."""
     key = tag.casefold()
     owners = [f for f in reader.family_facts()
@@ -42,7 +42,7 @@ def members(reader: Reader, group: Fact) -> list[tuple[FamilyFacts, tuple[str, .
         family = reader.family_by_prefix(head) if head else None
         tags = expand([_TIMES.sub("", t).strip() for t in listed.split(",") if t.strip()]) if listed else []
         if family is None and head and not listed:
-            family = _family_of_tag(reader, head)
+            family = family_of_tag(reader, head)
             tags = expand([head]) or [head]
         if family is None:
             continue

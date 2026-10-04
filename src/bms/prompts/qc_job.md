@@ -11,7 +11,7 @@ Check every device and every count:
 - What is missing: a device or a count the cited sources call for that no line carries.
 - A unit on its own factory controls is not a field-controlled unit: never ask a writer to add or repeat integration lines, VFD lines or speed control lines on it (an ECM fan is not a VFD). Ask for an integration line only when a cited source calls for the BMS to integrate that unit.
 - A block with no devices is right when its no_scope_reason says why and the sources agree; do not ask for lines the sources do not call for.
-- Texts: an assumption or a clarification that names a source id ("S141") instead of the document in words, starts with a label ("Confirm", "Assumed:", "Quantity per"), or runs long (an assumption over about 25 words, a clarification over about 40) is a "check" finding.
+- Texts: client text (assumption what and why, clarification text, no_scope_reason) never names a Playbook rule, a rule heading, a finding id or a source id; it names the document in a few plain words ("the mechanical schedule", "the sequence of operations", "sheet M-101.00"). Your own fix texts follow the same rule when they tell the writer what to write. An assumption or a clarification that names a source id ("S141"), a Playbook rule or a rule heading instead of the document in words, starts with a label ("Confirm", "Assumed:", "Quantity"), or runs long (an assumption over about 25 words, a clarification over about 40) is a "check" finding.
 
 Each finding names:
 - rule: the name of the Playbook rule it is about, exactly as listed;

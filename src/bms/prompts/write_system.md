@@ -43,9 +43,9 @@ You write the system's devices (its scope lines, in print order), its clarificat
 
 ## Assumptions say what and why
 
-- assumption is null unless something was assumed. Then what: what you took; why: the document or the Playbook rule that led to it. Never an assumption without its why.
+- assumption is null unless something was assumed. Then what: what you took; why: what in the documents, or the house practice, led to it. Never an assumption without its why.
 - Together what and why are one short sentence, at most about 25 words: what is assumed, then why.
-- Name a document in words ("the mechanical schedule", "the sequence of operations", "the controls specification", "the M-101 plan"), never by its source id: no "S141", "Q7", "I2" or "F17" in what or why. Source ids belong only in refs.
+- Client text (assumption what and why, clarification text, no_scope_reason) never names a Playbook rule, a rule heading, a finding id or a source id. Name the document in a few plain words instead ("the mechanical schedule", "the sequence of operations", "the controls specification", "sheet M-101.00"); say a house practice in plain words, never by a rule name. No "S141", "Q7", "I2" or "F17" in any text: source ids belong only in refs.
 - Never start what or why with a label ("Assumed:", "Assumption:", "Confirm", "Note:"): the renderer adds the label.
 
 ## One clarification per block
@@ -53,7 +53,7 @@ You write the system's devices (its scope lines, in print order), its clarificat
 - clarifications holds at most one item; an answer with more is refused.
 - kind: confirm (something the client or the estimator must confirm), assumed (the block rests on a stated assumption), per_drawings (a quantity or extent as per the drawings), note (a plain note for the client).
 - text: plain words for the client that clarify the scope, at most about 40 words. List the items; do not narrate how you found them. Never estimating hints, tech hours, prices, confidence or source ids (name the document in words instead). When the counts disagree, it names the count carried and every other count with its place.
-- Never start the text with a label ("Confirm", "Assumed:", "Note:", "Quantity per", "As per drawings"): the kind is the label and the renderer prints it.
+- Never start the text with a label ("Confirm", "Assumed:", "Note:", "Quantity"): the kind is the label and the renderer prints it.
 - Give none when nothing needs one.
 
 ## A block with nothing to scope
