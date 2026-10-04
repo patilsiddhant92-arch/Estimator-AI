@@ -30,6 +30,9 @@ RULE = {
     "slot": "Lines follow the block's shape",
 }
 
+# Names that the sample Playbook has no heading for yet; integration adds a heading or renames each.
+RULES_NEEDING_A_HEADING = ("unknown", "owner", "once", "sequence", "slot")
+
 # a checker yields (device_id | None, severity, what, fix) for one system
 Hit = tuple["str | None", str, str, str]
 
@@ -42,9 +45,22 @@ def _words(system: System) -> str:
     return " ".join([system.shape, *(f.name for f in system.families)]).lower()
 
 
+# System kind is read from the shape and family names, because the model has no typed kind field. Limits: a name
+# that merely contains the word counts; "fan coil" and "fan powered" are excluded from fans by hand. A Playbook
+# shape attribute for the kind would replace these guesses.
+_NOT_A_FAN = ("fan coil", "fan powered", "fan-powered")
+
+
 def _is_fan_system(system: System) -> bool:
     names = [system.shape, *(f.name for f in system.families)]
-    return any(re.search(r"\bfan\b", n.lower()) and "fan coil" not in n.lower() for n in names)
+    return any(re.search(r"\bfan\b", n.lower()) and not any(x in n.lower() for x in _NOT_A_FAN) for n in names)
+
+
+def _is_damper_block(system: System) -> bool:
+    """A block that is only dampers: named for them, or every line of it a damper."""
+    if "damper" in _words(system):
+        return True
+    return bool(system.devices) and all(_is_damper(d) for d in system.devices)
 
 
 def _is_heater_system(system: System) -> bool:
@@ -129,12 +145,16 @@ def _loose(system, shape, job, playbook) -> Iterator[Hit]:
 
 
 def _dampers(system, shape, job, playbook) -> Iterator[Hit]:
-    if _is_fan_system(system) or not any(_is_fan_system(s) for s in job.systems):
+    """The model carries no link from a damper to a fan, so a damper is only a must_fix when its block is a
+    stand-alone damper block; in a block with equipment of its own it is a check (a packaged unit's own
+    economizer or mixing damper is left alone)."""
+    if _is_fan_system(system) or system.control == "packaged" or not any(_is_fan_system(s) for s in job.systems):
         return
+    severity = "must_fix" if _is_damper_block(system) else "check"
     for d in system.devices:
         if _is_damper(d):
-            yield (d.id, "must_fix", f"{d.name} is a damper in a block with no fan, while the job has a fan block",
-                   "Move the damper under the fan it serves.")
+            yield (d.id, severity, f"{d.name} is a damper in a block with no fan, while the job has a fan block",
+                   "If it serves a fan, move it under that fan; if it belongs to this equipment, leave it.")
 
 
 def _heaters(system, shape, job, playbook) -> Iterator[Hit]:

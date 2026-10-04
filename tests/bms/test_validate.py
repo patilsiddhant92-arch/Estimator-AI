@@ -9,7 +9,7 @@ import pytest
 
 from bms.model import Assumption, Clarification, Count, Device, Family, Job, OtherCount, Ref
 from bms.playbook import load_playbook
-from bms.validate import RULE, validate
+from bms.validate import RULE, RULES_NEEDING_A_HEADING, validate
 
 FIX = Path(__file__).resolve().parent / "fixtures"
 PB = load_playbook(FIX / "sample_playbook")
@@ -41,6 +41,11 @@ def test_the_sample_job_is_clean(job):
 def test_rule_names_of_the_sample_playbook():
     for name in ("cites", "higher", "one_note", "assumption", "packaged", "loose", "damper", "heater", "vrf"):
         assert RULE[name] in PB.rules
+
+
+def test_rule_names_without_a_playbook_heading_are_listed():
+    missing = {k for k, v in RULE.items() if v not in PB.rules}
+    assert missing == set(RULES_NEEDING_A_HEADING)
 
 
 def test_packaged_internal_device_and_trio_twice(job):
@@ -75,7 +80,29 @@ def test_damper_in_a_system_without_a_fan(job):
     d = Device("DH.d9", "damper_actuator", "Damper Actuator", "Furnish and Install", "AME", "AME", "AME",
                Count(1), (REF,))
     j = edit(job, "DH", devices=job.system("DH").devices + (d,))
-    assert ("Dampers under their fan", "DH", "DH.d9", "must_fix") in rules(validate(j, PB))
+    assert ("Dampers under their fan", "DH", "DH.d9", "check") in rules(validate(j, PB))
+
+
+def test_a_stand_alone_damper_block_is_must_fix(job):
+    d = Device("DM.d1", "damper_actuator", "Damper Actuator", "Furnish and Install", "AME", "AME", "AME",
+               Count(1), (REF,))
+    dm = dc.replace(job.system("DH"), key="DM", name="Dampers", shape="Damper Block", devices=(d,))
+    j = dc.replace(job, systems=job.systems + (dm,))
+    assert ("Dampers under their fan", "DM", "DM.d1", "must_fix") in rules(validate(j, PB))
+
+
+def test_an_rtu_with_its_own_damper_and_a_fan_system_stays_clean(job):
+    d = Device("RTU.d9", "economizer_damper", "Economizer Damper", "Furnish and Install", "AME", "AME", "AME",
+               Count(1), (REF,))
+    j = edit(job, "RTU", devices=job.system("RTU").devices + (d,))
+    assert rules(validate(j, PB), "Dampers under their fan") == []
+
+
+def test_an_air_handler_with_a_damper_is_only_a_check(job):
+    d = Device("DH.d9", "mixing_damper", "Mixing Damper", "Furnish and Install", "AME", "AME", "AME",
+               Count(1), (REF,))
+    j = edit(job, "DH", devices=job.system("DH").devices + (d,))
+    assert all(f[3] == "check" for f in rules(validate(j, PB), "Dampers under their fan"))
 
 
 def test_damper_with_no_fan_system_anywhere_is_left_alone(job):
