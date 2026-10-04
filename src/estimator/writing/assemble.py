@@ -100,8 +100,8 @@ def _stem(tag: str) -> str:
 
 
 def expand_tags(tags) -> list[str]:
-    """Every tag, one by one: "VAV-101 thru VAV-112, VAV-114", "RTU-1 thru 3", "AHU-1, 2, 3" or a
-    tuple of such pieces."""
+    """Every tag, one by one: "VAV-101 thru VAV-112, VAV-114", "RTU-1 thru 3", "AHU-1, 2, 3", "SPXF-A, B, C"
+    or a tuple of such pieces."""
     items = [tags] if isinstance(tags, str) else list(tags or ())
     out: list[str] = []
     stem = head = ""
@@ -113,6 +113,8 @@ def expand_tags(tags) -> list[str]:
             first, last = (m.group(1).strip(), m.group(2).strip()) if m else (part, None)
             if stem and re.fullmatch(r"\d+[A-Za-z]?", first):
                 first = stem + first
+            elif stem and re.fullmatch(r"[A-Za-z]{1,2}", first) and re.search(r"-[A-Za-z]{1,2}$", head):
+                first = stem + first                                       # "SPXF-A, B, C": SPXF-B, SPXF-C
             elif head and re.fullmatch(r"\d+(?:\.\d+)?(?:-\d+(?:\.\d+)?)*[A-Za-z]?", first):
                 segments, previous = first.split("-"), head.split("-")    # "EDH-1-2, 1-3": EDH-1-3
                 if len(previous) > len(segments):                          # "ERV-C-1, 1-1": ERV-1-1

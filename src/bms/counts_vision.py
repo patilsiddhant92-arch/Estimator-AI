@@ -19,6 +19,12 @@ COUNT_KIND = "count_tags"   # the request kind of a sheet's count question (chat
 INSTRUCTIONS = """You count equipment tags on a mechanical or controls drawing sheet. The sheet comes as overlapping
 tiles, each its own picture, in the order listed in the prompt with each tile's place on the whole sheet.
 
+You must open and examine EVERY TILE picture listed, one by one, at full size, and look through each of them for
+every pattern. Do not count from a whole-sheet or reduced picture, and do not skip a tile because it looks empty or
+because another picture seems to show the same area: small tags are only readable in the tiles. For each pattern,
+"tiles_examined" lists the number of every tile you opened and examined for it; it must hold every tile number
+from 1 to the last tile. An answer whose tiles_examined leaves out a tile is refused and asked again.
+
 A tag is the short code that names one piece of equipment where it is drawn on the plan: EF-1, RTU-2, VAV-3-01, often
 inside a bubble, hexagon or box, or at the end of a leader line. You are given one or more Python regular expressions,
 one per family of equipment; for each of them, report every tag on the sheet whose text fully matches it.
@@ -31,8 +37,9 @@ neighbour); a tag whole in two overlapping tiles is one place, boxed once. Leave
 marks, room numbers, and words in the notes, legends and title block. Do not guess: a tag you cannot read with
 confidence is left out. An empty list of tags is a correct answer for a pattern the sheet does not show."""
 
-STEP = ("Answer with JSON only, in the schema given: {\"patterns\": [{\"pattern\", \"tags\": [{\"text\", "
-        "\"count\", \"boxes\": [{\"tile\", \"x\", \"y\", \"width\", \"height\"}]}]}]}, one entry per pattern asked.")
+STEP = ("Answer with JSON only, in the schema given: {\"patterns\": [{\"pattern\", \"tiles_examined\", \"tags\": "
+        "[{\"text\", \"count\", \"boxes\": [{\"tile\", \"x\", \"y\", \"width\", \"height\"}]}]}]}, one entry per "
+        "pattern asked, each with every tile number in tiles_examined.")
 
 _BOX = {
     "type": "object",
@@ -57,6 +64,12 @@ SCHEMA = {
                 "type": "object",
                 "properties": {
                     "pattern": {"type": "string", "description": "The pattern as given in the prompt."},
+                    "tiles_examined": {
+                        "type": "array",
+                        "description": "The number of every tile picture opened and examined for this pattern "
+                                       "(1 for the first picture); it must cover every tile sent.",
+                        "items": {"type": "integer"},
+                    },
                     "tags": {
                         "type": "array",
                         "description": "Every different tag on the sheet that fully matches the pattern.",
@@ -74,7 +87,7 @@ SCHEMA = {
                         },
                     },
                 },
-                "required": ["pattern", "tags"],
+                "required": ["pattern", "tiles_examined", "tags"],
                 "additionalProperties": False,
             },
         },
@@ -125,7 +138,27 @@ def prompt(picture: Path, size: tuple[int, int], rects: list[tuple[int, int, int
     lines += [f"Pattern {n}: {pattern}" for n, pattern in enumerate(patterns, start=1)]
     lines.append("For each tag give its text, how many places show it, and a box per place: the tile number and the "
                  "box in that tile's pixels.")
+    every = ", ".join(str(n) for n in range(1, len(rects) + 1))
+    lines.append(f"Open and examine all {len(rects)} tiles (tile {every}), each at full size, for every pattern; "
+                 f"each pattern's tiles_examined must list every one of them ({every}), or the answer is refused "
+                 "and asked again.")
     return "\n".join(lines)
+
+
+def unexamined(answer: dict, tiles: int) -> list[str]:
+    """The answer's problems with the tiles it examined: one per pattern whose tiles_examined leaves out a tile of
+    the `tiles` sent (an empty list when every pattern's answer covers every tile)."""
+    problems = []
+    for entry in answer.get("patterns", ()) if isinstance(answer, dict) else ():
+        if not isinstance(entry, dict):
+            continue
+        seen = {n for n in entry.get("tiles_examined") or () if isinstance(n, int)}
+        missing = [n for n in range(1, tiles + 1) if n not in seen]
+        if missing:
+            which = f"tile {missing[0]}" if len(missing) == 1 else "tiles " + ", ".join(map(str, missing))
+            problems.append(f"pattern {entry.get('pattern', '?')}: {which} not examined (tiles_examined must list "
+                            f"every tile from 1 to {tiles}; open and examine each tile picture)")
+    return problems
 
 
 def read_answer(answer: dict, rects: list[tuple[int, int, int, int]]
@@ -169,9 +202,11 @@ def ask_sheet(transport, picture: Path, patterns: list[str], name: str = ""
     """The sheet's one count question: every tile of the picture as its own image, every pattern asked together;
     (the found tags (of every pattern) in the whole picture's pixels, the patterns the answer has an entry for), or
     None when there is no usable answer (waiting for the chat, a transport failure, an answer that breaks the
-    schema). A pattern the answer leaves out is not counted: it is not among the listed patterns. Never raises for a bad pattern list
-    (a pattern that is no regular expression gives None)."""
-    from bms.ai import NoAnswer
+    schema, an answer whose tiles_examined leaves out a tile). A pattern the answer leaves out is not counted: it is
+    not among the listed patterns. An answer that breaks the schema or did not examine every tile is refused through
+    the transport's `refuse` (the chat asks again on a later run, the API once more now, with the reason). Never
+    raises for a bad pattern list (a pattern that is no regular expression gives None)."""
+    from bms.ai import NoAnswer, _ask_checked
 
     patterns = list(dict.fromkeys(patterns))
     if not patterns:
@@ -180,12 +215,22 @@ def ask_sheet(transport, picture: Path, patterns: list[str], name: str = ""
         re.compile(pattern)
     size, tiles = cut_tiles(picture)
     rects = [rect for rect, _ in tiles]
+
+    def check(answer):
+        if not isinstance(answer, dict):
+            return None, ["the answer is not a JSON object"]
+        problems = schema_errors(answer, SCHEMA) or unexamined(answer, len(rects))
+        if problems:
+            return None, problems
+        found = read_answer(answer, rects)
+        return (None, ["the answer breaks the schema"]) if found is None else ((found, answered(answer, patterns)), [])
+
     try:
-        answer = transport.ask(COUNT_KIND, name or f"Count tags {picture.stem}", INSTRUCTIONS, STEP,
-                               prompt(picture, size, rects, patterns), SCHEMA,
-                               extra={"step": "count", "picture": str(picture), "tiles": [list(r) for r in rects],
-                                      "patterns": patterns},
-                               images=tuple(path for _, path in tiles))
+        return _ask_checked(transport, COUNT_KIND, name or f"Count tags {picture.stem}", INSTRUCTIONS, STEP,
+                            prompt(picture, size, rects, patterns), SCHEMA,
+                            {"step": "count", "picture": str(picture), "tiles": [list(r) for r in rects],
+                             "patterns": patterns},
+                            tuple(path for _, path in tiles), check)
     except NoAnswer:
         return None
     except Exception as error:          # a transport failure is no count, never a crash
@@ -195,5 +240,3 @@ def ask_sheet(transport, picture: Path, patterns: list[str], name: str = ""
             except Exception:
                 pass
         return None
-    found = read_answer(answer, rects) if isinstance(answer, dict) else None
-    return None if found is None else (found, answered(answer, patterns))

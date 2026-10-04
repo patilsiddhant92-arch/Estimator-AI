@@ -72,10 +72,12 @@ class FakeVision:
     question with, for each pattern asked, every tag fitting it lying wholly inside a tile, with its boxes in each
     tile's pixels (plus one tag that does not fit the pattern)."""
 
-    def __init__(self, tags: list[tuple[str, int, int, int, int]], fail_on: int | None = None, omit: tuple = ()):
+    def __init__(self, tags: list[tuple[str, int, int, int, int]], fail_on: int | None = None, omit: tuple = (),
+                 skip_tiles: int = 0):
         self.tags = tags
         self.omit = omit
         self.fail_on = fail_on
+        self.skip_tiles = skip_tiles        # how many answers (the first ones) look at the first tile only
         self.asked: list[dict] = []
         self.waiting = 0
         self.last_error = None
@@ -86,6 +88,9 @@ class FakeVision:
         if self.fail_on is not None and len(self.asked) == self.fail_on:
             self.waiting += 1
             raise NoAnswer("waiting for the chat", waiting=True)
+        examined = list(range(1, len(extra["tiles"]) + 1))
+        if len(self.asked) <= self.skip_tiles:
+            examined = [1]                  # looked at one picture only
         answer = []
         for pattern in extra["patterns"]:
             if any(o in pattern for o in self.omit):
@@ -100,8 +105,21 @@ class FakeVision:
                             {"tile": n, "x": x - x0, "y": y - y0, "width": tw, "height": th})
             found = [{"text": t, "count": len(b), "boxes": b} for t, b in tags.items()]
             found.append({"text": "ZZ-9", "count": 1, "boxes": [{"tile": 1, "x": 1, "y": 1, "width": 5, "height": 5}]})
-            answer.append({"pattern": pattern, "tags": found})
+            answer.append({"pattern": pattern, "tiles_examined": examined, "tags": found})
         return {"patterns": answer}
+
+
+class Refusable(FakeVision):
+    """A FakeVision with the transport's `refuse`: True like the API (asked again now), False like the chat."""
+
+    def __init__(self, *args, again: bool = True, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.again = again
+        self.refused: list[str] = []
+
+    def refuse(self, problem: str) -> bool:
+        self.refused.append(problem)
+        return self.again
 
 
 def _blank_picture(path: Path, size=(3600, 2400)) -> Path:
@@ -231,7 +249,7 @@ def test_count_tags_drops_a_box_outside_its_tile(tmp_path):
     class Wild(FakeVision):
         def ask(self, *args, **kwargs):
             super().ask(*args, **kwargs)
-            return {"patterns": [{"pattern": "EF-[0-9]+", "tags": [
+            return {"patterns": [{"pattern": "EF-[0-9]+", "tiles_examined": [1], "tags": [
                 {"text": "EF-1", "count": 1, "boxes": [{"tile": 1, "x": 5000, "y": 10, "width": 10, "height": 10}]},
                 {"text": "EF-3", "count": 1, "boxes": [{"tile": 7, "x": 10, "y": 10, "width": 10, "height": 10}]},
                 {"text": "EF-2", "count": 1, "boxes": [{"tile": 1, "x": 10, "y": 10, "width": 40, "height": 20}]}]}]}
@@ -431,3 +449,112 @@ def test_cross_check_waiting_vision_keeps_the_text_count(tmp_path):
     ef = _family(checked, "EF", "Exhaust Fan").count
     assert ef.value == 4 and all(o.ref.quote != "counted on the sheet picture" for o in ef.others)
     assert vision.waiting == 1
+
+
+# ---- every tile examined ----------------------------------------------------------------------------------------
+
+def test_the_count_question_demands_every_tile_be_examined(tmp_path):
+    picture = _blank_picture(tmp_path / "p.png", (3000, 1500))           # three tiles
+    vision = FakeVision([("EF-1", 100, 100, 80, 30)])
+    counts.count_tags(picture, "EF-[0-9]+", transport=vision)
+    [asked] = vision.asked
+    entry = asked["schema"]["properties"]["patterns"]["items"]
+    assert "tiles_examined" in entry["required"]
+    assert entry["properties"]["tiles_examined"]["items"]["type"] == "integer"
+    assert "every tile" in asked["instructions"].lower() and "tiles_examined" in asked["instructions"]
+    assert "all 3 tiles" in asked["prompt"] and "tiles_examined" in asked["prompt"]
+
+
+def test_an_answer_that_skips_a_tile_is_refused_and_asked_again(tmp_path):
+    picture = _blank_picture(tmp_path / "p.png", (3000, 1500))
+    seen = [("EF-1", 100, 100, 80, 30), ("EF-2", 2800, 1200, 80, 30)]
+    api = Refusable(seen, skip_tiles=1, again=True)                      # the first answer opened tile 1 only
+    result = counts.count_tags(picture, "EF-[0-9]+", transport=api)
+    assert result.value == 2 and len(api.asked) == 2
+    [problem] = api.refused
+    assert "2, 3" in problem and "tile" in problem
+    assert "could not be used" in api.asked[1]["prompt"]                  # asked again with the reason
+    assert len(api.asked[1]["images"]) == 3                               # still one question for the sheet
+
+    chat = Refusable(seen, skip_tiles=1, again=False)                     # the chat answers on a later run
+    assert counts.count_tags(picture, "EF-[0-9]+", transport=chat) == counts.CountResult(None, ())
+    assert len(chat.asked) == 1 and len(chat.refused) == 1
+
+    stubborn = Refusable(seen, skip_tiles=2, again=True)                  # skips again: no count, never a crash
+    assert counts.count_tags(picture, "EF-[0-9]+", transport=stubborn) == counts.CountResult(None, ())
+    assert len(stubborn.asked) == 2
+
+    plain = FakeVision(seen, skip_tiles=1)                                # a transport that cannot refuse
+    assert counts.count_tags(picture, "EF-[0-9]+", transport=plain) == counts.CountResult(None, ())
+
+
+def test_an_answer_without_tiles_examined_is_unusable(tmp_path):
+    picture = _blank_picture(tmp_path / "p.png", (800, 600))
+
+    class Lazy(FakeVision):
+        def ask(self, *args, **kwargs):
+            answer = super().ask(*args, **kwargs)
+            for entry in answer["patterns"]:
+                del entry["tiles_examined"]
+            return answer
+
+    assert counts.count_tags(picture, "EF-[0-9]+", transport=Lazy([("EF-1", 10, 10, 40, 20)])) == \
+        counts.CountResult(None, ())
+
+
+# ---- the family's tag patterns ----------------------------------------------------------------------------------
+
+LETTER_FAMILIES = {          # invented families: tags as a schedule writes them, the tags they stand for
+    "TXF": ("TXF-B", ["TXF-B"]),
+    "SPXF": ("SPXF-A, B, C", ["SPXF-A", "SPXF-B", "SPXF-C"]),
+    "EUH": ("EUH-1, 2", ["EUH-1", "EUH-2"]),
+    "CAC": ("CAC-1.5", ["CAC-1.5"]),
+    "ACCU": ("ACCU-12-1 thru 6", [f"ACCU-12-{n}" for n in range(1, 7)]),
+    "HRU": ("HRU-3.0", ["HRU-3.0"]),
+}
+
+
+@pytest.mark.parametrize("shared", [False, True])
+def test_family_patterns_match_the_family_s_real_tags_and_no_bare_part(shared):
+    from bms.counts_text import family_pattern, family_tags, fits, prefix_owners, searcher
+
+    owners = prefix_owners([written] for written, _ in LETTER_FAMILIES.values())
+    assert "B" not in owners and "2" not in owners
+    if shared:                                    # another family has the same prefixes: only the own tags count
+        owners = {prefix: 2 for prefix in owners}
+    for prefix, (written, tags) in LETTER_FAMILIES.items():
+        assert family_tags([written]) == tags
+        pattern = family_pattern([written], owners)
+        assert pattern is not None
+        for tag in tags:
+            assert fits(pattern, tag), (pattern, tag)
+            assert [m.group(0) for m in searcher(pattern).finditer(f"SEE {tag} ABOVE")] == [tag], (pattern, tag)
+        for bare in ("A", "B", "C", "1", "2", "5", "6", "1.5", "3.0", "12-1"):
+            assert not fits(pattern, bare), (pattern, bare)
+            assert not searcher(pattern).search(f"ROOM {bare} AND {bare}"), (pattern, bare)
+    assert not fits(family_pattern(["EUH-1, 2"], {"EUH": 2}), "EUH-3")      # shared prefix: the own tags only
+
+
+def test_the_located_text_count_uses_the_expanded_tags(tmp_path):
+    from bms.counts_text import fits
+
+    texts = ((200, 200, FILLER, 10), (300, 300, "TXF-B", 14), (500, 300, "SPXF-A", 14), (700, 300, "SPXF-C", 14),
+             (300, 500, "B", 14), (500, 500, "2", 14), (700, 500, "EUH-2", 14), (900, 500, "CAC-1.5", 14),
+             (300, 700, "ACCU-12-3", 14), (500, 700, "ACCU-12-6", 14), (700, 700, "HRU-3.0", 14))
+    pdf = make_pdf(tmp_path / "job" / "Drawings.pdf", Page(W, H, texts))
+    catalogue = _catalogue(pdf, [(1, "M-101", "FIRST FLOOR PLAN", "\n".join(t for _, _, t, _ in texts))])
+    systems = tuple(System(key, key, key, "field", (Family(key, (written,), Count(None)),))
+                    for key, (written, _) in LETTER_FAMILIES.items())
+    vision = FakeVision([])
+    cache = tmp_path / "cache"
+    checked = counts.cross_check(Job("t", systems), catalogue, cache, transport=vision)
+    expected = {"TXF": 1, "SPXF": 2, "EUH": 1, "CAC": 1, "ACCU": 2, "HRU": 1}
+    for key, value in expected.items():
+        count = checked.system(key).families[0].count
+        assert any(r.quote == "located on the sheet text" and count.value == value for r in count.sources), \
+            (key, count)
+    assert counts.proofs_for(cache, "SPXF", "SPXF")[0]["located_tags"] == ["SPXF-A", "SPXF-C"]
+    [asked] = vision.asked                                       # the vision count asks the same patterns
+    assert len(asked["extra"]["patterns"]) == len(LETTER_FAMILIES)
+    for pattern in asked["extra"]["patterns"]:
+        assert not any(fits(pattern, bare) for bare in ("B", "C", "2"))

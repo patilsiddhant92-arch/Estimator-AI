@@ -235,6 +235,10 @@ tuple[Box])`, `Box(x, y, width, height, text)`; never raises on an unreadable pi
 `cross_check(job: Job, catalogue: Catalogue, cache: Path) -> Job` — adds a differing vision count to the family's
 `Count.others` (Ref: picture id, "counted on the sheet picture", the sheet), keeps the highest as `value`, never
 lowers a count. The app ships with text counts if vision is not ready: `cross_check` may then return `job` unchanged.
+Patterns (2026-10-04): a family's patterns are built from its expanded tags (`expand_tags`: "SPXF-A, B, C" is three
+tags), match lettered, numbered and dotted tags (TXF-B, EUH-2, CAC-1.5) and never a bare letter or number; the
+located-text and vision counts use the same patterns. Each pattern's vision answer lists `tiles_examined`; one that
+does not cover every tile sent is refused and asked again like a bad answer.
 
 ### Workstream 7 — `bms.review`, `tools/measure.py`
 `review_page(job: Job, findings: Sequence[Finding], out_dir: Path) -> Path` (writes `out_dir/Review.html`, one

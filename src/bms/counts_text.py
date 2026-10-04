@@ -31,43 +31,79 @@ def natural(tag: str) -> list:
     return [int(part) if part.isdigit() else part for part in re.split(r"(\d+)", tag)]
 
 
+NUMBER = r"\d+(?:\.\d+)?[A-Z]?"     # a numbered tag part: 1, 12, 3A, 1.5, 3.0
+LETTERS = r"[A-Z]{1,2}"             # a lettered tag part: A, B, AB
+
+
+def is_tag(text: str) -> bool:
+    """Whether the text is a whole tag (a letter prefix and a further part: EF-1, TXF-B, CAC-1.5,
+    HEL03_04_FCU01), not a bare letter or number left over from a continued list ("B", "2")."""
+    return re.fullmatch(r"[A-Z][A-Z0-9]*(?:[-_.][A-Z0-9.]+)+", canonical(text)) is not None
+
+
+def family_tags(tags: Sequence[str]) -> list[str]:
+    """The family's tags one by one, as the planner expands them (`estimator.writing.assemble.expand_tags`:
+    "SPXF-A, B, C" is SPXF-A, SPXF-B and SPXF-C; "ACCU-12-1 thru 6" six tags), whole tags only."""
+    from estimator.writing.assemble import expand_tags
+
+    written = [str(t).strip() for t in tags or () if str(t).strip()]
+    out: list[str] = []
+    for tag in expand_tags(written):
+        tag = tag.strip()
+        if is_tag(tag) and tag not in out:
+            out.append(tag)
+    return out
+
+
 def _spelled(tag: str) -> str:
-    """One tag as a pattern allowing any dash, a space or nothing between its parts."""
-    parts = [re.escape(p) for p in re.split(f"[{DASHES}]", canonical(tag)) if p]
-    return f"(?:[{DASHES}] ?| ?)".join(parts)
+    """One tag as a pattern allowing any dash, a space or nothing before a numbered part, a dash before a lettered
+    part ("TXF-B", never "TXFB")."""
+    parts = [p for p in re.split(f"[{DASHES}]", canonical(tag)) if p]
+    spelled = re.escape(parts[0])
+    for part in parts[1:]:
+        joint = f"(?:[{DASHES}] ?| ?)" if part[0].isdigit() else f"[{DASHES}] ?"
+        spelled += joint + re.escape(part)
+    return spelled
 
 
-def _generic(prefix: str) -> str:
-    """Any numbered tag of a prefix: EF-1, EF 12, EF-3A, VAV-2-01."""
-    return rf"{re.escape(prefix)}(?:[{DASHES}] ?| ?)\d+[A-Z]?(?:[{DASHES}]\d+[A-Z]?)*"
+def _generic(prefix: str, numbers: bool = True, letters: bool = False) -> str:
+    """Any tag of a prefix: numbered (EF-1, EF 12, EF-3A, VAV-2-01, CAC-1.5) and, when the family letters its tags,
+    lettered (TXF-B, SPXF-A)."""
+    heads = ([f"(?:[{DASHES}] ?| ?){NUMBER}"] if numbers else []) + ([f"[{DASHES}] ?{LETTERS}"] if letters else [])
+    part = f"(?:{NUMBER}|{LETTERS})" if letters else NUMBER
+    return rf"{re.escape(prefix)}(?:{'|'.join(heads)})(?:[{DASHES}]{part})*"
 
 
 def family_pattern(tags: Sequence[str], prefix_owners: dict[str, int]) -> str | None:
-    """The pattern of one family's tags (a Python regular expression over the tag as printed): any numbered tag of
-    a prefix only this family has in the job — so a unit the plans show but the schedule left out still counts —
-    and otherwise the family's own tags only. None when the family has no tags."""
+    """The pattern of one family's tags (a Python regular expression over the tag as printed), built from the
+    family's expanded tags (`family_tags`): any tag of a prefix only this family has in the job, numbered or
+    lettered as the family's own are — so a unit the plans show but the schedule left out still counts — and
+    otherwise the family's own tags only. Never a bare letter or number. None when the family has no tags."""
     alternatives: list[str] = []
-    for tag in tags:
-        tag = tag.strip()
-        if not tag:
-            continue
-        prefix = tag_prefix(canonical(tag))
-        if "_" not in tag and prefix and prefix_owners.get(prefix, 0) == 1 and re.fullmatch(r"[A-Z]{2,8}", prefix):
-            alternative = _generic(prefix)
+    generic: dict[str, set[str]] = {}            # prefix -> the kinds of its first part: "number", "letter"
+    for tag in family_tags(tags):
+        name = canonical(tag)
+        prefix = tag_prefix(name)
+        rest = name[len(prefix) + 1:]
+        if "_" not in name and rest and prefix_owners.get(prefix, 0) == 1 and re.fullmatch(r"[A-Z]{2,8}", prefix):
+            generic.setdefault(prefix, set()).add("number" if rest[0].isdigit() else "letter")
+            alternative = prefix                 # placeholder, replaced once every tag's kind is known
         else:
             alternative = _spelled(tag)
         if alternative not in alternatives:
             alternatives.append(alternative)
+    alternatives = [_generic(a, "number" in generic[a], "letter" in generic[a]) if a in generic else a
+                    for a in alternatives]
     if not alternatives:
         return None
     return alternatives[0] if len(alternatives) == 1 else "|".join(f"(?:{a})" for a in alternatives)
 
 
 def prefix_owners(families_tags: Iterable[Sequence[str]]) -> dict[str, int]:
-    """How many families of the job have each tag prefix."""
+    """How many families of the job have each tag prefix (over each family's expanded tags)."""
     owners: dict[str, int] = {}
     for tags in families_tags:
-        for prefix in {tag_prefix(canonical(t)) for t in tags if t.strip()}:
+        for prefix in {tag_prefix(canonical(t)) for t in family_tags(tags)}:
             owners[prefix] = owners.get(prefix, 0) + 1
     return owners
 

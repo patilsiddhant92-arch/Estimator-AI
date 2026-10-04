@@ -47,6 +47,24 @@ def _schema_errors(answer, schema: dict) -> list | None:
     return schema_errors(answer, schema)
 
 
+def _unexamined_tiles(answer: dict, request: dict) -> str | None:
+    """For a count_tags answer: a message when a pattern's tiles_examined leaves out a tile the request sent (the
+    estimator refuses such an answer too), else None."""
+    if request.get("kind") != "count_tags":
+        return None
+    tiles = len(request.get("tiles") or request.get("images") or ())
+    for entry in answer.get("patterns") or ():
+        if not isinstance(entry, dict):
+            continue
+        seen = {n for n in entry.get("tiles_examined") or () if isinstance(n, int)}
+        missing = [n for n in range(1, tiles + 1) if n not in seen]
+        if missing:
+            which = f"tile {missing[0]}" if len(missing) == 1 else "tiles " + ", ".join(map(str, missing))
+            return (f"pattern {entry.get('pattern', '?')}: {which} not examined; every tile picture must be opened "
+                    f"and listed in tiles_examined (1 to {tiles})")
+    return None
+
+
 def _read_attempts(out: Path) -> dict:
     try:
         data = _load(out / ATTEMPTS)
@@ -73,7 +91,9 @@ def check_answer(answer_file: Path, request_file: Path) -> str | None:
             if errors:
                 more = f"; and {len(errors) - 5} more" if len(errors) > 5 else ""
                 return "the answer breaks its schema: " + "; ".join(errors[:5]) + more
-            return None
+            return _unexamined_tiles(answer, request)
+    if request.get("kind") == "count_tags" and (problem := _unexamined_tiles(answer, request)):
+        return problem
     missing = [k for k in schema.get("required", []) if k not in answer]
     if missing:
         return "the answer is missing: " + ", ".join(missing)

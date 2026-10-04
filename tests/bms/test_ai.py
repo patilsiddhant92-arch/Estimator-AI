@@ -553,16 +553,19 @@ def test_run_job_runs_the_rebuilt_app_by_default_and_checks_count_answers(tmp_pa
     from bms.counts_vision import SCHEMA
     assert run_job.estimate_command(Path("J"), Path("O"), Path("C"))[1:4] == ["-m", "bms", "estimate"]
     request = tmp_path / "r.json"
-    request.write_text(json.dumps({"key": "k", "kind": "count_tags", "step": "count", "schema": SCHEMA}),
-                       encoding="utf-8")
-    good, bad = tmp_path / "good.json", tmp_path / "bad.json"
-    good.write_text(json.dumps({"patterns": [{"pattern": "EF-[0-9]+", "tags": [
+    request.write_text(json.dumps({"key": "k", "kind": "count_tags", "step": "count", "schema": SCHEMA,
+                                   "tiles": [[0, 0, 10, 10], [5, 0, 10, 10]]}), encoding="utf-8")
+    good, bad, skipped = tmp_path / "good.json", tmp_path / "bad.json", tmp_path / "skipped.json"
+    good.write_text(json.dumps({"patterns": [{"pattern": "EF-[0-9]+", "tiles_examined": [1, 2], "tags": [
         {"text": "EF-1", "count": 1, "boxes": [{"tile": 1, "x": 1, "y": 2, "width": 3, "height": 4}]}]}]}),
                     encoding="utf-8")
-    bad.write_text(json.dumps({"patterns": [{"pattern": "EF-[0-9]+", "tags": [{"text": "EF-1"}]}]}),
-                   encoding="utf-8")
+    bad.write_text(json.dumps({"patterns": [{"pattern": "EF-[0-9]+", "tiles_examined": [1, 2],
+                                             "tags": [{"text": "EF-1"}]}]}), encoding="utf-8")
+    skipped.write_text(json.dumps({"patterns": [{"pattern": "EF-[0-9]+", "tiles_examined": [1], "tags": []}]}),
+                       encoding="utf-8")
     assert run_job.check_answer(good, request) is None
     assert "schema" in run_job.check_answer(bad, request)
+    assert "tile 2" in run_job.check_answer(skipped, request)
     settings = json.loads((ROOT / ".claude" / "run-job.json").read_text(encoding="utf-8"))
     assert {"judge_model", "writer_model", "qc_model", "count_model", "max_attempts"} <= set(settings)
     skill = (ROOT / ".claude" / "skills" / "run-job" / "SKILL.md").read_text(encoding="utf-8")
