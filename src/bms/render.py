@@ -24,8 +24,9 @@ from estimator.scope import Job as ScopeJob
 from estimator.writing.write import tag_list
 
 from bms.model import CLARIFICATION_KINDS, Clarification, Count, Device, FrontEnd, Job, System
-from bms.playbook import Playbook, Shape
+from bms.playbook import DEFAULT_ORDER, Playbook, Shape
 
+SEQUENCE_ONLY_ORDER = 20            # a block whose count prints "Qty (##)": after the equipment (shapes.json "order")
 GENERIC_FORM = "{verb} {device}{owner}{qty}"       # a system or a slot with no shape
 GENERIC_HEADER = "Qty ({n}) {name} {tags}"         # a system with no shape
 _AFTER_LINES = ("confirm", "assumed", "per_drawings", "note")      # the order of the "*" lines
@@ -74,6 +75,8 @@ def render(job: Job, playbook: Playbook) -> ProposalDraft:
     - A system with no devices prints nothing in the proposal: it is one `note` line in `lines` ("left out, no
       lines written", with the writer's reason) for the Evidence Package only.
     - `job.header` must be set (the run sets it): it becomes `scope.header` (`date` parsed from ISO).
+    - Blocks print in the Playbook's block order (`block_order`: the shape's `order`, Global Points first; a block
+      whose count prints "Qty (##)" after the equipment blocks), the plan's own order kept within one order number.
     - Base systems become `scope.blocks`; `alternate` "add" / "deduct" systems go into `scope.add_alternates` /
       `scope.deduct_alternates`; `job.exceptions` become `scope.named_exceptions`; `job.front_end` the FrontEnd.
     - A system with no shape is rendered in the generic form "{verb} {device}{owner}{qty}" in device order.
@@ -93,7 +96,7 @@ def render(job: Job, playbook: Playbook) -> ProposalDraft:
     adds: list[Alternate] = []
     deducts: list[Alternate] = []
     after: dict[str, list[RenderedLine]] = {"add": [], "deduct": []}      # print order: base, add alternates, deducts
-    for system in job.systems:
+    for system in sorted(job.systems, key=lambda s: block_order(s, playbook)):      # stable: the plan's order kept
         printed: list[RenderedLine] = []
         blocks = _system_blocks(system, playbook, printed)
         if system.alternate == "add" and blocks:
@@ -130,6 +133,48 @@ def _trim(text: str) -> str:
     return _squash(text).rstrip(" .;")
 
 
+ACRONYMS = {a.lower(): a for a in ("BMS", "VFD", "DDC", "CO", "NO", "ERV", "RTU", "IT", "HPAC", "SCR", "UUKL", "FA",
+                                   "BACnet")}
+_SMALL_WORDS = {"a", "an", "and", "as", "at", "b", "between", "but", "by", "for", "from", "in", "into", "nor", "of",
+                "on", "or", "per", "the", "thru", "to", "vs", "w", "with", "within"}
+
+
+def _title(text: str) -> str:
+    """A name as house lines read: each lower-case word capitalised (small joining words after the first left
+    alone), the house acronyms in their own spelling (BMS, VFD, CO, BACnet ...); a word already capitalised is kept."""
+    def word(match: re.Match) -> str:
+        w = match.group(0)
+        canon = ACRONYMS.get(w.lower())
+        if canon:
+            return canon
+        if w.islower() and (match.start() == 0 or w not in _SMALL_WORDS):
+            return w[0].upper() + w[1:]
+        return w
+    return re.sub(r"[A-Za-z]+(?:'[a-z]+)?", word, text or "")
+
+
+_NOT_PLURAL = {"points", "series", "status", "controls", "stairs", "chassis"}
+
+
+def _singular_word(word: str) -> str:
+    lower = word.lower()
+    if lower in _NOT_PLURAL or lower.endswith(("ss", "us", "is", "as")) or not lower.endswith("s") or len(word) < 3:
+        return word
+    if lower.endswith("ies") and len(word) > 4:
+        return word[:-3] + ("Y" if word[-3].isupper() else "y")
+    if lower.endswith(("ches", "shes", "xes", "zes")):
+        return word[:-2]
+    return word[:-1]
+
+
+def _singular(text: str) -> str:
+    """The text with its last word singular ("Exhaust Fans" -> "Exhaust Fan"); punctuation after it kept."""
+    found = re.search(r"([A-Za-z]+)([^A-Za-z]*)$", text)
+    if not found:
+        return text
+    return text[:found.start(1)] + _singular_word(found.group(1)) + found.group(2)
+
+
 def _printed(count: Count) -> int | None:
     """The count that prints: the highest any source gives (never undershoot), None when none is known."""
     return count.highest()
@@ -154,7 +199,16 @@ def _reason(assumption, refs: "_Refs") -> str:
 _SHEET = re.compile(r"\b[A-Z]{1,2}-?\d{1,3}(?:\.\d{1,3})?[A-Z]?\b")
 _FILE_PART = re.compile(r"\.(?:pdf|docx?|xlsx?|dwg|txt)\b|\bpage\s+\d+\b", re.IGNORECASE)
 _NOT_A_DOCUMENT = ("equipment counts",)          # the dossier's own label for a combined count, not a document
-NO_PLACE = "the documents"
+MAX_COUNT_CLAUSES = 5                            # the printed count's clause and at most four others
+# what a count's quote says it counted: (pattern on the quote, lower case; its number when it gives one, the label)
+_COUNT_LABELS = (
+    (re.compile(r"plan placements\s*(\d+)?"), "plan placements"),
+    (re.compile(r"schedule rows\s*(\d+)?"), "schedule rows"),
+    (re.compile(r"quantity column total\s*(\d+)?"), "the schedule"),
+    (re.compile(r"\briser\b\s*(\d+)?"), "the riser"),
+    (re.compile(r"sheet pictures?|\bpicture\b()"), "the sheet pictures"),
+    (re.compile(r"\bschedule\b(?!\s+rows)()"), "the schedule"),
+)
 
 
 def _place(where: str) -> str:
@@ -267,26 +321,64 @@ def _header_count(count: Count, playbook: Playbook) -> str:
     return words["unknown_count"] if n is None else words["count"].format(n=n)
 
 
+def _sheet(where: str) -> str:
+    text = _squash(re.sub(r"\([^)]*\)", " ", where or ""))
+    if text.lower().startswith(_NOT_A_DOCUMENT):
+        return ""
+    found = _SHEET.search(text)
+    return found.group(0) if found else ""
+
+
+def _count_label(value: int, ref) -> str:
+    """Where a count is, as a person says it: the sheet number its ref names ("M-100.00"); else what its quote
+    counted ("plan placements", "schedule rows", "the schedule", "the riser", "the sheet pictures"), the part of a
+    counts line that gives this value; else a schedule or section name; else "" (the clause is left out)."""
+    sheet = _sheet(ref.where)
+    if sheet:
+        return sheet
+    quote = (ref.quote or "").lower()
+    found = []
+    for pattern, label in _COUNT_LABELS:
+        match = pattern.search(quote)
+        if match:
+            number = match.group(1) if match.lastindex else None
+            found.append((label, int(number) if number else None))
+    exact = [label for label, number in found if number == value]
+    if exact:
+        return exact[0]
+    labels = list(dict.fromkeys(label for label, _ in found))
+    if len(labels) == 1 and all(number is None for _, number in found):
+        return labels[0]
+    if found:
+        return ""
+    return _place(ref.where)
+
+
 def _count_part(count: Count) -> str:
-    """One count's part of the quantity note: "(N) per <place>; M per <place>; K and J per <place>" (the printed
-    count first, then every other count folded by place); "" when the documents give no other count."""
+    """One count's part of the quantity note: "(N) per <label>; M per <label>; K and J per <label>": the printed
+    (highest) count first, then each other count with its label, highest first, equal values from one label
+    folded, at most MAX_COUNT_CLAUSES clauses; a count with no label is left out (never "per the documents");
+    "" when no other count has a label."""
     n = _printed(count)
     if n is None:
         return ""
-    entries = [(count.value, count.sources[0].where if count.sources else "")] if count.value is not None else []
-    entries += [(o.value, o.ref.where) for o in count.others]
-    place = next((_place(w) for v, w in entries if v == n), "") or NO_PLACE
+    entries = [(count.value, r) for r in count.sources] if count.value is not None else []
+    entries += [(o.value, o.ref) for o in count.others]
+    heads = [label for label in (_count_label(v, r) for v, r in entries if v == n) if label]
+    head = next((label for label in heads if _SHEET.fullmatch(label)), heads[0] if heads else "")
     folded: dict[str, list[int]] = {}
-    for value, where in entries:
-        if value == n:
-            continue
-        values = folded.setdefault(_place(where) or NO_PLACE, [])
-        if value not in values:
-            values.append(value)
+    for value, ref in entries:
+        label = _count_label(value, ref) if value != n else ""
+        if label:
+            values = folded.setdefault(label, [])
+            if value not in values:
+                values.append(value)
     if not folded:
         return ""
-    others = "; ".join(f"{' and '.join(str(v) for v in values)} per {where}" for where, values in folded.items())
-    return f"({n}) per {place}; {others}"
+    clauses = sorted(folded.items(), key=lambda item: -max(item[1]))[:MAX_COUNT_CLAUSES - 1]
+    others = "; ".join(f"{' and '.join(str(v) for v in sorted(values, reverse=True))} per {label}"
+                       for label, values in clauses)
+    return f"({n}) per {head}; {others}" if head else f"({n}); {others}"
 
 
 def _count_note(counts: list[Count], playbook: Playbook) -> str:
@@ -307,6 +399,33 @@ class _Printed:
     verb: str | None
     quantity: int | None       # the device's quantity (None when unknown)
     priced: bool               # the price sheet prices it (AME furnishes, installs or wires it; not an interlock)
+
+
+_PLACEHOLDER = re.compile(r"\{[a-z_]+\}")
+
+
+def _plain(text: str) -> str:
+    return _squash(text or "").rstrip(" .").lower()
+
+
+def _fixed_texts(playbook: Playbook) -> tuple[dict[str, str], dict[str, str]]:
+    """The house lines that print as written with no verb: (by their plain words, by their slot). The lines are the
+    integration trio's lines with no placeholder and every shape wording with none ("Map Available Points Via Mfr.
+    Provided BMS Interface", the mfr. rep line); the slots are the integration slots whose wording is such a line
+    (map_points, rep_assist, vfd_map_points, vfd_rep_assist)."""
+    lines: dict[str, str] = {}
+    slots: dict[str, str] = {}
+    for line in playbook.wording.integration_trio:
+        if not _PLACEHOLDER.search(line):
+            lines.setdefault(_plain(line), line)
+    for shape in playbook.shapes.values():
+        for slot, wording in shape.wording.items():
+            if _PLACEHOLDER.search(wording):
+                continue
+            lines.setdefault(_plain(wording), wording)
+            if shape.slot_kinds.get(slot) == "integration":
+                slots.setdefault(slot, wording)
+    return lines, slots
 
 
 def _slot_form(shape: Shape | None, slot: str) -> str:
@@ -348,8 +467,9 @@ def _device_lines(devices, shape: Shape | None, system: System | None, playbook:
         return found
 
     ranked = sorted(range(len(devices)), key=key)
-    what = system.name if system is not None and system.control == "integration" else ""
+    what = _title(system.name) if system is not None and system.control == "integration" else ""
     quantity_words = playbook.wording.quantity
+    house_lines, house_slots = _fixed_texts(playbook)
     out: list[_Printed] = []
     for i in ranked:
         device = devices[i]
@@ -357,13 +477,21 @@ def _device_lines(devices, shape: Shape | None, system: System | None, playbook:
         number = _printed(device.quantity)
         owner = _owner(device, playbook)
         form = _slot_form(shape, device.slot)
+        if form == GENERIC_FORM and device.slot in house_slots:
+            form = house_slots[device.slot]          # a fixed integration slot in a block whose shape lacks it
+        fixed = house_lines.get(_plain(device.name))
+        if fixed is not None:
+            form = fixed                             # a house line printed as written, never with a verb
         qty = ""
         if "{qty}" in form:
             if number is None:
                 qty = quantity_words["unknown"]
             elif number not in reference:
                 qty = quantity_words["line"].format(n=number)
-        text = _fill(form, verb=device.verb, device=device.name, owner=owner, qty=qty, what=what)
+        if _PLACEHOLDER.search(form):
+            text = _fill(form, verb=device.verb, device=_title(device.name), owner=owner, qty=qty, what=what)
+        else:
+            text = form
         verb = device.verb if "{verb}" in form else None
         acts = "AME" in (device.furnished_by, device.installed_by, device.wired_by)
         out.append(_Printed(text, len(key(i)), device, verb, number, acts and slot_kind != "interlock"))
@@ -410,9 +538,16 @@ def _shape_of(system: System, playbook: Playbook) -> Shape | None:
 
 
 def _header_text(form: str, name: str, tags: tuple[str, ...], count: Count, playbook: Playbook) -> str:
+    """The header: the form filled, the name in house casing; for a single unit (one tag, or a count of 1) the
+    kind word before the tags reads singular, as house headers do ("Qty (1) Exhaust Fan EF-1")."""
     joiner = playbook.wording.header["tags_joiner"]
     shown = joiner.join(part.strip() for part in tag_list(list(tags)).split(", ")) if tags else ""
-    return _fill(form, n=_header_count(count, playbook), name=name, tags=shown)
+    n, name = _header_count(count, playbook), _title(name)
+    if len(tags) != 1 and _printed(count) != 1:
+        return _fill(form, n=n, name=name, tags=shown)
+    kind, marker, rest = form.partition("{tags}")
+    kind_text = _singular(_squash(kind.format_map(_Blank(n=n, name=name))))
+    return _fill(kind_text.replace("{", "{{").replace("}", "}}") + " " + marker + rest, tags=shown)
 
 
 LEFT_OUT = "{name}: left out, no lines written"
@@ -434,6 +569,18 @@ def _header_families(system: System):
     families) prints none, its devices sit under the fan's header; a damper-only block keeps its own."""
     others = tuple(f for f in system.families if not _is_damper_family(f))
     return others if others else system.families
+
+
+def block_order(system: System, playbook: Playbook) -> int:
+    """Where the system's block prints in the scope (lower first; shapes.json "order"): its shape's order (Global
+    Points 0, the equipment 10; a system with no shape 10); a block whose count prints "Qty (##)" (a system named only
+    in the sequence) after the equipment, at SEQUENCE_ONLY_ORDER."""
+    shape = playbook.shapes.get(system.shape) if system.shape else None
+    order = shape.order if shape is not None else DEFAULT_ORDER
+    families = _header_families(system)
+    if order >= DEFAULT_ORDER and all(_printed(f.count) is None for f in families):
+        order = max(order, SEQUENCE_ONLY_ORDER)
+    return order
 
 
 def _system_blocks(system: System, playbook: Playbook, out: list[RenderedLine]) -> tuple[Block, ...]:

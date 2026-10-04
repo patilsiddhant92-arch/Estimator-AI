@@ -13,6 +13,7 @@
       "line_order": "Every slot name, in print order. A device's slot must be one of these.",
       "slot_kinds": "Per slot: \"device\" (hardware AME or another party furnishes), \"point\" (a control point / signal on equipment), \"interlock\" (a tie to another system, no verb), \"integration\" (the integration trio's lines), \"wiring\" (wiring only). Every slot in line_order has a kind.",
       "wording": "Per slot: the house phrase form. Placeholders: {verb} the device's verb, {device} the device's name in the document's words, {owner} the owner bracket from wording.json (empty when AME furnishes), {qty} the quantity form from wording.json (empty when the block count applies), {what} the equipment named in an integration line. Every slot in line_order has a wording.",
+      "order": "The block order in the scope: lower prints first, the plan's own order kept within one number. 0: Global Points (first in the scope, before the equipment); 10: the front end and equipment blocks; a block whose count prints Qty (##) (a system named only in the sequence) prints after every block of order 10 or less, at order 20. Exceptions and the fixed text are not blocks and keep their places.",
       "under": "Optional. Per sub-line slot: the parent slot it prints under, e.g. {\"sensor\": \"panel\"}. A sub-line slot's wording has no {verb}: its device prints one level in, directly after its parent's line, and takes the parent's verb and ownership; the block needs a device in the parent slot. The parent comes earlier in line_order. Set where the Master Template printed the line as a sub-line (assets/system_templates.json depth 2).",
       "tech_hours": {
         "per": "What the hours count per: one of unit, hardware_point, indoor_unit, panel, fan, fixed, line.",
@@ -33,6 +34,7 @@
   "shapes": [
     {
       "name": "VAV / Fan VAV",
+      "order": 10,
       "applies_to": {"prefixes": ["VAV", "FPB", "FPV", "FPT", "CAV"], "kind_words": ["vav"]},
       "header": "Qty ({n}) {name} {tags}",
       "family_names": ["VAV"],
@@ -92,6 +94,7 @@
     },
     {
       "name": "Existing Fan Coil Unit (relocated)",
+      "order": 10,
       "applies_to": {"prefixes": [], "kind_words": ["existing fan coil unit", "existing fcu"]},
       "header": "Qty ({n}) Existing Fan Coil Unit, {tags}",
       "family_names": ["Existing Fan Coil Unit"],
@@ -143,6 +146,7 @@
     },
     {
       "name": "Fan Coil Unit",
+      "order": 10,
       "applies_to": {"prefixes": ["FCU"], "kind_words": ["fan coil unit"]},
       "header": "Qty ({n}) Fan Coil Unit {tags}",
       "family_names": ["Fan Coil Unit"],
@@ -202,6 +206,7 @@
     },
     {
       "name": "Air Handling Unit",
+      "order": 10,
       "applies_to": {"prefixes": ["AHU"], "kind_words": ["air handling unit"]},
       "header": "Qty ({n}) {name} {tags}",
       "family_names": ["Air Handling Unit"],
@@ -329,6 +334,7 @@
     },
     {
       "name": "Packaged ERU / RTU / AHU",
+      "order": 10,
       "applies_to": {"prefixes": ["RTU", "ERU", "ERV", "DOAS", "HRU", "MAU"], "kind_words": ["packaged unit", "packaged ahu", "rooftop unit", "energy recovery unit", "energy recovery ventilator", "dedicated outdoor air"]},
       "header": "Qty ({n}) {name} {tags}",
       "family_names": ["Packaged Unit"],
@@ -380,6 +386,7 @@
     },
     {
       "name": "Toilet Exhaust Fan",
+      "order": 10,
       "applies_to": {"prefixes": ["TX", "TEF"], "kind_words": ["toilet exhaust fan"]},
       "header": "Qty ({n}) Toilet Exhaust Fan {tags}",
       "family_names": ["Toilet Exhaust Fan"],
@@ -425,6 +432,7 @@
     },
     {
       "name": "Dryer Exhaust Fan",
+      "order": 10,
       "applies_to": {"prefixes": ["DX"], "kind_words": ["dryer exhaust fan", "laundry exhaust fan"]},
       "header": "Qty ({n}) Laundry / Dryer Exhaust Fan {tags}",
       "family_names": ["Laundry / Dryer Exhaust Fan"],
@@ -470,6 +478,7 @@
     },
     {
       "name": "Kitchen Exhaust Ventilation",
+      "order": 10,
       "applies_to": {"prefixes": ["KEF", "DWEF", "PCU"], "kind_words": ["kitchen exhaust", "kitchen exhaust system"]},
       "header": "Qty ({n}) {name} {tags}",
       "family_names": ["Kitchen Exhaust System", "Dishwashing", "Makeup Air Unit", "Pollution Control Unit"],
@@ -519,6 +528,7 @@
     },
     {
       "name": "Post-Fire Smoke Purge Fans",
+      "order": 10,
       "applies_to": {"prefixes": ["SX"], "kind_words": ["smoke purge fan", "post fire smoke purge fan"]},
       "header": "Qty ({n}) Post-Fire Smoke Purge Fans {tags}",
       "family_names": ["Post-Fire Smoke Purge Fan"],
@@ -566,6 +576,7 @@
     },
     {
       "name": "Exhaust Fan",
+      "order": 10,
       "applies_to": {"prefixes": ["EF", "GEF"], "kind_words": ["exhaust fan"]},
       "header": "Qty ({n}) Exhaust Fans {tags}",
       "family_names": ["Exhaust Fan"],
@@ -621,6 +632,7 @@
     },
     {
       "name": "Stair / Elevator Vent",
+      "order": 10,
       "applies_to": {"prefixes": [], "kind_words": ["stair vent", "elevator vent"]},
       "header": "Qty ({n}) Stair / Elevator Vent",
       "family_names": ["Stair / Elevator Vent"],
@@ -666,6 +678,7 @@
     },
     {
       "name": "Stair Pressurization Fans",
+      "order": 10,
       "applies_to": {"prefixes": ["SPF"], "kind_words": ["stair pressurization", "stair pressurization system"]},
       "header": "Qty ({n}) Stair Pressurization Fans {tags}",
       "family_names": ["Stair Pressurization Fan"],
@@ -719,6 +732,7 @@
     },
     {
       "name": "Gas Detection",
+      "order": 10,
       "applies_to": {"prefixes": ["GDP"], "kind_words": ["gas detection panel", "gas detection system", "gas detection"]},
       "header": "Qty ({n}) {name} {tags}",
       "family_names": ["Gas Detection Panel", "Exhaust Fan", "Supply Fan"],
@@ -772,6 +786,7 @@
     },
     {
       "name": "Fire / Smoke Dampers",
+      "order": 10,
       "applies_to": {"prefixes": ["FSD", "SD"], "kind_words": ["fire smoke damper"]},
       "header": "Qty ({n}) Fire / Smoke Dampers {tags}",
       "family_names": ["Fire / Smoke Damper"],
@@ -790,6 +805,7 @@
     },
     {
       "name": "Motorized Dampers",
+      "order": 10,
       "applies_to": {"prefixes": ["MD"], "kind_words": ["motorized damper"]},
       "header": "Qty ({n}) {name} {tags}",
       "family_names": ["Motorized Damper"],
@@ -837,6 +853,7 @@
     },
     {
       "name": "Duct Heater",
+      "order": 10,
       "applies_to": {"prefixes": ["DH", "EDH"], "kind_words": ["duct heater"]},
       "header": "Qty ({n}) {name} {tags}",
       "family_names": ["Duct Heater"],
@@ -892,6 +909,7 @@
     },
     {
       "name": "Apartment Heat Pumps",
+      "order": 10,
       "applies_to": {"prefixes": ["HP"], "kind_words": ["apartment heat pump"]},
       "header": "Qty ({n}) Apartment Heat Pumps {tags}",
       "family_names": ["Apartment Heat Pump"],
@@ -939,6 +957,7 @@
     },
     {
       "name": "HVAC Alarm Panel w/ Auto Dialer",
+      "order": 10,
       "applies_to": {"prefixes": [], "kind_words": ["hvac alarm panel", "auto dialer", "sensaphone"]},
       "header": "Qty ({n}) HVAC Alarm Panel w/ Auto Dialer",
       "family_names": ["HVAC Alarm Panel"],
@@ -986,6 +1005,7 @@
     },
     {
       "name": "Finned Tube Radiation",
+      "order": 10,
       "applies_to": {"prefixes": ["FTR"], "kind_words": ["finned tube radiation", "perimeter radiation"]},
       "header": "Qty ({n}) Finned Tube Radiation {tags}",
       "family_names": ["Finned Tube Radiation"],
@@ -1031,6 +1051,7 @@
     },
     {
       "name": "EUH / CUH / UH",
+      "order": 10,
       "applies_to": {"prefixes": ["EUH", "ECUH", "CUH", "UH", "CBH"], "kind_words": ["unit heater", "cabinet unit heater"]},
       "header": "Qty ({n}) {name} {tags}",
       "family_names": ["Unit Heater"],
@@ -1082,6 +1103,7 @@
     },
     {
       "name": "Air Curtain",
+      "order": 10,
       "applies_to": {"prefixes": ["ACU", "ARC"], "kind_words": ["air curtain"]},
       "header": "Qty ({n}) Air Curtain {tags}",
       "family_names": ["Air Curtain"],
@@ -1127,6 +1149,7 @@
     },
     {
       "name": "Unit Ventilators",
+      "order": 10,
       "applies_to": {"prefixes": ["UV"], "kind_words": ["unit ventilator"]},
       "header": "Qty ({n}) Unit Ventilators {tags}",
       "family_names": ["Unit Ventilator"],
@@ -1196,6 +1219,7 @@
     },
     {
       "name": "Geothermal System",
+      "order": 10,
       "applies_to": {"prefixes": ["GHP", "GWP", "HGP"], "kind_words": ["geothermal", "geothermal plant", "geothermal heat pump system"]},
       "header": "Qty ({n}) {name} {tags}",
       "family_names": ["Geothermal Heat Pump", "Chilled Water Pump", "Glycol Water Pump", "Hot Water Pump", "Snow Melt Pump", "Expansion Tank", "Plate Frame Heat Exchanger"],
@@ -1277,6 +1301,7 @@
     },
     {
       "name": "Heat Exchanger System",
+      "order": 10,
       "applies_to": {"prefixes": ["HX", "PFHX"], "kind_words": ["heat exchanger", "heat exchanger plant"]},
       "header": "Qty ({n}) {name} {tags}",
       "family_names": ["Heat Exchanger System", "Pump"],
@@ -1348,6 +1373,7 @@
     },
     {
       "name": "Chilled Water System",
+      "order": 10,
       "applies_to": {"prefixes": ["CH", "CHLR", "ACCH", "CHWP", "CHGP", "PCHWP", "SCHWP", "ET", "AS"], "kind_words": ["chilled water plant", "chilled water system"]},
       "header": "Qty ({n}) {name} {tags}",
       "family_names": ["Chiller", "Chilled Water Pump", "Chilled Water Glycol Pump", "Expansion Tank"],
@@ -1425,6 +1451,7 @@
     },
     {
       "name": "Hot Water System",
+      "order": 10,
       "applies_to": {"prefixes": ["B", "BLR", "BP", "HWP"], "kind_words": ["boiler plant", "hot water plant", "heating hot water system", "boiler system"]},
       "header": "Qty ({n}) {name} {tags}",
       "family_names": ["Boiler", "Boiler Circulator Pump", "Hot Water Pump"],
@@ -1512,6 +1539,7 @@
     },
     {
       "name": "Condenser Water System",
+      "order": 10,
       "applies_to": {"prefixes": ["CT", "CWP"], "kind_words": ["condenser water", "condenser water plant"]},
       "header": "Qty ({n}) {name} {tags}",
       "family_names": ["Cooling Tower", "Condenser Water Pump"],
@@ -1591,6 +1619,7 @@
     },
     {
       "name": "Refrigeration Monitoring System",
+      "order": 10,
       "applies_to": {"prefixes": [], "kind_words": ["refrigerant monitoring system", "refrigerant monitoring", "refrigeration monitoring", "refrigerant leak detection"]},
       "header": "Qty ({n}) Refrigeration Monitoring System {tags}",
       "family_names": ["Refrigeration Monitoring System"],
@@ -1642,6 +1671,7 @@
     },
     {
       "name": "Fuel Oil Pump System",
+      "order": 10,
       "applies_to": {"prefixes": ["FOP"], "kind_words": ["fuel oil system", "fuel oil"]},
       "header": "Qty ({n}) Fuel Oil Pump System",
       "family_names": ["Fuel Oil Pump"],
@@ -1685,6 +1715,7 @@
     },
     {
       "name": "Integrated Equipment",
+      "order": 10,
       "applies_to": {"prefixes": [], "kind_words": ["emergency generator", "generator", "plumbing pump", "domestic water heater", "water heater", "heat tracing", "glycol feed", "gas booster"]},
       "header": "Qty ({n}) {name} {tags}",
       "family_names": ["Equipment"],
@@ -1726,6 +1757,7 @@
     },
     {
       "name": "Misc Monitoring Systems",
+      "order": 10,
       "applies_to": {"prefixes": [], "kind_words": ["misc monitoring", "miscellaneous monitoring"]},
       "header": "Qty ({n}) {name} {tags}",
       "family_names": ["Misc Monitoring"],
@@ -1767,6 +1799,7 @@
     },
     {
       "name": "Global Points",
+      "order": 0,
       "applies_to": {"prefixes": [], "kind_words": ["global point", "global"]},
       "header": "Qty ({n}) Global Points",
       "family_names": ["Global Points"],
@@ -1805,6 +1838,7 @@
     },
     {
       "name": "VRF System",
+      "order": 10,
       "applies_to": {"prefixes": ["IDU", "BS", "BC"], "kind_words": ["vrf", "variable refrigerant flow"]},
       "header": "Qty ({n}) {name} {tags}",
       "family_names": ["Indoor Unit", "Condensing Unit", "Branch Selector"],
@@ -1862,6 +1896,7 @@
     },
     {
       "name": "Split System",
+      "order": 10,
       "applies_to": {"prefixes": ["CU", "ACCU", "AC", "CAC", "OU", "ODU", "SS", "IU"], "kind_words": ["split system", "split ac"]},
       "header": "Qty ({n}) {name} {tags}",
       "family_names": ["Indoor Unit", "Condensing Unit", "Outdoor Unit"],
@@ -1917,6 +1952,7 @@
     },
     {
       "name": "Computer Room Air Conditioning Unit",
+      "order": 10,
       "applies_to": {"prefixes": ["CRAC"], "kind_words": ["computer room air conditioning unit", "computer room air conditioner"]},
       "header": "Qty ({n}) {name} {tags}",
       "family_names": ["Computer Room Air Conditioning Unit"],
@@ -1974,6 +2010,7 @@
     },
     {
       "name": "Equipment VFD",
+      "order": 10,
       "applies_to": {"prefixes": ["VFD"], "kind_words": ["variable frequency drive"]},
       "header": "Qty ({n}) {name} {tags}",
       "family_names": ["Equipment VFD"],
@@ -2009,6 +2046,7 @@
     },
     {
       "name": "Front End",
+      "order": 10,
       "applies_to": {"prefixes": [], "kind_words": ["front end"]},
       "header": "Qty ({n}) {name}",
       "family_names": ["Front End"],

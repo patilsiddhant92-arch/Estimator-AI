@@ -119,6 +119,31 @@ def test_duct_heater_outside_the_heater_block(job):
     assert ("Duct heaters in one place", "EF", "EF.d9", "must_fix") in rules(validate(j, PB))
 
 
+def _heater_point(dev_id="EF.d9"):
+    return Device(dev_id, "other_point", "Invented Electric Duct Heater Status", "Furnish", "AME", "AME", "AME",
+                  Count(1), (REF,))
+
+
+def test_a_duct_heater_device_by_its_words_in_a_served_unit_is_must_fix(job):
+    j = edit(job, "EF", devices=job.system("EF").devices + (_heater_point(),))
+    assert ("Duct heaters in one place", "EF", "EF.d9", "must_fix") in rules(validate(j, PB))
+
+
+def test_a_duct_heater_device_with_no_heater_system_in_the_job_is_left_alone(job):
+    j = edit(job, "EF", devices=job.system("EF").devices + (_heater_point(),))
+    j = dc.replace(j, systems=tuple(s for s in j.systems if s.key != "DH"))
+    assert rules(validate(j, PB), "Duct heaters in one place") == []
+
+
+def test_an_empty_heater_system_while_another_carries_the_heaters_is_a_check_naming_both(job):
+    j = edit(job, "EF", devices=job.system("EF").devices + (_heater_point(),))
+    j = edit(j, "DH", devices=())
+    found = [f for f in validate(j, PB) if f.rule == "Duct heaters in one place"]
+    assert ("Duct heaters in one place", "DH", None, "check") in rules(found)
+    check = next(f for f in found if f.severity == "check")
+    assert "DH" in check.what and "EF" in check.what
+
+
 def test_vrf_comm_wiring_twice_and_split_blocks(job):
     s = job.system("VRF")
     twice = dc.replace(s.devices[0], id="VRF.d9")

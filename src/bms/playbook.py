@@ -55,6 +55,7 @@ class Shape:
     wording: dict[str, str]
     tech_hours: TechHours
     under: dict[str, str] = field(default_factory=dict)    # sub-line slot -> its parent slot (prints one level in)
+    order: int = 10                                        # block order in the scope: lower prints first (DEFAULT_ORDER)
 
     def parent_of(self, slot: str) -> str | None:
         """The slot a sub-line slot prints under, or None for a line of its own."""
@@ -191,7 +192,8 @@ def _text_map(value, where: str, path: Path) -> dict[str, str]:
 
 
 _SHAPE_KEYS = {"name", "applies_to", "header", "family_names", "line_order", "slot_kinds", "wording", "tech_hours"}
-_OPTIONAL_SHAPE_KEYS = {"under"}
+_OPTIONAL_SHAPE_KEYS = {"under", "order"}
+DEFAULT_ORDER = 10          # a shape with no "order": the equipment blocks
 
 
 def _load_shapes(path: Path) -> dict[str, Shape]:
@@ -242,8 +244,11 @@ def _load_shapes(path: Path) -> dict[str, Shape]:
         if bad:
             raise PlaybookError(f"{path.name}: {where}.slot_kinds: {', '.join(bad)} not one of {SLOT_KINDS}")
         under = _under(entry.get("under", {}), where, path, line_order)
+        order = entry.get("order", DEFAULT_ORDER)
+        if isinstance(order, bool) or not isinstance(order, int) or order < 0:
+            raise PlaybookError(f"{path.name}: {where}.order must be a whole number, 0 or more")
         shapes[name] = Shape(name, prefixes, kind_words, header, family_names, line_order, slot_kinds, wording,
-                             _tech_hours(entry["tech_hours"], where, path, set(line_order)), under)
+                             _tech_hours(entry["tech_hours"], where, path, set(line_order)), under, order)
     return shapes
 
 
