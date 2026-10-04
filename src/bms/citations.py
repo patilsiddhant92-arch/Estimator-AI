@@ -12,8 +12,9 @@ covering F1 to F4):
 - issued: an id the job issued (I, every `Ref.source_id`; at intake also the evidence's ids), anywhere, after a
   sheet word too. The intake refuses the text; the validator reports must_fix; the renderer's safety net takes out
   exactly that token.
-- cited: an unissued token in a citation: inside a bracket pair, or right after per / see / from / ref / refer to /
-  cited in. The intake refuses the text.
+- cited: an unissued token in a citation: inside a bracket pair, right after per / see / from / ref / refer to /
+  cited in, or joined by and / or / , / to / through / thru / a dash / a slash to an issued or cited id ("S141 and
+  S999"). The intake refuses the text.
 - loose: any other unissued token ("Fan C2 serves the lab"): accepted as written (more likely a tag or a part
   number); the validator reports a check.
 
