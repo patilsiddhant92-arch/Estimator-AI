@@ -76,3 +76,74 @@ def test_a_test_file_saved_with_a_utf8_bom_is_audited(tmp_path):
     assert "Traceback" not in result.stderr
     assert result.returncode == 0
     assert "tests/test_demo.py::test_bites" in result.stdout
+
+
+def test_a_characterization_comment_above_the_def_is_honored(tmp_path):
+    # The mark sits on the line above the def. Today only the def line and the body are read.
+    repo, base, head = _repo(tmp_path, {"src/demo.py": OLD_CODE.encode()}, {
+        "src/demo.py": NEW_CODE.encode(),
+        "tests/test_demo.py": b"# characterization\ndef test_kept():\n    assert True\n",
+    })
+    result = _run(repo, base, head)
+    assert result.returncode == 0, result.stdout
+    assert "PASS characterization" in result.stdout
+    assert "PASS vacuous" not in result.stdout
+    assert "DeprecationWarning" not in result.stderr
+
+
+def test_a_characterization_string_is_not_a_mark(tmp_path):
+    # The words appear in a string, which is not a comment. The test passes without the code, so it is vacuous.
+    repo, base, head = _repo(tmp_path, {"src/demo.py": OLD_CODE.encode()}, {
+        "src/demo.py": NEW_CODE.encode(),
+        "tests/test_demo.py": b"def test_kept():\n    note = \"# characterization\"\n    assert True\n",
+    })
+    result = _run(repo, base, head)
+    assert result.returncode == 1, result.stdout
+    assert "PASS vacuous" in result.stdout
+
+
+def test_a_syntax_error_is_reported_without_a_traceback(tmp_path):
+    repo, base, head = _repo(tmp_path, {"src/demo.py": OLD_CODE.encode()}, {
+        "src/demo.py": NEW_CODE.encode(),
+        "tests/test_demo.py": b"def test_broken(\n",
+    })
+    result = _run(repo, base, head)
+    assert "Traceback" not in result.stderr
+    assert result.returncode == 2
+
+
+def test_a_new_test_inside_a_class_is_audited(tmp_path):
+    # A method on a class is invisible to a scan that only reads top-level functions, so the audit exits 0
+    # with an empty table. It has to run the method and record that it fails once the code is put back.
+    body = (
+        "class TestDemo:\n"
+        "    def test_bites(self):\n"
+        "        from demo import answer\n"
+        "        assert answer() == 1\n"
+    )
+    repo, base, head = _repo(tmp_path, {"src/demo.py": OLD_CODE.encode()}, {
+        "src/demo.py": NEW_CODE.encode(),
+        "tests/test_demo.py": body.encode(),
+    })
+    result = _run(repo, base, head)
+    assert result.returncode == 0, result.stdout
+    assert "tests/test_demo.py::TestDemo::test_bites" in result.stdout
+    assert "FAIL" in result.stdout
+
+
+def test_the_caller_pythonpath_cannot_supply_a_deleted_module(tmp_path, monkeypatch):
+    # The reverted export deletes src/demo.py. A PYTHONPATH left by the caller still has a copy that returns 1,
+    # so the old audit grades the test vacuous.
+    decoy = tmp_path / "decoy"
+    decoy.mkdir()
+    (decoy / "demo.py").write_text(NEW_CODE, encoding="utf-8")
+    monkeypatch.setenv("PYTHONPATH", str(decoy))
+    repo, base, head = _repo(tmp_path, {"README.md": b"invented\n"}, {
+        "README.md": b"invented\n",
+        "src/demo.py": NEW_CODE.encode(),
+        "tests/test_demo.py": b"def test_bites():\n    from demo import answer\n    assert answer() == 1\n",
+    })
+    result = _run(repo, base, head)
+    assert result.returncode == 0, result.stdout
+    assert "PASS vacuous" not in result.stdout
+    assert "FAIL" in result.stdout
