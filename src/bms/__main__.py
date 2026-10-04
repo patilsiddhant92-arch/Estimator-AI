@@ -2,12 +2,16 @@
 
     python -m bms estimate JOB_FOLDER --out FOLDER [--cache FOLDER] [--mode chat|api]
     python -m bms playbook-lint [PLAYBOOK_ROOT]
+    python -m bms doctor [--cache FOLDER] [--playbook FOLDER] [--config FILE]
 
 chat (the default): every AI question is written to CACHE/judge-chat/requests for the chat to answer (the
 /run-job skill and tools/run_job.py drive it); api: Claude through the Anthropic API (ANTHROPIC_API_KEY).
 
 playbook-lint: checks playbook/rules.md, shapes.json and wording.json (default: the repo's playbook/, wherever it is
 run from); prints each problem in plain words and exits 1, or says it is clean and exits 0.
+
+doctor: checks Python environment, dependencies, configured models, Playbook, and cache folder writability; prints
+diagnostic messages in plain words and exits 0 if all checks pass or 1 on error.
 
 Each subcommand is one entry in COMMANDS (name -> function of the parsed arguments, returning the exit code).
 """
