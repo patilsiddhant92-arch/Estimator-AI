@@ -341,8 +341,9 @@ def _members(ledger: Ledger, group: Fact) -> list[tuple[Fact, tuple[str, ...] | 
 
 def _parts(ledger: Ledger, groups: list[Fact]) -> dict[str, list[tuple[Fact, tuple[str, ...] | None]]]:
     """What each family gives the groups, by family subject (any case): (the group, None) when the group takes the
-    whole family (a member listing no tags, or tags that are not a proper part of the family's own); (the group,
-    its tags) when the group takes only the tags it lists, the rest staying a system of its own. A family the first
+    whole family (a member listing no tags, none of the family's own, or all of them); (the group, its tags) when
+    the listed tags that are the family's own are a proper part of them: the group takes those, a listed tag not
+    the family's own is ignored, and the rest stays a system of its own. A family the first
     group took whole is no later group's; a tag is taken once."""
     parts: dict[str, list[tuple[Fact, tuple[str, ...] | None]]] = {}
     for group in groups:
@@ -351,8 +352,9 @@ def _parts(ledger: Ledger, groups: list[Fact]) -> dict[str, list[tuple[Fact, tup
             if any(tags is None for _, tags in claims):
                 continue
             own = _tags(ledger, fact.subject)
-            wanted = {t.upper() for t in listed or ()}
-            if not wanted or not wanted < {t.upper() for t in own}:
+            mine = {t.upper() for t in own}
+            wanted = {t.upper() for t in listed or ()} & mine
+            if not wanted or wanted == mine:
                 if not claims:
                     claims.append((group, None))
                 continue
@@ -364,19 +366,15 @@ def _parts(ledger: Ledger, groups: list[Fact]) -> dict[str, list[tuple[Fact, tup
 
 
 def _stated(ledger: Ledger, group: Fact) -> dict[str, tuple[int, tuple[Fact, ...]]]:
-    """The unit counts the group fact and the link facts give a tag ("HRU-3 x3"), by tag in capitals: summed across
-    the facts, each fact read once."""
+    """The unit counts the group fact and the link facts give a tag ("HRU-3 x3"), by tag in capitals: every mention
+    summed, within a fact and across the facts, each fact read once."""
     found: dict[str, tuple[int, tuple[Fact, ...]]] = {}
     for fact in (group, *ledger.of_kind("link")):
         text = _squash(fact.value) if fact is group else f"{_squash(fact.subject)} {_squash(fact.value)}"
-        seen: set[str] = set()
         for m in _TAG_TIMES.finditer(text):
             tag = m.group(1).upper()
-            if tag in seen:
-                continue
-            seen.add(tag)
             number, facts = found.get(tag, (0, ()))
-            found[tag] = (number + int(m.group(2)), facts + (fact,))
+            found[tag] = (number + int(m.group(2)), facts if fact in facts else facts + (fact,))
     return found
 
 
@@ -496,8 +494,8 @@ def _split_system(ledger: Ledger, name: str, members: list[PlannedSystem]) -> Pl
     return PlannedSystem(key=name, header=name, kind=name, tags=tuple(t for f in families for t in f.tags),
                          quantity=None, quantity_source="", quantity_quote="", sequence_sources=sequence,
                          schedule_sources=tuple(dict.fromkeys(x for s in members for x in s.schedule_sources)),
-                         group=name, alternate=_alternate(ledger, name, *prefixes),
-                         exception=_note(ledger, "exception", name, *prefixes),
+                         group=name, alternate=members[0].alternate or _alternate(ledger, name),
+                         exception=members[0].exception or _note(ledger, "exception", name),
                          why=f"From the job ledger: {len(facts)} facts.", sequence_section=", ".join(sequence),
                          families=families,
                          count_note="\n".join(f"{s.key}: {s.count_note}" for s in members if s.count_note),
@@ -507,12 +505,33 @@ def _split_system(ledger: Ledger, name: str, members: list[PlannedSystem]) -> Pl
 def _gather_splits(ledger: Ledger, systems: list[PlannedSystem]) -> list[PlannedSystem]:
     """The split units no group took (their prefix one of the Split System template's) become one "Split System"
     block; one per sequence section ("Split System — LOBBY") when their sequence matches name two or more
-    sections, a unit matched to none joining the block whose units share a tag suffix with it, else the first. A
-    lone unit with no partner stays on its own."""
+    sections, a unit matched to none joining the block whose units share a tag suffix with it, else the first. Only
+    units with the same alternate and the same exception share a block (a base-bid unit never joins an add
+    alternate). A lone unit with no partner stays on its own."""
     prefixes = _split_prefixes()
     loose = [s for s in systems if not s.group and not s.families and s.key.upper() in prefixes]
+    kinds = list(dict.fromkeys((s.alternate, s.exception) for s in loose))
+    out, used = list(systems), set()
+    for alternate, exception in kinds:
+        alike = [s for s in loose if (s.alternate, s.exception) == (alternate, exception)]
+        for name, members in _split_blocks(ledger, alike, systems).items():
+            if len(members) < 2:
+                continue
+            if alternate:
+                name = f"{name} ({alternate} alternate)"
+            number, base = 2, name
+            while name in used:
+                name, number = f"{base} {number}", number + 1
+            used.add(name)
+            out[out.index(members[0])] = _split_system(ledger, name, members)
+            out = [s for s in out if s not in members[1:]]
+    return out
+
+
+def _split_blocks(ledger: Ledger, loose: list[PlannedSystem], systems: list[PlannedSystem]) -> dict:
+    """The split units' blocks by name: one "Split System", or one per sequence section."""
     if len(loose) < 2:
-        return systems
+        return {}
     section = {s.key: next((_squash(m.subject) for m in _matches(ledger, s.key)), "") for s in loose}
     names = list(dict.fromkeys(n for n in section.values() if n))
     if len(names) < 2:
@@ -524,13 +543,7 @@ def _gather_splits(ledger: Ledger, systems: list[PlannedSystem]) -> list[Planned
                         names[0])
             by_section[near].append(system)
         gathered = {f"{SPLIT_SYSTEM} — {n}": sorted(m, key=systems.index) for n, m in by_section.items()}
-    out = list(systems)
-    for name, members in gathered.items():
-        if len(members) < 2:
-            continue
-        out[out.index(members[0])] = _split_system(ledger, name, members)
-        out = [s for s in out if s not in members[1:]]
-    return out
+    return gathered
 
 
 def _template_names(system: PlannedSystem) -> PlannedSystem:

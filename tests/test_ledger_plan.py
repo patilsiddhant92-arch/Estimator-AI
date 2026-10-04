@@ -486,3 +486,50 @@ def test_the_vrf_group_takes_the_vrf_template_and_the_split_group_the_split_temp
     ledger.add("group", "Heat Pump Plant", "HRU, IDU", "[S20]", "riser", "risers", SETTLED)
     (plant,) = ledger_plan(ledger).systems
     assert system_template(plant).name == "VRF System"
+
+
+def test_every_count_a_fact_gives_a_tag_is_summed():
+    ledger, _, _ = _vrf()
+    ledger.add("link", "BS-2", "AC-1 x3; BS-2 serves AC-1 x2", "[S20]", "AC-1 x3; AC-1 x2", "plans", SETTLED)
+    vrf = ledger_plan(ledger).systems[0]
+    assert vrf.families[2].tags == ("AC-1", "AC-2") and vrf.families[2].quantity == 3 + 1 + 3 + 2
+
+
+def test_split_units_with_different_alternates_or_exceptions_stay_apart():
+    ledger = Ledger(VRF_SOURCES)
+    _family_of(ledger, "AC", "Indoor Unit", "AC-1", 1)
+    _family_of(ledger, "ACCU", "Outdoor Unit", "ACCU-1", 1)
+    ledger.add("note", "alternate", "add: ACCU", "[S20]", "ACCU priced as an add", "spec", SETTLED)
+    ac, accu = ledger_plan(ledger).systems
+    assert (ac.key, ac.alternate) == ("AC", "") and (accu.key, accu.alternate) == ("ACCU", "add")
+    ledger = Ledger(VRF_SOURCES)
+    _family_of(ledger, "AC", "Indoor Unit", "AC-1", 1)
+    _family_of(ledger, "ACCU", "Outdoor Unit", "ACCU-1", 1)
+    ledger.add("note", "exception", "EXCEPTION TO ANY WORK WITH AC-1", "[S20]", "AC-1 by others", "spec", SETTLED)
+    ac, accu = ledger_plan(ledger).systems
+    assert ac.exception == "EXCEPTION TO ANY WORK WITH AC-1" and accu.exception == "" and accu.group == ""
+
+
+def test_a_listed_tag_not_the_familys_own_is_ignored_for_the_split():
+    ledger = Ledger(VRF_SOURCES)
+    _family_of(ledger, "BS", "Branch Selector", "BS-1", 1)
+    _family_of(ledger, "AC", "Indoor Unit", "AC-1, AC-9", 2)
+    ledger.add("group", "VRF-B", "BS, AC (AC-1, AC-99)", "[S20]", "VRF-B riser", "risers", SETTLED)
+    vrf, ac = ledger_plan(ledger).systems
+    assert vrf.families[1].tags == ("AC-1",) and vrf.families[1].quantity == 1
+    assert ac.key == "AC" and ac.tags == ("AC-9",) and ac.quantity == 1
+
+
+def test_split_units_sharing_an_alternate_gather_into_their_own_block():
+    ledger = Ledger(VRF_SOURCES)
+    _family_of(ledger, "AC", "Indoor Unit", "AC-1", 1)
+    _family_of(ledger, "ACCU", "Outdoor Unit", "ACCU-1", 1)
+    _family_of(ledger, "SS", "Indoor Unit", "SS-1", 1)
+    _family_of(ledger, "CU", "Condensing Unit", "CU-1", 1)
+    ledger.add("note", "alternate", "add: SS", "[S20]", "SS priced as an add", "spec", SETTLED)
+    ledger.add("note", "alternate", "add: CU", "[S20]", "CU priced as an add", "spec", SETTLED)
+    base, add = ledger_plan(ledger).systems
+    assert base.key == "Split System" and base.alternate == "" and [f.tags for f in base.families] == [("AC-1",), ("ACCU-1",)]
+    assert add.key == "Split System (add alternate)" and add.alternate == "add"
+    assert [f.tags for f in add.families] == [("SS-1",), ("CU-1",)]
+    assert system_template(add).name == "Split System"
