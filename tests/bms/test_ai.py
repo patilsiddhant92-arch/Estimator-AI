@@ -464,6 +464,18 @@ def test_qc_finds_a_quote_its_source_does_not_hold(job, raw, dossier, playbook):
     assert "S998" in findings[0].what and "S7" in findings[1].what
 
 
+def test_qc_leaves_the_plan_count_checks_own_refs_alone(raw, dossier, playbook):
+    """bms.counts records its counts as refs ("C<n>", "located on the sheet text"): the app's own count, not words
+    of a document, so the quote check passes them."""
+    from bms.counts import LOCATED_QUOTE, NO_SOURCE_QUOTE, SEEN_QUOTE
+    count = raw["systems"][0]["families"][0]["count"]
+    count["others"] = [{"value": 9, "ref": {"source_id": "C1", "quote": SEEN_QUOTE, "where": "M-1 (picture)"}},
+                       {"value": 8, "ref": {"source_id": "C2", "quote": LOCATED_QUOTE, "where": "M-1"}},
+                       {"value": 7, "ref": {"source_id": "", "quote": NO_SOURCE_QUOTE, "where": ""}}]
+    findings = ai.qc_job(Job.from_dict(raw), ai.evidence_index(dossier), playbook, FakeTransport({"findings": []}))
+    assert findings == []
+
+
 def test_qc_splits_a_long_job_into_parts(job, dossier, playbook, monkeypatch):
     monkeypatch.setattr(ai, "QC_PART_LIMIT", 2_000)
     transport = FakeTransport(*[{"findings": []}] * 10)
@@ -533,3 +545,23 @@ def test_run_job_status_can_drive_the_rebuilt_app():
     import run_job
     assert run_job.estimate_command(Path("J"), Path("O"), Path("C"), "bms")[1:4] == ["-m", "bms", "estimate"]
     assert run_job.estimate_command(Path("J"), Path("O"), Path("C"), "estimator")[1:3] == ["-m", "estimator"]
+
+
+def test_run_job_runs_the_rebuilt_app_by_default_and_checks_count_answers(tmp_path):
+    sys.path.insert(0, str(ROOT / "tools"))
+    import run_job
+    from bms.counts_vision import SCHEMA
+    assert run_job.estimate_command(Path("J"), Path("O"), Path("C"))[1:4] == ["-m", "bms", "estimate"]
+    request = tmp_path / "r.json"
+    request.write_text(json.dumps({"key": "k", "kind": "count_tags", "step": "count", "schema": SCHEMA}),
+                       encoding="utf-8")
+    good, bad = tmp_path / "good.json", tmp_path / "bad.json"
+    good.write_text(json.dumps({"tags": [{"text": "EF-1", "x": 1, "y": 2, "width": 3, "height": 4}]}),
+                    encoding="utf-8")
+    bad.write_text(json.dumps({"tags": [{"text": "EF-1"}]}), encoding="utf-8")
+    assert run_job.check_answer(good, request) is None
+    assert "schema" in run_job.check_answer(bad, request)
+    settings = json.loads((ROOT / ".claude" / "run-job.json").read_text(encoding="utf-8"))
+    assert {"judge_model", "writer_model", "qc_model", "count_model", "max_attempts"} <= set(settings)
+    skill = (ROOT / ".claude" / "skills" / "run-job" / "SKILL.md").read_text(encoding="utf-8")
+    assert "count_tags" in skill and "count_model" in skill and "--app estimator" in skill

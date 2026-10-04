@@ -19,6 +19,7 @@ from bms.model import PARTIES, VERBS, Count, Decision, Device, Finding, Job, Mod
 REVIEW_PAGE = "Review.html"
 DECISIONS_FILE = "decisions.json"
 MAX_QUESTIONS = 15
+PROOFS_FOLDER, PROOFS_MANIFEST = "count-proofs", "proofs.json"     # as bms.counts publishes them into the out folder
 
 RANK_MUST_FIX, RANK_FLAGGED, RANK_ASSUMPTION, RANK_CHECK = 0, 1, 2, 3
 _RANK_LABELS = {RANK_MUST_FIX: "Must fix", RANK_FLAGGED: "Count flagged", RANK_ASSUMPTION: "Assumption",
@@ -60,6 +61,24 @@ def proof_image(ref: Ref) -> str | None:
             continue
         return path
     return None
+
+
+def count_proofs(out_dir: Path) -> dict[str, list[str]]:
+    """The plan count check's proof images published into the out folder (`bms.counts.publish_proofs`):
+    the count's source id ("C3") -> the images' paths relative to the out folder. {} when there are none."""
+    try:
+        data = json.loads((Path(out_dir) / PROOFS_FOLDER / PROOFS_MANIFEST).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    out: dict[str, list[str]] = {}
+    for entry in data if isinstance(data, list) else []:
+        proof = entry.get("proof") if isinstance(entry, dict) else None
+        if not isinstance(proof, str) or proof_image(Ref("", "", proof)) != proof:
+            continue                                    # only a relative image path inside the out folder
+        for sid in entry.get("source_ids") or []:
+            if isinstance(sid, str) and proof not in out.setdefault(sid, []):
+                out[sid].append(proof)
+    return out
 
 
 def _questions(job: Job, findings: Sequence[Finding]) -> list[_Question]:
@@ -134,24 +153,25 @@ def _json_safe(value: object) -> str:
             .replace("&", "\\u0026").replace("\u2028", "\\u2028").replace("\u2029", "\\u2029"))
 
 
-def _ref_html(ref: Ref, label: str = "") -> str:
-    image = proof_image(ref)
-    pic = (f'<a class="proof" href="{_e(image)}" target="_blank"><img src="{_e(image)}" alt="proof for '
-           f'{_e(ref.source_id)}" loading="lazy" onerror="this.parentNode.style.display=\'none\'"></a>'
-           if image else "")
+def _ref_html(ref: Ref, label: str = "", proofs: dict[str, list[str]] | None = None) -> str:
+    images = [image] if (image := proof_image(ref)) else []
+    images += [p for p in (proofs or {}).get(str(ref.source_id).strip(), []) if p not in images]
+    pic = "".join(f'<a class="proof" href="{_e(image)}" target="_blank"><img src="{_e(image)}" alt="proof for '
+                  f'{_e(ref.source_id)}" loading="lazy" onerror="this.parentNode.style.display=\'none\'"></a>'
+                  for image in images)
     return (f'<li>{_e(label)}<span class="src">{_e(ref.source_id)}</span> "{_e(ref.quote)}" '
             f'<span class="where">{_e(ref.where)}</span>{pic}</li>')
 
 
-def _count_html(count: Count) -> str:
+def _count_html(count: Count, proofs: dict[str, list[str]] | None = None) -> str:
     shown = "Qty (##), not known" if count.value is None else str(count.value)
     parts = [f'<div class="count"><b>Printed count: {_e(shown)}</b>'
              + (" (the highest any source gives)" if count.others else "")]
     if count.sources:
-        parts.append("<ul>" + "".join(_ref_html(r) for r in count.sources) + "</ul>")
+        parts.append("<ul>" + "".join(_ref_html(r, "", proofs) for r in count.sources) + "</ul>")
     if count.others:
         parts.append('<div class="others">The other counts:</div><ul>'
-                     + "".join(_ref_html(o.ref, f"{o.value}: ") for o in count.others) + "</ul>")
+                     + "".join(_ref_html(o.ref, f"{o.value}: ", proofs) for o in count.others) + "</ul>")
     parts.append("</div>")
     return "".join(parts)
 
@@ -161,7 +181,7 @@ def _select(name: str, options: Sequence[str], current: str) -> str:
     return f'<label>{name} <select data-field="{name}">{opts}</select></label>'
 
 
-def _question_html(q: _Question, extra: bool) -> str:
+def _question_html(q: _Question, extra: bool, proofs: dict[str, list[str]] | None = None) -> str:
     can_delete = q.level == "device" or (q.level == "system" and q.system_key != "")
     data = {"id": q.qid, "system_key": q.system_key, "level": q.level, "device_id": q.device_id,
             "family_name": q.family_name, "finding_rule": q.finding_rule,
@@ -183,7 +203,7 @@ def _question_html(q: _Question, extra: bool) -> str:
                    + "</div>")
     shown_refs = ""
     if q.refs and q.count is None:
-        shown_refs = ("<details><summary>Where the job says so</summary><ul>" + "".join(_ref_html(r) for r in q.refs)
+        shown_refs = ("<details><summary>Where the job says so</summary><ul>" + "".join(_ref_html(r, "", proofs) for r in q.refs)
                       + "</ul></details>")
     return (
         f'<div class="q{" extra" if extra else ""}" id="{q.qid}" data-rank="{q.rank}">'
@@ -192,7 +212,7 @@ def _question_html(q: _Question, extra: bool) -> str:
         f'<span class="qtitle">{_e(q.title)}</span>'
         + (f' <span class="rule">Rule: {_e(q.finding_rule)}</span>' if q.finding_rule else "") + "</div>"
         + "".join(f'<p class="note">{_e(n)}</p>' for n in q.notes)
-        + (_count_html(q.count) if q.count is not None else "") + shown_refs
+        + (_count_html(q.count, proofs) if q.count is not None else "") + shown_refs
         + '<div class="buttons"><button type="button" data-act="accept">Accept</button>'
           '<button type="button" data-act="change">Change</button>' + delete
         + '<span class="state"></span></div>'
@@ -341,6 +361,7 @@ def review_page(job: Job, findings: Sequence[Finding], out_dir: Path) -> Path:
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     ranked = _ranked(_questions(job, findings))
+    proofs = count_proofs(out_dir)
     visible = {q.qid for q in ranked[:MAX_QUESTIONS]}
 
     cards: list[tuple[str, str]] = [(s.key, f"{s.name} ({s.key})") for s in job.systems]
@@ -356,7 +377,7 @@ def review_page(job: Job, findings: Sequence[Finding], out_dir: Path) -> Path:
     for key, title in cards:
         mine = [q for q in ranked if q.system_key == key]
         hidden = sum(1 for q in mine if q.qid not in visible)
-        inner = "".join(_question_html(q, q.qid not in visible) for q in mine)
+        inner = "".join(_question_html(q, q.qid not in visible, proofs) for q in mine)
         if not mine:
             inner = '<p class="empty">Nothing to ask here.</p>'
         elif hidden == len(mine):

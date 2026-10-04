@@ -1,14 +1,16 @@
 """Helper for the /run-job skill. No AI, no subagents.
 
-    python tools/run_job.py status JOB --out OUT [--cache CACHE] [--app estimator|bms]
+    python tools/run_job.py status JOB --out OUT [--cache CACHE] [--app bms|estimator]
     python tools/run_job.py check ANSWER_FILE REQUEST_FILE
 
-`status` runs the estimate in chat mode (`python -m estimator estimate --ai chat`, or with `--app bms` the rebuilt
-app, `python -m bms estimate --mode chat`), prints the tool's summary, then one JSON block listing the requests still
-waiting for an answer and the proposal path once it is written. A request still present although its answer file
+`status` runs the estimate in chat mode: the rebuilt app by default (`python -m bms estimate --mode chat`; exit 2
+while requests wait, 0 when done), or with `--app estimator` the old app (`python -m estimator estimate --ai chat`).
+It prints the tool's summary, then one JSON block listing the requests still waiting for an answer (kinds
+`read_pass`, `count_tags`, `write_system`, `qc_job`) and the proposal path once it is written. A request still present although its answer file
 exists was rejected by the estimator: it is listed with `"rejected": true` and the estimator's reason, its answer
 file is deleted and an attempt is counted. A rebuilt app's request also lists its `step` (write, revise, qc) and,
 when an earlier answer was refused, the `problem` the next answer must fix.
+The waiting block also gives `exit` (the estimate's exit code) and `stage` (the rebuilt app's step it waits at).
 `check` only reads JSON (no estimator import); a rebuilt app's request (one with a `step`) is held to its whole
 schema with `bms.model.schema_errors`.
 Failed checks and rejected answers are counted per request key in OUT/.run-job-attempts.json.
@@ -26,7 +28,7 @@ MAIN_LIST = {"read_pass": "facts", "write_system": "lines", "qc_job": "findings"
 OUT_MARKER = ".run-job-out"          # beside the requests: which out folder the last status run used
 
 
-BMS_STEPS = ("write", "revise", "qc")   # the rebuilt app's request steps (bms.ai)
+BMS_STEPS = ("count", "write", "revise", "qc")   # the rebuilt app's request steps (bms.ai, bms.counts)
 APPS = ("estimator", "bms")
 
 
@@ -155,8 +157,8 @@ def waiting_requests(requests: Path, job: str, attempts: dict, text: str = "") -
     return waiting
 
 
-def estimate_command(job: Path, out: Path, cache: Path, app: str = "estimator") -> list[str]:
-    """The chat-mode estimate command of the old app (`estimator`, the default) or the rebuilt one (`bms`)."""
+def estimate_command(job: Path, out: Path, cache: Path, app: str = "bms") -> list[str]:
+    """The chat-mode estimate command of the rebuilt app (`bms`, the default) or the old one (`estimator`)."""
     if app == "bms":
         return [sys.executable, "-m", "bms", "estimate", str(job), "--out", str(out), "--cache", str(cache),
                 "--mode", "chat"]
@@ -168,7 +170,7 @@ def cmd_status(args) -> int:
     out = args.out
     out.mkdir(parents=True, exist_ok=True)
     cache = args.cache or out / ".cache"
-    cmd = estimate_command(args.job, out, cache, getattr(args, "app", "estimator") or "estimator")
+    cmd = estimate_command(args.job, out, cache, getattr(args, "app", "bms") or "bms")
     run = subprocess.run(cmd, cwd=ROOT, capture_output=True, text=True, encoding="utf-8", errors="replace")
     text = (run.stdout or "") + (run.stderr or "")
     print(text.rstrip())
@@ -186,7 +188,8 @@ def cmd_status(args) -> int:
             m = re.match(r"Wrote (.+\.docx)\s*$", line.strip())
             if m:
                 proposal = m.group(1)
-    print(json.dumps({"waiting": waiting, "proposal": proposal}, indent=1))
+    stage = next((m.group(1) for m in re.finditer(r"request\(s\) at the (\w+) step", text)), None)
+    print(json.dumps({"waiting": waiting, "proposal": proposal, "exit": run.returncode, "stage": stage}, indent=1))
     return run.returncode
 
 
@@ -197,8 +200,8 @@ def main(argv=None) -> int:
     st.add_argument("job", type=Path)
     st.add_argument("--out", type=Path, required=True)
     st.add_argument("--cache", type=Path)
-    st.add_argument("--app", choices=APPS, default="estimator",
-                    help="which app runs the estimate (default: estimator, the old app)")
+    st.add_argument("--app", choices=APPS, default="bms",
+                    help="which app runs the estimate (default: bms, the rebuilt app; estimator: the old app)")
     ck = sub.add_parser("check")
     ck.add_argument("answer", type=Path)
     ck.add_argument("request", type=Path)

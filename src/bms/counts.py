@@ -36,8 +36,8 @@ LOCATED_QUOTE = "located on the sheet text"
 SEEN_QUOTE = "counted on the sheet picture"
 NO_SOURCE_QUOTE = "the count before the plan check, given without a source"
 PLAN_TYPE = "Plans"
-__all__ = ["Box", "CountResult", "count_tags", "cross_check", "load_proofs", "proofs_for", "COUNT_TAGS", "TILE",
-           "LOCATED_QUOTE", "SEEN_QUOTE", "PROOFS_FOLDER"]
+__all__ = ["Box", "CountResult", "count_tags", "cross_check", "load_proofs", "proofs_for", "publish_proofs",
+           "COUNT_TAGS", "TILE", "LOCATED_QUOTE", "SEEN_QUOTE", "PROOFS_FOLDER"]
 
 
 @dataclass(frozen=True)
@@ -115,6 +115,40 @@ def load_proofs(cache: Path) -> list[dict]:
 def proofs_for(cache: Path, system_key: str, family: str) -> list[dict]:
     """The proofs of one family (see `load_proofs`), in sheet order."""
     return [p for p in load_manifest(cache) if p.get("system_key") == system_key and p.get("family") == family]
+
+
+def publish_proofs(job: "Job", cache: Path, out: Path) -> Path | None:
+    """Copy the proofs of this job's counts from `cache` into `out/count-proofs/` with their manifest
+    (`proofs.json`, each `proof` a path relative to `out`), where `bms.review.review_page` shows them beside the
+    count whose Ref id the entry names. Only entries of this job's families whose source ids this job still cites.
+    Returns the manifest's path, or None when there is no proof to show. Never raises."""
+    import json
+    import shutil
+
+    try:
+        cited: dict[tuple[str, str], set[str]] = {}
+        for system in job.systems:
+            for family in system.families:
+                refs = [*family.count.sources, *(o.ref for o in family.count.others)]
+                cited[(system.key, family.name)] = {r.source_id for r in refs}
+        folder = Path(out) / PROOFS_FOLDER
+        entries = []
+        for entry in load_manifest(cache):
+            ids = cited.get((entry.get("system_key"), entry.get("family")), set())
+            proof = Path(entry["proof"]) if entry.get("proof") else None
+            if not ids & set(entry.get("source_ids") or ()) or proof is None or not proof.is_file():
+                continue
+            folder.mkdir(parents=True, exist_ok=True)
+            if proof.resolve() != (folder / proof.name).resolve():
+                shutil.copyfile(proof, folder / proof.name)
+            entries.append({**entry, "proof": f"{PROOFS_FOLDER}/{proof.name}", "picture": None})
+        if not entries:
+            return None
+        manifest = folder / "proofs.json"
+        manifest.write_text(json.dumps(entries, indent=2, ensure_ascii=False), encoding="utf-8")
+        return manifest
+    except Exception:
+        return None
 
 
 # ---- the check -------------------------------------------------------------------------------------------------

@@ -131,6 +131,7 @@ Tech hours; Shapes and wording. The whole file is `Playbook.rules_text`, the cac
 | `slot_kinds` | slot → `device` \| `point` \| `interlock` \| `integration` \| `wiring`, exactly the slots of `line_order` |
 | `wording` | slot → phrase form with `{verb}`, `{device}`, `{owner}`, `{qty}`, `{what}`, exactly the slots of `line_order` |
 | `tech_hours` | `{"per": unit\|hardware_point\|indoor_unit\|panel\|fan\|fixed\|line, "hours": number\|null, "when": [{"if": [slots], "hours": n}]}` |
+| `under` (optional) | sub-line slot → parent slot (earlier in `line_order`); the sub-line prints one level in after its parent, no verb (integration) |
 
 No default lines anywhere: a shape says how a line prints, never that a line exists.
 
@@ -252,6 +253,12 @@ the formats of §3, so `load_playbook()` passes. Rule names it writes are what w
 final list of rule names in the commit message.
 
 ## 6. The run — `bms.run`
+
+Integration (2026-10-04): `cross_check` gets the run's transport and the run waits at "count" while vision tiles
+are unanswered (the counts are part of the write prompts); `publish_proofs` copies the count proofs into
+`out/count-proofs/` for the review page; the Evidence Package is `bms.evidence.write_evidence` (the old workbook
+plus "Scope lines" and "Findings"); a QC must_fix the revise round left unchanged stays open; `tools/run_job.py`
+runs `python -m bms` by default (`--app estimator` for the old app).
 
 `estimate(job_folder: Path, out: Path, cache: Path, mode: "chat"|"api" = "chat") -> RunResult`, in order:
 `catalogue_job` → `estimator.reading.job.read_job` → `job_header` → `build_dossier` → `Judge` +

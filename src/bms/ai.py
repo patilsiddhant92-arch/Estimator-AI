@@ -699,6 +699,9 @@ def quote_in(quote: str, source: str) -> bool:
 
 
 def _ref_problem(ref: Ref, index: Mapping[str, str]) -> str | None:
+    from bms.counts import LOCATED_QUOTE, NO_SOURCE_QUOTE, SEEN_QUOTE
+    if ref.quote in (LOCATED_QUOTE, SEEN_QUOTE, NO_SOURCE_QUOTE):
+        return None                 # the plan count check's own record (bms.counts), not words of a document
     sid = str(ref.source_id).strip().strip("[]")
     if sid.startswith(("F", "I")) and sid not in index or re.fullmatch(r"I\d+", sid):
         return None                 # a ledger fact or a picture: its words are not in the dossier's text
