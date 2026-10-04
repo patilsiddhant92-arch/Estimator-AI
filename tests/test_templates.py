@@ -246,3 +246,56 @@ def test_a_packaged_unit_is_sixteen_tech_hours_each():
     [packaged] = [t for t in TEMPLATES if t.name == "Packaged ERU / RTU / AHU"]
     assert (packaged.tech_hours.per, packaged.tech_hours.hours) == ("unit", 16)
     assert "tech hour: 16 hour each (estimator, 2026-09-25)" in packaged.hints
+
+
+def _split_and_vrf():
+    return (next(t for t in TEMPLATES if t.name == "Split System"),
+            next(t for t in TEMPLATES if t.name == "VRF System"))
+
+
+def _holds(template, name, evidence):
+    condition = template.conditions[name]
+    return any(w.lower() in evidence.lower() for w in condition.sequence)
+
+
+def _bms_sensor_line(template):
+    return next(line for line in template.lines if "Space Temperature Sensor (BMS Monitoring)" in line.text)
+
+
+def test_the_split_bms_space_sensor_is_not_a_default():
+    split, _ = _split_and_vrf()
+    line = _bms_sensor_line(split)
+    assert not line.default and line.when == ("bms_space_sensor",)
+    assert "Furnish and Install Space Temperature Sensor (BMS Monitoring)" not in [
+        l.text for l in split.lines if l.default]
+
+
+def test_a_sequence_naming_a_bms_furnished_space_sensor_brings_the_line():
+    split, _ = _split_and_vrf()
+    for text in ["The BMS contractor shall provide a space temperature sensor for each unit.",
+                 "A space temperature sensor furnished by the BMS monitors each room.",
+                 "Add a BMS space temperature sensor at every indoor unit."]:
+        assert _holds(split, "bms_space_sensor", text), text
+
+
+def test_the_bms_wiring_the_manufacturers_sensor_does_not_bring_the_line():
+    split, _ = _split_and_vrf()
+    for text in ["The BMS contractor shall wire the manufacturer's space temperature sensor.",
+                 "Wire the unit mfr. space temperature sensor to the controller."]:
+        assert not _holds(split, "bms_space_sensor", text), text
+
+
+def test_the_split_system_takes_ceiling_and_outdoor_units_and_names_them():
+    split, vrf = _split_and_vrf()
+    assert {"CAC", "ODU"} <= set(split.prefixes)
+    assert template_for("CAC", "", TEMPLATES).name == "Split System"
+    assert template_for("ODU", "", TEMPLATES).name in {"Split System", "VRF System"}
+    names = split.family_names
+    assert names["CU"] == "Condensing Unit" and names["ODU"] == "Outdoor Unit"
+    assert names["CAC"] == "Indoor Unit" and names["AC"] == "Indoor Unit"
+    for prefix in ("AC", "IDU", "WAC"):
+        assert vrf.family_names[prefix] == "Indoor Unit"
+    for prefix in ("ACCU", "ODU"):
+        assert vrf.family_names[prefix] == "Condensing Unit"
+    for prefix in ("BS", "HRU", "BC"):
+        assert vrf.family_names[prefix] == "Branch Selector"

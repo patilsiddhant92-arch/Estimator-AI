@@ -11,7 +11,7 @@
     "GEF": "General Exhaust Fan", "DWEF": "Dishwasher Exhaust Fan", "DX": "Dryer Exhaust Fan", "SF": "Supply Fan",
     "RF": "Return Fan", "SPF": "Stair Pressurization Fan", "SX": "Smoke Exhaust Fan", "IF": "Inline Fan", "CF": "Ceiling Fan",
     "CRAC": "Computer Room Air Conditioner", "CRAH": "Computer Room Air Handler", "ACCU": "Air Cooled Condensing Unit",
-    "CU": "Condensing Unit", "OU": "Outdoor Unit", "AC": "Air Conditioning Unit", "HP": "Heat Pump", "WSHP": "Water Source Heat Pump",
+    "CU": "Condensing Unit", "OU": "Outdoor Unit", "AC": "Air Conditioning Unit", "CAC": "Ceiling Air Conditioning Unit", "HP": "Heat Pump", "WSHP": "Water Source Heat Pump",
     "GHP": "Geothermal Heat Pump", "IDU": "Indoor Unit", "ODU": "Outdoor Unit", "BS": "Branch Selector",
     "GV": "Gravity Ventilator", "EDH": "Electric Duct Heater", "DH": "Duct Heater",
     "CH": "Chiller", "CHLR": "Chiller", "ACCH": "Air Cooled Chiller", "CT": "Cooling Tower", "B": "Boiler", "BLR": "Boiler",

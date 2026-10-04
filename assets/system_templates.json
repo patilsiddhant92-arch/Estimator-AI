@@ -1109,7 +1109,7 @@
       "applies_to": {"prefixes": ["IDU", "ODU", "BS"], "kinds": ["VRF", "Variable Refrigerant Flow"]},
       "group": true,
       "header": "Qty ({n}) {kind} {tags}",
-      "family_names": {"AC": "Indoor Unit", "IDU": "Indoor Unit", "ACCU": "Condensing Unit", "ODU": "Condensing Unit", "BS": "Branch Selector"},
+      "family_names": {"AC": "Indoor Unit", "IDU": "Indoor Unit", "WAC": "Indoor Unit", "ACCU": "Condensing Unit", "ODU": "Condensing Unit", "BS": "Branch Selector", "HRU": "Branch Selector", "BC": "Branch Selector"},
       "conditions": {
         "remote_sensor": {"sequence": ["remote sensor", "remote temperature sensor", "remote space temperature"]},
         "leak_sensor": {"sequence": ["leak detection", "leak sensor", "leak detector", "condensate overflow"]},
@@ -1139,18 +1139,19 @@
     },
     {
       "name": "Split System",
-      "applies_to": {"prefixes": ["CU", "ACCU", "AC", "OU", "SS", "IU"], "kinds": ["Split Systems", "Split AC"]},
+      "applies_to": {"prefixes": ["CU", "ACCU", "AC", "CAC", "OU", "ODU", "SS", "IU"], "kinds": ["Split Systems", "Split AC"]},
       "group": true,
       "header": "Qty ({n}) {kind} {tags}",
-      "family_names": {"CU": "Split System Indoor Unit", "ACCU": "Outdoor Unit"},
+      "family_names": {"CU": "Condensing Unit", "ACCU": "Condensing Unit", "ODU": "Outdoor Unit", "OU": "Outdoor Unit", "AC": "Indoor Unit", "CAC": "Indoor Unit", "IU": "Indoor Unit"},
       "conditions": {
         "leak_sensor": {"sequence": ["leak detection", "leak sensor", "leak detector", "condensate overflow"]},
         "ram_module": {"sequence": ["RAM module", "refrigerant leak", "refrigerant detection", "refrigerant monitoring"]},
-        "condensate_pump": {"schedule": ["CONDENSATE PUMP"], "sequence": ["condensate pump"]}
+        "condensate_pump": {"schedule": ["CONDENSATE PUMP"], "sequence": ["condensate pump"]},
+        "bms_space_sensor": {"sequence": ["BMS space temperature sensor", "space temperature sensor furnished by the BMS", "BMS contractor shall provide a space temperature sensor", "provide space temperature sensor for BMS monitoring"]}
       },
       "lines": [
         {"text": "Install and wire Programmable Thermostat (Furnished by Unit Mfr.)", "default": true, "of": ["CU", "AC", "IU", "SS"]},
-        {"text": "Furnish and Install Space Temperature Sensor (BMS Monitoring)", "default": true, "of": ["CU", "AC", "IU", "SS"]},
+        {"text": "Furnish and Install Space Temperature Sensor (BMS Monitoring)", "when": ["bms_space_sensor"], "of": ["CU", "AC", "IU", "SS"]},
         {"text": "Furnish and Install Leak Sensor", "when": ["leak_sensor"], "of": ["CU", "AC", "IU", "SS"]},
         {"text": "Furnish and Install Local RAM Module", "when": ["ram_module"], "of": ["CU", "AC", "IU", "SS"]},
         {"text": "Tie-in Condensate Pump Float Switch (Furnished by Mfr.)", "when": ["condensate_pump"], "of": ["CU", "AC", "IU", "SS"], "no_verb": true},
