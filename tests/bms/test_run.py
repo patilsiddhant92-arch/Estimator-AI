@@ -192,6 +192,53 @@ def test_every_writer_is_given_the_tags_of_the_whole_job(job_folder, tmp_path, m
         assert tags == tuple(citations.job_tags(job)) and set(tags) >= every, (tags, every)
 
 
+def test_the_decision_rewrite_is_given_the_tags_of_the_whole_job(job_folder, tmp_path, monkeypatch):
+    """I2: the writer asked again for a system an estimator's decision changed gets every tag of the job too."""
+    from bms import ai, citations, run
+    from bms.model import Job
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    out, cache = tmp_path / "out", tmp_path / "cache"
+    assert _reach(job_folder, out, cache, "write").stage == "write"
+    requests = sorted((cache / "judge-chat" / "requests").glob("*.json"))
+    changed = json.loads(requests[0].read_text(encoding="utf-8"))["plan_key"]
+    (out / "decisions.json").write_text(json.dumps([{
+        "system_key": changed, "action": "delete", "device_id": f"{changed}.d1", "reason": "invented",
+    }]), encoding="utf-8")
+    assert answer_all(cache)
+    real, seen = ai.write_system, []
+
+    def spy(system, evidence, playbook, transport, **kw):
+        if "The estimator's decisions" in evidence:
+            seen.append(kw.get("tags"))
+        return real(system, evidence, playbook, transport, **kw)
+    monkeypatch.setattr(run.ai, "write_system", spy)
+    result = estimate(job_folder, out, cache, "chat")
+    job = Job.from_json(result.job_file.read_text(encoding="utf-8"))
+    assert seen and all(tags == tuple(citations.job_tags(job)) and tags for tags in seen), seen
+
+
+def test_the_revise_is_given_the_tags_of_the_whole_job(job_folder, tmp_path, monkeypatch):
+    """I2: the revise round's writer gets every tag of the job too."""
+    from bms import ai, citations, run
+    from bms.model import Finding, Job
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    seen: list = []
+
+    def must_fix(job, playbook):
+        return [Finding("Every line cites this job", s.key, None, "must_fix", "invented", "invented")
+                for s in job.systems[:1]]
+
+    def spy(system, findings, evidence, playbook, transport, **kw):
+        seen.append(kw.get("tags"))
+        return system
+    monkeypatch.setattr(run, "validate", must_fix)
+    monkeypatch.setattr(run.ai, "revise_system", spy)
+    out, cache = tmp_path / "out", tmp_path / "cache"
+    result = _reach(job_folder, out, cache, "never")
+    job = Job.from_json(result.job_file.read_text(encoding="utf-8"))
+    assert seen and all(tags == tuple(citations.job_tags(job)) and tags for tags in seen), seen
+
+
 def test_a_killed_write_resumes_from_cached_answers_without_asking_again(job_folder, tmp_path, monkeypatch):
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     out, cache = tmp_path / "out", tmp_path / "cache"

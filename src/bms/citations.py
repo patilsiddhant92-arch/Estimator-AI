@@ -47,7 +47,8 @@ _TAG_RANGE = re.compile(r"\b([SQIFC])-?(\d{1,4})\s*(?:-|–|\bthru\b|\bthrough\b
                         re.IGNORECASE)
 MAX_RANGE = 500                                   # a tag range wider than this is not expanded
 
-DANGLING = re.compile(r"\s*\b(?:because|per|in|on|by|from|of|and|see|the)\s*(?=[,;:.)]|$)", re.IGNORECASE)
+DANGLING_WORDS = frozenset(("because", "per", "in", "on", "by", "from", "of", "and", "see", "the"))
+DANGLING = re.compile(rf"\s*\b(?:{'|'.join(sorted(DANGLING_WORDS))})\s*(?=[,;:.)]|$)", re.IGNORECASE)
 TRADE = re.compile(r"\b(plumbing|electrical|mechanical|architectural|fire protection|civil|structural)\b",
                    re.IGNORECASE)
 
@@ -206,17 +207,25 @@ class SourceIds:
         issued: list[str] = []
         removed: list[str] = []
         kept: list[str] = []
+        found: dict[str, str] = {}          # each id's place, looked up once per text
         pieces: list[str] = []
         at = 0
+        spans.sort()
+        reach: list[int] = []               # the furthest end of the spans up to each one (they may nest)
+        for _, b in spans:
+            reach.append(max(b, reach[-1]) if reach else b)
+        next_span = 0                       # runs come in order: the spans opened before this run
         for run in ID_GROUP.finditer(out):
             start, end = run.start(), run.end()
             if _SHEET_BEFORE.search(out[max(0, start - _WINDOW):start]) or _SHEET_AFTER.match(out[end:end + 2]):
                 continue
+            while next_span < len(spans) and spans[next_span][0] <= start:
+                next_span += 1
+            inside = next_span > 0 and reach[next_span - 1] > start
             members = [t for t in ONE_ID.findall(run.group(0))]
             mine = [t for t in members if self.is_id(t)]
             other = [t for t in members if not self.is_tag(t) and not self.is_id(t)]
-            cited = bool(mine) or any(a <= start < b for a, b in spans) or bool(
-                _CUE.search(out[max(0, start - _WINDOW):start]))
+            cited = bool(mine) or inside or bool(_CUE.search(out[max(0, start - _WINDOW):start]))
             if not cited:
                 kept += other
                 continue
@@ -225,13 +234,19 @@ class SourceIds:
             issued += mine
             removed += other
             tags = [t for t in members if self.is_tag(t)]
-            places = [p for p in (self.place_of(i, groups) for i in mine) if p]
+            places = [p for p in (self._cached_place(i, groups, found) for i in mine) if p]
             pieces += [out[at:start], " and ".join(dict.fromkeys(tags + places))]
             at = end
         if not issued and not removed:
             return Cleaned(text, unissued_kept=kept)
         pieces.append(out[at:])
         return Cleaned(_tidy("".join(pieces)), issued, removed, kept)
+
+    def _cached_place(self, source_id: str, groups, found: dict[str, str]) -> str:
+        key = _key(source_id)
+        if key not in found:
+            found[key] = self.place_of(source_id, groups)
+        return found[key]
 
     def strip(self, text: str, *groups) -> str:
         return self.clean(text, *groups).text
@@ -259,13 +274,37 @@ def _tidy(out: str) -> str:
     out = re.sub(r"[(\[]\s*(?:(?:,|;|and|or)\s*)*[)\]]", " ", out)        # an emptied bracket
     out = re.sub(r"\(\s+", "(", out)
     out = re.sub(r"\s+([,;:.)])", r"\1", out)
-    while True:
-        tidy = DANGLING.sub("", out)
-        tidy = re.sub(r"([,;:])\s*(?=[,;:.)]|$)", "", tidy)          # a separator left with nothing after it
-        if tidy == out:
-            break
-        out = tidy
-    return squash(out).lstrip(",;: ")
+    return squash(_without_dangling(out)).lstrip(",;: ")
+
+
+_TOKEN = re.compile(r"\s+|\w+|[^\w\s]")
+
+
+def _without_dangling(text: str) -> str:
+    """The text without every dangling word (`DANGLING_WORDS`) and every separator left with nothing after it
+    (",", ";", ":" before another stop or the end), and the spaces around them. One pass from the right, so a
+    long run of dangling words takes linear time: a word or separator is dropped when what follows it (once the
+    dropped ones are gone) is ",", ";", ":", ".", ")" or the end. The same text as taking one word per pass until
+    nothing changes."""
+    kept: list[str] = []
+    space = ""                    # spaces seen right of the current token, kept only if that token is kept
+    stop = True                   # what follows (after the dropped tokens) is a stop or the end
+    dropped = False               # the token right of these spaces was dropped: they go with it
+    for token in reversed(_TOKEN.findall(text)):
+        if token.isspace():
+            if not dropped:
+                space = token + space
+            continue
+        if stop and (token in ",;:" or token.lower() in DANGLING_WORDS):
+            space, dropped = "", True
+            continue
+        dropped = False
+        kept.append(space)
+        kept.append(token)
+        space = ""
+        stop = token in ",;:.)"
+    kept.append(space)
+    return "".join(reversed(kept))
 
 
 # ---- the clarification labels: each kind strips only the label its own form prints ---------------------------

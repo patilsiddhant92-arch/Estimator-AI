@@ -399,6 +399,48 @@ def test_no_punctuation_is_left_after_a_label(job, kind, text, printed):
     assert _note_of(job, kind, text) == printed
 
 
+@pytest.mark.parametrize("text", [
+    "per S141 " + "and the " * 10_000 + ".",              # 20,000 dangling words after the id comes out
+    "Valves per S141. " * 5_000,                          # 5,000 ids
+    "Valves (S141) open [S999]. " * 2_500,                # 5,000 ids in 5,000 bracket groups
+], ids=["20000-dangling-words", "5000-ids", "5000-bracketed-ids"])
+def test_the_cleanup_is_linear_on_a_long_text(text):
+    """M3: a runaway answer never stalls a run (the old tidy loop took one dangling word per pass)."""
+    import time
+
+    from bms.citations import SourceIds
+    ids = SourceIds.of(["S141"], ())
+    start = time.perf_counter()
+    out = ids.strip(text, (S141,))
+    assert time.perf_counter() - start < 1.0
+    assert "S141" not in out and "S999" not in out
+
+
+@pytest.mark.parametrize("text, cleaned", [
+    ("per S141 and the of.", "per M-101."),
+    ("the schedule (S141, S999), see.", "the schedule (M-101)."),
+    ("shown on S141 and the, see S999.", "shown on M-101."),
+    ("one per fan because S141;", "one per fan because M-101"),
+    ("one per fan, because S141 and the", "one per fan, because M-101"),
+])
+def test_the_linear_tidy_reads_as_before(text, cleaned):
+    from bms.citations import SourceIds
+    assert SourceIds.of(["S141"], ()).strip(text, (S141,)) == cleaned
+
+
+@pytest.mark.parametrize("text, stripped", [
+    ("the fans run (see C2 in the lab).", "**the fans run (see in the lab)"),     # a bracket and a cue word
+    ("the fans run (C2 in the lab).", "**the fans run (in the lab)"),             # the bracket alone
+    ("the fans run, see C2 in the lab.", "**the fans run, see in the lab"),       # the cue word alone
+])
+@pytest.mark.parametrize("tags", [("EF-1",), ("C2",)], ids=["C2-no-tag", "C2-a-tag"])
+def test_an_id_in_a_bracket_or_after_a_cue_word(job, text, stripped, tags):
+    """The chosen behaviour for "(see C2 in the lab)": a bracket holding an id-shaped token that is no tag, or a cue
+    word right before it, makes it a citation, so C2 comes out (unissued) unless it is a tag of the job."""
+    expected = stripped if tags == ("EF-1",) else "**" + text.rstrip(".")
+    assert _note_of(job, "note", text, tags=tags) == expected
+
+
 def test_device_names_and_named_exceptions_print_without_ids(job):
     """I4: a device name and a named exception go through the same cleanup."""
     pb = load_playbook(ROOT / "playbook")

@@ -615,6 +615,24 @@ def test_an_unissued_id_in_any_citation_is_removed_with_nothing_else_issued(job,
     assert any("unissued id removed" in c and removed in c for c in transport.intake), transport.intake
 
 
+@pytest.mark.parametrize("text, stripped", [
+    ("the fans run (see C2 in the lab)", "the fans run (see in the lab)"),     # a bracket and a cue word
+    ("the fans run (C2 in the lab)", "the fans run (in the lab)"),             # the bracket alone
+    ("the fans run, see C2 in the lab", "the fans run, see in the lab"),       # the cue word alone
+])
+@pytest.mark.parametrize("tags", [(), ("C2",)], ids=["C2-no-tag", "C2-a-tag"])
+def test_an_id_in_a_bracket_or_after_a_cue_word_at_intake(job, raw, dossier, playbook, text, stripped, tags):
+    """The chosen behaviour for "(see C2 in the lab)", fixed so nobody changes it by accident: C2 no tag is
+    stripped and logged as an unissued id removed; C2 a tag of the job is kept."""
+    cleaned, logged = (stripped, True) if not tags else (text, False)
+    transport = LoggingTransport(_bad(raw, lambda a: a.update(
+        clarifications=[{"kind": "note", "text": text}])))
+    system = skeleton(job.system("EF"))
+    written = ai.write_system(system, ai.evidence_for(system, dossier), playbook, transport, tags=tags)
+    assert written.clarifications[0].text == cleaned
+    assert any("unissued id removed: C2" in c for c in transport.intake) is logged, transport.intake
+
+
 def test_the_intake_protects_the_job_wide_tags_it_is_given(job, raw, dossier, playbook):
     """I2: C2 is issued in this system's evidence but is a fan tag of another system: the run passes every tag."""
     system = _with(skeleton(job.system("EF")), Ref("C2", "x", "ledger fact"))
