@@ -137,11 +137,18 @@ NOT_AN_ASSIGNMENT = (
     "Duct heater controls by others, not by BMS.",
     "The duct heater interlock is wired by the controls contractor.",
     "The BMS will provide the supply fan controls.",
+    "The BMS shall provide an enable signal to the duct heater.",
+    "The duct heater shall be provided with field installed controls by Division 26.",
+    "The BMS shall provide an interlock to the duct heater.",
+    "The controls contractor shall provide the duct heater control signal.",
+    "The BMS shall monitor the duct heater status; heater controls by the heater manufacturer.",
+    "The duct heater controls shall be furnished by the electrical contractor and enabled by the BMS.",
 )
 AN_ASSIGNMENT = (
     "The BMS will provide field installed controls for the electric duct heater serving the OA intake of the unit.",
     "The BMS shall control the electric duct heater to maintain discharge air temperature.",
-    "The controls contractor shall provide the duct heater control signal.",
+    "The controls contractor shall provide the electric duct heater controls.",
+    "The electric duct heater shall be controlled by the BMS.",
 )
 
 
