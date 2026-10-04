@@ -3,6 +3,7 @@
 `review_page` writes one self-contained `Review.html`; the estimator answers the open questions in a browser, which
 cannot write files, so the page downloads `decisions.json` and the estimator saves it into the out folder.
 `load_decisions` reads it back and `apply_decisions` (pure) applies it to the Job.
+`unhonored_decisions` is the post-check: a saved decision that the final job does not still show.
 """
 from __future__ import annotations
 
@@ -500,3 +501,93 @@ def _apply_one(job: Job, d: Decision) -> Job:
     if d.action == "delete":
         return dataclasses.replace(job, systems=tuple(s for s in job.systems if s.key != d.system_key))
     return job
+
+
+def unhonored_decisions(before: Job, decisions: Sequence[Decision], after: Job) -> list[Finding]:
+    """A must_fix for each saved decision the final job does not still show.
+
+    `before` is the job the decision was applied to, `after` the job after the last write. The writer numbers
+    devices again (`d1`, `d2`, …), so a device is recognized by its content, not by the id it wore. A delete is
+    honored when that device is gone, even if a different device now has its old id. A decision that named nothing
+    the earlier job had is skipped, as `apply_decisions` skips it. A flag is not part of the check: the count
+    pass may set one again after the estimator accepted the line."""
+    return [finding for decision in decisions
+            if (finding := _unhonored(before, decision, after)) is not None]
+
+
+def _unhonored(before: Job, decision: Decision, after: Job) -> Finding | None:
+    if not _decision_holds(before, decision, after):
+        subject = decision.device_id or decision.family_name or decision.system_key or "the front end"
+        return Finding("decision not honored", decision.system_key, decision.device_id, "must_fix",
+                       f"decision not honored: {decision.action} {subject}",
+                       "The estimator's decision stands. The last write undid it.")
+    return None
+
+
+def _decision_holds(before: Job, decision: Decision, after: Job) -> bool:
+    if decision.device_id is not None:
+        return _device_holds(before, decision, after)
+    if decision.family_name is not None:
+        return _family_holds(before, decision, after)
+    if decision.system_key == "" or not any(s.key == decision.system_key for s in before.systems):
+        return True
+    gone = decision.action == "delete"
+    present = any(s.key == decision.system_key for s in after.systems)
+    return present != gone
+
+
+def _device_holds(before: Job, decision: Decision, after: Job) -> bool:
+    earlier = _devices(before, decision.system_key)
+    if earlier is None:
+        return True
+    target = next((device for device in earlier if device.id == decision.device_id), None)
+    if target is None:
+        return True
+    applied = _apply_one(before, decision)
+    applied_devices = _devices(applied, decision.system_key) or ()
+    kept = next((device for device in applied_devices if device.id == decision.device_id), None)
+    later = _devices(after, decision.system_key)
+    if later is None:
+        return kept is None
+    if kept is None:
+        return not _same_device(later, target)
+    if not _same_device(later, kept):
+        return False
+    return _same_device((target,), kept) or not _same_device(later, target)
+
+
+def _family_holds(before: Job, decision: Decision, after: Job) -> bool:
+    earlier = _family(before, decision.system_key, decision.family_name)
+    if earlier is None:
+        return True
+    applied = _apply_one(before, decision)
+    want = _family(applied, decision.system_key, decision.family_name)
+    got = _family(after, decision.system_key, decision.family_name)
+    return want is not None and got is not None and got.count == want.count
+
+
+def _devices(job: Job, key: str) -> tuple[Device, ...] | None:
+    if key == "":
+        return None if job.front_end is None else job.front_end.devices
+    for system in job.systems:
+        if system.key == key:
+            return system.devices
+    return None
+
+
+def _family(job: Job, key: str, name: str | None):
+    if not name or key == "":
+        return None
+    for system in job.systems:
+        if system.key == key:
+            for family in system.families:
+                if family.name == name:
+                    return family
+            return None
+    return None
+
+
+def _same_device(devices: tuple[Device, ...], device: Device) -> bool:
+    """True when some device is the same line. The id and the flag may differ."""
+    probe = dataclasses.replace(device, id="", flag="none")
+    return any(dataclasses.replace(other, id="", flag="none") == probe for other in devices)

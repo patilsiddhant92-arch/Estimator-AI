@@ -13,8 +13,9 @@ it can (all systems are asked before stopping); the next run picks the cached an
 question whose request is still waiting. A step that refuses an answer `max_attempts` times stops the run with a
 plain message naming the request. Decisions saved from the review page are applied once on the next run, and the
 writer is asked again only for the systems those decisions changed. The decision is not applied a second time
-after that ask: the writer numbers devices from d1, so a second "delete d1" would remove the next device. A
-malformed decisions.json stops the run with a plain message. Every output goes under `out`
+after that ask: the writer numbers devices from d1, so a second "delete d1" would remove the next device. After
+the last write, a saved decision that the final job does not still show is a must_fix "decision not honored" on
+the review page. A malformed decisions.json stops the run with a plain message. Every output goes under `out`
 (NDA: never the repo). Prints "Wrote <path>" per file, as the old app does (tools/run_job.py reads those lines).
 """
 from __future__ import annotations
@@ -44,7 +45,7 @@ from bms.model import Decision, Finding, Header, Job, ModelError
 from bms.plan import plan_job
 from bms.playbook import load_playbook
 from bms.render import render
-from bms.review import apply_decisions, load_decisions, review_page
+from bms.review import apply_decisions, load_decisions, review_page, unhonored_decisions
 from bms.validate import validate
 
 Mode = Literal["chat", "api"]
@@ -178,9 +179,9 @@ def estimate(job_folder: Path, out: Path, cache: Path, mode: Mode = "chat") -> R
         decisions = load_decisions(out)
     except ModelError as error:
         return RunResult("waiting", "decisions", waiting=0, job_file=job_file, messages=(_stopped(error),))
-    written = job
+    decided_from = job
     job = apply_decisions(job, decisions)
-    for key in _changed_system_keys(written, job):
+    for key in _changed_system_keys(decided_from, job):
         system = job.system(key)
         try:
             job = job.with_system(flag_written_devices(ai.write_system(
@@ -220,7 +221,7 @@ def estimate(job_folder: Path, out: Path, cache: Path, mode: Mode = "chat") -> R
         return RunResult("waiting", "revise", waiting=transport.waiting, job_file=job_file, messages=tuple(pending))
     findings = validate(job, playbook)
     open_qc = [f for f in qc if f.severity != "must_fix" or _untouched(f, written, job)]
-    all_findings = tuple([*findings, *open_qc])
+    all_findings = tuple([*findings, *open_qc, *unhonored_decisions(decided_from, decisions, job)])
 
     # 6. the review page, the render and the three documents
     publish_proofs(job, cache, out)

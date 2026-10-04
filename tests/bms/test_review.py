@@ -261,3 +261,75 @@ def test_unknown_things_are_skipped_and_order_matters(job):
     assert [d.id for d in again.system("EF").devices] == ["EF.d2", "EF.d3"]
     gone = review.apply_decisions(job, [Decision("DH", "delete"), Decision("DH", "accept", device_id="DH.d1")])
     assert "DH" not in [s.key for s in gone.systems]
+
+
+# ---- a decision the last write undid -------------------------------------------------------------------------------
+
+
+def test_reusing_a_deleted_devices_id_is_honored_when_the_line_is_a_different_one(job):
+    system = job.system("EF")
+    deleted, kept = system.devices[0], system.devices[1]
+    assert deleted.name != kept.name
+    after = job.with_system(dataclasses.replace(
+        system, devices=(dataclasses.replace(kept, id=deleted.id), *system.devices[2:])))
+    assert review.unhonored_decisions(job, [Decision("EF", "delete", device_id=deleted.id)], after) == []
+
+
+def test_a_deleted_line_that_comes_back_under_a_new_id_is_not_honored(job, tmp_path):
+    system = job.system("EF")
+    deleted, kept = system.devices[0], system.devices[1]
+    after = job.with_system(dataclasses.replace(system, devices=(
+        dataclasses.replace(kept, id="EF.d1"), dataclasses.replace(deleted, id="EF.d9"))))
+    findings = review.unhonored_decisions(job, [Decision("EF", "delete", device_id=deleted.id)], after)
+    assert [f.severity for f in findings] == ["must_fix"]
+    assert findings[0].what == f"decision not honored: delete {deleted.id}"
+    assert "decision not honored" in _page(after, findings, tmp_path)
+
+
+def test_a_deleted_system_holds_only_while_it_stays_gone(job):
+    decision = Decision("DH", "delete")
+    applied = review.apply_decisions(job, [decision])
+    assert review.unhonored_decisions(job, [decision], applied) == []
+    assert review.unhonored_decisions(job, [decision], job)[0].what == "decision not honored: delete DH"
+
+
+def test_a_changed_device_holds_when_its_content_survives_a_new_id(job):
+    old = job.system("EF").devices[0]
+    new = dataclasses.replace(old, name="Changed sensor", quantity=Count(9))
+    decision = Decision("EF", "change", device_id=old.id, device=new)
+    applied = review.apply_decisions(job, [decision])
+    changed = applied.system("EF").devices[0]
+    after = job.with_system(dataclasses.replace(
+        applied.system("EF"),
+        devices=tuple(dataclasses.replace(device, id="EF.d8") if device.id == changed.id else device
+                      for device in applied.system("EF").devices)))
+    assert review.unhonored_decisions(job, [decision], after) == []
+    undone = review.unhonored_decisions(job, [decision], job)
+    assert undone[0].what == f"decision not honored: change {old.id}"
+
+
+def test_a_changed_family_count_holds_only_while_the_family_keeps_it(job):
+    decision = Decision("CUH", "change", family_name="Cabinet Unit Heater", count=Count(4))
+    applied = review.apply_decisions(job, [decision])
+    assert review.unhonored_decisions(job, [decision], applied) == []
+    assert "decision not honored: change Cabinet Unit Heater" in review.unhonored_decisions(
+        job, [decision], job)[0].what
+
+
+def test_an_accepted_device_holds_when_the_line_stays_and_not_when_it_is_dropped(job):
+    system = job.system("RTU")
+    kept = next(device for device in system.devices if device.id == "RTU.d4")
+    decision = Decision("RTU", "accept", device_id="RTU.d4")
+    renumbered = job.with_system(dataclasses.replace(system, devices=tuple(
+        dataclasses.replace(device, id="RTU.d9", flag="quantity") if device.id == "RTU.d4" else device
+        for device in system.devices)))
+    assert review.unhonored_decisions(job, [decision], renumbered) == []
+    dropped = job.with_system(dataclasses.replace(
+        system, devices=tuple(device for device in system.devices if device.id != "RTU.d4")))
+    assert review.unhonored_decisions(job, [decision], dropped)[0].what == "decision not honored: accept RTU.d4"
+    assert kept.name
+
+
+def test_a_decision_that_names_nothing_on_the_job_is_not_a_finding(job):
+    assert review.unhonored_decisions(job, [Decision("EF", "delete", device_id="EF.zz"),
+                                            Decision("NOPE", "delete")], job) == []

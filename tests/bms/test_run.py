@@ -369,6 +369,32 @@ def test_a_rerun_asks_the_writer_again_only_for_the_system_a_decision_changed(jo
     assert system["devices"][0]["name"] == "Space Temperature Sensor"
 
 
+def test_a_decision_the_writer_undoes_is_a_must_fix_on_the_review_page(job_folder, tmp_path, monkeypatch):
+    """The delete is not applied again, so the writer's new line stays. It is the line the estimator removed,
+    so the review page says the decision was not honored."""
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    out, cache = tmp_path / "out", tmp_path / "cache"
+    assert _reach(job_folder, out, cache, "write").stage == "write"
+    requests = sorted((cache / "judge-chat" / "requests").glob("*.json"))
+    changed = json.loads(requests[0].read_text(encoding="utf-8"))["plan_key"]
+    (out / "decisions.json").write_text(json.dumps([{
+        "system_key": changed, "action": "delete", "device_id": f"{changed}.d1", "reason": "invented",
+    }]), encoding="utf-8")
+    result = None
+    for _ in range(25):
+        assert answer_all(cache)
+        result = estimate(job_folder, out, cache, "chat")
+        if result.status == "done":
+            break
+    assert result is not None and result.status == "done", result
+    honored = [finding for finding in result.findings if finding.what.startswith("decision not honored")]
+    assert [(finding.severity, finding.system_key) for finding in honored] == [("must_fix", changed)]
+    assert "decision not honored" in result.review.read_text(encoding="utf-8")
+    saved = json.loads(result.job_file.read_text(encoding="utf-8"))
+    system = next(item for item in saved["systems"] if item["key"] == changed)
+    assert [device["name"] for device in system["devices"]] == ["Space Temperature Sensor"]
+
+
 def test_a_qc_must_fix_the_revise_left_as_it_was_stays_open():
     import dataclasses
 
