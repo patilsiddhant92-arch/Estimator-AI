@@ -358,7 +358,7 @@ def test_a_chat_run_moves_this_jobs_requests_it_does_not_ask_again_into_old(tmp_
     requests = judge.requests_dir
     requests.mkdir(parents=True)
     mine = {"key": "a", "kind": "write_system", "job": "26-0478, Somerville HS", "prompt": "x"}
-    theirs = {"key": "b", "kind": "write_system", "job": "26-0193, Fordham", "prompt": "x"}
+    theirs = {"key": "b", "kind": "write_system", "job": "26-9999, Harbor Point", "prompt": "x"}
     legacy = {"key": "c", "kind": "plan_job", "prompt": "The dossier:\n== 1. JOB ==\n[S1] Job: 26-0478, Somerville"}
     for name, data in (("a", mine), ("b", theirs), ("c", legacy)):
         (requests / f"{name}.json").write_text(json.dumps(data), encoding="utf-8")

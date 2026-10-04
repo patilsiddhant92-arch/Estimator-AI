@@ -1042,7 +1042,7 @@ git commit -m "feat: /run-job drives a job to completion from any session, handi
 
 ### Task 11: The gate: 26-0193 again, through /run-job
 
-No code. Run `/run-job "out/test-inputs-clean/26-0193, Fordham landing SouthNorth, 330 W Fordham Rd, Bronx NY" --out out/test/26-0193/shape --cache out/test/.cache` with the judge model set to the strongest available. Then read, and report to the estimator in plain words:
+No code. Run `/run-job "out/test-inputs-clean/26-0193, <project folder>" --out out/test/26-0193/shape --cache out/test/.cache` with the judge model set to the strongest available. Then read, and report to the estimator in plain words:
 
 - the VRF block against the Master Template's VRF entry (expected: thermostat per indoor unit, VRF communication wiring once, the integration lines; no "Wire …" list);
 - the ERV and duct heater blocks (expected: interlock-only duct heater lines);
