@@ -64,6 +64,17 @@ def test_ranking_must_fix_then_flagged_then_assumptions_then_checks(job, tmp_pat
     assert titles.index("must one") < titles.index("check one")
 
 
+def test_a_device_with_a_finding_and_a_flag_gets_one_card(job):
+    device = next(d for d in job.system("RTU").devices if d.flag != "none")
+    questions = review._questions(job, [_find("RTU", device.id, "must_fix", "missing citation")])
+    cards = [q for q in questions if q.device_id == device.id]
+    assert len(cards) == 1
+    assert cards[0].rank == review.RANK_MUST_FIX
+    assert cards[0].finding_rule == "Every line cites this job"
+    assert any(review._FLAG_WORDS[device.flag] == note for note in cards[0].notes)
+    assert any("What to do" in note for note in cards[0].notes)
+
+
 def test_flagged_devices_and_counts_with_others_and_assumptions_are_questions(job):
     questions = review._questions(job, [])
     flagged = {q.device_id for q in questions if q.rank == review.RANK_FLAGGED and q.device_id}

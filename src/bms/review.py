@@ -84,11 +84,27 @@ def count_proofs(out_dir: Path) -> dict[str, list[str]]:
 def _questions(job: Job, findings: Sequence[Finding]) -> list[_Question]:
     out: list[_Question] = []
     seq = 0
+    by_device: dict[tuple[str, str], _Question] = {}
 
     def add(**kw) -> None:
         nonlocal seq
+        device_id = kw.get("device_id")
+        key = (kw.get("system_key", ""), device_id) if device_id else None
+        if key is not None and key in by_device:
+            current = by_device[key]
+            notes = tuple(note for note in kw.get("notes") or () if note not in current.notes)
+            current.notes = current.notes + notes
+            current.rank = min(current.rank, kw.get("rank", current.rank))
+            if current.finding_rule is None and kw.get("finding_rule"):
+                current.finding_rule = kw["finding_rule"]
+            if current.device is None and kw.get("device") is not None:
+                current.device = kw["device"]
+            return
         seq += 1
-        out.append(_Question(qid=f"q{seq}", order=seq, **kw))
+        question = _Question(qid=f"q{seq}", order=seq, **kw)
+        out.append(question)
+        if key is not None:
+            by_device[key] = question
 
     scopes: list[tuple[str, Sequence[Device], Sequence]] = [(s.key, s.devices, s.families) for s in job.systems]
     if job.front_end is not None:
