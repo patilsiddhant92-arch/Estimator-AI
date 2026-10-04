@@ -88,9 +88,10 @@ class FamilyFacts:
 
 
 class Reader:
-    def __init__(self, ledger: Ledger, dossier_sources: dict | None = None) -> None:
+    def __init__(self, ledger: Ledger, dossier_sources: dict | None = None, dossier_text: str = "") -> None:
         self.ledger = ledger
         self.dossier_sources = dict(dossier_sources or {})
+        self.dossier_text = str(dossier_text or "")
         self._families: dict[str, FamilyFacts] = {}
 
     # refs
@@ -114,19 +115,96 @@ class Reader:
 
     # counts
     def count_of(self, fact: Fact | None) -> Count:
-        """The count a count fact gives: the highest number among its value and its contradictions, the refs
+        """The count a count fact gives: the highest number among its value, its contradictions and the clauses
+        of an equipment counts line its quotes carry ("plan placements 55" beside "schedule rows 2"), the refs
         giving it, and every other different number with its ref. Count(None) when none is a number."""
         if fact is None:
             return Count(None)
-        entries = [(fact.value, fact.source_id, fact.quote)]
-        entries += [(c.value, c.source_id, c.quote) for c in fact.contradictions]
-        numbers = [(n, sid, q) for v, sid, q in entries for n in [number(v)] if n is not None]
-        if not numbers:
-            return Count(None, (self.fact_ref(fact),))
-        top = max(n for n, _, _ in numbers)
-        sources = _unique([self.ref(sid, q) for n, sid, q in numbers if n == top])
-        others = _unique([OtherCount(n, self.ref(sid, q)) for n, sid, q in numbers if n != top])
+        return self._count([fact], [])
+
+    def _entries(self, fact: Fact) -> list[tuple[int, tuple[Ref, ...]]]:
+        """Every number one count fact gives, each with its ref: its value and each contradiction, then each
+        clause of a counts line in their quotes that gives another number from the same source."""
+        said = [(fact.value, fact.source_id, fact.quote)]
+        said += [(c.value, c.source_id, c.quote) for c in fact.contradictions]
+        out: list[tuple[int, tuple[Ref, ...]]] = []
+        seen: set[tuple[int, str]] = set()
+        for value, sid, quote in said:
+            n = number(value)
+            if n is not None and (n, squash(sid)) not in seen:
+                seen.add((n, squash(sid)))
+                out.append((n, (self.ref(sid, quote),)))
+        for _, sid, quote in said:
+            for clause, n in counts_clauses(quote):
+                if (n, squash(sid)) not in seen:
+                    seen.add((n, squash(sid)))
+                    out.append((n, (self.ref(sid, clause),)))
+        return out
+
+    def _count(self, facts: list[Fact], extra: list[tuple[int, tuple[Ref, ...]]]) -> Count:
+        """The Count of every number the facts and the extra entries give: the highest prints, its refs are the
+        sources, every other number is kept with its ref."""
+        entries = [e for f in facts for e in self._entries(f)] + list(extra)
+        if not entries:
+            return Count(None, (self.fact_ref(facts[0]),) if facts else ())
+        top = max(n for n, _ in entries)
+        sources = _unique([r for n, refs in entries if n == top for r in refs])
+        others = _unique([OtherCount(n, refs[0]) for n, refs in entries if n != top])
         return Count(top, tuple(sources), tuple(others))
+
+    def family_count(self, prefix: str, tags: tuple[str, ...]) -> Count:
+        """The family's count from every source that gives one (the highest prints; never undershoot): each count
+        fact about the prefix (its value, contradictions and counts-line clauses), the count facts about its tags
+        (each tag's highest, summed over the tags), and the "TAG ×N" counts on the dossier's sheets (summed over
+        sheets and tags)."""
+        key = squash(prefix).casefold()
+        own = [f for f in self.ledger.of_kind("count") if squash(f.subject).casefold() == key]
+        extra = []
+        by_tag = self._tag_count_facts(prefix, tags)
+        if by_tag:
+            total = sum(max(n for n, _ in entries) for entries in by_tag.values())
+            refs = _unique([r for entries in by_tag.values() for _, rs in entries for r in rs])
+            extra.append((total, tuple(refs)))
+        on_sheets = self._tag_times_on_sheets(tags)
+        if on_sheets:
+            extra.append((sum(n for n, _ in on_sheets), tuple(_unique([r for _, r in on_sheets]))))
+        if not own and not extra:
+            return Count(None)
+        return self._count(own, extra)
+
+    def _tag_count_facts(self, prefix: str, tags: tuple[str, ...]) -> dict[str, list[tuple[int, tuple[Ref, ...]]]]:
+        """The numbers count facts give the family's tags (a subject that is one of its tags, or the prefix, a
+        dash and more), by tag in capitals."""
+        head = squash(prefix).casefold() + "-"
+        mine = {t.casefold() for t in tags}
+        found: dict[str, list[tuple[int, tuple[Ref, ...]]]] = {}
+        for fact in self.ledger.of_kind("count"):
+            subject = squash(fact.subject).casefold()
+            if subject in mine or (subject.startswith(head) and len(subject) > len(head)
+                                   and " " not in subject):
+                entries = self._entries(fact)
+                if entries:
+                    found.setdefault(subject.upper(), []).extend(entries)
+        return found
+
+    def _tag_times_on_sheets(self, tags: tuple[str, ...]) -> list[tuple[int, Ref]]:
+        """Each "TAG ×N" (or "TAG xN") the dossier's text gives one of the family's tags, with its ref (the
+        source line's id, the words "TAG ×N"). Only tags with a dash are looked for."""
+        wanted = [t for t in tags if "-" in t]
+        if not wanted or not self.dossier_text:
+            return []
+        names = "|".join(re.escape(t) for t in sorted(wanted, key=len, reverse=True))
+        pattern = re.compile(rf"(?<![A-Za-z0-9\-])(?:{names})(?:\s*×|\s+x)\s*(\d+)(?![A-Za-z0-9.])", re.I)
+        found: list[tuple[int, Ref]] = []
+        for line in self.dossier_text.splitlines():
+            head = _SOURCE_LINE.match(line)
+            if not head:
+                continue
+            said = list(pattern.finditer(head.group(2)))
+            if said:
+                quote = " ... ".join(squash(m.group(0)) for m in said)
+                found.append((sum(int(m.group(1)) for m in said), self.ref(head.group(1), quote)))
+        return found
 
     # families
     def family_facts(self) -> list[Fact]:
@@ -146,12 +224,31 @@ class Reader:
         unit = self.ledger.find("unit", prefix)
         tags = tuple(expand([squash(unit.value)])) if unit is not None and squash(unit.value) else ()
         count_fact = self.ledger.find("count", prefix)
-        count = self.count_of(count_fact)
+        count = self.family_count(prefix, tags)
         sequence_only = count_fact is None and fact.stage == "sequence"
         plan_only = not sequence_only and (count_fact is None or count_fact.state == ADDED)
         found = FamilyFacts(fact, prefix, short_name(fact.value, prefix), tags, count, plan_only, sequence_only)
         self._families[prefix.casefold()] = found
         return found
+
+    def seen_tags(self) -> list[tuple[str, Ref]]:
+        """The tags the ledger records as seen on the drawings but on no family's tag list: the values (and the
+        contradicting values) of each unit fact whose subject is no family's prefix ("seen on plans, not
+        scheduled"), brackets dropped, ranges expanded, each with its ref; each tag once, in ledger order."""
+        prefixes = {squash(f.subject).casefold() for f in self.family_facts()}
+        out: dict[str, tuple[str, Ref]] = {}
+        for fact in self.ledger.of_kind("unit"):
+            if squash(fact.subject).casefold() in prefixes:
+                continue
+            said = [(fact.value, fact.source_id, fact.quote)]
+            said += [(c.value, c.source_id, c.quote) for c in fact.contradictions]
+            for value, sid, quote in said:
+                text = squash(re.sub(r"\([^()]*\)", " ", str(value or "")))
+                for tag in expand([text]) if text else []:
+                    tag = squash(tag)
+                    if tag and re.search(r"[A-Za-z]", tag) and tag.upper() not in out:
+                        out[tag.upper()] = (tag, self.ref(sid, quote))
+        return list(out.values())
 
     def family_by_prefix(self, prefix: str) -> FamilyFacts | None:
         key = squash(prefix).casefold()
@@ -191,6 +288,18 @@ class Reader:
     def exception(self, *names: str) -> str:
         fact = self.note("exception", *names)
         return squash(fact.value) if fact else ""
+
+
+_SOURCE_LINE = re.compile(r"^\s*\[([A-Za-z]{1,4}\d+[a-z]?)\]\s?(.*)$")
+_COUNTS_CLAUSE = re.compile(r"\b(schedule rows|quantity column total|distinct tags|plan placements|riser)\s+(\d+)\b",
+                            re.I)
+
+
+def counts_clauses(quote: str) -> list[tuple[str, int]]:
+    """The numbered clauses of an equipment counts line ("schedule rows 2; ...; plan placements 55 (...); riser 1"),
+    each as its words and its number ("plan placements 55", 55); a zero is no count. [] for any other quote."""
+    return [(squash(m.group(0)), int(m.group(2))) for m in _COUNTS_CLAUSE.finditer(squash(quote))
+            if int(m.group(2)) > 0]
 
 
 def _unique(items: list) -> list:

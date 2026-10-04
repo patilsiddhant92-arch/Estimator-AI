@@ -62,6 +62,7 @@ QC_PART_LIMIT = 400_000             # characters of job and sources in one QC re
 SOURCE_TEXT_LIMIT = 20_000          # characters of one source's text in a QC request
 MAX_PROBLEMS = 8                    # problems named in a refusal
 PROMPTS = Path(__file__).resolve().parent / "prompts"
+LATE_FIELDS = ("no_scope_reason",)  # System fields added after answers were written; missing means null
 SKELETON_FIELDS = ("key", "name", "shape", "control", "families", "sequence_refs", "alternate")
 CITATIONS_TOPIC = "Evidence and citations"
 
@@ -273,6 +274,10 @@ def _read_answer(path: Path, schema: dict) -> tuple[dict | None, list[str]]:
         return None, ["the answer file cannot be opened"]
     except ValueError:
         return None, ["the answer is not valid JSON"]
+    if isinstance(answer, dict):
+        for name in LATE_FIELDS:           # a field added to the contract later: an answer without it means null
+            if name in schema.get("properties", {}) and name not in answer:
+                answer[name] = None
     errors = schema_errors(answer, schema)
     return (None, errors) if errors else (answer, [])
 
@@ -531,7 +536,7 @@ def _check_system(answer, skeleton: System, shape: Shape | None, known: frozense
     clarification; every assumption says what and why; device ids unique and of this system."""
     if not isinstance(answer, dict):
         return None, ["the answer is not a JSON object"]
-    answer = {**answer, **_skeleton_dict(skeleton)}
+    answer = {"no_scope_reason": None, **answer, **_skeleton_dict(skeleton)}   # an answer without the field: null
     if keep:
         answer = dict(answer, devices=_put_back(answer.get("devices"), keep, originals))
     errors = schema_errors(answer, json_schema(System))
@@ -563,11 +568,21 @@ def _check_system(answer, skeleton: System, shape: Shape | None, known: frozense
                 problems.append(f"{label} has an assumption that does not say what was assumed")
             if not str(assumption["why"]).strip():
                 problems.append(f"{label} has an assumption that does not say why")
+            problems += [f"{label}'s assumption {p}" for p in _text_problems(
+                f"{assumption['what']} {assumption['why']}", assumption["what"], assumption["why"])]
     if len(answer["clarifications"]) > 1:
         problems.append(f"it gives {len(answer['clarifications'])} clarifications; a block has at most one")
     for clarification in answer["clarifications"]:
         if not str(clarification["text"]).strip():
             problems.append("its clarification has no text")
+        problems += [f"its clarification {p}" for p in _text_problems(clarification["text"], clarification["text"])]
+    if answer["devices"]:
+        answer["no_scope_reason"] = None
+    elif not str(answer.get("no_scope_reason") or "").strip():
+        problems.append("it has no devices and no no_scope_reason: say in one plain sentence why the BMS has "
+                        "nothing to scope on this system")
+    else:
+        problems += [f"its no_scope_reason {p}" for p in _text_problems(answer["no_scope_reason"])]
     hours = answer.get("tech_hours")
     if hours is not None and hours < 0:
         problems.append("its tech hours are below zero")
@@ -578,6 +593,29 @@ def _check_system(answer, skeleton: System, shape: Shape | None, known: frozense
         return System.from_dict(answer), []
     except ModelError as error:
         return None, [str(error)]
+
+
+_PLAYBOOK_WORD = re.compile(r"\bplaybook\b|\bfinding\s+\d+\b", re.I)
+_SOURCE_ID = re.compile(r"\[?\b[SQIFC]\d+[a-z]?\b\]?")
+_LABEL = re.compile(r"^\s*(?:confirm\b|assumed\b|assumption\s*:|note\s*:|quantity\s+per\b|(?:as\s+)?per\s+drawings\b)",
+                    re.I)
+
+
+def _text_problems(text: str, *starts: str) -> list[str]:
+    """What stops a text the client or the estimator reads: a source id in it (name the document in words), or a
+    label at the start of one of `starts` (the renderer adds the label)."""
+    problems = []
+    ids = list(dict.fromkeys(m.group(0).strip("[]") for m in _SOURCE_ID.finditer(str(text or ""))))
+    if ids:
+        problems.append(f"names the source id {', '.join(ids)}: name the document in words "
+                        "(\"the mechanical schedule\", \"the sequence of operations\") instead")
+    if _PLAYBOOK_WORD.search(str(text or "")):
+        problems.append("names the Playbook or one of its rules: say the house practice in plain words, or name "
+                        "the document in a few plain words")
+    if any(_LABEL.match(str(s or "")) for s in starts):
+        problems.append("starts with a label (\"Confirm\", \"Assumed:\", \"Quantity per\"): leave it out, the "
+                        "renderer adds it")
+    return problems
 
 
 def _number_devices(devices: list[dict], key: str, reserved: set[str]) -> None:

@@ -159,6 +159,8 @@ class System(_Model):
     clarifications: tuple[Clarification, ...] = field(default=(), **_doc("At most one per block."))
     tech_hours: float | None = field(default=None, **_doc("The block's tech hours; null when not set."))
     alternate: AlternateKind = field(default="base", **_doc("base, add or deduct."))
+    no_scope_reason: str | None = field(default=None, **_doc(
+        "When the block has nothing for the BMS to scope (devices empty): why, in plain words; null otherwise."))
 
 
 @dataclass(frozen=True)
