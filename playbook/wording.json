@@ -6,9 +6,10 @@
     "integration_trio": "lines: the three lines, in order ({what} names the equipment, or is left out for plain factory controls); depths: the depth of each line (1 or 2).",
     "clarifications": "Per clarification kind (confirm, assumed, per_drawings, note): the form of the block's one \"*\" line. Placeholders: {text} the clarification's text. Every form starts with \"*\".",
     "header": "count: the {n} form of a known count; unknown_count: what {n} prints when the count is unknown; tags_joiner: between tags.",
-    "quantity": "line: the {qty} form on a line whose quantity differs from the block's ({n} the count); unknown: the {qty} form when it is unknown; others_note: the clarification text naming every other count ({value} printed, {others} the others as \"N per where\" joined by \"; \")."
+    "quantity": "line: the {qty} form on a line whose quantity differs from the block's ({n} the count); unknown: the {qty} form when it is unknown; others_note: the clarification text naming every other count ({value} printed, {others} the others as \"N per where\" joined by \"; \").",
+    "confirmed": "Workstream 1, 2026-10-04. Verbs: the GEM's five ownership verbs (the Master Template's bare 'Install' has no Job model verb; it is not used). Owner brackets: GEM 'Other trades in brackets' and the practice rules for Unit Mfr., FA, Others and Mechanical Contractor; Electrical Contractor and Owner follow the same form (GEM names both parties). Integration trio: the Master Template and house style, word for word. Clarifications: the old app's printed forms ('*Confirm quantity: ...', '*Assumed: ...'), the practice rule's '*Quantity per plumbing drawings', and the house style's '**' client note. Quantity: the GEM's '(Qty. N Total)' and the estimator's 'Qty (##)' for unknown."
   },
-  "$draft": ["owner_brackets.Electrical Contractor", "owner_brackets.Owner", "clarifications", "quantity"],
+  "$draft": [],
   "verbs": ["Furnish and Install", "Furnish", "Furnish and Wire", "Install and Wire", "Wire"],
   "owner_brackets": {
     "Unit Mfr.": " (Furnished by Unit Mfr.)",
@@ -27,10 +28,10 @@
     "depths": [1, 1, 2]
   },
   "clarifications": {
-    "confirm": "*{text} - to be confirmed",
-    "assumed": "*{text}",
-    "per_drawings": "*{text} as per drawings",
-    "note": "*{text}"
+    "confirm": "*Confirm {text}",
+    "assumed": "*Assumed: {text}",
+    "per_drawings": "*Quantity per {text} drawings",
+    "note": "**{text}"
   },
   "header": {
     "count": "{n}",
@@ -38,8 +39,8 @@
     "tags_joiner": ", "
   },
   "quantity": {
-    "line": " (Qty. {n})",
+    "line": " (Qty. {n} Total)",
     "unknown": " (Qty. ##)",
-    "others_note": "Quantity carried: {value}; other counts in the documents: {others}"
+    "others_note": "quantity: {value} carried; the documents also show {others}"
   }
 }
