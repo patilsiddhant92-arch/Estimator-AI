@@ -8,7 +8,7 @@ happens to one:
   F1 to F4): kept as written.
 - I, every `Ref.source_id` the run issued (the job's refs, and at intake the writer's evidence): stripped (put as
   the place of its ref, or taken out).
-- Neither, inside a citation (a bracket group holding an id, a run joined to an issued id by and / or / , / to /
+- Neither, inside a citation (a round or square bracket group holding an id-shaped token that is not a tag, a run joined to an issued id by and / or / , / to /
   through / thru / - / –, or right after a cue word: per, see, from, ref, refer to, cited in): stripped too, and
   reported as an unissued id removed.
 - Neither, outside any citation ("Fan C2 serves the lab"): kept as written (more likely a tag or a part number);
@@ -200,8 +200,9 @@ class SourceIds:
         if not ONE_ID.search(text):
             return Cleaned(text)
         out, spans = self._unbracket(text)
+        # a bracket group, round or square, holding an id-shaped token that is not a tag is a citation
         spans += [(m.start(), m.end()) for m in _BRACKET.finditer(out)
-                  if any(self.is_id(t) for t in ONE_ID.findall(m.group(0)))]
+                  if any(not self.is_tag(t) for t in ONE_ID.findall(m.group(0)))]
         issued: list[str] = []
         removed: list[str] = []
         kept: list[str] = []

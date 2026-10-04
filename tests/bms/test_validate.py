@@ -298,7 +298,10 @@ def test_ids_in_device_names_and_named_exceptions_are_a_check(job):
     j = edit_device(job, "RTU", "RTU.d4", name="Smoke Detector per S12")
     assert (RULE["ids"], "RTU", "RTU.d4", "check") in rules(validate(j, PB))
     j2 = dc.replace(job, exceptions=(dc.replace(job.exceptions[0], text="Fire alarm system by others per S14"),))
-    assert [(f.system_key, f.severity) for f in _ids_found(j2) if "S14" in f.what] == [("FA", "check")]
+    # FA is no planned system: the finding is the whole job's, so the review page and the revise find no block
+    assert [(f.system_key, f.severity) for f in _ids_found(j2) if "S14" in f.what] == [("", "check")]
+    j3 = dc.replace(job, exceptions=(dc.replace(job.exceptions[0], system_key="EF", text="Fans by others per S14"),))
+    assert [(f.system_key, f.severity) for f in _ids_found(j3) if "S14" in f.what] == [("EF", "check")]
 
 
 def test_a_tag_range_shaped_like_ids_is_no_check(job):

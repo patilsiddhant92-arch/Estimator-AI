@@ -267,9 +267,9 @@ SIGNATURES = {
     plan.plan_job: ["ledger", "catalogue", "dossier", "playbook"],
     validate.validate: ["job", "playbook"],
     render.render: ["job", "playbook"],
-    ai.write_system: ["system", "evidence", "playbook", "transport"],
+    ai.write_system: ["system", "evidence", "playbook", "transport", "tags"],        # tags: optional, keyword-only
     ai.qc_job: ["job", "evidence_index", "playbook", "transport"],
-    ai.revise_system: ["system", "findings", "evidence", "playbook", "transport"],
+    ai.revise_system: ["system", "findings", "evidence", "playbook", "transport", "tags"],   # tags: as write_system
     ai.evidence_for: ["system", "dossier"],
     ai.evidence_index: ["dossier"],
     counts.count_tags: ["image_path", "tag_pattern", "transport"],      # transport: optional, keyword-only
@@ -292,10 +292,7 @@ RETURNS = {
 @pytest.mark.parametrize("function", list(SIGNATURES), ids=lambda f: f"{f.__module__}.{f.__name__}")
 def test_signature(function):
     signature = inspect.signature(function)
-    # the contract's parameters, in order; an added keyword-only parameter with a default keeps every caller working
-    named = [n for n, p in signature.parameters.items() if n in SIGNATURES[function]
-             or not (p.kind is p.KEYWORD_ONLY and p.default is not p.empty)]
-    assert named == SIGNATURES[function]
+    assert list(signature.parameters) == SIGNATURES[function]
     if function in RETURNS:
         assert signature.return_annotation == RETURNS[function]
     assert len(inspect.getdoc(function) or "") > 80          # the contract is stated

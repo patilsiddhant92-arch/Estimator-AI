@@ -435,8 +435,10 @@ def validate(job: Job, playbook: Playbook) -> list[Finding]:
                 add(index, system.key, order, "once", duplicate(system.key, d))
             seen.add(d.id)
     ids = SourceIds.of_job(job)                   # a named exception prints too
+    planned = {s.key for s in job.systems}
     for exception in job.exceptions:
+        key = exception.system_key if exception.system_key in planned else ""     # no block: the whole job's
         for hit in _id_hits(None, "The named exception", exception.text, ids):
-            add(len(job.systems), exception.system_key, {}, "ids", hit)
+            add(len(job.systems), key, {}, "ids", hit)
     found.sort(key=lambda item: item[0])
     return [f for _, f in found]

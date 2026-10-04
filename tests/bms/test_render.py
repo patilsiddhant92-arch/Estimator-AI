@@ -359,6 +359,7 @@ def _note_of(job, kind, text, tags=("EF-1", "EF-2"), refs=(S141,), assumption=No
     ("note", "Valves open per S999.", "**Valves open"),
     ("note", "Valves open, see S998 and S999.", "**Valves open"),
     ("note", "Valves open [S999].", "**Valves open"),
+    ("note", "Valves open (S901, S902).", "**Valves open"),               # a round bracket of unissued ids
     ("note", "Fan C2 serves the lab.", "**Fan C2 serves the lab"),          # no citation context: kept
 ])
 def test_an_unissued_id_in_a_citation_context_is_stripped(job, kind, text, printed):

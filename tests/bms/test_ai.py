@@ -599,6 +599,22 @@ def test_an_unissued_id_in_a_citation_is_removed_and_logged(job, raw, dossier, p
     assert any("unissued id removed" in c and "S998" in c for c in transport.intake), transport.intake
 
 
+@pytest.mark.parametrize("why, cleaned, removed", [
+    ("per S141 and Q2", "per 23 09 93", "S141"),           # joined to the issued Q2
+    ("the schedule, see C4", "the schedule", "C4"),       # after a cue word
+    ("the schedule (S999)", "the schedule", "S999"),      # in a bracket group
+    ("the schedule [S998, S999]", "the schedule", "S998"),
+])
+def test_an_unissued_id_in_any_citation_is_removed_with_nothing_else_issued(job, raw, dossier, playbook, why,
+                                                                              cleaned, removed):
+    transport = LoggingTransport(_bad(raw, lambda a: a["devices"][0].update(
+        assumption={"what": "one per fan", "why": why})))
+    system = skeleton(job.system("EF"))
+    written = ai.write_system(system, ai.evidence_for(system, dossier), playbook, transport)
+    assert written.devices[0].assumption.why == cleaned
+    assert any("unissued id removed" in c and removed in c for c in transport.intake), transport.intake
+
+
 def test_the_intake_protects_the_job_wide_tags_it_is_given(job, raw, dossier, playbook):
     """I2: C2 is issued in this system's evidence but is a fan tag of another system: the run passes every tag."""
     system = _with(skeleton(job.system("EF")), Ref("C2", "x", "ledger fact"))
