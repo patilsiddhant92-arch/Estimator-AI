@@ -1,0 +1,45 @@
+{
+  "$format": {
+    "about": "The house wording the renderer prints and the AI is told. Read by src/bms/playbook.py, which rejects a malformed file. Values marked in $draft are Phase 0 placeholders in the house form; workstream 1 confirms or replaces them from the Master Template and the house style and empties $draft.",
+    "verbs": "Exactly the five house verbs of the Job model, in this order.",
+    "owner_brackets": "Per furnishing party other than AME: the bracket printed after the device ({owner} in a shape's wording). Every party of the Job model except AME has one.",
+    "integration_trio": "lines: the three lines, in order ({what} names the equipment, or is left out for plain factory controls); depths: the depth of each line (1 or 2).",
+    "clarifications": "Per clarification kind (confirm, assumed, per_drawings, note): the form of the block's one \"*\" line. Placeholders: {text} the clarification's text. Every form starts with \"*\".",
+    "header": "count: the {n} form of a known count; unknown_count: what {n} prints when the count is unknown; tags_joiner: between tags.",
+    "quantity": "line: the {qty} form on a line whose quantity differs from the block's ({n} the count); unknown: the {qty} form when it is unknown; others_note: the clarification text naming every other count ({value} printed, {others} the others as \"N per where\" joined by \"; \")."
+  },
+  "$draft": ["owner_brackets.Electrical Contractor", "owner_brackets.Owner", "clarifications", "quantity"],
+  "verbs": ["Furnish and Install", "Furnish", "Furnish and Wire", "Install and Wire", "Wire"],
+  "owner_brackets": {
+    "Unit Mfr.": " (Furnished by Unit Mfr.)",
+    "FA": " (Relay Furnished by FA)",
+    "Others": " (Furnished by Others)",
+    "Mechanical Contractor": " (Furnished by Mechanical Contractor)",
+    "Electrical Contractor": " (Furnished by Electrical Contractor)",
+    "Owner": " (Furnished by Owner)"
+  },
+  "integration_trio": {
+    "lines": [
+      "Furnish BMS Communication Wiring to {what} Factory Controls",
+      "Map Available Points Via Mfr. Provided BMS Interface",
+      "AME requires mfr. Rep to assist in integration, cost to be incurred by mech contractor"
+    ],
+    "depths": [1, 1, 2]
+  },
+  "clarifications": {
+    "confirm": "*{text} - to be confirmed",
+    "assumed": "*{text}",
+    "per_drawings": "*{text} as per drawings",
+    "note": "*{text}"
+  },
+  "header": {
+    "count": "{n}",
+    "unknown_count": "##",
+    "tags_joiner": ", "
+  },
+  "quantity": {
+    "line": " (Qty. {n})",
+    "unknown": " (Qty. ##)",
+    "others_note": "Quantity carried: {value}; other counts in the documents: {others}"
+  }
+}

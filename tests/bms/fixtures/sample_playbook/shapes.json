@@ -1,0 +1,55 @@
+{
+  "$format": {"about": "Test fixture: the format of playbook/shapes.json (see its own $format), five invented shapes."},
+  "shapes": [
+    {
+      "name": "Rooftop Unit",
+      "applies_to": {"prefixes": ["RTU"], "kind_words": ["rooftop unit"]},
+      "header": "Qty ({n}) {name} {tags}",
+      "family_names": ["Rooftop Unit"],
+      "line_order": ["comm_wiring", "map_points", "rep_assist", "shipped_loose"],
+      "slot_kinds": {"comm_wiring": "integration", "map_points": "integration", "rep_assist": "integration", "shipped_loose": "device"},
+      "wording": {"comm_wiring": "{verb} {device}", "map_points": "Map {device}", "rep_assist": "AME requires {device}", "shipped_loose": "{verb} {device}{owner}{qty}"},
+      "tech_hours": {"per": "unit", "hours": 2, "when": []}
+    },
+    {
+      "name": "Exhaust Fan",
+      "applies_to": {"prefixes": ["EF", "GEF"], "kind_words": ["exhaust fan"]},
+      "header": "Qty ({n}) {name} {tags}",
+      "family_names": ["Exhaust Fan"],
+      "line_order": ["interlock", "controller", "start_stop_status", "damper_actuator"],
+      "slot_kinds": {"interlock": "interlock", "controller": "device", "start_stop_status": "point", "damper_actuator": "device"},
+      "wording": {"interlock": "Interlock with {device}", "controller": "{verb} {device}{owner}{qty}", "start_stop_status": "{verb} {device}{owner}", "damper_actuator": "{verb} {device}{owner}{qty}"},
+      "tech_hours": {"per": "unit", "hours": null, "when": [{"if": ["controller"], "hours": 4}]}
+    },
+    {
+      "name": "VRF System",
+      "applies_to": {"prefixes": ["CU", "FCU", "BS"], "kind_words": ["vrf"]},
+      "header": "Qty ({n}) {name} {tags}",
+      "family_names": ["Indoor Unit", "Condensing Unit", "Branch Selector"],
+      "line_order": ["comm_wiring", "map_points", "rep_assist", "gateway"],
+      "slot_kinds": {"comm_wiring": "integration", "map_points": "integration", "rep_assist": "integration", "gateway": "wiring"},
+      "wording": {"comm_wiring": "{verb} {device}", "map_points": "Map {device}", "rep_assist": "AME requires {device}", "gateway": "{verb} {device}{owner}"},
+      "tech_hours": {"per": "indoor_unit", "hours": 1.5, "when": []}
+    },
+    {
+      "name": "Duct Heater",
+      "applies_to": {"prefixes": ["DH", "EDH"], "kind_words": ["duct heater"]},
+      "header": "Qty ({n}) {name} {tags}",
+      "family_names": ["Duct Heater"],
+      "line_order": ["discharge_temperature", "heater_control"],
+      "slot_kinds": {"discharge_temperature": "device", "heater_control": "point"},
+      "wording": {"discharge_temperature": "{verb} {device}{owner}{qty}", "heater_control": "{verb} {device}{owner}"},
+      "tech_hours": {"per": "unit", "hours": 2, "when": []}
+    },
+    {
+      "name": "Unit Heater",
+      "applies_to": {"prefixes": ["UH", "CUH"], "kind_words": ["unit heater"]},
+      "header": "Qty ({n}) {name} {tags}",
+      "family_names": ["Cabinet Unit Heater"],
+      "line_order": ["space_temperature", "control_valve"],
+      "slot_kinds": {"space_temperature": "device", "control_valve": "device"},
+      "wording": {"space_temperature": "{verb} {device}{owner}{qty}", "control_valve": "{verb} {device}{owner}{qty}"},
+      "tech_hours": {"per": "unit", "hours": 1, "when": []}
+    }
+  ]
+}

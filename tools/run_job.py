@@ -49,7 +49,10 @@ def check_answer(answer_file: Path, request_file: Path) -> str | None:
     if missing:
         return "the answer is missing: " + ", ".join(missing)
     main = MAIN_LIST.get(_load(request_file).get("kind"))
-    if main and not isinstance(answer.get(main), list):
+    props = schema.get("properties") or {}
+    # a schema that names its properties but not the kind's old main list is the rebuilt app's (bms): its
+    # write_system answers a System, whose "devices" list the property check below covers
+    if main and (main in props or not props) and not isinstance(answer.get(main), list):
         return f"'{main}' must be a list"
     for key, prop in (schema.get("properties") or {}).items():
         if isinstance(prop, dict) and prop.get("type") == "array" and key in answer and not isinstance(answer[key], list):

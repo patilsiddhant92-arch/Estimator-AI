@@ -1,0 +1,58 @@
+{
+  "$format": {
+    "about": "One entry per system type, from the Master Template: the SHAPE of a block only (header form, line order, wording form per slot, tech-hour rule). Never content: no default lines, no device a block gets without this job's evidence. Read by src/bms/playbook.py, which rejects a malformed file.",
+    "shapes": "A list of shape entries. Names are unique.",
+    "entry": {
+      "name": "The shape name (System.shape refers to it), e.g. \"Exhaust Fan\".",
+      "applies_to": {
+        "prefixes": "Tag prefixes that pick this shape (upper case, no dash), e.g. [\"EF\", \"GEF\"].",
+        "kind_words": "Words in a family or system name that pick this shape when no prefix does, lower case, e.g. [\"exhaust fan\"]."
+      },
+      "header": "The block header form. Placeholders: {n} the printed count (or ## when unknown), {name} the system name, {tags} the tags as printed (a range when consecutive).",
+      "family_names": "The family names this shape's blocks carry, in print order (a VRF block: indoor, condensing, branch selector).",
+      "line_order": "Every slot name, in print order. A device's slot must be one of these.",
+      "slot_kinds": "Per slot: \"device\" (hardware AME or another party furnishes), \"point\" (a control point / signal on equipment), \"interlock\" (a tie to another system, no verb), \"integration\" (the integration trio's lines), \"wiring\" (wiring only). Every slot in line_order has a kind.",
+      "wording": "Per slot: the house phrase form. Placeholders: {verb} the device's verb, {device} the device's name in the document's words, {owner} the owner bracket from wording.json (empty when AME furnishes), {qty} the quantity form from wording.json (empty when the block count applies), {what} the equipment named in an integration line. Every slot in line_order has a wording.",
+      "tech_hours": {
+        "per": "What the hours count per: one of unit, hardware_point, indoor_unit, panel, fan, fixed, line.",
+        "hours": "Hours per item, or null when the rule gives none unless a condition below holds.",
+        "when": "A list of {\"if\": [slot names], \"hours\": number}: these hours apply when the block has a device in every slot named."
+      }
+    }
+  },
+  "shapes": [
+    {
+      "name": "Exhaust Fan",
+      "applies_to": {
+        "prefixes": ["EF", "GEF"],
+        "kind_words": ["exhaust fan"]
+      },
+      "header": "Qty ({n}) {name} {tags}",
+      "family_names": ["Exhaust Fan"],
+      "line_order": ["interlock", "controller", "space_temperature", "duct_static", "start_stop_status", "speed_control", "damper_actuator"],
+      "slot_kinds": {
+        "interlock": "interlock",
+        "controller": "device",
+        "space_temperature": "device",
+        "duct_static": "device",
+        "start_stop_status": "point",
+        "speed_control": "point",
+        "damper_actuator": "device"
+      },
+      "wording": {
+        "interlock": "Interlock with {device}",
+        "controller": "{verb} {device}{owner}{qty}",
+        "space_temperature": "{verb} {device}{owner}{qty}",
+        "duct_static": "{verb} {device}{owner}{qty}",
+        "start_stop_status": "{verb} {device}{owner}",
+        "speed_control": "{verb} {device}{owner}",
+        "damper_actuator": "{verb} {device}{owner}{qty}"
+      },
+      "tech_hours": {
+        "per": "unit",
+        "hours": null,
+        "when": [{"if": ["controller"], "hours": 4}]
+      }
+    }
+  ]
+}
