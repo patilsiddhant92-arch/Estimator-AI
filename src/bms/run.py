@@ -11,9 +11,10 @@ system's skeleton, so writing before they are in would ask the writer again once
 In chat mode a step with no answer yet writes its request and the run stops after the step has asked every question
 it can (all systems are asked before stopping); the next run picks the cached answers up and does not ask a
 question whose request is still waiting. A step that refuses an answer `max_attempts` times stops the run with a
-plain message naming the request. Decisions saved from the review page are applied on the next run, and the
-writer is asked again only for the systems those decisions changed. A malformed decisions.json stops the run
-with a plain message. Every output goes under `out`
+plain message naming the request. Decisions saved from the review page are applied once on the next run, and the
+writer is asked again only for the systems those decisions changed. The decision is not applied a second time
+after that ask: the writer numbers devices from d1, so a second "delete d1" would remove the next device. A
+malformed decisions.json stops the run with a plain message. Every output goes under `out`
 (NDA: never the repo). Prints "Wrote <path>" per file, as the old app does (tools/run_job.py reads those lines).
 """
 from __future__ import annotations
@@ -171,6 +172,8 @@ def estimate(job_folder: Path, out: Path, cache: Path, mode: Mode = "chat") -> R
 
     # 4. the estimator's decisions from the last review page. The writer is asked again only for a system a
     # decision changed; every other system's cached answer stands. A malformed file stops the run in words.
+    # The decision is applied once, before that ask. It is not applied again afterwards: the writer numbers
+    # the devices it returns from d1, so a second "delete d1" would delete the device that used to be d2.
     try:
         decisions = load_decisions(out)
     except ModelError as error:
@@ -186,8 +189,6 @@ def estimate(job_folder: Path, out: Path, cache: Path, mode: Mode = "chat") -> R
         except ai.NoAnswer as missing:
             pending.append(_stopped(missing.reason) if str(missing.reason).startswith("Stopped:")
                            else f"{system.name}: {missing.reason}")
-    if not pending:
-        job = apply_decisions(job, decisions)   # a rewritten answer does not undo the decision
     save(job)
     if pending:
         return RunResult("waiting", "write", waiting=transport.waiting, job_file=job_file, messages=tuple(pending))

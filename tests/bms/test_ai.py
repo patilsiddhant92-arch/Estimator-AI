@@ -5,8 +5,10 @@ from __future__ import annotations
 import copy
 import dataclasses
 import json
+import os
 import re
 import sys
+import time
 from pathlib import Path
 
 import pytest
@@ -741,8 +743,15 @@ def test_write_system_through_the_chat_rejects_and_asks_again(job, raw, dossier,
     assert len(written.devices) == 3 and not request_file.exists()
 
 
+def _stamp(path: Path, seconds: int) -> None:
+    """Put the file's mtime `seconds` ahead of the clock, past any request written during this test."""
+    mtime = time.time_ns() + seconds * 1_000_000_000
+    os.utime(path, ns=(mtime, mtime))
+
+
 def test_a_check_refusal_stops_after_max_attempts_and_names_the_request(job, raw, dossier, playbook, tmp_path):
-    """Three refused answers (the repo's max_attempts) stop the run. The message names the request."""
+    """Three newer refused answers (the repo's max_attempts) stop the run. The message names the request.
+    The same answer file is not read again: a re-run waits, and a newer good answer is accepted."""
     system = skeleton(job.system("EF"))
     evidence = ai.evidence_for(system, dossier)
     cache = tmp_path / "cache"
@@ -752,15 +761,27 @@ def test_a_check_refusal_stops_after_max_attempts_and_names_the_request(job, raw
     answer = Path(json.loads(request_file.read_text(encoding="utf-8"))["answer_file"])
     answer.parent.mkdir(parents=True, exist_ok=True)
     answer.write_text(json.dumps(_bad(raw, lambda a: a["devices"][0].update(slot="gadget"))), encoding="utf-8")
-    for _ in range(2):
+    _stamp(answer, 10)
+    for seconds in (20, 30):
         with pytest.raises(ai.NoAnswer) as refused:
             ai.write_system(system, evidence, playbook, ai.ChatTransport(cache, job="00-0000"))
         assert refused.value.waiting
+        _stamp(answer, seconds)
     with pytest.raises(ai.NoAnswer) as stopped:
         ai.write_system(system, evidence, playbook, ai.ChatTransport(cache, job="00-0000"))
     assert not stopped.value.waiting
     assert "Stopped" in stopped.value.reason and "Exhaust Fans" in stopped.value.reason
     assert list((cache / "judge-chat" / "requests").glob("*.json")) == []
+
+    with pytest.raises(ai.NoAnswer) as waiting:
+        ai.write_system(system, evidence, playbook, ai.ChatTransport(cache, job="00-0000"))
+    assert waiting.value.waiting and "Stopped" not in waiting.value.reason
+    assert list((cache / "judge-chat" / "requests").glob("*.json"))
+
+    answer.write_text(json.dumps(raw["systems"][1]), encoding="utf-8")
+    _stamp(answer, 40)
+    written = ai.write_system(system, evidence, playbook, ai.ChatTransport(cache, job="00-0000"))
+    assert len(written.devices) == 3
 
 
 def test_the_api_stops_after_max_attempts_instead_of_calling_again(job, raw, dossier, playbook, tmp_path):

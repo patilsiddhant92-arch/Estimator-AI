@@ -344,6 +344,8 @@ def test_a_malformed_decisions_file_stops_with_a_plain_message(job_folder, tmp_p
 
 
 def test_a_rerun_asks_the_writer_again_only_for_the_system_a_decision_changed(job_folder, tmp_path, monkeypatch):
+    """The decision is applied once. Only that system is asked again, with the decision in the prompt.
+    The device the writer then numbers d1 is kept: a second apply would delete it."""
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     out, cache = tmp_path / "out", tmp_path / "cache"
     assert _reach(job_folder, out, cache, "write").stage == "write"
@@ -359,6 +361,12 @@ def test_a_rerun_asks_the_writer_again_only_for_the_system_a_decision_changed(jo
              for p in (cache / "judge-chat" / "requests").glob("*.json")]
     assert [r.get("plan_key") for r in fresh] == [changed]
     assert fresh[0]["step"] == "write" and "estimator" in fresh[0]["prompt"].lower()
+    assert answer_all(cache)
+    followed = estimate(job_folder, out, cache, "chat")
+    saved = json.loads(followed.job_file.read_text(encoding="utf-8"))
+    system = next(item for item in saved["systems"] if item["key"] == changed)
+    assert [device["id"] for device in system["devices"]] == [f"{changed}.d1"]
+    assert system["devices"][0]["name"] == "Space Temperature Sensor"
 
 
 def test_a_qc_must_fix_the_revise_left_as_it_was_stays_open():

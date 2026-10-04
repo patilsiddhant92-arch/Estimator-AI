@@ -217,12 +217,45 @@ def _refusal_count(transport) -> int:
         return 0
 
 
+def _mtime_ns(path: Path) -> int | None:
+    try:
+        return path.stat().st_mtime_ns
+    except OSError:
+        return None
+
+
+def _answer_path(transport) -> Path | None:
+    last = getattr(transport, "_last", None)
+    answers = getattr(transport, "answers_dir", None)
+    if last is None or answers is None:
+        return None
+    return Path(answers) / f"{last.key}.json"
+
+
+def _rejected_answer_mtime(transport) -> int | None:
+    """The mtime of the answer file last refused for this request, if one was recorded."""
+    cache, last = getattr(transport, "cache", None), getattr(transport, "_last", None)
+    if cache is None or last is None:
+        return None
+    try:
+        data = json.loads(_attempt_file(cache, last).read_text(encoding="utf-8"))
+        value = data.get("answer_mtime_ns")
+        return int(value) if value is not None else None
+    except (OSError, ValueError, TypeError):
+        return None
+
+
 def _record_refusal(transport) -> int:
     cache, last = getattr(transport, "cache", None), getattr(transport, "_last", None)
     count = _refusal_count(transport) + 1
     if cache is not None and last is not None:
+        payload: dict = {"attempts": count}
+        path = _answer_path(transport)
+        mtime = _mtime_ns(path) if path is not None else None
+        if mtime is not None:
+            payload["answer_mtime_ns"] = mtime
         try:
-            _write_json(_attempt_file(cache, last), {"attempts": count})
+            _write_json(_attempt_file(cache, last), payload)
         except OSError:
             pass
     return count
@@ -238,8 +271,34 @@ def _clear_attempts(transport) -> None:
         pass
 
 
+def _answer_is_fresh(transport, answer_file: Path, request_file: Path) -> bool:
+    """A chat answer counts only when it is newer than the request that asked for it and newer than the answer
+    already refused. `refuse` leaves the old file in place; reading it again would burn an attempt."""
+    answer_mtime = _mtime_ns(answer_file)
+    if answer_mtime is None:
+        return False
+    if request_file.is_file():
+        request_mtime = _mtime_ns(request_file)
+        if request_mtime is not None and answer_mtime <= request_mtime:
+            return False
+    rejected = _rejected_answer_mtime(transport)
+    return rejected is None or answer_mtime > rejected
+
+
+def _restart_attempts_for_new_answer(transport, answer_file: Path) -> None:
+    """After the run has stopped, one newer answer file gets a fresh set of attempts. The same file does not:
+    a re-run with nothing new waits, it does not stop again."""
+    if _refusal_count(transport) < _max_attempts():
+        return
+    rejected = _rejected_answer_mtime(transport)
+    answer_mtime = _mtime_ns(answer_file)
+    if rejected is not None and answer_mtime is not None and answer_mtime > rejected:
+        _clear_attempts(transport)
+
+
 def _drop_refused(transport) -> None:
-    """The refused answer leaves the cache, and a chat request still on disk is not asked again."""
+    """The refused answer leaves the cache, and a chat request still on disk is not asked again. The attempt
+    counter stays, so the same answer file is not read again; a newer answer file starts the count over."""
     last = getattr(transport, "_last", None)
     cache = getattr(transport, "cache", None)
     if last is not None and cache is not None:
@@ -324,8 +383,10 @@ class ChatTransport(_IntakeLog):
             (self.requests_dir / f"{q.key}.json").unlink(missing_ok=True)   # a killed run may have left it
             return cached
         answer_file = self.answers_dir / f"{q.key}.json"
+        request_file = self.requests_dir / f"{q.key}.json"
         problem = None
-        if answer_file.exists():
+        if answer_file.is_file() and _answer_is_fresh(self, answer_file, request_file):
+            _restart_attempts_for_new_answer(self, answer_file)
             answer, errors = _read_answer(answer_file, q.schema)
             if answer is not None:
                 self.cache.write(q, CHAT_MODEL, answer)
