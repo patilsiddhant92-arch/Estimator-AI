@@ -28,6 +28,8 @@ the Playbook rules text, a blank line, then the step's instructions (`src/bms/pr
 Ground rules the steps hold: every device cites this job's evidence by id (an answer citing an id the evidence does
 not carry is refused); the Master Template shape is only the frame (slots and their print form, never a line);
 every assumption says what and why; one clarification per block; the skeleton's planner fields always win.
+A cosmetic slip in client text (a leading label, a source id) is cleaned on intake instead of refused, and logged
+as [{"system", "change"}] in `<cache>/intake.json` (one log per run).
 """
 from __future__ import annotations
 
@@ -47,6 +49,7 @@ from estimator.writing.judge import DEFAULT_MODEL, KEY_VARIABLE, MODEL_VARIABLE,
 from bms import ai_evidence
 from bms.model import Device, Finding, Job, ModelError, Ref, System, json_schema, schema_errors
 from bms.playbook import Playbook, Shape
+from bms.render import _DANGLING, _TRADE, _place, _squash     # the renderer's own id and place helpers
 
 WRITE_SYSTEM = "write_system"       # kind of both the write and the revise request
 QC_JOB = "qc_job"
@@ -66,6 +69,7 @@ LATE_FIELDS = {"no_scope_reason": None, "serves": []}  # System fields added aft
 #                                                       means this value
 SKELETON_FIELDS = ("key", "name", "shape", "control", "families", "sequence_refs", "alternate", "serves")
 CITATIONS_TOPIC = "Evidence and citations"
+INTAKE_FILE = "intake.json"         # beside the cache: what the intake cleaned in this run's answers
 
 
 def _instructions(name: str) -> str:
@@ -185,14 +189,37 @@ def _problems(errors: list[str]) -> str:
     return shown + (f"; and {len(errors) - MAX_PROBLEMS} more" if len(errors) > MAX_PROBLEMS else "")
 
 
+class _IntakeLog:
+    """What the intake cleaned in this run's answers (a label taken off, a source id put in words), kept as
+    [{"system", "change"}] in `<cache>/intake.json`; a new transport (a new run) starts a new log."""
+
+    intake: list[dict]
+
+    def _start_intake(self, cache_dir: Path) -> None:
+        self.intake = []
+        self.intake_file = Path(cache_dir) / INTAKE_FILE
+        try:
+            self.intake_file.unlink(missing_ok=True)
+        except OSError:
+            pass
+
+    def note_intake(self, system: str, change: str) -> None:
+        self.intake.append({"system": system, "change": change})
+        try:
+            _write_json(self.intake_file, self.intake, indent=2)
+        except OSError:
+            pass
+
+
 # ---- the chat transport -----------------------------------------------------------------------------------------
 
-class ChatTransport:
+class ChatTransport(_IntakeLog):
     """Questions as request files for the chat; answers read back on the next run (see the module doc)."""
 
     def __init__(self, cache_dir: Path, job: str, handoff_dir: Path | None = None) -> None:
         """`cache_dir` is the run's cache (answers kept in `cache_dir/judge`); `handoff_dir` defaults to
         `cache_dir/judge-chat`; `job` is `dossier.job_name`."""
+        self._start_intake(cache_dir)
         self.cache = _Cache(Path(cache_dir) / "judge")
         self.handoff_dir = Path(handoff_dir) if handoff_dir is not None else Path(cache_dir) / "judge-chat"
         self.job = job
@@ -285,12 +312,13 @@ def _read_answer(path: Path, schema: dict) -> tuple[dict | None, list[str]]:
 
 # ---- the API transport ------------------------------------------------------------------------------------------
 
-class ApiTransport:
+class ApiTransport(_IntakeLog):
     """Questions through the Anthropic API, with the Playbook cached (see the module doc)."""
 
     def __init__(self, cache_dir: Path, model: str | None = None, client=None) -> None:
         """`model` defaults to $ESTIMATOR_MODEL, else `estimator.writing.judge.DEFAULT_MODEL`; `client` is an
         `anthropic.Anthropic` (made from the environment when None; tests pass a fake)."""
+        self._start_intake(cache_dir)
         self.cache = _Cache(Path(cache_dir) / "judge")
         self.model = model or os.environ.get(MODEL_VARIABLE) or DEFAULT_MODEL
         self._client = client
@@ -604,10 +632,12 @@ def _all_refs(system: System) -> list[Ref]:
 
 
 def _check_system(answer, skeleton: System, shape: Shape | None, known: frozenset[str],
-                  keep: Sequence[Device] = (), originals: Sequence[Device] = ()) -> tuple[System | None, list[str]]:
+                  keep: Sequence[Device] = (), originals: Sequence[Device] = (),
+                  changes: list[str] | None = None) -> tuple[System | None, list[str]]:
     """A System answer made usable, or the problems that stop it: the skeleton's fields win; untouched devices
-    (`keep`) are put back as they were; every device cites the evidence; slots fit the shape; at most one
-    clarification; every assumption says what and why; device ids unique and of this system."""
+    (`keep`) are put back as they were; client texts are cleaned (`_normalise`, each change added to `changes`);
+    every device cites the evidence; slots fit the shape; a known count is 1 or more; at most one clarification;
+    every assumption says what and why; device ids unique and of this system."""
     if not isinstance(answer, dict):
         return None, ["the answer is not a JSON object"]
     answer = {"no_scope_reason": None, **answer, **_skeleton_dict(skeleton)}   # an answer without the field: null
@@ -618,6 +648,12 @@ def _check_system(answer, skeleton: System, shape: Shape | None, known: frozense
         return None, [f"it breaks the schema at {e.removeprefix('$.')}" for e in errors]
     problems: list[str] = []
     kept_ids = {d.id for d in keep}
+    _normalise(answer, skeleton, kept_ids, changes if changes is not None else [])
+    for n, device in enumerate(answer["devices"]):
+        value = device["quantity"]["value"]
+        if device.get("id") not in kept_ids and value is not None and value <= 0:
+            problems.append(f"device {device.get('id') or n + 1} has a quantity of {value}: a count is 1 or more, "
+                            "or null when no source gives it")
     for n, device in enumerate(answer["devices"]):
         label = f"device {device.get('id') or n + 1}"
         if device.get("id") in kept_ids:
@@ -643,14 +679,14 @@ def _check_system(answer, skeleton: System, shape: Shape | None, known: frozense
             if not str(assumption["why"]).strip():
                 problems.append(f"{label} has an assumption that does not say why")
             problems += [f"{label}'s assumption {p}" for p in _text_problems(
-                f"{assumption['what']} {assumption['why']}", assumption["what"], assumption["why"])]
+                f"{assumption['what']} {assumption['why']}")]
     problems += _heater_problems(skeleton, answer["devices"], kept_ids)
     if len(answer["clarifications"]) > 1:
         problems.append(f"it gives {len(answer['clarifications'])} clarifications; a block has at most one")
     for clarification in answer["clarifications"]:
         if not str(clarification["text"]).strip():
             problems.append("its clarification has no text")
-        problems += [f"its clarification {p}" for p in _text_problems(clarification["text"], clarification["text"])]
+        problems += [f"its clarification {p}" for p in _text_problems(clarification["text"])]
     if answer["devices"]:
         answer["no_scope_reason"] = None
     elif not str(answer.get("no_scope_reason") or "").strip():
@@ -671,26 +707,128 @@ def _check_system(answer, skeleton: System, shape: Shape | None, known: frozense
 
 
 _PLAYBOOK_WORD = re.compile(r"\bplaybook\b|\bfinding\s+\d+\b", re.I)
-_SOURCE_ID = re.compile(r"\[?\b[SQIFC]\d+[a-z]?\b\]?")
-_LABEL = re.compile(r"^\s*(?:confirm\b|assumed\b|assumption\s*:|note\s*:|quantity\s+per\b|(?:as\s+)?per\s+drawings\b)",
-                    re.I)
 
 
-def _text_problems(text: str, *starts: str) -> list[str]:
-    """What stops a text the client or the estimator reads: a source id in it (name the document in words), or a
-    label at the start of one of `starts` (the renderer adds the label)."""
-    problems = []
-    ids = list(dict.fromkeys(m.group(0).strip("[]") for m in _SOURCE_ID.finditer(str(text or ""))))
-    if ids:
-        problems.append(f"names the source id {', '.join(ids)}: name the document in words "
-                        "(\"the mechanical schedule\", \"the sequence of operations\") instead")
+def _text_problems(text: str) -> list[str]:
+    """What stops a text the client or the estimator reads and the intake cannot clean: a Playbook rule named in
+    it (labels and source ids are cleaned by `_normalise`, never refused)."""
     if _PLAYBOOK_WORD.search(str(text or "")):
-        problems.append("names the Playbook or one of its rules: say the house practice in plain words, or name "
-                        "the document in a few plain words")
-    if any(_LABEL.match(str(s or "")) for s in starts):
-        problems.append("starts with a label (\"Confirm\", \"Assumed:\", \"Quantity per\"): leave it out, the "
-                        "renderer adds it")
-    return problems
+        return ["names the Playbook or one of its rules: say the house practice in plain words, or name the "
+                "document in a few plain words"]
+    return []
+
+
+# ---- the intake: cosmetic slips in client text cleaned, not refused -----------------------------------------------
+
+_ONE_SOURCE = r"\b[SQIFC]\d{1,4}[a-z]?\b(?:\s+(?:note|paragraph)\s+\d+)?"
+_SOURCE_RUN = re.compile(rf"{_ONE_SOURCE}(?:\s*(?:,|and|to|through|thru|-|–)\s*{_ONE_SOURCE})*")
+_SOURCE_ID = re.compile(r"\b([SQIFC]\d{1,4}[a-z]?)\b")
+_BRACKETED = re.compile(rf"\[\s*({_ONE_SOURCE})\s*\]")
+_LEAD_LABEL = re.compile(r"^\s*(?:\*+|confirm\s+(?:quantities|quantity|ownership)\b|confirm\b|assumed\b|assumption\b"
+                         r"|quantity\s+per\b|note\s*:)\s*:?\s*", re.I)
+_LEAD_PER = re.compile(r"^\s*(?:as\s+)?per\b\s*:?\s*", re.I)
+
+
+def _strip_lead(text: str) -> str:
+    """The text without the label(s) it starts with ("*", "Confirm quantities", "Assumed:", "Quantity per")."""
+    while True:
+        stripped = _LEAD_LABEL.sub("", text, count=1)
+        if stripped == text:
+            return text.strip()
+        text = stripped
+
+
+def _discipline(text: str) -> str:
+    """A per-drawings clarification's text: the discipline word only ("plumbing"), else the text without its
+    "Quantity per" and "drawings"."""
+    trade = _TRADE.search(text)
+    if trade:
+        return trade.group(1).lower()
+    text = _LEAD_PER.sub("", _strip_lead(text), count=1)
+    return re.sub(r"\s*\bdrawings?\b\s*$", "", text, flags=re.I).strip(" .:;,")
+
+
+def _place_of(source_id: str, groups: Sequence[Sequence[dict]]) -> str:
+    for group in groups:
+        for ref in group:
+            if str(ref.get("source_id", "")).strip("[] ") == source_id and _place(ref.get("where", "")):
+                return _place(ref.get("where", ""))
+    return ""
+
+
+def _without_ids(text: str, groups: Sequence[Sequence[dict]]) -> str:
+    """The text with every source id ("S141", "[Q2]", "S6 and S7") put as the place of its ref, as the renderer
+    does, or taken out (and the words around it tidied) when no ref names a place for it."""
+    if not _SOURCE_ID.search(text):
+        return text
+    out = _BRACKETED.sub(r"\1", text)
+
+    def swap(match: re.Match) -> str:
+        places = (_place_of(i, groups) for i in _SOURCE_ID.findall(match.group(0)))
+        return " and ".join(dict.fromkeys(p for p in places if p))
+
+    out = _SOURCE_RUN.sub(swap, out)
+    out = re.sub(r"[(\[]\s*(?:(?:,|;|and)\s*)*[)\]]", " ", out)        # an emptied bracket
+    out = re.sub(r"\(\s+", "(", out)
+    out = re.sub(r"\s+([,;:.)])", r"\1", out)
+    while True:
+        tidy = _DANGLING.sub("", out)
+        tidy = re.sub(r"([,;:])\s*(?=[,;:.)]|$)", "", tidy)          # a separator left with nothing after it
+        if tidy == out:
+            break
+        out = tidy
+    return _squash(out).lstrip(",;: ")
+
+
+def _device_refs(device: dict) -> list[dict]:
+    quantity = device.get("quantity") or {}
+    return [*device["refs"], *quantity.get("sources", []), *(o["ref"] for o in quantity.get("others", []))]
+
+
+def _normalise(answer: dict, skeleton: System, kept_ids: set[str], changes: list[str]) -> None:
+    """Clean the client texts of `answer` in place, each change added to `changes`: a leading label taken off an
+    assumption or a clarification (a per-drawings clarification keeps its discipline word only; one left empty is
+    dropped) and every source id put in words (`_without_ids`)."""
+    block = [*(r.to_dict() for r in ai_evidence.system_refs(skeleton))]
+    for device in answer["devices"]:
+        block += _device_refs(device)
+
+    def clean(where: str, text: str, groups, label: bool = True) -> str:
+        new = _without_ids(_strip_lead(text) if label else text.strip(), groups)
+        if new != text.strip():
+            changes.append(f"{where}: {text!r} written as {new!r}")
+        return new
+
+    for device in answer["devices"]:
+        assumption = device.get("assumption")
+        if assumption is None or device.get("id") in kept_ids:
+            continue
+        groups = (_device_refs(device), block)
+        for part in ("what", "why"):
+            if str(assumption[part]).strip():
+                assumption[part] = clean(f"device {device.get('id')} assumption {part}", assumption[part], groups)
+    kept = []
+    for clarification in answer["clarifications"]:
+        text, where = clarification["text"], f"clarification ({clarification['kind']})"
+        new = _without_ids(_strip_lead(text), (block,))
+        if clarification["kind"] == "per_drawings":
+            new = _discipline(new)
+        if not new and str(text).strip():
+            changes.append(f"{where} {text!r} dropped: nothing left after its label")
+            continue
+        if new != text.strip():
+            changes.append(f"{where}: {text!r} written as {new!r}")
+        kept.append(dict(clarification, text=new))
+    answer["clarifications"] = kept
+    if str(answer.get("no_scope_reason") or "").strip():
+        answer["no_scope_reason"] = clean("no_scope_reason", answer["no_scope_reason"], (block,), label=False)
+
+
+def _log_intake(transport, name: str, changes: Sequence[str]) -> None:
+    note = getattr(transport, "note_intake", None)
+    if note is not None:
+        for change in changes:
+            note(name, change)
 
 
 def _number_devices(devices: list[dict], key: str, reserved: set[str]) -> None:
@@ -740,18 +878,36 @@ def write_system(system: System, evidence: str, playbook: Playbook, transport: T
     is no answer yet (chat) or the answer cannot be used after the schema check.
 
     Also: the pictures the evidence names are attached; a ref to an id the evidence does not carry is dropped when
-    the device has another, and a device with none, a slot outside the shape, more than one clarification or an
-    assumption without its what or why refuses the answer (the chat asks again with the reason; the API is asked
-    once more). Duct heaters are written in one place: the duct heater block's writer is told the units it serves
+    the device has another, and a device with none, a slot outside the shape, a count of 0 or below, more than one
+    clarification or an assumption without its what or why refuses the answer (the chat asks again with the reason;
+    the API is asked once more). Cosmetic slips are cleaned on intake, never refused: a leading label ("Confirm",
+    "Assumed:", "Quantity per") comes off an assumption or a clarification (a per-drawings clarification keeps its
+    discipline word, "plumbing"; one left empty is dropped) and a source id in client text becomes the place of its
+    ref, or is taken out; each change goes to the run's `intake.json` beside the cache. Duct heaters are written in one place: the duct heater block's writer is told the units it serves
     and must write all its heaters (an empty heater block is refused); a served unit's writer is told the heater
     block writes its heaters (a duct heater line there is refused)."""
     shape = _shape(system, playbook)
     images, listing = _pictures(evidence)
     known = ai_evidence.cited_ids(evidence) | _ref_ids(ai_evidence.system_refs(system))
-    return _ask_checked(transport, WRITE_SYSTEM, system.name, playbook.rules_text, _instructions("write_system"),
-                        _write_prompt(system, shape, evidence), json_schema(System),
-                        {"step": "write", "plan_key": system.key, "images": listing}, images,
-                        lambda answer: _check_system(answer, system, shape, known))
+    return _ask_system(transport, system.name, playbook, "write_system", _write_prompt(system, shape, evidence),
+                       {"step": "write", "plan_key": system.key, "images": listing}, images, system, shape, known)
+
+
+def _ask_system(transport, name: str, playbook: Playbook, step: str, prompt: str, extra: dict,
+                images: Sequence[Path], system: System, shape: Shape | None, known: frozenset[str],
+                keep: Sequence[Device] = (), originals: Sequence[Device] = ()) -> System:
+    """One WRITE_SYSTEM question checked by `_check_system`; what the intake cleaned in the used answer goes to
+    the transport's intake log."""
+    changes: list[str] = []
+
+    def check(answer):
+        changes.clear()                     # only the used answer's changes are logged
+        return _check_system(answer, system, shape, known, keep, originals, changes)
+
+    written = _ask_checked(transport, WRITE_SYSTEM, name, playbook.rules_text, _instructions(step), prompt,
+                           json_schema(System), extra, images, check)
+    _log_intake(transport, name, changes)
+    return written
 
 
 def revise_system(system: System, findings: Sequence[Finding], evidence: str, playbook: Playbook,
@@ -771,10 +927,10 @@ def revise_system(system: System, findings: Sequence[Finding], evidence: str, pl
     whole = any(f.device_id is None for f in mine)
     keep = () if whole else tuple(d for d in system.devices if d.id not in named)
     known = (ai_evidence.cited_ids(evidence) | _ref_ids(_all_refs(system)))
-    return _ask_checked(transport, WRITE_SYSTEM, f"{system.name} (revise)", playbook.rules_text,
-                        _instructions("revise_system"), _revise_prompt(system, mine, shape, evidence),
-                        json_schema(System), {"step": "revise", "plan_key": system.key, "images": listing}, images,
-                        lambda answer: _check_system(answer, system, shape, known, keep, system.devices))
+    return _ask_system(transport, f"{system.name} (revise)", playbook, "revise_system",
+                       _revise_prompt(system, mine, shape, evidence),
+                       {"step": "revise", "plan_key": system.key, "images": listing}, images, system, shape, known,
+                       keep, system.devices)
 
 
 # ---- QC -------------------------------------------------------------------------------------------------------------
