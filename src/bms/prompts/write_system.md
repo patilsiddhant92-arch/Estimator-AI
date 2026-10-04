@@ -53,7 +53,7 @@ You write the system's devices (its scope lines, in print order), its clarificat
 - clarifications holds at most one item; an answer with more is refused.
 - kind: confirm (something the client or the estimator must confirm), assumed (the block rests on a stated assumption), per_drawings (a quantity or extent as per the drawings), note (a plain note for the client).
 - text: plain words for the client that clarify the scope, at most about 40 words. List the items; do not narrate how you found them. Never estimating hints, tech hours, prices, confidence or source ids (name the document in words instead). When the counts disagree, it names the count carried and every other count with its place.
-- Never start the text with a label ("Confirm", "Assumed:", "Note:", "Quantity"): the kind is the label and the renderer prints it.
+- Never start the text with a label ("Confirm", "Assumed:", "Note:", "Quantity"): the kind is the label and the renderer prints it. For per_drawings the text is the discipline word only ("plumbing", "electrical").
 - Give none when nothing needs one.
 
 ## A block with nothing to scope

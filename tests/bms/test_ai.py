@@ -326,10 +326,8 @@ def _bad(raw, change):
      "clarification"),
     (lambda a: a["devices"][0].update(assumption={"what": "one per fan", "why": " "}), "why"),
     (lambda a: a["devices"][0].update(verb="Provide"), "verb"),
-    (lambda a: a["devices"][0].update(assumption={"what": "one per fan", "why": "per S141 and Q2"}), "source id"),
-    (lambda a: a.update(clarifications=[{"kind": "confirm", "text": "the fan count, see S7"}]), "source id"),
-    (lambda a: a.update(clarifications=[{"kind": "confirm", "text": "Confirm: the fan count"}]), "label"),
-    (lambda a: a["devices"][0].update(assumption={"what": "Assumed: one per fan", "why": "the schedule"}), "label"),
+    (lambda a: a["devices"][0]["quantity"].update(value=0), "quantity"),
+    (lambda a: a["devices"][1]["quantity"].update(value=-1), "quantity"),
     (lambda a: a.update(devices=[], no_scope_reason=None, tech_hours=None), "no_scope_reason"),
 ])
 def test_write_system_refuses_an_answer_it_cannot_use(job, raw, dossier, playbook, change, words):
@@ -338,6 +336,129 @@ def test_write_system_refuses_an_answer_it_cannot_use(job, raw, dossier, playboo
     with pytest.raises(ai.NoAnswer) as refused:
         ai.write_system(system, ai.evidence_for(system, dossier), playbook, transport)
     assert words in refused.value.reason and "the answer for Exhaust Fans" in refused.value.reason
+
+
+# ---- normalised on intake, not refused --------------------------------------------------------------------------
+
+def _written(job, raw, dossier, playbook, change):
+    system = skeleton(job.system("EF"))
+    return ai.write_system(system, ai.evidence_for(system, dossier), playbook, FakeTransport(_bad(raw, change)))
+
+
+@pytest.mark.parametrize("kind, text, cleaned", [
+    ("confirm", "Confirm: the fan count", "the fan count"),
+    ("confirm", "CONFIRM QUANTITIES the fans and dampers", "the fans and dampers"),
+    ("confirm", "Confirm ownership: who wires the dampers", "who wires the dampers"),
+    ("confirm", "** Confirm quantity: the dampers", "the dampers"),
+    ("assumed", "Assumed: one damper per fan", "one damper per fan"),
+    ("assumed", "Assumption one damper per fan", "one damper per fan"),
+    ("note", "Confirmation of the fan count is by the owner", "Confirmation of the fan count is by the owner"),
+    ("per_drawings", "Quantity per plumbing drawings", "plumbing"),
+    ("per_drawings", "plumbing drawings", "plumbing"),
+    ("per_drawings", "per electrical drawings", "electrical"),
+    ("per_drawings", "Quantity per: Mechanical drawings", "mechanical"),
+])
+def test_a_label_in_a_clarification_is_stripped_not_refused(job, raw, dossier, playbook, kind, text, cleaned):
+    written = _written(job, raw, dossier, playbook, lambda a: a.update(clarifications=[{"kind": kind, "text": text}]))
+    (clarification,) = written.clarifications
+    assert clarification.kind == kind and clarification.text == cleaned
+
+
+@pytest.mark.parametrize("kind, text", [("per_drawings", "Quantity per drawings"), ("confirm", "Confirm:"),
+                                        ("assumed", "** Assumed")])
+def test_a_clarification_empty_after_its_label_is_dropped(job, raw, dossier, playbook, kind, text):
+    written = _written(job, raw, dossier, playbook, lambda a: a.update(clarifications=[{"kind": kind, "text": text}]))
+    assert written.clarifications == () and len(written.devices) == 3
+
+
+def test_a_label_in_an_assumption_is_stripped(job, raw, dossier, playbook):
+    written = _written(job, raw, dossier, playbook, lambda a: a["devices"][0].update(
+        assumption={"what": "Assumed: one per fan", "why": "Assumption: the schedule lists three"}))
+    assert written.devices[0].assumption.what == "one per fan"
+    assert written.devices[0].assumption.why == "the schedule lists three"
+
+
+def test_a_source_id_in_client_text_becomes_its_place(job, raw, dossier, playbook):
+    def change(a):
+        a["devices"][2]["assumption"] = {"what": "one damper per fan", "why": "as shown on [S7]"}
+        a["clarifications"] = [{"kind": "confirm", "text": "the fan count on S6 and the sequence in Q2"}]
+    written = _written(job, raw, dossier, playbook, change)
+    assert written.devices[2].assumption.why == "as shown on M-101"
+    assert written.clarifications[0].text == "the fan count on M-001 and the sequence in 23 09 93"
+
+
+@pytest.mark.parametrize("why, cleaned", [
+    ("per S141 and Q2", "per 23 09 93"),
+    ("the ledger fact F17", "the ledger fact"),
+    ("the picture I9 shows it", "the picture shows it"),
+    ("the schedule, see C4", "the schedule"),
+    ("the schedule (S999)", "the schedule"),
+])
+def test_a_source_id_without_a_ref_is_removed_tidily(job, raw, dossier, playbook, why, cleaned):
+    written = _written(job, raw, dossier, playbook, lambda a: a["devices"][0].update(
+        assumption={"what": "one per fan", "why": why}))
+    assert written.devices[0].assumption.why == cleaned
+
+
+def test_a_ledger_fact_id_is_removed_not_put_as_ledger_fact(job, raw, dossier, playbook):
+    def change(a):
+        a["devices"][0]["refs"].append({"source_id": "F17", "quote": "x", "where": "ledger fact"})
+        a["devices"][0]["assumption"] = {"what": "one per fan", "why": "the fans are on F17"}
+    system = dataclasses.replace(skeleton(job.system("EF")), sequence_refs=skeleton(job.system("EF")).sequence_refs
+                                 + (Ref("F17", "x", "ledger fact"),))
+    written = ai.write_system(system, ai.evidence_for(system, dossier), playbook, FakeTransport(_bad(raw, change)))
+    assert written.devices[0].assumption.why == "the fans are"
+
+
+def test_a_source_id_in_the_no_scope_reason_is_removed(job, raw, dossier, playbook):
+    written = _written(job, raw, dossier, playbook, lambda a: a.update(
+        devices=[], clarifications=[], tech_hours=None, no_scope_reason="The fans run on their own controls (S999)."))
+    assert written.no_scope_reason == "The fans run on their own controls."
+
+
+def test_an_unknown_quantity_is_kept(job, raw, dossier, playbook):
+    written = _written(job, raw, dossier, playbook, lambda a: a["devices"][0]["quantity"].update(value=None))
+    assert written.devices[0].quantity.value is None
+
+
+def test_every_cleanup_is_logged_beside_the_cache(job, raw, dossier, playbook, tmp_path):
+    system = skeleton(job.system("EF"))
+    evidence = ai.evidence_for(system, dossier)
+    cache = tmp_path / "cache"
+    with pytest.raises(ai.NoAnswer):
+        ai.write_system(system, evidence, playbook, ai.ChatTransport(cache, job="00-0000"))
+    (request_file,) = (cache / "judge-chat" / "requests").glob("*.json")
+    answer = Path(json.loads(request_file.read_text(encoding="utf-8"))["answer_file"])
+    answer.parent.mkdir(parents=True)
+    answer.write_text(json.dumps(_bad(raw, lambda a: a.update(
+        clarifications=[{"kind": "per_drawings", "text": "Quantity per plumbing drawings"}]))), encoding="utf-8")
+    chat = ai.ChatTransport(cache, job="00-0000")
+    written = ai.write_system(system, evidence, playbook, chat)
+    assert written.clarifications[0].text == "plumbing"
+    assert chat.answered_in_chat == 1 and chat.waiting == 0 and not request_file.exists()    # accepted first time
+    (entry,) = json.loads((cache / "intake.json").read_text(encoding="utf-8"))
+    assert entry["system"] == "Exhaust Fans" and "Quantity per plumbing drawings" in entry["change"]
+    assert "plumbing" in entry["change"]
+    again = ai.ChatTransport(cache, job="00-0000")                     # a new run starts a new log
+    assert not (cache / "intake.json").exists()
+    ai.write_system(system, evidence, playbook, again)                 # from the cache: cleaned and logged again
+    assert len(json.loads((cache / "intake.json").read_text(encoding="utf-8"))) == 1
+
+
+def test_a_clean_answer_logs_nothing(job, raw, dossier, playbook, tmp_path):
+    system = skeleton(job.system("EF"))
+    client = FakeClient(_Response(json.dumps(raw["systems"][1])))
+    transport = ai.ApiTransport(tmp_path, model="claude-test", client=client)
+    ai.write_system(system, ai.evidence_for(system, dossier), playbook, transport)
+    assert transport.intake == [] and not (tmp_path / "intake.json").exists()
+
+
+def test_the_writer_prompts_no_longer_threaten_refusal_for_labels():
+    folder = ROOT / "src" / "bms" / "prompts"
+    for name in ("write_system.md", "revise_system.md"):
+        for line in (folder / name).read_text(encoding="utf-8").splitlines():
+            if "label" in line.lower():
+                assert "refus" not in line.lower(), (name, line)
 
 
 def test_a_block_with_nothing_to_scope_keeps_its_reason(job, raw, dossier, playbook):
