@@ -53,6 +53,19 @@ def test_a_top_level_import_of_a_new_name_from_a_changed_module_bites(tmp_path):
     assert "FAIL" in result.stdout
 
 
+def test_a_top_level_import_of_a_new_module_bites(tmp_path):
+    # The linter branch's own shape: a new module and a new test file that imports it at the top. pytest exits 4
+    # for the node id when collection fails, and only exit 2 is checked for an ImportError of a removed module.
+    repo, base, head = _repo(tmp_path, {"src/demo.py": OLD_CODE}, {
+        "src/fresh_module.py": "def value():\n    return 3\n",
+        "tests/test_fresh.py": "from fresh_module import value\n\n\ndef test_value():\n    assert value() == 3\n",
+    })
+    result = _run(repo, base, head)
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "tests/test_fresh.py::test_value" in result.stdout
+    assert "FAIL" in result.stdout
+
+
 def test_a_mark_ending_the_previous_test_does_not_cover_the_next(tmp_path):
     # The "line above the def" rule reads the last line of the previous test when there is no blank line.
     repo, base, head = _repo(tmp_path, {"src/demo.py": OLD_CODE}, {
