@@ -74,7 +74,9 @@ def count_tags(image_path: Path, tag_pattern: str, *, transport=None) -> CountRe
     return count_sheet(image_path, [tag_pattern], transport=transport).get(tag_pattern, CountResult(None, ()))
 
 
-def count_sheet(image_path: Path, tag_patterns, *, transport=None) -> dict[str, CountResult]:
+def count_sheet(image_path: Path, tag_patterns, *, transport=None,
+                crops: list[tuple[tuple[int, int, int, int], Path]] | None = None,
+                symbols_expected: dict[str, int] | None = None) -> dict[str, CountResult]:
     """Count every pattern of `tag_patterns` on one whole-sheet picture with ONE vision question (every tile as its
     own picture, every pattern together): {pattern: CountResult}, each as `count_tags` gives it. Every result is
     `CountResult(None, ())` when the sheet could not be counted (unreadable picture, a bad pattern, no transport,
@@ -87,7 +89,7 @@ def count_sheet(image_path: Path, tag_patterns, *, transport=None) -> dict[str, 
             re.compile(pattern)
         if transport is None or not patterns:
             return unknown
-        asked = ask_sheet(transport, Path(image_path), patterns)
+        asked = ask_sheet(transport, Path(image_path), patterns, crops=crops, symbols_expected=symbols_expected)
         if asked is None:
             return unknown
         found, listed = asked
@@ -102,7 +104,8 @@ def count_sheet(image_path: Path, tag_patterns, *, transport=None) -> dict[str, 
         return unknown
 
 
-def cross_check(job: "Job", catalogue: "Catalogue", cache: Path, *, transport=None) -> "Job":
+def cross_check(job: "Job", catalogue: "Catalogue", cache: Path, *, transport=None,
+                micro_crops: bool = False) -> "Job":
     """The job with every family's text count checked against the plan counts (design §4.6), run after planning.
 
     Contract: for each family with tags, the plan sheets (sheet type "Plans", a controls discipline) whose text shows
@@ -117,7 +120,7 @@ def cross_check(job: "Job", catalogue: "Catalogue", cache: Path, *, transport=No
     Pure apart from the picture cache under `cache`. Never lowers a count, never raises; running it twice changes
     nothing more."""
     try:
-        return _Check(job, catalogue, Path(cache), transport).run()
+        return _Check(job, catalogue, Path(cache), transport, micro_crops=micro_crops).run()
     except Exception:
         return job
 
@@ -217,8 +220,9 @@ class _Sheet:
 
 
 class _Check:
-    def __init__(self, job, catalogue, cache: Path, transport) -> None:
+    def __init__(self, job, catalogue, cache: Path, transport, micro_crops: bool = False) -> None:
         self.job, self.catalogue, self.cache, self.transport = job, catalogue, cache, transport
+        self.micro_crops = micro_crops
         used = [int(m.group(1)) for ref in _refs(job) if (m := re.fullmatch(r"C(\d+)", ref.source_id))]
         self.next_id = max(used, default=0) + 1
 
@@ -243,7 +247,8 @@ class _Check:
         for (key, name), pattern in patterns.items():
             find = searcher(pattern)
             for sheet in plans:
-                if find.search(records[(sheet.document, sheet.page)].text or ""):
+                text = records[(sheet.document, sheet.page)].text or ""
+                if find.search(text) or (self.transport is not None and len(text.strip()) < 50):
                     on_sheet.setdefault((key, name), []).append((sheet.document, sheet.page))
                     if (sheet.document, sheet.page) not in sheets:
                         doc = _name(sheet.document)
@@ -280,6 +285,8 @@ class _Check:
 
     def _count_sheet(self, sheet: _Sheet, here: list[str]) -> None:
         from estimator.writing.dossier import SHEET_DPI, sheet_pictures
+        from bms.counts_text import classify_located_boxes, has_text_layer
+        from bms.counts_vision import cut_micro_crops
 
         try:
             images, _flags = sheet_pictures(self.catalogue, self.cache, [sheet.key], "plan sheet, tags counted")
@@ -287,15 +294,75 @@ class _Check:
         except Exception:
             sheet.picture = None
         combined = "|".join(f"(?:{p})" for p in here)
+
+        has_text = True
+        confident, ambiguous = [], []
         try:
-            sheet.located = self._located(sheet, combined, SHEET_DPI / 72)
+            confident, ambiguous, has_text = self._classify(sheet, combined, SHEET_DPI / 72)
+            sheet.located = ([(t, b) for t, b in confident] + [(t, b) for t, b, _ in ambiguous]) if has_text else None
         except Exception:
             sheet.located = None
+            confident, ambiguous, has_text = [], [], False
+
         if self.transport is not None and sheet.picture is not None:
-            results = count_sheet(sheet.picture, here, transport=self.transport)    # one question for the sheet
+            if self.micro_crops and has_text:
+                symbols_expected = self._symbols_expected(here, sheet)
+                if ambiguous or symbols_expected:
+                    amb_boxes = [b for _, b, _ in ambiguous]
+                    crops = cut_micro_crops(sheet.picture, amb_boxes) if amb_boxes else []
+                    results = count_sheet(sheet.picture, here, transport=self.transport,
+                                          crops=crops, symbols_expected=symbols_expected)
+                    if results and all(r.value is not None for r in results.values()):
+                        merged_results = {}
+                        for p in here:
+                            r = results.get(p)
+                            c_boxes = [(t, b) for t, b in confident if fits(p, t)]
+                            all_boxes = _distinct([*[(b.text, (b.x, b.y, b.width, b.height)) for b in (r.boxes if r else ())],
+                                                   *c_boxes])
+                            merged_results[p] = CountResult(len(all_boxes), tuple(Box(b[0], b[1], b[2], b[3], t) for t, b in all_boxes))
+                        results = merged_results
+                else:
+                    results = {}
+                    for p in here:
+                        c_boxes = _distinct([(t, b) for t, b in confident if fits(p, t)])
+                        results[p] = CountResult(len(c_boxes), tuple(Box(b[0], b[1], b[2], b[3], t) for t, b in c_boxes))
+            else:
+                results = count_sheet(sheet.picture, here, transport=self.transport)
+
             if results and all(r.value is not None for r in results.values()):
                 sheet.counted = frozenset(results)
                 sheet.seen = [(b.text, (b.x, b.y, b.width, b.height)) for r in results.values() for b in r.boxes]
+
+    def _classify(self, sheet: _Sheet, pattern: str, default_scale: float):
+        import pymupdf
+        from PIL import Image
+        from bms.counts_text import classify_located_boxes, has_text_layer
+
+        documents = {d.relative: Path(d.path) for d in self.catalogue.job.documents}
+        document, number = sheet.key
+        with pymupdf.open(str(documents[document])) as pdf:
+            page = pdf[number - 1]
+            scale = default_scale
+            if sheet.picture is not None:
+                with Image.open(sheet.picture) as picture:
+                    scale = picture.size[0] / page.rect.width
+            if not has_text_layer(page):
+                return [], [], False
+            confident, ambiguous = classify_located_boxes(page, pattern, scale)
+            return confident, ambiguous, True
+
+    def _symbols_expected(self, here: list[str], sheet: _Sheet) -> dict[str, int]:
+        symbols = {}
+        for system in self.job.systems:
+            for family in system.families:
+                if family.count.value is None or not family.tags:
+                    continue
+                for p in here:
+                    if any(fits(p, t) for t in family.tags):
+                        located_n = len({canonical(t) for t, _ in sheet.located or () if fits(p, t)})
+                        if family.count.value > located_n:
+                            symbols[p] = family.count.value - located_n
+        return symbols
 
     def _located(self, sheet: _Sheet, pattern: str, default_scale: float) -> list:
         import pymupdf
