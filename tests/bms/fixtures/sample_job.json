@@ -103,7 +103,8 @@
       ],
       "clarifications": [{"kind": "note", "text": "Unit count carried at 2; the roof plan shows 1"}],
       "tech_hours": 4.0,
-      "alternate": "base"
+      "alternate": "base",
+      "no_scope_reason": null
     },
     {
       "key": "EF",
@@ -165,7 +166,8 @@
       ],
       "clarifications": [],
       "tech_hours": 12.0,
-      "alternate": "base"
+      "alternate": "base",
+      "no_scope_reason": null
     },
     {
       "key": "VRF",
@@ -229,7 +231,8 @@
       ],
       "clarifications": [{"kind": "confirm", "text": "Branch selector count: 2 on the plan picture, 1 on the schedule"}],
       "tech_hours": 6.0,
-      "alternate": "base"
+      "alternate": "base",
+      "no_scope_reason": null
     },
     {
       "key": "DH",
@@ -270,7 +273,8 @@
       ],
       "clarifications": [],
       "tech_hours": 4.0,
-      "alternate": "add"
+      "alternate": "add",
+      "no_scope_reason": null
     },
     {
       "key": "CUH",
@@ -298,7 +302,8 @@
       ],
       "clarifications": [{"kind": "per_drawings", "text": "Cabinet unit heater quantity"}],
       "tech_hours": null,
-      "alternate": "base"
+      "alternate": "base",
+      "no_scope_reason": null
     }
   ],
   "exceptions": [

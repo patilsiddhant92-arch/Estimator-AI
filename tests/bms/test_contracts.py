@@ -98,6 +98,18 @@ def test_with_system_replaces_by_key(job):
     assert changed.system("EF").name == "Fans" and changed.system("RTU") == job.system("RTU")
 
 
+def test_a_system_with_nothing_to_scope_says_why():
+    system = System("XF", "Exhaust Fan", "", "none", (), no_scope_reason="The fan has its own controls.")
+    data = system.to_dict()
+    assert data["no_scope_reason"] == "The fan has its own controls." and data["devices"] == []
+    assert System.from_dict(data) == system
+    assert System("XF", "Exhaust Fan", "", "none", ()).no_scope_reason is None
+    prop = json_schema(System)["properties"]["no_scope_reason"]
+    assert {"type": "null"} in prop["anyOf"] and {"type": "string"} in prop["anyOf"]
+    old = {k: v for k, v in data.items() if k != "no_scope_reason"}
+    assert System.from_dict(old).no_scope_reason is None          # a Job saved before the field still loads
+
+
 def test_finding_and_decision_round_trip():
     finding = Finding("Packaged units", "RTU", "RTU.d1", "must_fix", "what", "fix")
     assert Finding.from_dict(finding.to_dict()) == finding

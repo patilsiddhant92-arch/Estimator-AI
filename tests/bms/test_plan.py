@@ -678,3 +678,80 @@ def test_an_empty_family_name_falls_back_to_its_prefix(value):
         ledger.of_kind("family")[0], value=value)
     (gly,) = _plan(ledger).systems
     assert gly.name == "GLY"
+
+
+# ---- the higher count wins: every source of a count is read (never undershoot) -------------------------------------
+
+_COUNTS_LINE = ("UHX (Unit Heater): schedule rows 2; QUANTITY column total —; distinct tags 2; plan placements 31 "
+                "(M-101 20; M-102 11); riser —")
+
+
+def test_plan_placements_in_the_counts_line_beat_the_schedule_rows():
+    # the seed's count fact holds the schedule rows (types); the plans place 31 units: 31 prints
+    ledger = _ledger()
+    ledger.add("family", "UHX", "Unit Heater", "S1", _COUNTS_LINE, "seed", SETTLED)
+    ledger.add("unit", "UHX", "UHX-1, 2", "S1", "Tags: UHX-1, 2", "seed", SETTLED)
+    ledger.add("count", "UHX", 2, "S1", _COUNTS_LINE, "seed", SETTLED)
+    (uhx,) = _plan(ledger).systems
+    count = uhx.families[0].count
+    where = "equipment counts for FAN"
+    assert count.value == 31
+    assert count.sources == (Ref("S1", "plan placements 31", where),)
+    assert count.others == (OtherCount(2, Ref("S1", _COUNTS_LINE, where)),)
+
+
+def test_a_riser_or_quantity_column_in_the_counts_line_counts_too():
+    line = "ZF (Fan): schedule rows 1; QUANTITY column total 6; distinct tags 1; plan placements 0; riser 8"
+    ledger = _ledger()
+    ledger.add("family", "ZF", "Fan", "S1", line, "seed", SETTLED)
+    ledger.add("count", "ZF", 6, "S1", line, "seed", SETTLED)
+    count = _plan(ledger).systems[0].families[0].count
+    assert count.value == 8 and count.sources[0].quote == "riser 8"
+    assert {o.value for o in count.others} == {6, 1}
+
+
+def test_a_later_count_fact_of_the_same_family_is_read():
+    ledger = _ledger()
+    _family(ledger, "UHX", "Unit Heater", "UHX-1, 2", 2)
+    ledger.add("count", "UHX", 14, "S2", "UHX-1 UHX-2 (14 placed)", "plans", "added")
+    count = _plan(ledger).systems[0].families[0].count
+    assert count.value == 14 and count.sources == (Ref("S2", "UHX-1 UHX-2 (14 placed)", "M-101, Drawings.pdf page 2"),)
+    assert count.others == (OtherCount(2, Ref("S3", "UHX rows 2", "M-501, Drawings.pdf page 6")),)
+
+
+def test_a_count_fact_about_a_tag_counts_for_its_family():
+    ledger = _ledger()
+    _family(ledger, "GX", "Garage Fan", "GX-A", 1)
+    ledger.add("count", "GX-A", 9, "S2", "GX-A x9", "plans", SETTLED)
+    count = _plan(ledger).systems[0].families[0].count
+    assert count.value == 9 and count.sources == (Ref("S2", "GX-A x9", "M-101, Drawings.pdf page 2"),)
+    assert count.others == (OtherCount(1, Ref("S3", "GX rows 1", "M-501, Drawings.pdf page 6")),)
+
+
+def test_a_tag_times_count_on_a_sheet_of_the_dossier_counts():
+    ledger = _ledger()
+    _family(ledger, "GX", "Garage Fan", "GX-A, GX-B", 2)
+    dossier = Dossier(job_name="Invented Job",
+                      text=("[D7] P-100, Drawings.pdf page 3 GARAGE PLAN: DUCT UP GX-A ×9 TAPS GX-B ×3 FSD 20x10\n"
+                            "[D8] P-101, Drawings.pdf page 4 LEVEL 1 PLAN: GX-B x2 GX-BB ×40\n"),
+                      images=(), sources={"D7": "P-100, Drawings.pdf page 3 (sheet text)",
+                                          "D8": "P-101, Drawings.pdf page 4 (sheet text)"},
+                      families=(), device_totals={}, counts={}, stats={})
+    count = plan_job(ledger, None, dossier, PLAYBOOK).systems[0].families[0].count
+    assert count.value == 9 + 3 + 2
+    assert [r.source_id for r in count.sources] == ["D7", "D8"]
+    assert count.sources[0] == Ref("D7", "GX-A ×9 ... GX-B ×3", "P-100, Drawings.pdf page 3")
+    assert count.others == (OtherCount(2, Ref("S3", "GX rows 2", "M-501, Drawings.pdf page 6")),)
+
+
+def test_schedule_rows_of_types_make_a_groups_part_unknown_when_the_plans_place_more():
+    # rows 2 = tags 2 looked like unit tags; the plans place 31, so the tags are types: the part is asked, not 1
+    ledger = _ledger()
+    ledger.add("family", "UHX", "Unit Heater", "S1", _COUNTS_LINE, "seed", SETTLED)
+    ledger.add("unit", "UHX", "UHX-1, 2", "S1", "Tags: UHX-1, 2", "seed", SETTLED)
+    ledger.add("count", "UHX", 2, "S1", _COUNTS_LINE, "seed", SETTLED)
+    _family(ledger, "BS", "Branch Selector", "BS-1", 1, source="S5")
+    ledger.add("group", "VRF-Z", "BS, UHX (UHX-1)", "S5", "VRF-Z riser", "risers", SETTLED)
+    vrf, rest = _plan(ledger).systems
+    assert vrf.families[0].tags == ("UHX-1",) and vrf.families[0].count.value is None
+    assert rest.families[0].tags == ("UHX-2",) and rest.families[0].count.value == 31

@@ -43,14 +43,24 @@ You write the system's devices (its scope lines, in print order), its clarificat
 
 ## Assumptions say what and why
 
-- assumption is null unless something was assumed. Then what: what you took, in plain words; why: the evidence (by its id) or the Playbook rule (by its name) that led to it. Never an assumption without its why.
+- assumption is null unless something was assumed. Then what: what you took; why: the document or the Playbook rule that led to it. Never an assumption without its why.
+- Together what and why are one short sentence, at most about 25 words: what is assumed, then why.
+- Name a document in words ("the mechanical schedule", "the sequence of operations", "the controls specification", "the M-101 plan"), never by its source id: no "S141", "Q7", "I2" or "F17" in what or why. Source ids belong only in refs.
+- Never start what or why with a label ("Assumed:", "Assumption:", "Confirm", "Note:"): the renderer adds the label.
 
 ## One clarification per block
 
 - clarifications holds at most one item; an answer with more is refused.
 - kind: confirm (something the client or the estimator must confirm), assumed (the block rests on a stated assumption), per_drawings (a quantity or extent as per the drawings), note (a plain note for the client).
-- text: plain words for the client that clarify the scope. Never estimating hints, tech hours, prices, confidence or source ids. When the counts disagree, it names the count carried and every other count with its place.
+- text: plain words for the client that clarify the scope, at most about 40 words. List the items; do not narrate how you found them. Never estimating hints, tech hours, prices, confidence or source ids (name the document in words instead). When the counts disagree, it names the count carried and every other count with its place.
+- Never start the text with a label ("Confirm", "Assumed:", "Note:", "Quantity per", "As per drawings"): the kind is the label and the renderer prints it.
 - Give none when nothing needs one.
+
+## A block with nothing to scope
+
+- When the evidence calls for no line the BMS does on this system (for example the unit is on its own controls and the documents ask nothing of the BMS, or the controls are not in contract), answer with an empty devices list and say why in no_scope_reason: one plain sentence for the estimator, naming the document in words, no source ids. Tech hours are then null.
+- Otherwise no_scope_reason is null.
+- A unit with factory controls (an ECM fan, a fan with its own speed control) is not a field-controlled unit: write only the lines its evidence calls for, never integration or VFD lines it does not have.
 
 ## Tech hours
 

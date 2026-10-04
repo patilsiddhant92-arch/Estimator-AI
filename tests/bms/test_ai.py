@@ -326,6 +326,11 @@ def _bad(raw, change):
      "clarification"),
     (lambda a: a["devices"][0].update(assumption={"what": "one per fan", "why": " "}), "why"),
     (lambda a: a["devices"][0].update(verb="Provide"), "verb"),
+    (lambda a: a["devices"][0].update(assumption={"what": "one per fan", "why": "per S141 and Q2"}), "source id"),
+    (lambda a: a.update(clarifications=[{"kind": "confirm", "text": "the fan count, see S7"}]), "source id"),
+    (lambda a: a.update(clarifications=[{"kind": "confirm", "text": "Confirm: the fan count"}]), "label"),
+    (lambda a: a["devices"][0].update(assumption={"what": "Assumed: one per fan", "why": "the schedule"}), "label"),
+    (lambda a: a.update(devices=[], no_scope_reason=None, tech_hours=None), "no_scope_reason"),
 ])
 def test_write_system_refuses_an_answer_it_cannot_use(job, raw, dossier, playbook, change, words):
     system = skeleton(job.system("EF"))
@@ -333,6 +338,22 @@ def test_write_system_refuses_an_answer_it_cannot_use(job, raw, dossier, playboo
     with pytest.raises(ai.NoAnswer) as refused:
         ai.write_system(system, ai.evidence_for(system, dossier), playbook, transport)
     assert words in refused.value.reason and "the answer for Exhaust Fans" in refused.value.reason
+
+
+def test_a_block_with_nothing_to_scope_keeps_its_reason(job, raw, dossier, playbook):
+    system = skeleton(job.system("EF"))
+    answer = _bad(raw, lambda a: a.update(devices=[], clarifications=[], tech_hours=None,
+                                          no_scope_reason="The fans run on their own controls; the sequence asks "
+                                                          "nothing of the BMS."))
+    written = ai.write_system(system, ai.evidence_for(system, dossier), playbook, FakeTransport(answer))
+    assert written.devices == () and written.no_scope_reason.startswith("The fans run")
+
+
+def test_a_block_with_lines_carries_no_no_scope_reason(job, raw, dossier, playbook):
+    system = skeleton(job.system("EF"))
+    answer = _bad(raw, lambda a: a.update(no_scope_reason="nothing to do"))
+    written = ai.write_system(system, ai.evidence_for(system, dossier), playbook, FakeTransport(answer))
+    assert len(written.devices) == 3 and written.no_scope_reason is None
 
 
 def test_write_system_drops_a_ref_outside_the_evidence_when_another_holds(job, raw, dossier, playbook):
@@ -499,6 +520,22 @@ def test_prompts_are_plain_and_carry_no_example_lines():
         text = (folder / name).read_text(encoding="utf-8")
         assert text.strip() and all(ord(c) < 0x2000 or c in "“”‘’—–…" for c in text), name
         assert not re.search(r"\b(?:Qty \(\d+\)|RTU-\d|AHU-\d|EF-\d)", text), name    # no example block lines
+
+
+def test_the_writer_prompts_keep_texts_short_plain_and_free_of_source_ids_and_labels():
+    folder = ROOT / "src" / "bms" / "prompts"
+    for name in ("write_system.md", "revise_system.md"):
+        text = (folder / name).read_text(encoding="utf-8")
+        assert "25 words" in text and "40 words" in text, name
+        assert "source id" in text and "in words" in text, name
+        assert "label" in text and "renderer adds" in text.replace("renderer prints", "renderer adds"), name
+        assert "no_scope_reason" in text, name
+
+
+def test_the_qc_prompt_never_asks_for_integration_lines_on_factory_controlled_units():
+    text = (ROOT / "src" / "bms" / "prompts" / "qc_job.md").read_text(encoding="utf-8")
+    assert "factory controls" in text and "ECM fan is not a VFD" in text and "integration lines" in text
+    assert "no_scope_reason" in text
 
 
 # ---- the run-job tool -------------------------------------------------------------------------------------------------

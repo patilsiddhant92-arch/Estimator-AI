@@ -107,7 +107,7 @@ class _Planner:
     def __init__(self, ledger: Ledger, dossier: Dossier | None, playbook: Playbook) -> None:
         self.ledger = ledger
         self.playbook = playbook
-        self.reader = Reader(ledger, getattr(dossier, "sources", None) or {})
+        self.reader = Reader(ledger, getattr(dossier, "sources", None) or {}, getattr(dossier, "text", "") or "")
         self.dossier = dossier
         self.questions: list[str] = []
 
