@@ -278,3 +278,21 @@ def test_cross_check_asks_for_untagged_symbols_when_schedule_exceeds_text_count(
     assert len(transport.asked) == 1
     asked = transport.asked[0]
     assert "symbols" in asked["prompt"].lower() or "untagged" in asked["prompt"].lower()
+
+
+def test_a_confident_match_does_not_ask_the_vision_model(tmp_path):
+    # One tag, alone on a short line, and the schedule names that same count. Nothing is ambiguous and nothing is missing.
+    texts = (
+        (100, 100, FILLER, 10),
+        (300, 300, "EF-1", 14),
+    )
+    pdf = make_pdf(tmp_path / "job" / "Drawings.pdf", Page(W, H, texts))
+    cat = _catalogue(pdf, [(1, "M-101", "FIRST FLOOR PLAN", "EF-1")])
+    job = Job(name="26-9999", systems=(
+        System(key="EF", name="Exhaust Fan", shape="Exhaust Fan", control="none",
+               families=(Family(name="Exhaust Fan", tags=("EF-1",), count=Count(1)),)),
+    ))
+    transport = MockTransport()
+    checked = counts.cross_check(job, cat, tmp_path / "cache", transport=transport)
+    assert transport.asked == []
+    assert checked.system("EF").families[0].count.value == 1
