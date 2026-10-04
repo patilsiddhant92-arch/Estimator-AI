@@ -1,63 +1,57 @@
-"""Client-text cleanup, decided in one place: source ids, places and clarification labels.
+"""Source ids in client text: detected and refused, never rewritten. Also the places of refs and the labels of the
+clarification kinds.
 
-S is a schedule line, Q a keynote, I a drawing, F a fact, C a count. A token is id-shaped when it reads
-`[SQIFC]` + 1 to 4 digits + an optional letter, in any case ("S141", "s141", "S141A"). `SourceIds` decides what
-happens to one:
+S is a schedule line, Q a keynote, I a drawing, F a fact, C a count. A token is id-shaped when it reads `[SQIFC]` +
+1 to 4 digits + an optional letter as a whole token, in any case ("S141", "s141", "S141A"; not "F12" for "F1", not
+"S141.5", not "S141ft"). Detection reads a copy of the text made for detection only: NFKC (full-width forms read as
+ASCII), zero-width characters taken out. The text itself is never rewritten by detection.
 
-- T, every tag of the whole job (family tags and the served units' and heaters' tags; a range "F1-F4" protects
-  F1 to F4): kept as written.
-- I, every `Ref.source_id` the run issued (the job's refs, and at intake the writer's evidence): stripped (put as
-  the place of its ref, or taken out).
-- Neither, inside a citation: stripped too, and reported as an unissued id removed. A citation is a round or
-  square bracket group holding an id-shaped token that is not a tag; a run joined to an issued id by and / or / , /
-  to / through / thru / - / – / — / slash; or the ids right after a cue word (per, see, from, ref, refer to, cited
-  in) up to the first tag ("from C2, S999" cites C2 only).
-- Neither, outside any citation ("Fan C2 serves the lab"): kept as written (more likely a tag or a part number);
-  the validator reports it so the estimator looks.
-- A token that reads as a sheet number ("sheet C101", "sheets C101 and C102", "C1.01") is kept and never
-  reported. In a ref's where, an id-shaped sheet ("Sheet C501", "C101, Controls.pdf page 2") is a place unless it
-  is an issued id.
+`SourceIds.scan` sorts the id-shaped tokens of a text that are not tags (T, every tag of the job, a range "F1-F4"
+covering F1 to F4):
 
-Only the words around an id taken out are tidied: its cue word goes with it, at a clause end the dangling words
-and separators before it, and a bracket left empty. Cleaning twice gives what cleaning once gives.
+- issued: an id the job issued (I, every `Ref.source_id`; at intake also the evidence's ids), anywhere, after a
+  sheet word too. The intake refuses the text; the validator reports must_fix; the renderer's safety net takes out
+  exactly that token.
+- cited: an unissued token in a citation: inside a bracket pair, or right after per / see / from / ref / refer to /
+  cited in. The intake refuses the text.
+- loose: any other unissued token ("Fan C2 serves the lab"): accepted as written (more likely a tag or a part
+  number); the validator reports a check.
 
-The renderer (`render`), the validator (`validate`) and the intake (`ai`) all import this module: the id pattern,
-T and I (`job_tags`, `job_ids`, `SourceIds.of_job`), the place lookup, the id stripper and the label stripper of
-each clarification kind.
+An unissued token right after a sheet word ("sheet C101", "sheets C101 and C102", "(sheet C101)") is a sheet number:
+never cited, never reported.
 """
 from __future__ import annotations
 
 import re
-from collections.abc import Iterable, Mapping
-from dataclasses import dataclass, field
+import unicodedata
+from collections.abc import Iterable
+from dataclasses import dataclass
 
 ONE_ID_TEXT = r"\b[SQIFC]\d{1,4}[A-Za-z]?\b"
-WITH_NOTE = rf"{ONE_ID_TEXT}(?:\s+(?:note|paragraph)\s+\d+)?"
-_JOIN = r"\s*(?:,|\band\b|\bor\b|\bto\b|\bthrough\b|\bthru\b|[-–—/‐‑])\s*"
 ONE_ID = re.compile(ONE_ID_TEXT, re.IGNORECASE)
-SOURCE_ID = re.compile(WITH_NOTE, re.IGNORECASE)
-ID_GROUP = re.compile(rf"{WITH_NOTE}(?:{_JOIN}{WITH_NOTE})*", re.IGNORECASE)
+# a token on the detection copy: no letter or digit on either side, no decimal part ("S141.5" is a number)
+_TOKEN = re.compile(r"(?<![^\W_])(?<![0-9]\.)[SQIFC][0-9]{1,4}[A-Za-z]?(?![^\W_])(?!\.[0-9])", re.IGNORECASE)
+# the ledger's own bracket form of an id ("[S41]"), which the planner takes out of its texts
+LEDGER_BRACKET = re.compile(r"\[[SQIFC]\d{1,4}[a-z]?\]", re.IGNORECASE)
 
 SHEET = re.compile(r"\b[A-Z]{1,2}-?\d{1,3}(?:\.\d{1,3})?[A-Z]?\b")
 _FILE_PART = re.compile(r"\.(?:pdf|docx?|xlsx?|dwg|txt|png|jpe?g)\b|\bpage\s+\d+\b", re.IGNORECASE)
 _NOT_A_DOCUMENT = ("equipment counts",)          # the dossier's own label for a combined count, not a document
 _NOT_A_PLACE = re.compile(r"^\s*ledger\b|\.(?:png|jpe?g)\b", re.IGNORECASE)   # a ledger fact or a picture file
 # "sheet C101", "sheets C101 and C102", "dwg C3"; not "drawing", which the writer uses for a picture id ("drawing I12")
-_SHEET_BEFORE = re.compile(r"\b(?:sheets?|dwgs?\.?)\s*$", re.IGNORECASE)
-_SHEET_AFTER = re.compile(r"^[.\-]\d")             # "C1.01", "F1-2": the token is part of a sheet number
-_CUE = re.compile(r"\b(?:per|see|from|ref\.?|refer(?:\s+to)?|cited\s+in)\s*[:\-–]?\s*[\[(]?\s*$", re.IGNORECASE)
-_WINDOW = 24                                      # how far back a cue or a sheet word is looked for
-_SQUARE = re.compile(r"\[([^\[\]]*)\]")
-_BRACKET = re.compile(r"\[[^\[\]]*\]|\([^()]*\)")
-_INNERMOST = re.compile(r"\[[^\[\]()]*\]|\([^()\[\]]*\)")     # a bracket with no bracket inside it
+_SHEET_BEFORE = re.compile(r"(?<![^\W_])(?:sheets?|dwgs?\.?)\s*$", re.IGNORECASE)
+_CUE_BEFORE = re.compile(r"(?<![^\W_])(?:per|see|from|ref\.?|refer\s+to|cited\s+in)\s*[:\-–]?\s*[\[({]?\s*$",
+                         re.IGNORECASE)
+_JOIN = re.compile(r"\s*(?:,|and|or|to|through|thru|[-–—/‐‑])\s*", re.IGNORECASE)
+_WINDOW = 32                                      # how far back a cue word or a sheet word is looked for
+_ZERO_WIDTH = frozenset("​‌‍⁠﻿­")
+_OPEN, _CLOSE = "([{", ")]}"
 _TAG_RANGE = re.compile(r"\b([SQIFC])-?(\d{1,4})\s*(?:-|–|\bthru\b|\bthrough\b|\bto\b)\s*(?:\1-?)?(\d{1,4})\b",
                         re.IGNORECASE)
 MAX_RANGE = 500                                   # a tag range wider than this is not expanded
-
-DANGLING_WORDS = frozenset(("because", "per", "in", "on", "by", "from", "of", "and", "see", "the"))
-DANGLING = re.compile(rf"\s*\b(?:{'|'.join(sorted(DANGLING_WORDS))})\s*(?=[,;:.)]|$)", re.IGNORECASE)
 TRADE = re.compile(r"\b(plumbing|electrical|mechanical|architectural|fire protection|civil|structural)\b",
                    re.IGNORECASE)
+REFUSAL = "name the document in words; cite it as a Ref, never print an id"
 
 
 def squash(text: str) -> str:
@@ -70,16 +64,16 @@ def plain_id(source_id) -> str:
 
 
 def _key(token) -> str:
-    return plain_id(token).upper()
+    return unicodedata.normalize("NFKC", plain_id(token)).upper()
 
 
-def _field(ref, name: str) -> str:
-    """A ref's field, whether the ref is a `Ref` or the writer's dict."""
-    value = ref.get(name, "") if isinstance(ref, Mapping) else getattr(ref, name, "")
-    return str(value or "")
+def without_ledger_brackets(text: str) -> str:
+    """A planner text without the ledger's bracket form of an id ("Fire alarm by others [S14]" -> "Fire alarm by
+    others"), whitespace collapsed. Anything else is the validator's to report."""
+    return squash(LEDGER_BRACKET.sub(" ", text or ""))
 
 
-# ---- T and I: what this run issued and what the job tags --------------------------------------------------------
+# ---- T and I: what the job tags and what it issued ------------------------------------------------------------
 
 def system_refs(system) -> list:
     """Every Ref a System carries: its sequence refs, its families' counts, its devices' refs and quantities."""
@@ -122,7 +116,7 @@ def tag_tokens(tags: Iterable[str]) -> frozenset[str]:
     ("F1-F4", "F1 thru 4": F1, F2, F3, F4)."""
     out: set[str] = set()
     for tag in tags:
-        tag = str(tag or "")
+        tag = unicodedata.normalize("NFKC", str(tag or ""))
         out |= {t.upper() for t in ONE_ID.findall(tag)}
         for found in _TAG_RANGE.finditer(tag):
             first, last = int(found.group(2)), int(found.group(3))
@@ -131,18 +125,54 @@ def tag_tokens(tags: Iterable[str]) -> frozenset[str]:
     return frozenset(out)
 
 
+# ---- detection ---------------------------------------------------------------------------------------------------
+
+def _for_detection(text: str) -> tuple[str, list[int] | None]:
+    """The detection copy of `text` (NFKC per character, zero-width characters out) and, for each of its
+    characters, the index of the character of `text` it came from (None: the copy is the text)."""
+    if text.isascii():
+        return text, None
+    out: list[str] = []
+    origin: list[int] = []
+    for n, char in enumerate(text):
+        if char in _ZERO_WIDTH:
+            continue
+        piece = unicodedata.normalize("NFKC", char) if not char.isascii() else char
+        out.append(piece)
+        origin += [n] * len(piece)
+    return "".join(out), origin
+
+
+def _bracketed(text: str) -> list[int]:
+    """For each position of `text`, how many matched bracket pairs hold it (one pass)."""
+    stack: list[tuple[str, int]] = []
+    change = [0] * (len(text) + 1)
+    for n, char in enumerate(text):
+        if char in _OPEN:
+            stack.append((char, n))
+        elif char in _CLOSE and stack and _OPEN.index(stack[-1][0]) == _CLOSE.index(char):
+            start = stack.pop()[1]
+            change[start + 1] += 1
+            change[n] -= 1
+    depth, out = 0, []
+    for step in change[:-1]:
+        depth += step
+        out.append(depth)
+    return out
+
+
 @dataclass(frozen=True)
-class Cleaned:
-    """One text cleaned: the new text and what was found in it."""
-    text: str
-    issued: list[str] = field(default_factory=list)            # issued ids stripped
-    unissued_removed: list[str] = field(default_factory=list)  # unissued ids stripped (in a citation)
-    unissued_kept: list[str] = field(default_factory=list)     # unissued ids kept (outside any citation)
+class Found:
+    """One id-shaped token that is not a tag: as written on the detection copy, its span in the text, its kind."""
+    token: str
+    start: int
+    end: int
+    kind: str                       # "issued", "cited", "loose" or "sheet"
 
 
 @dataclass(frozen=True)
 class SourceIds:
-    """The one decision: which id-shaped tokens in a text are stripped, and where each issued one is."""
+    """The one decision: which id-shaped tokens in a text are issued ids, citations, loose tokens or sheets."""
     ids: frozenset[str] = frozenset()       # I, upper case
     tags: frozenset[str] = frozenset()      # T's id-shaped tokens, upper case
 
@@ -161,6 +191,73 @@ class SourceIds:
     def is_id(self, token: str) -> bool:
         """An issued id that is not a tag."""
         return _key(token) in self.ids and not self.is_tag(token)
+
+    def scan(self, text: str) -> list[Found]:
+        """Every id-shaped token of `text` that is not a tag, in text order, with its kind (module docstring).
+        Linear in the length of the text."""
+        text = text or ""
+        copy, origin = _for_detection(text)
+        tokens = list(_TOKEN.finditer(copy))
+        if not tokens:
+            return []
+        depth = _bracketed(copy)
+        found: list[list] = []           # [token, start, end, kind, joined to the one before], on the copy
+        listed = False                   # the token before is in a list of sheets ("sheets C101, S141 and C102")
+        for match in tokens:
+            token, start, end = match.group(0), match.start(), match.end()
+            if self.is_tag(token):
+                found.append([token, start, end, "tag", False])
+                listed = False
+                continue
+            joined = bool(found) and start - found[-1][2] <= _WINDOW and bool(_JOIN.fullmatch(copy[found[-1][2]:start]))
+            before = copy[max(0, start - _WINDOW):start]
+            listed = bool(_SHEET_BEFORE.search(before)) or (joined and listed)
+            if self.is_id(token):
+                kind = "issued"
+            elif listed:
+                kind = "sheet"
+            elif depth[start] > 0 or _CUE_BEFORE.search(before):
+                kind = "cited"
+            else:
+                kind = "loose"
+            found.append([token, start, end, kind, joined])
+        # a loose token joined to an issued id ("S141 and S999", "S999-S141") is a citation too, along the run
+        for order in (range(1, len(found)), range(len(found) - 2, -1, -1)):
+            for n in order:
+                other = n - 1 if order.step == 1 else n + 1
+                link = found[n][4] if order.step == 1 else found[n + 1][4]
+                if link and found[n][3] == "loose" and found[other][3] in ("issued", "cited"):
+                    found[n][3] = "cited"
+        out: list[Found] = []
+        for token, start, end, kind, _ in found:
+            if kind == "tag":
+                continue
+            if origin is not None:
+                start, end = origin[start], origin[end - 1] + 1
+            out.append(Found(token, start, end, kind))
+        return out
+
+    def refusal(self, text: str) -> str:
+        """Why the intake refuses `text` ("" when it does not): an issued id anywhere, or an unissued one in a
+        citation, named in text order."""
+        named = list(dict.fromkeys(f.token for f in self.scan(text) if f.kind in ("issued", "cited")))
+        if not named:
+            return ""
+        return f"prints the source id{'s' if len(named) > 1 else ''} {', '.join(named)}: {REFUSAL}"
+
+    def without_issued(self, text: str) -> str:
+        """The renderer's safety net: `text` with exactly each issued id token taken out, whitespace collapsed;
+        `text` itself (unchanged) when it has none."""
+        text = text or ""
+        cut = [f for f in self.scan(text) if f.kind == "issued"]
+        if not cut:
+            return text
+        pieces, at = [], 0
+        for found in cut:
+            pieces.append(text[at:found.start])
+            at = found.end
+        pieces.append(text[at:])
+        return squash(" ".join(pieces))
 
     # ---- places: a sheet number or a section, never a file name, never a source id ----
 
@@ -200,202 +297,6 @@ class SourceIds:
             if part and not _FILE_PART.search(part) and not ONE_ID.search(part):
                 return part
         return ""
-
-    def place_of(self, source_id: str, groups) -> str:
-        """The place of the first ref naming `source_id` in `groups` (sequences of refs) that names one."""
-        for group in groups:
-            for ref in group:
-                if _key(_field(ref, "source_id")) == _key(source_id):
-                    place = self.place(_field(ref, "where"))
-                    if place:
-                        return place
-        return ""
-
-    # ---- the stripper ----
-
-    def clean(self, text: str, *groups) -> Cleaned:
-        """The text with every issued id ("S141", "[Q2]", "S394 note 1", "S243 to S250") and every unissued id in
-        a citation put as the place of its ref in `groups`, or taken out. Tags (a tag range whole, with its own
-        joiners), sheet numbers and unissued tokens outside any citation are left as written; a text with nothing
-        to strip comes back unchanged. The words are tidied only where an id was taken out: its cue word goes with
-        it ("Fans per S999 stay on." -> "Fans stay on."), and at the end of a clause the dangling words and
-        separators before it ("valves, see S999." -> "valves."); a bracket left empty is taken out. Idempotent."""
-        text = text or ""
-        if not ONE_ID.search(text):
-            return Cleaned(text)
-        out, spans = self._unbracket(text)
-        # a bracket group, round or square, holding an id-shaped token that is not a tag is a citation
-        spans += [(m.start(), m.end()) for m in _BRACKET.finditer(out)
-                  if any(not self.is_tag(t) for t in ONE_ID.findall(m.group(0)))]
-        issued: list[str] = []
-        removed: list[str] = []
-        kept: list[str] = []
-        found: dict[str, str] = {}          # each id's place, looked up once per text
-        pieces: list[str] = []
-        written = ""                        # the end of the text as rewritten so far (for the cue word)
-        at = 0
-        spans.sort()
-        reach: list[int] = []               # the furthest end of the spans up to each one (they may nest)
-        for _, b in spans:
-            reach.append(max(b, reach[-1]) if reach else b)
-        next_span = 0                       # runs come in order: the spans opened before this run
-        for run in ID_GROUP.finditer(out):
-            start, end = run.start(), run.end()
-            members = ONE_ID.findall(run.group(0))
-            # sheet numbers kept as written: the token after a sheet word ("sheet C101", and the unissued ones
-            # listed with it: "sheets C101 and C102"), and a token that a sheet number goes on from ("C1.01")
-            sheets: set[int] = set()
-            if _SHEET_BEFORE.search(out[max(0, start - _WINDOW):start]):
-                sheets = {0} | {i for i, t in enumerate(members) if i and not self.is_id(t)}
-            if _SHEET_AFTER.match(out[end:end + 2]):
-                sheets.add(len(members) - 1)
-            while next_span < len(spans) and spans[next_span][0] <= start:
-                next_span += 1
-            inside = next_span > 0 and reach[next_span - 1] > start
-            free = [i for i in range(len(members)) if i not in sheets]
-            mine = [members[i] for i in free if self.is_id(members[i])]
-            loose = [i for i in free if not self.is_tag(members[i]) and not self.is_id(members[i])]
-            left = (written + out[at:start])[-_WINDOW:]
-            if mine or (not sheets and inside):
-                cited = set(loose)                          # joined to an issued id, or in a bracket: all of them
-            elif not sheets and _CUE.search(left):          # after a cue word: up to the first tag ("from C2, S999"
-                first_tag = next((i for i, t in enumerate(members) if self.is_tag(t)), len(members))
-                cited = {i for i in loose if i < first_tag}  # cites C2 only)
-            else:
-                cited = set()
-            kept += [members[i] for i in loose if i not in cited]
-            if not mine and not cited:
-                continue
-            sheets = sheets | {i for i in loose if i not in cited}     # kept as written in the rewrite
-            issued += mine
-            removed += [members[i] for i in sorted(cited)]
-            new = self._rewrite(run.group(0), groups, found, sheets)
-            before = out[at:start]
-            if not new:                     # the run is gone: its cue word goes too, and at a clause end the rest
-                before = _cut_cue(before)
-                if _AT_STOP.match(out[end:]):
-                    before = _without_chain(before)
-                    while not before and pieces:        # back over runs taken out just before ("on I3 and in F17")
-                        before = _without_chain(pieces.pop())
-            pieces += [before, new]
-            at = end
-            last = len(members) - 1
-            if last not in sheets and not self.is_tag(members[last]) and _GLUED_AFTER.match(out[end:end + 2]):
-                pieces.append(" ")          # the joiner to a word after an id taken out goes ("i8-EF-1" -> " EF-1")
-                at = end + 1
-            written = _last(pieces, _WINDOW)
-        if not issued and not removed:
-            return Cleaned(text, unissued_kept=kept)
-        pieces.append(out[at:])
-        return Cleaned(_tidy("".join(pieces)), issued, removed, kept)
-
-    def _rewrite(self, run: str, groups, found: dict[str, str], sheets: set[int] = frozenset()) -> str:
-        """A run of ids as printed: each stretch of tags (or sheet numbers, `sheets`) as written, with its own
-        joiners ("F5-F8", "F5 to F8"), and the place of each issued id, in order, joined by "and"; unissued ids and
-        places no ref names left out."""
-        members = list(SOURCE_ID.finditer(run))            # each member with its own "note N"
-        tokens = [ONE_ID.match(m.group(0)).group(0) for m in members]
-        parts: list[str] = []
-        places: set[str] = set()
-
-        def verbatim(n: int) -> bool:
-            return n in sheets or self.is_tag(tokens[n])
-
-        i = 0
-        while i < len(members):
-            if verbatim(i):
-                j = i
-                while j + 1 < len(members) and verbatim(j + 1):
-                    j += 1
-                parts.append(run[members[i].start():members[j].end()])
-                i = j + 1
-                continue
-            if self.is_id(tokens[i]):
-                place = self._cached_place(tokens[i], groups, found)
-                if place and place not in places:
-                    places.add(place)
-                    parts.append(place)
-            i += 1
-        return " and ".join(parts)
-
-    def _cached_place(self, source_id: str, groups, found: dict[str, str]) -> str:
-        key = _key(source_id)
-        if key not in found:
-            found[key] = self.place_of(source_id, groups)
-        return found[key]
-
-    def strip(self, text: str, *groups) -> str:
-        return self.clean(text, *groups).text
-
-    def _unbracket(self, text: str) -> tuple[str, list[tuple[int, int]]]:
-        """Square brackets around a run of ids ("[S141, S999]", "valves[S141]") put as spaces, so a glued id
-        stands apart; where each run now is (a citation)."""
-        pieces: list[str] = []
-        spans: list[tuple[int, int]] = []
-        at = length = 0
-        for m in _SQUARE.finditer(text):
-            inner = m.group(1).strip()
-            if not ID_GROUP.fullmatch(inner) or all(self.is_tag(t) for t in ONE_ID.findall(inner)):
-                continue
-            before = text[at:m.start()] + " "
-            pieces += [before, inner, " "]
-            length += len(before)
-            spans.append((length, length + len(inner)))
-            length += len(inner) + 1
-            at = m.end()
-        pieces.append(text[at:])
-        return "".join(pieces), spans
-
-
-_CUE_CUT = re.compile(r"\b(?:per|see|from|ref\.?|refer(?:\s+to)?|cited\s+in)\s*[:\-–]?\s*$", re.IGNORECASE)
-_GLUED_AFTER = re.compile(r"[-–—/‐‑]\w")
-_AT_STOP = re.compile(r"\s*(?:[,;:.)\]]|$)")       # what follows a run: a stop or the end (a clause ends there)
-CHAIN_WORDS = DANGLING_WORDS | {"ref", "refer", "to", "cited", "or"}
-_EMPTY_INSIDE = re.compile(rf"(?:\s|[,;:/]|\b(?:{'|'.join(sorted(CHAIN_WORDS))})\b\.?)*", re.IGNORECASE)
-
-
-def _last(pieces: list[str], size: int) -> str:
-    """The last `size` characters of the pieces joined (only the pieces needed are read)."""
-    tail = ""
-    for piece in reversed(pieces):
-        tail = piece + tail
-        if len(tail) >= size:
-            break
-    return tail[-size:]
-
-
-def _cut_cue(before: str) -> str:
-    """`before` without the cue word it ends with ("Fans per " -> "Fans ")."""
-    tail = before[-_WINDOW:]
-    found = _CUE_CUT.search(tail)
-    return before[:len(before) - len(tail) + found.start()] if found else before
-
-
-def _without_chain(before: str) -> str:
-    """`before` without the dangling words, cue words and separators it ends with ("valves, see " -> "valves")."""
-    tokens = _TOKEN.findall(before)
-    n = len(tokens)
-    while n and (tokens[n - 1].isspace() or tokens[n - 1] in ",;:/" or tokens[n - 1].lower() in CHAIN_WORDS):
-        n -= 1
-    return "".join(tokens[:n])
-
-
-def _tidy(out: str) -> str:
-    """The rewritten text tidied: a bracket left with nothing but separators or cue words taken out (nested ones
-    too), no space before a stop or after an opening bracket, no separator before a stop or at the end, single
-    spaces."""
-    while True:
-        tidy = _INNERMOST.sub(lambda m: " " if _EMPTY_INSIDE.fullmatch(m.group(0)[1:-1]) else m.group(0), out)
-        if tidy == out:
-            break
-        out = tidy
-    out = re.sub(r"([(\[])\s+", r"\1", out)
-    out = re.sub(r"\s+([,;:.)\]])", r"\1", out)
-    out = re.sub(r"[,;:]+(?=[.,;:)\]]|\s*$)", "", out)
-    return squash(out).lstrip(",;: ")
-
-
-_TOKEN = re.compile(r"\s+|\w+|[^\w\s]")
 
 
 # ---- the clarification labels: each kind strips only the label its own form prints ---------------------------
@@ -440,8 +341,13 @@ def per_drawings_text(text: str) -> str:
     return re.sub(r"\s*\bdrawings?\b\s*$", "", text, flags=re.IGNORECASE).strip(" .:;,")
 
 
-def clarification_text(kind: str, text: str, ids: SourceIds, *groups) -> str:
-    """A clarification's text as its form takes it: its source ids put in words, its own kind's label off (a
-    per-drawings text its trade word only)."""
-    text = ids.strip(text, *groups)
+def label_off(kind: str, text: str) -> str:
+    """A clarification's text without its kind's label (a per-drawings text its discipline word only). This is
+    the first step on every clarification, at intake and at render, before anything reads the text."""
     return per_drawings_text(text) if kind == "per_drawings" else strip_label(kind, text)
+
+
+def clarification_text(kind: str, text: str, ids: SourceIds) -> str:
+    """A clarification's text as its form prints it: the label off first, then the safety net (an issued id left
+    in a stale text taken out, token only), then the label off again so it never prints twice."""
+    return label_off(kind, ids.without_issued(label_off(kind, text)))

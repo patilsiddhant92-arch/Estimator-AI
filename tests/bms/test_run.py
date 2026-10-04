@@ -239,6 +239,69 @@ def test_the_revise_is_given_the_tags_of_the_whole_job(job_folder, tmp_path, mon
     assert seen and all(tags == tuple(citations.job_tags(job)) and tags for tags in seen), seen
 
 
+def _planned_ids(job) -> set[str]:
+    """The source ids the planner's refs carry (every system's sequence refs and family counts)."""
+    from bms.citations import plain_id
+    return {plain_id(r.source_id) for s in job.systems
+            for r in [*s.sequence_refs, *(r for f in s.families for r in f.count.sources)]}
+
+
+def test_every_writer_is_given_the_source_ids_of_the_whole_job(job_folder, tmp_path, monkeypatch):
+    """The intake refuses a client text that prints any source id of the job, not only this system's: the run
+    passes every one (`citations.job_ids`)."""
+    from bms import ai, citations, run
+    from bms.model import Job
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    seen: list = []
+
+    def spy(system, evidence, playbook, transport, **kw):
+        seen.append(kw.get("ids"))
+        raise ai.NoAnswer("spied", waiting=True)
+    monkeypatch.setattr(run.ai, "write_system", spy)
+    out, cache = tmp_path / "out", tmp_path / "cache"
+    result = _reach(job_folder, out, cache, "write")
+    job = Job.from_json(result.job_file.read_text(encoding="utf-8"))
+    assert len(seen) == len(job.systems) >= 1, seen
+    for ids in seen:
+        assert ids == tuple(citations.job_ids(job)) and set(ids) >= _planned_ids(job) and ids, ids
+
+
+def test_the_decision_rewrite_and_the_revise_are_given_the_source_ids_of_the_whole_job(job_folder, tmp_path,
+                                                                                         monkeypatch):
+    from bms import ai, run
+    from bms.model import Finding, Job
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    out, cache = tmp_path / "out", tmp_path / "cache"
+    assert _reach(job_folder, out, cache, "write").stage == "write"
+    requests = sorted((cache / "judge-chat" / "requests").glob("*.json"))
+    changed = json.loads(requests[0].read_text(encoding="utf-8"))["plan_key"]
+    (out / "decisions.json").write_text(json.dumps([{
+        "system_key": changed, "action": "delete", "device_id": f"{changed}.d1", "reason": "invented",
+    }]), encoding="utf-8")
+    assert answer_all(cache)
+    real, rewritten, revised = ai.write_system, [], []
+
+    def spy(system, evidence, playbook, transport, **kw):
+        if "The estimator's decisions" in evidence:
+            rewritten.append(kw.get("ids"))
+        return real(system, evidence, playbook, transport, **kw)
+
+    def revise_spy(system, findings, evidence, playbook, transport, **kw):
+        revised.append(kw.get("ids"))
+        return system
+
+    def must_fix(job, playbook):
+        return [Finding("Every line cites this job", s.key, None, "must_fix", "invented", "invented")
+                for s in job.systems[:1]]
+    monkeypatch.setattr(run.ai, "write_system", spy)
+    monkeypatch.setattr(run.ai, "revise_system", revise_spy)
+    monkeypatch.setattr(run, "validate", must_fix)
+    result = _reach(job_folder, out, cache, "never")
+    job = Job.from_json(result.job_file.read_text(encoding="utf-8"))
+    for seen in (rewritten, revised):
+        assert seen and all(ids and set(ids) >= _planned_ids(job) for ids in seen), seen
+
+
 def test_a_killed_write_resumes_from_cached_answers_without_asking_again(job_folder, tmp_path, monkeypatch):
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     out, cache = tmp_path / "out", tmp_path / "cache"

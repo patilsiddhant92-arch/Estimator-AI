@@ -245,28 +245,28 @@ def test_a_long_clarification_prints_whole(job):
     assert out[-1] == "*" + long_text
 
 
-# ---- source ids never print ----------------------------------------------------------------------------------
+# ---- source ids: the renderer rewrites no sentence; an issued id left in a stale text goes, token only ----------
+# (the intake refuses such a text and the validator reports it as must_fix before render: tests/bms/test_validate.py)
 
-def test_source_ids_in_an_assumption_become_the_sheet_or_section_of_their_ref(job):
+def test_an_issued_id_in_an_assumption_is_taken_out_token_only(job):
     pb = load_playbook(ROOT / "playbook")
     refs = (Ref("S41", "q", "Q-701.00, Invented Set.pdf page 50"),
             Ref("S7", "q", "sequence section B. Invented fans, 99 99 99 INVENTED SEQUENCE, invented.pdf page 3"))
     a = device(refs=refs, assumption=Assumption(
         "one invented controller", "S41 note 1 asks for it and S7 paragraph 2 names no party"))
     out = texts(render(one(job, system([a])), pb), "EF")
-    assert out[-1] == ("*Assumed: one invented controller, because Q-701.00 asks for it and "
-                       "sequence section B. Invented fans names no party")
+    assert out[-1] == "*Assumed: one invented controller, because note 1 asks for it and paragraph 2 names no party"
 
 
-def test_source_ids_with_no_place_are_dropped_and_the_words_tidied(job):
+def test_issued_ids_with_no_place_are_taken_out_and_no_word_around_them(job):
     pb = load_playbook(ROOT / "playbook")
     a = device(assumption=Assumption("one invented sensor per S900", "the schedule (S901, S902) shows one per unit"))
     b = device(id="X.d2", slot="damper_actuator", name="Damper",
                refs=(REF,) + tuple(Ref(i, "x", "ledger fact") for i in ("S900", "S901", "S902", "S903")),
                assumption=Assumption("one damper", "the plan shows it in S903"))
     out = texts(render(one(job, system([a, b])), pb), "EF")
-    assert out[-1] == ("*Assumed: one invented sensor, because the schedule shows one per unit; "
-                       "one damper, because the plan shows it")
+    assert out[-1] == ("*Assumed: one invented sensor per, because the schedule ( , ) shows one per unit; "
+                       "one damper, because the plan shows it in")
     assert "S9" not in out[-1] and "  " not in out[-1]
 
 
@@ -278,12 +278,12 @@ def test_keynote_drawing_fact_and_count_ids_do_not_print(job):
     assert "Q3" not in out[-1] and "I12" not in out[-1] and "F8" not in out[-1] and "C2a" not in out[-1]
 
 
-def test_source_ids_in_a_clarification_are_replaced_too(job):
+def test_issued_ids_in_a_clarification_are_taken_out_token_only(job):
     pb = load_playbook(ROOT / "playbook")
     d = device(refs=(Ref("S12", "q", "Q-100.00, Invented.pdf page 3"), Ref("S99", "q", "ledger fact")))
     clar = (Clarification("confirm", "Confirm quantity: 4 invented units per S12, 2 per S99"),)
     out = texts(render(one(job, system([d], clarifications=clar)), pb), "EF")
-    assert out[-1] == "*Confirm quantity: 4 invented units per Q-100.00, 2"
+    assert out[-1] == "*Confirm quantity: 4 invented units per , 2 per"
 
 
 def test_a_clarification_prints_its_kind_label_once_and_keeps_its_content_words(job):
@@ -301,7 +301,7 @@ def test_a_clarification_prints_its_kind_label_once_and_keeps_its_content_words(
         assert out[-1] == printed, text
 
 
-def test_a_where_that_holds_an_id_is_never_the_printed_place(job):
+def test_a_where_that_holds_an_id_never_prints(job):
     """I4: a ledger fact, a picture file or a where naming the id itself gives no place; the id never prints."""
     pb = load_playbook(ROOT / "playbook")
     refs = (REF, Ref("F17", "x", "Ledger fact F17"), Ref("I3", "x", "I3 picture, M-201.png"), Ref("S8", "x", "S8"))
@@ -310,15 +310,15 @@ def test_a_where_that_holds_an_id_is_never_the_printed_place(job):
     fams = (Family("Exhaust Fan", ("EF-1",), Count(3, (Ref("F17", "x", "Ledger fact F17"),),
                                                   (OtherCount(2, Ref("S2", "q", "M-101, Invented.pdf page 2")),))),)
     out = texts(render(one(job, system([a], families=fams, clarifications=clar)), pb), "EF")
-    assert "*Confirm the invented damper count" in out
-    assert "*Assumed: one invented actuator, because the actuator is shown" in out
+    assert "*Confirm the invented damper count per" in out
+    assert "*Assumed: one invented actuator, because the actuator is shown on and in" in out
     for line in out:
         assert not re.search(r"\b(?:F17|I3|S8)\b", line), line
 
 
-@pytest.mark.parametrize("issued", [(), (Ref("C101", "x", "ledger fact"), Ref("F1", "x", "ledger fact"))])
+@pytest.mark.parametrize("issued", [(), (Ref("F1", "x", "ledger fact"),)])
 def test_tags_and_sheet_numbers_shaped_like_ids_print_unchanged(job, issued):
-    """I5: F1, F2 are not issued ids (or F1 is a family tag) and C101 reads as a sheet number."""
+    """I5: F1, F2 are not issued ids (or F1 is a family tag) and C101 (unissued) reads as a sheet number."""
     pb = load_playbook(ROOT / "playbook")
     fams = (Family("Exhaust Fan", ("F1", "F2"), Count(value=2)),)
     clar = (Clarification("note", "Fans F1 and F2 serve the kitchen; see civil sheet C101."),)
@@ -337,7 +337,7 @@ def test_a_family_tag_shaped_like_an_id_prints_even_when_it_is_an_issued_id(job)
     assert out[-1] == "*Confirm the controls for units F1, C2, I3, Q4 and S5"
 
 
-# ---- fix round 1: tags T kept, issued ids I stripped, an unissued id stripped only in a citation context --------
+# ---- the safety net: tags T kept, an issued id I taken out (token only), an unissued token printed as written ----
 
 S141 = Ref("S141", "q", "M-101, Invented.pdf page 2")
 
@@ -351,37 +351,27 @@ def _note_of(job, kind, text, tags=("EF-1", "EF-2"), refs=(S141,), assumption=No
 
 
 @pytest.mark.parametrize("kind, text, printed", [
-    ("confirm", "Confirm valves per S141 and S999.", "*Confirm valves per M-101"),
-    ("note", "Valves per S141 to S145.", "**Valves per M-101"),
-    ("note", "Valves [S141, S999] open.", "**Valves M-101 open"),
-    ("note", "Valves open S141-S999.", "**Valves open M-101"),
-    ("note", "Valves open (S141 or S999).", "**Valves open (M-101)"),
-    ("note", "Valves open per S999.", "**Valves open"),
-    ("note", "Valves open, see S998 and S999.", "**Valves open"),
-    ("note", "Valves open [S999].", "**Valves open"),
-    ("note", "Valves open (S901, S902).", "**Valves open"),               # a round bracket of unissued ids
-    ("note", "Fan C2 serves the lab.", "**Fan C2 serves the lab"),          # no citation context: kept
+    ("confirm", "Confirm valves per S141 and S999.", "*Confirm valves per and S999"),
+    ("note", "Valves open per S999.", "**Valves open per S999"),
+    ("note", "Valves open [S999].", "**Valves open [S999]"),
+    ("note", "Fan C2 serves the lab.", "**Fan C2 serves the lab"),
 ])
-def test_an_unissued_id_in_a_citation_context_is_stripped(job, kind, text, printed):
-    """C1: an id-shaped token the run never issued is stripped when it sits in a citation; else it is kept."""
+def test_render_takes_out_only_issued_tokens_and_rewrites_nothing(job, kind, text, printed):
+    """No sentence rewriting at render: an issued id goes (token only); an unissued token prints as written (the
+    intake refused it in a citation; the validator reports it)."""
     assert _note_of(job, kind, text) == printed
 
 
-def test_an_unissued_id_in_an_assumption_beside_an_issued_one_is_stripped(job):
-    out = _note_of(job, "note", "", assumption=Assumption("two valves per S999", "S141 shows two"))
-    assert out == "*Assumed: two valves, because M-101 shows two"
-
-
-@pytest.mark.parametrize("text, printed", [("Valves per s141.", "**Valves per M-101"),
-                                           ("Valves per S141A.", "**Valves")])
+@pytest.mark.parametrize("text, printed", [("Valves per s141.", "**Valves per"),
+                                           ("Valves per S141A.", "**Valves per S141A")])
 def test_ids_match_whatever_their_case_and_suffix(job, text, printed):
-    """I3: "s141" is the issued S141; "S141A" is id-shaped (unissued, after a cue word)."""
+    """I3: "s141" is the issued S141; "S141A" is another token (unissued, printed; refused at intake)."""
     assert _note_of(job, "note", text) == printed
 
 
-@pytest.mark.parametrize("text, printed", [("Fans F1-F4 run per S141.", "**Fans F1-F4 run per M-101"),
-                                           ("Fans F1 thru F4 per S141.", "**Fans F1 thru F4 per M-101"),
-                                           ("Fan F3 runs per S141.", "**Fan F3 runs per M-101")])
+@pytest.mark.parametrize("text, printed", [("Fans F1-F4 run per S141.", "**Fans F1-F4 run per"),
+                                           ("Fans F1 thru F4 per S141.", "**Fans F1 thru F4 per"),
+                                           ("Fan F3 runs per S141.", "**Fan F3 runs per")])
 def test_a_tag_range_protects_every_member(job, text, printed):
     """I1: the family tag "F1-F4" protects F1, F2, F3 and F4, even when F1 is also an issued id."""
     assert _note_of(job, "note", text, tags=("F1-F4",), refs=(S141, Ref("F1", "x", "ledger fact"))) == printed
@@ -400,60 +390,46 @@ def test_no_punctuation_is_left_after_a_label(job, kind, text, printed):
 
 
 @pytest.mark.parametrize("text", [
-    "per S141 " + "and the " * 10_000 + ".",              # 20,000 dangling words after the id comes out
+    "per S141 " + "and the " * 10_000 + ".",              # 20,000 words after an id
     "Valves per S141. " * 5_000,                          # 5,000 ids
     "Valves (S141) open [S999]. " * 2_500,                # 5,000 ids in 5,000 bracket groups
-], ids=["20000-dangling-words", "5000-ids", "5000-bracketed-ids"])
-def test_the_cleanup_is_linear_on_a_long_text(text):
-    """M3: a runaway answer never stalls a run (the old tidy loop took one dangling word per pass)."""
+    "S141" + " " * 40_000 + "x",                          # review 3 M1: a long whitespace run
+    "([" * 8_000 + "I3" + "])" * 8_000,                   # review 3 M1: deep brackets
+], ids=["20000-words", "5000-ids", "5000-bracketed-ids", "40000-spaces", "8000-deep-brackets"])
+def test_the_detector_and_the_safety_net_are_linear_on_a_long_text(text):
+    """M3: a runaway answer never stalls a run."""
     import time
 
     from bms.citations import SourceIds
-    ids = SourceIds.of(["S141"], ())
+    ids = SourceIds.of(["S141", "I3"], ())
     start = time.perf_counter()
-    out = ids.strip(text, (S141,))
+    out = ids.without_issued(text)
+    ids.refusal(text)
     assert time.perf_counter() - start < 1.0
-    assert "S141" not in out and "S999" not in out
+    assert "S141" not in out and "I3" not in out
 
 
-@pytest.mark.parametrize("text, cleaned", [
-    ("per S141 and the of.", "per M-101 and the of."),              # the writer's own words, away from any
-    ("the schedule (S141, S999), see.", "the schedule (M-101), see."),  # id taken out, are left as written
-    ("shown on S141 and the, see S999.", "shown on M-101."),
-    ("one per fan because S141;", "one per fan because M-101"),
-    ("one per fan, because S141 and the", "one per fan, because M-101 and the"),
-])
-def test_the_tidy_works_only_where_an_id_was_taken_out(text, cleaned):
-    from bms.citations import SourceIds
-    assert SourceIds.of(["S141"], ()).strip(text, (S141,)) == cleaned
-
-
-@pytest.mark.parametrize("text, stripped", [
-    ("the fans run (see C2 in the lab).", "**the fans run (in the lab)"),         # a bracket and a cue word
-    ("the fans run (C2 in the lab).", "**the fans run (in the lab)"),             # the bracket alone
-    ("the fans run, see C2 in the lab.", "**the fans run, in the lab"),           # the cue word alone
-])
+@pytest.mark.parametrize("text", ["the fans run (see C2 in the lab).", "the fans run (C2 in the lab).",
+                                  "the fans run, see C2 in the lab."])
 @pytest.mark.parametrize("tags", [("EF-1",), ("C2",)], ids=["C2-no-tag", "C2-a-tag"])
-def test_an_id_in_a_bracket_or_after_a_cue_word(job, text, stripped, tags):
-    """The chosen behaviour for "(see C2 in the lab)": a bracket holding an id-shaped token that is no tag, or a cue
-    word right before it, makes it a citation, so C2 comes out (unissued) unless it is a tag of the job."""
-    expected = stripped if tags == ("EF-1",) else "**" + text.rstrip(".")
-    assert _note_of(job, "note", text, tags=tags) == expected
+def test_an_unissued_id_in_a_bracket_or_after_a_cue_word_prints_as_written(job, text, tags):
+    """The intake refuses "(see C2 in the lab)" when C2 is no tag; the renderer rewrites nothing either way."""
+    assert _note_of(job, "note", text, tags=tags) == "**" + text.rstrip(".")
 
 
-def test_device_names_and_named_exceptions_print_without_ids(job):
-    """I4: a device name and a named exception go through the same cleanup."""
+def test_device_names_and_named_exceptions_lose_an_issued_id_token_only(job):
+    """I4: a device name and a named exception go through the same safety net."""
     pb = load_playbook(ROOT / "playbook")
     d = device(name="Control Valve per S141", refs=(S141,))
     j = replace(one(job, system([d])), exceptions=(ScopeException("EF", "Fire alarm by others per S141", (S141,)),))
     out = render(j, pb)
-    assert texts(out, "EF")[1] == "Furnish and Install Control Valve per M-101"        # the id becomes its place
-    assert out.scope.named_exceptions == ("Fire alarm by others per M-101",)
+    assert texts(out, "EF")[1] == "Furnish and Install Control Valve per"
+    assert out.scope.named_exceptions == ("Fire alarm by others per",)
     j2 = replace(one(job, system([device(name="Control Valve per S999", refs=(S141,))])),
                  exceptions=(ScopeException("EF", "Fire alarm by others (S141)", ()),))
     out2 = render(j2, pb)
-    assert texts(out2, "EF")[1] == "Furnish and Install Control Valve"                  # unissued, after a cue word
-    assert out2.scope.named_exceptions == ("Fire alarm by others",)                    # no ref names a place
+    assert texts(out2, "EF")[1] == "Furnish and Install Control Valve per S999"         # unissued: as written
+    assert out2.scope.named_exceptions == ("Fire alarm by others ( )",)                 # the token only
 
 
 def test_an_id_in_a_refs_where_is_never_a_printed_place(job):

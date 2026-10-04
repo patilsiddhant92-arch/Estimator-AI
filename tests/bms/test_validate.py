@@ -266,9 +266,9 @@ def test_render_validate_and_the_intake_share_one_cleanup_module():
     assert "[SQIFC]" not in source
 
 
-@pytest.mark.parametrize("issued", [(), (Ref("C101", "x", "ledger fact"), Ref("F1", "x", "ledger fact"))])
+@pytest.mark.parametrize("issued", [(), (Ref("F1", "x", "ledger fact"),)])
 def test_tags_and_sheet_numbers_shaped_like_ids_are_no_check(job, issued):
-    """I5: only ids the run issued count; a family tag or a sheet number never does."""
+    """I5: a family tag (issued or not) or an unissued sheet number is never reported."""
     vrf = job.system("VRF")
     j = edit(job, "VRF", families=(dc.replace(vrf.families[0], tags=("F1", "F2")),) + vrf.families[1:],
              clarifications=(Clarification("note", "Fans F1 and F2 serve the kitchen; see civil sheet C101."),),
@@ -287,21 +287,21 @@ def test_an_unissued_id_outside_a_citation_is_a_check_naming_it(job):
     assert [(f.system_key, f.severity) for f in found] == [("VRF", "check")] and "C2" in found[0].what
 
 
-def test_an_id_in_any_case_is_a_check(job):
+def test_an_issued_id_in_any_case_is_must_fix(job):
     """I3: 's9' is the issued S9."""
     j = edit(job, "VRF", clarifications=(Clarification("note", "the units per s9"),))
-    assert [f.severity for f in _ids_found(j)] == ["check"]
+    assert [f.severity for f in _ids_found(j)] == ["must_fix"]
 
 
-def test_ids_in_device_names_and_named_exceptions_are_a_check(job):
+def test_issued_ids_in_device_names_and_named_exceptions_are_must_fix(job):
     """I4: a device name and a named exception print too."""
     j = edit_device(job, "RTU", "RTU.d4", name="Smoke Detector per S12")
-    assert (RULE["ids"], "RTU", "RTU.d4", "check") in rules(validate(j, PB))
+    assert (RULE["ids"], "RTU", "RTU.d4", "must_fix") in rules(validate(j, PB))
     j2 = dc.replace(job, exceptions=(dc.replace(job.exceptions[0], text="Fire alarm system by others per S14"),))
     # FA is no planned system: the finding is the whole job's, so the review page and the revise find no block
-    assert [(f.system_key, f.severity) for f in _ids_found(j2) if "S14" in f.what] == [("", "check")]
+    assert [(f.system_key, f.severity) for f in _ids_found(j2) if "S14" in f.what] == [("", "must_fix")]
     j3 = dc.replace(job, exceptions=(dc.replace(job.exceptions[0], system_key="EF", text="Fans by others per S14"),))
-    assert [(f.system_key, f.severity) for f in _ids_found(j3) if "S14" in f.what] == [("EF", "check")]
+    assert [(f.system_key, f.severity) for f in _ids_found(j3) if "S14" in f.what] == [("EF", "must_fix")]
 
 
 def test_a_tag_range_shaped_like_ids_is_no_check(job):
@@ -327,12 +327,12 @@ def test_q_i_f_and_c_ids_in_wording_are_a_check(job):
     assert (RULE["ids"], "RTU", "RTU.d4", "check") in rules(validate(j, PB))
 
 
-def test_source_ids_in_assumption_or_clarification_wording_are_a_check(job):
+def test_issued_source_ids_in_assumption_or_clarification_wording_are_must_fix(job):
     j = edit_device(job, "RTU", "RTU.d4", assumption=Assumption("one detector per unit", "S12 note 2 says so"))
-    assert (RULE["ids"], "RTU", "RTU.d4", "check") in rules(validate(j, PB))
+    assert (RULE["ids"], "RTU", "RTU.d4", "must_fix") in rules(validate(j, PB))
     j2 = edit(job, "VRF", clarifications=(Clarification("confirm", "Branch selector count per S41"),),
               sequence_refs=(Ref("S41", "q", "M-002, Invented.pdf page 3"),))      # an id the run issued
-    assert (RULE["ids"], "VRF", None, "check") in rules(validate(j2, PB))
+    assert (RULE["ids"], "VRF", None, "must_fix") in rules(validate(j2, PB))
     j3 = edit(job, "VRF", clarifications=(Clarification("confirm", "count per the SD-12 sheet; 5S7 is not an id"),))
     assert rules(validate(j3, PB), RULE["ids"]) == []
     assert RULE["ids"] == "Assumption wording has no source ids"

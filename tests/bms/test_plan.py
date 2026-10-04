@@ -157,6 +157,19 @@ def test_exceptions_name_their_system_and_keep_their_source():
     assert [s.key for s in job.systems] == ["CH", "CHWP"]          # the system stays; never undershoot
 
 
+def test_an_exception_loses_the_ledgers_bracket_form_of_an_id_at_plan_time():
+    """The ledger's own "[S4]" form is a known format, taken out by the planner; any other id-shaped token is left
+    for the validator to report (never a sentence rewrite)."""
+    ledger = _ledger()
+    _family(ledger, "CH", "Chiller", "CH-1", 1)
+    ledger.add("note", "exception", "Fire alarm by others [S4] per [q12]", "S4", "fire alarm by others", "spec",
+               SETTLED)
+    ledger.add("note", "exception", "Sprinklers by others per S4", "S4", "sprinklers by others", "spec", SETTLED)
+    ledger.add("note", "exception", "[S4]", "S4", "x", "spec", SETTLED)
+    job = _plan(ledger)
+    assert [x.text for x in job.exceptions] == ["Fire alarm by others per", "Sprinklers by others per S4"]
+
+
 def test_control_class_from_the_provider_facts():
     ledger = _ledger()
     _family(ledger, "RTU", "Rooftop Unit", "RTU-1, RTU-2", 2)
