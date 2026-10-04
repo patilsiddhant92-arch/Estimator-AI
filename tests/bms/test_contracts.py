@@ -244,8 +244,8 @@ SIGNATURES = {
     ai.revise_system: ["system", "findings", "evidence", "playbook", "transport"],
     ai.evidence_for: ["system", "dossier"],
     ai.evidence_index: ["dossier"],
-    counts.count_tags: ["image_path", "tag_pattern"],
-    counts.cross_check: ["job", "catalogue", "cache"],
+    counts.count_tags: ["image_path", "tag_pattern", "transport"],      # transport: optional, keyword-only
+    counts.cross_check: ["job", "catalogue", "cache", "transport"],     # transport: optional, keyword-only
     review.review_page: ["job", "findings", "out_dir"],
     review.load_decisions: ["out_dir"],
     review.apply_decisions: ["job", "decisions"],
