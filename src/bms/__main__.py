@@ -35,6 +35,10 @@ def parser() -> argparse.ArgumentParser:
     lint = commands.add_parser("playbook-lint", help="check playbook/rules.md, shapes.json and wording.json")
     lint.add_argument("root", nargs="?", type=Path, default=DEFAULT_ROOT,
                       help="the Playbook folder (default: the repo's playbook/)")
+    d = commands.add_parser("doctor", help="check Python, dependencies, models, Playbook, and cache")
+    d.add_argument("--cache", type=Path, default=Path(".cache"), help="cache directory to check (default: .cache)")
+    d.add_argument("--playbook", type=Path, default=None, help="playbook directory to check (default: repo playbook/)")
+    d.add_argument("--config", type=Path, default=None, help="configuration file to check (default: .claude/run-job.json)")
     return p
 
 
@@ -61,9 +65,18 @@ def _playbook_lint(args: argparse.Namespace) -> int:
     return 0
 
 
+def _doctor(args: argparse.Namespace) -> int:
+    from bms.doctor import run_doctor
+    ok, messages = run_doctor(cache_dir=args.cache, playbook_dir=args.playbook, config_path=args.config)
+    for line in messages:
+        print(line)
+    return 0 if ok else 1
+
+
 COMMANDS: dict[str, Callable[[argparse.Namespace], int]] = {
     "estimate": _estimate,
     "playbook-lint": _playbook_lint,
+    "doctor": _doctor,
 }
 
 
