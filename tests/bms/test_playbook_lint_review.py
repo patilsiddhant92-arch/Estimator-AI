@@ -14,7 +14,7 @@ from bms.__main__ import main
 from bms.playbook import PlaybookError, load_playbook
 from bms.playbook_lint import lint_playbook
 
-REPO_PLAYBOOK = Path(__file__).resolve().parents[1] / "playbook"
+REPO_PLAYBOOK = Path(__file__).resolve().parents[2] / "playbook"
 GOOD_RULES = "# P\n\n## Topic\n\n### Rule one\nPlain words.\n"
 
 

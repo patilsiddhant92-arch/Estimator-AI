@@ -1,6 +1,10 @@
-"""Playbook linter: checks playbook/rules.md, shapes.json, wording.json for problems.
+"""Playbook linter: checks playbook/rules.md, shapes.json and wording.json and reports problems in plain words.
 
-Reports in plain words. Exit 1 on any problem, 0 when clean.
+"Lints clean" means the app can load the Playbook (each file goes through the loader's own checks in
+`bms.playbook`) and the house style holds: no emoji, no arrows, no source ids, no trailing whitespace, no rule names
+that differ only in case. The rule names the code needs come from the code itself: `bms.validate.RULE` and the
+rule names quoted in the AI prompts (`src/bms/prompts/*.md`). A Playbook rule no code names is the estimator's to
+rename or drop. `python -m bms playbook-lint [ROOT]` prints the problems and exits 1, or exits 0 when clean.
 """
 from __future__ import annotations
 
@@ -8,115 +12,42 @@ import json
 import re
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable
 
-# Known rule names referenced by validators and prompts (from the codebase)
-# These must exist in rules.md
-VALIDATOR_RULE_NAMES = frozenset({
-    "Every line cites this job",
-    "No standard or fallback lines",
-    "Nothing from other jobs",
-    "Read the whole sequence first",
-    "Contractor name in the documents",
-    "Everything assigned is extracted",
-    "Sequence first, point list second",
-    "Every point-list point is checked",
-    "Device names from the documents",
-    "Every line carries its ownership",
-    "Who owns what by default",
-    "Three ownership questions",
-    "Verb from the three answers",
-    "Verbs by device type",
-    "Explicit assignment always wins",
-    "Mixed ownership device by device",
-    "Blanket wiring clause",
-    "Other trades in brackets",
-    "Point lines only on AME controllers",
-    "Minimum points on AME-run equipment",
-    "Start/stop covers the relay and status switch",
-    "Fire alarm interface",
-    "Unclear ownership is flagged",
-    "Higher count prints",
-    "Never undershoot",
-    "Line quantity",
-    "Systems named only in the sequence",
-    "One clarification per block",
-    "Joining into the one clarification",
-    "Every assumption says why",
-    "Assumption wording has no source ids",
-    "Client notes",
-    "Miscellaneous responsibilities",
-    "Words the client never sees",
-    "Questions for the estimator",
-    "Packaged units",
-    "No AME controller on a packaged unit",
-    "Nothing inside the unit is a line",
-    "Factory-installed devices",
-    "Template is the ideal case",
-    "Shipped-loose devices",
-    "Shipped-loose devices not named",
-    "Thermostat furnished by the unit manufacturer",
-    "Dampers under their fan",
-    "Untraced dampers in their own block",
-    "Unclaimed dampers in their own block",
-    "Fire and smoke dampers keep their own block",
-    "One line per damper type",
-    "Duct heaters in one place",
-    "Heater on a packaged unit",
-    "Heater on an AME controller",
-    "Heater assignment wins",
-    "VRF and split as one block",
-    "VRF lines",
-    "VRF wiring belongs to the manufacturer",
-    "Split system interlock wiring",
-    "Refrigerant leak detection wiring",
-    "BMS space sensor on AC units",
-    "Integration trio",
-    "Integration lines cover monitoring",
-    "Integration lines last",
-    "UUKL listed smoke control",
-    "Residential equipment stays in scope",
-    "Factory thermostat units with no BMS work",
-    "Electric unit heater with factory thermostat",
-    "Front end mode",
-    "Front end lines cite the specification",
-    "Front end items by others",
-    "Auto dialer with a network panel",
-    "Warranty lines",
-    "Named exceptions",
-    "Never invent an alternate",
-    "Exclusions",
-    "Tech hours follow the shape",
-    "Tech hours the shape cannot express",
-    "Integration-only systems",
-    "Tech hours never print",
-    "Template gives shape only",
-    "Placing a device in a slot",
-    "Standard order",
-    "Line form",
-    "Sub-lines under their parent",
-    "Untemplated systems",
-    "One system one block",
-})
+from bms.citations import ONE_ID
+from bms.playbook import DEFAULT_ROOT, PlaybookError, _load_rules, _load_shapes, _load_wording
+from bms.validate import RULE
 
+PROMPTS = Path(__file__).resolve().parent / "prompts"
 
-# Pattern for source ids: S12, Q3, I5, F100, C3, etc. (with optional lowercase suffix)
-SOURCE_ID_PATTERN = re.compile(r"\b[SQIFC]\d+[a-z]?\b")
+# A quoted phrase in a prompt that starts with a capital and has a space is a rule citation (the same reading
+# tests/bms/test_rule_names.py uses).
+_QUOTED = re.compile(r'"([^"\n]+)"')
 
-# Pattern for emoji (simplified - matches common emoji ranges)
+# Source ids quoted as examples ("S12", "S40 note 1") are allowed only in this rule.
+SOURCE_ID_EXAMPLES_RULE = "Assumption wording has no source ids"
+# F and C ids look like equipment tags (fan F1, compressor C2); the Playbook may name those.
+TAG_LOOKALIKE_PREFIXES = ("F", "C")
+
 EMOJI_PATTERN = re.compile(
-    r"[\U0001F600-\U0001F64F"  # emoticons
-    r"\U0001F300-\U0001F5FF"  # symbols & pictographs
-    r"\U0001F680-\U0001F6FF"  # transport & map
-    r"\U0001F1E0-\U0001F1FF"  # flags
-    r"\U00002700-\U000027BF"  # dingbats
-    r"\U00002600-\U000026FF"  # misc symbols
-    r"\U0001F900-\U0001F9FF"  # supplemental symbols
-    r"]+"
+    "["
+    "\U0001F600-\U0001F64F"  # emoticons
+    "\U0001F300-\U0001F5FF"  # symbols and pictographs
+    "\U0001F680-\U0001F6FF"  # transport and map
+    "\U0001F1E0-\U0001F1FF"  # flags
+    "\U0001F900-\U0001F9FF"  # supplemental symbols and pictographs
+    "\U0001FA70-\U0001FAFF"  # symbols and pictographs extended-A
+    "☀-⛿"          # miscellaneous symbols
+    "✀-➿"          # dingbats
+    "⭐-⭕"          # stars and circles
+    "]"
 )
+# Arrows: the Unicode arrows (single and double, any direction) and the ASCII -> and =>. Not <= and not ::.
+ARROW_PATTERN = re.compile(r"->|=>|[←-⇿⟰-⟿]")
 
-# Pattern for arrows
-ARROW_PATTERN = re.compile(r"(?:->|<-|=>|<=|=>|::|->>|<<-|-->|<--|==>|<==|=>=|<=<)")
+_COMMENT = re.compile(r"<!--.*?-->", re.S)
+_FENCE = re.compile(r"^```.*?^```[^\n]*$", re.S | re.M)
+_BACKTICKS = re.compile(r"`[^`\n]*`")
+_DOUBLE_QUOTED = re.compile(r'"[^"\n]*"')
 
 
 @dataclass(frozen=True)
@@ -130,215 +61,187 @@ class LintProblem:
         return f"{loc}: {self.message}"
 
 
-def lint_playbook(root: Path, known_rule_names: set[str] | None = None) -> list[LintProblem]:
-    """Lint the playbook in `root`. Returns list of problems (empty = clean)."""
-    root = Path(root)
-    problems: list[LintProblem] = []
-
-    # Lint each file
-    problems.extend(_lint_rules(root / "rules.md"))
-    problems.extend(_lint_shapes(root / "shapes.json"))
-    problems.extend(_lint_wording(root / "wording.json"))
-
-    # Cross-file checks
-    if known_rule_names is not None:
-        rules = _parse_rules_for_names(root / "rules.md")
-        problems.extend(_check_missing_validator_rules(rules, known_rule_names))
-
-    return problems
-
-
-def _lint_rules(path: Path) -> list[LintProblem]:
-    problems: list[LintProblem] = []
-    if not path.exists():
-        return [LintProblem(str(path), None, "file not found")]
-
-    text = path.read_text(encoding="utf-8-sig")
-    lines = text.splitlines()
-
-    topic: str | None = None
-    rule_name: str | None = None
-    rule_lines: list[str] = []
-    rule_start_line: int = 0
-    seen_rules: set[str] = set()
-
-    def check_rule() -> None:
-        nonlocal problems, rule_name, rule_lines, rule_start_line
-        if rule_name is None:
-            return
-        # Duplicate rule name
-        if rule_name in seen_rules:
-            problems.append(LintProblem(str(path), rule_start_line,
-                                        f"duplicate rule name {rule_name!r}"))
-        seen_rules.add(rule_name)
-
-        # No sentence (empty after stripping sample marker)
-        joined = "\n".join(rule_lines).strip()
-        joined = joined.replace("<!-- sample -->", "").strip()
-        if not joined:
-            problems.append(LintProblem(str(path), rule_start_line,
-                                        f"rule {rule_name!r} has no text"))
-
-        # Check if this rule discusses source ids (allows them as examples)
-        discusses_source_ids = "source id" in joined.lower()
-
-        # Emoji, arrow, source id, trailing whitespace checks
-        for i, line in enumerate(rule_lines, start=rule_start_line):
-            full_line = line.rstrip("\n")
-            if EMOJI_PATTERN.search(full_line):
-                problems.append(LintProblem(str(path), i + 1,
-                                            f"rule {rule_name!r} contains emoji"))
-            # Arrow check
-            if ARROW_PATTERN.search(full_line):
-                problems.append(LintProblem(str(path), i + 1,
-                                            f"rule {rule_name!r} contains arrow"))
-            # Source id check - allow when rule discusses source ids (they're examples)
-            if not discusses_source_ids:
-                for match in SOURCE_ID_PATTERN.finditer(full_line):
-                    problems.append(LintProblem(str(path), i + 1,
-                                                f"rule {rule_name!r} contains source id {match.group()!r}"))
-            # Trailing whitespace
-            if line != line.rstrip():
-                problems.append(LintProblem(str(path), i + 1,
-                                            f"rule {rule_name!r} has trailing whitespace"))
-
-    for i, line in enumerate(lines, start=1):
-        stripped = line.strip()
-        if stripped.startswith("### "):
-            check_rule()
-            rule_name = stripped[4:].strip()
-            rule_start_line = i
-            rule_lines = []
-            if topic is None:
-                problems.append(LintProblem(str(path), i,
-                                            f"rule {rule_name!r} is not under a topic (no ## heading above it)"))
-        elif stripped.startswith("## "):
-            check_rule()
-            rule_name = None
-            rule_lines = []
-            topic = stripped[3:].strip()
-        elif stripped.startswith("#### "):
-            problems.append(LintProblem(str(path), i,
-                                        "only ## topics and ### rules are allowed (#### not permitted)"))
-        elif rule_name is not None:
-            rule_lines.append(line)
-
-    check_rule()  # last rule
-
-    return problems
-
-
-def _lint_shapes(path: Path) -> list[LintProblem]:
-    problems: list[LintProblem] = []
-    if not path.exists():
-        return [LintProblem(str(path), None, "file not found")]
-
-    try:
-        with path.open(encoding="utf-8") as f:
-            data = json.load(f)
-    except json.JSONDecodeError as e:
-        return [LintProblem(str(path), e.lineno, f"invalid JSON: {e}")]
-
-    if not isinstance(data.get("shapes"), list):
-        problems.append(LintProblem(str(path), None, '"shapes" must be a list'))
-        return problems
-
-    for idx, shape in enumerate(data["shapes"]):
-        if not isinstance(shape, dict):
-            problems.append(LintProblem(str(path), None, f"shapes[{idx}] must be an object"))
-            continue
-
-        name = shape.get("name", f"<unnamed shape {idx}>")
-        line_order = shape.get("line_order", [])
-        wording = shape.get("wording", {})
-        under = shape.get("under", {})
-
-        # line_order slots must have wording
-        for slot in line_order:
-            if slot not in wording:
-                problems.append(LintProblem(str(path), None,
-                                            f"shape {name!r}: slot {slot!r} in line_order has no wording"))
-
-        # under references must be valid
-        for slot, parent in under.items():
-            if slot not in line_order:
-                problems.append(LintProblem(str(path), None,
-                                            f"shape {name!r}: under slot {slot!r} not in line_order"))
-            elif parent not in line_order:
-                problems.append(LintProblem(str(path), None,
-                                            f"shape {name!r}: under parent {parent!r} not in line_order"))
-            else:
-                # parent must come before child in line_order
-                if line_order.index(parent) >= line_order.index(slot):
-                    problems.append(LintProblem(str(path), None,
-                                                f"shape {name!r}: under parent {parent!r} must come before {slot!r} in line_order"))
-
-    return problems
-
-
-def _lint_wording(path: Path) -> list[LintProblem]:
-    problems: list[LintProblem] = []
-    if not path.exists():
-        return [LintProblem(str(path), None, "file not found")]
-
-    try:
-        with path.open(encoding="utf-8") as f:
-            data = json.load(f)
-    except json.JSONDecodeError as e:
-        return [LintProblem(str(path), e.lineno, f"invalid JSON: {e}")]
-
-    # Basic structure validation (the playbook loader does more)
-    required_keys = ("verbs", "owner_brackets", "integration_trio", "clarifications", "header", "quantity")
-    for key in required_keys:
-        if key not in data:
-            problems.append(LintProblem(str(path), None, f"missing required key: {key}"))
-
-    # Check verbs match exactly
-    if "verbs" in data and data["verbs"] != list(VALIDATOR_RULE_NAMES):
-        # Actually verbs should match VERBS from model, not rule names
-        # We'll just check it's a list of 5 strings
-        pass
-
-    return problems
-
-
-def _parse_rules_for_names(path: Path) -> set[str]:
-    """Parse rules.md and return set of rule names (### headings)."""
-    if not path.exists():
-        return set()
-    text = path.read_text(encoding="utf-8-sig")
-    names = set()
-    for line in text.splitlines():
-        if line.startswith("### "):
-            names.add(line[4:].strip())
+def prompt_rule_names(folder: Path | None = None) -> set[str]:
+    """The rule names the AI prompts quote."""
+    names: set[str] = set()
+    for prompt in sorted(Path(folder or PROMPTS).glob("*.md")):
+        names |= {q for q in _QUOTED.findall(prompt.read_text(encoding="utf-8")) if q[:1].isupper() and " " in q}
     return names
 
 
-def _check_missing_validator_rules(rule_names: set[str], known_names: set[str]) -> list[LintProblem]:
-    """Check that every known rule name appears in the playbook."""
-    problems: list[LintProblem] = []
-    missing = known_names - rule_names
-    for name in sorted(missing):
-        problems.append(LintProblem("rules.md", None,
-                                    f"rule {name!r} is used by validators/prompts but missing from rules.md"))
+def referenced_rule_names() -> set[str]:
+    """The rule names the code needs in rules.md: every validator's rule and every rule a prompt quotes. Read at
+    call time, so a new name in `bms.validate.RULE` or a prompt is required at once."""
+    return set(RULE.values()) | prompt_rule_names(PROMPTS)
+
+
+def lint_playbook(root: Path = DEFAULT_ROOT, known_rule_names: set[str] | None = None) -> list[LintProblem]:
+    """Lint the Playbook in `root`. Returns the problems (empty: clean). `known_rule_names`: rule names that must
+    be in rules.md (the CLI passes `referenced_rule_names()`)."""
+    root = Path(root)
+    rule_problems, names = _lint_rules(root / "rules.md")
+    problems = rule_problems + _lint_shapes(root / "shapes.json") + _lint_wording(root / "wording.json")
+    if known_rule_names is not None and names is not None:
+        path = root / "rules.md"
+        problems += [LintProblem(str(path), None, f"rule {name!r} is used by validators/prompts but missing from "
+                                                  "rules.md")
+                     for name in sorted(set(known_rule_names) - names)]
     return problems
 
 
-def main(argv: list[str] | None = None) -> int:
-    import argparse
-    import sys
+# ---- shared ------------------------------------------------------------------------------------------------------
 
-    parser = argparse.ArgumentParser(prog="playbook-lint", description="Lint the playbook files")
-    parser.add_argument("root", nargs="?", type=Path, default=Path("playbook"),
-                        help="playbook root folder (default: playbook/)")
-    args = parser.parse_args(argv)
+def _read(path: Path) -> tuple[str | None, list[LintProblem]]:
+    if not path.exists():
+        return None, [LintProblem(str(path), None, "file not found")]
+    try:
+        return path.read_bytes().decode("utf-8-sig"), []
+    except UnicodeDecodeError as error:
+        return None, [LintProblem(str(path), None, f"is not UTF-8 text (the byte at position {error.start} cannot "
+                                                   "be read); save it as UTF-8")]
+    except OSError as error:
+        return None, [LintProblem(str(path), None, f"cannot be read ({error.strerror or error})")]
 
-    problems = lint_playbook(args.root, known_rule_names=VALIDATOR_RULE_NAMES)
-    for p in problems:
-        print(p)
-    return 1 if problems else 0
+
+def _loader_problem(path: Path, load) -> list[LintProblem]:
+    """The loader's own verdict on one file, as a problem (none when the app can load it)."""
+    try:
+        load(path)
+    except (PlaybookError, ValueError, OSError) as error:
+        return [LintProblem(str(path), None, f"the app cannot load this file: {error}")]
+    return []
 
 
-if __name__ == "__main__":
-    import sys
-    sys.exit(main())
+def _blank(pattern: re.Pattern, text: str) -> str:
+    """`text` with each match of `pattern` removed but its line breaks kept, so line numbers still hold."""
+    return pattern.sub(lambda m: "\n" * m.group().count("\n"), text)
+
+
+# ---- rules.md ----------------------------------------------------------------------------------------------------
+
+def _lint_rules(path: Path) -> tuple[list[LintProblem], set[str] | None]:
+    text, problems = _read(path)
+    if text is None:
+        return problems, None
+    problems += _loader_problem(path, _load_rules)
+
+    def problem(n: int, message: str) -> None:
+        problems.append(LintProblem(str(path), n, message))
+
+    body = _blank(_COMMENT, text)                        # comments (the sample mark too) are not rule text
+    plain = _blank(_FENCE, body).splitlines()            # arrows count outside code fences and backticks
+    lines = body.splitlines()
+    plain += [""] * (len(lines) - len(plain))
+
+    topic: str | None = None
+    rule: str | None = None
+    rule_line = 0
+    rule_text: list[str] = []
+    names: set[str] = set()
+    folded: dict[str, str] = {}
+
+    def close() -> None:
+        if rule is not None and not "\n".join(rule_text).strip():
+            problem(rule_line, f"rule {rule!r} has no text")
+
+    for n, line in enumerate(lines, start=1):
+        where = f"rule {rule!r}" if rule is not None else f"line {n}"
+        if line.startswith("### "):
+            close()
+            rule, rule_line, rule_text = line[4:].strip(), n, []
+            where = f"rule heading {rule!r}"
+            if topic is None:
+                problem(n, f"rule {rule!r} is not under a topic (no ## heading above it)")
+            if rule in names:
+                problem(n, f"duplicate rule name {rule!r}")
+            elif rule.casefold() in folded:
+                problem(n, f"rule {rule!r} differs only in case from rule {folded[rule.casefold()]!r}")
+            names.add(rule)
+            folded.setdefault(rule.casefold(), rule)
+        elif line.startswith("## "):
+            close()
+            rule, topic = None, line[3:].strip()
+            where = f"topic {topic!r}"
+        elif line.startswith("#### "):
+            problem(n, "only ## topics and ### rules are allowed (#### not permitted)")
+        elif rule is not None:
+            rule_text.append(line)
+
+        if line != line.rstrip():
+            problem(n, f"{where} has trailing whitespace")
+        if EMOJI_PATTERN.search(line):
+            problem(n, f"{where} contains emoji")
+        if ARROW_PATTERN.search(_blank(_BACKTICKS, plain[n - 1])):
+            problem(n, f"{where} contains an arrow")
+        checked = _blank(_DOUBLE_QUOTED, line) if rule == SOURCE_ID_EXAMPLES_RULE else line
+        for match in ONE_ID.finditer(checked):
+            if not match.group().startswith(TAG_LOOKALIKE_PREFIXES):
+                problem(n, f"{where} contains source id {match.group()!r}")
+    close()
+    return problems, names
+
+
+# ---- shapes.json -------------------------------------------------------------------------------------------------
+
+def _json(path: Path) -> tuple[dict | None, list[LintProblem]]:
+    text, problems = _read(path)
+    if text is None:
+        return None, problems
+    try:
+        data = json.loads(text)
+    except ValueError as error:
+        return None, [LintProblem(str(path), getattr(error, "lineno", None), f"invalid JSON: {error}")]
+    if not isinstance(data, dict):
+        return None, [LintProblem(str(path), None, "must be a JSON object")]
+    return data, []
+
+
+def _lint_shapes(path: Path) -> list[LintProblem]:
+    data, problems = _json(path)
+    if data is None:
+        return problems
+
+    def problem(message: str) -> None:
+        problems.append(LintProblem(str(path), None, message))
+
+    if not isinstance(data.get("shapes"), list):
+        problem('"shapes" must be a list')
+        return problems
+    for idx, shape in enumerate(data["shapes"]):
+        if not isinstance(shape, dict):
+            problem(f"shapes[{idx}] must be an object")
+            continue
+        name = shape.get("name", f"<unnamed shape {idx}>")
+        line_order, wording, under = shape.get("line_order", []), shape.get("wording", {}), shape.get("under", {})
+        if not isinstance(line_order, list) or not all(isinstance(s, str) for s in line_order):
+            problem(f"shape {name!r}: line_order must be a list of slot names")
+            continue
+        if not isinstance(wording, dict):
+            problem(f"shape {name!r}: wording must map each slot to its text")
+        else:
+            for slot in line_order:
+                if slot not in wording:
+                    problem(f"shape {name!r}: slot {slot!r} in line_order has no wording")
+        if not isinstance(under, dict):
+            problem(f"shape {name!r}: under must map each sub-line slot to its parent slot")
+            continue
+        for slot, parent in under.items():
+            if slot not in line_order:
+                problem(f"shape {name!r}: under slot {slot!r} not in line_order")
+            elif not isinstance(parent, str) or parent not in line_order:
+                problem(f"shape {name!r}: under parent {parent!r} not in line_order")
+            elif line_order.index(parent) >= line_order.index(slot):
+                problem(f"shape {name!r}: under parent {parent!r} must come before {slot!r} in line_order")
+    return problems + _loader_problem(path, _load_shapes)
+
+
+# ---- wording.json ------------------------------------------------------------------------------------------------
+
+def _lint_wording(path: Path) -> list[LintProblem]:
+    data, problems = _json(path)
+    if data is None:
+        return problems
+    for key in ("verbs", "owner_brackets", "integration_trio", "clarifications", "header", "quantity"):
+        if key not in data:
+            problems.append(LintProblem(str(path), None, f"missing required key: {key}"))
+    return problems + _loader_problem(path, _load_wording)

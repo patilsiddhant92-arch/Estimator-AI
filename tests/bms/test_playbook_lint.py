@@ -2,12 +2,9 @@
 from __future__ import annotations
 
 import json
-import tempfile
 from pathlib import Path
 
-import pytest
-
-from bms.playbook_lint import lint_playbook, LintProblem
+from bms.playbook_lint import lint_playbook
 
 
 def _write_playbook(tmp: Path, rules: str, shapes: dict, wording: dict) -> Path:
@@ -214,16 +211,14 @@ This rule has trailing spaces.
     assert any("trailing whitespace" in p.message.lower() for p in problems)
 
 
-def test_repo_playbook_lints_clean(tmp_path):
-    """The actual repo playbook should lint clean (this test documents the requirement)."""
-    # This test will be run against the real playbook/ folder
-    # It's here to document the requirement; the actual check is manual
-    import os
-    repo_playbook = Path(os.getcwd()) / "playbook"
-    if repo_playbook.exists():
-        problems = lint_playbook(repo_playbook)
-        # The repo playbook must be clean - if not, the linter needs fixing
-        assert problems == [], f"Repo playbook has problems: {[str(p) for p in problems]}"
+def test_repo_playbook_lints_clean():
+    """The repo playbook lints clean, through the function and through the CLI (with the code's rule names)."""
+    from bms.__main__ import main
+    repo_playbook = Path(__file__).resolve().parents[2] / "playbook"
+    assert (repo_playbook / "rules.md").exists()
+    problems = lint_playbook(repo_playbook)
+    assert problems == [], f"Repo playbook has problems: {[str(p) for p in problems]}"
+    assert main(["playbook-lint", str(repo_playbook)]) == 0
 
 
 # Additional edge case tests
