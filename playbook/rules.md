@@ -48,8 +48,8 @@ term is unclear, flag the ownership before writing. Never reject an assignment b
 ### Everything assigned is extracted
 List every item the documents give the controls contractor, in two groups. Devices and hardwired signals (every
 sensor, actuator, switch, valve, relay, meter, detector, transmitter and hardwired signal) become lines. Other
-responsibilities (panel work, demolition, wiring runs not tied to a device, coordination, testing) become the
-block's "**" notes (see Miscellaneous responsibilities). Nothing on the list is dropped. Every device on the list
+responsibilities (panel work, demolition, wiring runs not tied to a device, coordination, testing) become lines
+or a client note (see Miscellaneous responsibilities). Nothing on the list is dropped. Every device on the list
 has its line, and every line is on the list.
 
 ### Sequence first, point list second
@@ -180,7 +180,15 @@ back as a question only.
 A block has at most one "*" clarification, naming the lines it covers: the quantities to confirm, the ownership to
 confirm and the assumptions made. Do not put a bracket on every line; the per-line detail stays in the Evidence
 Package. When a block needs several, they are joined in that one clarification. Its forms: "*Confirm quantity:
-...", "*Confirm ownership: ...", "*Assumed: ...", "*Quantity per <trade> drawings".
+...", "*Confirm ownership: ...", "*Assumed: ...", "*Quantity per <trade> drawings", and "**<note>" for client notes.
+
+### Joining into the one clarification
+The block's one clarification has one kind. When only one kind of item is needed, it takes that kind's form. When
+several are needed, the kind is "confirm" if anything is to be confirmed or counted per drawings, else "assumed",
+else "note". The parts are joined with "; " in the order: to confirm, assumed, per drawings, client notes. After
+the first part each keeps its own leading words ("Assumed: ...", "quantity per plumbing drawings", "Note: ...").
+Example: "*Confirm quantity: 4 per schedule; Assumed: relay by AME, as the sequence asks for a stop; Note: Start/Stop
+via Fire Alarm System". The front end block follows the same rule.
 
 ### Every assumption says why
 Every assumption says what was assumed and why, in a few plain words naming the document or the missing
@@ -189,16 +197,22 @@ factory sensor". A bare "*Assumed: unit type" is never printed. An assumption is
 it always carries its reason.
 
 ### Client notes
-A note starting "**" is a clarification to the client that the documents support, such as "**Start/Stop via Fire
-Alarm System". A device the documents say the unit's manufacturer furnishes, and that AME does not touch, may be
+A client note is a statement to the client that the documents support, such as "**Start/Stop via Fire Alarm
+System". It has no place of its own: it goes into the block's one clarification. When the block has nothing to
+confirm, assume or count per drawings, the clarification is the "note" kind and the notes are joined with "; "
+("**Start/Stop via Fire Alarm System; PC Workstation by Owner"). Otherwise they are joined after the other parts,
+each led by "Note:" (see Joining into the one clarification). A device the documents say the unit's manufacturer furnishes, and that AME does not touch, may be
 noted in the house form "**<ITEM> BY UNIT MFR." (for example "**LEAK DETECTION BY UNIT MFR."). Never an estimating
 hint (where to look, how to decide), never tech hours, never prices.
 
 ### Miscellaneous responsibilities
 Controls work that is not a device (panel and enclosure work; demolition of tubing, wiring, transducers and
 sensors; wiring and conduit not tied to a device; coordination and testing given to the controls contractor) is
-written as the block's "**" notes after its lines: plain statements, one per responsibility, no verb in front.
-Leave them out when there are none.
+never dropped. Work a house verb can carry is a line with its three ownership answers: panel and enclosure work
+in the device slot ("Furnish and Install Control Panel Enclosure"), wiring and conduit in the wiring slot ("Wire
+<run> per <section>"). Work no house verb carries (demolition, coordination, testing) is a client note in the
+block's one clarification, in plain words with no verb in front ("Demolition of Existing Pneumatic Tubing and
+Sensors"). Leave them out when there are none.
 
 ### Words the client never sees
 Nothing printed (header, line or note) carries: prices or dollar signs, tech hours, confidence, rule names, source
@@ -388,7 +402,8 @@ citation. Graphics on a tie-in are "to match existing".
 
 ### Front end items by others
 When the documents give the workstation, server or network switches to the owner or others in the same sentence,
-the line is not written and the block carries a client note ("**PC Workstation by Owner"). A sentence about the
+the line is not written and the front end's one clarification carries the client note ("**PC Workstation by
+Owner", joined as in Joining into the one clarification). A sentence about the
 owner's network connection or the room's location is not the owner furnishing the item.
 
 ### Auto dialer with a network panel
@@ -457,7 +472,7 @@ transmitters; safety and pressure switches; leak detectors; standalone current s
 actuators; fan and pump signals (start/stop and status, VFD control, VFD fault in the documents' term, VFD speed
 feedback, safety stop); primary equipment signals (boiler, chiller, cooling tower); position feedback and open/closed
 status; other hardwired outputs; power wiring; fire alarm Wire lines; Furnish and Wire filter switches, airflow
-stations, valves; Install and Wire; other Wire; the integration lines last; then the "**" notes.
+stations, valves; Install and Wire; other Wire; the integration lines last; then the block's one clarification.
 
 ### Line form
 Each line starts with its verb, or with an interlock, tie-in or wiring phrase when it has no verb. No bullets, no

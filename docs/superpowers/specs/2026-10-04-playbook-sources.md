@@ -47,8 +47,9 @@ Not used: `assets/phrasing_bank.json` and any past-job example (brief). No job t
 | | Systems named only in the sequence | Practice Systems named only in the sequence; GEM same section |
 | Clarifications and assumptions | One clarification per block | Practice Flags in the draft; GEM One clarification per block; Design §2.6 |
 | | Every assumption says why | Practice Assumptions give their reason; GEM Flags (assumed); Contradiction scan, conflict 5 |
-| | Client notes | House style `notes` (rule, examples, `by_unit_mfr`); Template `schedule_overrides` notes ("**LEAK DETECTION BY UNIT MFR.") |
-| | Miscellaneous responsibilities | GEM Miscellaneous responsibilities; House style `sow_positions` position 20 (printed as "**" notes) |
+| | Joining into the one clarification | Job model `System.clarifications` and `FrontEnd.clarifications` ("At most one"); validator (more than one is must_fix); see §4 item 17 |
+| | Client notes | House style `notes` (rule, examples, `by_unit_mfr`); Template `schedule_overrides` notes ("**LEAK DETECTION BY UNIT MFR."); placed in the one clarification (§4 item 17) |
+| | Miscellaneous responsibilities | GEM Miscellaneous responsibilities; House style `sow_positions` position 20 (printed as "**" notes; now lines where a house verb fits, else a client note, §4 item 17) |
 | | Words the client never sees | House style `forbidden` (words, category words, hours pattern) and `internal` (source ids, GEM words, "CC" written AME) |
 | | Questions for the estimator | Practice Systems named only in the sequence ("never held back as a question only"); Design §4.7 |
 | Packaged units | Packaged units | Practice Packaged units, what AME does; Practice Factory controls; GEM Packaged units, "four things" |
@@ -182,8 +183,10 @@ For the estimator's review. Items marked **decide** change what used to print.
     text-pattern layer the rebuild replaces (design §1). Their meaning is kept in rules (standard order, words the
     client never sees, client notes, packaged units, heater assignment, named exceptions). The stacked Misc
     Monitoring header is dropped (one header per block).
-11. **The bare verb "Install"** (template and house style verb lists): not a Job model verb; lines that used it keep
-    their house text in a fixed wording (VRF central controller).
+11. **The bare verb "Install"** (template and house style verb lists): not a Job model verb and not used. The VRF
+    central controller line ("Install Central Controller by Unit Mfr. Tie into BMS") now takes the device's verb and
+    owner like any other line, for example "Install and Wire Central Controller (Furnished by Unit Mfr.)"; the
+    "Tie into BMS" words are dropped, as the BMS communication wiring and Map Available Points lines carry the tie.
 12. **Template prefixes that pick the wrong shape**: Gas Detection EF and SF, Kitchen MAU, Geothermal CHWP, HWP, ET,
     PFHX, AS, VRF ODU. Kept as family names. `shape_for` picks the first shape sharing any prefix.
 13. **Sub-lines one level in** (Gas Detection sensors, HVAC alarm list, unit ventilator terminal-strip devices, Misc
@@ -195,3 +198,11 @@ For the estimator's review. Items marked **decide** change what used to print.
     Purge Fans, Exhaust Fan without a controller: left empty for the estimator.
 16. **GEM fire alarm "(Module Furnished by FA)"**: the format has one bracket per party; FA prints "(Relay
     Furnished by FA)". A run-status module line names the module in the device's words.
+17. **decide — Client notes ("**").** The house style and the GEM printed several "**" notes per block (each
+    miscellaneous responsibility, "**Start/Stop via Fire Alarm System", "**PC Workstation by Owner") next to the
+    one "*" clarification. The Job model gives a block one clarification and the validator rejects a second. The
+    rules now fit that contract: miscellaneous work a house verb carries is a line (with its ownership), and every
+    client note is joined into the block's one clarification ("**a; b" when it is the only kind, else after the
+    other parts, led by "Note:"). If the estimator wants one "*" line plus several "**" lines per block, the
+    controller extends the model (for example a `notes` field on System and FrontEnd) and the rules go back to one
+    "**" line per note.
