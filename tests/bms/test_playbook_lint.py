@@ -89,7 +89,8 @@ Duplicate rule name.
 """
     root = _write_playbook(tmp_path, rules, MINIMAL_SHAPES, MINIMAL_WORDING)
     problems = lint_playbook(root)
-    assert any("duplicate rule name" in p.message.lower() and "same name" in p.message.lower() for p in problems)
+    # In the loader's own words (REVIEW-020b: one defect, one problem, the loader's wording).
+    assert any("appears twice" in p.message.lower() and "same name" in p.message.lower() for p in problems)
 
 
 def test_rule_with_no_sentence_fails(tmp_path):

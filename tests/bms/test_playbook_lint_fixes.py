@@ -275,3 +275,62 @@ def test_subcommands_go_through_one_dispatch_table(monkeypatch):
     monkeypatch.setitem(commands, "playbook-lint", lambda args: called.append(args.root) or 7)
     assert main(["playbook-lint", "somewhere"]) == 7
     assert called == [Path("somewhere")]
+
+
+# ---- REVIEW-020b ------------------------------------------------------------------------------------------------
+
+def test_a_missing_wording_key_is_reported_once(tmp_path):
+    root = _copy(tmp_path)
+    data = json.loads((root / "wording.json").read_text(encoding="utf-8"))
+    del data["quantity"]
+    _write_json(root, "wording.json", data)
+    assert len(lint_playbook(root)) == 1, _messages(root)
+
+
+def test_two_duplicate_topics_are_both_reported_once(tmp_path):
+    rules = "# P\n\n## T\n\n### A\nx.\n\n## U\n\n### B\ny.\n\n## T\n\n### C\nz.\n\n## U\n\n### D\nw.\n"
+    root = _with_rules(tmp_path, rules)
+    problems = lint_playbook(root)
+    assert [p.line for p in problems] == [13, 18], [str(p) for p in problems]
+
+
+@pytest.mark.parametrize("fence", ["```", "   ```", "~~~", "  ~~~~"])
+def test_indented_and_tilde_fences_are_code_fences(tmp_path, fence):
+    root = _with_rules(tmp_path, _one_rule(f"The form is:\n{fence}\nA -> B\n{fence}\nPlain."))
+    assert _messages(root) == []
+
+
+def test_an_unclosed_fence_does_not_hide_what_follows(tmp_path):
+    root = _with_rules(tmp_path, _one_rule("Plain.\n~~~\nA -> B"))
+    assert any("arrow" in m for m in _messages(root)), _messages(root)
+
+
+def test_a_fence_closes_only_with_its_own_marker(tmp_path):
+    root = _with_rules(tmp_path, _one_rule("Plain.\n```\nA\n~~~\nB -> C"))
+    assert any("arrow" in m for m in _messages(root)), _messages(root)
+
+
+def test_many_unclosed_fences_lint_in_linear_time(tmp_path):
+    import time
+    root = _with_rules(tmp_path, _one_rule("Plain.\n" + "~~~x\n" * 20000))
+    start = time.perf_counter()
+    lint_playbook(root)
+    assert time.perf_counter() - start < 5
+
+
+@pytest.mark.parametrize("arrow", ["➔", "➡", "⬅", "⮕"])
+def test_dingbat_and_supplemental_arrows_are_arrows_not_emoji(tmp_path, arrow):
+    root = _with_rules(tmp_path, _one_rule(f"The fan {arrow} the damper."))
+    assert _messages(root) == ["rule 'Rule one' contains an arrow"], _messages(root)
+
+
+@pytest.mark.parametrize("emoji", ["⏰", "\U0001f004", "\U0001f0cf"])
+def test_technical_mahjong_and_card_emoji_are_reported(tmp_path, emoji):
+    root = _with_rules(tmp_path, _one_rule(f"A clock {emoji} here."))
+    assert any("emoji" in m for m in _messages(root)), _messages(root)
+
+
+def test_a_nameless_rule_heading_is_one_problem(tmp_path):
+    root = _with_rules(tmp_path, "# P\n\n## Topic\n\n### \nText.\n")
+    problems = lint_playbook(root)
+    assert len(problems) == 1 and "no name" in problems[0].message, [str(p) for p in problems]

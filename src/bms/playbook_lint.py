@@ -28,24 +28,37 @@ SOURCE_ID_EXAMPLES_RULE = "Assumption wording has no source ids"
 # F and C ids look like equipment tags (fan F1, compressor C2); the Playbook may name those.
 TAG_LOOKALIKE_PREFIXES = ("F", "C")
 
+# Arrow characters: the Unicode arrows, single and double, any direction. Checked before emoji, so an arrow from
+# the dingbats block (U+2794 to U+27BE) is reported as an arrow, not as an emoji.
+ARROW_CHARS = (
+    "\\u2190-\\u21FF"        # arrows
+    "\\u2794-\\u27AF\\u27B1-\\u27BE"  # dingbat arrows
+    "\\u27F0-\\u27FF"        # supplemental arrows-A
+    "\\u2900-\\u297F"        # supplemental arrows-B
+    "\\u2B00-\\u2B11\\u2B30-\\u2B4F\\u2B5A-\\u2BB7"  # the arrows of miscellaneous symbols and arrows
+)
+# Arrows: those characters and the ASCII -> and =>. Not <= and not ::.
+ARROW_PATTERN = re.compile(rf"->|=>|[{ARROW_CHARS}]")
+_ARROW_CHAR = re.compile(rf"[{ARROW_CHARS}]")
 EMOJI_PATTERN = re.compile(
     "["
-    "\U0001F600-\U0001F64F"  # emoticons
-    "\U0001F300-\U0001F5FF"  # symbols and pictographs
-    "\U0001F680-\U0001F6FF"  # transport and map
-    "\U0001F1E0-\U0001F1FF"  # flags
-    "\U0001F900-\U0001F9FF"  # supplemental symbols and pictographs
-    "\U0001FA70-\U0001FAFF"  # symbols and pictographs extended-A
-    "☀-⛿"          # miscellaneous symbols
-    "✀-➿"          # dingbats
-    "⭐-⭕"          # stars and circles
+    "\\U0001F000-\\U0001F02F"  # mahjong tiles
+    "\\U0001F0A0-\\U0001F0FF"  # playing cards
+    "\\U0001F1E0-\\U0001F1FF"  # flags
+    "\\U0001F300-\\U0001F5FF"  # symbols and pictographs
+    "\\U0001F600-\\U0001F64F"  # emoticons
+    "\\U0001F680-\\U0001F6FF"  # transport and map
+    "\\U0001F900-\\U0001F9FF"  # supplemental symbols and pictographs
+    "\\U0001FA70-\\U0001FAFF"  # symbols and pictographs extended-A
+    "\\u2300-\\u23FF"          # miscellaneous technical (watch, hourglass, alarm clock)
+    "\\u2600-\\u26FF"          # miscellaneous symbols
+    "\\u2700-\\u27BF"          # dingbats (its arrows are reported as arrows first)
+    "\\u2B1B\\u2B1C\\u2B50-\\u2B55"  # large squares, stars and circles
     "]"
 )
-# Arrows: the Unicode arrows (single and double, any direction) and the ASCII -> and =>. Not <= and not ::.
-ARROW_PATTERN = re.compile(r"->|=>|[←-⇿⟰-⟿]")
 
 _COMMENT = re.compile(r"<!--.*?-->", re.S)
-_FENCE = re.compile(r"^```.*?^```[^\n]*$", re.S | re.M)
+_FENCE_MARK = re.compile(r" {0,3}(`{3,}|~{3,})")
 _BACKTICKS = re.compile(r"`[^`\n]*`")
 _DOUBLE_QUOTED = re.compile(r'"[^"\n]*"')
 
@@ -119,20 +132,44 @@ def _blank(pattern: re.Pattern, text: str) -> str:
 
 # ---- rules.md ----------------------------------------------------------------------------------------------------
 
+def _fenced(lines: list[str]) -> set[int]:
+    """Indexes of the lines inside a closed code fence (``` or ~~~, indented 0 to 3 spaces), fence lines included.
+    A fence closes on a line of the same character, at least as long, and nothing else; an unclosed fence hides
+    nothing. One pass, so linear in the number of lines."""
+    inside: set[int] = set()
+    start, mark = None, ""
+    for i, line in enumerate(lines):
+        found = _FENCE_MARK.match(line)
+        if start is None:
+            if found:
+                start, mark = i, found.group(1)
+        elif (found and found.group(1)[0] == mark[0] and len(found.group(1)) >= len(mark)
+              and not line[found.end():].strip()):
+            inside.update(range(start, i + 1))
+            start = None
+    return inside
+
+
 def _lint_rules(path: Path) -> tuple[list[LintProblem], set[str] | None]:
+    """The loader's structural checks, made over the whole file in the loader's own words (so every defect is
+    reported, once, with its line), then the house-style checks. The loader's verdict is added only when the walk
+    found nothing the loader refuses, as a safety net."""
     text, problems = _read(path)
     if text is None:
         return problems, None
-    problems += _loader_problem(path, _load_rules)
+    refused: list[LintProblem] = []
 
     def problem(n: int, message: str) -> None:
         problems.append(LintProblem(str(path), n, message))
 
-    body = _blank(_COMMENT, text)                        # comments (the sample mark too) are not rule text
-    plain = _blank(_FENCE, body).splitlines()            # arrows count outside code fences and backticks
-    lines = body.splitlines()
-    plain += [""] * (len(lines) - len(plain))
+    def refuse(n: int | None, message: str) -> None:
+        where = f"{path.name} line {n}" if n else path.name
+        refused.append(LintProblem(str(path), n, f"the app cannot load this file: {where}: {message}"))
 
+    lines = _blank(_COMMENT, text).splitlines()         # comments (the sample mark too) are not rule text
+    fenced = _fenced(lines)                             # arrows count outside code fences and backticks
+
+    topics: set[str] = set()
     topic: str | None = None
     rule: str | None = None
     rule_line = 0
@@ -141,44 +178,54 @@ def _lint_rules(path: Path) -> tuple[list[LintProblem], set[str] | None]:
     folded: dict[str, str] = {}
 
     def close() -> None:
-        if rule is not None and not "\n".join(rule_text).strip():
-            problem(rule_line, f"rule {rule!r} has no text")
+        if rule and not "\n".join(rule_text).strip():
+            refuse(None, f"rule {rule!r} has no text")
 
     for n, line in enumerate(lines, start=1):
-        where = f"rule {rule!r}" if rule is not None else f"line {n}"
+        where = f"rule {rule!r}" if rule else f"line {n}"
+        nameless = False
         if line.startswith("### "):
             close()
             rule, rule_line, rule_text = line[4:].strip(), n, []
-            where = f"rule heading {rule!r}"
+            where, nameless = f"rule heading {rule!r}", not rule
             if topic is None:
-                problem(n, f"rule {rule!r} is not under a topic (no ## heading above it)")
-            if rule in names:
-                problem(n, f"duplicate rule name {rule!r}")
+                refuse(n, f"rule {rule!r} is not under a topic (## heading)")
+            elif not rule:
+                refuse(n, "a rule with no name")
+            elif rule in names:
+                refuse(n, f"rule {rule!r} appears twice")
             elif rule.casefold() in folded:
                 problem(n, f"rule {rule!r} differs only in case from rule {folded[rule.casefold()]!r}")
-            names.add(rule)
-            folded.setdefault(rule.casefold(), rule)
+            if rule:
+                names.add(rule)
+                folded.setdefault(rule.casefold(), rule)
         elif line.startswith("## "):
             close()
             rule, topic = None, line[3:].strip()
-            where = f"topic {topic!r}"
+            where, nameless = f"topic {topic!r}", not topic
+            if not topic or topic in topics:
+                refuse(n, f"topic {topic!r} is empty or appears twice")
+            topics.add(topic)
         elif line.startswith("#### "):
-            problem(n, "only ## topics and ### rules are allowed (#### not permitted)")
+            refuse(n, "only ## topics and ### rules are allowed")
         elif rule is not None:
             rule_text.append(line)
 
-        if line != line.rstrip():
+        if line != line.rstrip() and not nameless:      # a nameless heading is already reported
             problem(n, f"{where} has trailing whitespace")
-        if EMOJI_PATTERN.search(line):
-            problem(n, f"{where} contains emoji")
-        if ARROW_PATTERN.search(_blank(_BACKTICKS, plain[n - 1])):
+        style = "" if n - 1 in fenced else _blank(_BACKTICKS, line)
+        if ARROW_PATTERN.search(style):
             problem(n, f"{where} contains an arrow")
+        if EMOJI_PATTERN.search(_ARROW_CHAR.sub("", line)):
+            problem(n, f"{where} contains emoji")
         checked = _blank(_DOUBLE_QUOTED, line) if rule == SOURCE_ID_EXAMPLES_RULE else line
         for match in ONE_ID.finditer(checked):
             if not match.group().startswith(TAG_LOOKALIKE_PREFIXES):
                 problem(n, f"{where} contains source id {match.group()!r}")
     close()
-    return problems, names
+    if not topics:
+        refuse(None, "no topic (## heading)")
+    return (refused or _loader_problem(path, _load_rules)) + problems, names
 
 
 # ---- shapes.json -------------------------------------------------------------------------------------------------
@@ -232,16 +279,12 @@ def _lint_shapes(path: Path) -> list[LintProblem]:
                 problem(f"shape {name!r}: under parent {parent!r} not in line_order")
             elif line_order.index(parent) >= line_order.index(slot):
                 problem(f"shape {name!r}: under parent {parent!r} must come before {slot!r} in line_order")
-    return problems + _loader_problem(path, _load_shapes)
+    return problems or _loader_problem(path, _load_shapes)     # the loader's verdict only when it adds something
 
 
 # ---- wording.json ------------------------------------------------------------------------------------------------
 
 def _lint_wording(path: Path) -> list[LintProblem]:
+    """wording.json is judged by the loader alone (its words); the linter adds only the file and JSON checks."""
     data, problems = _json(path)
-    if data is None:
-        return problems
-    for key in ("verbs", "owner_brackets", "integration_trio", "clarifications", "header", "quantity"):
-        if key not in data:
-            problems.append(LintProblem(str(path), None, f"missing required key: {key}"))
-    return problems + _loader_problem(path, _load_wording)
+    return problems if data is None else _loader_problem(path, _load_wording)
