@@ -467,7 +467,10 @@ def _shape_text(system: System, shape: Shape | None) -> str:
     lines = [f"The shape of its block: {shape.name}",
              f"Header form: {shape.header}",
              "Slots, in print order (slot, its kind, how its line prints):"]
-    lines += [f"- {slot} ({shape.slot_kinds[slot]}): {shape.wording[slot]}" for slot in shape.line_order]
+    lines += [f"- {slot} ({shape.slot_kinds[slot]}): {shape.wording[slot]}"
+              + (f" [sub-line under {shape.under[slot]}: printed one level in under that line, no verb; the "
+                 f"device inherits the {shape.under[slot]} device's ownership]" if slot in shape.under else "")
+              for slot in shape.line_order]
     th = shape.tech_hours
     rule = f"{th.hours:g} hours per {th.per.replace('_', ' ')}" if th.hours is not None else \
         f"no hours per {th.per.replace('_', ' ')} unless a condition below holds"

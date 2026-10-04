@@ -58,7 +58,7 @@ def one(job: Job, sys: System) -> Job:
 def test_rooftop_block_golden(draft):
     assert texts(draft, "RTU") == [
         "Qty (2) Rooftop Units RTU-1, 2",
-        "Furnish BMS Communication Wiring to Factory Controls",
+        "Furnish BMS Communication Wiring to RTU Factory Controls",
         "Map Available Points Via Mfr. Provided BMS Interface",
         "AME requires mfr. Rep to assist in integration, cost to be incurred by mech contractor",
         "Install and Wire Duct Smoke Detector (Furnished by Unit Mfr.)",
@@ -84,7 +84,7 @@ def test_vrf_stacks_one_header_per_family_over_one_set_of_lines(draft):
     assert [b.joined for b in blocks] == [False, True, True]
     assert blocks[0].items == () and blocks[1].items == () and blocks[2].items
     assert blocks[0].tech_hours == 6.0 and blocks[2].tech_hours is None
-    assert "Furnish BMS Communication Wiring to VRF System Factory Controls" in texts(draft, "VRF")
+    assert "Furnish BMS Communication Wiring to VRF Factory Controls" in texts(draft, "VRF")
     assert "Wire BACnet Gateway (Furnished by Unit Mfr.)" in texts(draft, "VRF")
 
 
@@ -135,7 +135,7 @@ def test_item_quantities_price_only_what_ame_acts_on_and_never_under_a_hash_coun
     blocks = {b.header: b for b in draft.scope.blocks}
     rtu = blocks["Qty (2) Rooftop Units RTU-1, 2"]
     assert [i.quantity for i in rtu.items][:4] == [2, 2, None, 2]      # the rep line is the mechanical contractor's
-    assert [i.depth for i in rtu.items][:4] == [1, 1, 2, 1]            # the trio's third line sits one level down
+    assert [i.depth for i in rtu.items][:4] == [1, 1, 2, 1]            # the rep line sits one level in, under its map line
     assert all(i.quantity is None for i in blocks["Qty (##) Cabinet Unit Heaters"].items)
     assert all(i.quantity is None for i in rtu.items if i.kind == "note")
 
@@ -275,3 +275,27 @@ def test_the_old_word_and_price_sheet_writers_take_the_draft(draft, tmp_path):
     assert "Qty (3) Exhaust Fans EF-1 thru 3" in words and "Fire alarm system by others" in words
     assert "Qty (2) Duct Heaters DH-1, 2" in words
     assert sheet.exists()
+
+
+# ---- sub-lines (the shape's "under") -------------------------------------------------------------------------
+
+def test_sub_line_prints_one_level_in_directly_after_its_parent_with_no_verb():
+    from bms.playbook import load_playbook as repo_playbook
+    from bms.model import Header
+    pb = repo_playbook()
+    devices = (
+        device(id="GD.d1", qty=1, slot="sensor", name="CO Sensor", verb="Furnish and Install"),
+        device(id="GD.d2", qty=1, slot="panel", name="Gas Detection Panel", verb="Furnish and Install"),
+        device(id="GD.d3", qty=1, slot="damper_actuator", name="Damper Actuator", verb="Furnish and Install"),
+        device(id="GD.d4", qty=1, slot="horn_strobe", name="Horn / Strobe", verb="Furnish and Install"),
+    )
+    gd = System(key="GD", name="Gas Detection", shape="Gas Detection", control="field",
+                families=(Family("Gas Detection", ("GD-1",), Count(value=1)),), devices=devices)
+    j = Job(name="Invented", systems=(gd,), header=Header("00-0000", "Invented", "Invented", ("A",), "2026-10-04"))
+    draft = render(j, pb)
+    lines = [l for l in draft.lines if l.system_key == "GD" and l.kind == "line"]
+    assert [l.device_id for l in lines] == ["GD.d2", "GD.d1", "GD.d4", "GD.d3"]
+    assert [l.text for l in lines][:3] == ["Furnish and Install Gas Detection Panel", "CO Sensor", "Horn / Strobe"]
+    assert [l.verb for l in lines][:3] == ["Furnish and Install", None, None]
+    items = draft.scope.blocks[0].items
+    assert [i.depth for i in items if i.kind == "line"] == [1, 2, 2, 1]

@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import json
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from bms.model import CLARIFICATION_KINDS, PARTIES, VERBS
@@ -54,6 +54,11 @@ class Shape:
     slot_kinds: dict[str, str]
     wording: dict[str, str]
     tech_hours: TechHours
+    under: dict[str, str] = field(default_factory=dict)    # sub-line slot -> its parent slot (prints one level in)
+
+    def parent_of(self, slot: str) -> str | None:
+        """The slot a sub-line slot prints under, or None for a line of its own."""
+        return self.under.get(slot)
 
     def slots_of_kind(self, kind: str) -> tuple[str, ...]:
         return tuple(s for s in self.line_order if self.slot_kinds[s] == kind)
@@ -186,6 +191,7 @@ def _text_map(value, where: str, path: Path) -> dict[str, str]:
 
 
 _SHAPE_KEYS = {"name", "applies_to", "header", "family_names", "line_order", "slot_kinds", "wording", "tech_hours"}
+_OPTIONAL_SHAPE_KEYS = {"under"}
 
 
 def _load_shapes(path: Path) -> dict[str, Shape]:
@@ -200,7 +206,7 @@ def _load_shapes(path: Path) -> dict[str, Shape]:
         where = f"shapes[{n}]"
         if not isinstance(entry, dict):
             raise PlaybookError(f"{path.name}: {where} must be an object")
-        missing, extra = _SHAPE_KEYS - set(entry), set(entry) - _SHAPE_KEYS
+        missing, extra = _SHAPE_KEYS - set(entry), set(entry) - _SHAPE_KEYS - _OPTIONAL_SHAPE_KEYS
         if missing or extra:
             raise PlaybookError(f"{path.name}: {where} " + "; ".join(
                 part for part in (f"is missing {', '.join(sorted(missing))}" if missing else "",
@@ -235,9 +241,24 @@ def _load_shapes(path: Path) -> dict[str, Shape]:
         bad = sorted(k for k, v in slot_kinds.items() if v not in SLOT_KINDS)
         if bad:
             raise PlaybookError(f"{path.name}: {where}.slot_kinds: {', '.join(bad)} not one of {SLOT_KINDS}")
+        under = _under(entry.get("under", {}), where, path, line_order)
         shapes[name] = Shape(name, prefixes, kind_words, header, family_names, line_order, slot_kinds, wording,
-                             _tech_hours(entry["tech_hours"], where, path, set(line_order)))
+                             _tech_hours(entry["tech_hours"], where, path, set(line_order)), under)
     return shapes
+
+
+def _under(raw, where: str, path: Path, line_order: tuple[str, ...]) -> dict[str, str]:
+    """The optional sub-line map: slot -> the parent slot it prints one level in under. Both are slots of the shape
+    and the parent comes earlier in line_order (so a chain never loops)."""
+    under = _text_map(raw, f"{where}.under", path)
+    position = {slot: n for n, slot in enumerate(line_order)}
+    for slot, parent in under.items():
+        if slot not in position or parent not in position:
+            raise PlaybookError(f"{path.name}: {where}.under: {slot!r} -> {parent!r} names a slot not in line_order")
+        if position[parent] >= position[slot]:
+            raise PlaybookError(f"{path.name}: {where}.under: the parent {parent!r} must come before {slot!r} in "
+                                "line_order")
+    return under
 
 
 def _tech_hours(raw, where: str, path: Path, slots: set[str]) -> TechHours:

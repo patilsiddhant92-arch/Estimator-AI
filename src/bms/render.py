@@ -66,7 +66,7 @@ def render(job: Job, playbook: Playbook) -> ProposalDraft:
       system's shape (`playbook.shapes[system.shape]`): header form, line order (devices sorted by the slot's
       position in `line_order`, then their order in `System.devices`), the slot's wording form; owner brackets
       from `wording.owner_brackets[device.furnished_by]` (none for AME); "Qty (##)" forms when `Count.value` is
-      None; the integration trio for an integration system; the block's one "*" clarification in its kind's form,
+      None; a sub-line slot's device one level in under its parent's line; the block's one "*" clarification in its kind's form,
       as a `note` Item; a Count with `others` gets the others note.
     - `job.header` must be set (the run sets it): it becomes `scope.header` (`date` parsed from ISO).
     - Base systems become `scope.blocks`; `alternate` "add" / "deduct" systems go into `scope.add_alternates` /
@@ -183,46 +183,58 @@ def _slot_form(shape: Shape | None, slot: str) -> str:
     return GENERIC_FORM
 
 
-def _lead_verb(text: str, playbook: Playbook) -> str | None:
-    for verb in sorted(playbook.wording.verbs, key=len, reverse=True):
-        if text.startswith(verb + " "):
-            return verb
-    return None
-
-
 def _device_lines(devices, shape: Shape | None, system: System | None, playbook: Playbook,
                   reference: set[int]) -> list[_Printed]:
-    """The devices as printed lines: in the shape's line order, then the order given. A line carries a quantity
-    form only when its slot's wording has {qty} and its quantity is unknown or not the block's own count."""
+    """The devices as printed lines: in the shape's line order, then the order given. A device of a sub-line slot
+    (the shape's `under`) prints one level in, directly after its parent: the nearest device of the parent slot
+    listed before it (else the last one listed), with no verb; with no parent device it prints in its own slot's
+    place. Every line prints its slot's wording (integration lines too: the comm wiring line names its controls,
+    the map and rep lines are house text). A line carries a quantity form only when its slot's wording has {qty}
+    and its quantity is unknown or not the block's own count."""
+    devices = list(devices)
     order = {slot: i for i, slot in enumerate(shape.line_order)} if shape is not None else {}
-    ranked = sorted(enumerate(devices), key=lambda p: (order.get(p[1].slot, len(order)), p[0]))
-    integration = list(shape.slots_of_kind("integration")) if shape is not None else []
-    trio, depths = playbook.wording.integration_trio, playbook.wording.integration_depths
+    under = shape.under if shape is not None else {}
+    keys: dict[int, tuple] = {}
+
+    def parent_index(i: int) -> int | None:
+        parent = under.get(devices[i].slot)
+        if parent is None:
+            return None
+        before = [j for j in range(i) if devices[j].slot == parent]
+        anywhere = [j for j, d in enumerate(devices) if d.slot == parent and j != i]
+        return before[-1] if before else (anywhere[-1] if anywhere else None)
+
+    def key(i: int, seen: frozenset = frozenset()) -> tuple:
+        if i in keys:
+            return keys[i]
+        parent = parent_index(i)
+        if parent is None or parent in seen:
+            found = ((order.get(devices[i].slot, len(order)), i),)
+        else:
+            found = key(parent, seen | {i}) + ((i,),)
+        keys[i] = found
+        return found
+
+    ranked = sorted(range(len(devices)), key=key)
     what = system.name if system is not None and system.control == "integration" else ""
     quantity_words = playbook.wording.quantity
     out: list[_Printed] = []
-    for _, device in ranked:
+    for i in ranked:
+        device = devices[i]
         slot_kind = shape.slot_kinds.get(device.slot) if shape is not None else None
         number = _printed(device.quantity)
         owner = _owner(device, playbook)
         form = _slot_form(shape, device.slot)
-        depth = 1
-        at = integration.index(device.slot) if slot_kind == "integration" else -1
-        if 0 <= at < len(trio):
-            text = _fill(trio[at], what=what, device=device.name, verb=device.verb, owner=owner)
-            depth = depths[at] if at < len(depths) else 1
-            verb = _lead_verb(text, playbook)
-        else:
-            qty = ""
-            if "{qty}" in form:
-                if number is None:
-                    qty = quantity_words["unknown"]
-                elif number not in reference:
-                    qty = quantity_words["line"].format(n=number)
-            text = _fill(form, verb=device.verb, device=device.name, owner=owner, qty=qty, what=what)
-            verb = device.verb if "{verb}" in form else None
+        qty = ""
+        if "{qty}" in form:
+            if number is None:
+                qty = quantity_words["unknown"]
+            elif number not in reference:
+                qty = quantity_words["line"].format(n=number)
+        text = _fill(form, verb=device.verb, device=device.name, owner=owner, qty=qty, what=what)
+        verb = device.verb if "{verb}" in form else None
         acts = "AME" in (device.furnished_by, device.installed_by, device.wired_by)
-        out.append(_Printed(text, depth, device, verb, number, acts and slot_kind != "interlock"))
+        out.append(_Printed(text, len(key(i)), device, verb, number, acts and slot_kind != "interlock"))
     return out
 
 

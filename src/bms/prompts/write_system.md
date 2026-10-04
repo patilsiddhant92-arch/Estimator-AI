@@ -24,6 +24,7 @@ You write the system's devices (its scope lines, in print order), its clarificat
 - Each slot has a kind: device (hardware), point (a control point or signal on the equipment), interlock (a tie to another system), integration (the integration lines for equipment on its own factory controls), wiring (wiring only). The Playbook says how each kind is owned and when it applies.
 - When the system has no shape (its shape is ""), name each slot yourself: short lower-case words joined by underscores that say what the line is, and order the lines as the sequence describes the equipment.
 - Order the devices in the shape's line order.
+- A sub-line slot (the shape lists it "under" a parent slot) prints one level in, directly under its parent's line, with no verb (the Playbook's "Sub-lines under their parent"). List each sub-line device as a device of its own, with slot set to the sub-line slot, its own refs and quantity, right after the parent device it belongs under. It inherits the parent's ownership: give it the parent device's verb, furnished_by, installed_by and wired_by. Write a sub-line only when its parent line is in the block.
 - id: "<system key>.d<n>", numbered from 1 in print order.
 
 ## Ownership: every line says who furnishes, who installs and who wires

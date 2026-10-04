@@ -9,7 +9,7 @@ import pytest
 
 from bms.model import Assumption, Clarification, Count, Device, Family, Job, OtherCount, Ref
 from bms.playbook import load_playbook
-from bms.validate import RULE, RULES_NEEDING_A_HEADING, validate
+from bms.validate import RULE, validate
 
 FIX = Path(__file__).resolve().parent / "fixtures"
 PB = load_playbook(FIX / "sample_playbook")
@@ -43,9 +43,8 @@ def test_rule_names_of_the_sample_playbook():
         assert RULE[name] in PB.rules
 
 
-def test_rule_names_without_a_playbook_heading_are_listed():
-    missing = {k for k, v in RULE.items() if v not in PB.rules}
-    assert missing == set(RULES_NEEDING_A_HEADING)
+def test_every_rule_name_is_a_heading_of_the_repo_playbook():
+    assert {k for k, v in RULE.items() if v not in load_playbook().rules} == set()
 
 
 def test_packaged_internal_device_and_trio_twice(job):
@@ -168,15 +167,15 @@ def test_sequence_only_system_prints_no_count(job):
 
 def test_ownership_must_be_a_known_party(job):
     j = edit_device(job, "EF", "EF.d1", furnished_by="")
-    assert ("Every line carries its owners", "EF", "EF.d1", "must_fix") in rules(validate(j, PB))
+    assert (RULE["owner"], "EF", "EF.d1", "must_fix") in rules(validate(j, PB))
 
 
 def test_a_device_in_two_systems(job):
     d = job.system("EF").devices[0]
     j = edit(job, "DH", devices=job.system("DH").devices + (d,))
-    got = rules(validate(j, PB), "A device sits in one block")
-    assert ("A device sits in one block", "EF", "EF.d1", "must_fix") in got
-    assert ("A device sits in one block", "DH", "EF.d1", "must_fix") in got
+    got = rules(validate(j, PB), RULE["once"])
+    assert (RULE["once"], "EF", "EF.d1", "must_fix") in got
+    assert (RULE["once"], "DH", "EF.d1", "must_fix") in got
 
 
 def test_no_ref_is_must_fix(job):
@@ -188,7 +187,7 @@ def test_no_ref_is_must_fix(job):
 
 def test_slot_not_in_shape(job):
     j = edit_device(job, "EF", "EF.d1", slot="nonsense")
-    assert ("Lines follow the block's shape", "EF", "EF.d1", "must_fix") in rules(validate(j, PB))
+    assert (RULE["slot"], "EF", "EF.d1", "must_fix") in rules(validate(j, PB))
 
 
 def test_order_is_system_then_device(job):

@@ -487,6 +487,15 @@ quantity "(Qty. N Total)", "(as per sequence)", "(Location: ...)". A combined se
 ("temperature and humidity sensor") is one line; named separately, two lines. A filter switch is one line per filter
 stage in the documents' name. A line is at most 160 characters.
 
+### Sub-lines under their parent
+Some lines print one level in, directly under a parent line, as the Master Template prints them: gas detection
+sensors and horn / strobes under the gas detection panel, the alarms under "Monitor the following Alarms", unit
+ventilator devices tied in through the terminal strip under the tie-in line, a monitored item's details under the
+item, a meter's communication wiring under the meter, and the rep-assist line under its Map Available Points line.
+The shape names these slots ("under" in shapes.json). A sub-line has no verb: it is listed as a device of its own,
+with its slot set, its citation and its quantity, right after its parent device, and it carries the parent line's
+ownership (the same furnished, installed and wired by). A sub-line needs its parent line in the same block.
+
 ### Untemplated systems
 A system with no shape is still written, from its evidence, in the house form "<verb> <device><owner><quantity>",
 in the standard order, under a header "Qty (n) <name> <tags>". Every rule in this book applies to it.

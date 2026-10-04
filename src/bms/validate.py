@@ -1,9 +1,9 @@
 """The validators (workstream 3, design §4.3): one small function per Playbook rule, on fields, never on text.
 
 Every check reads Job fields only: verbs, parties, slot and its kind in the shape, refs, counts, flags and the
-kind of each clarification. None reads the wording of a sentence. A rule that has a heading in the Playbook is
-named by it (`Finding.rule`); the few that the sample Playbook does not carry are named in `RULE` below, and
-integration aligns those names to the final Playbook.
+kind of each clarification. None reads the wording of a sentence. Each finding is named by a rule heading of the
+repo Playbook (`playbook/rules.md`); `RULE` maps each check to it (tests/bms/test_rule_names.py holds the two
+together).
 """
 from __future__ import annotations
 
@@ -23,15 +23,13 @@ RULE = {
     "damper": "Dampers under their fan",
     "heater": "Duct heaters in one place",
     "vrf": "VRF and split as one block",
-    "unknown": "Unknown counts are clarified",
-    "owner": "Every line carries its owners",
-    "once": "A device sits in one block",
-    "sequence": "Sequence-only systems print no count",
-    "slot": "Lines follow the block's shape",
+    "unknown": "Never undershoot",
+    "owner": "Every line carries its ownership",
+    "once": "One system one block",
+    "sequence": "Systems named only in the sequence",
+    "slot": "Placing a device in a slot",
+    "subline": "Sub-lines under their parent",
 }
-
-# Names that the sample Playbook has no heading for yet; integration adds a heading or renames each.
-RULES_NEEDING_A_HEADING = ("unknown", "owner", "once", "sequence", "slot")
 
 # a checker yields (device_id | None, severity, what, fix) for one system
 Hit = tuple["str | None", str, str, str]
@@ -110,6 +108,18 @@ def _slots(system, shape, job, playbook) -> Iterator[Hit]:
         if d.slot not in shape.slot_kinds:
             yield (d.id, "must_fix", f"{d.name} fills the slot '{d.slot}', which the {shape.name} shape does not have",
                    "Move it to a slot of the shape or delete it.")
+
+
+def _sublines(system, shape, job, playbook) -> Iterator[Hit]:
+    """A device of a sub-line slot (the shape's `under`) prints under its parent's line: the parent must be there."""
+    if shape is None or not shape.under:
+        return
+    slots = {d.slot for d in system.devices}
+    for d in system.devices:
+        parent = shape.under.get(d.slot)
+        if parent is not None and parent not in slots:
+            yield (d.id, "must_fix", f"{d.name} prints under the '{parent}' line, which this block does not have",
+                   f"Add the '{parent}' line the evidence calls for, or move this device to a line of its own.")
 
 
 def _packaged(system, shape, job, playbook) -> Iterator[Hit]:
@@ -244,7 +254,7 @@ def _sequence(system, shape, job, playbook) -> Iterator[Hit]:
 
 
 _SYSTEM_RULES: tuple[tuple[str, Callable], ...] = (
-    ("cites", _cites), ("owner", _owners), ("slot", _slots), ("packaged", _packaged), ("loose", _loose),
+    ("cites", _cites), ("owner", _owners), ("slot", _slots), ("subline", _sublines), ("packaged", _packaged), ("loose", _loose),
     ("damper", _dampers), ("heater", _heaters), ("vrf", _vrf), ("higher", _higher), ("unknown", _unknown),
     ("one_note", _one_note), ("assumption", _assumption), ("sequence", _sequence),
 )

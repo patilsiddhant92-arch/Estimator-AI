@@ -8,7 +8,8 @@
       "family_names": ["Rooftop Unit"],
       "line_order": ["comm_wiring", "map_points", "rep_assist", "shipped_loose"],
       "slot_kinds": {"comm_wiring": "integration", "map_points": "integration", "rep_assist": "integration", "shipped_loose": "device"},
-      "wording": {"comm_wiring": "{verb} {device}", "map_points": "Map {device}", "rep_assist": "AME requires {device}", "shipped_loose": "{verb} {device}{owner}{qty}"},
+      "wording": {"comm_wiring": "{verb} {device}", "map_points": "Map Available Points Via Mfr. Provided BMS Interface", "rep_assist": "AME requires mfr. Rep to assist in integration, cost to be incurred by mech contractor", "shipped_loose": "{verb} {device}{owner}{qty}"},
+      "under": {"rep_assist": "map_points"},
       "tech_hours": {"per": "unit", "hours": 2, "when": []}
     },
     {
@@ -28,7 +29,8 @@
       "family_names": ["Indoor Unit", "Condensing Unit", "Branch Selector"],
       "line_order": ["comm_wiring", "map_points", "rep_assist", "gateway"],
       "slot_kinds": {"comm_wiring": "integration", "map_points": "integration", "rep_assist": "integration", "gateway": "wiring"},
-      "wording": {"comm_wiring": "{verb} {device}", "map_points": "Map {device}", "rep_assist": "AME requires {device}", "gateway": "{verb} {device}{owner}"},
+      "wording": {"comm_wiring": "{verb} {device}", "map_points": "Map Available Points Via Mfr. Provided BMS Interface", "rep_assist": "AME requires mfr. Rep to assist in integration, cost to be incurred by mech contractor", "gateway": "{verb} {device}{owner}"},
+      "under": {"rep_assist": "map_points"},
       "tech_hours": {"per": "indoor_unit", "hours": 1.5, "when": []}
     },
     {

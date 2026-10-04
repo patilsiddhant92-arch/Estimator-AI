@@ -13,6 +13,7 @@
       "line_order": "Every slot name, in print order. A device's slot must be one of these.",
       "slot_kinds": "Per slot: \"device\" (hardware AME or another party furnishes), \"point\" (a control point / signal on equipment), \"interlock\" (a tie to another system, no verb), \"integration\" (the integration trio's lines), \"wiring\" (wiring only). Every slot in line_order has a kind.",
       "wording": "Per slot: the house phrase form. Placeholders: {verb} the device's verb, {device} the device's name in the document's words, {owner} the owner bracket from wording.json (empty when AME furnishes), {qty} the quantity form from wording.json (empty when the block count applies), {what} the equipment named in an integration line. Every slot in line_order has a wording.",
+      "under": "Optional. Per sub-line slot: the parent slot it prints under, e.g. {\"sensor\": \"panel\"}. A sub-line slot's wording has no {verb}: its device prints one level in, directly after its parent's line, and takes the parent's verb and ownership; the block needs a device in the parent slot. The parent comes earlier in line_order. Set where the Master Template printed the line as a sub-line (assets/system_templates.json depth 2).",
       "tech_hours": {
         "per": "What the hours count per: one of unit, hardware_point, indoor_unit, panel, fan, fixed, line.",
         "hours": "Hours per item, or null when the rule gives none unless a condition below holds.",
@@ -25,6 +26,7 @@
       "slots": "A slot is a place a line prints if, and only if, this job's documents put a device there. Several devices may share a slot (one line per distinct damper type, valve or sensor); they print in the order the devices are listed.",
       "other_slots": "other_device, other_point, fire_alarm, other_valve, other_install_and_wire, other_wire, other_interlock, other_wiring: where a line beyond the template's own slots prints, in the GEM's standard order, before the integration lines. Fire / Smoke Dampers has none (that block holds only its interlock wiring and end-switch status).",
       "integration_slots": "comm_wiring, map_points, rep_assist: the factory-controls trio; vfd_comm_wiring, vfd_map_points, vfd_rep_assist: the VFD trio, before the factory trio when both apply (GEM), except where the template itself orders a plant's groups. The comm_wiring device is named 'BMS Communication Wiring to <equipment> Factory Controls' (or 'to <equipment> VFD Controls'); map and rep lines print their house text as written.",
+      "sub_lines": "Every wording without {verb} is either a sub-line (\"under\" names its parent: gas detection sensors and horn / strobes under the panel, the HVAC alarm list under its heading, unit ventilator terminal-strip devices under the tie-in line, Misc Monitoring details under their monitored item and meter wiring under its meter, every rep-assist line under its Map Available Points line) or house text that carries its own verb (Interlock, Tie-in, Map, Monitor, wiring phrases, a plain work statement in other_wiring). Misc Monitoring monitored items and the Refrigeration Monitoring horn / strobe, pull station and remote sensor print at the first level with no verb, as the Master Template prints them.",
       "fixed_wording": "A wording with no {device} prints its house text as written whenever a device is in that slot (the device still carries its citation and ownership)."
     }
   },
@@ -85,6 +87,7 @@
         "map_points": "Map Available Points Via Mfr. Provided BMS Interface",
         "rep_assist": "AME requires mfr. Rep to assist in integration, cost to be incurred by mech contractor"
       },
+      "under": {"rep_assist": "map_points", "vfd_rep_assist": "vfd_map_points"},
       "tech_hours": {"per": "unit", "hours": 3, "when": [{"if": ["hot_water_valve"], "hours": 4}]}
     },
     {
@@ -135,6 +138,7 @@
         "map_points": "Map Available Points Via Mfr. Provided BMS Interface",
         "rep_assist": "AME requires mfr. Rep to assist in integration, cost to be incurred by mech contractor"
       },
+      "under": {"rep_assist": "map_points", "vfd_rep_assist": "vfd_map_points"},
       "tech_hours": {"per": "unit", "hours": null, "when": []}
     },
     {
@@ -193,6 +197,7 @@
         "map_points": "Map Available Points Via Mfr. Provided BMS Interface",
         "rep_assist": "AME requires mfr. Rep to assist in integration, cost to be incurred by mech contractor"
       },
+      "under": {"rep_assist": "map_points", "vfd_rep_assist": "vfd_map_points"},
       "tech_hours": {"per": "unit", "hours": 4, "when": []}
     },
     {
@@ -319,6 +324,7 @@
         "map_points": "Map Available Points Via Mfr. Provided BMS Interface",
         "rep_assist": "AME requires mfr. Rep to assist in integration, cost to be incurred by mech contractor"
       },
+      "under": {"rep_assist": "map_points", "vfd_rep_assist": "vfd_map_points"},
       "tech_hours": {"per": "hardware_point", "hours": 2, "when": []}
     },
     {
@@ -369,6 +375,7 @@
         "map_points": "Map Available Points Via Mfr. Provided BMS Interface",
         "rep_assist": "AME requires mfr. Rep to assist in integration, cost to be incurred by mech contractor"
       },
+      "under": {"rep_assist": "map_points", "vfd_rep_assist": "vfd_map_points"},
       "tech_hours": {"per": "unit", "hours": 16, "when": []}
     },
     {
@@ -413,6 +420,7 @@
         "map_points": "Map Available Points Via Mfr. Provided BMS Interface",
         "rep_assist": "AME requires mfr. Rep to assist in integration, cost to be incurred by mech contractor"
       },
+      "under": {"rep_assist": "map_points", "vfd_rep_assist": "vfd_map_points"},
       "tech_hours": {"per": "unit", "hours": 2, "when": []}
     },
     {
@@ -457,6 +465,7 @@
         "map_points": "Map Available Points Via Mfr. Provided BMS Interface",
         "rep_assist": "AME requires mfr. Rep to assist in integration, cost to be incurred by mech contractor"
       },
+      "under": {"rep_assist": "map_points", "vfd_rep_assist": "vfd_map_points"},
       "tech_hours": {"per": "unit", "hours": 4, "when": []}
     },
     {
@@ -505,6 +514,7 @@
         "map_points": "Map Available Points Via Mfr. Provided BMS Interface",
         "rep_assist": "AME requires mfr. Rep to assist in integration, cost to be incurred by mech contractor"
       },
+      "under": {"rep_assist": "map_points", "vfd_rep_assist": "vfd_map_points"},
       "tech_hours": {"per": "fan", "hours": 40, "when": []}
     },
     {
@@ -551,6 +561,7 @@
         "map_points": "Map Available Points Via Mfr. Provided BMS Interface",
         "rep_assist": "AME requires mfr. Rep to assist in integration, cost to be incurred by mech contractor"
       },
+      "under": {"rep_assist": "map_points", "vfd_rep_assist": "vfd_map_points"},
       "tech_hours": {"per": "unit", "hours": null, "when": []}
     },
     {
@@ -605,6 +616,7 @@
         "map_points": "Map Available Points Via Mfr. Provided BMS Interface",
         "rep_assist": "AME requires mfr. Rep to assist in integration, cost to be incurred by mech contractor"
       },
+      "under": {"rep_assist": "map_points", "vfd_rep_assist": "vfd_map_points"},
       "tech_hours": {"per": "unit", "hours": null, "when": [{"if": ["controller"], "hours": 4}]}
     },
     {
@@ -649,6 +661,7 @@
         "map_points": "Map Available Points Via Mfr. Provided BMS Interface",
         "rep_assist": "AME requires mfr. Rep to assist in integration, cost to be incurred by mech contractor"
       },
+      "under": {"rep_assist": "map_points", "vfd_rep_assist": "vfd_map_points"},
       "tech_hours": {"per": "unit", "hours": 1, "when": []}
     },
     {
@@ -701,6 +714,7 @@
         "map_points": "Map Available Points Via Mfr. Provided BMS Interface",
         "rep_assist": "AME requires mfr. Rep to assist in integration, cost to be incurred by mech contractor"
       },
+      "under": {"rep_assist": "map_points", "vfd_rep_assist": "vfd_map_points"},
       "tech_hours": {"per": "unit", "hours": 4, "when": []}
     },
     {
@@ -753,6 +767,7 @@
         "map_points": "Map Available Points Via Mfr. Provided BMS Interface",
         "rep_assist": "AME requires mfr. Rep to assist in integration, cost to be incurred by mech contractor"
       },
+      "under": {"sensor": "panel", "horn_strobe": "panel", "rep_assist": "map_points", "vfd_rep_assist": "vfd_map_points"},
       "tech_hours": {"per": "panel", "hours": 8, "when": []}
     },
     {
@@ -817,6 +832,7 @@
         "map_points": "Map Available Points Via Mfr. Provided BMS Interface",
         "rep_assist": "AME requires mfr. Rep to assist in integration, cost to be incurred by mech contractor"
       },
+      "under": {"rep_assist": "map_points", "vfd_rep_assist": "vfd_map_points"},
       "tech_hours": {"per": "unit", "hours": null, "when": []}
     },
     {
@@ -871,6 +887,7 @@
         "map_points": "Map Available Points Via Mfr. Provided BMS Interface",
         "rep_assist": "AME requires mfr. Rep to assist in integration, cost to be incurred by mech contractor"
       },
+      "under": {"rep_assist": "map_points", "vfd_rep_assist": "vfd_map_points"},
       "tech_hours": {"per": "unit", "hours": null, "when": []}
     },
     {
@@ -917,6 +934,7 @@
         "map_points": "Map Available Points Via Mfr. Provided BMS Interface",
         "rep_assist": "AME requires mfr. Rep to assist in integration, cost to be incurred by mech contractor"
       },
+      "under": {"rep_assist": "map_points", "vfd_rep_assist": "vfd_map_points"},
       "tech_hours": {"per": "unit", "hours": 0.3, "when": []}
     },
     {
@@ -963,6 +981,7 @@
         "map_points": "Map Available Points Via Mfr. Provided BMS Interface",
         "rep_assist": "AME requires mfr. Rep to assist in integration, cost to be incurred by mech contractor"
       },
+      "under": {"monitored_alarm": "monitor_heading", "rep_assist": "map_points", "vfd_rep_assist": "vfd_map_points"},
       "tech_hours": {"per": "unit", "hours": 8, "when": []}
     },
     {
@@ -1007,6 +1026,7 @@
         "map_points": "Map Available Points Via Mfr. Provided BMS Interface",
         "rep_assist": "AME requires mfr. Rep to assist in integration, cost to be incurred by mech contractor"
       },
+      "under": {"rep_assist": "map_points", "vfd_rep_assist": "vfd_map_points"},
       "tech_hours": {"per": "unit", "hours": 1, "when": []}
     },
     {
@@ -1057,6 +1077,7 @@
         "map_points": "Map Available Points Via Mfr. Provided BMS Interface",
         "rep_assist": "AME requires mfr. Rep to assist in integration, cost to be incurred by mech contractor"
       },
+      "under": {"rep_assist": "map_points", "vfd_rep_assist": "vfd_map_points"},
       "tech_hours": {"per": "unit", "hours": 2, "when": []}
     },
     {
@@ -1101,6 +1122,7 @@
         "map_points": "Map Available Points Via Mfr. Provided BMS Interface",
         "rep_assist": "AME requires mfr. Rep to assist in integration, cost to be incurred by mech contractor"
       },
+      "under": {"rep_assist": "map_points", "vfd_rep_assist": "vfd_map_points"},
       "tech_hours": {"per": "unit", "hours": 2, "when": []}
     },
     {
@@ -1169,6 +1191,7 @@
         "map_points": "Map Available Points Via Mfr. Provided BMS Interface",
         "rep_assist": "AME requires mfr. Rep to assist in integration, cost to be incurred by mech contractor"
       },
+      "under": {"terminal_strip_device": "terminal_strip_tie_in", "rep_assist": "map_points", "vfd_rep_assist": "vfd_map_points"},
       "tech_hours": {"per": "unit", "hours": 4, "when": []}
     },
     {
@@ -1249,6 +1272,7 @@
         "vfd_map_points": "Map Available Points Via Mfr. Provided BMS Interface",
         "vfd_rep_assist": "AME requires mfr. Rep to assist in integration, cost to be incurred by mech contractor"
       },
+      "under": {"rep_assist": "map_points", "vfd_rep_assist": "vfd_map_points"},
       "tech_hours": {"per": "hardware_point", "hours": 2, "when": []}
     },
     {
@@ -1319,6 +1343,7 @@
         "map_points": "Map Available Points Via Mfr. Provided BMS Interface",
         "rep_assist": "AME requires mfr. Rep to assist in integration, cost to be incurred by mech contractor"
       },
+      "under": {"rep_assist": "map_points", "vfd_rep_assist": "vfd_map_points"},
       "tech_hours": {"per": "hardware_point", "hours": 2, "when": []}
     },
     {
@@ -1395,6 +1420,7 @@
         "vfd_map_points": "Map Available Points Via Mfr. Provided BMS Interface",
         "vfd_rep_assist": "AME requires mfr. Rep to assist in integration, cost to be incurred by mech contractor"
       },
+      "under": {"rep_assist": "map_points", "vfd_rep_assist": "vfd_map_points"},
       "tech_hours": {"per": "hardware_point", "hours": 2, "when": []}
     },
     {
@@ -1481,6 +1507,7 @@
         "map_points": "Map Available Points Via Mfr. Provided BMS Interface",
         "rep_assist": "AME requires mfr. Rep to assist in integration, cost to be incurred by mech contractor"
       },
+      "under": {"rep_assist": "map_points", "vfd_rep_assist": "vfd_map_points"},
       "tech_hours": {"per": "hardware_point", "hours": 2, "when": []}
     },
     {
@@ -1559,6 +1586,7 @@
         "map_points": "Map Available Points Via Mfr. Provided BMS Interface",
         "rep_assist": "AME requires mfr. Rep to assist in integration, cost to be incurred by mech contractor"
       },
+      "under": {"rep_assist": "map_points", "vfd_rep_assist": "vfd_map_points"},
       "tech_hours": {"per": "hardware_point", "hours": 2, "when": []}
     },
     {
@@ -1609,6 +1637,7 @@
         "map_points": "Map Available Points Via Mfr. Provided BMS Interface",
         "rep_assist": "AME requires mfr. Rep to assist in integration, cost to be incurred by mech contractor"
       },
+      "under": {"rep_assist": "map_points", "vfd_rep_assist": "vfd_map_points"},
       "tech_hours": {"per": "panel", "hours": 8, "when": []}
     },
     {
@@ -1651,6 +1680,7 @@
         "map_points": "Map Available Points Via Mfr. Provided BMS Interface",
         "rep_assist": "AME requires mfr. Rep to assist in integration, cost to be incurred by mech contractor"
       },
+      "under": {"rep_assist": "map_points", "vfd_rep_assist": "vfd_map_points"},
       "tech_hours": {"per": "unit", "hours": 4, "when": []}
     },
     {
@@ -1691,6 +1721,7 @@
         "map_points": "Map Available Points Via Mfr. Provided BMS Interface",
         "rep_assist": "AME requires mfr. Rep to assist in integration, cost to be incurred by mech contractor"
       },
+      "under": {"rep_assist": "map_points", "vfd_rep_assist": "vfd_map_points"},
       "tech_hours": {"per": "fixed", "hours": 4, "when": []}
     },
     {
@@ -1698,10 +1729,11 @@
       "applies_to": {"prefixes": [], "kind_words": ["misc monitoring", "miscellaneous monitoring"]},
       "header": "Qty ({n}) {name} {tags}",
       "family_names": ["Misc Monitoring"],
-      "line_order": ["map_or_connect", "monitored_item", "meter", "meter_comm_wiring", "lighting_interface", "other_device", "other_point", "fire_alarm", "other_valve", "other_install_and_wire", "other_wire", "other_interlock", "other_wiring"],
+      "line_order": ["map_or_connect", "monitored_item", "monitored_detail", "meter", "meter_comm_wiring", "lighting_interface", "other_device", "other_point", "fire_alarm", "other_valve", "other_install_and_wire", "other_wire", "other_interlock", "other_wiring"],
       "slot_kinds": {
         "map_or_connect": "wiring",
         "monitored_item": "point",
+        "monitored_detail": "point",
         "meter": "device",
         "meter_comm_wiring": "wiring",
         "lighting_interface": "wiring",
@@ -1717,6 +1749,7 @@
       "wording": {
         "map_or_connect": "Map Available Points Via Mfr. Provided BMS Interface or Connect to Nearby DDC Controller",
         "monitored_item": "{device}{owner}{qty}",
+        "monitored_detail": "{device}{qty}",
         "meter": "{verb} {device}{owner}{qty}",
         "meter_comm_wiring": "BMS Communication Wiring to Mfr. Provided BMS Interface",
         "lighting_interface": "Interface Lighting Control System (By Others) With Front End BMS Via Manufacturer Provided BMS Interface",
@@ -1729,6 +1762,7 @@
         "other_interlock": "Interlock with {device}{owner}",
         "other_wiring": "{device}{owner}{qty}"
       },
+      "under": {"monitored_detail": "monitored_item", "meter_comm_wiring": "meter"},
       "tech_hours": {"per": "line", "hours": 2, "when": []}
     },
     {
@@ -1823,6 +1857,7 @@
         "map_points": "Map Available Points Via Mfr. Provided BMS Interface",
         "rep_assist": "AME requires mfr. Rep to assist in integration, cost to be incurred by mech contractor"
       },
+      "under": {"rep_assist": "map_points", "vfd_rep_assist": "vfd_map_points"},
       "tech_hours": {"per": "indoor_unit", "hours": 2, "when": []}
     },
     {
@@ -1877,6 +1912,7 @@
         "map_points": "Map Available Points Via Mfr. Provided BMS Interface",
         "rep_assist": "AME requires mfr. Rep to assist in integration, cost to be incurred by mech contractor"
       },
+      "under": {"rep_assist": "map_points", "vfd_rep_assist": "vfd_map_points"},
       "tech_hours": {"per": "indoor_unit", "hours": 2, "when": []}
     },
     {
@@ -1933,6 +1969,7 @@
         "map_points": "Map Available Points Via Mfr. Provided BMS Interface",
         "rep_assist": "AME requires mfr. Rep to assist in integration, cost to be incurred by mech contractor"
       },
+      "under": {"rep_assist": "map_points", "vfd_rep_assist": "vfd_map_points"},
       "tech_hours": {"per": "unit", "hours": 4, "when": []}
     },
     {
@@ -1967,6 +2004,7 @@
         "map_points": "Map Available Points Via Mfr. Provided BMS Interface",
         "rep_assist": "AME requires mfr. Rep to assist in integration, cost to be incurred by mech contractor"
       },
+      "under": {"rep_assist": "map_points"},
       "tech_hours": {"per": "unit", "hours": 4, "when": []}
     },
     {
