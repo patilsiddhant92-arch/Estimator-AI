@@ -488,6 +488,7 @@ Do not suppress any.
   C5 — ASSUMPTION MADE
     The controls contractor is pricing an item that is not explicitly assigned to it, only implied or inferred.
     Flag ASSUMED and state the exact basis.
+    Write the item as "<what is assumed> — because <the reason>", like an ASSUMED flag_text.
   C6 — QUANTITY GAP
     The quantity of a scope line cannot be confirmed from the sequence, the point list, the mechanical schedule or a drawing.
     Flag CONFIRM QUANTITY.

@@ -2189,7 +2189,7 @@ def _star_device(text: str, style) -> str:
 
 _ASSUMPTION_ROOM = 160          # one assumption with its reason, in characters
 _REASON_START = re.compile(r"^(?:because|since|as|per|given|based on|no|not|the|there|only|drawings?|schedules?|"
-                           r"specs?|specifications?|sequences?|plans?)", re.I)
+                           r"specs?|specifications?|sequences?|plans?)\b", re.I)
 
 
 def _clean_phrase(text: str, style) -> str:
@@ -2359,11 +2359,14 @@ def gem_review(name: str, scope, rows: list, style, system=None
         review.append(_conflict_row(name, c))
         if c.type != "C5":
             continue
-        row = _best_row(rows, c.item)
-        if row is None:
-            continue
         what = _plain_assumption(c.item, style)
-        if what is not None:          # one with its reason replaces the line's own note; a bare one never prints
+        if what is None:              # a bare assumption never prints: say so in its row
+            review[-1] = dataclasses.replace(review[-1], action=(
+                "This assumption has no reason to print, so the proposal prints no * clarification; give the reason "
+                "(\"<what is assumed> — because <reason>\") to print it"))
+            continue
+        row = _best_row(rows, c.item)
+        if row is not None:           # one with its reason replaces the line's own note
             row.after = [n for n in row.after if not n.startswith("*Assumed:")] + [_squash(f"*Assumed: {what}")]
     makers = []
     for x in getattr(scope, "exclusions", ()) or ():

@@ -62,3 +62,20 @@ def test_confirm_quantities_keeps_its_short_list():
                  after=[f"*Confirm quantity: Sensor Number {n}"]) for n in range(5)]
     _, notes = block_clarifications(rows)
     assert notes[0].endswith("more") and "and 2 more" in notes[0]
+
+
+def test_a_dash_reason_without_the_word_because_reads_as_a_reason():
+    assert _plain_assumption("ASSUMED: sensor by AME — the schedule shows none", STYLE) == \
+        "Sensor by AME, because the schedule shows none"
+    assert _plain_assumption("ASSUMED: sensor by AME — assumed by the engineer", STYLE) is None
+    assert _plain_assumption("ASSUMED: sensor by AME — note the theory", STYLE) is None
+
+
+def test_a_c5_item_without_a_reason_says_so_in_its_review_row():
+    from estimator.writing.whole_job import Contradiction
+    scope = _scope(_gl("Furnish and Install Duct Static Sensor"),
+                   contradictions=(Contradiction("C5", "Duct static sensor shipped loose", (), "orange"),))
+    job, _, _, ranked = _assemble([FANS], {"EF": scope})
+    assert not [t for k, t in _items(job, HEADER) if t.startswith("*Assumed")]
+    row = next(r for r in ranked if r.kind == "C5")
+    assert "no reason to print" in row.action

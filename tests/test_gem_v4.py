@@ -80,3 +80,8 @@ def test_the_writer_is_told_to_give_the_reason_for_every_assumption():
     prompt = gem_prompt()
     assert prompt.count("— because <the reason") >= 2
     assert "never an assumption without its reason" in prompt
+
+
+def test_a_c5_item_is_asked_for_with_its_reason():
+    assert "<what is assumed> — because" in GEM_FILE.read_text(encoding="utf-8").split("C5 — ASSUMPTION MADE")[1][:400]
+    assert 'for C5, the item is written "<what is assumed> — because <reason>"' in gem_prompt()

@@ -124,7 +124,7 @@ CONFIRM QUANTITY, "yellow" for CONFIRM OWNERSHIP, "orange" for ASSUMED, "green" 
 the assumption). For ASSUMED, flag_text is "ASSUMED: <what is assumed> — because <the reason, in a few plain \nwords naming the document or the missing information>"; never an assumption without its reason. quantity: the number its quantity note states, or null. quote: the exact words of the evidence it \
 rests on, copied from it. source_id: the id of that passage, such as "[S12]". depth: 1, or 2 for a line one level \
 in (the manufacturer's representative line). The system's header and count are printed for you: never write them as a line.
-  contradictions: one entry per hit of the scan (type C1 to C6, the item, the snippets quoted, the flag); none when \
+  contradictions: one entry per hit of the scan (type C1 to C6, the item, the snippets quoted, the flag; for C5, the item is written "<what is assumed> — because <reason>", like an ASSUMED flag_text); none when \
 there is nothing to flag.
   misc_responsibilities: the Miscellaneous Responsibilities, one plain statement each.
   exclusions: the Exclusions, one plain line each.
