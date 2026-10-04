@@ -113,3 +113,79 @@ def test_a_heater_reads_its_link_partner_from_either_side():
     L, plan, edh, served_class = _heaters()
     L.add("link", "ERV-1", "EDH-1", "[S10]", "ERV-1 EDH-1", "plans", SETTLED)
     assert served_class(L, plan, edh) == "packaged"
+
+
+# --- duct heaters are written in one place: their own block (house rules round 2) -----------------------------
+
+BMS_HEATER = "The BMS will provide field installed controls for the electric duct heater."
+
+
+def _served_heater(bms_sentence=False):
+    """An invented job: a packaged ERV with its own sequence section, and a duct heater family linked to it."""
+    L = Ledger(SOURCES | {"S8": "equipment counts for EDH", "S9": "equipment counts for ERV",
+                          "Q2": "sequence section “ERV”, Specs.pdf page 5", "Q3": "sequence section “EDH”, Specs.pdf page 6"})
+    L.add("family", "ERV", "Energy Recovery Ventilator", "[S9]", "ERV", "schedules", SETTLED)
+    L.add("unit", "ERV", "ERV-1", "[S9]", "Tags: ERV-1", "seed", SETTLED)
+    L.add("provider", "ERV-1 controls", "factory mounted controls by unit mfr", "[S9]", "FACTORY CONTROLS", "schedules", SETTLED)
+    L.add("family", "EDH", "Electric Duct Heater", "[S8]", "EDH", "schedules", SETTLED)
+    L.add("unit", "EDH", "EDH-1", "[S8]", "Tags: EDH-1", "seed", SETTLED)
+    L.add("link", "EDH-1", "ERV-1", "[S10]", "EDH-1 ERV-1", "plans", SETTLED)
+    L.add("sequence_match", "Energy recovery ventilator", "ERV", "[Q2]", "ENERGY RECOVERY VENTILATOR", "sequence", SETTLED)
+    L.add("sequence_match", "Electric duct heater", "EDH", "[Q3]", "ELECTRIC DUCT HEATER", "sequence", SETTLED)
+    if bms_sentence:
+        L.add("note", "ERV-1", "BMS provides field installed controls for the duct heater", "[Q2]", BMS_HEATER, "sequence", SETTLED)
+    plan = ledger_plan(L)
+    return L, plan, {s.key: s for s in plan.systems}
+
+
+def test_the_heater_block_reads_the_served_units_sequence():
+    L, plan, systems = _served_heater()
+    edh, erv = systems["EDH"], systems["ERV"]
+    assert edh.sequence_sources == ("[Q3]", "[Q2]")
+    match = next(f.id for f in L.of_kind("sequence_match") if f.value == "ERV")
+    assert match in edh.facts and edh.facts.count(match) == 1
+    assert "Q2" in edh.sequence_section and "Q3" in edh.sequence_section
+    assert erv.sequence_sources == ("[Q2]",)            # the served unit keeps its own
+
+
+def test_the_served_unit_is_told_its_heaters_are_written_elsewhere():
+    L, plan, _ = _served_heater()
+    text = job_brief(L, plan)
+    erv_line = next(line for line in text.splitlines() if line.startswith("ERV |"))
+    assert ("The duct heaters serving this unit (EDH-1) are written in the Electric Duct Heater EDH-1 block; "
+            "write no duct heater line here.") in erv_line
+
+
+def test_the_heater_brief_says_which_rule_decides_each_served_unit():
+    L, plan, _ = _served_heater()
+    edh_line = next(line for line in job_brief(L, plan).splitlines() if line.startswith("EDH |"))
+    assert "ERV: interlock only" in edh_line and "house rule" in edh_line
+    L, plan, _ = _served_heater(bms_sentence=True)
+    edh_line = next(line for line in job_brief(L, plan).splitlines() if line.startswith("EDH |"))
+    assert "ERV: full field-DDC duct heater scope" in edh_line and BMS_HEATER in edh_line
+
+
+def test_the_heater_family_owns_its_interlock_when_it_has_a_block():
+    L, plan, _ = _served_heater()
+    assert shared_owners(L, plan)["duct heater interlock EDH-1"] == "EDH"
+
+
+def test_heater_home_names_the_heater_block_for_the_served_unit_only():
+    from estimator.writing.brief import heater_home
+    L, plan, systems = _served_heater()
+    assert heater_home(L, plan, systems["ERV"]) == ("EDH-1", "Electric Duct Heater EDH-1")
+    assert heater_home(L, plan, systems["EDH"]) == ("", "")
+
+
+def test_a_served_unit_inside_a_group_still_counts_as_served():
+    from estimator.writing.brief import heater_home
+    L, _, _ = _served_heater()
+    L.add("family", "EF", "Exhaust Fan", "[S6]", "EF", "schedules", SETTLED)
+    L.add("unit", "EF", "EF-1", "[S6]", "Tags: EF-1", "seed", SETTLED)
+    L.add("group", "Ventilation", "ERV, EF", "[S10]", "VENTILATION", "risers", SETTLED)
+    plan = ledger_plan(L)
+    systems = {s.key: s for s in plan.systems}
+    group = next(s for s in plan.systems if "ERV-1" in s.tags)
+    assert group.key != "ERV"
+    assert heater_home(L, plan, group) == ("EDH-1", "Electric Duct Heater EDH-1")
+    assert set(group.sequence_sources) <= set(systems["EDH"].sequence_sources)

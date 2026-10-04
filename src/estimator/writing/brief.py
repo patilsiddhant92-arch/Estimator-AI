@@ -2,7 +2,9 @@
 """The job brief (design 2026-10-03 §2.1): one short text built from the ledger after the passes, given to every
 write request and to the QC pass, so each system is written knowing the whole job: what the job is, every system
 with its count, kind, packaged-or-field class and links, the sequence's general rules, and who owns the shared
-items (a damper's actuator belongs to its fan, a duct heater's interlock to the unit it serves)."""
+items (a damper's actuator belongs to its fan; a duct heater's interlock belongs to the heater's own block when the
+plan has one, else to the unit it serves). Duct heaters are written in one place: a unit served by a heater block is
+told to write no duct heater line, and the heater block is told, per unit it serves, which rule decides its scope."""
 from __future__ import annotations
 
 import re
@@ -100,13 +102,70 @@ def shared_owners(ledger, plan) -> dict[str, str]:
             if owner is not None:
                 owners[f"damper actuator {subject}"] = owner.key
         if subject.upper().startswith("EDH") or "duct heater" in subject.lower():
-            owner = _system_of(plan, value)
+            own = _system_of(plan, subject)          # the heater's own block writes it, when the plan has one
+            owner = own if own is not None and is_duct_heater(own) else _system_of(plan, value)
             if owner is not None:
                 owners[f"duct heater interlock {subject}"] = owner.key
     for system in plan.systems:
         if any("condensate" in _squash(ledger.facts[f].value).lower() for f in system.facts if f in ledger.facts):
             owners.setdefault("condensate pump float switch", system.key)
     return owners
+
+
+def _heater_tags(ledger, heater, unit) -> list[str]:
+    """The heater's tags a link pairs with the unit (from either side); all its tags when no link names one."""
+    unit_names, tags = _names(unit), []
+    for fact in ledger.of_kind("link"):
+        subject, value = _squash(fact.subject), _squash(fact.value)
+        for mine, other in ((subject, value), (value, subject)):
+            if any(_word(n, other) for n in unit_names):
+                tags += [t for t in heater.tags or () if _word(t, mine)]
+    return list(dict.fromkeys(tags)) or list(heater.tags or ()) or [heater.key]
+
+
+def heater_home(ledger, plan, system) -> tuple[str, str]:
+    """For a unit a duct heater block of the plan serves: the heaters' tags and that block's header (joined with
+    "and" when two heater blocks serve it), as the unit's writer and the house check name them; ("", "") else."""
+    if is_duct_heater(system):
+        return "", ""
+    tags, headers = [], []
+    for heater in plan.systems:
+        if heater.key == system.key or not is_duct_heater(heater):
+            continue
+        if any(unit.key == system.key for unit in served_systems(ledger, plan, heater)):
+            tags += _heater_tags(ledger, heater, system)
+            headers.append(heater.header)
+    if not headers:
+        return "", ""
+    return ", ".join(dict.fromkeys(tags)), " and ".join(dict.fromkeys(headers))
+
+
+def heater_rules(ledger, plan, heater) -> list[str]:
+    """Per unit the duct heater block serves, the rule that decides the heater's scope and why: a sequence item
+    giving the BMS the heater's control (full scope, quoted), else the house rule (interlock only on a packaged
+    unit, full scope under an AME DDC controller)."""
+    from estimator.writing.house_check import heater_control_sentence
+    style = load_house_style()
+    rules = []
+    for unit in served_systems(ledger, plan, heater):
+        names = _names(heater) + _names(unit)
+        item = ""
+        for fact in ledger.facts.values():
+            if not any(_word(n, _squash(fact.subject)) for n in names):
+                continue
+            sentence = heater_control_sentence(fact.quote, style) or heater_control_sentence(_squash(fact.value), style)
+            if sentence:
+                item = f"[{fact.source_id}] “{sentence}”"
+                break
+        if item:
+            rules.append(f"{unit.key}: full field-DDC duct heater scope, as the sequence gives the BMS the heater's "
+                         f"control ({item})")
+        elif system_class(ledger, unit) == "packaged":
+            rules.append(f"{unit.key}: interlock only, by the house rule (the unit has packaged/factory controls)")
+        else:
+            rules.append(f"{unit.key}: full field-DDC duct heater scope, by the house rule (the unit is under an AME "
+                         "DDC controller)")
+    return rules
 
 
 def _is_damper(subject: str) -> bool:
@@ -151,10 +210,15 @@ def job_brief(ledger, plan, templates=None, limit: int = 4000) -> str:
             if units:
                 parts.append(f"serves: {', '.join(u.key for u in units)} ({served_class(ledger, plan, system)})")
                 served = [v for v in served if _system_of(plan, v) not in units]
+                parts.append("scope: " + "; ".join(heater_rules(ledger, plan, system)))
         if serves:
             parts.append("serves: " + ", ".join(serves))
         if served:
             parts.append("served by: " + ", ".join(served))
+        tags, header = heater_home(ledger, plan, system)
+        if header:
+            parts.append(f"The duct heaters serving this unit ({tags}) are written in the {header} block; "
+                         "write no duct heater line here.")
         lines.append(" | ".join(parts))
     general = [_squash(f.value) for f in ledger.of_kind("note") if f.subject.casefold() == "general"]
     if general:

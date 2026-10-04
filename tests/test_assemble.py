@@ -115,7 +115,8 @@ class FakeJudge:
         return 0
 
     def write_system(self, system, evidence_text, images, options, examples, style_text, hours_rule="", image_ids=None,
-                     ledger_text="", facts=(), counts=(), brief="", klass="", owned_elsewhere=(), heater_class=""):
+                     ledger_text="", facts=(), counts=(), brief="", klass="", owned_elsewhere=(), heater_class="",
+                     heater_home=("", "")):
         self.asked.append(system.key)
         self.calls += 1
         return self.scopes.get(system.key)

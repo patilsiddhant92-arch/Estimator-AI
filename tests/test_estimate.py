@@ -422,3 +422,17 @@ def test_each_write_request_gets_the_class_of_the_unit_a_duct_heater_serves(job,
     monkeypatch.setattr("estimator.__main__.served_class", lambda ledger, plan, system: "packaged")
     main(["estimate", str(job), "--out", str(tmp_path / "out"), "--ai", "api"])
     assert seen and set(seen) == {"packaged"}
+
+
+def test_each_write_request_gets_the_heater_block_that_writes_its_duct_heaters(job, tmp_path, monkeypatch, whole_job):
+    seen = []
+    original = FakeJudge.write_system
+
+    def recording(self, system, *args, **kwargs):
+        seen.append(kwargs.get("heater_home"))
+        return original(self, system, *args, **kwargs)
+
+    monkeypatch.setattr(FakeJudge, "write_system", recording)
+    monkeypatch.setattr("estimator.__main__.heater_home", lambda ledger, plan, system: ("EDH-1", "Electric Duct Heater EDH-1"))
+    main(["estimate", str(job), "--out", str(tmp_path / "out"), "--ai", "api"])
+    assert seen and set(seen) == {("EDH-1", "Electric Duct Heater EDH-1")}

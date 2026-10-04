@@ -1,14 +1,17 @@
 """The house check (design 2026-10-03 §2.3): the estimator's packaged-unit doctrine and the shared-item rule,
 enforced on a written scope after the ledger check. On a packaged unit a device wired inside the unit is never a
 line unless the sequence names the controls contractor for it, a 'Furnish <point>' line is covered by the
-integration lines, a shipped-loose device is installed and wired, and a duct heater keeps only its interlock lines.
-In any block, an item another block owns is left to that block. Every refusal and change is listed in plain words."""
+integration lines, a shipped-loose device is installed and wired, and a duct heater keeps only its interlock lines
+unless the sequence gives the BMS the heater's control. Duct heaters are written in one place: a unit whose heaters
+have their own block writes no duct heater line. In any block, an item another block owns is left to that block.
+Every refusal and change is listed in plain words."""
 from __future__ import annotations
 
 import dataclasses
 import re
 
 _SPACES = re.compile(r"\s+")
+_SENTENCE = re.compile(r"(?<=[.;!?])\s+|\n+")
 
 
 def _squash(text) -> str:
@@ -36,10 +39,31 @@ def _item_words(item: str) -> str:
 HEATER_UNKNOWN = "duct heater kept in full: the unit it serves is not known"
 
 
-def house_check(scope, system, klass: str, owned_elsewhere: dict[str, str], style, heater_class: str = ""):
+def heater_control_sentence(text: str, style) -> str:
+    """The first sentence of `text` that gives the BMS the duct heater's control: it names the duct heater (the
+    house style's duct heater words) and the BMS or the controls contractor ('heater_control_who'), and, outside
+    those words, provides or controls ('heater_control_what'). "" when none does."""
+    heater, who = _patterns(style, "duct_heater_words"), _patterns(style, "heater_control_who")
+    what = _patterns(style, "heater_control_what")
+    for sentence in _SENTENCE.split(str(text or "")):
+        if not (_any(heater, sentence) and _any(who, sentence)):
+            continue
+        rest = sentence
+        for p in who:
+            rest = p.sub(" ", rest)
+        if _any(what, rest):
+            return _squash(sentence)
+    return ""
+
+
+def house_check(scope, system, klass: str, owned_elsewhere: dict[str, str], style, heater_class: str = "",
+                heater_home: tuple[str, str] = ("", ""), evidence: str = ""):
     """`heater_class` is the class of the unit a duct heater serves (brief.served_class): a duct heater's own block
     keeps only its interlock lines when that unit is packaged, and its full scope when the unit is field or not
-    known (then a note says so). Duct heater lines inside a packaged unit's own block are interlock-only."""
+    known (then a note says so), or when its `evidence` holds a sentence giving the BMS the heater's control (the
+    explicit assignment wins; a note quotes it). `heater_home` (brief.heater_home: the heaters' tags and their
+    block's header) names the block that writes this unit's duct heaters: here every duct heater line is refused.
+    Without a heater block, duct heater lines inside a packaged unit's own block are interlock-only."""
     internal, loose, cc = _patterns(style, "internal"), _patterns(style, "shipped_loose"), _patterns(style, "cc_terms")
     point, exempt = _patterns(style, "point_line"), _patterns(style, "internal_exempt_quote")
     keep, heater = _patterns(style, "duct_heater_keep"), _patterns(style, "duct_heater_words")
@@ -47,8 +71,18 @@ def house_check(scope, system, klass: str, owned_elsewhere: dict[str, str], styl
     key = getattr(system, "key", "")
     heater_block = _any(heater, f"{key} {getattr(system, 'kind', '')} {getattr(system, 'header', '')}")
     heater_rule = heater_class if heater_block else klass      # the served unit's class, or this unit's own
+    home_tags, home_header = heater_home or ("", "")
+    if heater_block and heater_rule == "packaged":
+        assigned = heater_control_sentence(evidence, style)
+        if assigned:                        # the sequence gives the BMS the heater's control: full scope
+            heater_rule = "field"
+            changed.append(f"duct heater kept in full: the sequence gives the BMS the heater's control (“{assigned}”)")
     for line in scope.lines:
         text, quote = line.text, line.quote or ""
+        if home_header and not heater_block and _any(heater, text):
+            refused.append(f"“{text}”: the duct heaters serving this unit ({home_tags}) are written in the "
+                           f"{home_header} block; left out here")
+            continue
         owner = next((o for item, o in owned_elsewhere.items()
                       if o != key and re.search(rf"(?<![A-Za-z0-9]){re.escape(_item_words(item))}(?![A-Za-z0-9])", text, re.I)), None)
         if owner:

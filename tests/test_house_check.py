@@ -95,3 +95,44 @@ def test_a_duct_heater_serving_an_unknown_unit_is_kept_in_full_and_says_so():
     out = house_check(_scope(*map(_line, HEATER_LINES)), EDH, "field", {}, STYLE)
     assert [l.text for l in out.lines] == list(HEATER_LINES)
     assert out.changed == ("duct heater kept in full: the unit it serves is not known",)
+
+
+# --- duct heaters written in one place (house rules round 2) ----------------------------------------------------
+
+BMS_EVIDENCE = ("The sequence of operation for this system (Q2):\n[S30] The unit's factory controls run the fans. "
+                "The BMS will provide field installed controls for the electric duct heater.")
+FULL_HEATER = ("Furnish Electric Duct Heater SCR Control", "Furnish and Install Electric Duct Heater Discharge Air Temperature Sensor",
+               "Wire Electric Duct Heater Interlock to Unit Enable")
+
+
+def test_a_sequence_giving_the_bms_the_heater_keeps_full_scope_on_a_packaged_unit():
+    out = house_check(_scope(*map(_line, FULL_HEATER)), EDH, "field", {}, STYLE, heater_class="packaged",
+                      evidence=BMS_EVIDENCE)
+    assert [l.text for l in out.lines] == list(FULL_HEATER) and out.refused == ()
+    assert any("gives the BMS the heater's control" in c for c in out.changed)
+
+
+def test_without_that_sentence_the_heater_on_a_packaged_unit_is_interlock_only():
+    evidence = "The sequence of operation for this system (Q2):\n[S30] The unit's factory controls run the fans."
+    out = house_check(_scope(*map(_line, FULL_HEATER)), EDH, "field", {}, STYLE, heater_class="packaged",
+                      evidence=evidence)
+    assert [l.text for l in out.lines] == ["Wire Electric Duct Heater Interlock to Unit Enable"]
+
+
+def test_a_heater_line_in_the_served_units_block_is_refused():
+    ERV = PlannedSystem("ERV", "Energy Recovery Ventilator ERV-1", "Energy Recovery Ventilator", ("ERV-1",), 1, "[S9]",
+                        "1", (), (), "", "", "", "", facts=("F1",))
+    scope = _scope(_line("Wire Electric Duct Heater Interlock to Unit Enable"), _line("Furnish BMS Communication Wiring to Factory Controls"))
+    out = house_check(scope, ERV, "packaged", {"duct heater interlock EDH-1": "EDH"}, STYLE,
+                      heater_home=("EDH-1", "Electric Duct Heater EDH-1"))
+    assert [l.text for l in out.lines] == ["Furnish BMS Communication Wiring to Factory Controls"]
+    assert out.refused == ("“Wire Electric Duct Heater Interlock to Unit Enable”: the duct heaters serving this unit "
+                           "(EDH-1) are written in the Electric Duct Heater EDH-1 block; left out here",)
+
+
+def test_the_heater_control_sentence_needs_the_heater_the_bms_and_the_control():
+    from estimator.writing.house_check import heater_control_sentence
+    assert heater_control_sentence(BMS_EVIDENCE, STYLE) == "The BMS will provide field installed controls for the electric duct heater."
+    assert heater_control_sentence("The controls contractor shall provide the duct heater control signal.", STYLE)
+    assert heater_control_sentence("The duct heater interlock is wired by the controls contractor.", STYLE) == ""
+    assert heater_control_sentence("The BMS will provide the supply fan controls.", STYLE) == ""

@@ -572,6 +572,25 @@ def _split_group(ledger: Ledger, group: Fact) -> list[str]:
     return matched if len(values) >= 2 else []
 
 
+def _heater_sequences(ledger: Ledger, systems: list[PlannedSystem]) -> list[PlannedSystem]:
+    """A duct heater block reads the sequence of the units it serves (ame_practice.txt, 2026-10-04: the heaters are
+    written in one place): the served systems' sequence sources and sequence_match facts join the heater's own, each
+    once, and its sequence section names them, so its writer is given those sections whole."""
+    from estimator.writing.brief import is_duct_heater, served_systems
+    plan = JobPlan(systems=tuple(systems), front_end={}, unresolved=(), model="ledger")
+    planned: list[PlannedSystem] = []
+    for system in systems:
+        units = served_systems(ledger, plan, system) if is_duct_heater(system) else []
+        if units:
+            sequence = tuple(dict.fromkeys([*system.sequence_sources, *(x for u in units for x in u.sequence_sources)]))
+            matches = [f for u in units for f in u.facts
+                       if f in ledger.facts and ledger.facts[f].kind == "sequence_match"]
+            system = replace(system, sequence_sources=sequence, sequence_section=", ".join(sequence),
+                             facts=tuple(dict.fromkeys([*system.facts, *matches])))
+        planned.append(system)
+    return planned
+
+
 def ledger_plan(ledger: Ledger) -> JobPlan:
     kept: list[Fact] = []
     dropped: list[str] = []
@@ -599,6 +618,7 @@ def ledger_plan(ledger: Ledger) -> JobPlan:
             systems.append(rest)
     systems = [_template_names(s) for s in _gather_splits(ledger, systems)]
     systems = _link_dampers(ledger, systems)
+    systems = _heater_sequences(ledger, systems)
     questions = [_squash(f.value) for f in ledger.of_kind("note") if f.subject.casefold() == "question"] + asks
     taken = {i for s in systems for i in s.facts}
     for f in ledger.of_kind("sequence_match"):
