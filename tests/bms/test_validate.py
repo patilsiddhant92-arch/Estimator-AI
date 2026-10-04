@@ -231,6 +231,19 @@ def test_a_system_with_no_lines_is_a_check_with_the_writers_reason(job):
     assert "the invented heaters have no BMS work" in found[0].what
 
 
+def test_render_and_validate_share_one_source_id_pattern():
+    import bms.render as render_mod
+    import bms.validate as validate_mod
+    from bms import citations
+    assert render_mod._ONE_ID is citations.ONE_ID
+    assert validate_mod._SOURCE_ID is citations.SOURCE_ID
+
+
+def test_q_i_f_and_c_ids_in_wording_are_a_check(job):
+    j = edit_device(job, "RTU", "RTU.d4", assumption=Assumption("one detector", "Q3, I12, F8 and C2a say so"))
+    assert (RULE["ids"], "RTU", "RTU.d4", "check") in rules(validate(j, PB))
+
+
 def test_source_ids_in_assumption_or_clarification_wording_are_a_check(job):
     j = edit_device(job, "RTU", "RTU.d4", assumption=Assumption("one detector per unit", "S12 note 2 says so"))
     assert (RULE["ids"], "RTU", "RTU.d4", "check") in rules(validate(j, PB))

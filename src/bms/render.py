@@ -21,6 +21,8 @@ from estimator.scope import Alternate, Block, Item, Run
 from estimator.scope import FrontEnd as ScopeFrontEnd
 from estimator.scope import Header as ScopeHeader
 from estimator.scope import Job as ScopeJob
+from bms.citations import ID_GROUP as _ID_GROUP
+from bms.citations import ONE_ID as _ONE_ID
 from estimator.writing.write import tag_list
 
 from bms.model import CLARIFICATION_KINDS, Clarification, Count, Device, FrontEnd, Job, System
@@ -229,9 +231,6 @@ def _place(where: str) -> str:
 
 # ---- source ids: never printed ---------------------------------------------------------------------------------
 
-_ID = r"\bS\d{1,4}\b(?:\s+(?:note|paragraph)\s+\d+)?"
-_ID_GROUP = re.compile(rf"{_ID}(?:\s*(?:,|and|to|through|thru|-|–)\s*{_ID})*")
-_ONE_ID = re.compile(r"\bS\d{1,4}\b")
 _DANGLING = re.compile(r"\s*\b(?:because|per|in|on|by|from|of|and|see|the)\s*(?=[,;:.)]|$)", re.IGNORECASE)
 
 

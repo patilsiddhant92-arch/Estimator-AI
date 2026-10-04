@@ -11,6 +11,7 @@ from __future__ import annotations
 import re
 from typing import Callable, Iterator
 
+from bms.citations import SOURCE_ID as _SOURCE_ID
 from bms.model import PARTIES, Count, Device, Finding, Job, System
 from bms.playbook import Playbook, Shape
 
@@ -38,7 +39,6 @@ RULE = {
 }
 
 LONG_TEXT = 220                       # a clarification or an assumption longer than this is a check
-_SOURCE_ID = re.compile(r"\bS\d{1,4}\b(?:\s+(?:note|paragraph)\s+\d+)?")
 
 # a checker yields (device_id | None, severity, what, fix) for one system
 Hit = tuple["str | None", str, str, str]
