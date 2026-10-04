@@ -104,8 +104,7 @@ def count_sheet(image_path: Path, tag_patterns, *, transport=None,
         return unknown
 
 
-def cross_check(job: "Job", catalogue: "Catalogue", cache: Path, *, transport=None,
-                micro_crops: bool = False) -> "Job":
+def cross_check(job: "Job", catalogue: "Catalogue", cache: Path, *, transport=None) -> "Job":
     """The job with every family's text count checked against the plan counts (design §4.6), run after planning.
 
     Contract: for each family with tags, the plan sheets (sheet type "Plans", a controls discipline) whose text shows
@@ -120,7 +119,7 @@ def cross_check(job: "Job", catalogue: "Catalogue", cache: Path, *, transport=No
     Pure apart from the picture cache under `cache`. Never lowers a count, never raises; running it twice changes
     nothing more."""
     try:
-        return _Check(job, catalogue, Path(cache), transport, micro_crops=micro_crops).run()
+        return _Check(job, catalogue, Path(cache), transport, micro_crops=True).run()
     except Exception:
         return job
 
@@ -220,7 +219,7 @@ class _Sheet:
 
 
 class _Check:
-    def __init__(self, job, catalogue, cache: Path, transport, micro_crops: bool = False) -> None:
+    def __init__(self, job, catalogue, cache: Path, transport, micro_crops: bool = True) -> None:
         self.job, self.catalogue, self.cache, self.transport = job, catalogue, cache, transport
         self.micro_crops = micro_crops
         used = [int(m.group(1)) for ref in _refs(job) if (m := re.fullmatch(r"C(\d+)", ref.source_id))]
@@ -307,25 +306,27 @@ class _Check:
         if self.transport is not None and sheet.picture is not None:
             if self.micro_crops and has_text:
                 symbols_expected = self._symbols_expected(here, sheet)
-                if ambiguous or symbols_expected:
-                    amb_boxes = [b for _, b, _ in ambiguous]
-                    crops = cut_micro_crops(sheet.picture, amb_boxes) if amb_boxes else []
+                amb_boxes = [b for _, b, _ in ambiguous]
+                if amb_boxes:
+                    crops = cut_micro_crops(sheet.picture, amb_boxes)
                     results = count_sheet(sheet.picture, here, transport=self.transport,
                                           crops=crops, symbols_expected=symbols_expected)
                     if results and all(r.value is not None for r in results.values()):
                         merged_results = {}
                         for p in here:
-                            r = results.get(p)
+                            if p not in results:
+                                continue
+                            r = results[p]
                             c_boxes = [(t, b) for t, b in confident if fits(p, t)]
-                            all_boxes = _distinct([*[(b.text, (b.x, b.y, b.width, b.height)) for b in (r.boxes if r else ())],
+                            all_boxes = _distinct([*[(b.text, (b.x, b.y, b.width, b.height)) for b in r.boxes],
                                                    *c_boxes])
-                            merged_results[p] = CountResult(len(all_boxes), tuple(Box(b[0], b[1], b[2], b[3], t) for t, b in all_boxes))
+                            merged_results[p] = CountResult(len(all_boxes), tuple(all_boxes))
                         results = merged_results
+                elif symbols_expected or self._schedule_disagrees(here, sheet):
+                    results = count_sheet(sheet.picture, here, transport=self.transport,
+                                          symbols_expected=symbols_expected)
                 else:
                     results = {}
-                    for p in here:
-                        c_boxes = _distinct([(t, b) for t, b in confident if fits(p, t)])
-                        results[p] = CountResult(len(c_boxes), tuple(Box(b[0], b[1], b[2], b[3], t) for t, b in c_boxes))
             else:
                 results = count_sheet(sheet.picture, here, transport=self.transport)
 
@@ -363,6 +364,18 @@ class _Check:
                         if family.count.value > located_n:
                             symbols[p] = family.count.value - located_n
         return symbols
+
+    def _schedule_disagrees(self, here: list[str], sheet: _Sheet) -> bool:
+        for system in self.job.systems:
+            for family in system.families:
+                if family.count.value is None or not family.tags:
+                    continue
+                for p in here:
+                    if any(fits(p, t) for t in family.tags):
+                        located_n = len({canonical(t) for t, _ in sheet.located or () if fits(p, t)})
+                        if located_n > 0 and family.count.value != located_n:
+                            return True
+        return False
 
     def _located(self, sheet: _Sheet, pattern: str, default_scale: float) -> list:
         import pymupdf

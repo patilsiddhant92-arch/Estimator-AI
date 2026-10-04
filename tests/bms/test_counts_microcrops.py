@@ -220,7 +220,7 @@ def test_cross_check_sends_only_micro_crops_for_ambiguous_tags(tmp_path):
                families=(Family(name="Exhaust Fan", tags=("EF-1", "EF-2"), count=Count(2)),)),
     ))
 
-    checked = counts.cross_check(job, cat, cache, transport=transport, micro_crops=True)
+    checked = counts.cross_check(job, cat, cache, transport=transport)
     assert len(transport.asked) == 1
     asked = transport.asked[0]
     # Verify ONLY micro-crops were sent, NOT the 6 full tiles
@@ -246,7 +246,7 @@ def test_cross_check_falls_back_to_full_tiles_for_scanned_sheet(tmp_path):
                families=(Family(name="Exhaust Fan", tags=("EF-1", "EF-2"), count=Count(2)),)),
     ))
 
-    checked = counts.cross_check(job, cat, cache, transport=transport, micro_crops=True)
+    checked = counts.cross_check(job, cat, cache, transport=transport)
     assert len(transport.asked) == 1
     asked = transport.asked[0]
     # Scanned page sends the full tile grid (multiple tiles covering entire sheet)
@@ -274,7 +274,7 @@ def test_cross_check_asks_for_untagged_symbols_when_schedule_exceeds_text_count(
     transport = MockTransport(untagged_counts={"EF-[0-9]+": 2})
     cache = tmp_path / "cache"
 
-    checked = counts.cross_check(job, cat, cache, transport=transport, micro_crops=True)
+    checked = counts.cross_check(job, cat, cache, transport=transport)
     assert len(transport.asked) == 1
     asked = transport.asked[0]
     assert "symbols" in asked["prompt"].lower() or "untagged" in asked["prompt"].lower()
