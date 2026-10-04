@@ -5,7 +5,7 @@ read (the old app's staged reading) -> plan_job -> counts cross-check (text and 
 round) -> validate -> review_page (with the count proofs) -> render -> the Word proposal, the price sheet and the
 Evidence Package (the Job's scope lines and findings beside the old reading tabs).
 
-The run waits at "count" while the vision count's tile questions have no answer: the counts are part of each
+The run waits at "count" while the vision count's sheet questions have no answer: the counts are part of each
 system's skeleton, so writing before they are in would ask the writer again once they arrive.
 
 In chat mode a step with no answer yet writes its request and the run stops after the step has asked every question
@@ -122,7 +122,7 @@ def estimate(job_folder: Path, out: Path, cache: Path, mode: Mode = "chat") -> R
     if transport.waiting > asked:
         save(job)
         return RunResult("waiting", "count", waiting=transport.waiting, job_file=job_file,
-                         messages=(f"Plan counts: {transport.waiting - asked} sheet tile(s) wait for the vision "
+                         messages=(f"Plan counts: {transport.waiting - asked} sheet(s) wait for the vision "
                                    "count.",))
 
     # 3. write every system (all are asked before stopping for answers)
