@@ -17,7 +17,6 @@ import datetime as dt
 import re
 from dataclasses import dataclass
 
-from estimator.ledger.facts import where_short
 from estimator.scope import Alternate, Block, Item, Run
 from estimator.scope import FrontEnd as ScopeFrontEnd
 from estimator.scope import Header as ScopeHeader
@@ -67,7 +66,13 @@ def render(job: Job, playbook: Playbook) -> ProposalDraft:
       position in `line_order`, then their order in `System.devices`), the slot's wording form; owner brackets
       from `wording.owner_brackets[device.furnished_by]` (none for AME); "Qty (##)" forms when `Count.value` is
       None; a sub-line slot's device one level in under its parent's line; the block's one "*" clarification in its kind's form,
-      as a `note` Item; a Count with `others` gets the others note.
+      as a `note` Item (the label its text already carries is not printed twice, source ids never print, the
+      text is never cut); the block's Counts with `others` get one quantity note (`others_note`) naming the
+      other counts by sheet number, never a file name.
+    - A damper family linked under a fan (a system with other, non-damper families) prints no header of its own;
+      each other family prints its own header, its count the highest the documents give.
+    - A system with no devices prints nothing in the proposal: it is one `note` line in `lines` ("left out, no
+      lines written", with the writer's reason) for the Evidence Package only.
     - `job.header` must be set (the run sets it): it becomes `scope.header` (`date` parsed from ISO).
     - Base systems become `scope.blocks`; `alternate` "add" / "deduct" systems go into `scope.add_alternates` /
       `scope.deduct_alternates`; `job.exceptions` become `scope.named_exceptions`; `job.front_end` the FrontEnd.
@@ -91,11 +96,11 @@ def render(job: Job, playbook: Playbook) -> ProposalDraft:
     for system in job.systems:
         printed: list[RenderedLine] = []
         blocks = _system_blocks(system, playbook, printed)
-        if system.alternate == "add":
+        if system.alternate == "add" and blocks:
             adds.append(Alternate(blocks=blocks))
-        elif system.alternate == "deduct":
+        elif system.alternate == "deduct" and blocks:
             deducts.append(Alternate(blocks=blocks))
-        else:
+        elif system.alternate == "base":
             base.extend(blocks)
         (lines if system.alternate == "base" else after[system.alternate]).extend(printed)
     lines += after["add"] + after["deduct"]
@@ -134,13 +139,124 @@ def _owner(device: Device, playbook: Playbook) -> str:
     return "" if device.furnished_by == "AME" else playbook.wording.owner_brackets.get(device.furnished_by, "")
 
 
-def _reason(assumption) -> str:
-    what, why = _trim(assumption.what), _squash(assumption.why)
-    if not what or not why:
+def _reason(assumption, refs: "_Refs") -> str:
+    what = _trim(_no_ids(_strip_labels(assumption.what), refs))
+    why = _trim(_no_ids(assumption.why, refs))
+    if not _trim(assumption.what) or not _squash(assumption.why):
         raise RenderError(f"an assumption needs both what and why (got what={assumption.what!r}, "
                           f"why={assumption.why!r})")
     lead = "" if why.lower().startswith(_REASON_LEADS) else "because "
-    return f"{what}, {lead}{why}"
+    return f"{what}, {lead}{why}" if why else what
+
+
+# ---- places: a sheet number or a section, never a file name --------------------------------------------------
+
+_SHEET = re.compile(r"\b[A-Z]{1,2}-?\d{1,3}(?:\.\d{1,3})?[A-Z]?\b")
+_FILE_PART = re.compile(r"\.(?:pdf|docx?|xlsx?|dwg|txt)\b|\bpage\s+\d+\b", re.IGNORECASE)
+_NOT_A_DOCUMENT = ("equipment counts",)          # the dossier's own label for a combined count, not a document
+NO_PLACE = "the documents"
+
+
+def _place(where: str) -> str:
+    """Where a source is, as the client reads it: the first sheet number in it ("M-112.00"); else the schedule,
+    section or document name with the file name and its page left out; else "" (no place)."""
+    text = _squash(re.sub(r"\([^)]*\)", " ", where or ""))
+    found = _SHEET.search(text)
+    if found:
+        return found.group(0)
+    if text.lower().startswith(_NOT_A_DOCUMENT):
+        return ""
+    for part in re.split(r"[,;]", text):
+        part = _squash(part)
+        if part and not _FILE_PART.search(part):
+            return part
+    return ""
+
+
+# ---- source ids: never printed ---------------------------------------------------------------------------------
+
+_ID = r"\bS\d{1,4}\b(?:\s+(?:note|paragraph)\s+\d+)?"
+_ID_GROUP = re.compile(rf"{_ID}(?:\s*(?:,|and|to|through|thru|-|–)\s*{_ID})*")
+_ONE_ID = re.compile(r"\bS\d{1,4}\b")
+_DANGLING = re.compile(r"\s*\b(?:because|per|in|on|by|from|of|and|see|the)\s*(?=[,;:.)]|$)", re.IGNORECASE)
+
+
+class _Refs:
+    """The refs a text's source ids are looked up in: the device's own first, then the rest of its block's."""
+
+    def __init__(self, *groups) -> None:
+        self.groups = [tuple(g) for g in groups if g]
+
+    def place(self, source_id: str) -> str:
+        for group in self.groups:
+            for ref in group:
+                if ref.source_id == source_id and _place(ref.where):
+                    return _place(ref.where)
+        return ""
+
+    def first(self, *refs) -> "_Refs":
+        return _Refs(refs, *self.groups)
+
+
+def _no_ids(text: str, refs: _Refs) -> str:
+    """The text with every source id ("S141", "S394 note 1", "S243 to S250") replaced by the sheet or section of
+    its ref, or dropped (with the words around it tidied) when no ref names it."""
+    if not _ONE_ID.search(text or ""):
+        return text
+
+    def swap(match: re.Match) -> str:
+        places = list(dict.fromkeys(p for p in (refs.place(i) for i in _ONE_ID.findall(match.group(0))) if p))
+        return " and ".join(places)
+
+    out = _ID_GROUP.sub(swap, text)
+    out = re.sub(r"\(\s*(?:(?:,|;|and)\s*)*\)", " ", out)          # an emptied bracket
+    out = re.sub(r"\(\s+", "(", out)
+    out = re.sub(r"\s+([,;:.)])", r"\1", out)
+    while True:
+        tidy = _DANGLING.sub("", out)
+        tidy = re.sub(r"([,;:])\s*(?=[,;:.)]|$)", "", tidy)          # a separator left with nothing after it
+        if tidy == out:
+            break
+        out = tidy
+    return _squash(out).lstrip(",;: ")
+
+
+# ---- the clarification labels -----------------------------------------------------------------------------------
+
+_LABEL = re.compile(r"^\s*(?:\*+|confirm\b\s*:?|assumed\s*:)\s*", re.IGNORECASE)
+_PER = re.compile(r"^\s*(?:\*+|quantity\s+per\b|as\s+per\b|per\b)\s*", re.IGNORECASE)
+_TRADE = re.compile(r"\b(plumbing|electrical|mechanical|architectural|fire protection|civil|structural)\b",
+                    re.IGNORECASE)
+
+
+def _strip_labels(text: str) -> str:
+    """The text without the leading label(s) it already carries ("*", "Confirm", "Assumed:"): the form adds its own."""
+    text = text or ""
+    while True:
+        stripped = _LABEL.sub("", text, count=1)
+        if stripped == text:
+            return text
+        text = stripped
+
+
+def _per_drawings_text(text: str) -> str:
+    """What a per-drawings clarification puts in its form: the trade its text names ("plumbing"), else the text
+    without its own "Quantity per" and "drawings"."""
+    trade = _TRADE.search(text or "")
+    if trade:
+        return trade.group(1).lower()
+    text = _strip_labels(text)
+    while True:
+        stripped = _PER.sub("", text, count=1)
+        if stripped == text:
+            break
+        text = stripped
+    return re.sub(r"\s*\bdrawings?\b\s*$", "", _trim(text), flags=re.IGNORECASE)
+
+
+def _clarification_text(kind: str, text: str, refs: _Refs) -> str:
+    text = _no_ids(text, refs)
+    return _trim(_per_drawings_text(text) if kind == "per_drawings" else _strip_labels(text))
 
 
 # ---- counts ----------------------------------------------------------------------------------------------------
@@ -151,18 +267,34 @@ def _header_count(count: Count, playbook: Playbook) -> str:
     return words["unknown_count"] if n is None else words["count"].format(n=n)
 
 
-def _count_note(count: Count, playbook: Playbook) -> str:
-    """The text naming every other count in the documents beside the printed one ("" when there is none)."""
+def _count_part(count: Count) -> str:
+    """One count's part of the quantity note: "(N) per <place>; M per <place>; K and J per <place>" (the printed
+    count first, then every other count folded by place); "" when the documents give no other count."""
     n = _printed(count)
     if n is None:
         return ""
     entries = [(count.value, count.sources[0].where if count.sources else "")] if count.value is not None else []
     entries += [(o.value, o.ref.where) for o in count.others]
-    place = next((where_short(w) for v, w in entries if v == n and w), "")
-    others = "; ".join(f"{v} per {where_short(w)}" if w else f"{v}" for v, w in entries if v != n)
-    if not others:
+    place = next((_place(w) for v, w in entries if v == n), "") or NO_PLACE
+    folded: dict[str, list[int]] = {}
+    for value, where in entries:
+        if value == n:
+            continue
+        values = folded.setdefault(_place(where) or NO_PLACE, [])
+        if value not in values:
+            values.append(value)
+    if not folded:
         return ""
-    return _fill(playbook.wording.quantity["others_note"], value=str(n), others=others, place=place)
+    others = "; ".join(f"{' and '.join(str(v) for v in values)} per {where}" for where, values in folded.items())
+    return f"({n}) per {place}; {others}"
+
+
+def _count_note(counts: list[Count], playbook: Playbook) -> str:
+    """The block's one quantity note naming every other count in the documents ("" when there is none)."""
+    parts = list(dict.fromkeys(p for p in (_count_part(c) for c in counts) if p))
+    if not parts:
+        return ""
+    return _fill(playbook.wording.quantity["others_note"], counts="; ".join(parts))
 
 
 # ---- one line --------------------------------------------------------------------------------------------------
@@ -241,25 +373,28 @@ def _device_lines(devices, shape: Shape | None, system: System | None, playbook:
 # ---- the "*" clarifications --------------------------------------------------------------------------------------
 
 def _notes(clarifications: tuple[Clarification, ...], devices, counts: list[Count],
-           playbook: Playbook) -> list[str]:
-    """One "*" line per kind, after the lines: confirm, assumed (every assumption with its why), per drawings, and
-    the note line (the notes, then the count notes naming every other count)."""
+           playbook: Playbook, extra_refs=()) -> list[str]:
+    """One "*" line per kind, after the lines: confirm, assumed (every assumption with its why), per drawings, the
+    note line; then the one quantity note naming every other count. A text's own leading label is not printed
+    twice, its source ids never print, and it is never cut."""
+    block_refs = tuple(r for d in devices for r in d.refs) + tuple(extra_refs)
+    refs = _Refs(block_refs)
     texts: dict[str, list[str]] = {kind: [] for kind in CLARIFICATION_KINDS}
     for c in clarifications:
-        if _trim(c.text):
-            texts[c.kind].append(_trim(c.text))
+        text = _clarification_text(c.kind, c.text, refs)
+        if text:
+            texts[c.kind].append(text)
     for device in devices:
         if device.assumption is not None:
-            texts["assumed"].append(_reason(device.assumption))
-    for count in counts:
-        note = _count_note(count, playbook)
-        if note:
-            texts["note"].append(_trim(note))
+            texts["assumed"].append(_reason(device.assumption, refs.first(*device.refs)))
     out = []
     for kind in _AFTER_LINES:
         unique = list(dict.fromkeys(texts[kind]))
         if unique:
             out.append(_fill(playbook.wording.clarifications[kind], text="; ".join(unique)))
+    note = _count_note(counts, playbook)
+    if note:
+        out.append(note)
     return out
 
 
@@ -280,12 +415,36 @@ def _header_text(form: str, name: str, tags: tuple[str, ...], count: Count, play
     return _fill(form, n=_header_count(count, playbook), name=name, tags=shown)
 
 
+LEFT_OUT = "{name}: left out, no lines written"
+
+
+def left_out_text(system: System) -> str:
+    """The Evidence Package note for a system with no lines (it prints nothing in the proposal), with the writer's
+    reason when its clarifications give one."""
+    reason = "; ".join(_trim(c.text) for c in system.clarifications if _trim(c.text))
+    return LEFT_OUT.format(name=system.name) + (f" ({reason})" if reason else "")
+
+
+def _is_damper_family(family) -> bool:
+    return "damper" in family.name.lower()
+
+
+def _header_families(system: System):
+    """The families that print a header: a damper family linked under a fan (a block with other, non-damper
+    families) prints none, its devices sit under the fan's header; a damper-only block keeps its own."""
+    others = tuple(f for f in system.families if not _is_damper_family(f))
+    return others if others else system.families
+
+
 def _system_blocks(system: System, playbook: Playbook, out: list[RenderedLine]) -> tuple[Block, ...]:
     """One block, or one header per family stacked over the shared lines (the lines sit under the last header,
-    the tech hours on the first)."""
+    the tech hours on the first). A system with no lines prints nothing: it is a note for the Evidence Package."""
+    if not system.devices:
+        out.append(RenderedLine(system.key, None, "note", left_out_text(system), None, None))
+        return ()
     shape = _shape_of(system, playbook)
     form = shape.header if shape is not None else GENERIC_HEADER
-    families = system.families
+    families = _header_families(system)
     if len(families) <= 1:
         family = families[0] if families else None
         headers = [_header_text(form, system.name, family.tags if family else (),
@@ -297,7 +456,8 @@ def _system_blocks(system: System, playbook: Playbook, out: list[RenderedLine]) 
     printed = _device_lines(system.devices, shape, system, playbook, reference)
     items = _items(printed, pending)
     notes = _notes(system.clarifications, system.devices,
-                   [f.count for f in families] + [d.quantity for d in system.devices], playbook)
+                   [f.count for f in system.families] + [d.quantity for d in system.devices], playbook,
+                   system.sequence_refs)
     items += [Item(kind="note", runs=(Run(text=n),)) for n in notes]
     out += [RenderedLine(system.key, None, "header", h, None, None) for h in headers]
     out += _traced(system.key, printed, notes)

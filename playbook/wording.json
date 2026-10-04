@@ -6,7 +6,7 @@
     "integration_trio": "lines: the three lines, in order ({what} names the equipment, or is left out for plain factory controls); depths: the depth of each line (1 or 2).",
     "clarifications": "Per clarification kind (confirm, assumed, per_drawings, note): the form of the block's one \"*\" line. Placeholders: {text} the clarification's text. Every form starts with \"*\".",
     "header": "count: the {n} form of a known count; unknown_count: what {n} prints when the count is unknown; tags_joiner: between tags.",
-    "quantity": "line: the {qty} form on a line whose quantity differs from the block's ({n} the count); unknown: the {qty} form when it is unknown; others_note: the clarification text naming every other count ({value} printed, {others} the others as \"N per where\" joined by \"; \").",
+    "quantity": "line: the {qty} form on a line whose quantity differs from the block's ({n} the count); unknown: the {qty} form when it is unknown; others_note: the block's one quantity note, printed after its clarification ({counts}: each count with other counts in the documents as \"(N) per <sheet>; M per <sheet>\", the printed count first, a place being the sheet number only, values from one place folded as \"1 and 0 per <sheet>\", the counts joined by \"; \"). Clarification texts: a label the text already carries (\"*\", \"Confirm\", \"Assumed:\", \"Quantity per\") is not printed twice, and a per_drawings text prints as its trade word (\"*Quantity per plumbing drawings\").",
     "confirmed": "Workstream 1, 2026-10-04. Verbs: the GEM's five ownership verbs (the Master Template's bare 'Install' has no Job model verb; it is not used). Owner brackets: GEM 'Other trades in brackets' and the practice rules for Unit Mfr., FA, Others and Mechanical Contractor; Electrical Contractor and Owner follow the same form (GEM names both parties). Integration trio: the Master Template and house style, word for word. Clarifications: the old app's printed forms ('*Confirm quantity: ...', '*Assumed: ...'), the practice rule's '*Quantity per plumbing drawings', and the house style's '**' client note. Quantity: the GEM's '(Qty. N Total)' and the estimator's 'Qty (##)' for unknown."
   },
   "$draft": [],
@@ -41,6 +41,6 @@
   "quantity": {
     "line": " (Qty. {n} Total)",
     "unknown": " (Qty. ##)",
-    "others_note": "quantity: {value} carried; the documents also show {others}"
+    "others_note": "*Qty. {counts}."
   }
 }

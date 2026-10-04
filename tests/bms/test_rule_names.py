@@ -126,10 +126,33 @@ def _once():
                sysm("TEF", "Toilet Exhaust Fan", [dev("EF.d1", "other_device")]))
 
 
+def _left_out():
+    return job(sysm("EF", "Exhaust Fan", []))
+
+
+def _ids():
+    return job(sysm("EF", "Exhaust Fan", [dev("EF.d1", "controller", assumption=Assumption("one", "S7 says so"))]))
+
+
+def _long_note():
+    return job(sysm("EF", "Exhaust Fan", [dev("EF.d1", "controller")],
+                    clarifications=(Clarification("note", "invented " * 30),)))
+
+
+def _long_assumption():
+    return job(sysm("EF", "Exhaust Fan", [dev("EF.d1", "controller",
+                                              assumption=Assumption("invented " * 15, "invented " * 15))]))
+
+
+def _header_under():
+    return job(sysm("EF", "Exhaust Fan", [dev("EF.d1", "controller", qty=Count(4, (REF,)))]))
+
+
 TRIGGERS = {"cites": _cites, "owner": _owner, "slot": _slot, "subline": _subline, "packaged": _packaged,
             "loose": _loose, "damper": _damper, "heater": _heater, "vrf": _vrf, "higher": _higher,
             "unknown": _unknown, "one_note": _one_note, "assumption": _assumption, "sequence": _sequence,
-            "once": _once}
+            "once": _once, "left_out": _left_out, "ids": _ids, "long_note": _long_note,
+            "long_assumption": _long_assumption, "header_under": _header_under}
 
 
 def test_every_check_has_a_trigger():

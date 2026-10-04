@@ -1,7 +1,8 @@
 """The validators (workstream 3, design §4.3): one small function per Playbook rule, on fields, never on text.
 
 Every check reads Job fields only: verbs, parties, slot and its kind in the shape, refs, counts, flags and the
-kind of each clarification. None reads the wording of a sentence. Each finding is named by a rule heading of the
+kind of each clarification. None judges the wording of a sentence; two only look at its surface (a source id in
+it, its length). Each finding is named by a rule heading of the
 repo Playbook (`playbook/rules.md`); `RULE` maps each check to it (tests/bms/test_rule_names.py holds the two
 together).
 """
@@ -29,7 +30,15 @@ RULE = {
     "sequence": "Systems named only in the sequence",
     "slot": "Placing a device in a slot",
     "subline": "Sub-lines under their parent",
+    "left_out": "One system one block",
+    "ids": "Assumption wording has no source ids",
+    "long_note": "One clarification per block",
+    "long_assumption": "Every assumption says why",
+    "header_under": "Never undershoot",
 }
+
+LONG_TEXT = 220                       # a clarification or an assumption longer than this is a check
+_SOURCE_ID = re.compile(r"\bS\d{1,4}\b(?:\s+(?:note|paragraph)\s+\d+)?")
 
 # a checker yields (device_id | None, severity, what, fix) for one system
 Hit = tuple["str | None", str, str, str]
@@ -259,13 +268,73 @@ def _sequence(system, shape, job, playbook) -> Iterator[Hit]:
                    f"{f.count.value}", "A sequence-only system prints 'Qty (##)'; clear the count.")
 
 
+def _left_out(system, shape, job, playbook) -> Iterator[Hit]:
+    """A system with no lines prints nothing in the proposal (the renderer leaves it out): the estimator sees it."""
+    if system.devices:
+        return
+    reason = "; ".join(c.text.strip() for c in system.clarifications if c.text.strip())
+    yield (None, "check", f"{system.name}: left out: no lines written"
+           + (f"; the writer's reason: {reason}" if reason else "; the writer gave no reason"),
+           "Write its lines from the evidence, or make it a named exception with its reason.")
+
+
+def _ids(system, shape, job, playbook) -> Iterator[Hit]:
+    for c in system.clarifications:
+        found = _SOURCE_ID.findall(c.text)
+        if found:
+            yield (None, "check", f"The {c.kind} clarification names source ids ({', '.join(found)})",
+                   "Name the sheet or section instead; source ids never print.")
+    for d in system.devices:
+        a = d.assumption
+        found = _SOURCE_ID.findall(f"{a.what} {a.why}") if a is not None else []
+        if found:
+            yield (d.id, "check", f"The assumption on {d.name} names source ids ({', '.join(found)})",
+                   "Name the sheet or section instead; source ids never print.")
+
+
+def _long_note(system, shape, job, playbook) -> Iterator[Hit]:
+    for c in system.clarifications:
+        if len(c.text.strip()) > LONG_TEXT:
+            yield (None, "check", f"The {c.kind} clarification is {len(c.text.strip())} characters, over {LONG_TEXT}",
+                   "Say it in fewer words; it prints whole.")
+
+
+def _long_assumption(system, shape, job, playbook) -> Iterator[Hit]:
+    for d in system.devices:
+        a = d.assumption
+        if a is None:
+            continue
+        size = len(f"{a.what.strip()}, because {a.why.strip()}")
+        if size > LONG_TEXT:
+            yield (d.id, "check", f"The assumption on {d.name} is {size} characters, over {LONG_TEXT}",
+                   "Say what is assumed and why in fewer words; it prints whole.")
+
+
+def _header_under(system, shape, job, playbook) -> Iterator[Hit]:
+    """A device quantity above its family's header count, while the family names no other count: the header
+    undershoots. Only a block with one family that prints a header (a damper family under a fan prints none)."""
+    families = [f for f in system.families if "damper" not in f.name.lower()] or list(system.families)
+    if len(families) != 1 or families[0].count.others:
+        return
+    header = families[0].count.highest()
+    if header is None:
+        return
+    for d in system.devices:
+        n = d.quantity.highest()
+        if n is not None and n > header:
+            yield (d.id, "must_fix", f"{d.name}: device quantity {n} is higher than the header count {header}: "
+                   "print the higher count", f"Carry the {families[0].name} count at {n} with its source, or "
+                   "correct the device quantity.")
+
+
 _SYSTEM_RULES: tuple[tuple[str, Callable], ...] = (
     ("cites", _cites), ("owner", _owners), ("slot", _slots), ("subline", _sublines), ("packaged", _packaged), ("loose", _loose),
     ("damper", _dampers), ("heater", _heaters), ("vrf", _vrf), ("higher", _higher), ("unknown", _unknown),
-    ("one_note", _one_note), ("assumption", _assumption), ("sequence", _sequence),
+    ("one_note", _one_note), ("assumption", _assumption), ("sequence", _sequence), ("left_out", _left_out),
+    ("ids", _ids), ("long_note", _long_note), ("long_assumption", _long_assumption), ("header_under", _header_under),
 )
 
-_FRONT_END_RULES = ("cites", "owner", "assumption", "one_note")
+_FRONT_END_RULES = ("cites", "owner", "assumption", "one_note", "ids", "long_note", "long_assumption")
 
 
 def validate(job: Job, playbook: Playbook) -> list[Finding]:

@@ -40,6 +40,6 @@
   "quantity": {
     "line": " (Qty. {n})",
     "unknown": " (Qty. ##)",
-    "others_note": "Quantity carried: {value}; other counts in the documents: {others}"
+    "others_note": "*Qty. {counts}."
   }
 }
