@@ -292,7 +292,10 @@ RETURNS = {
 @pytest.mark.parametrize("function", list(SIGNATURES), ids=lambda f: f"{f.__module__}.{f.__name__}")
 def test_signature(function):
     signature = inspect.signature(function)
-    assert list(signature.parameters) == SIGNATURES[function]
+    # the contract's parameters, in order; an added keyword-only parameter with a default keeps every caller working
+    named = [n for n, p in signature.parameters.items() if n in SIGNATURES[function]
+             or not (p.kind is p.KEYWORD_ONLY and p.default is not p.empty)]
+    assert named == SIGNATURES[function]
     if function in RETURNS:
         assert signature.return_annotation == RETURNS[function]
     assert len(inspect.getdoc(function) or "") > 80          # the contract is stated

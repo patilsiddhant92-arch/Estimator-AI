@@ -171,6 +171,27 @@ def _reach(job_folder, out, cache, stage):
     raise AssertionError(result)
 
 
+def test_every_writer_is_given_the_tags_of_the_whole_job(job_folder, tmp_path, monkeypatch):
+    """I2: the intake protects the same tag set as the renderer and the validator: every tag of the job."""
+    from bms import ai, citations, run
+    from bms.model import Job
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    seen: list[tuple] = []
+
+    def spy(system, evidence, playbook, transport, **kw):
+        seen.append((system.key, kw.get("tags")))
+        raise ai.NoAnswer("spied", waiting=True)
+    monkeypatch.setattr(run.ai, "write_system", spy)
+    out, cache = tmp_path / "out", tmp_path / "cache"
+    result = _reach(job_folder, out, cache, "write")
+    assert result.stage == "write"
+    job = Job.from_json(result.job_file.read_text(encoding="utf-8"))
+    assert len(seen) == len(job.systems) >= 1, seen
+    every = {t for s in job.systems for f in s.families for t in f.tags}
+    for _, tags in seen:
+        assert tags == tuple(citations.job_tags(job)) and set(tags) >= every, (tags, every)
+
+
 def test_a_killed_write_resumes_from_cached_answers_without_asking_again(job_folder, tmp_path, monkeypatch):
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     out, cache = tmp_path / "out", tmp_path / "cache"

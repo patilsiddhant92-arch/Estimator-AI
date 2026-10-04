@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import datetime as dt
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from estimator.scope import Alternate, Block, Item, Run
 from estimator.scope import FrontEnd as ScopeFrontEnd
@@ -109,7 +109,7 @@ def render(job: Job, playbook: Playbook) -> ProposalDraft:
             base.extend(blocks)
         (lines if system.alternate == "base" else after[system.alternate]).extend(printed)
     lines += after["add"] + after["deduct"]
-    exceptions = tuple(x.text for x in job.exceptions if x.text.strip())
+    exceptions = tuple(t for t in (ids.strip(x.text, x.refs).strip() for x in job.exceptions) if t)
     scope = ScopeJob(header=header, front_end=front, blocks=tuple(base), add_alternates=tuple(adds),
                      deduct_alternates=tuple(deducts), named_exceptions=exceptions)
     return ProposalDraft(scope=scope, lines=tuple(lines))
@@ -221,6 +221,16 @@ class _Refs:
         return self.ids.strip(text, *self.groups)
 
 
+def _named(devices, ids: SourceIds, extra_refs=()) -> list[Device]:
+    """The devices with their names cleaned of source ids, as every other client text (`SourceIds.strip`)."""
+    block = tuple(r for d in devices for r in d.refs) + tuple(extra_refs)
+    out = []
+    for device in devices:
+        name = ids.strip(device.name, device.refs, block)
+        out.append(device if name == device.name else replace(device, name=name))
+    return out
+
+
 # ---- counts ----------------------------------------------------------------------------------------------------
 
 def _header_count(count: Count, playbook: Playbook) -> str:
@@ -234,7 +244,7 @@ def _count_label(value: int, ref, ids: SourceIds) -> str:
     counted ("plan placements", "schedule rows", "the schedule", "the riser", "the sheet pictures"), the part of a
     counts line that gives this value; else a schedule or section name; else "" (the clause is left out). A source
     id is never a place (`SourceIds.place`)."""
-    sheet = ids.sheet(ref.where, ref.source_id)
+    sheet = ids.sheet(ref.where)
     if sheet:
         return sheet
     quote = (ref.quote or "").lower()
@@ -252,7 +262,7 @@ def _count_label(value: int, ref, ids: SourceIds) -> str:
         return labels[0]
     if found:
         return ""
-    return ids.place(ref.where, ref.source_id)
+    return ids.place(ref.where)
 
 
 def _count_part(count: Count, ids: SourceIds) -> str:
@@ -502,7 +512,7 @@ def _system_blocks(system: System, playbook: Playbook, out: list[RenderedLine],
         headers = [_header_text(form, f.name, f.tags, f.count, playbook) for f in families]
     reference = {n for n in (_printed(f.count) for f in families) if n is not None}
     pending = not families or any(_printed(f.count) is None for f in families)     # "Qty (##)": nothing is priced
-    printed = _device_lines(system.devices, shape, system, playbook, reference)
+    printed = _device_lines(_named(system.devices, ids, system.sequence_refs), shape, system, playbook, reference)
     items = _items(printed, pending)
     notes = _notes(system.clarifications, system.devices,
                    [f.count for f in system.families] + [d.quantity for d in system.devices], playbook, ids,
@@ -532,7 +542,7 @@ def _front_end(front: FrontEnd | None, playbook: Playbook, out: list[RenderedLin
                ids: SourceIds) -> ScopeFrontEnd:
     if front is None:
         return ScopeFrontEnd(mode="new-system")
-    printed = _device_lines(front.devices, None, None, playbook, {1})
+    printed = _device_lines(_named(front.devices, ids), None, None, playbook, {1})
     items = _items(printed, False)
     notes = _notes(front.clarifications, front.devices, [d.quantity for d in front.devices], playbook, ids)
     items += [Item(kind="note", runs=(Run(text=n),)) for n in notes]

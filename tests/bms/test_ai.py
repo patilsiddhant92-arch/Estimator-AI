@@ -569,6 +569,59 @@ def test_a_family_tag_shaped_like_an_id_survives_the_intake_even_when_issued(job
     assert written.clarifications[0].text == text
 
 
+# ---- fix round 1 ---------------------------------------------------------------------------------------------------
+
+class LoggingTransport(FakeTransport):
+    """A FakeTransport that keeps what the intake cleaned."""
+
+    def __init__(self, *answers):
+        super().__init__(*answers)
+        self.intake: list[str] = []
+
+    def note_intake(self, name, change):
+        self.intake.append(change)
+
+
+def test_an_unissued_id_in_a_citation_is_removed_and_logged(job, raw, dossier, playbook):
+    """C1: S999 was never issued; beside the issued Q2 (or after a cue word) it is a citation, removed and logged.
+    Outside any citation ("Fan C2 serves the lab") an unissued token is kept as written."""
+    def change(a):
+        a["clarifications"] = [{"kind": "confirm", "text": "Valves per Q2 and S999."}]
+        a["devices"][0]["assumption"] = {"what": "one per fan", "why": "the sequence, see S998"}
+        a["devices"][1]["assumption"] = {"what": "one per fan", "why": "Fan C2 serves the lab"}
+    system = skeleton(job.system("EF"))
+    transport = LoggingTransport(_bad(raw, change))
+    written = ai.write_system(system, ai.evidence_for(system, dossier), playbook, transport)
+    assert written.clarifications[0].text == "Valves per 23 09 93."
+    assert written.devices[0].assumption.why == "the sequence"
+    assert written.devices[1].assumption.why == "Fan C2 serves the lab"
+    assert any("unissued id removed" in c and "S999" in c for c in transport.intake), transport.intake
+    assert any("unissued id removed" in c and "S998" in c for c in transport.intake), transport.intake
+
+
+def test_the_intake_protects_the_job_wide_tags_it_is_given(job, raw, dossier, playbook):
+    """I2: C2 is issued in this system's evidence but is a fan tag of another system: the run passes every tag."""
+    system = _with(skeleton(job.system("EF")), Ref("C2", "x", "ledger fact"))
+    answer = _bad(raw, lambda a: a.update(clarifications=[{"kind": "note", "text": "Fan C2 serves the lab"}]))
+    written = ai.write_system(system, ai.evidence_for(system, dossier), playbook, FakeTransport(answer),
+                              tags=("EF-1", "C2"))
+    assert written.clarifications[0].text == "Fan C2 serves the lab"
+
+
+def test_the_intake_cleans_device_names_and_label_residue(job, raw, dossier, playbook):
+    """I4: a device name loses its source id. M1: no punctuation is left after a label; 'Assumption-based' is a
+    word, not a label."""
+    def change(a):
+        a["devices"][0]["name"] = "Control Valve per Q2"
+        a["devices"][0]["assumption"] = {"what": "Assumption-based count", "why": "Assumed - two valves"}
+        a["clarifications"] = [{"kind": "confirm", "text": "**Confirm**: ownership of valves"}]
+    written = _written(job, raw, dossier, playbook, change)
+    assert written.devices[0].name == "Control Valve per 23 09 93"        # the id becomes its place
+    assert written.devices[0].assumption.what == "Assumption-based count"
+    assert written.devices[0].assumption.why == "two valves"
+    assert written.clarifications[0].text == "ownership of valves"
+
+
 def test_a_block_with_nothing_to_scope_keeps_its_reason(job, raw, dossier, playbook):
     system = skeleton(job.system("EF"))
     answer = _bad(raw, lambda a: a.update(devices=[], clarifications=[], tech_hours=None,

@@ -307,20 +307,31 @@ def _left_out(system, shape, job, playbook) -> Iterator[Hit]:
            "Write its lines from the evidence, or make it a named exception with its reason.")
 
 
+def _id_hits(device_id, what: str, text: str, ids: SourceIds) -> Iterator[Hit]:
+    """A text that prints, checked with the shared decision (`SourceIds.clean`): the ids it strips (issued, or
+    unissued in a citation) and the id-shaped tokens it keeps that are neither issued nor a tag."""
+    cleaned = ids.clean(text)
+    named = list(dict.fromkeys(cleaned.issued + cleaned.unissued_removed))
+    if named:
+        yield (device_id, "check", f"{what} names source ids ({', '.join(named)})",
+               "Name the sheet or section instead; source ids never print.")
+    kept = list(dict.fromkeys(cleaned.unissued_kept))
+    if kept:
+        yield (device_id, "check", f"{what} names {', '.join(kept)}, which is no source id of this job and no tag; "
+               "it prints as written", "Say what it is (a tag the schedule names), or take it out.")
+
+
 def _ids(system, shape, job, playbook) -> Iterator[Hit]:
-    """Source ids in wording that prints: only ids the job issued, never a family tag or a sheet number."""
+    """Id-shaped tokens in wording that prints (clarifications, assumptions, device names): T kept, I stripped
+    (`bms.citations`); either kind of id is reported, and so is an unissued token that prints as written."""
     ids = SourceIds.of_job(job)
     for c in system.clarifications:
-        found = ids.found(c.text)
-        if found:
-            yield (None, "check", f"The {c.kind} clarification names source ids ({', '.join(found)})",
-                   "Name the sheet or section instead; source ids never print.")
+        yield from _id_hits(None, f"The {c.kind} clarification", c.text, ids)
     for d in system.devices:
+        yield from _id_hits(d.id, f"The name of {d.name}", d.name, ids)
         a = d.assumption
-        found = ids.found(f"{a.what} {a.why}") if a is not None else []
-        if found:
-            yield (d.id, "check", f"The assumption on {d.name} names source ids ({', '.join(found)})",
-                   "Name the sheet or section instead; source ids never print.")
+        if a is not None:
+            yield from _id_hits(d.id, f"The assumption on {d.name}", f"{a.what} {a.why}", ids)
 
 
 def _long_note(system, shape, job, playbook) -> Iterator[Hit]:
@@ -423,5 +434,9 @@ def validate(job: Job, playbook: Playbook) -> list[Finding]:
             if len(owners[d.id]) > 1 and d.id not in seen:
                 add(index, system.key, order, "once", duplicate(system.key, d))
             seen.add(d.id)
+    ids = SourceIds.of_job(job)                   # a named exception prints too
+    for exception in job.exceptions:
+        for hit in _id_hits(None, "The named exception", exception.text, ids):
+            add(len(job.systems), exception.system_key, {}, "ids", hit)
     found.sort(key=lambda item: item[0])
     return [f for _, f in found]

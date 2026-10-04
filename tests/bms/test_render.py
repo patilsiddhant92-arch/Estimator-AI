@@ -8,7 +8,8 @@ from pathlib import Path
 
 import pytest
 
-from bms.model import (Assumption, Clarification, Count, Device, Family, FrontEnd, Job, OtherCount, Ref, System)
+from bms.model import (Assumption, Clarification, Count, Device, Family, FrontEnd, Job, OtherCount, Ref,
+                       ScopeException, System)
 from bms.playbook import load_playbook
 from bms.render import ProposalDraft, RenderedLine, RenderError, render
 
@@ -334,6 +335,91 @@ def test_a_family_tag_shaped_like_an_id_prints_even_when_it_is_an_issued_id(job)
     out = texts(render(one(job, system([d], families=(Family("Unit", tags, Count(value=5)),),
                                        clarifications=clar)), pb), "EF")
     assert out[-1] == "*Confirm the controls for units F1, C2, I3, Q4 and S5"
+
+
+# ---- fix round 1: tags T kept, issued ids I stripped, an unissued id stripped only in a citation context --------
+
+S141 = Ref("S141", "q", "M-101, Invented.pdf page 2")
+
+
+def _note_of(job, kind, text, tags=("EF-1", "EF-2"), refs=(S141,), assumption=None):
+    pb = load_playbook(ROOT / "playbook")
+    d = device(refs=refs, assumption=assumption)
+    clar = (Clarification(kind, text),) if text else ()
+    return texts(render(one(job, system([d], families=(Family("Exhaust Fan", tags, Count(value=2)),),
+                                        clarifications=clar)), pb), "EF")[-1]
+
+
+@pytest.mark.parametrize("kind, text, printed", [
+    ("confirm", "Confirm valves per S141 and S999.", "*Confirm valves per M-101"),
+    ("note", "Valves per S141 to S145.", "**Valves per M-101"),
+    ("note", "Valves [S141, S999] open.", "**Valves M-101 open"),
+    ("note", "Valves open S141-S999.", "**Valves open M-101"),
+    ("note", "Valves open (S141 or S999).", "**Valves open (M-101)"),
+    ("note", "Valves open per S999.", "**Valves open"),
+    ("note", "Valves open, see S998 and S999.", "**Valves open"),
+    ("note", "Valves open [S999].", "**Valves open"),
+    ("note", "Fan C2 serves the lab.", "**Fan C2 serves the lab"),          # no citation context: kept
+])
+def test_an_unissued_id_in_a_citation_context_is_stripped(job, kind, text, printed):
+    """C1: an id-shaped token the run never issued is stripped when it sits in a citation; else it is kept."""
+    assert _note_of(job, kind, text) == printed
+
+
+def test_an_unissued_id_in_an_assumption_beside_an_issued_one_is_stripped(job):
+    out = _note_of(job, "note", "", assumption=Assumption("two valves per S999", "S141 shows two"))
+    assert out == "*Assumed: two valves, because M-101 shows two"
+
+
+@pytest.mark.parametrize("text, printed", [("Valves per s141.", "**Valves per M-101"),
+                                           ("Valves per S141A.", "**Valves")])
+def test_ids_match_whatever_their_case_and_suffix(job, text, printed):
+    """I3: "s141" is the issued S141; "S141A" is id-shaped (unissued, after a cue word)."""
+    assert _note_of(job, "note", text) == printed
+
+
+@pytest.mark.parametrize("text, printed", [("Fans F1-F4 run per S141.", "**Fans F1-F4 run per M-101"),
+                                           ("Fans F1 thru F4 per S141.", "**Fans F1 thru F4 per M-101"),
+                                           ("Fan F3 runs per S141.", "**Fan F3 runs per M-101")])
+def test_a_tag_range_protects_every_member(job, text, printed):
+    """I1: the family tag "F1-F4" protects F1, F2, F3 and F4, even when F1 is also an issued id."""
+    assert _note_of(job, "note", text, tags=("F1-F4",), refs=(S141, Ref("F1", "x", "ledger fact"))) == printed
+
+
+@pytest.mark.parametrize("kind, text, printed", [
+    ("confirm", "**Confirm**: ownership of valves", "*Confirm ownership of valves"),
+    ("confirm", "Confirm - ownership of valves", "*Confirm ownership of valves"),
+    ("assumed", "Assumed - two valves", "*Assumed: two valves"),
+    ("assumed", "Assumption-based count", "*Assumed: Assumption-based count"),
+    ("note", "Note: - the fans are by others", "**the fans are by others"),
+])
+def test_no_punctuation_is_left_after_a_label(job, kind, text, printed):
+    """M1: a label's colon, dash or asterisks go with it; a label word joined by a dash is a word, not a label."""
+    assert _note_of(job, kind, text) == printed
+
+
+def test_device_names_and_named_exceptions_print_without_ids(job):
+    """I4: a device name and a named exception go through the same cleanup."""
+    pb = load_playbook(ROOT / "playbook")
+    d = device(name="Control Valve per S141", refs=(S141,))
+    j = replace(one(job, system([d])), exceptions=(ScopeException("EF", "Fire alarm by others per S141", (S141,)),))
+    out = render(j, pb)
+    assert texts(out, "EF")[1] == "Furnish and Install Control Valve per M-101"        # the id becomes its place
+    assert out.scope.named_exceptions == ("Fire alarm by others per M-101",)
+    j2 = replace(one(job, system([device(name="Control Valve per S999", refs=(S141,))])),
+                 exceptions=(ScopeException("EF", "Fire alarm by others (S141)", ()),))
+    out2 = render(j2, pb)
+    assert texts(out2, "EF")[1] == "Furnish and Install Control Valve"                  # unissued, after a cue word
+    assert out2.scope.named_exceptions == ("Fire alarm by others",)                    # no ref names a place
+
+
+def test_an_id_in_a_refs_where_is_never_a_printed_place(job):
+    """M2: "schedule S9" names no place, issued or not."""
+    pb = load_playbook(ROOT / "playbook")
+    for issued in ((), (Ref("S9", "x", "ledger fact"),)):
+        fam = Family("Exhaust Fan", ("EF-1",), Count(3, (S141,), (OtherCount(5, Ref("S5", "q", "schedule S9")),)))
+        out = texts(render(one(job, system([device(refs=(S141,) + issued)], families=(fam,))), pb), "EF")
+        assert not any("S9" in line for line in out), out
 
 
 # ---- a system with no lines is left out ------------------------------------------------------------------------

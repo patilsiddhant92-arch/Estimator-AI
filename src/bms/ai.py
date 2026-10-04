@@ -53,7 +53,7 @@ from estimator.writing.judge import DEFAULT_MODEL, KEY_VARIABLE, MODEL_VARIABLE,
 from bms import ai_evidence
 from bms.model import Device, Finding, Job, ModelError, Ref, System, json_schema, schema_errors
 from bms.playbook import Playbook, Shape
-from bms.citations import SourceIds, clarification_text, strip_label, system_tags
+from bms.citations import SourceIds, per_drawings_text, strip_label, system_tags
 
 WRITE_SYSTEM = "write_system"       # kind of both the write and the revise request
 QC_JOB = "qc_job"
@@ -736,7 +736,7 @@ def _all_refs(system: System) -> list[Ref]:
 
 def _check_system(answer, skeleton: System, shape: Shape | None, known: frozenset[str],
                   keep: Sequence[Device] = (), originals: Sequence[Device] = (),
-                  changes: list[str] | None = None) -> tuple[System | None, list[str]]:
+                  changes: list[str] | None = None, tags: Sequence[str] = ()) -> tuple[System | None, list[str]]:
     """A System answer made usable, or the problems that stop it: the skeleton's fields win; untouched devices
     (`keep`) are put back as they were; client texts are cleaned (`_normalise`, each change added to `changes`);
     every device cites the evidence; slots fit the shape; a known count is 1 or more; at most one clarification;
@@ -751,7 +751,7 @@ def _check_system(answer, skeleton: System, shape: Shape | None, known: frozense
         return None, [f"it breaks the schema at {e.removeprefix('$.')}" for e in errors]
     problems: list[str] = []
     kept_ids = {d.id for d in keep}
-    _normalise(answer, skeleton, kept_ids, changes if changes is not None else [], known)
+    _normalise(answer, skeleton, kept_ids, changes if changes is not None else [], known, tags)
     for n, device in enumerate(answer["devices"]):
         value = device["quantity"]["value"]
         if device.get("id") not in kept_ids and value is not None and value <= 0:
@@ -829,35 +829,47 @@ def _device_refs(device: dict) -> list[dict]:
 
 
 def _normalise(answer: dict, skeleton: System, kept_ids: set[str], changes: list[str],
-               known: frozenset[str] = frozenset()) -> None:
+               known: frozenset[str] = frozenset(), tags: Sequence[str] = ()) -> None:
     """Clean the client texts of `answer` in place, each change added to `changes`: the leading label of the text's
     own kind taken off an assumption or a clarification (a per-drawings clarification keeps its discipline word
-    only; one left empty is dropped) and every source id put in words. The source ids are the ids this run issued
-    (`known`, the evidence's, and every ref the skeleton and the answer carry), never a family tag or a sheet
-    number: one decision, `bms.citations.SourceIds`, the renderer's and the validator's too."""
+    only; one left empty is dropped) and source ids put in words in every client text (device names too). One
+    decision, `bms.citations.SourceIds`, the renderer's and the validator's too: T is `tags` (the run passes every
+    tag of the job, `citations.job_tags`) and this system's own tags; I is `known` (the evidence's ids) and every
+    ref the skeleton and the answer carry. An unissued id removed from a citation is logged as such."""
     block = [*(r.to_dict() for r in ai_evidence.system_refs(skeleton))]
     for device in answer["devices"]:
         block += _device_refs(device)
-    ids = SourceIds.of([*known, *(r.get("source_id", "") for r in block)], system_tags(skeleton))
+    ids = SourceIds.of([*known, *(r.get("source_id", "") for r in block)], [*tags, *system_tags(skeleton)])
+
+    def stripped(where: str, text: str, groups) -> str:
+        cleaned = ids.clean(text, *groups)
+        changes.extend(f"{where}: unissued id removed: {token}" for token in dict.fromkeys(cleaned.unissued_removed))
+        return cleaned.text
 
     def clean(where: str, text: str, groups, label: bool = True) -> str:
-        new = ids.strip(strip_label("assumed", text) if label else text.strip(), *groups).strip()
+        new = stripped(where, strip_label("assumed", text) if label else text.strip(), groups).strip()
         if new != text.strip():
             changes.append(f"{where}: {text!r} written as {new!r}")
         return new
 
     for device in answer["devices"]:
-        assumption = device.get("assumption")
-        if assumption is None or device.get("id") in kept_ids:
+        if device.get("id") in kept_ids:
             continue
         groups = (_device_refs(device), block)
+        if str(device.get("name") or "").strip():
+            device["name"] = clean(f"device {device.get('id')} name", device["name"], groups, label=False)
+        assumption = device.get("assumption")
+        if assumption is None:
+            continue
         for part in ("what", "why"):
             if str(assumption[part]).strip():
                 assumption[part] = clean(f"device {device.get('id')} assumption {part}", assumption[part], groups)
     kept = []
     for clarification in answer["clarifications"]:
-        text, where = clarification["text"], f"clarification ({clarification['kind']})"
-        new = clarification_text(clarification["kind"], text, ids, block).strip()
+        text, kind = clarification["text"], clarification["kind"]
+        where = f"clarification ({kind})"
+        new = stripped(where, text, (block,))
+        new = (per_drawings_text(new) if kind == "per_drawings" else strip_label(kind, new)).strip()
         if not new and str(text).strip():
             changes.append(f"{where} {text!r} dropped: nothing left after its label")
             continue
@@ -913,7 +925,8 @@ def _put_back(devices, keep: Sequence[Device], originals: Sequence[Device]):
     return out
 
 
-def write_system(system: System, evidence: str, playbook: Playbook, transport: Transport) -> System:
+def write_system(system: System, evidence: str, playbook: Playbook, transport: Transport, *,
+                 tags: Sequence[str] = ()) -> System:
     """The system with `devices`, `clarifications` and `tech_hours` filled from `evidence`.
 
     Contract: one WRITE_SYSTEM request (extra step "write", plan_key system.key) whose schema is
@@ -928,26 +941,28 @@ def write_system(system: System, evidence: str, playbook: Playbook, transport: T
     the API is asked once more). Cosmetic slips are cleaned on intake, never refused: a leading label ("Confirm",
     "Assumed:", "Quantity per") comes off an assumption or a clarification (a per-drawings clarification keeps its
     discipline word, "plumbing"; one left empty is dropped) and a source id in client text becomes the place of its
-    ref, or is taken out; each change goes to the run's `intake.json` beside the cache. Duct heaters are written in one place: the duct heater block's writer is told the units it serves
+    ref, or is taken out; each change goes to the run's `intake.json` beside the cache. `tags` is every tag of the
+    job (`citations.job_tags`, which the run passes): a tag shaped like an id is never taken out. Duct heaters are written in one place: the duct heater block's writer is told the units it serves
     and must write all its heaters (an empty heater block is refused); a served unit's writer is told the heater
     block writes its heaters (a duct heater line there is refused)."""
     shape = _shape(system, playbook)
     images, listing = _pictures(evidence)
     known = ai_evidence.cited_ids(evidence) | _ref_ids(ai_evidence.system_refs(system))
     return _ask_system(transport, system.name, playbook, "write_system", _write_prompt(system, shape, evidence),
-                       {"step": "write", "plan_key": system.key, "images": listing}, images, system, shape, known)
+                       {"step": "write", "plan_key": system.key, "images": listing}, images, system, shape, known,
+                       tags=tags)
 
 
 def _ask_system(transport, name: str, playbook: Playbook, step: str, prompt: str, extra: dict,
                 images: Sequence[Path], system: System, shape: Shape | None, known: frozenset[str],
-                keep: Sequence[Device] = (), originals: Sequence[Device] = ()) -> System:
+                keep: Sequence[Device] = (), originals: Sequence[Device] = (), tags: Sequence[str] = ()) -> System:
     """One WRITE_SYSTEM question checked by `_check_system`; what the intake cleaned in the used answer goes to
     the transport's intake log."""
     changes: list[str] = []
 
     def check(answer):
         changes.clear()                     # only the used answer's changes are logged
-        return _check_system(answer, system, shape, known, keep, originals, changes)
+        return _check_system(answer, system, shape, known, keep, originals, changes, tags)
 
     written = _ask_checked(transport, WRITE_SYSTEM, name, playbook.rules_text, _instructions(step), prompt,
                            json_schema(System), extra, images, check)
@@ -956,7 +971,7 @@ def _ask_system(transport, name: str, playbook: Playbook, step: str, prompt: str
 
 
 def revise_system(system: System, findings: Sequence[Finding], evidence: str, playbook: Playbook,
-                  transport: Transport) -> System:
+                  transport: Transport, *, tags: Sequence[str] = ()) -> System:
     """The system revised for its `must_fix` findings only (the others are ignored), one round: one WRITE_SYSTEM
     request with extra step "revise"; same schema, checks and kept skeleton fields as `write_system`. With no
     must_fix finding for this system it returns `system` unchanged without asking. Raises NoAnswer.
@@ -975,7 +990,7 @@ def revise_system(system: System, findings: Sequence[Finding], evidence: str, pl
     return _ask_system(transport, f"{system.name} (revise)", playbook, "revise_system",
                        _revise_prompt(system, mine, shape, evidence),
                        {"step": "revise", "plan_key": system.key, "images": listing}, images, system, shape, known,
-                       keep, system.devices)
+                       keep, system.devices, tags)
 
 
 # ---- QC -------------------------------------------------------------------------------------------------------------

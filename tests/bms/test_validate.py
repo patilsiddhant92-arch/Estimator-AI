@@ -276,6 +276,40 @@ def test_tags_and_sheet_numbers_shaped_like_ids_are_no_check(job, issued):
     assert rules(validate(j, PB), RULE["ids"]) == []
 
 
+def _ids_found(j):
+    return [f for f in validate(j, PB) if f.rule == RULE["ids"]]
+
+
+def test_an_unissued_id_outside_a_citation_is_a_check_naming_it(job):
+    """C1: 'Fan C2 serves the lab' prints as written (C2 is neither issued nor a tag); the estimator is told."""
+    j = edit(job, "VRF", clarifications=(Clarification("note", "Fan C2 serves the lab"),))
+    found = _ids_found(j)
+    assert [(f.system_key, f.severity) for f in found] == [("VRF", "check")] and "C2" in found[0].what
+
+
+def test_an_id_in_any_case_is_a_check(job):
+    """I3: 's9' is the issued S9."""
+    j = edit(job, "VRF", clarifications=(Clarification("note", "the units per s9"),))
+    assert [f.severity for f in _ids_found(j)] == ["check"]
+
+
+def test_ids_in_device_names_and_named_exceptions_are_a_check(job):
+    """I4: a device name and a named exception print too."""
+    j = edit_device(job, "RTU", "RTU.d4", name="Smoke Detector per S12")
+    assert (RULE["ids"], "RTU", "RTU.d4", "check") in rules(validate(j, PB))
+    j2 = dc.replace(job, exceptions=(dc.replace(job.exceptions[0], text="Fire alarm system by others per S14"),))
+    assert [(f.system_key, f.severity) for f in _ids_found(j2) if "S14" in f.what] == [("FA", "check")]
+
+
+def test_a_tag_range_shaped_like_ids_is_no_check(job):
+    """I1: the family tag 'F1-F4' protects F1 to F4, even when F1 is issued."""
+    vrf = job.system("VRF")
+    j = edit(job, "VRF", families=(dc.replace(vrf.families[0], tags=("F1-F4",)),) + vrf.families[1:],
+             clarifications=(Clarification("note", "Fans F1 thru F4 and F2 serve the kitchen"),),
+             sequence_refs=(Ref("F1", "x", "ledger fact"),))
+    assert _ids_found(j) == []
+
+
 def test_a_family_tag_shaped_like_an_issued_id_is_no_check(job):
     tags = ("F1", "C2", "I3", "Q4", "S5")
     vrf = job.system("VRF")
