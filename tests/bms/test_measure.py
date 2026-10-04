@@ -46,6 +46,14 @@ def test_matches_on_system_device_verb_and_quantity(final):
     assert result.summary().startswith(f"matched 3/{3 + len(result.missed)}")
 
 
+def test_a_printed_final_verb_does_not_match_a_rendered_line_with_no_verb():
+    final_line = measure.LineMatch("Invented Panel", "Room Sensor", "furnish", 2)
+    assert measure._agree(measure.LineMatch("Invented Panel", "Room Sensor", None, 2), final_line) is False
+    assert measure._agree(measure.LineMatch("Invented Panel", "Room Sensor", "Furnish", 2), final_line) is True
+    unsaid = measure.LineMatch("Invented Panel", "Room Sensor", None, 2)
+    assert measure._agree(measure.LineMatch("Invented Panel", "Room Sensor", "furnish", 2), unsaid) is True
+
+
 def test_wrong_verb_or_quantity_or_system_is_not_a_match(final):
     rendered = [
         _header("EF", "Qty (2) Exhaust Fans EF-1, 2"),
