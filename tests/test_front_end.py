@@ -453,7 +453,7 @@ def test_the_engineer_falls_back_to_the_spec_page_footers():
     # 26-0193: no title-block label, but "MG Engineering D.P.C." is the most common name in the
     # spec's page footers (test1-fixes.md 3.1).
     pages = _spec_footer_pages(firm="MG Engineering D.P.C.")
-    catalogue = _catalogue(folder="26-0193, Fordham Landing", sheets=[_sheet("M-001", 1)], pages=pages)
+    catalogue = _catalogue(folder="26-9999, Harbor Point", sheets=[_sheet("M-001", 1)], pages=pages)
     header, flags = job_header(catalogue, SimpleNamespace(versions=()), TODAY)
     assert header.mep_engineer == "MG Engineering D.P.C."
     assert not any("engineer" in f.lower() for f in flags)

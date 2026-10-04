@@ -206,7 +206,7 @@ def test_a_spec_section_reissued_in_an_addendum_is_given_from_the_addendum(tmp_p
 
 
 def test_running_headers_are_left_out_of_the_sequence(tmp_path):
-    header = "Fordham Landing / Issued for Construction\nSequence of Operations 230993 - {n}\n"
+    header = "Harbor Point / Issued for Construction\nSequence of Operations 230993 - {n}\n"
     body = "\n".join(f"{i}. Point {i} of the unit shall be shown at the BMS." for i in range(1, 12))
     documents = [_doc(SPEC, "specs", 4)]
     pages = [_page(SPEC, n, header.format(n=n) + f"\n{n}.1 SYSTEM {n}\nA. Unit {n} shall run on a schedule.\n"

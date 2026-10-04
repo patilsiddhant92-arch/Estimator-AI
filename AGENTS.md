@@ -9,7 +9,7 @@ reviews every branch and does every merge. You take whole coding tasks assigned 
    folder, and never paste real job names, tags, sheet numbers or text anywhere. Work from `src/`, `tests/`,
    `playbook/`, `docs/`, `tools/`, `assets/` and the invented fixtures in `tests/bms/fixtures/`.
 2. **Your own branch only.** Work in your own git worktree and branch made from `rebuild`
-   (`git worktree add ..\EA-<name> -b <name>/work rebuild`). Never check out, merge, rebase, reset or push any other
+   (`git worktree add D:/EA-<name> -b <name>/work rebuild`; use forward slashes in git commands on Windows, a backslash path can silently become relative). Never check out, merge, rebase, reset or push any other
    branch. Never edit the main working tree except your folder under `Colab/`.
 3. **Tests.** Test-first. Run with the project's Python: `.venv\Scripts\python.exe -m pytest tests -q -p no:cacheprovider`
    from your worktree root, with `PYTHONPATH=src`. The whole suite (about 1,900 tests, 3 to 4 minutes) must pass
@@ -19,7 +19,7 @@ reviews every branch and does every merge. You take whole coding tasks assigned 
 5. **Contracts.** Keep the public signatures in `docs/superpowers/specs/2026-10-04-rebuild-interfaces.md`.
 6. **Report.** When done, post DONE in `Colab/chat.txt` with branch, commit, test result, and a short report file in
    your own `Colab/` folder. Append only; never edit another agent's message.
-7. Commit messages end with a line naming you (for example `Co-Authored-By: Gemini 3.8`).
+7. Commit messages end with a line naming you (for example `Co-Authored-By: Gemini 3.8`; the team is Gemini, Grok and Luna, led by Claude).
 
 ## The app in one paragraph
 

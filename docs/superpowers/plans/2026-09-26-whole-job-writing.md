@@ -20,7 +20,7 @@
 - Words, rules and prompts live in `assets/` JSON where they are data; prompts may live in code as constants.
 - Plain English in everything the user sees. Category words are the estimator's own (CONFIRMED, ADDED, DISCREPANCY, ASSUMPTION, PENDING, EXTRA, ORPHANED, EXISTING).
 - Tests first. One commit per numbered item, ending `Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>`. Never dispatch subagents. Never push.
-- Test inputs and cache for smoke runs: `D:\Estimator AI\out\test-inputs\26-0478, Somerville HS, NJ - New Gym Bldg`, `D:\Estimator AI\out\test-inputs-clean\26-0193, Fordham landing SouthNorth, 330 W Fordham Rd, Bronx NY`, cache `D:\Estimator AI\out\test\.cache`. Write outputs under your worktree's `out\`.
+- Test inputs and cache for smoke runs: `D:\Estimator AI\out\test-inputs\26-0478, Somerville HS, NJ - New Gym Bldg`, `D:\Estimator AI\out\test-inputs-clean\26-0193, <project folder>`, cache `D:\Estimator AI\out\test\.cache`. Write outputs under your worktree's `out\`.
 
 ## Existing pieces (read, reuse, don't rewrite)
 
