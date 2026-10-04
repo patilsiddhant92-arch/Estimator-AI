@@ -752,7 +752,9 @@ class CheckedLine:
 
 
 _VRF_WORD = re.compile(r"(?<![A-Za-z0-9])VR[FV](?![A-Za-z])", re.I)
-_BRANCH_PREFIXES = frozenset({"BS", "HRU", "BC"})     # a VRF's branch selectors / branch circuit controllers
+_BRANCH_PREFIXES = frozenset({"BS", "BC"})     # a VRF's branch selectors / branch circuit controllers
+_HRU = "HRU"                  # a heat recovery unit, or a VRF's branch controller when its own name says so
+_BRANCH_NAME = re.compile(r"\bbranch\b|\bselectors?\b|\bcircuit\s+controllers?\b", re.I)
 _SPLIT_NAME = re.compile(r"^\s*Split System\b", re.I)
 
 
@@ -760,13 +762,24 @@ def _named_template(name: str, templates):
     return next((t for t in templates if t.name == name), None)
 
 
+def _branch_selector_hru(system) -> bool:
+    """An HRU family of the system whose own name says branch, selector or circuit controller: a VRF's branch
+    controller, not a heat recovery unit."""
+    families = getattr(system, "families", ()) or ()
+    named = [(f.header, f.tags) for f in families] or [(f"{system.header} {system.kind or ''}", system.tags)]
+    return any(_BRANCH_NAME.search(header) and any(_tag_prefix(t) == _HRU for t in expand_tags(tags))
+               for header, tags in named)
+
+
 def system_template(system, templates=None):
     """The Master Template entry that fits the system's kind (or its tag prefix); None when none fits. A system
-    whose kind or group name says VRF (or VRV), or a group holding a branch selector (BS, HRU, BC), takes the
-    "VRF System" entry; a "Split System" group (one per section too: "Split System — LOBBY") takes "Split System"."""
+    whose kind or group name says VRF (or VRV), or a group holding a branch selector (BS, BC, or an HRU whose own
+    name says branch, selector or circuit controller; any other HRU is a heat recovery unit), takes the "VRF System"
+    entry; a "Split System" group (one per section too: "Split System — LOBBY") takes "Split System"."""
     templates = templates if templates is not None else load_templates()
     kind, group = system.kind or "", getattr(system, "group", "") or ""
-    branch = bool(group) and any(_tag_prefix(t) in _BRANCH_PREFIXES for t in system_tags(system))
+    branch = bool(group) and (any(_tag_prefix(t) in _BRANCH_PREFIXES for t in system_tags(system))
+                              or _branch_selector_hru(system))
     if _VRF_WORD.search(kind) or _VRF_WORD.search(group) or branch:
         found = _named_template("VRF System", templates)
         if found is not None:
@@ -2190,6 +2203,7 @@ def _star_device(text: str, style) -> str:
 _ASSUMPTION_ROOM = 160          # one assumption with its reason, in characters
 _REASON_START = re.compile(r"^(?:because|since|as|per|given|based on|no|not|the|there|only|drawings?|schedules?|"
                            r"specs?|specifications?|sequences?|plans?)\b", re.I)
+_REASON_LEAD = r"(?:because|since|as|given\s+that)"      # the word a reason starts with; the note says "because"
 
 
 def _clean_phrase(text: str, style) -> str:
@@ -2203,16 +2217,19 @@ def _clean_phrase(text: str, style) -> str:
 
 def _plain_assumption(text: str, style) -> str | None:
     """An assumption in few plain words with its reason ("Duct static sensor shipped loose, because the schedule shows
-    no factory sensor"): the flag text's what, then "because" and why (after "because", or after " — " when what follows
-    reads as a reason). None when no client-safe reason can be found, or when it does not fit in 160 characters: a bare
-    "*Assumed: <device>" never prints. The AI's rule names, source ids and confidence never print."""
+    no factory sensor"): the flag text's what, then "because" and why (after "because", "since", "as" or "given that",
+    or after " — " when what follows reads as a reason; the lead word itself never prints; a bare "as" with no comma
+    or dash before it is no reason). None when no client-safe reason can be found, or when it does not fit in 160
+    characters: a bare "*Assumed: <device>" never prints. The AI's rule names, source ids and confidence never print."""
     t = re.sub(r"^\s*(?:assumed|assumption)\s*[:\-–—]?\s*", "", text or "", flags=re.I)
-    m = re.search(r"[,;]?\s+because\s+(?P<why>.+)$", t, re.I) or re.search(
-        r"\s+[—–]\s+(?P<why>" + _REASON_START.pattern[1:] + r".*)$", t, re.I)
+    m = (re.search(r"[,;]?\s+because\s+(?P<why>.+)$", t, re.I)
+         or re.search(r"[,;]\s+" + _REASON_LEAD + r"\s+(?P<why>.+)$", t, re.I)
+         or re.search(r"\s+(?:since|given\s+that)\s+(?P<why>.+)$", t, re.I)    # a bare "as" is no reason: "as part of"
+         or re.search(r"\s+[—–]\s+(?P<why>" + _REASON_START.pattern[1:] + r".*)$", t, re.I))
     if m is None:
         return None
     what, why = _clean_phrase(t[:m.start()].rstrip(" —–-"), style), _clean_phrase(m.group("why"), style)
-    why = re.sub(r"^because\s+", "", why, flags=re.I)
+    why = re.sub(r"^" + _REASON_LEAD + r"\s+", "", why, flags=re.I)
     if not what or not why:
         return None
     out = f"{what[0].upper() + what[1:]}, because {why}"

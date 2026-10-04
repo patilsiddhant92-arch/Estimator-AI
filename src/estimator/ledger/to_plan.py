@@ -158,6 +158,9 @@ _PLAN_ONLY_LEAD = re.compile(r"^seen on [^:,]*?,?\s*not scheduled\s*(?::|[-–�
 _PLAN_ONLY_WORDS = 8
 
 
+PLAN_ONLY_WHY = "Seen on the drawings but on no schedule; confirm it exists."
+
+
 def _short_name(value) -> str:
     """A family's name for the header and kind. A plan-only value ("seen on plans, not scheduled: <description>
     (<reasoning>)") gives the description alone: no lead, no parenthetical, at most 8 words cut at a word. Any
@@ -175,7 +178,6 @@ def _short_name(value) -> str:
         inner = re.search(r"\(([^()]*)\)", description)
         rest = _squash(inner.group(1)) if inner else ""
     return " ".join(rest.split()[:_PLAN_ONLY_WORDS]) or text
-    return " ".join(rest.split()[:_PLAN_ONLY_WORDS])
 
 
 def _family(ledger: Ledger, fact: Fact) -> tuple[Family, list[str]]:
@@ -199,7 +201,7 @@ def _system(ledger: Ledger, fact: Fact) -> PlannedSystem:
     if count is None and fact.stage == "sequence":
         why = "Named in the sequence of operation; no drawing shows it."
     elif count is None or count.state == ADDED:     # no schedule settled a count: the name alone proves nothing
-        why = "Seen on the drawings but on no schedule; confirm it exists."
+        why = PLAN_ONLY_WHY
     else:
         why = f"From the job ledger: {len(ids) + len(matched)} facts."
     if _short_name(fact.value) != _squash(fact.value):
@@ -369,8 +371,9 @@ def _family_of_tag(families: dict[str, Fact], tag: str) -> Fact | None:
 
 def _members(ledger: Ledger, group: Fact) -> list[tuple[Fact, tuple[str, ...] | None]]:
     """A group's members in the group's order, each family once: (its family fact, the tags it lists, or None when
-    it lists none). A member is "PREFIX", "PREFIX (TAG-1, TAG-2 x3, TAG-4 thru 6)" or a bare tag of a family
-    ("WAC-1.0"); commas inside brackets do not part members. A member naming no family is left out."""
+    it lists none). A member is "PREFIX", "PREFIX (TAG-1, TAG-2 x3, TAG-4 thru 6)" or a bare tag or tag range of a
+    family ("WAC-1.0", "ACCU-12-1 thru 3"); commas inside brackets do not part members. A member naming no family is
+    left out."""
     from estimator.writing.assemble import expand_tags
     families = _family_facts(ledger)
     found: dict[str, list] = {}
@@ -380,7 +383,7 @@ def _members(ledger: Ledger, group: Fact) -> list[tuple[Fact, tuple[str, ...] | 
         fact = families.get(head.casefold())
         tags = expand_tags([_TIMES.sub("", t) for t in listed.split(",") if t.strip()]) if listed else []
         if fact is None and head and not listed:
-            fact, tags = _family_of_tag(families, head), [head]
+            fact, tags = _family_of_tag(families, head), expand_tags([head]) or [head]
         if fact is None:
             continue
         entry = found.setdefault(fact.subject.casefold(), [fact, []])
@@ -535,33 +538,41 @@ def _suffixes(system: PlannedSystem) -> set[str]:
     return {t.upper()[len(head):] for t in system.tags if t.upper().startswith(head)}
 
 
+def _plan_only(system: PlannedSystem) -> bool:
+    """A unit seen on the drawings but on no schedule: its existence is a question."""
+    return system.why.startswith(PLAN_ONLY_WHY)
+
+
 def _split_system(ledger: Ledger, name: str, members: list[PlannedSystem]) -> PlannedSystem:
-    """One block of split units: one family per unit system, in order, with their facts, sources and notes."""
+    """One block of split units: one family per unit system, in order, with their facts, sources and notes. A
+    plan-only member's warning stays in the block's why, in its own words."""
     families = tuple(Family(s.header, s.tags, s.quantity, s.quantity_source, s.quantity_quote) for s in members)
-    prefixes = [s.key for s in members]
     facts = tuple(dict.fromkeys(f for s in members for f in s.facts))
+    warnings = "".join(f" {s.header}: {s.why}" for s in members if _plan_only(s))
     sequence = tuple(dict.fromkeys(x for s in members for x in s.sequence_sources))
     return PlannedSystem(key=name, header=name, kind=name, tags=tuple(t for f in families for t in f.tags),
                          quantity=None, quantity_source="", quantity_quote="", sequence_sources=sequence,
                          schedule_sources=tuple(dict.fromkeys(x for s in members for x in s.schedule_sources)),
                          group=name, alternate=members[0].alternate or _alternate(ledger, name),
                          exception=members[0].exception or _note(ledger, "exception", name),
-                         why=f"From the job ledger: {len(facts)} facts.", sequence_section=", ".join(sequence),
+                         why=f"From the job ledger: {len(facts)} facts.{warnings}",
+                         sequence_section=", ".join(sequence),
                          families=families,
                          count_note="\n".join(f"{s.key}: {s.count_note}" for s in members if s.count_note),
                          facts=facts)
 
 
-def _gather_splits(ledger: Ledger, systems: list[PlannedSystem]) -> list[PlannedSystem]:
+def _gather_splits(ledger: Ledger, systems: list[PlannedSystem]) -> tuple[list[PlannedSystem], list[str]]:
     """The split units no group took (their prefix one of the Split System template's) become one "Split System"
     block; one per sequence section ("Split System — LOBBY") when their sequence matches name two or more
     sections, a unit matched to none joining the block whose units share a tag suffix with it, else the first. Only
     units with the same alternate and the same exception share a block (a base-bid unit never joins an add
-    alternate). A lone unit with no partner stays on its own."""
+    alternate). A lone unit with no partner stays on its own. With the blocks, a question for each plan-only unit a
+    block took: its existence is still to confirm."""
     prefixes = _split_prefixes()
     loose = [s for s in systems if not s.group and not s.families and s.key.upper() in prefixes]
     kinds = list(dict.fromkeys((s.alternate, s.exception) for s in loose))
-    out, used = list(systems), set()
+    out, used, asks = list(systems), set(), []
     for alternate, exception in kinds:
         alike = [s for s in loose if (s.alternate, s.exception) == (alternate, exception)]
         for name, members in _split_blocks(ledger, alike, systems).items():
@@ -575,7 +586,9 @@ def _gather_splits(ledger: Ledger, systems: list[PlannedSystem]) -> list[Planned
             used.add(name)
             out[out.index(members[0])] = _split_system(ledger, name, members)
             out = [s for s in out if s not in members[1:]]
-    return out
+            asks += [f"{s.header} was seen on the drawings but is on no schedule; confirm it exists (it is printed "
+                     f"in the {name} block)" for s in members if _plan_only(s)]
+    return out, asks
 
 
 def _split_blocks(ledger: Ledger, loose: list[PlannedSystem], systems: list[PlannedSystem]) -> dict:
@@ -666,7 +679,9 @@ def ledger_plan(ledger: Ledger) -> JobPlan:
         rest = _rest_system(ledger, fact, claims)
         if rest is not None:
             systems.append(rest)
-    systems = [_template_names(s) for s in _gather_splits(ledger, systems)]
+    systems, split_asks = _gather_splits(ledger, systems)
+    asks += split_asks
+    systems = [_template_names(s) for s in systems]
     systems = _link_dampers(ledger, systems)
     systems = _heater_sequences(ledger, systems)
     questions = [_squash(f.value) for f in ledger.of_kind("note") if f.subject.casefold() == "question"] + asks

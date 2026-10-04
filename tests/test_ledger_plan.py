@@ -481,7 +481,7 @@ def test_the_vrf_group_takes_the_vrf_template_and_the_split_group_the_split_temp
                            "", "why")
     assert system_template(single).name == "VRF System"
     ledger = Ledger(VRF_SOURCES)
-    _family_of(ledger, "HRU", "Heat Recovery Unit", "HRU-1", 1)
+    _family_of(ledger, "HRU", "Branch Selector", "HRU-1", 1)     # an HRU named a heat recovery unit is not one
     _family_of(ledger, "IDU", "Indoor Unit", "IDU-1", 1)
     ledger.add("group", "Heat Pump Plant", "HRU, IDU", "[S20]", "riser", "risers", SETTLED)
     (plant,) = ledger_plan(ledger).systems

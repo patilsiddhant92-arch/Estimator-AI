@@ -1142,7 +1142,7 @@
       "applies_to": {"prefixes": ["CU", "ACCU", "AC", "CAC", "OU", "ODU", "SS", "IU"], "kinds": ["Split Systems", "Split AC"]},
       "group": true,
       "header": "Qty ({n}) {kind} {tags}",
-      "family_names": {"CU": "Condensing Unit", "ACCU": "Condensing Unit", "ODU": "Outdoor Unit", "OU": "Outdoor Unit", "AC": "Indoor Unit", "CAC": "Indoor Unit", "IU": "Indoor Unit"},
+      "family_names": {"CU": "Condensing Unit", "ACCU": "Condensing Unit", "ODU": "Outdoor Unit", "OU": "Outdoor Unit", "AC": "Indoor Unit", "CAC": "Indoor Unit", "IU": "Indoor Unit", "SS": "Indoor Unit"},
       "conditions": {
         "leak_sensor": {"sequence": ["leak detection", "leak sensor", "leak detector", "condensate overflow"]},
         "ram_module": {"sequence": ["RAM module", "refrigerant leak", "refrigerant detection", "refrigerant monitoring"]},

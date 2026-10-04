@@ -294,7 +294,7 @@ def test_the_split_system_takes_ceiling_and_outdoor_units_and_names_them():
     assert template_for("ODU", "", TEMPLATES).name in {"Split System", "VRF System"}
     names = split.family_names
     assert names["CU"] == "Condensing Unit" and names["ODU"] == "Outdoor Unit"
-    assert names["CAC"] == "Indoor Unit" and names["AC"] == "Indoor Unit"
+    assert names["CAC"] == "Indoor Unit" and names["AC"] == "Indoor Unit" and names["SS"] == "Indoor Unit"
     for prefix in ("AC", "IDU", "WAC"):
         assert vrf.family_names[prefix] == "Indoor Unit"
     for prefix in ("ACCU", "ODU"):
