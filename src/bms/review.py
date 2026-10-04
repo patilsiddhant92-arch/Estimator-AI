@@ -14,7 +14,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
-from bms.model import PARTIES, VERBS, Count, Decision, Device, Finding, Job, ModelError, Ref, System
+from bms.model import PARTIES, VERBS, Count, Decision, Device, Family, Finding, Job, ModelError, Ref, System
 
 REVIEW_PAGE = "Review.html"
 DECISIONS_FILE = "decisions.json"
@@ -93,6 +93,9 @@ def _questions(job: Job, findings: Sequence[Finding]) -> list[_Question]:
         if key is not None and key in by_device:
             current = by_device[key]
             notes = tuple(note for note in kw.get("notes") or () if note not in current.notes)
+            description = kw.get("title")
+            if description and description != current.title and description not in current.notes:
+                notes += (f"Finding: {description}",)
             current.notes = current.notes + notes
             current.rank = min(current.rank, kw.get("rank", current.rank))
             if current.finding_rule is None and kw.get("finding_rule"):
@@ -489,7 +492,10 @@ def _apply_one(job: Job, d: Decision) -> Job:
         if not any(f.name == d.family_name for f in system.families):
             return job
         if d.action == "accept":
-            devices = tuple(dataclasses.replace(dev, flag="none") if dev.flag == "quantity" else dev
+            family = next(f for f in system.families if f.name == d.family_name)
+            devices = tuple(dataclasses.replace(dev, flag="none")
+                            if dev.flag == "quantity" and _device_in_family(dev, family, len(system.families) == 1)
+                            else dev
                             for dev in system.devices)
             return job.with_system(dataclasses.replace(system, devices=devices))
         if d.action != "change" or d.count is None:
@@ -500,3 +506,19 @@ def _apply_one(job: Job, d: Decision) -> Job:
     if d.action == "delete":
         return dataclasses.replace(job, systems=tuple(s for s in job.systems if s.key != d.system_key))
     return job
+
+
+def _device_in_family(device: Device, family: Family, only_family: bool) -> bool:
+    """Whether a device's cited tags associate it with a family count."""
+    if only_family:
+        return True
+    texts = [device.id, device.name]
+    refs = (*device.refs, *device.quantity.sources, *(other.ref for other in device.quantity.others))
+    texts.extend(ref.quote for ref in refs)
+    for tag in family.tags:
+        if not tag.strip():
+            continue
+        pattern = re.compile(rf"(?<![\w.-]){re.escape(tag)}(?![\w.-])", re.IGNORECASE)
+        if any(pattern.search(text) for text in texts):
+            return True
+    return False

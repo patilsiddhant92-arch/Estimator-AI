@@ -11,7 +11,7 @@ from pathlib import Path
 import pytest
 
 from bms import review
-from bms.model import Count, Decision, Finding, Job, ModelError, OtherCount, Ref
+from bms.model import Count, Decision, Family, Finding, Job, ModelError, OtherCount, Ref
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures"
 
@@ -73,6 +73,16 @@ def test_a_device_with_a_finding_and_a_flag_gets_one_card(job):
     assert cards[0].finding_rule == "Every line cites this job"
     assert any(review._FLAG_WORDS[device.flag] == note for note in cards[0].notes)
     assert any("What to do" in note for note in cards[0].notes)
+
+
+def test_a_device_card_keeps_each_finding_description(job):
+    findings = [_find("EF", "EF.d1", what="First finding"),
+                _find("EF", "EF.d1", what="Second finding")]
+    cards = [q for q in review._questions(job, findings) if q.device_id == "EF.d1"]
+
+    assert len(cards) == 1
+    assert cards[0].title == "First finding"
+    assert any("Second finding" in note for note in cards[0].notes)
 
 
 def test_flagged_devices_and_counts_with_others_and_assumptions_are_questions(job):
@@ -234,6 +244,22 @@ def test_accept_a_family_clears_quantity_flags_and_leaves_other_flags(job):
     assert flags[0] == "none" and flags[1] == "assumed"
     assert result.system("EF").families == job2.system("EF").families
     assert review.apply_decisions(job2, [Decision("EF", "accept", family_name="No such family")]) == job2
+
+
+def test_accepting_one_family_keeps_other_familys_quantity_flag(job):
+    system = job.system("EF")
+    family = Family("Exhaust Fan", ("EF-1",), Count(1))
+    other_family = Family("Supply Fan", ("SF-1",), Count(1))
+    devices = (
+        dataclasses.replace(system.devices[0], flag="quantity", refs=(Ref("S1", "EF-1", "invented"),)),
+        dataclasses.replace(system.devices[1], flag="quantity", refs=(Ref("S2", "SF-1", "invented"),)),
+    )
+    job2 = job.with_system(dataclasses.replace(system, families=(family, other_family), devices=devices))
+
+    result = review.apply_decisions(job2, [Decision("EF", "accept", family_name="Exhaust Fan")])
+
+    assert result.system("EF").devices[0].flag == "none"
+    assert result.system("EF").devices[1].flag == "quantity"
 
 
 def test_change_a_family_count(job):
