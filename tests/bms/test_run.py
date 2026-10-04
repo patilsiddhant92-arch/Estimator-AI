@@ -1,5 +1,5 @@
 """Integration: `bms.run.estimate` end to end on an invented job folder, in chat mode, with a fake answerer that
-answers every request the run writes (reading passes, plan count tiles, write and revise, QC) from canned invented
+answers every request the run writes (reading passes, plan count sheets, write and revise, QC) from canned invented
 answers. No real job data: the PDFs are built here."""
 from __future__ import annotations
 
@@ -89,7 +89,7 @@ def _answer(request: dict) -> dict:
     if kind == "read_pass":
         return {"facts": [], "contradictions": [], "confirmations": [], "understanding": "invented reading"}
     if kind == "count_tags":
-        return {"tags": []}
+        return {"patterns": [{"pattern": p, "tags": []} for p in request.get("patterns", [])]}
     if kind == "write_system":
         return _system_answer(request)
     if kind == "qc_job":

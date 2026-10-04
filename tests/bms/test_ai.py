@@ -556,9 +556,11 @@ def test_run_job_runs_the_rebuilt_app_by_default_and_checks_count_answers(tmp_pa
     request.write_text(json.dumps({"key": "k", "kind": "count_tags", "step": "count", "schema": SCHEMA}),
                        encoding="utf-8")
     good, bad = tmp_path / "good.json", tmp_path / "bad.json"
-    good.write_text(json.dumps({"tags": [{"text": "EF-1", "x": 1, "y": 2, "width": 3, "height": 4}]}),
+    good.write_text(json.dumps({"patterns": [{"pattern": "EF-[0-9]+", "tags": [
+        {"text": "EF-1", "count": 1, "boxes": [{"tile": 1, "x": 1, "y": 2, "width": 3, "height": 4}]}]}]}),
                     encoding="utf-8")
-    bad.write_text(json.dumps({"tags": [{"text": "EF-1"}]}), encoding="utf-8")
+    bad.write_text(json.dumps({"patterns": [{"pattern": "EF-[0-9]+", "tags": [{"text": "EF-1"}]}]}),
+                   encoding="utf-8")
     assert run_job.check_answer(good, request) is None
     assert "schema" in run_job.check_answer(bad, request)
     settings = json.loads((ROOT / ".claude" / "run-job.json").read_text(encoding="utf-8"))

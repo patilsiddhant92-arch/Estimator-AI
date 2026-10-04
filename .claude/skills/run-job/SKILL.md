@@ -19,7 +19,7 @@ and never print job content. Say only counts, kinds, system names and file paths
 ## Settings
 
 Read `.claude/run-job.json`: `judge_model` (reading passes), `writer_model` (write requests), `qc_model`
-(the QC request), `count_model` (the vision count's tile requests) and `max_attempts`. The estimator can change them, so always read them fresh.
+(the QC request), `count_model` (the vision count's sheet requests) and `max_attempts`. The estimator can change them, so always read them fresh.
 
 ## Steps
 
@@ -33,7 +33,8 @@ Read `.claude/run-job.json`: `judge_model` (reading passes), `writer_model` (wri
    `reason` says why, when the run printed one); its answer file is already deleted and the attempt counted, so
    dispatch it again. Otherwise handle the waiting requests by kind:
    - `read_pass`: one at a time, in the order listed (each reading depends on the one before).
-   - `count_tags`: the plan count check's tiles (one picture each); up to 4 at once, each in its own subagent,
+   - `count_tags`: the plan count check, one request per plan sheet (its tiles listed under `images`, in order,
+     every tag pattern on the sheet asked together); up to 4 at once, each in its own subagent,
      all dispatched in one message; they go to `count_model`.
    - `write_system`: up to 4 at once, each in its own subagent, all dispatched in one message. This kind covers
      both writing a system and, in the rebuilt app, revising one (its `step` is `revise` and its system name ends

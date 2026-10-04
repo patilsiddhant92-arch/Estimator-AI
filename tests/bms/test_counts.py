@@ -68,8 +68,9 @@ def _family(job: Job, key: str, name: str) -> Family:
 
 
 class FakeVision:
-    """A Transport that 'sees' the given tags at the given places of the whole picture and answers each tile with
-    the tags lying wholly inside it, in the tile's pixels (plus one tag that does not fit the pattern)."""
+    """A Transport that 'sees' the given tags at the given places of the whole picture and answers a sheet's one
+    question with, for each pattern asked, every tag fitting it lying wholly inside a tile, with its boxes in each
+    tile's pixels (plus one tag that does not fit the pattern)."""
 
     def __init__(self, tags: list[tuple[str, int, int, int, int]], fail_on: int | None = None):
         self.tags = tags
@@ -84,12 +85,20 @@ class FakeVision:
         if self.fail_on is not None and len(self.asked) == self.fail_on:
             self.waiting += 1
             raise NoAnswer("waiting for the chat", waiting=True)
-        x0, y0, w, h = extra["tile"]
-        found = [{"text": text, "x": x - x0, "y": y - y0, "width": tw, "height": th}
-                 for text, x, y, tw, th in self.tags
-                 if x >= x0 and y >= y0 and x + tw <= x0 + w and y + th <= y0 + h]
-        found.append({"text": "ZZ-9", "x": 1, "y": 1, "width": 5, "height": 5})
-        return {"tags": found}
+        answer = []
+        for pattern in extra["patterns"]:
+            tags: dict[str, list[dict]] = {}
+            for text, x, y, tw, th in self.tags:
+                if not re.fullmatch(pattern, text.replace(" ", "-")):
+                    continue
+                for n, (x0, y0, w, h) in enumerate(extra["tiles"], start=1):
+                    if x >= x0 and y >= y0 and x + tw <= x0 + w and y + th <= y0 + h:
+                        tags.setdefault(text, []).append(
+                            {"tile": n, "x": x - x0, "y": y - y0, "width": tw, "height": th})
+            found = [{"text": t, "count": len(b), "boxes": b} for t, b in tags.items()]
+            found.append({"text": "ZZ-9", "count": 1, "boxes": [{"tile": 1, "x": 1, "y": 1, "width": 5, "height": 5}]})
+            answer.append({"pattern": pattern, "tags": found})
+        return {"patterns": answer}
 
 
 def _blank_picture(path: Path, size=(3600, 2400)) -> Path:
@@ -120,7 +129,7 @@ def test_count_tags_without_a_transport_cannot_count(tmp_path):
     assert counts.count_tags(_blank_picture(tmp_path / "p.png"), "EF-[0-9]+") == counts.CountResult(None, ())
 
 
-def test_count_tags_counts_each_tag_once_over_tiles(tmp_path):
+def test_count_tags_counts_each_tag_once_over_tiles_in_one_question(tmp_path):
     picture = _blank_picture(tmp_path / "p.png")
     seen = [("EF-1", 100, 100, 80, 30), ("EF-2", 1500, 200, 80, 30),      # EF-2 lies in the overlap of two tiles
             ("EF 3", 3000, 2000, 80, 30), ("EF-3", 3300, 2200, 80, 30),    # the same tag twice: counted once
@@ -130,30 +139,73 @@ def test_count_tags_counts_each_tag_once_over_tiles(tmp_path):
     assert result.value == 3 == len(result.boxes)
     assert [b.text for b in result.boxes] == ["EF-1", "EF-2", "EF-3"]
     assert result.boxes[1] == counts.Box(1500, 200, 80, 30, "EF-2")        # back in the whole picture's pixels
-    assert len(vision.asked) > 1                                           # asked in tiles
-    first = vision.asked[0]
-    assert first["kind"] == counts.COUNT_TAGS and first["images"] and Path(first["images"][0]).exists()
-    assert "EF-[0-9]+" in first["prompt"]
-    with Image.open(first["images"][0]) as tile:
-        assert max(tile.size) <= counts.TILE
-    assert len({a["prompt"] for a in vision.asked}) == len(vision.asked)   # every tile its own question
+    [asked] = vision.asked                                                 # one question for the whole sheet
+    assert asked["kind"] == counts.COUNT_TAGS and len(asked["images"]) > 1  # every tile, as its own picture
+    assert len(asked["images"]) == len(asked["extra"]["tiles"])
+    assert all(Path(i).exists() for i in asked["images"])
+    assert "EF-[0-9]+" in asked["prompt"]
+    for n, (x, y, w, h) in enumerate(asked["extra"]["tiles"], start=1):    # each tile's place stated, in order
+        assert f"Tile {n}: x {x}, y {y}, {w} x {h} pixels" in asked["prompt"]
+    for image in asked["images"]:
+        with Image.open(image) as tile:
+            assert max(tile.size) <= counts.TILE
 
 
-def test_count_tags_gives_no_count_when_a_tile_has_no_answer(tmp_path):
+def test_one_question_per_sheet_counts_every_family_on_it(tmp_path):
+    picture = _blank_picture(tmp_path / "p.png", (3000, 1500))           # three tiles side by side
+    seen = [("EF-1", 100, 100, 80, 30), ("EF-2", 2800, 1200, 80, 30), ("RTU-1", 1400, 700, 90, 30),
+            ("RTU-2", 2900, 100, 90, 30)]
+    vision = FakeVision(seen)
+    found = counts.count_sheet(picture, ["EF-[0-9]+", "RTU-[0-9]+"], transport=vision)
+    [asked] = vision.asked
+    assert len(asked["images"]) == 3 and "EF-[0-9]+" in asked["prompt"] and "RTU-[0-9]+" in asked["prompt"]
+    assert found["EF-[0-9]+"].value == 2 and found["RTU-[0-9]+"].value == 2
+    assert [b.text for b in found["RTU-[0-9]+"].boxes] == ["RTU-1", "RTU-2"]
+    assert found["RTU-[0-9]+"].boxes[1] == counts.Box(2900, 100, 90, 30, "RTU-2")
+
+
+def test_cross_check_asks_one_question_for_a_three_tile_sheet_with_two_families(tmp_path):
+    texts = ((200, 200, FILLER, 10), (300, 400, "EF-1", 14), (600, 300, "EF-2", 14), (500, 500, "RTU-1", 14))
+    pdf = make_pdf(tmp_path / "job" / "Drawings.pdf", Page(1440, 720, texts))      # 3000 x 1500 at 150 dpi
+    catalogue = _catalogue(pdf, [(1, "M-101", "FIRST FLOOR PLAN", "\n".join(t for _, _, t, _ in texts))])
+    seen = [("EF-1", 625, 800, 90, 35), ("EF-2", 1460, 600, 90, 35), ("EF-3", 2700, 600, 90, 35),
+            ("RTU-1", 1040, 1000, 90, 35), ("RTU-2", 2800, 1300, 90, 35), ("RTU-3", 100, 1300, 90, 35)]
+    vision = FakeVision(seen)
+    cache = tmp_path / "cache"
+    checked = counts.cross_check(_sample_job(), catalogue, cache, transport=vision)
+    [asked] = vision.asked                                                 # one question for the sheet
+    assert len(asked["images"]) == 3 and len(asked["extra"]["tiles"]) == 3
+    assert any("EF" in p for p in asked["extra"]["patterns"]) and any("RTU" in p for p in asked["extra"]["patterns"])
+    ef = _family(checked, "EF", "Exhaust Fan").count
+    rtu = _family(checked, "RTU", "Rooftop Unit").count
+    assert ef.value == 3 and ef.sources[-1].quote == "counted on the sheet picture"
+    assert rtu.value == 3 and rtu.sources[-1].quote == "counted on the sheet picture"
+    assert any(o.value == 1 and o.ref.quote == "located on the sheet text" for o in rtu.others)
+    [ef_proof] = counts.proofs_for(cache, "EF", "Exhaust Fan")
+    [rtu_proof] = counts.proofs_for(cache, "RTU", "Rooftop Unit")
+    assert ef_proof["vision"] == 3 and ef_proof["vision_tags"] == ["EF-1", "EF-2", "EF-3"]
+    assert rtu_proof["vision"] == 3 and rtu_proof["vision_tags"] == ["RTU-1", "RTU-2", "RTU-3"]
+    assert {"x": 2800, "y": 1300, "width": 90, "height": 35, "text": "RTU-2"} in rtu_proof["vision_boxes"]
+    assert Path(ef_proof["proof"]).exists() and Path(rtu_proof["proof"]).exists()
+
+
+def test_count_tags_gives_no_count_without_an_answer(tmp_path):
     picture = _blank_picture(tmp_path / "p.png")
-    vision = FakeVision([("EF-1", 100, 100, 80, 30)], fail_on=2)
+    vision = FakeVision([("EF-1", 100, 100, 80, 30)], fail_on=1)
     assert counts.count_tags(picture, "EF-[0-9]+", transport=vision) == counts.CountResult(None, ())
-    assert len(vision.asked) > 2                       # every tile still asked, so the chat gets them all at once
+    assert vision.waiting == 1 and len(vision.asked) == 1
 
 
-def test_count_tags_drops_a_box_outside_the_tile(tmp_path):
+def test_count_tags_drops_a_box_outside_its_tile(tmp_path):
     picture = _blank_picture(tmp_path / "p.png", (800, 600))
 
     class Wild(FakeVision):
         def ask(self, *args, **kwargs):
             super().ask(*args, **kwargs)
-            return {"tags": [{"text": "EF-1", "x": 5000, "y": 10, "width": 10, "height": 10},
-                             {"text": "EF-2", "x": 10, "y": 10, "width": 40, "height": 20}]}
+            return {"patterns": [{"pattern": "EF-[0-9]+", "tags": [
+                {"text": "EF-1", "count": 1, "boxes": [{"tile": 1, "x": 5000, "y": 10, "width": 10, "height": 10}]},
+                {"text": "EF-3", "count": 1, "boxes": [{"tile": 7, "x": 10, "y": 10, "width": 10, "height": 10}]},
+                {"text": "EF-2", "count": 1, "boxes": [{"tile": 1, "x": 10, "y": 10, "width": 40, "height": 20}]}]}]}
 
     result = counts.count_tags(picture, "EF-[0-9]+", transport=Wild([]))
     assert [b.text for b in result.boxes] == ["EF-2"]
@@ -337,9 +389,10 @@ def test_cross_check_with_vision_records_both_counts(tmp_path):
     with Image.open(proof["proof"]) as picture:
         colours = picture.convert("RGB").getcolors(1_000_000)
         assert any(b > 180 and r < 80 and g < 120 for _, (r, g, b) in colours)    # the vision boxes, drawn blue
-    # one vision pass per sheet picture, for every family on it at once
-    assert {a["extra"]["picture"] for a in vision.asked} == {proof["picture"]}
-    assert all(re.search("EF", a["prompt"]) and re.search("RTU", a["prompt"]) for a in vision.asked)
+    # one vision question per sheet picture, for every family on it at once
+    [asked] = vision.asked
+    assert asked["extra"]["picture"] == proof["picture"]
+    assert re.search("EF", asked["prompt"]) and re.search("RTU", asked["prompt"])
 
 
 def test_cross_check_waiting_vision_keeps_the_text_count(tmp_path):

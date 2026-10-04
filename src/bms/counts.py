@@ -4,7 +4,8 @@ Two counts of each tagged family on the plan sheets that show its tags, independ
 - located on the sheet text: the family's tags in the PDF page's text layer, each with its box (a tag inside a
   line of more than a few words is a note naming it, not a placed tag);
 - counted on the sheet picture: the whole-sheet picture (as `estimator.writing.dossier.sheet_pictures` draws it)
-  cut into overlapping tiles, each tile asked of the AI through a `bms.ai` Transport (request kind "count_tags").
+  cut into overlapping tiles, and the sheet asked of the AI through a `bms.ai` Transport as one question (request
+  kind "count_tags") carrying every tile as its own picture and every family's tag pattern on that sheet together.
 
 A family's count on the plans is the number of different tags of the family found over all its plan sheets (a tag
 shown on two sheets is one unit). `cross_check` adds every count that differs from the printed one to
@@ -23,7 +24,7 @@ from typing import TYPE_CHECKING
 
 from bms.counts_proof import PROOFS_FOLDER, draw_proof, load_manifest, save_manifest
 from bms.counts_text import (canonical, family_pattern, fits, located_boxes, natural, prefix_owners, searcher)
-from bms.counts_vision import COUNT_KIND, TILE, ask_tiles
+from bms.counts_vision import COUNT_KIND, TILE, ask_sheet
 from bms.model import Count, OtherCount, Ref
 
 if TYPE_CHECKING:
@@ -31,12 +32,12 @@ if TYPE_CHECKING:
 
     from bms.model import Job
 
-COUNT_TAGS = COUNT_KIND             # the request kind of a tile question
+COUNT_TAGS = COUNT_KIND             # the request kind of a sheet's count question
 LOCATED_QUOTE = "located on the sheet text"
 SEEN_QUOTE = "counted on the sheet picture"
 NO_SOURCE_QUOTE = "the count before the plan check, given without a source"
 PLAN_TYPE = "Plans"
-__all__ = ["Box", "CountResult", "count_tags", "cross_check", "load_proofs", "proofs_for", "publish_proofs",
+__all__ = ["Box", "CountResult", "count_tags", "count_sheet", "cross_check", "load_proofs", "proofs_for", "publish_proofs",
            "COUNT_TAGS", "TILE", "LOCATED_QUOTE", "SEEN_QUOTE", "PROOFS_FOLDER"]
 
 
@@ -61,27 +62,40 @@ def count_tags(image_path: Path, tag_pattern: str, *, transport=None) -> CountRe
     "EF-[0-9]+") on one whole-sheet picture (a PNG, as `estimator.writing.dossier.sheet_pictures` draws them), by
     vision on tiles, each tag once even where tiles overlap.
 
-    `transport` is a `bms.ai` Transport (chat or API); each tile is one "count_tags" question with the tile's PNG.
-    Every tile is asked even after one has no answer (so the chat gets every request in one run); the count is
-    given only when every tile was answered. The value is the number of different tags found (a tag read twice is
-    one), with the box where each is first seen.
+    `transport` is a `bms.ai` Transport (chat or API); the sheet is one "count_tags" question carrying every tile's
+    PNG (see `count_sheet`, which asks several patterns in the same question). The value is the number of different
+    tags found (a tag read twice is one), with the box where each is first seen.
 
     Contract: never raises for an unreadable picture, a bad pattern, no transport or an unusable answer (returns
     `CountResult(None, ())`). The caller (`cross_check`) compares `value` with the family's Count: a different value
     is added to `Count.others` with a Ref (`source_id` the count's id, `quote` "counted on the sheet picture", `where`
     the sheet), the printed value becomes the higher, and the devices of that family get flag "quantity".
     """
+    return count_sheet(image_path, [tag_pattern], transport=transport).get(tag_pattern, CountResult(None, ()))
+
+
+def count_sheet(image_path: Path, tag_patterns, *, transport=None) -> dict[str, CountResult]:
+    """Count every pattern of `tag_patterns` on one whole-sheet picture with ONE vision question (every tile as its
+    own picture, every pattern together): {pattern: CountResult}, each as `count_tags` gives it. Every result is
+    `CountResult(None, ())` when the sheet could not be counted (unreadable picture, a bad pattern, no transport,
+    no usable answer yet). Never raises."""
+    patterns = list(dict.fromkeys(tag_patterns))
+    unknown = {p: CountResult(None, ()) for p in patterns}
     try:
-        re.compile(tag_pattern)
-        if transport is None:
-            return CountResult(None, ())
-        found = ask_tiles(transport, Path(image_path), tag_pattern)
+        for pattern in patterns:
+            re.compile(pattern)
+        if transport is None or not patterns:
+            return unknown
+        found = ask_sheet(transport, Path(image_path), patterns)
         if found is None:
-            return CountResult(None, ())
-        boxes = _distinct([(text, box) for text, box in found if fits(tag_pattern, text)])
-        return CountResult(len(boxes), tuple(boxes))
+            return unknown
+        results = {}
+        for pattern in patterns:
+            boxes = _distinct([(text, box) for text, box in found if fits(pattern, text)])
+            results[pattern] = CountResult(len(boxes), tuple(boxes))
+        return results
     except Exception:
-        return CountResult(None, ())
+        return unknown
 
 
 def cross_check(job: "Job", catalogue: "Catalogue", cache: Path, *, transport=None) -> "Job":
@@ -214,8 +228,8 @@ class _Check:
         if not sheets:
             return self.job
         for key, sheet in sheets.items():
-            combined = "|".join(f"(?:{patterns[f]})" for f, keys in on_sheet.items() if key in keys)
-            self._count_sheet(sheet, combined)
+            here = [patterns[f] for f, keys in on_sheet.items() if key in keys]
+            self._count_sheet(sheet, here)
 
         job, entries = self.job, []
         for system, family in families:
@@ -237,7 +251,7 @@ class _Check:
 
     # -- one sheet, both counts, every family on it at once
 
-    def _count_sheet(self, sheet: _Sheet, pattern: str) -> None:
+    def _count_sheet(self, sheet: _Sheet, here: list[str]) -> None:
         from estimator.writing.dossier import SHEET_DPI, sheet_pictures
 
         try:
@@ -245,14 +259,15 @@ class _Check:
             sheet.picture = Path(images[0].path) if images else None
         except Exception:
             sheet.picture = None
+        combined = "|".join(f"(?:{p})" for p in here)
         try:
-            sheet.located = self._located(sheet, pattern, SHEET_DPI / 72)
+            sheet.located = self._located(sheet, combined, SHEET_DPI / 72)
         except Exception:
             sheet.located = None
         if self.transport is not None and sheet.picture is not None:
-            result = count_tags(sheet.picture, pattern, transport=self.transport)
-            if result.value is not None:
-                sheet.seen = [(b.text, (b.x, b.y, b.width, b.height)) for b in result.boxes]
+            results = count_sheet(sheet.picture, here, transport=self.transport)    # one question for the sheet
+            if all(r.value is not None for r in results.values()):
+                sheet.seen = [(b.text, (b.x, b.y, b.width, b.height)) for r in results.values() for b in r.boxes]
 
     def _located(self, sheet: _Sheet, pattern: str, default_scale: float) -> list:
         import pymupdf
