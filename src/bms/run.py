@@ -36,7 +36,7 @@ from estimator.writing.front_end import job_header
 from estimator.writing.judge import Judge
 
 from bms import ai
-from bms.counts import cross_check, publish_proofs
+from bms.counts import cross_check, flag_written_devices, publish_proofs
 from bms.evidence import write_evidence
 from bms.model import Decision, Finding, Header, Job, ModelError
 from bms.plan import plan_job
@@ -158,7 +158,8 @@ def estimate(job_folder: Path, out: Path, cache: Path, mode: Mode = "chat") -> R
     pending: list[str] = []
     for system in job.systems:
         try:
-            job = job.with_system(ai.write_system(system, evidence[system.key], playbook, transport))
+            job = job.with_system(flag_written_devices(
+                ai.write_system(system, evidence[system.key], playbook, transport)))
         except ai.NoAnswer as missing:
             pending.append(_stopped(missing.reason) if str(missing.reason).startswith("Stopped:")
                            else f"{system.name}: {missing.reason}")
@@ -177,8 +178,8 @@ def estimate(job_folder: Path, out: Path, cache: Path, mode: Mode = "chat") -> R
     for key in _changed_system_keys(written, job):
         system = job.system(key)
         try:
-            job = job.with_system(ai.write_system(
-                system, f"{evidence[key]}\n\n{_decision_note(decisions, key)}", playbook, transport))
+            job = job.with_system(flag_written_devices(ai.write_system(
+                system, f"{evidence[key]}\n\n{_decision_note(decisions, key)}", playbook, transport)))
         except ai.NoAnswer as missing:
             pending.append(_stopped(missing.reason) if str(missing.reason).startswith("Stopped:")
                            else f"{system.name}: {missing.reason}")
