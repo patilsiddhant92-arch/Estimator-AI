@@ -417,21 +417,21 @@ def test_the_cleanup_is_linear_on_a_long_text(text):
 
 
 @pytest.mark.parametrize("text, cleaned", [
-    ("per S141 and the of.", "per M-101."),
-    ("the schedule (S141, S999), see.", "the schedule (M-101)."),
+    ("per S141 and the of.", "per M-101 and the of."),              # the writer's own words, away from any
+    ("the schedule (S141, S999), see.", "the schedule (M-101), see."),  # id taken out, are left as written
     ("shown on S141 and the, see S999.", "shown on M-101."),
     ("one per fan because S141;", "one per fan because M-101"),
-    ("one per fan, because S141 and the", "one per fan, because M-101"),
+    ("one per fan, because S141 and the", "one per fan, because M-101 and the"),
 ])
-def test_the_linear_tidy_reads_as_before(text, cleaned):
+def test_the_tidy_works_only_where_an_id_was_taken_out(text, cleaned):
     from bms.citations import SourceIds
     assert SourceIds.of(["S141"], ()).strip(text, (S141,)) == cleaned
 
 
 @pytest.mark.parametrize("text, stripped", [
-    ("the fans run (see C2 in the lab).", "**the fans run (see in the lab)"),     # a bracket and a cue word
+    ("the fans run (see C2 in the lab).", "**the fans run (in the lab)"),         # a bracket and a cue word
     ("the fans run (C2 in the lab).", "**the fans run (in the lab)"),             # the bracket alone
-    ("the fans run, see C2 in the lab.", "**the fans run, see in the lab"),       # the cue word alone
+    ("the fans run, see C2 in the lab.", "**the fans run, in the lab"),           # the cue word alone
 ])
 @pytest.mark.parametrize("tags", [("EF-1",), ("C2",)], ids=["C2-no-tag", "C2-a-tag"])
 def test_an_id_in_a_bracket_or_after_a_cue_word(job, text, stripped, tags):

@@ -751,7 +751,7 @@ def _check_system(answer, skeleton: System, shape: Shape | None, known: frozense
         return None, [f"it breaks the schema at {e.removeprefix('$.')}" for e in errors]
     problems: list[str] = []
     kept_ids = {d.id for d in keep}
-    _normalise(answer, skeleton, kept_ids, changes if changes is not None else [], known, tags)
+    emptied = _normalise(answer, skeleton, kept_ids, changes if changes is not None else [], known, tags)
     for n, device in enumerate(answer["devices"]):
         value = device["quantity"]["value"]
         if device.get("id") not in kept_ids and value is not None and value <= 0:
@@ -768,7 +768,10 @@ def _check_system(answer, skeleton: System, shape: Shape | None, known: frozense
             problems.append(f"{label} cites {ids}, not in this system's evidence (cite the ids the evidence gives)")
         else:
             device["refs"] = good
-        if not str(device["name"]).strip():
+        if n in emptied:
+            problems.append(f"{label} has no name left once its source ids are taken out ({emptied[n]!r}): name "
+                            "the device in the document's own words")
+        elif not str(device["name"]).strip():
             problems.append(f"{label} has no name")
         if shape is not None and device["slot"] not in shape.line_order:
             problems.append(f"{label} fills the slot {device['slot']!r}, which the {shape.name} shape does not have "
@@ -829,7 +832,7 @@ def _device_refs(device: dict) -> list[dict]:
 
 
 def _normalise(answer: dict, skeleton: System, kept_ids: set[str], changes: list[str],
-               known: frozenset[str] = frozenset(), tags: Sequence[str] = ()) -> None:
+               known: frozenset[str] = frozenset(), tags: Sequence[str] = ()) -> dict[int, str]:
     """Clean the client texts of `answer` in place, each change added to `changes`: the leading label of the text's
     own kind taken off an assumption or a clarification (a per-drawings clarification keeps its discipline word
     only; one left empty is dropped) and source ids put in words in every client text (device names too). One
@@ -852,12 +855,16 @@ def _normalise(answer: dict, skeleton: System, kept_ids: set[str], changes: list
             changes.append(f"{where}: {text!r} written as {new!r}")
         return new
 
-    for device in answer["devices"]:
+    emptied: dict[int, str] = {}          # devices whose name had nothing but source ids: refused by the caller
+    for n, device in enumerate(answer["devices"]):
         if device.get("id") in kept_ids:
             continue
         groups = (_device_refs(device), block)
         if str(device.get("name") or "").strip():
-            device["name"] = clean(f"device {device.get('id')} name", device["name"], groups, label=False)
+            name = device["name"]
+            device["name"] = clean(f"device {device.get('id')} name", name, groups, label=False)
+            if not device["name"]:
+                emptied[n] = name
         assumption = device.get("assumption")
         if assumption is None:
             continue
@@ -879,6 +886,7 @@ def _normalise(answer: dict, skeleton: System, kept_ids: set[str], changes: list
     answer["clarifications"] = kept
     if str(answer.get("no_scope_reason") or "").strip():
         answer["no_scope_reason"] = clean("no_scope_reason", answer["no_scope_reason"], (block,), label=False)
+    return emptied
 
 
 def _log_intake(transport, name: str, changes: Sequence[str]) -> None:

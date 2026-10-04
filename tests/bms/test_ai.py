@@ -616,9 +616,9 @@ def test_an_unissued_id_in_any_citation_is_removed_with_nothing_else_issued(job,
 
 
 @pytest.mark.parametrize("text, stripped", [
-    ("the fans run (see C2 in the lab)", "the fans run (see in the lab)"),     # a bracket and a cue word
+    ("the fans run (see C2 in the lab)", "the fans run (in the lab)"),         # a bracket and a cue word
     ("the fans run (C2 in the lab)", "the fans run (in the lab)"),             # the bracket alone
-    ("the fans run, see C2 in the lab", "the fans run, see in the lab"),       # the cue word alone
+    ("the fans run, see C2 in the lab", "the fans run, in the lab"),           # the cue word alone (it goes too)
 ])
 @pytest.mark.parametrize("tags", [(), ("C2",)], ids=["C2-no-tag", "C2-a-tag"])
 def test_an_id_in_a_bracket_or_after_a_cue_word_at_intake(job, raw, dossier, playbook, text, stripped, tags):
@@ -631,6 +631,15 @@ def test_an_id_in_a_bracket_or_after_a_cue_word_at_intake(job, raw, dossier, pla
     written = ai.write_system(system, ai.evidence_for(system, dossier), playbook, transport, tags=tags)
     assert written.clarifications[0].text == cleaned
     assert any("unissued id removed: C2" in c for c in transport.intake) is logged, transport.intake
+
+
+def test_a_device_name_that_cleans_to_nothing_is_refused_with_a_plain_reason(job, raw, dossier, playbook):
+    """m-4: no empty "Furnish and Install" line; the writer is asked again, told why."""
+    system = _with(skeleton(job.system("EF")), Ref("F1", "x", "ledger fact"))
+    answer = _bad(raw, lambda a: a["devices"][0].update(name="F1"))
+    with pytest.raises(ai.NoAnswer) as refused:
+        ai.write_system(system, ai.evidence_for(system, dossier), playbook, FakeTransport(answer))
+    assert "no name left once its source ids are taken out" in refused.value.reason
 
 
 def test_the_intake_protects_the_job_wide_tags_it_is_given(job, raw, dossier, playbook):

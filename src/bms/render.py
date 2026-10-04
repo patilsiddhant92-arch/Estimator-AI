@@ -109,7 +109,15 @@ def render(job: Job, playbook: Playbook) -> ProposalDraft:
             base.extend(blocks)
         (lines if system.alternate == "base" else after[system.alternate]).extend(printed)
     lines += after["add"] + after["deduct"]
-    exceptions = tuple(t for t in (ids.strip(x.text, x.refs).strip() for x in job.exceptions) if t)
+    exceptions = []
+    for x in job.exceptions:
+        if not x.text.strip():
+            continue
+        text = ids.strip(x.text, x.refs).strip()
+        if not text:
+            raise RenderError(f"the named exception {x.text!r} has no words left once its source ids are taken out")
+        exceptions.append(text)
+    exceptions = tuple(exceptions)
     scope = ScopeJob(header=header, front_end=front, blocks=tuple(base), add_alternates=tuple(adds),
                      deduct_alternates=tuple(deducts), named_exceptions=exceptions)
     return ProposalDraft(scope=scope, lines=tuple(lines))
@@ -227,6 +235,9 @@ def _named(devices, ids: SourceIds, extra_refs=()) -> list[Device]:
     out = []
     for device in devices:
         name = ids.strip(device.name, device.refs, block)
+        if not name.strip():
+            raise RenderError(f"device {device.id}: the name {device.name!r} has no words left once its source ids "
+                              "are taken out")
         out.append(device if name == device.name else replace(device, name=name))
     return out
 
