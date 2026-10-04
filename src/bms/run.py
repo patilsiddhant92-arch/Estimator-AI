@@ -9,7 +9,11 @@ The run waits at "count" while the vision count's sheet questions have no answer
 system's skeleton, so writing before they are in would ask the writer again once they arrive.
 
 In chat mode a step with no answer yet writes its request and the run stops after the step has asked every question
-it can (all systems are asked before stopping); the next run picks the answers up. Every output goes under `out`
+it can (all systems are asked before stopping); the next run picks the cached answers up and does not ask a
+question whose request is still waiting. A step that refuses an answer `max_attempts` times stops the run with a
+plain message naming the request. Decisions saved from the review page are applied on the next run, and the
+writer is asked again only for the systems those decisions changed. A malformed decisions.json stops the run
+with a plain message. Every output goes under `out`
 (NDA: never the repo). Prints "Wrote <path>" per file, as the old app does (tools/run_job.py reads those lines).
 """
 from __future__ import annotations
@@ -34,7 +38,7 @@ from estimator.writing.judge import Judge
 from bms import ai
 from bms.counts import cross_check, publish_proofs
 from bms.evidence import write_evidence
-from bms.model import Finding, Header, Job
+from bms.model import Decision, Finding, Header, Job, ModelError
 from bms.plan import plan_job
 from bms.playbook import load_playbook
 from bms.render import render
@@ -60,6 +64,30 @@ class RunResult:
     price_sheet: Path | None = None
     evidence: Path | None = None
     messages: tuple[str, ...] = ()          # plain lines for the console
+
+
+def _changed_system_keys(before: Job, after: Job) -> tuple[str, ...]:
+    """Systems a decision actually changed. A deleted system is not asked again; it is already gone."""
+    kept = {system.key for system in after.systems}
+    return tuple(system.key for system in before.systems
+                 if system.key in kept and system != after.system(system.key))
+
+
+def _decision_note(decisions: tuple[Decision, ...] | list[Decision], key: str) -> str:
+    """What the writer must keep when it is asked again for one system. Stable, so a resume hits the cache."""
+    lines = ["The estimator's decisions for this system (keep them; do not undo them):"]
+    for decision in decisions:
+        if decision.system_key != key:
+            continue
+        what = decision.device_id or decision.family_name or "the whole system"
+        reason = f": {decision.reason}" if decision.reason else ""
+        lines.append(f"- {decision.action} {what}{reason}")
+    return "\n".join(lines)
+
+
+def _stopped(reason: str) -> str:
+    text = str(reason)
+    return text if text.startswith("Stopped:") else f"Stopped: {text}"
 
 
 def _workers() -> int:
@@ -132,20 +160,43 @@ def estimate(job_folder: Path, out: Path, cache: Path, mode: Mode = "chat") -> R
         try:
             job = job.with_system(ai.write_system(system, evidence[system.key], playbook, transport))
         except ai.NoAnswer as missing:
-            pending.append(f"{system.name}: {missing.reason}")
+            pending.append(_stopped(missing.reason) if str(missing.reason).startswith("Stopped:")
+                           else f"{system.name}: {missing.reason}")
     save(job)
     if pending:
         return RunResult("waiting", "write", waiting=transport.waiting, job_file=job_file, messages=tuple(pending))
 
-    # 4. the estimator's decisions from the last review page, then validate and QC
-    job = apply_decisions(job, load_decisions(out))
+    # 4. the estimator's decisions from the last review page. The writer is asked again only for a system a
+    # decision changed; every other system's cached answer stands. A malformed file stops the run in words.
+    try:
+        decisions = load_decisions(out)
+    except ModelError as error:
+        return RunResult("waiting", "decisions", waiting=0, job_file=job_file, messages=(_stopped(error),))
+    written = job
+    job = apply_decisions(job, decisions)
+    for key in _changed_system_keys(written, job):
+        system = job.system(key)
+        try:
+            job = job.with_system(ai.write_system(
+                system, f"{evidence[key]}\n\n{_decision_note(decisions, key)}", playbook, transport))
+        except ai.NoAnswer as missing:
+            pending.append(_stopped(missing.reason) if str(missing.reason).startswith("Stopped:")
+                           else f"{system.name}: {missing.reason}")
+    if not pending:
+        job = apply_decisions(job, decisions)   # a rewritten answer does not undo the decision
+    save(job)
+    if pending:
+        return RunResult("waiting", "write", waiting=transport.waiting, job_file=job_file, messages=tuple(pending))
+
+    # validate and QC
     findings = validate(job, playbook)
     try:
         qc = ai.qc_job(job, ai.evidence_index(dossier), playbook, transport)
     except ai.NoAnswer as missing:
         save(job)
+        text = _stopped(missing.reason) if str(missing.reason).startswith("Stopped:") else f"QC: {missing.reason}"
         return RunResult("waiting", "qc", waiting=transport.waiting, job_file=job_file, findings=tuple(findings),
-                         messages=(f"QC: {missing.reason}",))
+                         messages=(text,))
 
     # 5. revise (must_fix only, one round), validate again
     must_fix = [f for f in [*findings, *qc] if f.severity == "must_fix"]
@@ -156,7 +207,8 @@ def estimate(job_folder: Path, out: Path, cache: Path, mode: Mode = "chat") -> R
             job = job.with_system(ai.revise_system(system, [f for f in must_fix if f.system_key == key],
                                                    evidence[key], playbook, transport))
         except ai.NoAnswer as missing:
-            pending.append(f"{system.name}: {missing.reason}")
+            pending.append(_stopped(missing.reason) if str(missing.reason).startswith("Stopped:")
+                           else f"{system.name}: {missing.reason}")
     save(job)
     if pending:
         return RunResult("waiting", "revise", waiting=transport.waiting, job_file=job_file, messages=tuple(pending))

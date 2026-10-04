@@ -13,12 +13,16 @@ Two transports share the same steps:
   adds their fingerprint to the prompt for the key, so a changed picture is a new question); `job` is the dossier's
   `job_name`. On reading a usable answer the request file is deleted (that is how run_job.py tells a used answer
   from a rejected one); an answer a step refuses after the schema check is dropped from the cache and its request
-  written again with the reason, the answer file left for run_job.py to count as rejected.
+  written again with the reason, the answer file left for run_job.py to count as rejected. The same question is
+  not written twice while its request is still waiting, and a cached answer removes a request a killed run left
+  behind. A step that refuses the answer `max_attempts` times (`.claude/run-job.json`, else 3) stops: a plain
+  message names the request, and no further request is written.
 - `ApiTransport` — the Anthropic SDK (anthropic 1.8.0), streamed, structured output
   (`output_config={"format": {"type": "json_schema", "schema": schema}}`), no temperature, the Playbook rules as
   the first system block with `cache_control: {"type": "ephemeral"}` (prompt caching), the step's own instructions
   as the second; same cache folder and file form under the API model's name; the key from the environment only.
-  An answer a step refuses is dropped from the cache and the question asked once more with the reason.
+  An answer a step refuses is dropped from the cache and the question asked again with the reason, up to
+  `max_attempts` times, then the run stops with a plain message naming the request.
 
 Request kinds (what `/run-job` dispatches on): `write_system` for both writing and revising a system (extra
 `"step": "write" | "revise"`, `"plan_key": system.key`, `"images"`; a revise request's "system" is the system's name
@@ -184,6 +188,74 @@ class _Cache:
             pass
 
 
+def _max_attempts() -> int:
+    """How many times a step may refuse one request before the run stops. The estimator's knob in
+    `.claude/run-job.json`, else 3."""
+    path = Path(__file__).resolve().parents[2] / ".claude" / "run-job.json"
+    try:
+        value = int(json.loads(path.read_text(encoding="utf-8")).get("max_attempts", 3))
+    except (OSError, ValueError, TypeError):
+        return 3
+    return value if value >= 1 else 3
+
+
+def _attempt_file(cache: _Cache, q: _Question) -> Path:
+    """One counter per request (kind, step, name, plan key), so a retry whose prompt grew still counts."""
+    ident = f"{q.kind}|{q.extra.get('step', '')}|{q.name}|{q.extra.get('plan_key', '')}"
+    digest = hashlib.sha256(ident.encode()).hexdigest()
+    return cache.folder / "attempts" / f"{digest}.json"
+
+
+def _refusal_count(transport) -> int:
+    cache, last = getattr(transport, "cache", None), getattr(transport, "_last", None)
+    if cache is None or last is None:
+        return 0
+    try:
+        data = json.loads(_attempt_file(cache, last).read_text(encoding="utf-8"))
+        return int(data.get("attempts", 0))
+    except (OSError, ValueError, TypeError):
+        return 0
+
+
+def _record_refusal(transport) -> int:
+    cache, last = getattr(transport, "cache", None), getattr(transport, "_last", None)
+    count = _refusal_count(transport) + 1
+    if cache is not None and last is not None:
+        try:
+            _write_json(_attempt_file(cache, last), {"attempts": count})
+        except OSError:
+            pass
+    return count
+
+
+def _clear_attempts(transport) -> None:
+    cache, last = getattr(transport, "cache", None), getattr(transport, "_last", None)
+    if cache is None or last is None:
+        return
+    try:
+        _attempt_file(cache, last).unlink(missing_ok=True)
+    except OSError:
+        pass
+
+
+def _drop_refused(transport) -> None:
+    """The refused answer leaves the cache, and a chat request still on disk is not asked again."""
+    last = getattr(transport, "_last", None)
+    cache = getattr(transport, "cache", None)
+    if last is not None and cache is not None:
+        cache.drop(last)
+    requests = getattr(transport, "requests_dir", None)
+    if last is not None and requests is not None:
+        try:
+            (Path(requests) / f"{last.key}.json").unlink(missing_ok=True)
+        except OSError:
+            pass
+
+
+def _stop_reason(name: str, attempts: int, reason: str) -> str:
+    return f"Stopped: the request {name} was refused {attempts} times. {reason}"
+
+
 def _problems(errors: list[str]) -> str:
     shown = "; ".join(errors[:MAX_PROBLEMS])
     return shown + (f"; and {len(errors) - MAX_PROBLEMS} more" if len(errors) > MAX_PROBLEMS else "")
@@ -249,6 +321,7 @@ class ChatTransport(_IntakeLog):
         if cached is not None:
             self.cached += 1
             self.last_error = None
+            (self.requests_dir / f"{q.key}.json").unlink(missing_ok=True)   # a killed run may have left it
             return cached
         answer_file = self.answers_dir / f"{q.key}.json"
         problem = None
@@ -261,6 +334,11 @@ class ChatTransport(_IntakeLog):
                 self.last_error = None
                 return answer
             problem = f"the answer for {name} could not be read: {_problems(errors)}"
+            attempts = _record_refusal(self)
+            if attempts >= _max_attempts():
+                _drop_refused(self)
+                self.last_error = _stop_reason(name, attempts, problem)
+                raise NoAnswer(self.last_error, waiting=False)
         raise self._request(q, problem)
 
     def refuse(self, problem: str) -> bool:
@@ -283,6 +361,17 @@ class ChatTransport(_IntakeLog):
         data |= {"schema": q.schema, "answer_file": str(answer_file)}
         if problem:
             data["previous_problem"] = problem
+        if request.is_file():
+            try:
+                same = json.loads(request.read_text(encoding="utf-8")) == data
+            except (OSError, ValueError):
+                same = False
+            if same:                                 # still waiting: do not ask this question a second time
+                (self.requests_dir / "old" / request.name).unlink(missing_ok=True)
+                self.waiting += 1
+                waiting = f"waiting for an answer in the chat (requests folder: {request.parent})"
+                self.last_error = f"{problem}; asked again, {waiting}" if problem else waiting
+                return NoAnswer(self.last_error, waiting=True)
         try:
             _write_json(request, data, indent=2)
             (self.requests_dir / "old" / request.name).unlink(missing_ok=True)     # asked again: no longer stale
@@ -432,26 +521,34 @@ def _answer_of(response, q: _Question) -> dict:
 def _ask_checked(transport, kind: str, name: str, instructions: str, system_prompt: str, prompt: str, schema: dict,
                  extra: dict, images: Sequence[Path], check: Callable[[dict], tuple[object, list[str]]]):
     """Ask; run the step's `check` (value, problems) on the answer. An answer with problems is refused: the chat
-    asks again on a later run (NoAnswer waiting); the API is asked once more now, with the reason."""
-    answer = transport.ask(kind, name, instructions, system_prompt, prompt, schema, extra, images)
-    value, problems = check(answer)
-    if not problems:
-        return value
-    reason = f"the answer for {name} could not be used: {_problems(problems)}"
-    refuse = getattr(transport, "refuse", None)
-    if refuse is None:
-        raise NoAnswer(reason)
-    if not refuse(reason):
-        raise NoAnswer(reason + " (asked again)", waiting=True)
-    again = (f"{prompt}\n\nYour earlier answer to this question could not be used: {_problems(problems)}. "
-             "Answer again, fixing that.")
-    answer = transport.ask(kind, name, instructions, system_prompt, again, schema, extra, images)
-    value, problems = check(answer)
-    if problems:
+    asks again on a later run (NoAnswer waiting); the API is asked once more now, with the reason. After
+    `max_attempts` refusals the run stops with a plain message naming the request, and nothing is asked again."""
+    prompt_now = prompt
+    retried = False
+    while True:
+        answer = transport.ask(kind, name, instructions, system_prompt, prompt_now, schema, extra, images)
+        value, problems = check(answer)
+        if not problems:
+            _clear_attempts(transport)
+            return value
         reason = f"the answer for {name} could not be used: {_problems(problems)}"
-        refuse(reason)
-        raise NoAnswer(reason)
-    return value
+        if _refusal_count(transport) >= _max_attempts():
+            _drop_refused(transport)
+            raise NoAnswer(_stop_reason(name, _max_attempts(), reason), waiting=False)
+        attempts = _record_refusal(transport)
+        if attempts >= _max_attempts():
+            _drop_refused(transport)
+            raise NoAnswer(_stop_reason(name, attempts, reason), waiting=False)
+        refuse = getattr(transport, "refuse", None)
+        if refuse is None:
+            raise NoAnswer(reason)
+        if not refuse(reason):
+            raise NoAnswer(reason + " (asked again)", waiting=True)
+        if retried:                         # the API's one immediate retry already happened
+            raise NoAnswer(reason)
+        retried = True
+        prompt_now = (f"{prompt}\n\nYour earlier answer to this question could not be used: {_problems(problems)}. "
+                      "Answer again, fixing that.")
 
 
 # ---- the evidence ------------------------------------------------------------------------------------------------

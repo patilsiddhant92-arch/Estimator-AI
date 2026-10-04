@@ -174,6 +174,36 @@ def test_chat_refuses_an_answer_that_breaks_the_schema(tmp_path):
     assert not (tmp_path / "judge" / f"{key}.json").exists()
 
 
+def test_a_resumed_ask_does_not_rewrite_a_request_that_is_still_waiting(tmp_path):
+    """A run killed after the request was written must not ask the same question again."""
+    first = ai.ChatTransport(tmp_path, job="00-0000")
+    with pytest.raises(ai.NoAnswer):
+        _ask(first)
+    (request_file,) = (tmp_path / "judge-chat" / "requests").glob("*.json")
+    written = request_file.read_bytes()
+    stamped = request_file.stat().st_mtime_ns
+    again = ai.ChatTransport(tmp_path, job="00-0000")
+    with pytest.raises(ai.NoAnswer) as missing:
+        _ask(again)
+    assert missing.value.waiting and again.waiting == 1
+    assert request_file.read_bytes() == written and request_file.stat().st_mtime_ns == stamped
+    assert len(list((tmp_path / "judge-chat" / "requests").glob("*.json"))) == 1
+
+
+def test_a_cached_answer_clears_a_request_left_behind_by_a_killed_run(tmp_path):
+    chat = ai.ChatTransport(tmp_path, job="00-0000")
+    with pytest.raises(ai.NoAnswer):
+        _ask(chat)
+    (request_file,) = (tmp_path / "judge-chat" / "requests").glob("*.json")
+    answer = Path(json.loads(request_file.read_text(encoding="utf-8"))["answer_file"])
+    answer.parent.mkdir(parents=True)
+    answer.write_text(json.dumps({"findings": ["one"]}), encoding="utf-8")
+    assert _ask(ai.ChatTransport(tmp_path, job="00-0000")) == {"findings": ["one"]}
+    request_file.write_text('{"key": "left-behind"}', encoding="utf-8")
+    assert _ask(ai.ChatTransport(tmp_path, job="00-0000")) == {"findings": ["one"]}
+    assert not request_file.exists()
+
+
 def test_chat_asked_again_takes_the_request_out_of_old(tmp_path):
     key = _key(ai.CHAT_MODEL, "the question", "RULES\n\nSTEP")
     old = tmp_path / "judge-chat" / "requests" / "old" / f"{key}.json"
@@ -515,6 +545,43 @@ def test_write_system_through_the_chat_rejects_and_asks_again(job, raw, dossier,
     answer.write_text(json.dumps(raw["systems"][1]), encoding="utf-8")
     written = ai.write_system(system, evidence, playbook, ai.ChatTransport(cache, job="00-0000"))
     assert len(written.devices) == 3 and not request_file.exists()
+
+
+def test_a_check_refusal_stops_after_max_attempts_and_names_the_request(job, raw, dossier, playbook, tmp_path):
+    """Three refused answers (the repo's max_attempts) stop the run. The message names the request."""
+    system = skeleton(job.system("EF"))
+    evidence = ai.evidence_for(system, dossier)
+    cache = tmp_path / "cache"
+    with pytest.raises(ai.NoAnswer):
+        ai.write_system(system, evidence, playbook, ai.ChatTransport(cache, job="00-0000"))
+    (request_file,) = (cache / "judge-chat" / "requests").glob("*.json")
+    answer = Path(json.loads(request_file.read_text(encoding="utf-8"))["answer_file"])
+    answer.parent.mkdir(parents=True, exist_ok=True)
+    answer.write_text(json.dumps(_bad(raw, lambda a: a["devices"][0].update(slot="gadget"))), encoding="utf-8")
+    for _ in range(2):
+        with pytest.raises(ai.NoAnswer) as refused:
+            ai.write_system(system, evidence, playbook, ai.ChatTransport(cache, job="00-0000"))
+        assert refused.value.waiting
+    with pytest.raises(ai.NoAnswer) as stopped:
+        ai.write_system(system, evidence, playbook, ai.ChatTransport(cache, job="00-0000"))
+    assert not stopped.value.waiting
+    assert "Stopped" in stopped.value.reason and "Exhaust Fans" in stopped.value.reason
+    assert list((cache / "judge-chat" / "requests").glob("*.json")) == []
+
+
+def test_the_api_stops_after_max_attempts_instead_of_calling_again(job, raw, dossier, playbook, tmp_path):
+    system = skeleton(job.system("EF"))
+    bad = _bad(raw, lambda a: a["devices"][0].update(slot="gadget"))
+    client = FakeClient(*(_Response(json.dumps(bad)) for _ in range(4)))
+    transport = ai.ApiTransport(tmp_path, model="claude-test", client=client)
+    evidence = ai.evidence_for(system, dossier)
+    with pytest.raises(ai.NoAnswer) as failed:
+        ai.write_system(system, evidence, playbook, transport)
+    assert len(client.calls) == 2 and not failed.value.waiting and "Stopped" not in failed.value.reason
+    with pytest.raises(ai.NoAnswer) as stopped:
+        ai.write_system(system, evidence, playbook, transport)
+    assert len(client.calls) == 3
+    assert not stopped.value.waiting and "Exhaust Fans" in stopped.value.reason and "Stopped" in stopped.value.reason
 
 
 def test_write_system_through_the_api_retries_once_with_the_reason(job, raw, dossier, playbook, tmp_path):

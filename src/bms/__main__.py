@@ -34,8 +34,10 @@ def main(argv: list[str] | None = None) -> int:
     for line in result.messages:
         print(line)
     if result.status == "waiting":
-        print(f"Waiting: {result.waiting} request(s) at the {result.stage} step.")
-        return 2
+        if result.waiting:
+            print(f"Waiting: {result.waiting} request(s) at the {result.stage} step.")
+            return 2
+        return 1
     return 0
 
 
