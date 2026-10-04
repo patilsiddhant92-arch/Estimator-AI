@@ -62,8 +62,9 @@ QC_PART_LIMIT = 400_000             # characters of job and sources in one QC re
 SOURCE_TEXT_LIMIT = 20_000          # characters of one source's text in a QC request
 MAX_PROBLEMS = 8                    # problems named in a refusal
 PROMPTS = Path(__file__).resolve().parent / "prompts"
-LATE_FIELDS = ("no_scope_reason",)  # System fields added after answers were written; missing means null
-SKELETON_FIELDS = ("key", "name", "shape", "control", "families", "sequence_refs", "alternate")
+LATE_FIELDS = {"no_scope_reason": None, "serves": []}  # System fields added after answers were written: missing
+#                                                       means this value
+SKELETON_FIELDS = ("key", "name", "shape", "control", "families", "sequence_refs", "alternate", "serves")
 CITATIONS_TOPIC = "Evidence and citations"
 
 
@@ -275,9 +276,9 @@ def _read_answer(path: Path, schema: dict) -> tuple[dict | None, list[str]]:
     except ValueError:
         return None, ["the answer is not valid JSON"]
     if isinstance(answer, dict):
-        for name in LATE_FIELDS:           # a field added to the contract later: an answer without it means null
+        for name, empty in LATE_FIELDS.items():     # a field added to the contract later: missing means empty
             if name in schema.get("properties", {}) and name not in answer:
-                answer[name] = None
+                answer[name] = json.loads(json.dumps(empty))
     errors = schema_errors(answer, schema)
     return (None, errors) if errors else (answer, [])
 
@@ -494,13 +495,84 @@ def _pictures(evidence: str) -> tuple[list[Path], list[dict]]:
 
 
 def _write_prompt(system: System, shape: Shape | None, evidence: str) -> str:
-    return "\n\n".join([
+    skeleton = {k: v for k, v in _skeleton_dict(system).items() if k != "serves"}   # said in words below
+    return "\n\n".join(p for p in [
         "The system, as the planner set it up (copy these fields as they are):\n"
-        + json.dumps(_skeleton_dict(system), indent=1, ensure_ascii=False),
+        + json.dumps(skeleton, indent=1, ensure_ascii=False),
         _shape_text(system, shape),
+        _heater_text(system),
         f"Answer with the whole system as JSON in the schema given; number the devices {system.key}.d1, "
         f"{system.key}.d2 and so on, in print order.",
-        "The evidence:\n" + evidence.strip()])
+        "The evidence:\n" + evidence.strip()] if p)
+
+
+# ---- duct heaters in one place -------------------------------------------------------------------------------------
+
+_HEATER_LINE = re.compile(r"duct[\s_-]*heater", re.I)
+FULL_HEATER_SCOPE = "discharge air temperature sensor, enable or SCR signal, status and alarm"
+
+
+def _heats(system: System) -> list:
+    """The units this duct heater block serves (empty when it is not one)."""
+    return [s for s in system.serves if s.heater_key == system.key]
+
+
+def _heated_by(system: System) -> list:
+    """This unit's entries naming the duct heater block that writes its heaters."""
+    return [s for s in system.serves if s.key == system.key and s.heater_key != system.key]
+
+
+def _heater_tags(system: System) -> list[str]:
+    return [t for f in system.families for t in f.tags]
+
+
+def _heater_text(system: System) -> str:
+    """What the writer is told about duct heaters: the heater block writes every heater, the served unit none."""
+    heats, heated = _heats(system), _heated_by(system)
+    if heats:
+        tags = ", ".join(_heater_tags(system)) or "its heaters"
+        counts = [f.count.value for f in system.families]
+        count = f"{sum(counts)} in all" if counts and None not in counts else "count as the families give it"
+        lines = [f"Duct heaters: this is the duct heater block. Every duct heater of this job is written here and "
+                 f"only here: write the heater lines for ALL its heaters ({tags}; {count}), never an empty block. "
+                 "Its heaters serve these units:"]
+        for unit in heats:
+            which = ", ".join(unit.heaters) or "the documents do not say which heaters"
+            on = f"; tags {', '.join(unit.tags)}" if unit.tags else ""
+            lines.append(f"- {unit.name} (block {unit.key}{on}): {which}")
+        lines.append(
+            "For each served unit: when a sentence of the sequence of operation gives the BMS the control of its "
+            f"duct heater, write the heater's full field DDC scope ({FULL_HEATER_SCOPE}); when no sentence does, "
+            "write only the interlock of the heater to the served unit (the heater comes packaged on its own "
+            "controls). Each heater line's quantity is the heater count: the family's count, copied whole, when "
+            "every heater takes the same lines; else the number of heaters the line covers. Write no heater line "
+            "in a served unit's block: they are all here.")
+        return "\n".join(lines)
+    if heated:
+        return "\n".join(
+            f"Duct heaters: the duct heaters serving this unit ({', '.join(s.heaters) or 'its duct heaters'}) are "
+            f"written in the {s.heater_name} block; write no duct heater line here (no heater sensor, enable or SCR "
+            "signal, status, alarm or interlock)." for s in heated)
+    return ""
+
+
+def _heater_problems(system: System, devices: list[dict], kept: set[str] = frozenset()) -> list[str]:
+    """A duct heater block with no line; a duct heater line (not one kept as it was) in a served unit's block."""
+    if _heats(system) and not devices:
+        return [f"this is the duct heater block and it has no lines: write the heater lines for all its heaters "
+                f"({', '.join(_heater_tags(system)) or 'every heater'}) here"]
+    problems = []
+    for entry in _heated_by(system):
+        named = [*entry.heaters, *{t.split("-")[0] for t in entry.heaters if "-" in t}]
+        for n, device in enumerate(devices):
+            if device.get("id") in kept:
+                continue
+            words = f"{device.get('slot', '')} {device.get('name', '')}"
+            if _HEATER_LINE.search(words) or any(re.search(rf"(?<![A-Za-z0-9]){re.escape(t)}(?![A-Za-z0-9])",
+                                                           words, re.I) for t in named if t):
+                problems.append(f"device {device.get('id') or n + 1} is a duct heater line: the duct heaters "
+                                f"serving this unit are written in the {entry.heater_name} block; leave it out here")
+    return problems
 
 
 def _finding_text(n: int, finding: Finding) -> str:
@@ -509,13 +581,15 @@ def _finding_text(n: int, finding: Finding) -> str:
 
 
 def _revise_prompt(system: System, findings: Sequence[Finding], shape: Shape | None, evidence: str) -> str:
-    return "\n\n".join([
-        "The block as written:\n" + system.to_json(indent=1),
+    return "\n\n".join(p for p in [
+        "The block as written:\n" + json.dumps({k: v for k, v in system.to_dict().items() if k != "serves"},
+                                               indent=1, ensure_ascii=False),
         "The findings to fix (must fix), and nothing else:\n"
         + "\n".join(_finding_text(n, f) for n, f in enumerate(findings, start=1)),
         _shape_text(system, shape),
+        _heater_text(system),
         "Answer with the whole revised system as JSON in the schema given.",
-        "The evidence:\n" + evidence.strip()])
+        "The evidence:\n" + evidence.strip()] if p)
 
 
 def _ref_ids(refs) -> set[str]:
@@ -570,6 +644,7 @@ def _check_system(answer, skeleton: System, shape: Shape | None, known: frozense
                 problems.append(f"{label} has an assumption that does not say why")
             problems += [f"{label}'s assumption {p}" for p in _text_problems(
                 f"{assumption['what']} {assumption['why']}", assumption["what"], assumption["why"])]
+    problems += _heater_problems(skeleton, answer["devices"], kept_ids)
     if len(answer["clarifications"]) > 1:
         problems.append(f"it gives {len(answer['clarifications'])} clarifications; a block has at most one")
     for clarification in answer["clarifications"]:
@@ -660,14 +735,16 @@ def write_system(system: System, evidence: str, playbook: Playbook, transport: T
 
     Contract: one WRITE_SYSTEM request (extra step "write", plan_key system.key) whose schema is
     `json_schema(System)`; the answer is checked with `schema_errors`, built with `System.from_dict`, and must keep
-    the skeleton's `key`, `name`, `shape`, `control`, `families`, `sequence_refs` and `alternate` (the skeleton's
-    values win). Every device has at least one Ref whose source_id is in the evidence. Raises NoAnswer when there
+    the skeleton's `key`, `name`, `shape`, `control`, `families`, `sequence_refs`, `alternate` and `serves` (the
+    skeleton's values win). Every device has at least one Ref whose source_id is in the evidence. Raises NoAnswer when there
     is no answer yet (chat) or the answer cannot be used after the schema check.
 
     Also: the pictures the evidence names are attached; a ref to an id the evidence does not carry is dropped when
     the device has another, and a device with none, a slot outside the shape, more than one clarification or an
     assumption without its what or why refuses the answer (the chat asks again with the reason; the API is asked
-    once more)."""
+    once more). Duct heaters are written in one place: the duct heater block's writer is told the units it serves
+    and must write all its heaters (an empty heater block is refused); a served unit's writer is told the heater
+    block writes its heaters (a duct heater line there is refused)."""
     shape = _shape(system, playbook)
     images, listing = _pictures(evidence)
     known = ai_evidence.cited_ids(evidence) | _ref_ids(ai_evidence.system_refs(system))
@@ -827,7 +904,8 @@ def _qc_parts(job: Job, index: Mapping[str, str]) -> list[tuple[System, ...]]:
 def _qc_prompt(job: Job, systems: Sequence[System], whole: bool, index: Mapping[str, str], playbook: Playbook,
                mechanical: Sequence[Finding]) -> str:
     keys = {s.key for s in systems}
-    written = {"name": job.name, "systems": [s.to_dict() for s in systems]}
+    written = {"name": job.name, "systems": [{k: v for k, v in s.to_dict().items() if k != "serves"}
+                                             for s in systems]}           # the served list is said in words
     if whole:
         written |= {"front_end": job.front_end.to_dict() if job.front_end else None,
                     "exceptions": [e.to_dict() for e in job.exceptions], "questions": list(job.questions)}
@@ -838,16 +916,21 @@ def _qc_prompt(job: Job, systems: Sequence[System], whole: bool, index: Mapping[
                                               else "no shape (untemplated; any slot names)"))
     found = [f for f in mechanical if f.system_key in keys or (whole and f.system_key == "")]
     sources = _sources_text(_job_refs(job, systems, whole), index, set())
-    return "\n\n".join([
+    heaters = [f"- the {s.name} block ({s.key}) writes every duct heater, those of: "
+               + "; ".join(f"{u.name} ({u.key})" for u in _heats(s))
+               for s in job.systems if _heats(s) and (s.key in keys or any(u.key in keys for u in _heats(s)))]
+    return "\n\n".join(p for p in [
         f"Job: {job.name}",
         "The Playbook's rule names (a finding's rule is one of these, exactly):\n"
         + "\n".join(f"- {name}" for name in playbook.rules),
         "The shape of each block:\n" + "\n".join(shapes),
         "Mechanical findings already made (do not repeat them):\n"
         + ("\n".join(f"- {f.system_key or 'job'} {f.device_id or ''}: {f.what}" for f in found) or "(none)"),
+        ("Duct heaters, written in one place (the heater lines belong to the heater block only):\n"
+         + "\n".join(heaters)) if heaters else "",
         "The written job" + ("" if whole else " (this part)") + ":\n" + json.dumps(written, indent=1,
                                                                                     ensure_ascii=False),
-        "The text of every source it cites, by id:\n" + ("\n".join(sources) or "(none)")])
+        "The text of every source it cites, by id:\n" + ("\n".join(sources) or "(none)")] if p)
 
 
 def _check_findings(answer, job: Job) -> tuple[list[Finding] | None, list[str]]:

@@ -14,7 +14,7 @@ import pytest
 
 from bms import ai, counts, plan, render, review, run, validate
 from bms.model import (ALTERNATES, CLARIFICATION_KINDS, CONTROLS, FLAGS, PARTIES, VERBS, Count, Decision, Device,
-                       Finding, Job, ModelError, Ref, System, json_schema, schema_errors)
+                       Finding, Job, ModelError, Ref, Served, System, json_schema, schema_errors)
 from bms.playbook import Playbook, PlaybookError, load_playbook
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -108,6 +108,22 @@ def test_a_system_with_nothing_to_scope_says_why():
     assert {"type": "null"} in prop["anyOf"] and {"type": "string"} in prop["anyOf"]
     old = {k: v for k, v in data.items() if k != "no_scope_reason"}
     assert System.from_dict(old).no_scope_reason is None          # a Job saved before the field still loads
+
+
+def test_a_duct_heater_block_lists_the_units_it_serves():
+    tie = Served(key="AHU", name="Air Handling Unit", tags=("AHU-1",), heaters=("EDH-1",), heater_key="EDH",
+                 heater_name="Electric Duct Heater")
+    system = System("EDH", "Electric Duct Heater", "", "field", (), serves=(tie,))
+    data = system.to_dict()
+    assert data["serves"] == [{"key": "AHU", "name": "Air Handling Unit", "tags": ["AHU-1"], "heaters": ["EDH-1"],
+                               "heater_key": "EDH", "heater_name": "Electric Duct Heater"}]
+    assert System.from_dict(data) == system
+    assert System("XF", "Exhaust Fan", "", "none", ()).serves == ()
+    prop = json_schema(System)["properties"]["serves"]
+    assert prop["type"] == "array"
+    assert prop["items"]["required"] == ["key", "name", "tags", "heaters", "heater_key", "heater_name"]
+    old = {k: v for k, v in data.items() if k != "serves"}
+    assert System.from_dict(old).serves == ()                     # a Job saved before the field still loads
 
 
 def test_finding_and_decision_round_trip():

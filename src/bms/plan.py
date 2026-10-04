@@ -21,9 +21,10 @@ from dataclasses import dataclass, field, replace
 
 from estimator.catalogue.job import Catalogue
 from estimator.ledger.facts import Fact, Ledger
-from estimator.writing.dossier import Dossier
+from estimator.writing.dossier import Dossier, sections_in
 
-from bms.model import Count, Family, FrontEnd, Job, Ref, ScopeException, System
+from bms import ai_evidence
+from bms.model import Count, Family, FrontEnd, Job, Ref, ScopeException, Served, System
 from bms.plan_groups import family_of_tag, members, part_count, parts, split_apart
 from bms.plan_read import FamilyFacts, Reader, naming, names_in, squash, tag_words
 from bms.playbook import Playbook, Shape
@@ -58,6 +59,7 @@ _INTEGRATION = re.compile(r"\bbacnet\b|\bmodbus\b|\blonworks\b|\bgateway\b|\bint
 _NO_CONTROLS = re.compile(r"\bnot\s+in\s+contract\b|\bn\.?\s?i\.?\s?c\.?(?![a-z])|\bno\s+(?:bms\s+|ddc\s+)?controls?\b|"
                           r"\bcontrols?\s+(?:are\s+|is\s+)?by\s+others\b", re.I)
 _SERVES = re.compile(r"serves?\s+([A-Z][A-Z0-9-]+)")
+_NOTE_TOPICS = frozenset({"question", "exception", "alternate"})     # notes about the job, not about a system
 _TAG = re.compile(r"^[A-Za-z]{1,6}(?:-[A-Za-z0-9.]+)+$")
 
 
@@ -75,6 +77,14 @@ class _Fam:
 
 
 @dataclass
+class _Tie:
+    """A unit a duct heater system serves: the unit's system, its tags the documents tie to heaters, the heaters."""
+    unit: _Draft
+    tags: list[str]
+    heaters: list[str]
+
+
+@dataclass
 class _Draft:
     key: str
     name: str
@@ -86,6 +96,7 @@ class _Draft:
     exception: str = ""
     words: str = ""                             # the group's own words (its subject and members)
     extra_refs: list[Ref] = field(default_factory=list)
+    ties: list[_Tie] = field(default_factory=list)  # a duct heater system: the units it serves
 
     def tags(self) -> list[str]:
         return [t for f in self.families for t in f.tags]
@@ -112,6 +123,16 @@ class _Planner:
         self.reader = Reader(ledger, getattr(dossier, "sources", None) or {}, getattr(dossier, "text", "") or "")
         self.dossier = dossier
         self.questions: list[str] = []
+        self._texts: dict[str, str] | None = None
+
+    def texts(self) -> dict[str, str]:
+        """Every dossier source id -> its text (a sequence section: its heading and its paragraphs)."""
+        if self._texts is None:
+            dossier = self.dossier
+            text = str(getattr(dossier, "text", "") or "")
+            sections = getattr(dossier, "sections", None) or sections_in(text)
+            self._texts = ai_evidence.index(text, dict(getattr(dossier, "sources", None) or {}), dict(sections))
+        return self._texts
 
     # -- shapes and kinds
 
@@ -323,29 +344,61 @@ class _Planner:
         return out
 
     def heater_sequences(self, drafts: list[_Draft]) -> None:
-        """A duct heater system reads the sequence of the units it serves: their sequence matches join its own."""
+        """A duct heater system reads the sequence of the units it serves: their sequence matches join its own. It
+        keeps the units it serves (with their tags and the heaters serving them) for the served list of each."""
         for heater in (d for d in drafts if d.kind == "heaters"):
-            for unit in self._served(heater, drafts):
-                heater.matches += [m for m in unit.matches if m not in heater.matches]
+            heater.ties = self._served(heater, drafts)
+            for tie in heater.ties:
+                heater.matches += [m for m in tie.unit.matches if m not in heater.matches]
 
-    def _served(self, heater: _Draft, drafts: list[_Draft]) -> list[_Draft]:
+    def _served(self, heater: _Draft, drafts: list[_Draft]) -> list[_Tie]:
+        """The units the heater system serves, in plan order, from: a link between a heater and a unit; a provider or
+        note about the heaters that says "serves <unit>"; a note about the heaters naming a unit; a location naming
+        heater tags and a unit; a note about a unit that speaks of its duct heater; a unit whose sequence section
+        speaks of a duct heater."""
         names = heater.names()
-        found: list[str] = []
+        found: list[tuple[str, str]] = []                # (the text naming the unit, the text naming the heaters)
         for fact in self.ledger.of_kind("link"):
             subject, value = squash(fact.subject), squash(fact.value)
             if names_in(names, subject) and not names_in(names, value):
-                found.append(value)
+                found.append((value, subject))
             elif names_in(names, value) and not names_in(names, subject):
-                found.append(subject)
-        for fact in self.ledger.of_kind("provider") + self.ledger.of_kind("note"):
+                found.append((subject, value))
+        for fact in self.ledger.of_kind("provider"):
             if names_in(names, fact.subject):
-                found += _SERVES.findall(squash(fact.value))
-        units: list[_Draft] = []
-        for text in found:
-            unit = _draft_named(drafts, text)
-            if unit is not None and unit is not heater and unit not in units:
-                units.append(unit)
-        return units
+                found += [(unit, squash(fact.subject)) for unit in _SERVES.findall(squash(fact.value))]
+        for fact in self.ledger.of_kind("note"):
+            subject, value = squash(fact.subject), squash(fact.value)
+            if subject.casefold() in _NOTE_TOPICS:
+                continue
+            if names_in(names, subject):
+                found.append((value, f"{subject} {value}"))
+            elif _DUCT_HEATER_WORDS.search(value) or _heaters_named(heater, value):
+                found.append((subject, value))
+        for fact in self.ledger.of_kind("location"):
+            text = f"{squash(fact.subject)} {squash(fact.value)}"
+            if _heaters_named(heater, text):
+                found.append((text, text))
+        named = [(_units_named(drafts, heater, unit_text), _heaters_named(heater, heater_text))
+                 for unit_text, heater_text in found]
+        for unit in drafts:
+            if unit is heater or unit.kind in ("heaters", "global"):
+                continue
+            for match in unit.matches:
+                text = self.texts().get(match.source_id, "")
+                if _DUCT_HEATER_WORDS.search(text) or _heaters_named(heater, text):
+                    named.append(([(unit, unit.tags())], _heaters_named(heater, text)))
+        ties: dict[int, _Tie] = {}
+        for units, heaters in named:
+            for unit, tags in units:
+                tie = ties.setdefault(id(unit), _Tie(unit, [], []))
+                tie.tags += [t for t in tags if t not in tie.tags]
+                tie.heaters += [t for t in heaters if t not in tie.heaters]
+        out = sorted(ties.values(), key=lambda t: drafts.index(t.unit))
+        for tie in out:
+            tie.tags = [t for t in tie.unit.tags() if t in tie.tags]
+            tie.heaters = [t for t in heater.tags() if t in tie.heaters]
+        return out
 
     # -- step 4: dampers under their fan
 
@@ -464,9 +517,11 @@ class _Planner:
             key, number = f"{draft.key} {number}", number + 1
         keys.add(key)
         refs = [self.reader.fact_ref(m) for m in draft.matches] + draft.extra_refs
-        return System(key=key, name=draft.name, shape=shape.name if shape is not None else "",
+        name = _one(draft.name) if _is_one(families) else draft.name
+        return System(key=key, name=name, shape=shape.name if shape is not None else "",
                       control=self._control(draft, vrf),
-                      families=tuple(Family(f.name, tuple(f.tags), f.count) for f in families),
+                      families=tuple(Family(_one(f.name) if _is_one([f]) else f.name, tuple(f.tags), f.count)
+                                     for f in families),
                       sequence_refs=tuple(dict.fromkeys(refs)), alternate=draft.alternate)
 
     def _role(self, fam: _Fam, words: str) -> str:
@@ -621,6 +676,9 @@ _ENUMERATOR = re.compile(r"^\s*(?:[A-Za-z]|\d+(?:\.\d+)*|[ivxIVX]+)[.)]\s+")
 _JOINT = re.compile(r"\s+(?:and|with|for|&|including)\s+|[,:;(/]", re.I)
 _LEVEL = re.compile(r"\b(?:level|floor|lvl)\s+\w+\b|\b(?:typ\.?|typical)\b", re.I)
 _SPECIFIC_WORDS = 6
+_ACRONYMS = frozenset({"IT", "VRF", "ERV", "RTU", "HPAC", "DDC", "BMS", "VFD", "CO", "NO", "FSD", "MUAF", "DXF", "UH",
+                       "EUH", "EDH", "AHU", "VAV"})
+_PLURAL_KINDS = frozenset({"fans", "pumps", "units", "dampers", "devices", "coils", "valves"})
 
 
 def _singular(word: str) -> str:
@@ -628,8 +686,29 @@ def _singular(word: str) -> str:
     return word[:-1] if low.endswith("s") and not low.endswith("ss") and len(word) > 3 else word
 
 
-def _title(word: str) -> str:
-    return word if word.isupper() and len(word) <= 4 else word[:1].upper() + word[1:].lower()
+def _title(word: str, shouting: bool = False) -> str:
+    """A word in Title Case; an acronym ("IT", "VRF") upper-case; a short upper-case word kept when the text it is
+    from is not all upper-case (there its capitals say it is an acronym)."""
+    if word.upper() in _ACRONYMS:
+        return word.upper()
+    if word.isupper() and len(word) <= 4 and not shouting:
+        return word
+    return word[:1].upper() + word[1:].lower()
+
+
+def _one(name: str) -> str:
+    """The name with a plural kind word at its end singular ("Exhaust Fans" -> "Exhaust Fan")."""
+    words = name.split()
+    if words and (words[-1].casefold() in _PLURAL_KINDS or re.search(r"[a-z](?:er|or)s$", words[-1], re.I)):
+        words[-1] = words[-1][:-1]
+    return " ".join(words)
+
+
+def _is_one(families) -> bool:
+    """One unit: its families hold one tag in all, or their count is 1."""
+    tags = {t.upper() for f in families for t in f.tags}
+    values = [f.count.value for f in families]
+    return len(tags) == 1 or (None not in values and sum(values) == 1)
 
 
 def _specific_words(text, family: FamilyFacts, cut_place: bool) -> list[str]:
@@ -645,7 +724,8 @@ def _specific_words(text, family: FamilyFacts, cut_place: bool) -> list[str]:
     if not words:
         return []
     words[-1] = _singular(words[-1])
-    return [_title(w) for w in words]
+    shouting = text.upper() == text
+    return [_title(w, shouting) for w in words]
 
 
 def _with_kind(words: list[str], kind: str, kind_word: str) -> str:
@@ -667,6 +747,36 @@ def _suffixes(draft: _Draft) -> set[str]:
     return {t.upper()[len(head):] for t in draft.tags() if t.upper().startswith(head)}
 
 
+def _heaters_named(heater: _Draft, text: str) -> list[str]:
+    """The heater system's tags the text names, in their order: each tag whole, and once one is whole, the others
+    written short after it ("EDH-1-1, 1-2" names EDH-1-2 too)."""
+    text = squash(text)
+    tags = heater.tags()
+    named = {t for t in tags if naming(t).search(text)}
+    if named:
+        for tag in tags:
+            rest = tag.partition("-")[2]
+            if tag not in named and rest and not rest.isdigit() and \
+                    re.search(rf"(?<![\w.\-]){re.escape(rest)}(?![\w.\-])", text, re.I):
+                named.add(tag)
+    return [t for t in tags if t in named]
+
+
+def _units_named(drafts: list[_Draft], heater: _Draft, text: str) -> list[tuple[_Draft, list[str]]]:
+    """The systems (not a duct heater system, not global points) the text names, the heater tags left out, each with
+    its tags the text names (all its tags when it names the unit by its prefix or name only)."""
+    text = squash(text)
+    for tag in heater.tags():
+        text = naming(tag).sub(" ", text)
+    out = []
+    for draft in drafts:
+        if draft is heater or draft.kind in ("heaters", "global") or not names_in(draft.names(), text):
+            continue
+        tags = [t for t in draft.tags() if naming(t).search(text)]
+        out.append((draft, tags or draft.tags()))
+    return out
+
+
 def _draft_named(drafts: list[_Draft], text: str) -> _Draft | None:
     text = squash(text)
     for draft in drafts:
@@ -676,6 +786,21 @@ def _draft_named(drafts: list[_Draft], text: str) -> _Draft | None:
         if names_in(draft.names(), text):
             return draft
     return None
+
+
+def _with_served(systems: list[System], drafts: list[_Draft]) -> list[System]:
+    """Each duct heater system lists the units it serves; each served unit's system carries its own entry, naming
+    the duct heater system that writes its heaters (the heaters are written in one place)."""
+    of = {id(d): s for s, d in zip(systems, drafts)}
+    serves: dict[int, list[Served]] = {}
+    for system, draft in zip(systems, drafts):
+        for tie in draft.ties:
+            unit = of[id(tie.unit)]
+            entry = Served(key=unit.key, name=unit.name, tags=tuple(tie.tags), heaters=tuple(tie.heaters),
+                           heater_key=system.key, heater_name=system.name)
+            serves.setdefault(id(draft), []).append(entry)
+            serves.setdefault(id(tie.unit), []).append(entry)
+    return [replace(s, serves=tuple(serves[id(d)])) if id(d) in serves else s for s, d in zip(systems, drafts)]
 
 
 def _front_end(planner: _Planner) -> FrontEnd:
@@ -751,7 +876,7 @@ def plan_job(ledger: Ledger, catalogue: Catalogue, dossier: Dossier, playbook: P
     planner.heater_sequences(drafts)
     drafts += planner.global_points(drafts)
     keys: set[str] = set()
-    systems = [planner.system(d, keys) for d in drafts]
+    systems = _with_served([planner.system(d, keys) for d in drafts], drafts)
     planner.family_questions(systems, drafts)
     planner.lost(drafts)
     front_end = _front_end(planner)

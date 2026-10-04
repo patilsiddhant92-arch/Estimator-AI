@@ -146,6 +146,18 @@ class Clarification(_Model):
 
 
 @dataclass(frozen=True)
+class Served(_Model):
+    """A unit duct heaters serve, and the duct heater block that writes those heaters (one place for them)."""
+    key: str = field(**_doc("The served unit's system key."))
+    name: str = field(**_doc("The served unit's block name."))
+    tags: tuple[str, ...] = field(**_doc("The served unit's tags the documents tie to the heaters."))
+    heaters: tuple[str, ...] = field(**_doc("The duct heater tags serving it; empty when the documents do not say "
+                                            "which."))
+    heater_key: str = field(**_doc("The duct heater block's system key."))
+    heater_name: str = field(**_doc("The duct heater block's name."))
+
+
+@dataclass(frozen=True)
 class System(_Model):
     """One block of the proposal. The planner fills everything but `devices`, `clarifications` and `tech_hours`;
     `write_system` fills those."""
@@ -161,6 +173,9 @@ class System(_Model):
     alternate: AlternateKind = field(default="base", **_doc("base, add or deduct."))
     no_scope_reason: str | None = field(default=None, **_doc(
         "When the block has nothing for the BMS to scope (devices empty): why, in plain words; null otherwise."))
+    serves: tuple[Served, ...] = field(default=(), **_doc(
+        "Duct heaters (the planner's): on the duct heater block, one entry per unit its heaters serve; on a served "
+        "unit's block, its own entry, naming the duct heater block that writes its heaters. Empty otherwise."))
 
 
 @dataclass(frozen=True)
@@ -244,7 +259,7 @@ class Decision(_Model):
     reason: str = ""
 
 
-MODEL_CLASSES = (Ref, OtherCount, Count, Family, Assumption, Device, Clarification, System, ScopeException,
+MODEL_CLASSES = (Ref, OtherCount, Count, Family, Assumption, Device, Clarification, Served, System, ScopeException,
                  FrontEnd, Header, Job, Finding, Decision)
 
 # ---- JSON round-trip -----------------------------------------------------------------------------------------
@@ -400,5 +415,5 @@ def schema_errors(value, schema: dict, path: str = "$") -> list[str]:
 __all__ = ["Verb", "Control", "Flag", "ClarificationKind", "AlternateKind", "Party", "Severity", "FrontEndMode",
            "VERBS", "CONTROLS", "FLAGS", "CLARIFICATION_KINDS", "ALTERNATES", "PARTIES", "SEVERITIES",
            "FRONT_END_MODES", "DecisionAction", "DECISION_ACTIONS", "ModelError", "Ref", "OtherCount", "Count", "Family", "Assumption", "Device",
-           "Clarification", "System", "ScopeException", "FrontEnd", "Header", "Job", "Finding", "Decision", "MODEL_CLASSES",
+           "Clarification", "Served", "System", "ScopeException", "FrontEnd", "Header", "Job", "Finding", "Decision", "MODEL_CLASSES",
            "json_schema", "schema_errors"]

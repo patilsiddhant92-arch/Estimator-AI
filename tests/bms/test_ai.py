@@ -454,6 +454,92 @@ def test_revise_for_the_whole_block_may_drop_a_line(job, raw, dossier, playbook)
     assert [d.id for d in revised.devices] == ["EF.d1", "EF.d3"]
 
 
+# ---- duct heaters in one place --------------------------------------------------------------------------------------
+
+def _tie():
+    from bms.model import Served
+    return Served(key="RTU", name="Rooftop Unit", tags=("RTU-1",), heaters=("DH-1",), heater_key="DH",
+                  heater_name="Duct Heaters")
+
+
+def _heated(job, key):
+    return dataclasses.replace(job.system(key), serves=(_tie(),))
+
+
+def test_the_writer_of_a_served_unit_writes_no_duct_heater_line(job, raw, dossier, playbook):
+    system = skeleton(_heated(job, "RTU"))
+    transport = FakeTransport(copy.deepcopy(raw["systems"][0]))
+    written = ai.write_system(system, ai.evidence_for(system, dossier), playbook, transport)
+    prompt = transport.asked[0]["prompt"]
+    assert ("the duct heaters serving this unit (DH-1) are written in the Duct Heaters block; write no duct heater "
+            "line here") in prompt
+    assert '"serves"' not in prompt and written.serves == (_tie(),)
+
+
+def test_a_served_units_duct_heater_line_is_refused(job, raw, dossier, playbook):
+    system = skeleton(_heated(job, "RTU"))
+    answer = copy.deepcopy(raw["systems"][0])
+    answer["devices"][0]["name"] = "DH-1 Enable"
+    with pytest.raises(ai.NoAnswer) as refused:
+        ai.write_system(system, ai.evidence_for(system, dossier), playbook, FakeTransport(answer))
+    assert "duct heater line" in refused.value.reason and "Duct Heaters block" in refused.value.reason
+
+
+def test_the_writer_of_the_heater_block_writes_all_its_heaters_for_the_units_it_serves(job, raw, dossier, playbook):
+    system = skeleton(_heated(job, "DH"))
+    transport = FakeTransport(copy.deepcopy(raw["systems"][3]))
+    written = ai.write_system(system, ai.evidence_for(system, dossier), playbook, transport)
+    prompt = transport.asked[0]["prompt"]
+    assert "this is the duct heater block" in prompt and "ALL its heaters (DH-1, DH-2; 2 in all)" in prompt
+    assert "- Rooftop Unit (block RTU; tags RTU-1): DH-1" in prompt
+    assert "a sentence of the sequence of operation gives the BMS the control" in prompt
+    assert "discharge air temperature sensor, enable or SCR signal, status and alarm" in prompt
+    assert "only the interlock of the heater to the served unit" in prompt and "the heater count" in prompt
+    assert len(written.devices) == 2
+
+
+def test_an_empty_heater_block_is_refused(job, raw, dossier, playbook):
+    system = skeleton(_heated(job, "DH"))
+    answer = copy.deepcopy(raw["systems"][3])
+    answer.update(devices=[], tech_hours=None, no_scope_reason="The heaters are packaged.")
+    with pytest.raises(ai.NoAnswer) as refused:
+        ai.write_system(system, ai.evidence_for(system, dossier), playbook, FakeTransport(answer))
+    assert "duct heater block and it has no lines" in refused.value.reason
+
+
+def test_a_revise_is_told_where_the_heaters_are_written(job, raw, dossier, playbook):
+    system = _heated(job, "RTU")
+    finding = Finding("Packaged units", "RTU", None, "must_fix", "w", "f")
+    transport = FakeTransport(copy.deepcopy(raw["systems"][0]))
+    ai.revise_system(system, [finding], ai.evidence_for(system, dossier), playbook, transport)
+    assert "are written in the Duct Heaters block" in transport.asked[0]["prompt"]
+
+
+def test_qc_is_told_the_heaters_are_in_their_own_block(job, dossier, playbook):
+    heated = job.with_system(_heated(job, "RTU")).with_system(_heated(job, "DH"))
+    transport = FakeTransport({"findings": []})
+    ai.qc_job(heated, ai.evidence_index(dossier), playbook, transport)
+    prompt = transport.asked[0]["prompt"]
+    assert "- the Duct Heaters block (DH) writes every duct heater, those of: Rooftop Unit (RTU)" in prompt
+    plain = FakeTransport({"findings": []})
+    ai.qc_job(job, ai.evidence_index(dossier), playbook, plain)
+    assert "Duct heaters, written in one place" not in plain.asked[0]["prompt"]
+    assert '"serves"' not in plain.asked[0]["prompt"]
+
+
+def test_the_prompts_keep_duct_heaters_in_one_place():
+    folder = ROOT / "src" / "bms" / "prompts"
+    qc = (folder / "qc_job.md").read_text(encoding="utf-8")
+    assert "heater lines belong to the duct heater block only" in qc
+    assert "A finding that asks to move heater lines out of the duct heater block into a served unit's block is wrong" \
+        in qc
+    assert ("A duct heater block with no lines while a served unit's block carries heater lines is a \"must_fix\" "
+            "finding against the served block") in qc
+    write = (folder / "write_system.md").read_text(encoding="utf-8")
+    assert "## Duct heaters in one place" in write and "with the heater count as the quantity" in write
+    assert "duct heater block" in (folder / "revise_system.md").read_text(encoding="utf-8")
+
+
 # ---- qc_job ----------------------------------------------------------------------------------------------------------
 
 def test_qc_asks_once_with_the_rule_names_and_checks_the_quotes(job, dossier, playbook):
