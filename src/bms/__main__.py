@@ -36,9 +36,9 @@ def parser() -> argparse.ArgumentParser:
     lint.add_argument("root", nargs="?", type=Path, default=DEFAULT_ROOT,
                       help="the Playbook folder (default: the repo's playbook/)")
     d = commands.add_parser("doctor", help="check Python, dependencies, models, Playbook, and cache")
-    d.add_argument("--cache", type=Path, default=Path(".cache"), help="cache directory to check (default: .cache)")
+    d.add_argument("--cache", type=Path, default=None, help="cache directory to check (default: system temp / bms_cache)")
     d.add_argument("--playbook", type=Path, default=None, help="playbook directory to check (default: repo playbook/)")
-    d.add_argument("--config", type=Path, default=None, help="configuration file to check (default: .claude/run-job.json)")
+    d.add_argument("--config", type=Path, default=None, help="configuration file to check (default: repo .claude/run-job.json)")
     return p
 
 

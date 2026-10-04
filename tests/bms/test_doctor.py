@@ -100,6 +100,19 @@ def test_check_config_fails_when_model_key_missing(tmp_path):
     assert "qc_model" in res.detail
 
 
+def test_a_blank_model_name_is_rejected(tmp_path):
+    cfg_file = tmp_path / "run-job.json"
+    cfg_file.write_text(json.dumps({
+        "judge_model": " ",
+        "writer_model": "opus",
+        "qc_model": "opus",
+        "count_model": "sonnet",
+    }), encoding="utf-8")
+    res = check_config(cfg_file)
+    assert not res.ok
+    assert "judge_model" in res.message
+
+
 def test_check_config_fails_when_max_attempts_invalid(tmp_path):
     cfg_file = tmp_path / "run-job.json"
     cfg_file.write_text(json.dumps({
@@ -112,6 +125,28 @@ def test_check_config_fails_when_max_attempts_invalid(tmp_path):
     res = check_config(cfg_file)
     assert not res.ok
     assert "max_attempts" in res.message
+
+
+def test_check_config_fails_when_max_attempts_is_bool(tmp_path):
+    for val in (True, False):
+        cfg_file = tmp_path / f"run-job_{val}.json"
+        cfg_file.write_text(json.dumps({
+            "judge_model": "opus",
+            "writer_model": "opus",
+            "qc_model": "opus",
+            "count_model": "sonnet",
+            "max_attempts": val,
+        }), encoding="utf-8")
+        res = check_config(cfg_file)
+        assert not res.ok
+        assert "max_attempts" in res.message
+
+
+def test_check_config_succeeds_from_arbitrary_working_directory(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    res = check_config()
+    assert res.ok
+    assert "valid" in res.message.lower()
 
 
 # ---- Playbook & rule names check ----------------------------------------------------------------------------------
@@ -140,6 +175,24 @@ def test_check_playbook_catches_missing_rules_against_prompts(tmp_path):
     assert "missing" in res.message.lower()
 
 
+def test_check_playbook_ignores_arbitrary_quotes_in_prompts(tmp_path):
+    prompts_dir = tmp_path / "prompts"
+    prompts_dir.mkdir()
+    (prompts_dir / "custom.md").write_text('Some instruction saying "Hello There" and "General Kenobi".', encoding="utf-8")
+    res = check_playbook(prompts_dir=prompts_dir)
+    assert res.ok
+    assert "Hello There" not in res.message
+
+
+def test_check_playbook_catches_explicitly_cited_missing_rule(tmp_path):
+    prompts_dir = tmp_path / "prompts"
+    prompts_dir.mkdir()
+    (prompts_dir / "custom.md").write_text('This breaks "Nonexistent Imaginary Rule Name".', encoding="utf-8")
+    res = check_playbook(prompts_dir=prompts_dir)
+    assert not res.ok
+    assert "Nonexistent Imaginary Rule Name" in res.message
+
+
 # ---- Cache folder writability check -------------------------------------------------------------------------------
 
 def test_check_cache_folder_succeeds_on_writable_folder(tmp_path):
@@ -154,6 +207,29 @@ def test_check_cache_folder_fails_when_unwritable():
         res = check_cache_folder(Path("/unwritable_dummy_cache"))
         assert not res.ok
         assert "not writable" in res.message.lower()
+
+
+def test_check_cache_folder_cleans_up_new_directory(tmp_path):
+    cache = tmp_path / "sub" / "new_cache"
+    assert not cache.exists()
+    res = check_cache_folder(cache)
+    assert res.ok
+    assert not cache.exists()
+
+
+def test_check_cache_folder_preserves_existing_directory(tmp_path):
+    cache = tmp_path / "existing_cache"
+    cache.mkdir()
+    res = check_cache_folder(cache)
+    assert res.ok
+    assert cache.exists()
+
+
+def test_check_cache_folder_leaves_no_stray_cache_in_cwd(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    res = check_cache_folder()
+    assert res.ok
+    assert not (tmp_path / ".cache").exists()
 
 
 # ---- Overall run_doctor & CLI --------------------------------------------------------------------------------------

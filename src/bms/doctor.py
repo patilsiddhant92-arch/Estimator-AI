@@ -33,6 +33,7 @@ REQUIRED_PACKAGES: list[tuple[str, str]] = [
 ]
 
 REQUIRED_CONFIG_KEYS = ["judge_model", "writer_model", "qc_model", "count_model"]
+DEFAULT_CONFIG_PATH = Path(__file__).resolve().parents[2] / ".claude" / "run-job.json"
 
 
 @dataclass(frozen=True)
@@ -99,7 +100,13 @@ def check_dependencies(required: Sequence[str] | None = None) -> CheckResult:
 
 def check_config(config_path: Path | None = None) -> CheckResult:
     """Check that .claude/run-job.json exists and defines valid models."""
-    path = Path(config_path or Path(".claude") / "run-job.json")
+    if config_path is not None:
+        path = Path(config_path)
+    elif DEFAULT_CONFIG_PATH.is_file():
+        path = DEFAULT_CONFIG_PATH
+    else:
+        path = Path(".claude") / "run-job.json"
+
     if not path.is_file():
         return CheckResult(
             name="Configuration",
@@ -133,7 +140,7 @@ def check_config(config_path: Path | None = None) -> CheckResult:
 
     max_attempts = data.get("max_attempts")
     if max_attempts is not None:
-        if not isinstance(max_attempts, int) or max_attempts < 1:
+        if isinstance(max_attempts, bool) or not isinstance(max_attempts, int) or max_attempts < 1:
             return CheckResult(
                 name="Configuration",
                 ok=False,
@@ -177,10 +184,12 @@ def check_playbook(playbook_dir: Path | None = None, prompts_dir: Path | None = 
         for prompt_file in prompts_path.glob("*.md"):
             try:
                 content = prompt_file.read_text(encoding="utf-8")
-                quoted_citations |= {
-                    q for q in re.findall(r'"([^"\n]+)"', content)
-                    if q[:1].isupper() and " " in q
-                }
+                matches = re.findall(
+                    r'''(?:rules?|playbook(?:'s)?|breaks|violates)\s*[:]?\s*["']([^"'\n]+)["']''',
+                    content,
+                    re.IGNORECASE,
+                )
+                quoted_citations.update(matches)
             except OSError:
                 pass
 
@@ -203,13 +212,15 @@ def check_playbook(playbook_dir: Path | None = None, prompts_dir: Path | None = 
 
 def check_cache_folder(cache_dir: Path | None = None) -> CheckResult:
     """Check that the cache directory can be created and is writable."""
-    target = Path(cache_dir or Path(".cache"))
+    import tempfile
+    is_default = cache_dir is None
+    target = Path(cache_dir) if cache_dir is not None else Path(tempfile.gettempdir()) / "bms_cache"
+    existed = target.exists()
+    probe = target / f".probe_doctor_{os.getpid()}"
     try:
         target.mkdir(parents=True, exist_ok=True)
-        probe = target / f".probe_doctor_{os.getpid()}"
         probe.write_text("doctor-ok", encoding="utf-8")
         read_back = probe.read_text(encoding="utf-8")
-        probe.unlink(missing_ok=True)
         if read_back != "doctor-ok":
             return CheckResult(
                 name="Cache Folder",
@@ -223,10 +234,19 @@ def check_cache_folder(cache_dir: Path | None = None) -> CheckResult:
             message=f"Cache directory {target} is not writable: {err}",
             detail=f"Ensure write permissions for {target.resolve()}.",
         )
+    finally:
+        probe.unlink(missing_ok=True)
+        if not existed and target.exists():
+            try:
+                target.rmdir()
+            except OSError:
+                pass
+
+    msg = f"Cache storage is writable ({target})" if is_default else f"Cache folder {target} is writable"
     return CheckResult(
         name="Cache Folder",
         ok=True,
-        message=f"Cache folder {target} is writable",
+        message=msg,
     )
 
 
