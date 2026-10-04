@@ -751,9 +751,30 @@ class CheckedLine:
     flag_text: str = ""      # what the flag says
 
 
+_VRF_WORD = re.compile(r"(?<![A-Za-z0-9])VR[FV](?![A-Za-z])", re.I)
+_BRANCH_PREFIXES = frozenset({"BS", "HRU", "BC"})     # a VRF's branch selectors / branch circuit controllers
+_SPLIT_NAME = re.compile(r"^\s*Split System\b", re.I)
+
+
+def _named_template(name: str, templates):
+    return next((t for t in templates if t.name == name), None)
+
+
 def system_template(system, templates=None):
-    """The Master Template entry that fits the system's kind (or its tag prefix); None when none fits."""
+    """The Master Template entry that fits the system's kind (or its tag prefix); None when none fits. A system
+    whose kind or group name says VRF (or VRV), or a group holding a branch selector (BS, HRU, BC), takes the
+    "VRF System" entry; a "Split System" group (one per section too: "Split System — LOBBY") takes "Split System"."""
     templates = templates if templates is not None else load_templates()
+    kind, group = system.kind or "", getattr(system, "group", "") or ""
+    branch = bool(group) and any(_tag_prefix(t) in _BRANCH_PREFIXES for t in system_tags(system))
+    if _VRF_WORD.search(kind) or _VRF_WORD.search(group) or branch:
+        found = _named_template("VRF System", templates)
+        if found is not None:
+            return found
+    if _SPLIT_NAME.match(kind) or _SPLIT_NAME.match(group):
+        found = _named_template("Split System", templates)
+        if found is not None:
+            return found
     tags = expand_tags(system.tags)
     prefix = _tag_prefix(tags[0]) if tags else ""
     return template_for(prefix, system.kind or "", templates)

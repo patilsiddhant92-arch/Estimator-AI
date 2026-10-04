@@ -168,29 +168,6 @@ def _system(ledger: Ledger, fact: Fact) -> PlannedSystem:
                          facts=tuple(ids + [m.id for m in matched]))
 
 
-def _group_system(ledger: Ledger, group: Fact, members: list[Fact]) -> PlannedSystem:
-    families, ids = [], [group.id]
-    for member in members:
-        family, member_ids = _family(ledger, member)
-        families.append(family)
-        ids += member_ids
-    prefixes = [m.subject for m in members]
-    matched = _matches(ledger, group.subject, *prefixes)
-    sequence = tuple(_bracket(m.source_id) for m in matched)
-    tags =tuple(t for f in families for t in f.tags)
-    notes = [f"{m.subject}: {note}" for m in members if ledger.find("count", m.subject)
-             for note in [count_note(ledger, ledger.find("count", m.subject))] if note]   # one note per family
-    return PlannedSystem(key=_squash(group.subject), header=_squash(group.subject), kind=_squash(group.subject),
-                         tags=tags, quantity=None, quantity_source="", quantity_quote="", sequence_sources=sequence,
-                         schedule_sources=tuple(_bracket(ledger.find("count", m.subject).source_id) for m in members
-                                                if ledger.find("count", m.subject)),
-                         group=_squash(group.subject), alternate=_alternate(ledger, group.subject, *prefixes),
-                         exception=_note(ledger, "exception", group.subject, *prefixes),
-                         why=f"From the job ledger: {len(ids) + len(matched)} facts.",
-                         sequence_section=", ".join(sequence), families=tuple(families),
-                         count_note="\n".join(notes), facts=tuple(ids + [m.id for m in matched]))
-
-
 def _front_end(ledger: Ledger) -> dict:
     facts = ledger.of_kind("front_end")
     by = lambda subject: [f for f in facts if f.subject.casefold() == subject]      # noqa: E731
@@ -318,41 +295,298 @@ def _link_dampers(ledger: Ledger, systems: list[PlannedSystem]) -> list[PlannedS
     return planned
 
 
+SPLIT_SYSTEM = "Split System"       # the Master Template entry the split units no group took are written under
+_LONG_NAME_WORDS = 4                # a family name longer than this is a description: the template's word replaces it
+_OUTSIDE_BRACKETS = re.compile(r",(?![^()]*\))")
+_MEMBER = re.compile(r"^([^()]*?)\s*\(([^()]*)\)$")
+_TIMES = re.compile(r"(?:\s*×|\s+x)\s*\d+\s*$", re.I)        # "HRU-3 x3", "HRU-3×3"; never the X of "TX1"
+_TAG_TIMES = re.compile(r"(?<![A-Za-z0-9])([A-Za-z]{1,6}(?:-[A-Za-z0-9.]+)+)(?:\s*×|\s+x)\s*(\d+)(?![A-Za-z0-9])",
+                        re.I)
+
+
+def _family_facts(ledger: Ledger) -> dict[str, Fact]:
+    """The family facts by subject (any case), the first of a subject kept."""
+    return {f.subject.casefold(): f for f in reversed(ledger.of_kind("family"))}
+
+
+def _family_of_tag(families: dict[str, Fact], tag: str) -> Fact | None:
+    """The family a bare tag belongs to ("WAC-1.0" is the WAC family's): the longest subject it starts with, then a
+    dash."""
+    key = tag.casefold()
+    owners = [s for s in families if key.startswith(s + "-") and len(key) > len(s) + 1]
+    return families[max(owners, key=len)] if owners else None
+
+
+def _members(ledger: Ledger, group: Fact) -> list[tuple[Fact, tuple[str, ...] | None]]:
+    """A group's members in the group's order, each family once: (its family fact, the tags it lists, or None when
+    it lists none). A member is "PREFIX", "PREFIX (TAG-1, TAG-2 x3, TAG-4 thru 6)" or a bare tag of a family
+    ("WAC-1.0"); commas inside brackets do not part members. A member naming no family is left out."""
+    from estimator.writing.assemble import expand_tags
+    families = _family_facts(ledger)
+    found: dict[str, list] = {}
+    for piece in (p.strip() for p in _OUTSIDE_BRACKETS.split(_squash(group.value))):
+        m = _MEMBER.match(piece)
+        head, listed = (m.group(1).strip(), m.group(2)) if m else (_TIMES.sub("", piece), "")
+        fact = families.get(head.casefold())
+        tags = expand_tags([_TIMES.sub("", t) for t in listed.split(",") if t.strip()]) if listed else []
+        if fact is None and head and not listed:
+            fact, tags = _family_of_tag(families, head), [head]
+        if fact is None:
+            continue
+        entry = found.setdefault(fact.subject.casefold(), [fact, []])
+        if entry[1] is not None:
+            entry[1] = entry[1] + [t for t in tags if t not in entry[1]] if tags else None
+    return [(fact, tuple(tags) if tags is not None else None) for fact, tags in found.values()]
+
+
+def _parts(ledger: Ledger, groups: list[Fact]) -> dict[str, list[tuple[Fact, tuple[str, ...] | None]]]:
+    """What each family gives the groups, by family subject (any case): (the group, None) when the group takes the
+    whole family (a member listing no tags, or tags that are not a proper part of the family's own); (the group,
+    its tags) when the group takes only the tags it lists, the rest staying a system of its own. A family the first
+    group took whole is no later group's; a tag is taken once."""
+    parts: dict[str, list[tuple[Fact, tuple[str, ...] | None]]] = {}
+    for group in groups:
+        for fact, listed in _members(ledger, group):
+            claims = parts.setdefault(fact.subject.casefold(), [])
+            if any(tags is None for _, tags in claims):
+                continue
+            own = _tags(ledger, fact.subject)
+            wanted = {t.upper() for t in listed or ()}
+            if not wanted or not wanted < {t.upper() for t in own}:
+                if not claims:
+                    claims.append((group, None))
+                continue
+            taken = {t.upper() for _, tags in claims for t in tags or ()}
+            tags = tuple(t for t in own if t.upper() in wanted and t.upper() not in taken)
+            if tags:
+                claims.append((group, tags))
+    return parts
+
+
+def _stated(ledger: Ledger, group: Fact) -> dict[str, tuple[int, tuple[Fact, ...]]]:
+    """The unit counts the group fact and the link facts give a tag ("HRU-3 x3"), by tag in capitals: summed across
+    the facts, each fact read once."""
+    found: dict[str, tuple[int, tuple[Fact, ...]]] = {}
+    for fact in (group, *ledger.of_kind("link")):
+        text = _squash(fact.value) if fact is group else f"{_squash(fact.subject)} {_squash(fact.value)}"
+        seen: set[str] = set()
+        for m in _TAG_TIMES.finditer(text):
+            tag = m.group(1).upper()
+            if tag in seen:
+                continue
+            seen.add(tag)
+            number, facts = found.get(tag, (0, ()))
+            found[tag] = (number + int(m.group(2)), facts + (fact,))
+    return found
+
+
+def _part_count(ledger: Ledger, fact: Fact, tags: tuple[str, ...], group: Fact) -> tuple[int | None, list[Fact]]:
+    """The units a group's part of a family holds, and the facts stating them: each tag's stated count ("x3"); one
+    for a tag no fact counts when the tags are unit tags (the family's count is no more than its distinct tags);
+    None when a tag has no count and the tags are type tags (or the family has no count): never a guess that
+    undershoots."""
+    stated = _stated(ledger, group)
+    own = {t.upper() for t in _tags(ledger, fact.subject)}
+    printed = _family(ledger, fact)[0].quantity
+    unit_tags = printed is not None and printed <= len(own)
+    total, used = 0, []
+    for tag in tags:
+        if tag.upper() in stated:
+            number, facts = stated[tag.upper()]
+            total += number
+            used += [f for f in facts if f not in used]
+        elif unit_tags:
+            total += 1
+        else:
+            return None, used
+    return total, used
+
+
+def _part_family(fact: Fact, family: Family, tags: tuple[str, ...], count: int | None, used: list[Fact]) -> Family:
+    """The group's part of a family: its own tags and count, the count's source the first fact stating one (the
+    family's own count when the tags are unit tags)."""
+    from estimator.writing.write import tag_list
+    if count is None:
+        source, quote = "", ""
+    elif used:
+        source, quote = _bracket(used[0].source_id), used[0].quote
+    else:
+        source, quote = family.quantity_source, family.quantity_quote
+    return Family(f"{_squash(fact.value)} {tag_list(list(tags))}".strip(), tags, count, source, quote)
+
+
+def _group_system(ledger: Ledger, group: Fact, parts: dict) -> tuple[PlannedSystem, list[str]]:
+    """The group's system, its families in ledger order (the whole family, or the part the group lists), and the
+    questions its parts with no count raise."""
+    from estimator.writing.write import tag_list
+    name = _squash(group.subject)
+    families, ids, members, asks = [], [group.id], [], []
+    for fact in ledger.of_kind("family"):
+        for owner, tags in parts.get(fact.subject.casefold(), []):
+            if owner is not group:
+                continue
+            family, member_ids = _family(ledger, fact)
+            if tags is not None:
+                count, used = _part_count(ledger, fact, tags, group)
+                family = _part_family(fact, family, tags, count, used)
+                member_ids = member_ids + [f.id for f in used]
+                if count is None:
+                    asks.append(f"How many {fact.subject} units does the group “{name}” take ({tag_list(list(tags))})? "
+                                "No sheet gives their count, so the header reads Qty (##).")
+            families.append(family)
+            ids += [i for i in member_ids if i not in ids]
+            members.append(fact)
+    prefixes = [m.subject for m in members]
+    matched = _matches(ledger, group.subject, *prefixes)
+    sequence = tuple(_bracket(m.source_id) for m in matched)
+    tags = tuple(t for f in families for t in f.tags)
+    counts = [ledger.find("count", p) for p in prefixes]
+    notes = [f"{p}: {note}" for p, c in zip(prefixes, counts) if c for note in [count_note(ledger, c)] if note]
+    system = PlannedSystem(key=name, header=name, kind=name, tags=tags, quantity=None, quantity_source="",
+                           quantity_quote="", sequence_sources=sequence,
+                           schedule_sources=tuple(_bracket(c.source_id) for c in counts if c), group=name,
+                           alternate=_alternate(ledger, group.subject, *prefixes),
+                           exception=_note(ledger, "exception", group.subject, *prefixes),
+                           why=f"From the job ledger: {len(ids) + len(matched)} facts.",
+                           sequence_section=", ".join(sequence), families=tuple(families),
+                           count_note="\n".join(notes), facts=tuple(ids + [m.id for m in matched]))
+    return system, asks
+
+
+def _rest_system(ledger: Ledger, fact: Fact, claims: list) -> PlannedSystem | None:
+    """The family as a system of its own: whole when no group took it; the tags no group listed when groups took
+    parts of it, its count the family's printed count less the parts' counts when both are known and that leaves at
+    least one unit per remaining tag, else the family's printed count unchanged. None when groups took it all."""
+    from estimator.writing.write import tag_list
+    system = _system(ledger, fact)
+    if not claims:
+        return system
+    if any(tags is None for _, tags in claims):
+        return None
+    taken = {t.upper() for _, tags in claims for t in tags}
+    left = tuple(t for t in system.tags if t.upper() not in taken)
+    if not left:
+        return None
+    quantity = system.quantity
+    counts = [_part_count(ledger, fact, tags, group)[0] for group, tags in claims]
+    if quantity is not None and None not in counts and quantity - sum(counts) >= len(left):
+        quantity = quantity - sum(counts)
+    return replace(system, header=f"{system.kind} {tag_list(list(left))}".strip(), tags=left, quantity=quantity)
+
+
+def _split_prefixes() -> frozenset[str]:
+    """The split system unit prefixes: the Master Template's Split System entry's applies_to prefixes."""
+    from estimator.writing.templates import load_templates
+    template = next((t for t in load_templates() if t.name == SPLIT_SYSTEM), None)
+    return frozenset(template.prefixes) if template else frozenset()
+
+
+def _suffixes(system: PlannedSystem) -> set[str]:
+    """A system's tags without their prefix: AC-LOBBY-1 gives "LOBBY-1"."""
+    head = system.key.upper() + "-"
+    return {t.upper()[len(head):] for t in system.tags if t.upper().startswith(head)}
+
+
+def _split_system(ledger: Ledger, name: str, members: list[PlannedSystem]) -> PlannedSystem:
+    """One block of split units: one family per unit system, in order, with their facts, sources and notes."""
+    families = tuple(Family(s.header, s.tags, s.quantity, s.quantity_source, s.quantity_quote) for s in members)
+    prefixes = [s.key for s in members]
+    facts = tuple(dict.fromkeys(f for s in members for f in s.facts))
+    sequence = tuple(dict.fromkeys(x for s in members for x in s.sequence_sources))
+    return PlannedSystem(key=name, header=name, kind=name, tags=tuple(t for f in families for t in f.tags),
+                         quantity=None, quantity_source="", quantity_quote="", sequence_sources=sequence,
+                         schedule_sources=tuple(dict.fromkeys(x for s in members for x in s.schedule_sources)),
+                         group=name, alternate=_alternate(ledger, name, *prefixes),
+                         exception=_note(ledger, "exception", name, *prefixes),
+                         why=f"From the job ledger: {len(facts)} facts.", sequence_section=", ".join(sequence),
+                         families=families,
+                         count_note="\n".join(f"{s.key}: {s.count_note}" for s in members if s.count_note),
+                         facts=facts)
+
+
+def _gather_splits(ledger: Ledger, systems: list[PlannedSystem]) -> list[PlannedSystem]:
+    """The split units no group took (their prefix one of the Split System template's) become one "Split System"
+    block; one per sequence section ("Split System — LOBBY") when their sequence matches name two or more
+    sections, a unit matched to none joining the block whose units share a tag suffix with it, else the first. A
+    lone unit with no partner stays on its own."""
+    prefixes = _split_prefixes()
+    loose = [s for s in systems if not s.group and not s.families and s.key.upper() in prefixes]
+    if len(loose) < 2:
+        return systems
+    section = {s.key: next((_squash(m.subject) for m in _matches(ledger, s.key)), "") for s in loose}
+    names = list(dict.fromkeys(n for n in section.values() if n))
+    if len(names) < 2:
+        gathered = {SPLIT_SYSTEM: loose}
+    else:
+        by_section = {n: [s for s in loose if section[s.key] == n] for n in names}
+        for system in (s for s in loose if not section[s.key]):
+            near = next((n for n in names if _suffixes(system) & set().union(*map(_suffixes, by_section[n]))),
+                        names[0])
+            by_section[near].append(system)
+        gathered = {f"{SPLIT_SYSTEM} — {n}": sorted(m, key=systems.index) for n, m in by_section.items()}
+    out = list(systems)
+    for name, members in gathered.items():
+        if len(members) < 2:
+            continue
+        out[out.index(members[0])] = _split_system(ledger, name, members)
+        out = [s for s in out if s not in members[1:]]
+    return out
+
+
+def _template_names(system: PlannedSystem) -> PlannedSystem:
+    """A group's family whose name is a long description takes the Master Template's word for its prefix
+    ("Indoor Unit AC-1, 2")."""
+    if not system.families:
+        return system
+    from estimator.writing.assemble import _split_kind, system_template
+    template = system_template(system)
+    names = getattr(template, "family_names", None) or {}
+    families = []
+    for family in system.families:
+        words, rest = _split_kind(family.header)
+        word = names.get(_family_prefix(family))
+        if word and rest and len(words.split()) > _LONG_NAME_WORDS:
+            family = replace(family, header=f"{word} {rest}")
+        families.append(family)
+    return replace(system, families=tuple(families))
+
+
 def _split_group(ledger: Ledger, group: Fact) -> list[str]:
     """The families of a group that each match their own sequence section (two or more distinct sequence_match
     values among its members): such a group is not one plant, so it is not kept. [] when the group holds."""
-    prefixes = [p.strip() for p in _squash(group.value).split(",") if p.strip()]
-    families = {f.subject.casefold() for f in ledger.of_kind("family")}
-    matched = [p for p in prefixes if p.casefold() in families and _matches(ledger, p)]
+    matched = [fact.subject for fact, _ in _members(ledger, group) if _matches(ledger, fact.subject)]
     values = {_squash(m.value).casefold() for m in _matches(ledger, *matched)}
     return matched if len(values) >= 2 else []
 
 
 def ledger_plan(ledger: Ledger) -> JobPlan:
-    groups = ledger.of_kind("group")
-    member_of: dict[str, Fact] = {}
+    kept: list[Fact] = []
     dropped: list[str] = []
-    for group in groups:
+    for group in ledger.of_kind("group"):
         split = _split_group(ledger, group)
         if split:
             dropped.append(f"The group “{_squash(group.subject)}” is not kept: its families {', '.join(split)} each "
                            "match their own sequence section, so each is written on its own.")
             continue
-        for prefix in (p.strip() for p in _squash(group.value).split(",")):
-            if prefix:
-                member_of.setdefault(prefix.casefold(), group)
+        kept.append(group)
+    parts = _parts(ledger, kept)
     systems: list[PlannedSystem] = []
+    asks: list[str] = []
     placed: set[str] = set()
     for fact in ledger.of_kind("family"):
-        group = member_of.get(fact.subject.casefold())
-        if group is None:
-            systems.append(_system(ledger, fact))
-        elif group.id not in placed:
-            placed.add(group.id)
-            members = [f for f in ledger.of_kind("family") if member_of.get(f.subject.casefold()) is group]
-            systems.append(_group_system(ledger, group, members))
+        claims = parts.get(fact.subject.casefold(), [])
+        for group, _ in claims:
+            if group.id not in placed:
+                placed.add(group.id)
+                system, questions = _group_system(ledger, group, parts)
+                systems.append(system)
+                asks += questions
+        rest = _rest_system(ledger, fact, claims)
+        if rest is not None:
+            systems.append(rest)
+    systems = [_template_names(s) for s in _gather_splits(ledger, systems)]
     systems = _link_dampers(ledger, systems)
-    questions = [_squash(f.value) for f in ledger.of_kind("note") if f.subject.casefold() == "question"]
+    questions = [_squash(f.value) for f in ledger.of_kind("note") if f.subject.casefold() == "question"] + asks
     taken = {i for s in systems for i in s.facts}
     for f in ledger.of_kind("sequence_match"):
         if f.id in taken:

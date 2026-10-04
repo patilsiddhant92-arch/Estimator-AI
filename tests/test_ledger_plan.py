@@ -359,3 +359,130 @@ def test_a_match_valued_with_a_dropped_group_is_asked_about_and_the_split_is_lis
     assert ("Sequence section CORRIDOR AIR matched no system (it named corridor air); which system is it?"
             in plan.unresolved)
     assert "TXF" in plan.dropped[0]
+
+
+# --- VRF and split systems: a group reads its members with their tags; split units are one block ----------------
+
+from estimator.writing.assemble import system_template
+
+VRF_SOURCES = dict(SOURCES, S20="M-601, Drawings.pdf page 9 (sheet text)", Q5="sequence section “LOBBY SPLIT”, "
+                   "Specs.pdf page 60", Q6="sequence section “GYM SPLITS”, Specs.pdf page 61")
+
+
+def _family_of(ledger, prefix, name, tags, count):
+    ledger.add("family", prefix, name, "[S20]", f"{prefix}: schedule", "seed", SETTLED)
+    ledger.add("unit", prefix, tags, "[S20]", f"Tags: {tags}", "seed", SETTLED)
+    if count is not None:
+        ledger.add("count", prefix, count, "[S20]", f"{prefix} x{count}", "seed", SETTLED)
+
+
+def _vrf(cu_count=6):
+    """An invented VRF job: the riser takes four of six condensing units, the branch selector, and two of three
+    indoor unit types (their counts on a link); the other units are not on the VRF."""
+    ledger = Ledger(VRF_SOURCES)
+    _family_of(ledger, "CU", "Condensing Unit", "CU-1 thru 6", cu_count)
+    _family_of(ledger, "BS", "Branch Selector", "BS-1", 2)
+    _family_of(ledger, "AC", "Variable Refrigerant Flow Ductless Wall Mounted Indoor Unit", "AC-1, AC-2, AC-9", 5)
+    group = ledger.add("group", "VRF-A", "CU (CU-1 thru 4), BS (BS-1 x2), AC (AC-1, AC-2)", "[S20]", "VRF-A riser",
+                       "risers", SETTLED)
+    link = ledger.add("link", "BS-1", "AC-1 x3, AC-2 x1", "[S20]", "BS-1 serves AC-1 x3, AC-2 x1", "plans", SETTLED)
+    return ledger, group, link
+
+
+def test_a_vrf_group_takes_the_listed_parts_of_its_families():
+    ledger, group, link = _vrf()
+    plan = ledger_plan(ledger)
+    vrf, split = plan.systems
+    assert vrf.key == "VRF-A" and vrf.group == "VRF-A"
+    cu, bs, ac = vrf.families
+    assert cu.tags == ("CU-1", "CU-2", "CU-3", "CU-4") and cu.quantity == 4      # unit tags: one unit each
+    assert cu.header == "Condensing Unit CU-1 thru 4"
+    assert bs.tags == ("BS-1",) and bs.quantity == 2                               # the whole family
+    assert ac.tags == ("AC-1", "AC-2") and ac.quantity == 4                        # type tags counted by the link
+    assert ac.header == "Indoor Unit AC-1, 2"                 # the template's word for a long description
+    assert link.id in vrf.facts and group.id in vrf.facts
+    assert not any("CU" in q or "AC" in q for q in plan.unresolved)
+    assert split.key == "Split System" and split.group == "Split System"
+    rest_cu, rest_ac = split.families
+    assert rest_cu.tags == ("CU-5", "CU-6") and rest_cu.quantity == 2
+    assert rest_ac.tags == ("AC-9",) and rest_ac.quantity == 1
+    assert ledger.find("family", "AC").id in split.facts and ledger.find("family", "AC").id in vrf.facts
+
+
+def test_type_tags_with_no_stated_count_print_qty_to_fill_and_ask():
+    ledger, _, _ = _vrf(cu_count=8)              # eight units over six tags: the tags are types
+    plan = ledger_plan(ledger)
+    vrf, split = plan.systems
+    cu = vrf.families[0]
+    assert cu.tags == ("CU-1", "CU-2", "CU-3", "CU-4") and cu.quantity is None
+    assert any("CU" in q and "VRF-A" in q and "CU-1 thru 4" in q for q in plan.unresolved)
+    assert split.families[0].tags == ("CU-5", "CU-6") and split.families[0].quantity == 8    # never undershoots
+
+
+def test_a_member_listing_every_tag_or_none_takes_the_whole_family():
+    ledger = Ledger(VRF_SOURCES)
+    _family_of(ledger, "ODU", "Outdoor Unit", "ODU-1, ODU-2", 2)
+    _family_of(ledger, "IDU", "Indoor Unit", "IDU-1 thru 3", 3)
+    ledger.add("group", "Heat Pump VRF", "ODU (ODU-1, ODU-2), IDU", "[S20]", "VRF riser", "risers", SETTLED)
+    (vrf,) = ledger_plan(ledger).systems
+    assert [f.tags for f in vrf.families] == [("ODU-1", "ODU-2"), ("IDU-1", "IDU-2", "IDU-3")]
+    assert [f.quantity for f in vrf.families] == [2, 3]
+
+
+def test_bare_tags_in_a_group_join_their_family():
+    ledger = Ledger(VRF_SOURCES)
+    _family_of(ledger, "ACCU", "Air Cooled Condensing Unit", "ACCU-1", 1)
+    _family_of(ledger, "WAC", "Wall Air Conditioner", "WAC-1.0, WAC-1.5, WAC-2.0", 3)
+    ledger.add("group", "VRF-1", "ACCU (ACCU-1), WAC-1.0, WAC-1.5", "[S20]", "VRF riser", "risers", SETTLED)
+    vrf, wac = ledger_plan(ledger).systems
+    assert vrf.key == "VRF-1" and vrf.families[1].tags == ("WAC-1.0", "WAC-1.5") and vrf.families[1].quantity == 2
+    assert wac.key == "WAC" and wac.tags == ("WAC-2.0",) and wac.quantity == 1
+
+
+def test_split_units_no_group_took_are_one_block_and_a_lone_one_stays_alone():
+    ledger = Ledger(VRF_SOURCES)
+    _family_of(ledger, "AC", "Ductless Split Indoor Unit", "AC-1, AC-2", 2)
+    _family_of(ledger, "EF", "Exhaust Fan", "EF-1", 1)
+    _family_of(ledger, "ACCU", "Outdoor Unit", "ACCU-1, ACCU-2", None)        # seen on plans, not scheduled
+    split, ef = ledger_plan(ledger).systems
+    assert split.key == "Split System" and [f.tags for f in split.families] == [("AC-1", "AC-2"), ("ACCU-1", "ACCU-2")]
+    assert ef.key == "EF"
+    ledger = Ledger(VRF_SOURCES)
+    _family_of(ledger, "CU", "Condensing Unit", "CU-1", 1)
+    (cu,) = ledger_plan(ledger).systems
+    assert cu.key == "CU" and cu.group == ""
+
+
+def test_split_units_in_two_sequence_sections_make_two_split_blocks():
+    ledger = Ledger(VRF_SOURCES)
+    _family_of(ledger, "AC", "Indoor Unit", "AC-LOBBY-1", 1)
+    _family_of(ledger, "CU", "Condensing Unit", "CU-LOBBY-1", 1)
+    _family_of(ledger, "SS", "Indoor Unit", "SS-GYM-1", 1)
+    _family_of(ledger, "ACCU", "Outdoor Unit", "ACCU-GYM-1", 1)
+    _family_of(ledger, "OU", "Outdoor Unit", "OU-GYM-1", 1)                    # matched to no section
+    ledger.add("sequence_match", "LOBBY SPLIT", "AC", "[Q5]", "LOBBY SPLIT", "sequence", SETTLED)
+    ledger.add("sequence_match", "LOBBY SPLIT", "CU", "[Q5]", "LOBBY SPLIT", "sequence", SETTLED)
+    ledger.add("sequence_match", "GYM SPLITS", "SS", "[Q6]", "GYM SPLITS", "sequence", SETTLED)
+    ledger.add("sequence_match", "GYM SPLITS", "ACCU", "[Q6]", "GYM SPLITS", "sequence", SETTLED)
+    plan = ledger_plan(ledger)
+    lobby, gym = plan.systems
+    assert lobby.key == "Split System — LOBBY SPLIT" and [f.tags[0] for f in lobby.families] == ["AC-LOBBY-1", "CU-LOBBY-1"]
+    assert gym.key == "Split System — GYM SPLITS"
+    assert [f.tags[0] for f in gym.families] == ["SS-GYM-1", "ACCU-GYM-1", "OU-GYM-1"]    # OU shares "GYM-1"
+    assert lobby.sequence_section == "[Q5]" and gym.sequence_section == "[Q6]"
+    assert not any("matched no system" in q for q in plan.unresolved)
+    assert system_template(lobby).name == system_template(gym).name == "Split System"
+
+
+def test_the_vrf_group_takes_the_vrf_template_and_the_split_group_the_split_template():
+    vrf, split = ledger_plan(_vrf()[0]).systems
+    assert system_template(vrf).name == "VRF System" and system_template(split).name == "Split System"
+    single = PlannedSystem("ODU", "Acme VRF system ODU-1", "Acme VRF system", ("ODU-1",), 1, "", "", (), (), "", "",
+                           "", "why")
+    assert system_template(single).name == "VRF System"
+    ledger = Ledger(VRF_SOURCES)
+    _family_of(ledger, "HRU", "Heat Recovery Unit", "HRU-1", 1)
+    _family_of(ledger, "IDU", "Indoor Unit", "IDU-1", 1)
+    ledger.add("group", "Heat Pump Plant", "HRU, IDU", "[S20]", "riser", "risers", SETTLED)
+    (plant,) = ledger_plan(ledger).systems
+    assert system_template(plant).name == "VRF System"
