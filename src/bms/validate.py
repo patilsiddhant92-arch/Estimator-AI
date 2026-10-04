@@ -179,9 +179,15 @@ def _heaters(system, shape, job, playbook) -> Iterator[Hit]:
 def _vrf(system, shape, job, playbook) -> Iterator[Hit]:
     if not _is_vrf(system):
         return
-    comm = [d for d in system.devices if "comm" in d.slot.lower()]
-    if len(comm) > 1:
-        yield (comm[1].id, "must_fix", "Communication wiring appears more than once in this VRF or split block",
+    comm: dict[str, list[Device]] = {}
+    for d in system.devices:
+        if "comm" in d.slot.lower():
+            comm.setdefault(d.slot, []).append(d)
+    # one line per communication-wiring slot: "VRF Communication Wiring" and the integration trio's BMS
+    # communication wiring are different lines, each written once
+    repeated = next((lines for lines in comm.values() if len(lines) > 1), None)
+    if repeated:
+        yield (repeated[1].id, "must_fix", "Communication wiring appears more than once in this VRF or split block",
                "Keep one communication wiring line per system.")
     elif not comm and system.devices:
         yield (None, "check", "This VRF or split block has no communication wiring line", "Add it once.")

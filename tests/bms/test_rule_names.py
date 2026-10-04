@@ -244,3 +244,10 @@ def test_the_loader_rejects_a_bad_under(tmp_path):
     (tmp_path / "shapes.json").write_text(json.dumps(data), encoding="utf-8")
     with pytest.raises(PlaybookError, match="not in line_order"):
         load_playbook(tmp_path)
+
+
+def test_vrf_communication_wiring_and_the_trio_comm_line_are_two_lines_not_a_repeat():
+    vrf = job(sysm("VRF", "VRF System", [dev("VRF.d1", "vrf_comm_wiring", verb="Wire"),
+                                         dev("VRF.d2", "comm_wiring", verb="Furnish"),
+                                         dev("VRF.d3", "map_points", verb="Furnish")], family="Indoor Unit"))
+    assert RULE["vrf"] not in {f.rule for f in validate(vrf, PLAYBOOK) if f.severity == "must_fix"}
