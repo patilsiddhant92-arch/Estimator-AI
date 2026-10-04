@@ -159,6 +159,76 @@ def test_a_run_waits_for_its_answers_then_writes_all_four_outputs(job_folder, tm
 
 # ---- what stays open after the one revise round ----------------------------------------------------------------------
 
+def _reach(job_folder, out, cache, stage):
+    """Run until the estimate is waiting at `stage`. Answers every earlier request."""
+    result = None
+    for _ in range(25):
+        result = estimate(job_folder, out, cache, "chat")
+        if result.status == "done" or result.stage == stage:
+            return result
+        assert result.status == "waiting" and result.waiting >= 1
+        assert answer_all(cache)
+    raise AssertionError(result)
+
+
+def test_a_killed_write_resumes_from_cached_answers_without_asking_again(job_folder, tmp_path, monkeypatch):
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    out, cache = tmp_path / "out", tmp_path / "cache"
+    waiting = _reach(job_folder, out, cache, "write")
+    assert waiting.stage == "write"
+    folder = cache / "judge-chat" / "requests"
+    requests = sorted(folder.glob("*.json"))
+    assert requests and {json.loads(p.read_text(encoding="utf-8"))["kind"] for p in requests} == {"write_system"}
+    saved = {p.name: p.read_bytes() for p in requests}
+
+    # killed after the requests were written, before any answer: the same files, not a second ask
+    resumed = estimate(job_folder, out, cache, "chat")
+    assert resumed.status == "waiting" and resumed.stage == "write"
+    assert {p.name: p.read_bytes() for p in folder.glob("*.json")} == saved
+
+    # those answers are now cached, but a kill left the request files behind: resume must drop them
+    for path in folder.glob("*.json"):
+        request = json.loads(path.read_text(encoding="utf-8"))
+        answer = Path(request["answer_file"])
+        answer.parent.mkdir(parents=True, exist_ok=True)
+        answer.write_text(json.dumps(_answer(request)), encoding="utf-8")
+    consumed = estimate(job_folder, out, cache, "chat")
+    assert consumed.stage != "write"
+    for name, payload in saved.items():
+        (folder / name).write_bytes(payload)
+    estimate(job_folder, out, cache, "chat")
+    assert not any(p.name in saved for p in folder.glob("*.json"))
+
+
+def test_a_malformed_decisions_file_stops_with_a_plain_message(job_folder, tmp_path, monkeypatch):
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    out, cache = tmp_path / "out", tmp_path / "cache"
+    assert _reach(job_folder, out, cache, "write").stage == "write"
+    (out / "decisions.json").write_text("{", encoding="utf-8")
+    assert answer_all(cache)
+    result = estimate(job_folder, out, cache, "chat")
+    assert result.messages and any("decisions.json" in line and "Stopped" in line for line in result.messages)
+    assert result.proposal is None
+
+
+def test_a_rerun_asks_the_writer_again_only_for_the_system_a_decision_changed(job_folder, tmp_path, monkeypatch):
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    out, cache = tmp_path / "out", tmp_path / "cache"
+    assert _reach(job_folder, out, cache, "write").stage == "write"
+    requests = sorted((cache / "judge-chat" / "requests").glob("*.json"))
+    changed = json.loads(requests[0].read_text(encoding="utf-8"))["plan_key"]
+    (out / "decisions.json").write_text(json.dumps([{
+        "system_key": changed, "action": "delete", "device_id": f"{changed}.d1", "reason": "invented",
+    }]), encoding="utf-8")
+    assert answer_all(cache)
+    result = estimate(job_folder, out, cache, "chat")
+    assert result.status == "waiting"
+    fresh = [json.loads(p.read_text(encoding="utf-8"))
+             for p in (cache / "judge-chat" / "requests").glob("*.json")]
+    assert [r.get("plan_key") for r in fresh] == [changed]
+    assert fresh[0]["step"] == "write" and "estimator" in fresh[0]["prompt"].lower()
+
+
 def test_a_qc_must_fix_the_revise_left_as_it_was_stays_open():
     import dataclasses
 
