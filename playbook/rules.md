@@ -49,7 +49,7 @@ term is unclear, flag the ownership before writing. Never reject an assignment b
 List every item the documents give the controls contractor, in two groups. Devices and hardwired signals (every
 sensor, actuator, switch, valve, relay, meter, detector, transmitter and hardwired signal) become lines. Other
 responsibilities (panel work, demolition, wiring runs not tied to a device, coordination, testing) become lines
-or a client note (see Miscellaneous responsibilities). Nothing on the list is dropped. Every device on the list
+too (see Miscellaneous responsibilities). Nothing on the list is dropped. Every device on the list
 has its line, and every line is on the list.
 
 ### Sequence first, point list second
@@ -122,7 +122,8 @@ not (see Factory-installed devices).
 Name the furnishing party in brackets after the device: "(Furnished by Unit Mfr.)" for the unit manufacturer;
 "(Relay Furnished by FA)" for fire alarm relays and signals; "(Furnished by Others)" for dampers and end switches by
 the sheet metal contractor; "(Furnished by Mechanical Contractor)" for condensate pumps and float switches;
-"(Furnished by Electrical Contractor)" and "(Furnished by Owner)" when those parties furnish.
+"(Furnished by Electrical Contractor)" and "(Furnished by Owner)" when those parties furnish. The bracket names
+only the furnishing party; who installs is kept in the Evidence Package, not printed.
 
 ### Point lines only on AME controllers
 "Furnish <point>" lines (start/stop and status, speed control, enable, setpoint, alarms, feedback) are written only
@@ -133,10 +134,10 @@ cover every monitored point.
 On equipment AME's own controller runs, write these points with the documents' citation that puts the equipment
 under AME's control. Fans and pumps: Start/Stop and Status; VFD Control when the equipment has a VFD. Boilers:
 Enable, Status, Alarm/Fault; Setpoint only when the sequence calls for a BMS reset. Chillers: Enable, Status,
-Alarm/Fault. Cooling towers: Fan Enable, Fan Status, Fan VFD Control and Fan VFD Fault. A VFD fault is written only
-when the documents call it, in their exact term (Fault, Malfunction or Safety Stop). VFD speed feedback, position
-feedback and open/closed status from end switches only when the documents call them. These are never listed for
-equipment on factory controls unless the documents give them to AME.
+Alarm/Fault. Cooling towers: Fan Enable, Fan Status and Fan VFD Control; the Fan VFD Fault, like any VFD fault, is
+written only when the documents call it, in their exact term (Fault, Malfunction or Safety Stop). VFD speed
+feedback, position feedback and open/closed status from end switches only when the documents call them. These
+are never listed for equipment on factory controls unless the documents give them to AME.
 
 ### Start/stop covers the relay and status switch
 "Furnish <fan> Start/Stop and Status" includes the relay and the current switch. Do not add a separate current
@@ -201,18 +202,22 @@ A client note is a statement to the client that the documents support, such as "
 System". It has no place of its own: it goes into the block's one clarification. When the block has nothing to
 confirm, assume or count per drawings, the clarification is the "note" kind and the notes are joined with "; "
 ("**Start/Stop via Fire Alarm System; PC Workstation by Owner"). Otherwise they are joined after the other parts,
-each led by "Note:" (see Joining into the one clarification). A device the documents say the unit's manufacturer furnishes, and that AME does not touch, may be
-noted in the house form "**<ITEM> BY UNIT MFR." (for example "**LEAK DETECTION BY UNIT MFR."). Never an estimating
-hint (where to look, how to decide), never tech hours, never prices.
+each led by "Note:" (see Joining into the one clarification). A client note never changes the price: work AME
+prices is a line, never a note (see Miscellaneous responsibilities). A device the documents say the unit's
+manufacturer furnishes, and that AME does not touch, may be noted in the house form "**<ITEM> BY UNIT MFR." (for
+example "**LEAK DETECTION BY UNIT MFR."). Never an estimating hint (where to look, how to decide), never tech
+hours, never prices.
 
 ### Miscellaneous responsibilities
 Controls work that is not a device (panel and enclosure work; demolition of tubing, wiring, transducers and
 sensors; wiring and conduit not tied to a device; coordination and testing given to the controls contractor) is
-never dropped. Work a house verb can carry is a line with its three ownership answers: panel and enclosure work
-in the device slot ("Furnish and Install Control Panel Enclosure"), wiring and conduit in the wiring slot ("Wire
-<run> per <section>"). Work no house verb carries (demolition, coordination, testing) is a client note in the
-block's one clarification, in plain words with no verb in front ("Demolition of Existing Pneumatic Tubing and
-Sensors"). Leave them out when there are none.
+never dropped: it is priced scope, so it is always a line of its own, with its citation and its three ownership
+answers. Work a house verb can carry takes that verb: panel and enclosure work in the device slot ("Furnish and
+Install Control Panel Enclosure"), wiring and conduit in the wiring slot ("Wire <run> per <section>"). Work no house
+verb carries (demolition, coordination, testing, other work not tied to a device) is one plain statement per
+responsibility in the block's other_wiring slot, which prints with no verb in front, the way the Existing Fan Coil
+Unit shape prints its demolition and re-commissioning lines ("Demolition of Existing Pneumatic Tubing and
+Sensors"). It is never folded into the block's one clarification. Leave them out when there are none.
 
 ### Words the client never sees
 Nothing printed (header, line or note) carries: prices or dollar signs, tech hours, confidence, rule names, source
@@ -403,8 +408,8 @@ citation. Graphics on a tie-in are "to match existing".
 ### Front end items by others
 When the documents give the workstation, server or network switches to the owner or others in the same sentence,
 the line is not written and the front end's one clarification carries the client note ("**PC Workstation by
-Owner", joined as in Joining into the one clarification). A sentence about the
-owner's network connection or the room's location is not the owner furnishing the item.
+Owner", joined as in Joining into the one clarification). A sentence about the owner's network connection or the
+room's location is not the owner furnishing the item.
 
 ### Auto dialer with a network panel
 When AME furnishes a network level control panel, the BMS can send alarms by email and text, so an auto dialer
@@ -472,7 +477,8 @@ transmitters; safety and pressure switches; leak detectors; standalone current s
 actuators; fan and pump signals (start/stop and status, VFD control, VFD fault in the documents' term, VFD speed
 feedback, safety stop); primary equipment signals (boiler, chiller, cooling tower); position feedback and open/closed
 status; other hardwired outputs; power wiring; fire alarm Wire lines; Furnish and Wire filter switches, airflow
-stations, valves; Install and Wire; other Wire; the integration lines last; then the block's one clarification.
+stations, valves; Install and Wire; other Wire; wiring runs and plain work statements (demolition, coordination,
+testing); the integration lines last; then the block's one clarification.
 
 ### Line form
 Each line starts with its verb, or with an interlock, tie-in or wiring phrase when it has no verb. No bullets, no

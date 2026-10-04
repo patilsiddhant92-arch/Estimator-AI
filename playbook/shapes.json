@@ -769,7 +769,7 @@
       "wording": {
         "interlock_wiring": "Necessary Low Voltage Interlock Wiring",
         "fan_starter_interlock": "Low Voltage Interlock with Associated Unit Fan Starter",
-        "end_switch_status": "{verb} Open / Close Status to BMS via FSD End Switch (End switch provided w damper by others){qty}"
+        "end_switch_status": "{verb} Open / Close Status to BMS via FSD End Switch{owner}{qty}"
       },
       "tech_hours": {"per": "unit", "hours": 0.5, "when": []}
     },
@@ -1564,10 +1564,11 @@
     {
       "name": "Refrigeration Monitoring System",
       "applies_to": {"prefixes": [], "kind_words": ["refrigerant monitoring system", "refrigerant monitoring", "refrigeration monitoring", "refrigerant leak detection"]},
-      "header": "Qty ({n}) Furnish and Install Refrigeration Monitoring System",
+      "header": "Qty ({n}) Refrigeration Monitoring System {tags}",
       "family_names": ["Refrigeration Monitoring System"],
-      "line_order": ["horn_strobe", "pull_station", "remote_sensor", "control_wiring", "other_device", "other_point", "fire_alarm", "other_valve", "other_install_and_wire", "other_wire", "other_interlock", "other_wiring", "vfd_comm_wiring", "vfd_map_points", "vfd_rep_assist", "comm_wiring", "map_points", "rep_assist"],
+      "line_order": ["panel", "horn_strobe", "pull_station", "remote_sensor", "control_wiring", "other_device", "other_point", "fire_alarm", "other_valve", "other_install_and_wire", "other_wire", "other_interlock", "other_wiring", "vfd_comm_wiring", "vfd_map_points", "vfd_rep_assist", "comm_wiring", "map_points", "rep_assist"],
       "slot_kinds": {
+        "panel": "device",
         "horn_strobe": "device",
         "pull_station": "device",
         "remote_sensor": "device",
@@ -1588,6 +1589,7 @@
         "rep_assist": "integration"
       },
       "wording": {
+        "panel": "{verb} {device}{owner}{qty}",
         "horn_strobe": "{device}{owner}{qty}",
         "pull_station": "{device}{owner}{qty}",
         "remote_sensor": "{device}{owner}{qty}",

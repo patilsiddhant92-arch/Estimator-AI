@@ -48,8 +48,8 @@ Not used: `assets/phrasing_bank.json` and any past-job example (brief). No job t
 | Clarifications and assumptions | One clarification per block | Practice Flags in the draft; GEM One clarification per block; Design §2.6 |
 | | Every assumption says why | Practice Assumptions give their reason; GEM Flags (assumed); Contradiction scan, conflict 5 |
 | | Joining into the one clarification | Job model `System.clarifications` and `FrontEnd.clarifications` ("At most one"); validator (more than one is must_fix); see §4 item 17 |
-| | Client notes | House style `notes` (rule, examples, `by_unit_mfr`); Template `schedule_overrides` notes ("**LEAK DETECTION BY UNIT MFR."); placed in the one clarification (§4 item 17) |
-| | Miscellaneous responsibilities | GEM Miscellaneous responsibilities; House style `sow_positions` position 20 (printed as "**" notes; now lines where a house verb fits, else a client note, §4 item 17) |
+| | Client notes | House style `notes` (rule, examples, `by_unit_mfr`); Template `schedule_overrides` notes ("**LEAK DETECTION BY UNIT MFR."); placed in the one clarification; a note never carries priced work (§4 item 17) |
+| | Miscellaneous responsibilities | GEM Miscellaneous responsibilities; House style `sow_positions` position 20 (printed as "**" notes; now always lines: a house verb where one fits, else a plain statement in the `other_wiring` slot, as the Template's Existing Fan Coil Unit demolition and re-commissioning lines print; §4 item 17) |
 | | Words the client never sees | House style `forbidden` (words, category words, hours pattern) and `internal` (source ids, GEM words, "CC" written AME) |
 | | Questions for the estimator | Practice Systems named only in the sequence ("never held back as a question only"); Design §4.7 |
 | Packaged units | Packaged units | Practice Packaged units, what AME does; Practice Factory controls; GEM Packaged units, "four things" |
@@ -120,7 +120,7 @@ place; a slot never makes a line by itself. Changes from the template, all shape
 | Stair / Elevator Vent | Template same | Kind words "stair vent", "elevator vent" (the template's label has a slash and could never match); smoke detector interlock slot. |
 | Stair Pressurization Fans | Template same | — |
 | Gas Detection | Template same | EF and SF removed from prefixes (they would pick Exhaust Fan for the whole group); kept as families. Sensors and horn/strobes are their own lines (no depth in the format). |
-| Fire / Smoke Dampers | Template same; Practice damper rule | No "other" slots and no integration slots: the block holds only its interlock wiring and end-switch status. |
+| Fire / Smoke Dampers | Template same; Practice damper rule | No "other" slots and no integration slots: the block holds only its interlock wiring and end-switch status. The end-switch line takes `{owner}` instead of the template's fixed "(End switch provided w damper by others)". |
 | Motorized Dampers | Practice Damper actuators, where they go; House style `packaged_units.damper_prefixes` (MD) | New: the untraced or unclaimed dampers' block. No tech hours (no source). |
 | Duct Heater | Practice Electric duct heaters; GEM same | New: the template data has no heater entry although the practice rule cites one. Slots from the practice's full scope (discharge air temperature, SCR control, status/alarm, enable) and interlock-only scope (enable/interlock, auxiliary contact), plus a controller slot. No tech hours (no source). |
 | Apartment Heat Pumps | Template same | The Nest line is an "alternate thermostat" slot. |
@@ -128,7 +128,8 @@ place; a slot never makes a line by itself. Changes from the template, all shape
 | Finned Tube Radiation, EUH / CUH / UH, Air Curtain, Unit Ventilators | Template same | Unit heater: the three control choices are one controller slot; usable kind words. Unit ventilator: both variants merged into one order; terminal-strip devices are their own slot. |
 | Geothermal System | Template same | Moved before Heat Exchanger and Chilled Water; prefixes cut to GHP, GWP, HGP (the others pick other plants first); kept as families. Temperature transmitters, meters, DP transmitters and valves grouped into shared slots (one line per distinct device still). Template order of its two trios kept. |
 | Heat Exchanger, Chilled Water, Hot Water, Condenser Water Systems | Template same | Family names added from the hints where the template gives none (Chiller, Pump, Cooling Tower, Condenser Water Pump). Hot Water and Condenser Water get the missing comm-wiring slot (GEM: the trio is never split). Chilled Water keeps the template's trio order. |
-| Refrigeration Monitoring System, Fuel Oil Pump System | Template same | Fuel oil gets the missing rep slot. |
+| Refrigeration Monitoring System | Template same | Header "Qty ({n}) Refrigeration Monitoring System {tags}" without the template's "Furnish and Install"; the panel is a device line in a new first slot, taking its verb and owner from the documents. |
+| Fuel Oil Pump System | Template same | Gets the missing rep slot. |
 | Integrated Equipment | Practice Systems named only in the sequence | New: one block per generator, plumbing pump, water heater, heat tracing, glycol feed or gas booster system, 4 hours fixed. |
 | Misc Monitoring Systems | Template same | Header gets the house "Qty ({n}) {name} {tags}" form (the format needs a count). Each monitored item's details go in brackets on its line (no depth in the format). 2 hours per line. |
 | Global Points | Template same | — |
@@ -198,11 +199,21 @@ For the estimator's review. Items marked **decide** change what used to print.
     Purge Fans, Exhaust Fan without a controller: left empty for the estimator.
 16. **GEM fire alarm "(Module Furnished by FA)"**: the format has one bracket per party; FA prints "(Relay
     Furnished by FA)". A run-status module line names the module in the device's words.
-17. **decide — Client notes ("**").** The house style and the GEM printed several "**" notes per block (each
-    miscellaneous responsibility, "**Start/Stop via Fire Alarm System", "**PC Workstation by Owner") next to the
-    one "*" clarification. The Job model gives a block one clarification and the validator rejects a second. The
-    rules now fit that contract: miscellaneous work a house verb carries is a line (with its ownership), and every
-    client note is joined into the block's one clarification ("**a; b" when it is the only kind, else after the
-    other parts, led by "Note:"). If the estimator wants one "*" line plus several "**" lines per block, the
-    controller extends the model (for example a `notes` field on System and FrontEnd) and the rules go back to one
-    "**" line per note.
+17. **decide — Client notes ("**") and miscellaneous work.** The house style and the GEM printed several "**"
+    notes per block (each miscellaneous responsibility, "**Start/Stop via Fire Alarm System", "**PC Workstation by
+    Owner") next to the one "*" clarification. The Job model gives a block one clarification and the validator
+    rejects a second. Miscellaneous responsibilities are priced scope, so they are no longer notes at all: work a
+    house verb carries is a line with that verb, and work no verb carries (demolition, coordination, testing, other
+    work not tied to a device) is one plain-statement line per responsibility in the `other_wiring` slot, with its
+    citation and ownership, the way the Existing Fan Coil Unit shape prints "Demo and safe-off ..." and
+    "Re-commission ...". Only client notes, statements with no scope impact, are joined into the block's one
+    clarification ("**a; b" when it is the only kind, else after the other parts, led by "Note:"). If the
+    estimator wants one "*" line plus several "**" lines per block, the controller extends the model (for example a
+    `notes` field on System and FrontEnd) and the rules go back to one "**" line per client note.
+18. **GEM Wire form "(Furnished by [trade], Installed by [trade])".** The printed bracket names only the furnishing
+    party ("(Furnished by Others)"); the "Installed by" part is not printed. Who installs is still recorded in the
+    Job model (`Device.installed_by`) and the Evidence Package, and the verb (Wire versus Install and Wire) already
+    says whether AME installs.
+19. **Fixed ownership in template text.** The Refrigeration Monitoring System header "Furnish and Install" and the
+    fire/smoke damper end-switch text "(End switch provided w damper by others)" stated an owner the documents may
+    not support. Both now take the verb and owner from the documents (rule "Every line carries its ownership").
