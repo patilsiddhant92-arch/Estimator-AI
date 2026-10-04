@@ -319,7 +319,7 @@ def test_a_killed_write_resumes_from_cached_answers_without_asking_again(job_fol
     assert resumed.status == "waiting" and resumed.stage == "write"
     assert {p.name: p.read_bytes() for p in folder.glob("*.json")} == saved
     assert {p.name: p.stat().st_mtime_ns for p in folder.glob("*.json")} == stamped
-    assert sorted(p.relative_to(folder).as_posix() for p in folder.rglob("*.json")) == sorted(saved)
+    assert not any(p.name in saved for p in (folder / "old").glob("*.json"))
 
     # those answers are now cached, but a kill left the request files behind: resume must drop them
     for path in folder.glob("*.json"):

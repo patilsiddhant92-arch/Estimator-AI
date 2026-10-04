@@ -377,6 +377,14 @@ class ChatTransport(_IntakeLog):
     def requests_dir(self) -> Path:
         return self.handoff_dir / "requests"
 
+    def _drop_request(self, key: str) -> None:
+        """Remove this question's request, and the copy a new run parked in requests/old/."""
+        for path in (self.requests_dir / f"{key}.json", self.requests_dir / "old" / f"{key}.json"):
+            try:
+                path.unlink(missing_ok=True)
+            except OSError:
+                pass
+
     @property
     def answers_dir(self) -> Path:
         return self.handoff_dir / "answers"
@@ -389,10 +397,7 @@ class ChatTransport(_IntakeLog):
         if cached is not None:
             self.cached += 1
             self.last_error = None
-            try:
-                (self.requests_dir / f"{q.key}.json").unlink(missing_ok=True)   # a killed run may have left it
-            except OSError:
-                pass
+            self._drop_request(q.key)   # a killed run may have left it, including the copy parked in old/
             return cached
         answer_file = self.answers_dir / f"{q.key}.json"
         request_file = self.requests_dir / f"{q.key}.json"
@@ -402,10 +407,7 @@ class ChatTransport(_IntakeLog):
             answer, errors = _read_answer(answer_file, q.schema)
             if answer is not None:
                 self.cache.write(q, CHAT_MODEL, answer)
-                try:
-                    (self.requests_dir / f"{q.key}.json").unlink(missing_ok=True)
-                except OSError:
-                    pass
+                self._drop_request(q.key)
                 self.answered_in_chat += 1
                 self.last_error = None
                 return answer
@@ -438,11 +440,19 @@ class ChatTransport(_IntakeLog):
         data |= {"schema": q.schema, "answer_file": str(answer_file)}
         if problem:
             data["previous_problem"] = problem
+        payload = json.dumps(data, ensure_ascii=False, indent=2)
+        old = self.requests_dir / "old" / request.name
+        # A new run parks this job's requests in old/ and would write them again. An unchanged request
+        # goes back where it was, so the file and its mtime stay and nothing is left in old/.
+        if not request.is_file() and old.is_file():
+            try:
+                if old.read_text(encoding="utf-8") == payload:
+                    os.replace(old, request)
+            except OSError:
+                pass
         if request.is_file():
             try:
-                # Compare the text we would write. A loaded dict can differ from `data` (tuples vs lists)
-                # while the file bytes stay the same, and a rewrite would move the file's mtime.
-                same = request.read_text(encoding="utf-8") == json.dumps(data, ensure_ascii=False, indent=2)
+                same = request.read_text(encoding="utf-8") == payload
             except OSError:
                 same = False
             if same:                                 # still waiting: do not ask this question a second time
