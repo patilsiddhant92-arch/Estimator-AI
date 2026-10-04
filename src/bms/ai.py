@@ -510,6 +510,10 @@ def _answer_of(response, q: _Question) -> dict:
         answer = json.loads(text)
     except ValueError:
         raise NoAnswer(f"the answer for {q.name} could not be read: it is not valid JSON") from None
+    if isinstance(answer, dict):
+        for name, empty in LATE_FIELDS.items():     # a field added to the contract later: missing means empty
+            if name in q.schema.get("properties", {}) and name not in answer:
+                answer[name] = json.loads(json.dumps(empty))
     errors = schema_errors(answer, q.schema)
     if errors:
         raise NoAnswer(f"the answer for {q.name} could not be read: {_problems(errors)}")
@@ -519,12 +523,14 @@ def _answer_of(response, q: _Question) -> dict:
 # ---- asking with the step's own checks -----------------------------------------------------------------------------
 
 def _ask_checked(transport, kind: str, name: str, instructions: str, system_prompt: str, prompt: str, schema: dict,
-                 extra: dict, images: Sequence[Path], check: Callable[[dict], tuple[object, list[str]]]):
+                 extra: dict, images: Sequence[Path], check: Callable[[dict], tuple[object, list[str]]],
+                 max_attempts: int | None = None):
     """Ask; run the step's `check` (value, problems) on the answer. An answer with problems is refused: the chat
     asks again on a later run (NoAnswer waiting); the API is asked once more now, with the reason. After
     `max_attempts` refusals the run stops with a plain message naming the request, and nothing is asked again."""
     prompt_now = prompt
     retried = False
+    limit = max_attempts or getattr(transport, "max_attempts", None) or _max_attempts()
     while True:
         answer = transport.ask(kind, name, instructions, system_prompt, prompt_now, schema, extra, images)
         value, problems = check(answer)
@@ -532,11 +538,11 @@ def _ask_checked(transport, kind: str, name: str, instructions: str, system_prom
             _clear_attempts(transport)
             return value
         reason = f"the answer for {name} could not be used: {_problems(problems)}"
-        if _refusal_count(transport) >= _max_attempts():
+        if _refusal_count(transport) >= limit:
             _drop_refused(transport)
-            raise NoAnswer(_stop_reason(name, _max_attempts(), reason), waiting=False)
+            raise NoAnswer(_stop_reason(name, limit, reason), waiting=False)
         attempts = _record_refusal(transport)
-        if attempts >= _max_attempts():
+        if attempts >= limit:
             _drop_refused(transport)
             raise NoAnswer(_stop_reason(name, attempts, reason), waiting=False)
         refuse = getattr(transport, "refuse", None)

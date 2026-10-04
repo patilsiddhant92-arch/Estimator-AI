@@ -243,3 +243,181 @@ def test_a_qc_must_fix_the_revise_left_as_it_was_stays_open():
     assert _untouched(on("EF.d2"), job, changed) and not _untouched(on("EF.d1"), job, changed)
     assert not _untouched(on(None), job, changed) and _untouched(on(None, "RTU"), job, changed)
     assert _untouched(on(None, ""), job, changed)
+
+
+# ---- API mode end to end (TASK-005) ----------------------------------------------------------------------------------
+
+class _ApiBlock:
+    def __init__(self, text):
+        self.type, self.text = "text", text
+
+
+class _ApiResponse:
+    def __init__(self, text, stop="end_turn", model="claude-opus-5-5"):
+        self.content, self.stop_reason, self.model = [_ApiBlock(text)], stop, model
+
+
+class _ApiStream:
+    def __init__(self, response):
+        self.response = response
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+    def get_final_message(self):
+        return self.response
+
+
+class FakeAnthropicClient:
+    def __init__(self, qc_must_fix_once: bool = True):
+        self.calls: list[dict] = []
+        self.messages = self
+        self.qc_must_fix_once = qc_must_fix_once
+        self.qc_count = 0
+
+    def stream(self, **params):
+        self.calls.append(params)
+        output_config = params.get("output_config", {})
+        schema = output_config.get("format", {}).get("schema", {})
+        props = schema.get("properties", {})
+        messages = params.get("messages", [])
+        content = messages[0]["content"] if messages else ""
+        if isinstance(content, list):
+            prompt = content[0]["text"] if content and content[0].get("type") == "text" else ""
+            n_images = sum(1 for b in content if b.get("type") == "image")
+        else:
+            prompt = str(content)
+            n_images = 0
+
+        # 1. read_pass (from Judge in staged reading)
+        if "facts" in props and "understanding" in props:
+            answer = {"facts": [], "contradictions": [], "confirmations": [], "understanding": "invented reading"}
+            return _ApiStream(_ApiResponse(json.dumps(answer)))
+
+        # 2. count_tags (from counts_vision)
+        if "patterns" in props:
+            patterns = [m.group(1).strip() for m in re.finditer(r"^Pattern \d+:\s*(.+)$", prompt, re.M)]
+            tiles_examined = list(range(1, n_images + 1)) if n_images else [1]
+            answer = {"patterns": [{"pattern": p, "tiles_examined": tiles_examined, "tags": []} for p in patterns]}
+            return _ApiStream(_ApiResponse(json.dumps(answer)))
+
+        # 3. qc_job (from ai.qc_job)
+        if "findings" in props and "properties" in schema:
+            self.qc_count += 1
+            if self.qc_must_fix_once and self.qc_count == 1:
+                m = re.search(r"- ([A-Z0-9_-]+):", prompt)
+                sys_key = m.group(1) if m else "VAV"
+                finding = {"rule": "Every line cites this job", "system_key": sys_key, "device_id": f"{sys_key}.d1",
+                           "severity": "must_fix", "what": "citation needs verification", "fix": "check quote"}
+                answer = {"findings": [finding]}
+            else:
+                answer = {"findings": []}
+            return _ApiStream(_ApiResponse(json.dumps(answer)))
+
+        # 4. write_system / revise_system (from ai.write_system / ai.revise_system)
+        if "devices" in props and "families" in props:
+            ref = _evidence_ref(prompt)
+            m = re.search(r'"key":\s*"([^"]+)"', prompt)
+            key = m.group(1) if m else "VAV"
+            slot = _first_slot(prompt)
+            device = {"id": f"{key}.d1", "slot": slot, "name": "Space Temperature Sensor",
+                      "verb": "Furnish and Install", "furnished_by": "AME", "installed_by": "AME", "wired_by": "AME",
+                      "quantity": {"value": None, "sources": [], "others": []}, "refs": [ref], "assumption": None,
+                      "flag": "none"}
+            answer = {"key": key, "name": "answered", "shape": "", "control": "none", "families": [], "sequence_refs": [],
+                      "devices": [device], "clarifications": [{"kind": "per_drawings", "text": "Quantity as per drawings"}],
+                      "tech_hours": None, "alternate": "base"}
+            return _ApiStream(_ApiResponse(json.dumps(answer)))
+
+        raise AssertionError(f"Unknown call: schema props={list(props)}")
+
+
+def test_api_mode_end_to_end_with_fake_client(job_folder, tmp_path, monkeypatch):
+    import anthropic
+    from bms.playbook import load_playbook
+
+    fake_client = FakeAnthropicClient(qc_must_fix_once=True)
+    monkeypatch.setattr(anthropic, "Anthropic", lambda **kw: fake_client)
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "fake-key-for-test")
+
+    out, cache = tmp_path / "out_api", tmp_path / "cache_api"
+
+    result = estimate(job_folder, out, cache, mode="api")
+    assert result.status == "done" and result.stage == "done"
+
+    # All outputs are written
+    assert result.proposal.name == f"{JOB} Proposal.docx" and result.proposal.exists()
+    assert result.price_sheet.name == f"{JOB} Price Sheet.xlsx" and result.price_sheet.exists()
+    assert result.evidence.name == f"{JOB} Evidence Package.xlsx" and result.evidence.exists()
+    assert result.review == out / "Review.html" and result.review.exists()
+    assert result.job_file.exists()
+
+    # In API mode, no chat requests are created
+    assert not (cache / "judge-chat").exists() or list((cache / "judge-chat" / "requests").glob("*.json")) == []
+
+    # Prompt caching is set on the first system block for every call from ApiTransport
+    playbook = load_playbook()
+    from bms.counts_vision import INSTRUCTIONS as COUNT_INSTRUCTIONS
+    api_calls = [c for c in fake_client.calls if isinstance(c.get("system"), list)]
+    assert len(api_calls) >= 4  # count_tags, write_system, qc_job, revise_system
+    for call in api_calls:
+        first_block = call["system"][0]
+        assert first_block.get("cache_control") == {"type": "ephemeral"}
+        # Write, qc, and revise cache the Playbook rules; count_tags caches count instructions
+        assert first_block["text"] in (playbook.rules_text, COUNT_INSTRUCTIONS)
+    rules_calls = [c for c in api_calls if c["system"][0]["text"] == playbook.rules_text]
+    assert len(rules_calls) >= 3  # at least write, qc, revise
+
+    # Second run with all answers cached finishes immediately with no additional calls
+    calls_before = len(fake_client.calls)
+    cached_run = estimate(job_folder, out, cache, mode="api")
+    assert cached_run.status == "done" and cached_run.stage == "done"
+    assert len(fake_client.calls) == calls_before
+
+
+def test_api_mode_prompt_caching_and_refusal_retry(tmp_path):
+    from bms import ai
+    from bms.model import json_schema, System
+    from bms.playbook import load_playbook
+
+    # A device count of 0 is a domain error caught by _check_system, causing refusal
+    bad_answer = {"key": "VAV", "name": "VAV", "shape": "", "control": "none", "families": [], "sequence_refs": [],
+                  "devices": [{"id": "VAV.d1", "slot": "controller", "name": "Sensor", "verb": "Furnish",
+                               "furnished_by": "AME", "installed_by": "AME", "wired_by": "AME",
+                               "quantity": {"value": 0, "sources": [], "others": []},
+                               "refs": [{"source_id": "S1", "quote": "quote", "where": "where"}],
+                               "assumption": None, "flag": "none"}],
+                  "clarifications": [], "tech_hours": None, "alternate": "base"}
+
+    # Client returns bad answer on first call, good answer on retry
+    good_answer = dict(bad_answer, devices=[dict(bad_answer["devices"][0],
+                                                 quantity={"value": 1, "sources": [], "others": []})])
+    client = FakeAnthropicClient()
+    # Mock responses for client: 1 bad then 1 good
+    responses = [_ApiResponse(json.dumps(bad_answer)), _ApiResponse(json.dumps(good_answer))]
+    client.stream = lambda **params: (client.calls.append(params), _ApiStream(responses.pop(0)))[1]
+
+    transport = ai.ApiTransport(tmp_path / "retry_cache", model="claude-test", client=client)
+
+    system = System("VAV", "VAV", "", "none", ())
+    # Check that immediate retry succeeds after 1 refusal
+    written = ai.write_system(system, "[S1] quote from where", load_playbook(), transport)
+    assert len(client.calls) == 2
+    # Check prompt caching was set on every attempt
+    for call in client.calls:
+        assert call["system"][0]["cache_control"] == {"type": "ephemeral"}
+    # Check that retry prompt included the failure reason
+    assert "Your earlier answer to this question could not be used" in client.calls[1]["messages"][0]["content"][0]["text"]
+
+    # Now verify that failing the immediate retry raises NoAnswer
+    client_fail = FakeAnthropicClient()
+    client_fail.stream = lambda **params: (client_fail.calls.append(params), _ApiStream(_ApiResponse(json.dumps(bad_answer))))[1]
+    transport_fail = ai.ApiTransport(tmp_path / "fail_cache", model="claude-test", client=client_fail)
+
+    with pytest.raises(ai.NoAnswer) as exc:
+        ai.write_system(system, "[S1] quote from where", load_playbook(), transport_fail)
+    assert len(client_fail.calls) == 2
+    assert "could not be used" in exc.value.reason
