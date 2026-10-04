@@ -924,3 +924,22 @@ def test_answer_of_populates_late_fields_before_schema_check():
     assert answer["serves"] == []
     assert answer["no_scope_reason"] is None
 
+
+def test_a_chat_answer_file_fills_only_a_missing_late_field(tmp_path):
+    """The chat file path fills serves and no_scope_reason only when the answer omits them. A present null is not
+    replaced, and the schema rejects it."""
+    from bms.ai import _read_answer
+
+    schema = json_schema(System)
+    raw = {"key": "EF", "name": "Fans", "shape": "", "control": "none", "families": [], "sequence_refs": [],
+           "devices": [], "clarifications": [], "tech_hours": None, "alternate": "base"}
+    path = tmp_path / "answer.json"
+    path.write_text(json.dumps(raw), encoding="utf-8")
+    answer, errors = _read_answer(path, schema)
+    assert errors == []
+    assert answer["serves"] == [] and answer["no_scope_reason"] is None
+
+    path.write_text(json.dumps({**raw, "serves": None}), encoding="utf-8")
+    rejected, problems = _read_answer(path, schema)
+    assert rejected is None and any("serves" in problem for problem in problems)
+
