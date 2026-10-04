@@ -65,7 +65,7 @@ def test_a_token_split_across_word_runs_is_found(tmp_path):
         _docx("<w:p><w:r><w:t>see QVEX-</w:t></w:r><w:r><w:t>4410</w:t></w:r><w:r><w:t> please</w:t></w:r></w:p>"))
     result = _run(repo, tmp_path)
     assert result.returncode == 1
-    assert any(line.startswith("split.docx:") and line.endswith(TOKEN) for line in result.stdout.splitlines())
+    assert any(line.startswith("split.docx") and line.endswith(TOKEN) for line in result.stdout.splitlines())
 
 
 def test_a_utf16_file_without_a_byte_order_mark_is_not_passed_clean(tmp_path):
@@ -84,7 +84,7 @@ def test_an_xml_entity_in_a_word_run_is_found(tmp_path):
     (repo / "firm.docx").write_bytes(_docx("<w:t>Smith &amp; Sons</w:t>"))
     result = _run(repo, tmp_path, tokens="Smith & Sons\n")
     assert result.returncode == 1
-    assert any(line.startswith("firm.docx:") and line.endswith("Smith & Sons") for line in result.stdout.splitlines())
+    assert any(line.startswith("firm.docx") and line.endswith("Smith & Sons") for line in result.stdout.splitlines())
 
 
 def test_a_rels_part_is_scanned(tmp_path):
@@ -96,7 +96,7 @@ def test_a_rels_part_is_scanned(tmp_path):
     (repo / "links.docx").write_bytes(buffer.getvalue())
     result = _run(repo, tmp_path)
     assert result.returncode == 1
-    assert any(line.startswith("links.docx:") and line.endswith(TOKEN) for line in result.stdout.splitlines())
+    assert any(line.startswith("links.docx") and line.endswith(TOKEN) for line in result.stdout.splitlines())
 
 
 def test_a_docm_zip_is_scanned(tmp_path):
@@ -104,7 +104,7 @@ def test_a_docm_zip_is_scanned(tmp_path):
     (repo / "macro.docm").write_bytes(_docx(f"<w:t>see {TOKEN}</w:t>"))
     result = _run(repo, tmp_path)
     assert result.returncode == 1
-    assert any(line.startswith("macro.docm:") and line.endswith(TOKEN) for line in result.stdout.splitlines())
+    assert any(line.startswith("macro.docm") and line.endswith(TOKEN) for line in result.stdout.splitlines())
 
 
 def test_a_windows_1252_file_reports_the_token_and_stays_unread(tmp_path):

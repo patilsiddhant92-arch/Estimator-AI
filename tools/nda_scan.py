@@ -10,11 +10,14 @@ FILE inside the work tree and not ignored. Hits are still printed when a file
 could not be read.
 
 Text is read as UTF-16 when a byte-order mark is present, otherwise as UTF-8
-(a UTF-8 mark is accepted). UTF-8 that contains NUL bytes is tried again as
-UTF-16 without a mark. A zip (a PK header, including docx, xlsx, and pptx)
-is read from its XML and .rels parts, both raw and with the tags removed.
-A file that is not valid UTF-8 is also scanned as Windows-1252 and is still
-reported unread. A file or a zip part over the size cap is unread.
+(a UTF-8 mark is accepted). A reading that contains NUL bytes is kept, and
+UTF-16 without a mark is scanned as well, so a hit in either reading is
+reported. A zip is read from every part, including a zip stored inside a
+part, both raw and with the tags removed. A hit inside a part is
+``file!part:line: TOKEN``. Images are skipped. A file that is not valid
+UTF-8 is also scanned as Windows-1252 and is still reported unread. A file
+or a part over the size cap is unread. A file that starts with a zip header
+but is not a zip is read as text.
 
 This file contains no job data.
 """
@@ -22,6 +25,7 @@ from __future__ import annotations
 
 import argparse
 import html
+import io
 import re
 import subprocess
 import sys
@@ -107,27 +111,28 @@ _MAX_BYTES = 100 * 1024 * 1024
 _READ_ERRORS = (OSError, zipfile.BadZipFile, zlib.error, RuntimeError, NotImplementedError, EOFError)
 
 
-def _decode(raw: bytes) -> str | None:
-    """UTF-16 when a mark is present, otherwise strict UTF-8. NUL bytes are tried as UTF-16 without a mark."""
+def _texts(raw: bytes) -> list[str]:
+    """Every plausible reading. A UTF-8 reading that contains NUL is kept, and UTF-16 is added beside it."""
     if raw.startswith((b"\xff\xfe", b"\xfe\xff")):
         try:
-            return raw.decode("utf-16")
+            return [raw.decode("utf-16")]
         except UnicodeError:
-            return None
+            return []
     try:
         text = raw.decode("utf-8-sig")
     except UnicodeError:
-        return None
+        return []
+    found = [text]
     if "\x00" not in text:
-        return text
+        return found
     for encoding in ("utf-16-le", "utf-16-be"):
         try:
             wide = raw.decode(encoding)
         except UnicodeError:
             continue
-        if "\x00" not in wide:
-            return wide
-    return None
+        if wide not in found:
+            found.append(wide)
+    return found
 
 
 def _plain_xml(xml: str) -> str:
@@ -141,38 +146,72 @@ def _plain_xml(xml: str) -> str:
     return html.unescape(text)
 
 
-def _scanned_part(name: str) -> bool:
-    lower = name.lower()
-    return lower.endswith(".xml") or lower.endswith(".rels")
+_MEDIA = {".png", ".jpg", ".jpeg", ".gif", ".bmp", ".tif", ".tiff", ".wmf", ".emf", ".webp"}
+_MAX_ZIP_DEPTH = 3
 
 
-def _office_xml(path: Path) -> list[str] | None:
-    """Text of each XML or .rels part. None when the zip or a part cannot be read."""
+def _scan_text(label: str, raw: bytes, tokens: list[tuple[str, re.Pattern[str]]]) -> tuple[list[str], bool]:
+    """Hits in every plausible reading. The second value is true when the bytes were not valid UTF-8 or UTF-16."""
+    texts = _texts(raw)
+    if not texts:
+        return _hits(label, raw.decode("cp1252", errors="replace"), tokens), True
+    found: list[str] = []
+    for text in texts:
+        found.extend(_hits(label, text, tokens))
+        if "<" in text:
+            plain = _plain_xml(text)
+            if plain != text:
+                found.extend(_hits(label, plain, tokens))
+    return found, False
+
+
+def _open_zip(raw: bytes) -> zipfile.ZipFile | None:
     try:
-        archive = zipfile.ZipFile(path)
+        return zipfile.ZipFile(io.BytesIO(raw))
     except _READ_ERRORS:
         return None
-    parts: list[str] = []
+
+
+def _scan_zip(archive: zipfile.ZipFile, label: str, tokens: list[tuple[str, re.Pattern[str]]],
+              depth: int) -> tuple[list[str], list[str]]:
+    """Hits and unread part names. A part that is itself a zip is opened, up to the depth cap."""
+    found: list[str] = []
+    unread: list[str] = []
     try:
-        with archive:
-            for info in archive.infolist():
-                if info.is_dir() or not _scanned_part(info.filename):
-                    continue
-                if info.file_size > _MAX_BYTES:
-                    return None
-                try:
-                    raw = archive.read(info)
-                except _READ_ERRORS:
-                    return None
-                if len(raw) > _MAX_BYTES:
-                    return None
-                text = _decode(raw)
-                if text is None:
-                    return None
-                parts.append(text)
+        infos = archive.infolist()
     except _READ_ERRORS:
-        return None
-    return parts
+        return [], [label]
+    for info in infos:
+        if info.is_dir():
+            continue
+        part = info.filename.replace("\\", "/")
+        part_label = f"{label}!{part}"
+        if Path(part).suffix.lower() in _MEDIA:
+            continue
+        if info.file_size > _MAX_BYTES:
+            unread.append(part_label)
+            continue
+        try:
+            raw = archive.read(info)
+        except _READ_ERRORS:
+            unread.append(part_label)
+            continue
+        if len(raw) > _MAX_BYTES:
+            unread.append(part_label)
+            continue
+        if raw.startswith(_ZIP_MAGIC) and depth < _MAX_ZIP_DEPTH:
+            nested = _open_zip(raw)
+            if nested is not None:
+                with nested:
+                    inner_hits, inner_unread = _scan_zip(nested, part_label, tokens, depth + 1)
+                found.extend(inner_hits)
+                unread.extend(inner_unread)
+                continue
+        hits, bad = _scan_text(part_label, raw, tokens)
+        found.extend(hits)
+        if bad:
+            unread.append(part_label)
+    return found, unread
 
 
 def _file_hits(root: Path, tokens: list[tuple[str, re.Pattern[str]]]) -> tuple[list[str], list[str]]:
@@ -196,27 +235,34 @@ def _file_hits(root: Path, tokens: list[tuple[str, re.Pattern[str]]]) -> tuple[l
         except OSError:
             unread.append(label)
             continue
-        if raw.startswith(_ZIP_MAGIC) or (path.suffix.lower() in _OFFICE and _decode(raw) is None):
-            parts = _office_xml(path)
-            if parts is None:
+        looks_like_zip = raw.startswith(_ZIP_MAGIC) or (path.suffix.lower() in _OFFICE and not _texts(raw))
+        if looks_like_zip:
+            archive = _open_zip(raw)
+            if archive is not None:
+                with archive:
+                    hits, bad_parts = _scan_zip(archive, label, tokens, 0)
+                found.extend(hits)
+                unread.extend(bad_parts)
+                continue
+            if path.suffix.lower() in _OFFICE:
                 unread.append(label)
                 continue
-            for part in parts:
-                found.extend(_hits(label, part, tokens))
-                found.extend(_hits(label, _plain_xml(part), tokens))
-            continue
-        text = _decode(raw)
-        if text is None:
-            try:
-                latin = raw.decode("cp1252")
-            except UnicodeError:
-                latin = ""
-            if latin:
-                found.extend(_hits(label, latin, tokens))
+        hits, bad = _scan_text(label, raw, tokens)
+        found.extend(hits)
+        if bad:
             unread.append(label)
+    return _unique(found), unread
+
+
+def _unique(lines: list[str]) -> list[str]:
+    seen: set[str] = set()
+    kept: list[str] = []
+    for line in lines:
+        if line in seen:
             continue
-        found.extend(_hits(label, text, tokens))
-    return found, unread
+        seen.add(line)
+        kept.append(line)
+    return kept
 
 
 def _commit_hits(root: Path, tokens: list[tuple[str, re.Pattern[str]]]) -> list[str]:
