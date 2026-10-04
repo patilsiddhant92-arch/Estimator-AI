@@ -279,6 +279,12 @@ def test_an_exception_of_only_an_issued_id_is_must_fix_and_never_prints_empty(jo
     ("Sheet C501, Controls.pdf page 4", "C501"),    # r2 I-2: after the word sheet
     ("schedule S9", ""),                            # r1 M2: not a sheet the ledger knows
     ("S141, Invented.pdf page 3", ""),              # an issued id is never a place
+    ("sheet C101, Controls.pdf page 2", "C101"),    # r2 I-2: a sheet word before it
+    ("S101", ""),                                   # r2 I-2: no sheet word, no file part: not a known sheet
+    ("F101 Fire alarm plan", ""),                   # r2 I-2: the same
+    ("sheets S101 and S102", "S101"),
+    ("dwg F101", "F101"),
+    ("Ledger fact F17", ""),                        # a ledger fact is never a place
 ])
 def test_a_count_note_place_is_a_sheet_never_an_id_and_a_stale_note_is_not_rewritten(job, pb, where, place):
     """r2 I-2 and r1 M2: the count note (built by code) keeps its sheet; the stale note "Valves per S141." beside it
