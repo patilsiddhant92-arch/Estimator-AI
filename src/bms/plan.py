@@ -68,7 +68,8 @@ class _Fam:
     name: str
     tags: tuple[str, ...]
     count: Count
-    source: FamilyFacts | None = None          # None for a damper family moved under its fan
+    source: FamilyFacts | None = None          # None for a damper under its fan when the ledger has no damper family
+    moved: bool = False                         # a damper family moved under the system its links name
 
 
 @dataclass
@@ -112,15 +113,23 @@ class _Planner:
 
     # -- shapes and kinds
 
-    def _shape_by_kind(self, *words: str) -> Shape | None:
+    def _shape_by_kind(self, *words: str, unless: str = "") -> Shape | None:
+        """The first Playbook shape whose name or kind words say every one of `words` (whole words), and not
+        `unless`."""
         for shape in self.playbook.shapes.values():
             text = f"{shape.name} {' '.join(shape.kind_words)}".casefold()
-            if all(w in text for w in words):
+            says = all(re.search(rf"\b{re.escape(w)}", text) for w in words)
+            if says and not (unless and re.search(rf"\b{re.escape(unless)}\b", text)):
                 return shape
         return None
 
+    def split_shape(self) -> Shape | None:
+        return self._shape_by_kind("split", unless="vrf")
+
     def split_prefixes(self) -> frozenset[str]:
-        shape = self._shape_by_kind("split")
+        """The split prefixes are the Playbook's split shape's; the constant stands in only while the Playbook
+        has no split shape (or one with no prefixes)."""
+        shape = self.split_shape()
         return frozenset(shape.prefixes) if shape is not None and shape.prefixes else SPLIT_PREFIXES
 
     def is_duct_heater(self, family: FamilyFacts) -> bool:
@@ -146,8 +155,8 @@ class _Planner:
             apart = split_apart(reader, group)
             if apart:
                 self.questions.append(
-                    f"The documents group {', '.join(apart)} as “{squash(group.subject)}”, but each matches its own "
-                    "sequence section, so each is planned as its own system; confirm they are separate systems.")
+                    f"The documents group {', '.join(apart)} as “{_group_name(reader, group)}”, but each matches "
+                    "its own sequence section, so each is planned as its own system; confirm they are separate systems.")
                 continue
             kept.append(group)
         claims_of = parts(reader, kept)
@@ -174,7 +183,7 @@ class _Planner:
 
     def _group(self, group: Fact, claims_of: dict) -> _Draft:
         reader = self.reader
-        name = squash(group.subject)
+        name = _group_name(reader, group)
         families: list[_Fam] = []
         for fact in reader.family_facts():
             family = reader.family(fact)
@@ -197,9 +206,11 @@ class _Planner:
                 families.append(_Fam(family.name, tags, count, family))
         prefixes = [f.source.prefix for f in families if f.source is not None]
         member_words = " ".join(f"{f.prefix} {f.name}" for f, _ in members(reader, group))
+        said = squash(group.subject)
+        named = (said,) if said else ()
         return _Draft(key=name, name=name, kind="group", families=families, prefixes=list(dict.fromkeys(prefixes)),
-                      matches=reader.matches(name, *prefixes), alternate=reader.alternate(name, *prefixes),
-                      exception=reader.exception(name, *prefixes),
+                      matches=reader.matches(*named, *prefixes), alternate=reader.alternate(*named, *prefixes),
+                      exception=reader.exception(*named, *prefixes),
                       words=f"{name} {squash(group.value)} {member_words}")
 
     def _rest(self, family: FamilyFacts, claims: list) -> _Draft | None:
@@ -346,6 +357,9 @@ class _Planner:
             if id(draft) in claims:
                 for prefix, links in claims[id(draft)].items():
                     draft.families.append(self._damper_family(prefix, links))
+                    own = next((d for d in drafts if d.kind == "single" and d.key.upper() == prefix), None)
+                    if own is not None:
+                        draft.matches += [m for m in own.matches if m not in draft.matches]
             elif draft.kind == "single" and draft.key.upper() in links_of:
                 draft = self._unclaimed(draft, links_of[draft.key.upper()], drafts, claims)
                 if draft is None:
@@ -357,12 +371,13 @@ class _Planner:
         family = self.reader.family_by_prefix(prefix)
         name = family.name if family is not None else "Motorized Damper"
         tags = tuple(dict.fromkeys(squash(l.subject) for l in links if _TAG.match(squash(l.subject))))
-        return _Fam(name, tags, Count(len(links), tuple(dict.fromkeys(self.reader.fact_ref(l) for l in links))))
+        return _Fam(name, tags, Count(len(links), tuple(dict.fromkeys(self.reader.fact_ref(l) for l in links))),
+                    family, moved=True)
 
     def _less_dampers(self, families: list[_Fam], links_of: dict[str, list[Fact]]) -> list[_Fam]:
         kept = []
         for fam in families:
-            links = links_of.get(fam.source.prefix.upper(), []) if fam.source is not None else []
+            links = links_of.get(fam.source.prefix.upper(), []) if fam.source is not None and not fam.moved else []
             if links and fam.count.value is not None:
                 left = fam.count.value - len(links)
                 if left <= 0:
@@ -385,13 +400,13 @@ class _Planner:
             left = total - len(links)
             if left <= 0:
                 return None
-            count = Count(left, refs)
+            count = Count(left, family.count.sources)
             self.questions.append(
                 f"{family.name} ({draft.key}): {left} of the {total} are linked to no fan; {len(links)} are "
                 f"under {', '.join(owners)}. Which equipment do the other {left} serve? "
                 f"See {', '.join(sheets) or 'the plans'}.")
         else:
-            count = Count(None, refs)
+            count = Count(None, family.count.sources)
             self.questions.append(
                 f"{family.name} ({draft.key}): how many are there in all? {len(links)} are under "
                 f"{', '.join(owners)}; the rest are linked to no fan. See {', '.join(sheets) or 'the plans'}.")
@@ -405,7 +420,9 @@ class _Planner:
     def system(self, draft: _Draft, keys: set[str]) -> System:
         vrf = draft.kind == "group" and self._is_vrf(draft)
         if draft.kind == "split":
-            shape = self._shape_by_kind("split") or self.playbook.shape_for(SPLIT_SYSTEM, draft.prefixes)
+            # by kind words only: a split unit's prefix (CU, AC) may also be a VRF shape's, and a split block
+            # never takes the VRF shape
+            shape = self.split_shape() or self.playbook.shape_for(SPLIT_SYSTEM, ())
         elif vrf:
             shape = self._shape_by_kind("vrf") or self.playbook.shape_for(VRF_SYSTEM, draft.prefixes)
         elif draft.kind == "heaters":
@@ -489,6 +506,12 @@ class _Planner:
                 elif source.sequence_only and fam.count.value is None:
                     self.questions.append(f"{label} is named in the sequence of operation but no drawing or schedule "
                                           f"shows it; how many are there? The {system.name} block reads Qty (##).")
+
+
+def _group_name(reader: Reader, group: Fact) -> str:
+    """The group's own words; when it has none, its members' prefixes ("BS / AC"); never empty."""
+    return (squash(group.subject) or " / ".join(dict.fromkeys(f.prefix for f, _ in members(reader, group)))
+            or squash(group.value) or "Group")
 
 
 def _suffixes(draft: _Draft) -> set[str]:

@@ -265,6 +265,15 @@ def test_a_group_with_one_matched_family_is_kept():
     assert [s.key for s in _plan(ledger).systems] == ["corridor air"]
 
 
+def test_a_group_with_a_blank_subject_is_named_by_its_members():
+    ledger = _ledger()
+    _family(ledger, "BS", "Branch Selector", "BS-1", 1)
+    _family(ledger, "AC", "Indoor Unit", "AC-1", 1)
+    ledger.add("group", "  ", "BS, AC", "S5", "riser", "risers", SETTLED)
+    (system,) = _plan(ledger).systems
+    assert system.key == "BS / AC" and system.name == "BS / AC"
+
+
 def _vrf(cu_count=6) -> Ledger:
     """Six condensing units of which the riser takes four, a branch selector, three indoor types of which two are
     on the riser (their counts on a link)."""
@@ -463,6 +472,14 @@ def test_a_plan_only_split_unit_keeps_its_existence_question_in_the_block():
                              "(it is in the Split System block).",)
 
 
+def test_a_split_block_never_takes_the_vrf_shape():
+    ledger = _ledger()
+    _family(ledger, "AC", "Indoor Unit", "AC-1", 1)
+    _family(ledger, "CU", "Condensing Unit", "CU-1", 1)
+    (split,) = _plan(ledger).systems
+    assert split.key == "Split System" and split.shape == ""
+
+
 def test_a_split_unit_named_by_its_full_tag_joins_the_split_block():
     ledger = _ledger()
     _family(ledger, "AC", "Indoor Unit", "AC-1", 1)
@@ -505,8 +522,7 @@ def test_a_damper_linked_to_a_fan_moves_under_the_fan_and_the_rest_stay_a_damper
     damper = ef.families[1]
     assert damper.tags == ("MD-1",) and damper.count == Count(1, (Ref("S2", "MD-1 at EF-1", "M-101, Drawings.pdf page 2"),))
     assert md.key == "MD" and md.families[0].tags == ("MD-2", "MD-3") and md.families[0].count.value == 2
-    sources = {r.source_id for r in md.families[0].count.sources}
-    assert {"S2", "S5"} <= sources
+    assert md.families[0].count.sources == (Ref("S2", "MD rows 3", "M-101, Drawings.pdf page 2"),)
     assert any("Motorized Damper (MD): 2 of the 3" in q and "EF" in q and "M-101" in q and "M-601" in q for q in job.questions)
     assert link.id
 
@@ -518,6 +534,42 @@ def test_when_every_damper_is_claimed_there_is_no_damper_system():
     ledger.add("link", "MD-1", "EF-1", "S2", "MD-1 at EF-1", "plans", SETTLED)
     job = _plan(ledger)
     assert [s.key for s in job.systems] == ["EF"] and job.questions == ()
+
+
+def test_a_plan_only_damper_claimed_by_a_fan_keeps_its_existence_question_in_the_fans_block():
+    ledger = _ledger()
+    ledger.add("family", "MD", "seen on plans, not scheduled: Motorized Damper", "S2", "MD", "plans")
+    ledger.add("count", "MD", 1, "S2", "MD x1", "plans")
+    ledger.add("unit", "MD", "MD-1", "S2", "MD-1", "plans")
+    _family(ledger, "EF", "Exhaust Fan", "EF-1", 1)
+    ledger.add("link", "MD-1", "EF-1", "S2", "MD-1 at EF-1", "plans", SETTLED)
+    job = _plan(ledger)
+    (ef,) = job.systems
+    assert [f.name for f in ef.families] == ["Exhaust Fan", "Motorized Damper"]
+    assert job.questions == ("Motorized Damper (MD-1) is seen on the drawings but on no schedule; confirm it exists "
+                             "(it is in the Exhaust Fan block).",)
+
+
+def test_a_damper_moved_under_a_fan_brings_its_sequence_with_it():
+    ledger = _ledger()
+    _family(ledger, "MD", "Motorized Damper", "MD-1", 1, source="S2")
+    _family(ledger, "EF", "Exhaust Fan", "EF-1", 1)
+    ledger.add("link", "MD-1", "EF-1", "S2", "MD-1 at EF-1", "plans", SETTLED)
+    ledger.add("sequence_match", "EXHAUST FANS", "MD", "Q1", "EXHAUST FANS", "sequence", SETTLED)
+    job = _plan(ledger)
+    (ef,) = job.systems
+    assert [r.source_id for r in ef.sequence_refs] == ["Q1"]
+    assert job.questions == ()
+
+
+def test_the_leftover_damper_count_cites_only_the_familys_count():
+    ledger = _ledger()
+    _family(ledger, "MD", "Motorized Damper", "MD-1 thru 3", 3, source="S2")
+    _family(ledger, "EF", "Exhaust Fan", "EF-1", 1)
+    ledger.add("link", "MD-1", "EF-1", "S2", "MD-1 at EF-1", "plans", SETTLED)
+    ledger.add("location", "MD-2", "corridor", "S5", "MD-2 corridor", "plans", SETTLED)
+    md = _by_key(_plan(ledger))["MD"]
+    assert md.families[0].count == Count(2, (Ref("S2", "MD rows 3", "M-101, Drawings.pdf page 2"),))
 
 
 def test_a_damper_linked_to_a_fan_in_a_group_joins_the_group_and_a_fire_damper_never_moves():
