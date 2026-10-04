@@ -254,8 +254,8 @@ def _split_and_vrf():
 
 
 def _holds(template, name, evidence):
-    condition = template.conditions[name]
-    return any(w.lower() in evidence.lower() for w in condition.sequence)
+    from estimator.writing.write import _word
+    return any(_word(w).search(evidence) for w in template.conditions[name].sequence)
 
 
 def _bms_sensor_line(template):
@@ -274,14 +274,16 @@ def test_a_sequence_naming_a_bms_furnished_space_sensor_brings_the_line():
     split, _ = _split_and_vrf()
     for text in ["The BMS contractor shall provide a space temperature sensor for each unit.",
                  "A space temperature sensor furnished by the BMS monitors each room.",
-                 "Add a BMS space temperature sensor at every indoor unit."]:
+                 "The BMS shall furnish a space temperature sensor at every indoor unit."]:
         assert _holds(split, "bms_space_sensor", text), text
 
 
 def test_the_bms_wiring_the_manufacturers_sensor_does_not_bring_the_line():
     split, _ = _split_and_vrf()
     for text in ["The BMS contractor shall wire the manufacturer's space temperature sensor.",
-                 "Wire the unit mfr. space temperature sensor to the controller."]:
+                 "Wire the unit mfr. space temperature sensor to the controller.",
+                 "The BMS contractor shall wire the manufacturer's space temperature sensor to the BMS.",
+                 "BMS space temperature sensor furnished by unit mfr. is wired by the BMS contractor."]:
         assert not _holds(split, "bms_space_sensor", text), text
 
 
@@ -299,3 +301,18 @@ def test_the_split_system_takes_ceiling_and_outdoor_units_and_names_them():
         assert vrf.family_names[prefix] == "Condensing Unit"
     for prefix in ("BS", "HRU", "BC"):
         assert vrf.family_names[prefix] == "Branch Selector"
+
+
+def test_the_split_hints_agree_with_the_family_names():
+    split, _ = _split_and_vrf()
+    text = " ".join(split.hints)
+    assert "Indoor Unit AC-" in text and "Condensing Unit CU-" in text and "Outdoor Unit ODU-" in text
+    assert "Split System Indoor Unit" not in text
+
+
+def test_every_indoor_unit_line_of_the_split_system_counts_a_ceiling_unit():
+    split, _ = _split_and_vrf()
+    for line in split.lines:
+        if line.of:
+            assert "CAC" in line.of and "ODU" not in line.of, line.text
+    assert "CAC" in split.tech_hours.of and "ODU" not in split.tech_hours.of

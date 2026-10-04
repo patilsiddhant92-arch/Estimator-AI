@@ -1,4 +1,5 @@
 """Write each system from the Master Template: lines, quantities, tech hours, confidence and review."""
+from dataclasses import replace
 import datetime as dt
 import re
 from pathlib import Path
@@ -882,3 +883,13 @@ def test_the_summary_counts_a_system_put_in_the_exceptions():
     _, systems, flags = _sensaphone_in_the_spec_job()
     [first, *_] = estimate_lines(systems, flags, None, True)
     assert first == "Systems written: 1 in the proposal, 1 put in the exceptions."
+
+
+def test_a_ceiling_ac_only_split_block_gets_its_indoor_unit_lines_and_hours():
+    bundle = _bundle("CAC", "Ceiling Air Conditioning Unit", ["CAC-1", "CAC-2"])
+    system = _write(replace(bundle, key="Split System", name="Split System", group=True))
+    assert system.template == "Split System"
+    texts = [line.text for line in system.lines]
+    assert any("Programmable Thermostat" in t for t in texts)
+    assert any("Interlock" in t for t in texts)
+    assert system.tech_hours == 4.0       # two indoor units, 2 hours each

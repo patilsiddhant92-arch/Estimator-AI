@@ -1147,26 +1147,26 @@
         "leak_sensor": {"sequence": ["leak detection", "leak sensor", "leak detector", "condensate overflow"]},
         "ram_module": {"sequence": ["RAM module", "refrigerant leak", "refrigerant detection", "refrigerant monitoring"]},
         "condensate_pump": {"schedule": ["CONDENSATE PUMP"], "sequence": ["condensate pump"]},
-        "bms_space_sensor": {"sequence": ["BMS space temperature sensor", "space temperature sensor furnished by the BMS", "BMS contractor shall provide a space temperature sensor", "provide space temperature sensor for BMS monitoring"]}
+        "bms_space_sensor": {"sequence": ["space temperature sensor furnished by the BMS", "BMS contractor shall provide a space temperature sensor", "provide space temperature sensor for BMS monitoring", "BMS shall furnish a space temperature sensor"]}
       },
       "lines": [
-        {"text": "Install and wire Programmable Thermostat (Furnished by Unit Mfr.)", "default": true, "of": ["CU", "AC", "IU", "SS"]},
-        {"text": "Furnish and Install Space Temperature Sensor (BMS Monitoring)", "when": ["bms_space_sensor"], "of": ["CU", "AC", "IU", "SS"]},
-        {"text": "Furnish and Install Leak Sensor", "when": ["leak_sensor"], "of": ["CU", "AC", "IU", "SS"]},
-        {"text": "Furnish and Install Local RAM Module", "when": ["ram_module"], "of": ["CU", "AC", "IU", "SS"]},
-        {"text": "Tie-in Condensate Pump Float Switch (Furnished by Mfr.)", "when": ["condensate_pump"], "of": ["CU", "AC", "IU", "SS"], "no_verb": true},
-        {"text": "Low Voltage Interlock Wiring between Indoor and Outdoor Unit", "default": true, "of": ["CU", "AC", "IU", "SS"], "no_verb": true, "standard": true, "standard_text": "Wire Low Voltage Interlock between Indoor and Outdoor Unit"},
-        {"text": "Furnish BMS Communication Wiring to Factory Controls", "default": true, "of": ["CU", "AC", "IU", "SS"]},
+        {"text": "Install and wire Programmable Thermostat (Furnished by Unit Mfr.)", "default": true, "of": ["CU", "AC", "CAC", "IU", "SS"]},
+        {"text": "Furnish and Install Space Temperature Sensor (BMS Monitoring)", "when": ["bms_space_sensor"], "of": ["CU", "AC", "CAC", "IU", "SS"]},
+        {"text": "Furnish and Install Leak Sensor", "when": ["leak_sensor"], "of": ["CU", "AC", "CAC", "IU", "SS"]},
+        {"text": "Furnish and Install Local RAM Module", "when": ["ram_module"], "of": ["CU", "AC", "CAC", "IU", "SS"]},
+        {"text": "Tie-in Condensate Pump Float Switch (Furnished by Mfr.)", "when": ["condensate_pump"], "of": ["CU", "AC", "CAC", "IU", "SS"], "no_verb": true},
+        {"text": "Low Voltage Interlock Wiring between Indoor and Outdoor Unit", "default": true, "of": ["CU", "AC", "CAC", "IU", "SS"], "no_verb": true, "standard": true, "standard_text": "Wire Low Voltage Interlock between Indoor and Outdoor Unit"},
+        {"text": "Furnish BMS Communication Wiring to Factory Controls", "default": true, "of": ["CU", "AC", "CAC", "IU", "SS"]},
         {"text": "Map Available Points Via Mfr. Provided BMS Interface", "default": true, "quantity": "none"},
         {"text": "AME requires mfr. Rep to assist in integration, cost to be incurred by mech contractor", "default": true, "quantity": "none", "depth": 2}
       ],
       "client_notes": [],
       "hints": [
-        "Qty (#) Split System Indoor Unit CU- | Qty (#) Outdoor Unit ACCU-",
+        "Qty (#) Indoor Unit AC- | Qty (#) Condensing Unit CU- | Qty (#) Outdoor Unit ODU-",
         "20-0404 – Nest Programmable Thermostat as alternate (Apartment / Hotel Jobs)",
         "(**tech hour: 2 hour per indoor unit)"
       ],
-      "tech_hours": {"per": "indoor_unit", "hours": 2, "of": ["CU", "AC", "IU", "SS"]}
+      "tech_hours": {"per": "indoor_unit", "hours": 2, "of": ["CU", "AC", "CAC", "IU", "SS"]}
     },
     {
       "name": "Computer Room Air Conditioning Unit",
