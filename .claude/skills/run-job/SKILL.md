@@ -53,6 +53,9 @@ Read `.claude/run-job.json`: `judge_model` (reading passes), `writer_model` (wri
    Add to the prompt that the subagent must create the answer file's parent folder if it is missing, that it must
    open every picture the request lists under `images` (each by its path) before answering, and that when the
    request has a `previous_problem`, an earlier answer was refused for that reason and the new answer must fix it.
+   For `count_tags`, add that it must open and examine every tile picture under `images` (never count from a
+   whole-sheet picture) and list every tile number in each pattern's `tiles_examined`; an answer that leaves a
+   tile out is refused.
 3. When a subagent is done, run `.venv/Scripts/python.exe tools/run_job.py check <answer_file> <request file>`.
    If it fails, delete the answer file and dispatch that request again. Stop retrying a request once it has
    failed `max_attempts` times (the `attempts` count in the status block); report which request and why, and stop.

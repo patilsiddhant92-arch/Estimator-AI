@@ -89,7 +89,9 @@ def _answer(request: dict) -> dict:
     if kind == "read_pass":
         return {"facts": [], "contradictions": [], "confirmations": [], "understanding": "invented reading"}
     if kind == "count_tags":
-        return {"patterns": [{"pattern": p, "tags": []} for p in request.get("patterns", [])]}
+        examined = list(range(1, len(request.get("tiles", [])) + 1))          # every tile opened
+        return {"patterns": [{"pattern": p, "tiles_examined": examined, "tags": []}
+                             for p in request.get("patterns", [])]}
     if kind == "write_system":
         return _system_answer(request)
     if kind == "qc_job":

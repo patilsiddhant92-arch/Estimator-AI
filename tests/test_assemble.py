@@ -206,6 +206,12 @@ def test_tags_are_expanded_one_by_one():
     assert expand_tags("VAV-21-01 thru 03") == ["VAV-21-01", "VAV-21-02", "VAV-21-03"]
 
 
+def test_a_continued_letter_list_is_expanded():
+    assert expand_tags("SPXF-A, B, C") == ["SPXF-A", "SPXF-B", "SPXF-C"]
+    assert expand_tags(("TXF-A", "B")) == ["TXF-A", "TXF-B"]
+    assert expand_tags("CAC-1.5, 6") == ["CAC-1.5", "CAC-1.6"]
+
+
 def test_a_cited_paragraph_is_found_by_its_id():
     assert cited_text(_dossier(), "S1") == SEQ_VAV
     assert cited_text(_dossier(), "S4") == "[S4] VAV-1 | OFFICE 101 | 600 | HW GPM 1.5"
