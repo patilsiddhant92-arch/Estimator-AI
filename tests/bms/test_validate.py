@@ -195,6 +195,19 @@ def test_ownership_must_be_a_known_party(job):
     assert (RULE["owner"], "EF", "EF.d1", "must_fix") in rules(validate(j, PB))
 
 
+def test_a_front_end_device_that_repeats_an_id_is_a_duplicate(job):
+    from bms.model import FrontEnd
+    device = job.system("EF").devices[0]
+    front = job.front_end or FrontEnd(mode="new-system")
+    shared = dc.replace(job, front_end=dc.replace(front, devices=front.devices + (device,)))
+    got = rules(validate(shared, PB), RULE["once"])
+    assert (RULE["once"], "EF", device.id, "must_fix") in got
+    assert (RULE["once"], "", device.id, "must_fix") in got
+    twice = dc.replace(job, front_end=FrontEnd(mode="new-system", devices=(device, device)))
+    front_only = rules(validate(twice, PB), RULE["once"])
+    assert (RULE["once"], "", device.id, "must_fix") in front_only
+
+
 def test_a_device_in_two_systems(job):
     d = job.system("EF").devices[0]
     j = edit(job, "DH", devices=job.system("DH").devices + (d,))

@@ -385,11 +385,31 @@ def validate(job: Job, playbook: Playbook) -> list[Finding]:
                 for hit in check(pseudo, None, job, playbook):
                     add(-1, "", order, rule, hit)
 
-    # a device id used in more than one place is a device repeated
+    # a device id used in more than one place is a device repeated, including the front end
     owners: dict[str, list[str]] = {}
+    if fe is not None:
+        for d in fe.devices:
+            owners.setdefault(d.id, []).append("")
     for system in job.systems:
         for d in system.devices:
             owners.setdefault(d.id, []).append(system.key)
+
+    def place(key: str) -> str:
+        return "front end" if key == "" else key
+
+    def duplicate(here: str, device: Device) -> Hit:
+        others = sorted({place(k) for k in owners[device.id] if k != here} or {place(here)})
+        return (device.id, "must_fix",
+                f"{device.name} is listed more than once ({place(here)} and {', '.join(others)})",
+                "Keep it in the one block it belongs to.")
+
+    if fe is not None:
+        order = {d.id: n for n, d in enumerate(fe.devices)}
+        seen_front: set[str] = set()
+        for d in fe.devices:
+            if len(owners[d.id]) > 1 and d.id not in seen_front:
+                add(-1, "", order, "once", duplicate("", d))
+            seen_front.add(d.id)
     for index, system in enumerate(job.systems):
         order = {d.id: n for n, d in enumerate(system.devices)}
         shape = playbook.shapes.get(system.shape)
@@ -399,10 +419,7 @@ def validate(job: Job, playbook: Playbook) -> list[Finding]:
         seen: set[str] = set()
         for d in system.devices:
             if len(owners[d.id]) > 1 and d.id not in seen:
-                others = sorted({k for k in owners[d.id] if k != system.key} or {system.key})
-                add(index, system.key, order, "once",
-                    (d.id, "must_fix", f"{d.name} is listed more than once ({system.key} and {', '.join(others)})",
-                     "Keep it in the one block it belongs to."))
+                add(index, system.key, order, "once", duplicate(system.key, d))
             seen.add(d.id)
     found.sort(key=lambda item: item[0])
     return [f for _, f in found]
