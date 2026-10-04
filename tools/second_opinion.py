@@ -17,7 +17,8 @@ import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-GROK = Path.home() / ".grok" / "bin" / "grok"
+_BIN = Path.home() / ".grok" / "bin"
+GROK = next((p for p in (_BIN / "grok.exe", _BIN / "grok.cmd", _BIN / "grok") if p.exists()), _BIN / "grok")
 
 PROMPT = (
     "You are a code reviewer. Read ONLY the unified diff file {diff} (a branch of an estimating app's Python code). "
