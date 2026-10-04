@@ -180,7 +180,7 @@ def _about(system: System) -> _About:
 
 # ---- one system's evidence ---------------------------------------------------------------------------------------
 
-def evidence(system: System, text: str, sources: dict[str, str], sections: dict, images) -> str:
+def evidence(system: System, text: str, sources: dict[str, str], sections: dict, images, schedules=()) -> str:
     """The evidence one system is written from (see `bms.ai.evidence_for`)."""
     about = _about(system)
     entries = parse(text)
@@ -243,8 +243,12 @@ def evidence(system: System, text: str, sources: dict[str, str], sections: dict,
           [e for e in by_part.get(POINTS, []) if e.sid and (e.sid in cited or e.sid in in_sections
                                                             or about.names(e.body) or about.type_row(e.body))])
 
-    # 3. its schedule rows, under their schedule's title, with the schedule's notes
-    block("Its schedule rows and the schedules' notes:", _schedules(by_part.get(SCHEDULES, []), about, cited))
+    # 3. its schedule rows, under their schedule's title, with the schedule's notes.
+    # Schedule objects (the reading) become a small table; without them the dossier's flat lines are used.
+    schedule_rows = by_part.get(SCHEDULES, [])
+    chosen_schedules = (_schedule_tables(schedules, schedule_rows, about, cited) if schedules
+                        else _schedules(schedule_rows, about, cited))
+    block("Its schedule rows and the schedules' notes:", chosen_schedules)
 
     # 4. its counts from the drawings, and the devices counted on the sheets it is on
     counts = [e for e in by_part.get(COUNTS, []) if e.sid and (e.sid in cited or _count_of(e.body, about))]
@@ -326,6 +330,158 @@ def _schedules(entries: list[Entry], about: _About, cited: set[str]) -> list[Ent
         elif whole or entry.sid in cited or about.type_row(entry.body) or about.names_tag(first):
             rows.append(entry)
     flush()
+    return out
+
+
+def _cell(text: str | None) -> str:
+    return " ".join((text or "").split()) or "-"
+
+
+def _schedule_blocks(entries: list[Entry]) -> list[tuple[Entry, list[Entry], list[Entry]]]:
+    """Each schedule in the dossier text: its title entry, its row entries, its note entries."""
+    blocks: list[tuple[Entry, list[Entry], list[Entry]]] = []
+    title: Entry | None = None
+    rows: list[Entry] = []
+    notes: list[Entry] = []
+
+    def flush() -> None:
+        if title is not None:
+            blocks.append((title, list(rows), list(notes)))
+
+    for entry in entries:
+        if entry.sid is None:
+            continue
+        first = entry.body.split("\n", 1)[0]
+        if first.startswith(_SCHEDULE_NOTE):
+            notes.append(entry)
+        elif "|" not in first:
+            flush()
+            title, rows, notes = entry, [], []
+        else:
+            rows.append(entry)
+    flush()
+    return blocks
+
+
+def _block_for(schedule, blocks, used: set[int]):
+    """The dossier block whose title line carries this schedule's title, once."""
+    title = (schedule.title or "").strip()
+    for index, block in enumerate(blocks):
+        if index in used or not title:
+            continue
+        if title in block[0].body.split("\n", 1)[0]:
+            used.add(index)
+            return block
+    return None, [], []
+
+
+def _object_row_matches(row, schedule, about: _About) -> bool:
+    bits: list[str] = []
+    if row.tag:
+        bits.append(str(row.tag))
+    headers = schedule.headers or ()
+    if headers and row.cells:
+        shown = row.cells.get(headers[0])
+        if shown:
+            bits.append(str(shown))
+    return any(about.type_row(f"{bit} |") or about.names_tag(bit) for bit in bits)
+
+
+def _same_row(row, schedule, first: str) -> bool:
+    if row.tag and (plain_tag(row.tag) == plain_tag(first) or plain_tag(row.tag) in tags_in(first)):
+        return True
+    headers = schedule.headers or ()
+    if headers and row.cells:
+        shown = str(row.cells.get(headers[0]) or "")
+        if shown and (plain_tag(shown) == plain_tag(first) or shown.strip() == first.strip()):
+            return True
+    return False
+
+
+def _row_sid(row, schedule, row_entries: list[Entry], used: set[str]) -> str | None:
+    for entry in row_entries:
+        if not entry.sid or entry.sid in used:
+            continue
+        if _same_row(row, schedule, entry.body.split("|", 1)[0].strip()):
+            used.add(entry.sid)
+            return entry.sid
+    return None
+
+
+def _note_sid(label: str, text: str, note_entries: list[Entry], used: set[str]) -> str | None:
+    want = " ".join((text or "").split())
+    if not want:
+        return None
+    prefix = f"{label}:"
+    for entry in note_entries:
+        if not entry.sid or entry.sid in used:
+            continue
+        body = " ".join(entry.body.split())
+        if body.startswith(prefix) and want in body:
+            used.add(entry.sid)
+            return entry.sid
+    return None
+
+
+def _schedule_tables(schedules, entries: list[Entry], about: _About, cited: set[str]) -> list[Entry]:
+    """One small table per schedule object that belongs to this system: the title (its citation, and any
+    "See image" line), the columns, the rows for its tags, then the notes. Cells come from the schedule object.
+    Each title, row and note keeps the source id the dossier gave it."""
+    blocks = _schedule_blocks(entries)
+    used_blocks: set[int] = set()
+    out: list[Entry] = []
+    for schedule in schedules:
+        title, row_entries, note_entries = _block_for(schedule, blocks, used_blocks)
+        title_sid = title.sid if title is not None else None
+        whole = bool(title_sid and title_sid in cited) or (not about.tags and about.names_phrase(schedule.title or ""))
+        matched = [row for row in schedule.rows
+                   if _object_row_matches(row, schedule, about)
+                   or (_row_sid(row, schedule, row_entries, set()) in cited)]
+        chosen = matched if matched else (list(schedule.rows) if whole else [])
+        if not chosen and not (whole and (schedule.notes or schedule.controls_by)):
+            continue
+        part = title.part if title is not None else SCHEDULES
+        place = title.place if title is not None else None
+        section = title.section if title is not None else None
+        if title is not None:
+            out.append(Entry(title.sid, title.text.split("\n", 1)[0], part, place, section))
+            for line in title.text.split("\n")[1:]:
+                if line.strip().startswith("Columns:"):
+                    continue
+                out.append(Entry(None, line, part, place, section))
+        else:
+            name = (schedule.document or "").rsplit("/", 1)[-1].rsplit("\\", 1)[-1]
+            where = ", ".join(bit for bit in (schedule.sheet, f"{name} page {schedule.page}" if name else "") if bit)
+            text = f"{schedule.title} — {where}" if where else (schedule.title or "Schedule")
+            out.append(Entry(None, text, part, place, section))
+        headers = tuple(schedule.headers or ())
+        synthetic = not headers
+        if synthetic:
+            headers = ("TAG",)
+        out.append(Entry(None, "    | " + " | ".join(_cell(header) for header in headers) + " |", part, place, section))
+        out.append(Entry(None, "    | " + " | ".join("---" for _ in headers) + " |", part, place, section))
+        used: set[str] = set()
+        for row in chosen:
+            sid = _row_sid(row, schedule, row_entries, used)
+            cells = []
+            for index, header in enumerate(headers):
+                raw = row.cells.get(header) if row.cells and not synthetic else None
+                if synthetic and index == 0:
+                    raw = row.tag
+                value = _cell(None if raw is None else str(raw))
+                if index == 0 and getattr(row, "existing", False) and "EXISTING" not in value.upper():
+                    value = f"{value} (EXISTING)"
+                cells.append(value)
+            body = " | ".join(cells)
+            out.append(Entry(sid, f"[{sid}] | {body} |" if sid else f"| {body} |", part, place, section))
+        for note in schedule.notes or ():
+            sid = _note_sid("Note", str(note), note_entries, used)
+            text = f"Note: {' '.join(str(note).split())}"
+            out.append(Entry(sid, f"[{sid}] {text}" if sid else text, part, place, section))
+        for sentence in schedule.controls_by or ():
+            sid = _note_sid("Unit controls by", str(sentence), note_entries, used)
+            text = f"Unit controls by: {' '.join(str(sentence).split())}"
+            out.append(Entry(sid, f"[{sid}] {text}" if sid else text, part, place, section))
     return out
 
 

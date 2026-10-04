@@ -569,9 +569,13 @@ def evidence_for(system: System, dossier: Dossier) -> str:
     rows under their schedule's title with the schedule's notes; its equipment counts and the devices counted on the
     sheets it is on; the notes naming it; the controls spec passages about it (and about integration, for a packaged
     or integrated system); the job's who-does-what passages; anything else cited; then each picture it cites or its
-    passages name, as "[I3] Picture: <what>. File: <path>" (write_system attaches those files)."""
+    passages name, as "[I3] Picture: <what>. File: <path>" (write_system attaches those files).
+
+    When the dossier carries the reading's schedule objects, each included schedule is a small table — its columns,
+    then the rows for this system's tags — instead of the flat dossier lines. The source id stays at the start of
+    the title, of each row and of each note."""
     return ai_evidence.evidence(system, dossier.text, dict(dossier.sources or {}), dict(dossier.sections or {}),
-                                dossier.images)
+                                dossier.images, dossier.schedules)
 
 
 def evidence_index(dossier: Dossier) -> dict[str, str]:
