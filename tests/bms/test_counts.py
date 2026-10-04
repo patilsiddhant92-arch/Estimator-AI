@@ -25,6 +25,23 @@ from estimator.catalogue.documents import Document  # noqa: E402
 from estimator.catalogue.register import PageRecord  # noqa: E402
 from estimator.catalogue.sheet_types import Sheet  # noqa: E402
 
+def test_a_count_disagreement_flags_the_devices_the_writer_creates():
+    job = Job.from_dict(json.loads(SAMPLE_JOB.read_text(encoding="utf-8")))
+    system = next(s for s in job.systems if s.families and s.devices)
+    ref = system.devices[0].refs[0]
+    device = dataclasses.replace(system.devices[0], flag="none", quantity=Count(3, (ref,)))
+    other = dataclasses.replace(system.devices[-1], flag="none", quantity=Count(1, (Ref("S1", "other", "elsewhere"),)))
+    kept = dataclasses.replace(system.devices[0], id=system.devices[0].id + ".kept", flag="assumed",
+                               quantity=Count(3, (ref,)))
+    family = dataclasses.replace(system.families[0], count=Count(
+        4, (ref,), (OtherCount(2, Ref("C1", "counted on the sheet picture", "invented sheet")),)))
+    written = dataclasses.replace(system, devices=(device, other, kept), families=(family,))
+    flagged = counts.flag_written_devices(written)
+    assert [d.flag for d in flagged.devices] == ["quantity", "none", "assumed"]
+    quiet = dataclasses.replace(written, families=(dataclasses.replace(family, count=Count(4, (ref,))),))
+    assert counts.flag_written_devices(quiet) is quiet
+
+
 FIXTURES = Path(__file__).resolve().parent / "fixtures"
 SAMPLE_JOB = FIXTURES / "sample_job.json"
 

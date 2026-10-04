@@ -267,6 +267,13 @@ def test_source_ids_with_no_ref_are_dropped_and_the_words_tidied(job):
     assert "S9" not in out[-1] and "  " not in out[-1]
 
 
+def test_keynote_drawing_fact_and_count_ids_do_not_print(job):
+    pb = load_playbook(ROOT / "playbook")
+    clar = (Clarification("confirm", "Confirm the keynote Q3, drawing I12, fact F8 and count C2a"),)
+    out = texts(render(one(job, system([device()], clarifications=clar)), pb), "EF")
+    assert "Q3" not in out[-1] and "I12" not in out[-1] and "F8" not in out[-1] and "C2a" not in out[-1]
+
+
 def test_source_ids_in_a_clarification_are_replaced_too(job):
     pb = load_playbook(ROOT / "playbook")
     d = device(refs=(Ref("S12", "q", "Q-100.00, Invented.pdf page 3"),))

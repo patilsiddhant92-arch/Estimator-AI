@@ -84,11 +84,27 @@ def count_proofs(out_dir: Path) -> dict[str, list[str]]:
 def _questions(job: Job, findings: Sequence[Finding]) -> list[_Question]:
     out: list[_Question] = []
     seq = 0
+    by_device: dict[tuple[str, str], _Question] = {}
 
     def add(**kw) -> None:
         nonlocal seq
+        device_id = kw.get("device_id")
+        key = (kw.get("system_key", ""), device_id) if device_id else None
+        if key is not None and key in by_device:
+            current = by_device[key]
+            notes = tuple(note for note in kw.get("notes") or () if note not in current.notes)
+            current.notes = current.notes + notes
+            current.rank = min(current.rank, kw.get("rank", current.rank))
+            if current.finding_rule is None and kw.get("finding_rule"):
+                current.finding_rule = kw["finding_rule"]
+            if current.device is None and kw.get("device") is not None:
+                current.device = kw["device"]
+            return
         seq += 1
-        out.append(_Question(qid=f"q{seq}", order=seq, **kw))
+        question = _Question(qid=f"q{seq}", order=seq, **kw)
+        out.append(question)
+        if key is not None:
+            by_device[key] = question
 
     scopes: list[tuple[str, Sequence[Device], Sequence]] = [(s.key, s.devices, s.families) for s in job.systems]
     if job.front_end is not None:
@@ -445,10 +461,10 @@ def _apply_to_devices(devices: tuple[Device, ...], device_id: str, decision: Dec
 
 
 def apply_decisions(job: Job, decisions: Sequence[Decision]) -> Job:
-    """The job with the decisions applied, in order: accept clears the device's flag; delete removes the device (or
-    the system, when no device or family is named); change replaces the device (same id) or the family's Count.
-    A decision naming a system or device the job no longer has is skipped. Pure. System key "" names the front
-    end's devices."""
+    """The job with the decisions applied, in order: accept clears the device's flag, or, for a family, the
+    quantity flags on that system's devices; delete removes the device (or the system, when no device or family is
+    named); change replaces the device (same id) or the family's Count. A decision naming a system or device the
+    job no longer has is skipped. Pure. System key "" names the front end's devices."""
     for decision in decisions:
         job = _apply_one(job, decision)
     return job
@@ -470,7 +486,13 @@ def _apply_one(job: Job, d: Decision) -> Job:
         return job.with_system(dataclasses.replace(
             system, devices=_apply_to_devices(system.devices, d.device_id, d)))
     if d.family_name is not None:
-        if d.action != "change" or d.count is None or not any(f.name == d.family_name for f in system.families):
+        if not any(f.name == d.family_name for f in system.families):
+            return job
+        if d.action == "accept":
+            devices = tuple(dataclasses.replace(dev, flag="none") if dev.flag == "quantity" else dev
+                            for dev in system.devices)
+            return job.with_system(dataclasses.replace(system, devices=devices))
+        if d.action != "change" or d.count is None:
             return job
         families = tuple(dataclasses.replace(f, count=d.count) if f.name == d.family_name else f
                          for f in system.families)

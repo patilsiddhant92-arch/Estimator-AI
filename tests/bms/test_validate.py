@@ -195,6 +195,19 @@ def test_ownership_must_be_a_known_party(job):
     assert (RULE["owner"], "EF", "EF.d1", "must_fix") in rules(validate(j, PB))
 
 
+def test_a_front_end_device_that_repeats_an_id_is_a_duplicate(job):
+    from bms.model import FrontEnd
+    device = job.system("EF").devices[0]
+    front = job.front_end or FrontEnd(mode="new-system")
+    shared = dc.replace(job, front_end=dc.replace(front, devices=front.devices + (device,)))
+    got = rules(validate(shared, PB), RULE["once"])
+    assert (RULE["once"], "EF", device.id, "must_fix") in got
+    assert (RULE["once"], "", device.id, "must_fix") in got
+    twice = dc.replace(job, front_end=FrontEnd(mode="new-system", devices=(device, device)))
+    front_only = rules(validate(twice, PB), RULE["once"])
+    assert (RULE["once"], "", device.id, "must_fix") in front_only
+
+
 def test_a_device_in_two_systems(job):
     d = job.system("EF").devices[0]
     j = edit(job, "DH", devices=job.system("DH").devices + (d,))
@@ -229,6 +242,19 @@ def test_a_system_with_no_lines_is_a_check_with_the_writers_reason(job):
     assert [(f.system_key, f.device_id, f.severity) for f in found] == [("DH", None, "check")]
     assert "left out: no lines written" in found[0].what
     assert "the invented heaters have no BMS work" in found[0].what
+
+
+def test_render_and_validate_share_one_source_id_pattern():
+    import bms.render as render_mod
+    import bms.validate as validate_mod
+    from bms import citations
+    assert render_mod._ONE_ID is citations.ONE_ID
+    assert validate_mod._SOURCE_ID is citations.SOURCE_ID
+
+
+def test_q_i_f_and_c_ids_in_wording_are_a_check(job):
+    j = edit_device(job, "RTU", "RTU.d4", assumption=Assumption("one detector", "Q3, I12, F8 and C2a say so"))
+    assert (RULE["ids"], "RTU", "RTU.d4", "check") in rules(validate(j, PB))
 
 
 def test_source_ids_in_assumption_or_clarification_wording_are_a_check(job):

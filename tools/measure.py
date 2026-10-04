@@ -145,8 +145,9 @@ def _overlap(a: str, b: str) -> float:
 
 
 def _agree(rendered: LineMatch, final: LineMatch) -> bool:
-    """Verb and quantity agree; a final line that prints no verb or no quantity asks for none."""
-    if final.verb and rendered.verb and _canon_verb(final.verb) != _canon_verb(rendered.verb):
+    """Verb and quantity agree; a final line that prints no verb or no quantity asks for none.
+    A final line that prints a verb asks for that verb, so a rendered line with no verb does not match."""
+    if final.verb and _canon_verb(final.verb) != _canon_verb(rendered.verb):
         return False
     if final.quantity is not None and rendered.quantity != final.quantity:
         return False

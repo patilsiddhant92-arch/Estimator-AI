@@ -25,7 +25,7 @@ from typing import TYPE_CHECKING
 from bms.counts_proof import PROOFS_FOLDER, draw_proof, load_manifest, save_manifest
 from bms.counts_text import (canonical, family_pattern, fits, located_boxes, natural, prefix_owners, searcher)
 from bms.counts_vision import COUNT_KIND, TILE, ask_sheet
-from bms.model import Count, OtherCount, Ref
+from bms.model import Count, OtherCount, Ref, System
 
 if TYPE_CHECKING:
     from estimator.catalogue.job import Catalogue
@@ -120,6 +120,28 @@ def cross_check(job: "Job", catalogue: "Catalogue", cache: Path, *, transport=No
         return _Check(job, catalogue, Path(cache), transport).run()
     except Exception:
         return job
+
+
+def flag_written_devices(system: System) -> System:
+    """Flag devices the writer just created when a family's counts disagree.
+
+    `cross_check` flags devices that already exist and were counted from the family's sources. A planned system
+    has no devices yet, so the run calls this after `write_system`. A family with no `others` changes nothing.
+    A device whose quantity cites one of that family's sources, or one of the disagreeing counts, gets flag
+    "quantity" unless it is already flagged. Pure."""
+    disputed: set[Ref] = set()
+    for family in system.families:
+        if not family.count.others:
+            continue
+        disputed.update(family.count.sources)
+        disputed.update(other.ref for other in family.count.others)
+    if not disputed:
+        return system
+    devices = tuple(
+        dataclasses.replace(device, flag="quantity")
+        if device.flag == "none" and disputed & set(device.quantity.sources) else device
+        for device in system.devices)
+    return system if devices == system.devices else dataclasses.replace(system, devices=devices)
 
 
 def load_proofs(cache: Path) -> list[dict]:
