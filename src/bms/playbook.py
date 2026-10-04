@@ -120,15 +120,34 @@ def _plain_prefix(prefix: str) -> str:
 def load_playbook(root: Path = DEFAULT_ROOT) -> Playbook:
     """The Playbook in `root` (default: the repo's `playbook/`). Raises PlaybookError on a malformed file."""
     root = Path(root)
-    rules_text, topics, rules = _load_rules(root / "rules.md")
-    shapes = _load_shapes(root / "shapes.json")
-    wording = _load_wording(root / "wording.json")
+    rules_text, topics, rules = load_rules(root / "rules.md")
+    shapes = load_shapes(root / "shapes.json")
+    wording = load_wording(root / "wording.json")
     return Playbook(rules_text, topics, rules, shapes, wording, root)
+
+
+def check_file(path: Path) -> None:
+    """Check one Playbook file (`rules.md`, `shapes.json` or `wording.json`).
+    Raises PlaybookError naming the file and what is wrong."""
+    path = Path(path)
+    if path.name == "rules.md":
+        load_rules(path)
+    elif path.name == "shapes.json":
+        load_shapes(path)
+    elif path.name == "wording.json":
+        load_wording(path)
+    else:
+        raise PlaybookError(f"{path.name}: not a Playbook file (expected rules.md, shapes.json, or wording.json)")
+
+
+check_playbook_file = check_file
 
 
 # ---- rules.md ------------------------------------------------------------------------------------------------
 
-def _load_rules(path: Path) -> tuple[str, tuple[str, ...], dict[str, Rule]]:
+def load_rules(path: Path) -> tuple[str, tuple[str, ...], dict[str, Rule]]:
+    """Load and check rules.md. Raises PlaybookError on a malformed file."""
+    path = Path(path)
     text = _read(path)
     body = re.sub(r"<!--(?!\s*sample\s*-->).*?-->", "", text, flags=re.S)   # comments out, sample marks kept
     topics: list[str] = []
@@ -175,6 +194,9 @@ def _load_rules(path: Path) -> tuple[str, tuple[str, ...], dict[str, Rule]]:
     return text, tuple(topics), rules
 
 
+_load_rules = load_rules
+
+
 # ---- shapes.json ---------------------------------------------------------------------------------------------
 
 def _strings(value, where: str, path: Path, allow_empty: bool = True) -> tuple[str, ...]:
@@ -196,7 +218,9 @@ _OPTIONAL_SHAPE_KEYS = {"under", "order"}
 DEFAULT_ORDER = 10          # a shape with no "order": the equipment blocks
 
 
-def _load_shapes(path: Path) -> dict[str, Shape]:
+def load_shapes(path: Path) -> dict[str, Shape]:
+    """Load and check shapes.json. Raises PlaybookError on a malformed file."""
+    path = Path(path)
     data = _json(path)
     if not isinstance(data.get("$format"), dict):
         raise PlaybookError(f"{path.name}: the \"$format\" object is missing")
@@ -252,6 +276,9 @@ def _load_shapes(path: Path) -> dict[str, Shape]:
     return shapes
 
 
+_load_shapes = load_shapes
+
+
 def _under(raw, where: str, path: Path, line_order: tuple[str, ...]) -> dict[str, str]:
     """The optional sub-line map: slot -> the parent slot it prints one level in under. Both are slots of the shape
     and the parent comes earlier in line_order (so a chain never loops)."""
@@ -290,7 +317,9 @@ def _tech_hours(raw, where: str, path: Path, slots: set[str]) -> TechHours:
 
 # ---- wording.json --------------------------------------------------------------------------------------------
 
-def _load_wording(path: Path) -> Wording:
+def load_wording(path: Path) -> Wording:
+    """Load and check wording.json. Raises PlaybookError on a malformed file."""
+    path = Path(path)
     data = _json(path)
     if not isinstance(data.get("$format"), dict):
         raise PlaybookError(f"{path.name}: the \"$format\" object is missing")
@@ -325,11 +354,17 @@ def _load_wording(path: Path) -> Wording:
     return Wording(verbs, brackets, lines, tuple(depths), forms, header, quantity, draft)
 
 
+_load_wording = load_wording
+
+
 # ---- files ---------------------------------------------------------------------------------------------------
 
 def _read(path: Path) -> str:
+    path = Path(path)
     try:
         return path.read_text(encoding="utf-8")
+    except UnicodeDecodeError as error:
+        raise PlaybookError(f"{path.name}: not valid UTF-8 text ({error})") from None
     except OSError as error:
         raise PlaybookError(f"{path}: cannot be read ({error.strerror or error})") from None
 
