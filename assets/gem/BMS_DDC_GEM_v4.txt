@@ -542,6 +542,7 @@ There are four flags, written as words.
   NOTE: an informational note with no scope impact.
 Each flag carries the exact phrase from the sequence it rests on.
 The flag word goes in the answer's flag field, never in the text of the scope line.
+For ASSUMED, flag_text reads "ASSUMED: <what is assumed> — because <the reason, in a few plain words naming the document or the missing information>"; an assumption without its reason is not written.
 ONE CLARIFICATION PER BLOCK (the estimator, 2026-10-03)
 In the draft, write one "*" clarification per block, naming the lines it covers: the quantities to confirm and the assumptions made.
 Do not put a bracket on every line.

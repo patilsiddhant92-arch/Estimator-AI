@@ -121,7 +121,7 @@ and the Self-QC results in their fields.
   lines: one per scope line, in SOW order. text: the scope line as the SOW writes it, with its quantity note on the \
 same line, without the flag. reference: the words of its reference line, without the brackets. flag: "red" for \
 CONFIRM QUANTITY, "yellow" for CONFIRM OWNERSHIP, "orange" for ASSUMED, "green" for NOTE, or "" for none. flag_text: what the flag says (what to confirm, or the exact basis of \
-the assumption). quantity: the number its quantity note states, or null. quote: the exact words of the evidence it \
+the assumption). For ASSUMED, flag_text is "ASSUMED: <what is assumed> — because <the reason, in a few plain \nwords naming the document or the missing information>"; never an assumption without its reason. quantity: the number its quantity note states, or null. quote: the exact words of the evidence it \
 rests on, copied from it. source_id: the id of that passage, such as "[S12]". depth: 1, or 2 for a line one level \
 in (the manufacturer's representative line). The system's header and count are printed for you: never write them as a line.
   contradictions: one entry per hit of the scan (type C1 to C6, the item, the snippets quoted, the flag); none when \

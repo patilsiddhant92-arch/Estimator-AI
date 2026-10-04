@@ -72,3 +72,11 @@ def test_the_rep_line_without_its_diamond_is_the_house_line_one_level_in():
     scope = parse_scope(answer, "m", load_house_style())
     assert [(written.text, written.depth) for written in scope.lines][-1] == (
         "AME requires mfr. Rep to assist in integration, cost to be incurred by mech contractor", 2)
+
+
+def test_the_writer_is_told_to_give_the_reason_for_every_assumption():
+    text = GEM_FILE.read_text(encoding="utf-8")
+    assert '"ASSUMED: <what is assumed> — because <the reason' in text
+    prompt = gem_prompt()
+    assert prompt.count("— because <the reason") >= 2
+    assert "never an assumption without its reason" in prompt

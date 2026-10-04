@@ -24,7 +24,7 @@ def test_a_clarification_goes_in_brackets_at_the_end_of_its_line():
 
 def test_the_assumed_and_confirm_quantity_notes_print_once_for_the_block_after_its_lines():
     scope = _scope(_gl("Furnish and Install EDH DDC Controller (Qty. 3 Total)", quantity=3, quote="Job 26-9999",
-                       flag="orange", flag_text="One electric duct heater DDC controller per heater assumed"),
+                       flag="orange", flag_text="One electric duct heater DDC controller per heater assumed — because the schedule lists one heater per controller"),
                    _gl("Furnish and Install Airflow Switch", flag="red", flag_text="No count on the drawings"))
     job, systems, _, _ = _assemble([EDH], {"EDH": scope})
     items = _items(job, EDH_HEADER)
@@ -34,13 +34,13 @@ def test_the_assumed_and_confirm_quantity_notes_print_once_for_the_block_after_i
     assert "Furnish and Install Airflow Switch (Qty. per Mechanical Schedule)" in texts
     stars = [t for kind, t in items if kind == "note" and t.startswith("*") and not t.startswith("**")]
     assert stars[0].startswith("*Confirm quantity: ") and "Airflow Switch" in stars[0]
-    assert stars[1] == "*Assumed: One electric duct heater DDC controller per heater assumed"
+    assert stars[1] == "*Assumed: One electric duct heater DDC controller per heater assumed, because the schedule lists one heater per controller"
     assert max(i for i, (kind, _) in enumerate(items) if kind == "line") < items.index(("note", stars[0]))
 
 
 def test_a_c5_assumption_goes_in_the_block_note():
     scope = _scope(_gl("Furnish and Install EDH DDC Controller"),
-                   contradictions=(Contradiction("C5", "One EDH DDC controller per heater assumed", (), "orange"),))
+                   contradictions=(Contradiction("C5", "One EDH DDC controller per heater assumed, because the schedule lists one per heater", (), "orange"),))
     job, _, _, _ = _assemble([EDH], {"EDH": scope})
     texts = [t for _, t in _items(job, EDH_HEADER)]
     assert "Furnish and Install EDH DDC Controller" in texts and any(t.startswith("*Assumed: ") for t in texts), texts

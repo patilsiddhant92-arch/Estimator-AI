@@ -468,7 +468,7 @@ def test_flags_print_per_the_doctrine():
     lines = (_gl("Furnish and Install Spill Air Damper Actuator", flag="red", flag_text="No count for the plenums"),
              _gl("Furnish Generator Run Status", flag="yellow", flag_text="Generator is a factory unit; no named party"),
              _gl("Furnish and Install Space Temperature Sensor", flag="orange",
-                 flag_text="Sensor assumed from the space temperature alarm"),
+                 flag_text="Sensor assumed — because the alarm list names a space temperature"),
              _gl("Furnish Fan Start/Stop and Status", flag="green", flag_text="Fan runs continuously"))
     job, systems, general = _assemble([FANS], {"EF": _scope(*lines)})
     items = _items(job, "Qty (2) Exhaust Fan EF-1, 2")
@@ -479,7 +479,7 @@ def test_flags_print_per_the_doctrine():
     assert "Furnish Generator Run Status" in texts          # yellow: an ownership question, review only, no note
     assert "Furnish and Install Space Temperature Sensor" in texts
     assert [t for kind, t in items if kind == "note" and t.startswith("*")] == [
-        "*Confirm quantity: Spill Air Damper Actuator", "*Assumed: Sensor assumed from the space temperature alarm"]
+        "*Confirm quantity: Spill Air Damper Actuator", "*Assumed: Sensor assumed, because the alarm list names a space temperature"]
     assert not any("Fan runs continuously" in t for t in texts)                      # green: review only
     ranked = review_list(systems, general, _dossier())
     red_row = next(r for r in ranked if "Spill Air Damper Actuator" in r.decide)
@@ -492,13 +492,13 @@ def test_flags_print_per_the_doctrine():
 def test_the_contradiction_scan_and_the_self_qc_reach_the_review_list_and_c5_prints():
     scope = _scope(_gl("Furnish Fan Start/Stop and Status"), _gl("Furnish Fan VFD Control"),
                    contradictions=(Contradiction("C1", "Duct smoke detector", ("by FA", "by BMS"), "yellow"),
-                                   Contradiction("C5", "Fan VFD Control", ("fan with VFD",), "orange")),
+                                   Contradiction("C5", "Fan VFD Control — because the schedule lists a fan with VFD", ("fan with VFD",), "orange")),
                    qc=(QcCheck("QC-01", "CC term: BMS contractor", True, ""),
                        QcCheck("QC-08", "FA relays 2 vs 1 Wire line", False, "Added the start relay")))
     red = _gl("Furnish and Install Current Switch", flag="red", flag_text="No count")
     job, systems, general = _assemble([FANS], {"EF": dataclasses.replace(scope, lines=scope.lines + (red,))})
     items = _items(job, "Qty (2) Exhaust Fan EF-1, 2")
-    assert ("line", "Furnish Fan VFD Control") in items and ("note", "*Assumed: Fan VFD Control") in items
+    assert ("line", "Furnish Fan VFD Control") in items and ("note", "*Assumed: Fan VFD Control, because the schedule lists a fan with VFD") in items
     ranked = review_list(systems, general, _dossier())
     c1 = next(r for r in ranked if "Duct smoke detector" in r.decide)
     qty = next(r for r in ranked if "Current Switch" in r.decide)

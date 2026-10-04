@@ -66,7 +66,7 @@ FANS = _planned("EF", "Exhaust Fan EF-1, 2", ("EF-1", "EF-2"), 2, kind="Exhaust 
 
 LEAKY = _scope(
     _gl("Furnish and Install Space Temperature Sensor (S170)", flag="orange",
-        flag_text="ASSUMED: CC furnishes it per the factory-controls rule (S170) \U0001F7E0"),
+        flag_text="ASSUMED: CC furnishes it — because the schedule shows none (S170, factory-controls rule) \U0001F7E0"),
     _gl("Furnish Fan Start/Stop and Status", reference="Mandatory minimum point — per GEM"),
     _gl("Furnish and Install Current Switch [Q7]", flag="red", flag_text="CONFIRM QUANTITY: no count (C6), S480"),
     _gl("Wire Fire Alarm Stop Relay to Fan (Relay Furnished by FA)", flag="yellow",
@@ -99,7 +99,7 @@ def test_nothing_the_gem_writes_for_the_estimator_reaches_the_client():
     lines = [t for kind, t in _items(job, "Qty (2) Exhaust Fan EF-1, 2") if kind == "line"]
     notes = [t for kind, t in _items(job, "Qty (2) Exhaust Fan EF-1, 2") if kind == "note"]
     assert "Furnish and Install Space Temperature Sensor" in lines
-    assert "*Assumed: Space temperature sensor furnished by AME" in notes      # one clarification per block
+    assert "*Assumed: AME furnishes it, because the schedule shows none" in notes      # one clarification per block
     assert "Furnish and Install Current Switch (Qty. per Mechanical Schedule)" in lines
     assert "*Confirm quantities: Current Switch, Fire Alarm Stop Relay" in notes
     assert "AME requires mfr. Rep to assist in integration, cost to be incurred by mech contractor" in lines
@@ -131,11 +131,11 @@ def test_an_assumption_prints_once_under_its_line_in_plain_words():
                                                 "requirement sits in the ATC spec section)."),
                    _gl("Furnish Fan Start/Stop and Status"),
                    contradictions=(Contradiction("C5", "Wire guards for gymnasium and weight room sensors furnished by "
-                                                       "CC", ("wire guard",), "orange"),))
+                                                       "CC — because the specification requires them", ("wire guard",), "orange"),))
     job, _, _, _ = _assemble([FANS], {"EF": scope})
     items = _items(job, "Qty (2) Exhaust Fan EF-1, 2")
     assert ("line", "Furnish and Install Heavy-Gauge Ventilated Wire Guard for Space Sensors (Qty. 9 Total)") in items
-    assert ("note", "*Assumed: Wire guards for gymnasium and weight room sensors furnished by AME") in items
+    assert ("note", "*Assumed: Wire guards for gymnasium and weight room sensors furnished by AME, because the specification requires them") in items
     assert sum(t.count("*Assumed") for _, t in items) == 1
 
 

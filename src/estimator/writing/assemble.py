@@ -2105,11 +2105,12 @@ _ASSUMED_NOTE = "*Assumed:"
 _BLOCK_NOTE_ROOM = 60          # the words one block note lists before "and N more"
 
 
-def _listed(items: list[str], sep: str) -> str:
-    """The items joined, as many as fit in the room (always the first), the rest "and N more"."""
+def _listed(items: list[str], sep: str, room: int | None = _BLOCK_NOTE_ROOM) -> str:
+    """The items joined, as many as fit in the room (always the first), the rest "and N more"; with no room limit
+    (None) every item is listed."""
     shown: list[str] = []
     for item in items:
-        if shown and len(sep.join(shown + [item])) > _BLOCK_NOTE_ROOM:
+        if room is not None and shown and len(sep.join(shown + [item])) > room:
             break
         shown.append(item)
     rest = len(items) - len(shown)
@@ -2119,7 +2120,7 @@ def _listed(items: list[str], sep: str) -> str:
 def block_clarifications(rows: list) -> tuple[list, list[str]]:
     """One "*" clarification per block (the estimator, 2026-10-03): each line's "*Confirm quantity: …" and
     "*Assumed: …" notes are taken off the line and gathered into one note each, printed after the block's lines:
-    "*Confirm quantities: Sensor A, Sensor C" and "*Assumed: what A; what B" (deduplicated, in line order). Any other
+    "*Confirm quantities: Sensor A, Sensor C" and "*Assumed: what A, because why; what B, because why" (every assumption listed, deduplicated, in line order). Any other
     note (a "*… BY UNIT MFR." maker note, the AME-standard note) stays on its line. (the rows, the block notes)"""
     devices: list[str] = []
     whats: list[str] = []
@@ -2142,7 +2143,7 @@ def block_clarifications(rows: list) -> tuple[list, list[str]]:
     if devices:
         notes.append(f"*Confirm {'quantities' if len(devices) > 1 else 'quantity'}: {_listed(devices, ', ')}")
     if whats:
-        notes.append(f"*Assumed: {_listed(whats, '; ')}")
+        notes.append(f"*Assumed: {_listed(whats, '; ', None)}")   # every assumption, with its reason: none hidden
     return kept, notes
 
 
@@ -2186,15 +2187,42 @@ def _star_device(text: str, style) -> str:
     return _squash(style.client_text(device)).strip(" ,.-–")
 
 
-def _plain_assumption(text: str, style) -> str | None:
-    """An assumption in few plain words about the scope ("Wire guards … furnished by AME"), or None when what the AI
-    wrote is its reasoning (its rule names, its evidence) rather than the scope."""
+_ASSUMPTION_ROOM = 160          # one assumption with its reason, in characters
+_REASON_START = re.compile(r"^(?:because|since|as|per|given|based on|no|not|the|there|only|drawings?|schedules?|"
+                           r"specs?|specifications?|sequences?|plans?)", re.I)
+
+
+def _clean_phrase(text: str, style) -> str:
+    """Client words only, the first sentence or clause, or "" when it is the AI's reasoning rather than scope."""
     t = style.client_text(text or "")
-    t = re.sub(r"^\s*(?:assumed|assumption)\s*[:\-–—]?\s*", "", t, flags=re.I)
     t = re.split(r"\s+[—–]\s+|\s+-\s+|;|:\s|\.\s|\s*\(", t)[0].strip(" .,")
-    if not t or len(t) > 130 or style.internal(t) or style.forbidden(t):
+    if not t or style.internal(t) or style.forbidden(t):
+        return ""
+    return t
+
+
+def _plain_assumption(text: str, style) -> str | None:
+    """An assumption in few plain words with its reason ("Duct static sensor shipped loose, because the schedule shows
+    no factory sensor"): the flag text's what, then "because" and why (after "because", or after " — " when what follows
+    reads as a reason). None when no client-safe reason can be found, or when it does not fit in 160 characters: a bare
+    "*Assumed: <device>" never prints. The AI's rule names, source ids and confidence never print."""
+    t = re.sub(r"^\s*(?:assumed|assumption)\s*[:\-–—]?\s*", "", text or "", flags=re.I)
+    m = re.search(r"[,;]?\s+because\s+(?P<why>.+)$", t, re.I) or re.search(
+        r"\s+[—–]\s+(?P<why>" + _REASON_START.pattern[1:] + r".*)$", t, re.I)
+    if m is None:
         return None
-    return t[0].upper() + t[1:]
+    what, why = _clean_phrase(t[:m.start()].rstrip(" —–-"), style), _clean_phrase(m.group("why"), style)
+    why = re.sub(r"^because\s+", "", why, flags=re.I)
+    if not what or not why:
+        return None
+    out = f"{what[0].upper() + what[1:]}, because {why}"
+    return out if len(out) <= _ASSUMPTION_ROOM else None
+
+
+def _assumption_what(text: str, style) -> str:
+    """What a flag text assumes, without its reason, for the review row's subject."""
+    return _clean_phrase(re.sub(r"^\s*(?:assumed|assumption)\s*[:\-–—]?\s*", "", text or "", flags=re.I)
+                         .split(" because ")[0], style)
 
 
 def flag_review(name: str, text: str, line, style) -> tuple[ReviewItem | None, str | None]:
@@ -2207,7 +2235,8 @@ def flag_review(name: str, text: str, line, style) -> tuple[ReviewItem | None, s
         return None, None
     evidence = _flag_evidence(line)
     device = _star_device(text, style)
-    about = _squash(f"{device} {_plain_assumption(line.flag_text, style) or ''}")    # what the decision is about
+    reasoned = _plain_assumption(line.flag_text, style)           # "<what>, because <why>", or None
+    about = _squash(f"{device} {reasoned or _assumption_what(line.flag_text, style)}")    # what the decision is about
     note = None
     if flag == "red":
         row = ReviewItem(name, PENDING, f"Give the quantity for “{text}”", evidence, "Count it on the drawings or the "
@@ -2225,8 +2254,10 @@ def flag_review(name: str, text: str, line, style) -> tuple[ReviewItem | None, s
         note = f"*Confirm quantity: {device}" if _QUANTITY_FLAG.match(line.flag_text or "") else None
     else:
         row = ReviewItem(name, ASSUMPTION, f"Assumed: “{text}”", evidence, "Confirm the assumption; the proposal "
-                         "prints a * clarification after the line", tier=TIER_DISAGREE, device=about, kind="orange")
-        note = f"*Assumed: {_plain_assumption(line.flag_text, style) or device}"
+                         "prints a * clarification after the line" if reasoned else "This assumption has no reason to "
+                         "print, so the proposal prints no * clarification: add the reason in the line's flag, or "
+                         "confirm the line", tier=TIER_DISAGREE, device=about, kind="orange")
+        note = f"*Assumed: {reasoned}" if reasoned else None
     if note is not None and (style.forbidden(note) or style.internal(note)):
         note = None
     return row, (_squash(note) if note else None)
@@ -2332,12 +2363,8 @@ def gem_review(name: str, scope, rows: list, style, system=None
         if row is None:
             continue
         what = _plain_assumption(c.item, style)
-        others = [n for n in row.after if not n.startswith("*Assumed:")]
-        mine = [n for n in row.after if n.startswith("*Assumed:")]
-        if what is not None:
-            row.after = others + [_squash(f"*Assumed: {what}")]
-        elif not mine and not others:
-            row.after = [_squash(f"*Assumed: {_star_device(row.line.text, style)}")]
+        if what is not None:          # one with its reason replaces the line's own note; a bare one never prints
+            row.after = [n for n in row.after if not n.startswith("*Assumed:")] + [_squash(f"*Assumed: {what}")]
     makers = []
     for x in getattr(scope, "exclusions", ()) or ():
         devices = style.unit_maker_devices(x) if system is not None and not _other_unit(x, system) else []
