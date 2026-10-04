@@ -312,11 +312,14 @@ def test_a_killed_write_resumes_from_cached_answers_without_asking_again(job_fol
     requests = sorted(folder.glob("*.json"))
     assert requests and {json.loads(p.read_text(encoding="utf-8"))["kind"] for p in requests} == {"write_system"}
     saved = {p.name: p.read_bytes() for p in requests}
+    stamped = {p.name: p.stat().st_mtime_ns for p in requests}
 
     # killed after the requests were written, before any answer: the same files, not a second ask
     resumed = estimate(job_folder, out, cache, "chat")
     assert resumed.status == "waiting" and resumed.stage == "write"
     assert {p.name: p.read_bytes() for p in folder.glob("*.json")} == saved
+    assert {p.name: p.stat().st_mtime_ns for p in folder.glob("*.json")} == stamped
+    assert sorted(p.relative_to(folder).as_posix() for p in folder.rglob("*.json")) == sorted(saved)
 
     # those answers are now cached, but a kill left the request files behind: resume must drop them
     for path in folder.glob("*.json"):
@@ -329,7 +332,7 @@ def test_a_killed_write_resumes_from_cached_answers_without_asking_again(job_fol
     for name, payload in saved.items():
         (folder / name).write_bytes(payload)
     estimate(job_folder, out, cache, "chat")
-    assert not any(p.name in saved for p in folder.glob("*.json"))
+    assert not any(p.name in saved for p in folder.rglob("*.json"))
 
 
 def test_a_malformed_decisions_file_stops_with_a_plain_message(job_folder, tmp_path, monkeypatch):
@@ -343,9 +346,27 @@ def test_a_malformed_decisions_file_stops_with_a_plain_message(job_folder, tmp_p
     assert result.proposal is None
 
 
-def test_a_rerun_asks_the_writer_again_only_for_the_system_a_decision_changed(job_folder, tmp_path, monkeypatch):
-    """The decision is applied once. Only that system is asked again, with the decision in the prompt.
-    The device the writer then numbers d1 is kept: a second apply would delete it."""
+def _plant(cache: Path, names_for: dict[str, tuple[str, ...]]) -> None:
+    """Answer every waiting request. A listed system gets those device names, in order, as d1, d2, ..."""
+    for path in sorted((cache / "judge-chat" / "requests").glob("*.json")):
+        request = json.loads(path.read_text(encoding="utf-8"))
+        answer = _answer(request)
+        key = request.get("plan_key")
+        if request.get("kind") == "write_system" and key in names_for:
+            base = dict(answer["devices"][0])
+            answer["devices"] = []
+            for number, name in enumerate(names_for[key], start=1):
+                device = dict(base)
+                device["id"] = f"{key}.d{number}"
+                device["name"] = name
+                answer["devices"].append(device)
+        dest = Path(request["answer_file"])
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_text(json.dumps(answer), encoding="utf-8")
+
+
+def test_a_device_decision_is_not_sent_back_to_the_writer(job_folder, tmp_path, monkeypatch):
+    """A delete is applied to the written device. The writer is not asked again, so it cannot put the line back."""
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     out, cache = tmp_path / "out", tmp_path / "cache"
     assert _reach(job_folder, out, cache, "write").stage == "write"
@@ -356,22 +377,41 @@ def test_a_rerun_asks_the_writer_again_only_for_the_system_a_decision_changed(jo
     }]), encoding="utf-8")
     assert answer_all(cache)
     result = estimate(job_folder, out, cache, "chat")
-    assert result.status == "waiting"
+    assert result.stage == "qc"
     fresh = [json.loads(p.read_text(encoding="utf-8"))
              for p in (cache / "judge-chat" / "requests").glob("*.json")]
-    assert [r.get("plan_key") for r in fresh] == [changed]
-    assert fresh[0]["step"] == "write" and "estimator" in fresh[0]["prompt"].lower()
-    assert answer_all(cache)
-    followed = estimate(job_folder, out, cache, "chat")
-    saved = json.loads(followed.job_file.read_text(encoding="utf-8"))
+    assert all(item.get("kind") != "write_system" for item in fresh)
+    saved = json.loads(result.job_file.read_text(encoding="utf-8"))
     system = next(item for item in saved["systems"] if item["key"] == changed)
-    assert [device["id"] for device in system["devices"]] == [f"{changed}.d1"]
-    assert system["devices"][0]["name"] == "Space Temperature Sensor"
+    assert system["devices"] == []
 
 
-def test_a_decision_the_writer_undoes_is_a_must_fix_on_the_review_page(job_folder, tmp_path, monkeypatch):
-    """The delete is not applied again, so the writer's new line stays. It is the line the estimator removed,
-    so the review page says the decision was not honored."""
+def test_deleting_the_damper_keeps_the_start_stop_when_the_writer_would_renumber(job_folder, tmp_path, monkeypatch):
+    """The written devices are Controller, Start Stop, Damper Actuator. The estimator deletes the damper.
+    If the writer were asked again it would number the damper d2 and drop the start/stop. The damper is the
+    device that ends up gone."""
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    out, cache = tmp_path / "out", tmp_path / "cache"
+    assert _reach(job_folder, out, cache, "write").stage == "write"
+    requests = sorted((cache / "judge-chat" / "requests").glob("*.json"))
+    changed = json.loads(requests[0].read_text(encoding="utf-8"))["plan_key"]
+    (out / "decisions.json").write_text(json.dumps([{
+        "system_key": changed, "action": "delete", "device_id": f"{changed}.d3", "reason": "invented",
+    }]), encoding="utf-8")
+    _plant(cache, {changed: ("Controller", "Start Stop", "Damper Actuator")})
+    result = estimate(job_folder, out, cache, "chat")
+    if result.stage == "write":
+        _plant(cache, {changed: ("Controller", "Damper Actuator")})
+        result = estimate(job_folder, out, cache, "chat")
+    saved = json.loads(result.job_file.read_text(encoding="utf-8"))
+    system = next(item for item in saved["systems"] if item["key"] == changed)
+    names = [device["name"] for device in system["devices"]]
+    assert names == ["Controller", "Start Stop"]
+    assert names.count("Damper Actuator") == 0 and len(names) == len(set(names))
+
+
+def test_a_device_delete_stays_honored_because_the_writer_is_not_asked(job_folder, tmp_path, monkeypatch):
+    """The deleted line does not come back, and the review page does not call the decision unhonored."""
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     out, cache = tmp_path / "out", tmp_path / "cache"
     assert _reach(job_folder, out, cache, "write").stage == "write"
@@ -387,12 +427,10 @@ def test_a_decision_the_writer_undoes_is_a_must_fix_on_the_review_page(job_folde
         if result.status == "done":
             break
     assert result is not None and result.status == "done", result
-    honored = [finding for finding in result.findings if finding.what.startswith("decision not honored")]
-    assert [(finding.severity, finding.system_key) for finding in honored] == [("must_fix", changed)]
-    assert "decision not honored" in result.review.read_text(encoding="utf-8")
+    assert not any(finding.what.startswith("decision not honored") for finding in result.findings)
     saved = json.loads(result.job_file.read_text(encoding="utf-8"))
     system = next(item for item in saved["systems"] if item["key"] == changed)
-    assert [device["name"] for device in system["devices"]] == ["Space Temperature Sensor"]
+    assert system["devices"] == []
 
 
 def test_a_qc_must_fix_the_revise_left_as_it_was_stays_open():

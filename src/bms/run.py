@@ -76,15 +76,26 @@ def _changed_system_keys(before: Job, after: Job) -> tuple[str, ...]:
                  if system.key in kept and system != after.system(system.key))
 
 
-def _decision_note(decisions: tuple[Decision, ...] | list[Decision], key: str) -> str:
-    """What the writer must keep when it is asked again for one system. Stable, so a resume hits the cache."""
-    lines = ["The estimator's decisions for this system (keep them; do not undo them):"]
+def _revised(system, findings, evidence, playbook, transport, job):
+    """Revise, then flag quantity disagreements again. The revise answer does not keep those flags."""
+    return flag_written_devices(ai.revise_system(system, findings, evidence, playbook, transport,
+                                                 tags=job_tags(job), ids=job_ids(job)))
+
+
+def _families_changed(before: Job, key: str, after: Job) -> bool:
+    """True when a decision changed a family's count. A device edit does not."""
+    return before.system(key).families != after.system(key).families
+
+
+def _count_note(decisions: tuple[Decision, ...] | list[Decision], key: str) -> str:
+    """The count change, by family name. No device id: the writer must not renumber from one."""
+    lines = ["The estimator's count decisions for this system:"]
     for decision in decisions:
-        if decision.system_key != key:
+        if decision.system_key != key or not decision.family_name:
             continue
-        what = decision.device_id or decision.family_name or "the whole system"
-        reason = f": {decision.reason}" if decision.reason else ""
-        lines.append(f"- {decision.action} {what}{reason}")
+        value = decision.count.value if decision.count is not None else None
+        suffix = f" to {value}" if value is not None else ""
+        lines.append(f"- {decision.action} the {decision.family_name} count{suffix}")
     return "\n".join(lines)
 
 
@@ -171,10 +182,10 @@ def estimate(job_folder: Path, out: Path, cache: Path, mode: Mode = "chat") -> R
     if pending:
         return RunResult("waiting", "write", waiting=transport.waiting, job_file=job_file, messages=tuple(pending))
 
-    # 4. the estimator's decisions from the last review page. The writer is asked again only for a system a
-    # decision changed; every other system's cached answer stands. A malformed file stops the run in words.
-    # The decision is applied once, before that ask. It is not applied again afterwards: the writer numbers
-    # the devices it returns from d1, so a second "delete d1" would delete the device that used to be d2.
+    # 4. the estimator's decisions. A device accept, change or delete is applied to the written devices and
+    # the writer is not asked again: it would number devices from d1 and a later apply would hit the wrong one.
+    # A family-count change is the only reason to ask again, and the devices already written are kept.
+    # A malformed file stops the run in words.
     try:
         decisions = load_decisions(out)
     except ModelError as error:
@@ -183,9 +194,12 @@ def estimate(job_folder: Path, out: Path, cache: Path, mode: Mode = "chat") -> R
     job = apply_decisions(job, decisions)
     for key in _changed_system_keys(decided_from, job):
         system = job.system(key)
+        if not _families_changed(decided_from, key, job):
+            job = job.with_system(flag_written_devices(system))
+            continue
         try:
-            job = job.with_system(flag_written_devices(ai.write_system(
-                system, f"{evidence[key]}\n\n{_decision_note(decisions, key)}", playbook, transport,
+            job = job.with_system(flag_written_devices(ai.rewrite_for_count(
+                system, f"{evidence[key]}\n\n{_count_note(decisions, key)}", playbook, transport,
                 tags=job_tags(job), ids=job_ids(job))))
         except ai.NoAnswer as missing:
             pending.append(_stopped(missing.reason) if str(missing.reason).startswith("Stopped:")
@@ -210,9 +224,8 @@ def estimate(job_folder: Path, out: Path, cache: Path, mode: Mode = "chat") -> R
     for key in dict.fromkeys(f.system_key for f in must_fix if f.system_key):
         system = job.system(key)
         try:
-            job = job.with_system(ai.revise_system(system, [f for f in must_fix if f.system_key == key],
-                                                   evidence[key], playbook, transport, tags=job_tags(job),
-                                                   ids=job_ids(job)))
+            job = job.with_system(_revised(system, [f for f in must_fix if f.system_key == key],
+                                            evidence[key], playbook, transport, job))
         except ai.NoAnswer as missing:
             pending.append(_stopped(missing.reason) if str(missing.reason).startswith("Stopped:")
                            else f"{system.name}: {missing.reason}")

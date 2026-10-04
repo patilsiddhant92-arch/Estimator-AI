@@ -4,7 +4,8 @@
     python tools/run_job.py check ANSWER_FILE REQUEST_FILE
 
 `status` runs the estimate in chat mode: the rebuilt app by default (`python -m bms estimate --mode chat`; exit 2
-while requests wait, 0 when done), or with `--app estimator` the old app (`python -m estimator estimate --ai chat`).
+while requests wait, exit 1 when the run stops with nothing left to answer, 0 when done), or with `--app estimator`
+the old app (`python -m estimator estimate --ai chat`).
 It prints the tool's summary, then one JSON block listing the requests still waiting for an answer (kinds
 `read_pass`, `count_tags`, `write_system`, `qc_job`) and the proposal path once it is written. A request still present although its answer file
 exists was rejected by the estimator: it is listed with `"rejected": true` and the estimator's reason, its answer
@@ -28,7 +29,13 @@ MAIN_LIST = {"read_pass": "facts", "write_system": "lines", "qc_job": "findings"
 OUT_MARKER = ".run-job-out"          # beside the requests: which out folder the last status run used
 
 
-BMS_STEPS = ("count", "write", "revise", "qc")   # the rebuilt app's request steps (bms.ai, bms.counts)
+BMS_STEPS = ("count", "write", "decide", "revise", "qc")   # the rebuilt app's request steps (bms.ai, bms.counts)
+
+
+def stage_of(text: str) -> str | None:
+    """The rebuilt app's stage from its console line. Stages include read, count, write, decisions, qc, revise."""
+    return next((m.group(1) for m in re.finditer(r"(?:request\(s\) at|Stopped at) the (\w+) step", text or "")),
+                None)
 APPS = ("estimator", "bms")
 
 
@@ -208,7 +215,7 @@ def cmd_status(args) -> int:
             m = re.match(r"Wrote (.+\.docx)\s*$", line.strip())
             if m:
                 proposal = m.group(1)
-    stage = next((m.group(1) for m in re.finditer(r"request\(s\) at the (\w+) step", text)), None)
+    stage = stage_of(text)
     print(json.dumps({"waiting": waiting, "proposal": proposal, "exit": run.returncode, "stage": stage}, indent=1))
     return run.returncode
 

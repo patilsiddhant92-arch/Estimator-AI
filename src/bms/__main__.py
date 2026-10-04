@@ -54,6 +54,7 @@ def _estimate(args: argparse.Namespace) -> int:
         if result.waiting:
             print(f"Waiting: {result.waiting} request(s) at the {result.stage} step.")
             return 2
+        print(f"Stopped at the {result.stage} step.")
         return 1
     return 0
 
