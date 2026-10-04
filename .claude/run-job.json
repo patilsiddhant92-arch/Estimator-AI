@@ -1,1 +1,1 @@
-{"judge_model": "fable", "writer_model": "fable", "qc_model": "fable", "count_model": "sonnet", "max_attempts": 3}
+{"judge_model": "opus", "writer_model": "opus", "qc_model": "opus", "count_model": "sonnet", "max_attempts": 3}
