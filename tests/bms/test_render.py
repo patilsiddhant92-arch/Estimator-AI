@@ -165,10 +165,11 @@ def test_lines_follow_the_shape_order_not_the_device_order(job, playbook):
 
 
 def test_the_higher_count_prints_even_when_value_is_lower(job, playbook):
-    fam = Family("Exhaust Fan", ("EF-1", "EF-2"), Count(value=2, others=(OtherCount(5, REF),)))
+    fam = Family("Exhaust Fan", ("EF-1", "EF-2"), Count(value=2, sources=(Ref("S0", "q", "M-2, Drawings.pdf page 2"),),
+                                                       others=(OtherCount(5, REF),)))
     out = render(one(job, system([device()], families=(fam,))), playbook)
     assert texts(out, "EF")[0] == "Qty (5) Exhaust Fans EF-1, 2"
-    assert texts(out, "EF")[-1] == "*Qty. (5) per M-1; 2 per the documents."
+    assert texts(out, "EF")[-1] == "*Qty. (5) per M-1; 2 per M-2."
 
 
 def test_count_note_names_the_place_of_every_count(job, playbook):
@@ -191,8 +192,9 @@ def test_count_note_uses_sheet_numbers_never_file_names_and_folds_one_place(job,
                 OtherCount(4, Ref("S7", "q", "99 99 99 Invented Section, invented-spec_Rev_2.pdf page 3")))))
     out = texts(render(one(job, system([device(qty=7)], families=(fam,), shape="")), pb), "EF")
     qty = [t for t in out if t.startswith("*Qty.")]
-    assert qty == ["*Qty. (7) per the documents; 3 per Q-210.10; 2 per Q-702.00; 1 and 0 per Q-305.00; "
-                   "4 per 99 99 99 Invented Section."]
+    assert qty == ["*Qty. (7); 4 per 99 99 99 Invented Section; 3 per Q-210.10; 2 per Q-702.00; "
+                   "1 and 0 per Q-305.00."]
+    assert not any("the documents" in t for t in out)
     assert not any(".pdf" in t for t in out)
 
 
@@ -202,7 +204,7 @@ def test_count_note_is_one_line_per_block_beside_the_confirm(job, playbook):
     d = device(qty=3, quantity=Count(3, others=(OtherCount(2, Ref("S2", "q", "Q-1, A.pdf page 1")),)))
     clar = (Clarification("confirm", "Confirm quantity: 3 fans carried per the schedule"),)
     out = texts(render(one(job, system([d], families=(fam,), shape="", clarifications=clar)), pb), "EF")
-    assert out[-2:] == ["*Confirm quantity: 3 fans carried per the schedule", "*Qty. (3) per the documents; 2 per Q-1."]
+    assert out[-2:] == ["*Confirm quantity: 3 fans carried per the schedule", "*Qty. (3); 2 per Q-1."]
 
 
 # ---- the clarification labels (the text's own label is not printed twice) -------------------------------------
@@ -437,3 +439,149 @@ def test_sub_line_prints_one_level_in_directly_after_its_parent_with_no_verb():
     assert [l.verb for l in lines][:3] == ["Furnish and Install", None, None]
     items = draft.scope.blocks[0].items
     assert [i.depth for i in items if i.kind == "line"] == [1, 2, 2, 1]
+
+
+# ---- second-run fixes: block order, fixed text, casing, quantity-note labels, singular kinds -------------------
+
+def _repo_job(*systems_) -> Job:
+    from bms.model import Header
+    return Job(name="Invented", systems=tuple(systems_),
+               header=Header("00-0000", "Invented", "Invented", ("A",), "2026-10-04"))
+
+
+def test_the_playbook_gives_each_shape_a_block_order():
+    pb = load_playbook(ROOT / "playbook")
+    assert pb.shape("Global Points").order < pb.shape("Exhaust Fan").order
+    assert all(isinstance(s.order, int) for s in pb.shapes.values())
+
+
+def test_global_points_print_first_and_qty_hash_systems_after_the_equipment():
+    pb = load_playbook(ROOT / "playbook")
+    seq = System(key="SEQ", name="Invented Boiler Plant", shape="Integrated Equipment", control="integration",
+                 families=(Family("Invented Boiler Plant", (), Count(value=None)),),
+                 sequence_refs=(REF,), devices=(device(id="SEQ.d1", slot="comm_wiring", qty=None,
+                                                       name="BMS Communication Wiring to Boiler Controls",
+                                                       verb="Furnish"),))
+    ef1 = system([device(id="EF.d1")])
+    ef2 = system([device(id="EF2.d1")], key="EF2", name="Exhaust Fans",
+                 families=(Family("Exhaust Fan", ("EF-8", "EF-9"), Count(value=2)),))
+    gp = System(key="GP", name="Global Points", shape="Global Points", control="integration",
+                families=(Family("Global Points", (), Count(value=1)),),
+                devices=(device(id="GP.d1", slot="oa_temperature", name="Outdoor Air Temperature Sensor", qty=1),))
+    out = render(_repo_job(seq, ef1, gp, ef2), pb)
+    headers = [b.header for b in out.scope.blocks]
+    assert headers[0] == "Qty (1) Global Points"
+    assert headers[1].endswith("EF-1, 2") and headers[2].endswith("EF-8, 9")       # the plan's order kept
+    assert headers[3].startswith("Qty (##)")
+    keys = list(dict.fromkeys(l.system_key for l in out.lines))
+    assert keys == ["GP", "EF", "EF2", "SEQ"]
+
+
+def test_fixed_house_lines_print_with_no_verb_whatever_verb_the_device_carries():
+    pb = load_playbook(ROOT / "playbook")
+    devices = (
+        device(id="X.d1", slot="integration_wiring", name="BMS Communication Wiring to Heater Controller",
+               verb="Furnish", qty=1),
+        device(id="X.d2", slot="integration_map", name="Map Available Points Via Mfr. Provided BMS Interface",
+               verb="Furnish", qty=1),
+        device(id="X.d3", slot="rep_assist", name="AME requires mfr. Rep to assist",
+               verb="Furnish", qty=1),
+        device(id="X.d4", slot="vfd_integration_rep",
+               name="AME requires mfr. rep to assist in integration, cost to be incurred by mech contractor.",
+               verb="Furnish", qty=1),
+    )
+    shapeless = system(devices, shape="", families=(Family("Invented Heater", ("H-1",), Count(value=1)),))
+    out = render(_repo_job(shapeless), pb)
+    lines = [l for l in out.lines if l.kind == "line"]
+    rep = pb.wording.integration_trio[2]
+    assert [l.text for l in lines] == ["Furnish BMS Communication Wiring to Heater Controller",
+                                       pb.wording.integration_trio[1], rep, rep]
+    assert [l.verb for l in lines] == ["Furnish", None, None, None]
+    # a shaped block's fixed slots print their house text too
+    shaped = system([device(id="EF.d5", slot="map_points", verb="Furnish", qty=2, name="map points")])
+    assert texts(render(_repo_job(shaped), pb), "EF")[1] == pb.wording.integration_trio[1]
+
+
+@pytest.mark.parametrize("name, printed", [
+    ("space thermostat", "Space Thermostat"),
+    ("bacnet interface for co and no sensors w/ vfd", "BACnet Interface for CO and NO Sensors w/ VFD"),
+    ("Erv discharge air temperature sensor", "ERV Discharge Air Temperature Sensor"),
+    ("Interlock Wiring between Invented Fans and the Dampers", "Interlock Wiring between Invented Fans and the Dampers"),
+    ("fan start/stop and status", "Fan Start/Stop and Status"),
+    ("it room hpac scr control", "IT Room HPAC SCR Control"),
+])
+def test_device_names_print_in_title_case_with_acronyms_kept(job, name, printed):
+    pb = load_playbook(ROOT / "playbook")
+    out = texts(render(one(job, system([device(name=name, slot="x", qty=2)], shape="")), pb), "EF")
+    assert out[1] == f"Furnish and Install {printed}"
+
+
+def test_a_header_name_prints_its_acronyms():
+    pb = load_playbook(ROOT / "playbook")
+    s = system([device()], key="ITXF", name="It Room Transfer Fan", shape="",
+               families=(Family("It Room Transfer Fan", ("ITXF-1",), Count(value=1)),))
+    assert texts(render(_repo_job(s), pb), "ITXF")[0] == "Qty (1) IT Room Transfer Fan ITXF-1"
+
+
+def _note(count: Count) -> list[str]:
+    pb = load_playbook(ROOT / "playbook")
+    fam = Family("Exhaust Fan", ("EF-1",), count)
+    out = texts(render(_repo_job(system([device(qty=count.highest())], families=(fam,), shape="")), pb), "EF")
+    return [t for t in out if t.startswith("*Qty.")]
+
+
+def test_count_note_places_are_human_labels_never_the_documents():
+    counts_line = "equipment counts for EF"
+    count = Count(value=16, sources=(Ref("S1", "located on the sheet text", "Q-100.00, Invented.pdf page 3"),),
+                  others=(OtherCount(15, Ref("S2", "distinct tags 15", counts_line)),
+                          OtherCount(6, Ref("S3", "riser 6", counts_line)),
+                          OtherCount(12, Ref("S4", "plan placements 12", counts_line)),
+                          OtherCount(9, Ref("S5", "schedule rows 9", counts_line)),
+                          OtherCount(2, Ref("S6", "counted on the sheet picture", "pictures of the invented set"))))
+    assert _note(count) == ["*Qty. (16) per Q-100.00; 12 per plan placements; 9 per schedule rows; "
+                            "6 per the riser; 2 per the sheet pictures."]
+
+
+def test_count_note_reads_the_counts_line_part_that_gives_the_value():
+    line = "XF (Invented Fan): schedule rows 3; QUANTITY column total 7; distinct tags 3; plan placements 5; riser 4"
+    count = Count(value=8, sources=(Ref("S1", "q", "Q-101.00, Invented.pdf page 2"),),
+                  others=(OtherCount(7, Ref("S2", line, "equipment counts for XF")),
+                          OtherCount(5, Ref("S3", line, "equipment counts for XF")),
+                          OtherCount(4, Ref("S4", line, "equipment counts for XF")),
+                          OtherCount(3, Ref("S5", line, "equipment counts for XF"))))
+    assert _note(count) == ["*Qty. (8) per Q-101.00; 7 per the schedule; 5 per plan placements; 4 per the riser; "
+                            "3 per schedule rows."]
+
+
+def test_count_note_drops_clauses_with_no_label_and_keeps_five():
+    counts_line = "equipment counts for EF"
+    count = Count(value=20, sources=(Ref("S1", "distinct tags 20", counts_line),),
+                  others=(OtherCount(15, Ref("S2", "distinct tags 15", counts_line)),
+                          OtherCount(6, Ref("S3", "something else", counts_line))))
+    assert _note(count) == []
+    many = Count(value=20, sources=(Ref("S1", "q", "Q-1.00, A.pdf page 1"),),
+                 others=tuple(OtherCount(n, Ref(f"S{n}", "q", f"Q-{n}.00, A.pdf page {n}")) for n in (3, 9, 5, 7, 11, 2)))
+    assert _note(many) == ["*Qty. (20) per Q-1.00; 11 per Q-11.00; 9 per Q-9.00; 7 per Q-7.00; 5 per Q-5.00."]
+
+
+def test_count_note_folds_the_same_value_from_the_same_label():
+    count = Count(value=4, sources=(Ref("S1", "q", "Q-2.00, A.pdf page 1"),),
+                  others=(OtherCount(2, Ref("S2", "located on the sheet text", "Q-3.00, A.pdf page 2")),
+                          OtherCount(2, Ref("S3", "counted on the sheet picture", "Q-3.00 whole sheet, A.pdf page 2")),
+                          OtherCount(2, Ref("S4", "riser 2", "equipment counts for EF"))))
+    assert _note(count) == ["*Qty. (4) per Q-2.00; 2 per Q-3.00; 2 per the riser."]
+
+
+@pytest.mark.parametrize("shape, name, tags, n, header", [
+    ("Exhaust Fan", "Refuse Room Exhaust Fan", ("RXF-1",), 1, "Qty (1) Exhaust Fan RXF-1"),
+    ("Exhaust Fan", "Exhaust Fans", ("EF-1", "EF-2"), 2, "Qty (2) Exhaust Fans EF-1, 2"),
+    ("", "Toilet Exhaust Fans", ("TX-1",), 1, "Qty (1) Toilet Exhaust Fan TX-1"),
+    ("", "Indoor Units", ("IU-1",), 3, "Qty (3) Indoor Unit IU-1"),
+    ("", "Unit Heaters", ("UH-1", "UH-2"), 1, "Qty (1) Unit Heater UH-1, 2"),
+    ("Global Points", "Global Points", (), 1, "Qty (1) Global Points"),
+])
+def test_a_single_unit_header_reads_singular(shape, name, tags, n, header):
+    pb = load_playbook(ROOT / "playbook")
+    slot = "oa_temperature" if shape == "Global Points" else "controller"
+    s = system([device(slot=slot, qty=n)], name=name, shape=shape, families=(Family(name, tags, Count(value=n)),))
+    assert texts(render(_repo_job(s), pb), "EF")[0] == header

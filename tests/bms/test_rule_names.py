@@ -90,7 +90,8 @@ def _damper():
 
 
 def _heater():
-    return job(sysm("EF", "Exhaust Fan", [dev("EF.d1", "other_device", name="Duct Heater Enable")]))
+    return job(sysm("EF", "Exhaust Fan", [dev("EF.d1", "other_device", name="Duct Heater Enable")]),
+               sysm("DH", "Duct Heater", [dev("DH.d1", "controller")], family="Duct Heater"))
 
 
 def _vrf():

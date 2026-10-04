@@ -83,10 +83,6 @@ def _is_damper(device: Device) -> bool:
     return "damper" in device.slot.lower()
 
 
-def _is_duct_heater_line(device: Device) -> bool:
-    return bool(re.search(r"duct_?heater", device.slot.lower())) or "duct heater" in device.name.lower()
-
-
 def _sequence_only(system: System) -> bool:
     return bool(system.sequence_refs) and not system.devices
 
@@ -176,13 +172,46 @@ def _dampers(system, shape, job, playbook) -> Iterator[Hit]:
                    "If it serves a fan, move it under that fan; if it belongs to this equipment, leave it.")
 
 
+def _heater_words(playbook: Playbook) -> tuple[str, ...]:
+    """The words that name a duct heater: "duct heater" and the kind words of the Playbook's duct heater shape."""
+    words = {"duct heater"}
+    for s in playbook.shapes.values():
+        if "duct heater" in s.name.lower() or "duct heater" in s.kind_words:
+            words.update(w for w in s.kind_words if w.strip())
+    return tuple(sorted(words))
+
+
+def _heater_lines(system: System, words: tuple[str, ...]) -> list[Device]:
+    return [d for d in system.devices
+            if re.search(r"duct_?heater", d.slot.lower()) or any(w in d.name.lower() for w in words)]
+
+
+def _named(system: System) -> str:
+    return f"{system.name} ({system.key})"
+
+
 def _heaters(system, shape, job, playbook) -> Iterator[Hit]:
-    if _is_heater_system(system):
+    """A duct heater is written in one place: when the job has a duct heater block, a heater line (by its slot or
+    its words) in any other block is a must_fix; an empty heater block while another block carries the heater
+    lines is a check naming both."""
+    heater_blocks = [s for s in job.systems if _is_heater_system(s)]
+    if not heater_blocks:
         return
-    for d in system.devices:
-        if _is_duct_heater_line(d):
-            yield (d.id, "must_fix", f"{d.name} is a duct heater line outside the duct heater block",
-                   "Move it to the duct heater block.")
+    words = _heater_words(playbook)
+    if _is_heater_system(system):
+        if not system.devices:
+            carriers = [s for s in job.systems if not _is_heater_system(s) and _heater_lines(s, words)]
+            if carriers:
+                yield (None, "check", f"{_named(system)} has no lines while "
+                       f"{', '.join(_named(s) for s in carriers)} carries its duct heater lines",
+                       "Write the heaters in one place: in this block, or under the unit each serves with this "
+                       "block dropped.")
+        return
+    home = ", ".join(_named(s) for s in heater_blocks)
+    for d in _heater_lines(system, words):
+        yield (d.id, "must_fix", f"{d.name} is a duct heater line in {_named(system)}, while the job has the duct "
+               f"heater block {home}", "Move it to the duct heater block, or drop that block and keep the heaters "
+               "under the unit each serves.")
 
 
 def _vrf(system, shape, job, playbook) -> Iterator[Hit]:
