@@ -76,3 +76,31 @@ def test_a_mark_ending_the_previous_test_does_not_cover_the_next(tmp_path):
     result = _run(repo, base, head)
     assert "test_vacuous" in result.stdout and "PASS vacuous" in result.stdout
     assert result.returncode == 1
+
+
+def test_a_nested_class_test_is_audited(tmp_path):
+    # One class level is audited. A test on a class inside a class is not, so a vacuous one exits 0.
+    repo, base, head = _repo(tmp_path, {"src/demo.py": OLD_CODE}, {
+        "src/demo.py": OLD_CODE.replace("0", "1"),
+        "tests/test_demo.py": ("class TestOuter:\n"
+                               "    class TestInner:\n"
+                               "        def test_vac(self):\n"
+                               "            assert True\n"),
+    })
+    result = _run(repo, base, head)
+    assert "TestOuter::TestInner::test_vac" in result.stdout
+    assert "PASS vacuous" in result.stdout
+    assert result.returncode == 1
+
+
+def test_an_async_test_is_audited(tmp_path):
+    # async def tests are not collected. This venv has no async plugin, so once the test is seen it fails on
+    # the new code and the row is BROKEN ON HEAD.
+    repo, base, head = _repo(tmp_path, {"src/demo.py": OLD_CODE}, {
+        "src/demo.py": OLD_CODE.replace("0", "1"),
+        "tests/test_demo.py": "async def test_async():\n    assert True\n",
+    })
+    result = _run(repo, base, head)
+    assert "tests/test_demo.py::test_async" in result.stdout
+    assert "BROKEN ON HEAD" in result.stdout
+    assert result.returncode == 2

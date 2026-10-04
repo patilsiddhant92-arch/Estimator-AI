@@ -6,22 +6,29 @@ Exports ``head`` into a temporary folder and runs each new test there. The test
 must pass on that untouched export. It then puts only the changed ``src`` and
 ``tools`` files back to ``base`` and runs the test again. A failure there means
 the test bites. A pass is vacuous, unless a ``# characterization`` comment
-covers the test (on the line above the def or its decorators, or in the body).
-A string that happens to contain those words is not a mark.
+covers the test. The line above the def or its decorators counts only when
+that line is a comment and nothing else. A mark in the body counts. A string
+that happens to contain those words is not a mark.
 
 A test whose name already exists in the base file is not audited, even when
-its body changed. A method named ``test_*`` on a class is audited too, as
-``Class::test_*``. Renames are followed, so an unchanged renamed file is not
+its body changed. A method named ``test_*`` is audited at every class depth,
+and an ``async def`` test is audited too. The node id joins the class names
+with ``::``. Renames are followed, so an unchanged renamed file is not
 reported as new. For ``src`` and ``tools``, renames are expanded: the old path
 is put back and the new path is removed.
+
+A parametrized test is one row. Pytest runs the whole parameter set, and the
+row is a failure when any parameter fails.
 
 Exit 1 when any new test passes on the reverted tree without that comment.
 Exit 0 when every new test fails there, or is marked. Exit 2 when git cannot
 be run, a test file cannot be decoded or parsed, a new test fails on the
 untouched head (``BROKEN ON HEAD``), or pytest exits with anything other than
-a real test result. On the reverted tree, only pytest exit 1 counts as a real
-failure, plus exit 2 when the output is an ImportError for a module the change
-removed. Pytest exits 3, 4, and 5 are errors.
+a real test result. On the reverted tree, pytest exit 1 counts as a failure.
+Exits 2 and 4 also count as a failure when the output is a collection error
+whose ImportError names a changed or removed module, either ``No module named
+X`` or ``cannot import name N from X``. Any other exit 2, and exits 3, 4, and
+5, are errors.
 
 ``PYTHONPATH`` for the pytest run is the export's ``src`` only. The caller's
 ``PYTHONPATH`` is not kept.
@@ -93,59 +100,73 @@ def _as_text(blob: bytes, rel: str) -> str:
         raise RuntimeError(f"{rel}: {error}") from None
 
 
-def _collect(text: str, rel: str) -> list[tuple[str, ast.FunctionDef]]:
-    """Top-level ``test_*`` functions, plus ``test_*`` methods on a class (one level)."""
+def _collect(text: str, rel: str) -> list[tuple[str, ast.FunctionDef | ast.AsyncFunctionDef]]:
+    """``test_*`` functions, including nested classes and ``async def``."""
     if not text.strip():
         return []
     try:
         tree = ast.parse(text)
     except SyntaxError as error:
         raise RuntimeError(f"{rel}: {error}") from None
-    found: list[tuple[str, ast.FunctionDef]] = []
-    for node in tree.body:
-        if isinstance(node, ast.FunctionDef) and node.name.startswith("test_"):
-            found.append((node.name, node))
-        elif isinstance(node, ast.ClassDef):
-            for item in node.body:
-                if isinstance(item, ast.FunctionDef) and item.name.startswith("test_"):
-                    found.append((f"{node.name}::{item.name}", item))
+    found: list[tuple[str, ast.FunctionDef | ast.AsyncFunctionDef]] = []
+
+    def walk(body: list[ast.stmt], prefix: str) -> None:
+        for node in body:
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name.startswith("test_"):
+                found.append((f"{prefix}{node.name}", node))
+            elif isinstance(node, ast.ClassDef):
+                walk(node.body, f"{prefix}{node.name}::")
+
+    walk(tree.body, "")
     return found
 
 
-def _comment_lines(text: str, rel: str) -> set[int]:
-    found: set[int] = set()
+def _comment_lines(text: str, rel: str) -> tuple[set[int], set[int]]:
+    """Lines whose comment contains the mark, and lines that are only a comment."""
+    marked: set[int] = set()
+    comment_only: set[int] = set()
+    rows = text.splitlines()
     try:
         for tok in tokenize.generate_tokens(io.StringIO(text).readline):
-            if tok.type == tokenize.COMMENT and _MARK in tok.string:
-                found.add(tok.start[0])
+            if tok.type != tokenize.COMMENT:
+                continue
+            line_no = tok.start[0]
+            source = rows[line_no - 1] if 1 <= line_no <= len(rows) else ""
+            if source.lstrip().startswith("#"):
+                comment_only.add(line_no)
+            if _MARK in tok.string:
+                marked.add(line_no)
     except tokenize.TokenError as error:
         raise RuntimeError(f"{rel}: {error}") from None
-    return found
+    return marked, comment_only
 
 
-def _is_marked(node: ast.FunctionDef, comments: set[int]) -> bool:
+def _is_marked(node: ast.FunctionDef | ast.AsyncFunctionDef, marked: set[int], comment_only: set[int]) -> bool:
     start = min((item.lineno for item in node.decorator_list), default=node.lineno)
-    first = max(1, start - 1)
     end = node.end_lineno or node.lineno
-    return any(line in comments for line in range(first, end + 1))
+    if any(line in marked for line in range(start, end + 1)):
+        return True
+    above = start - 1
+    return above in marked and above in comment_only
 
 
 def _new_tests(base_text: str, head_text: str, rel: str) -> list[tuple[str, bool]]:
     old = {name for name, _node in _collect(base_text, rel)}
-    comments = _comment_lines(head_text, rel)
+    marked, comment_only = _comment_lines(head_text, rel)
     found: list[tuple[str, bool]] = []
     for name, node in _collect(head_text, rel):
         if name in old:
             continue
-        found.append((name, _is_marked(node, comments)))
+        found.append((name, _is_marked(node, marked, comment_only)))
     return found
 
 
 def _run_one(archive: Path, node: str) -> subprocess.CompletedProcess[str]:
     env = os.environ.copy()
     env["PYTHONPATH"] = str((archive / "src").resolve())
+    # --tb=line keeps the ImportError text. --tb=no drops it, so a collection error cannot be graded.
     return subprocess.run(
-        [sys.executable, "-m", "pytest", node, "-q", "--tb=no", "-p", "no:cacheprovider"],
+        [sys.executable, "-m", "pytest", node, "-q", "--tb=line", "-p", "no:cacheprovider"],
         cwd=archive, capture_output=True, text=True, encoding="utf-8", env=env)
 
 
@@ -159,10 +180,11 @@ def _module_names(rel: str) -> set[str]:
     return names
 
 
-def _import_of_removed(output: str, removed: set[str]) -> bool:
+def _import_of_removed(output: str, modules: set[str]) -> bool:
+    """True when the output is an ImportError naming one of these modules."""
     if "ImportError" not in output and "ModuleNotFoundError" not in output:
         return False
-    return any(re.search(rf"(?<![\w.]){re.escape(name)}(?![\w])", output) for name in removed)
+    return any(re.search(rf"(?<![\w.]){re.escape(name)}(?![\w])", output) for name in modules)
 
 
 def _test_pairs(repo: Path, base: str, head: str) -> list[tuple[str, str | None]]:
@@ -182,21 +204,20 @@ def _changed_code(repo: Path, base: str, head: str) -> tuple[list[str], set[str]
     paths: list[str] = []
     for parts in _status(repo, base, head, "src", "tools", renames=False):
         paths.extend(parts[1:])
-    removed: set[str] = set()
+    modules: set[str] = set()
     for rel in paths:
-        if _blob(repo, f"{base}:{rel}") is None:
-            removed |= _module_names(rel)
-    return paths, removed
+        modules |= _module_names(rel)
+    return paths, modules
 
 
-def _grade(result: subprocess.CompletedProcess[str], marked: bool, removed: set[str]) -> str:
+def _grade(result: subprocess.CompletedProcess[str], marked: bool, modules: set[str]) -> str:
     code = result.returncode
     if code == 0:
         return "PASS characterization" if marked else "PASS vacuous"
     if code == 1:
         return "FAIL"
     output = (result.stdout or "") + (result.stderr or "")
-    if code == 2 and _import_of_removed(output, removed):
+    if code in (2, 4) and _import_of_removed(output, modules):
         return "FAIL"
     return f"ERROR exit {code}"
 
@@ -207,7 +228,7 @@ def audit(repo: Path, base: str, head: str) -> tuple[list[tuple[str, str]], int]
         archive = Path(folder) / "export"
         archive.mkdir()
         _export(repo, head, archive)
-        code_paths, removed = _changed_code(repo, base, head)
+        code_paths, modules = _changed_code(repo, base, head)
         rows: list[tuple[str, str]] = []
         pending: list[tuple[str, bool]] = []
         broken = False
@@ -234,7 +255,7 @@ def audit(repo: Path, base: str, head: str) -> tuple[list[tuple[str, str]], int]
         _restore(repo, base, archive, code_paths)
         errored = False
         for node, marked in pending:
-            verdict = _grade(_run_one(archive, node), marked, removed)
+            verdict = _grade(_run_one(archive, node), marked, modules)
             if verdict.startswith("ERROR"):
                 errored = True
             rows.append((node, verdict))
