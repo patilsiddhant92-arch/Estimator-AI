@@ -199,10 +199,18 @@ def _max_attempts() -> int:
     return value if value >= 1 else 3
 
 
+_RETRY_MARK = "\n\nYour earlier answer to this question could not be used:"
+
+
 def _attempt_file(cache: _Cache, q: _Question) -> Path:
-    """One counter per question. The prompt's key is part of the id, so a decision rewrite does not share the
-    first write's counter, and new evidence starts a new count."""
-    ident = f"{q.kind}|{q.extra.get('step', '')}|{q.name}|{q.extra.get('plan_key', '')}|{q.key}"
+    """One counter per question. The prompt is part of the id, so a decision rewrite and new evidence do not
+    share the first write's counter. The API's one immediate retry appends a fixed note; that note is not part
+    of the id, so the retry keeps counting."""
+    prompt = q.prompt
+    mark = prompt.find(_RETRY_MARK)
+    if mark != -1:
+        prompt = prompt[:mark]
+    ident = f"{q.kind}|{q.extra.get('step', '')}|{q.name}|{q.extra.get('plan_key', '')}|{prompt}"
     digest = hashlib.sha256(ident.encode()).hexdigest()
     return cache.folder / "attempts" / f"{digest}.json"
 
@@ -652,8 +660,7 @@ def _ask_checked(transport, kind: str, name: str, instructions: str, system_prom
         if retried:                         # the API's one immediate retry already happened
             raise NoAnswer(reason)
         retried = True
-        prompt_now = (f"{prompt}\n\nYour earlier answer to this question could not be used: {_problems(problems)}. "
-                      "Answer again, fixing that.")
+        prompt_now = f"{prompt}{_RETRY_MARK} {_problems(problems)}. Answer again, fixing that."
 
 
 # ---- the evidence ------------------------------------------------------------------------------------------------
