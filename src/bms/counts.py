@@ -322,11 +322,9 @@ class _Check:
                                                    *c_boxes])
                             merged_results[p] = CountResult(len(all_boxes), tuple(all_boxes))
                         results = merged_results
-                elif symbols_expected or self._schedule_disagrees(here, sheet):
+                else:
                     results = count_sheet(sheet.picture, here, transport=self.transport,
                                           symbols_expected=symbols_expected)
-                else:
-                    results = {}
             else:
                 results = count_sheet(sheet.picture, here, transport=self.transport)
 
