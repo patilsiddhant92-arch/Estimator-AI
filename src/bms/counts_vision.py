@@ -153,17 +153,29 @@ def read_answer(answer: dict, rects: list[tuple[int, int, int, int]]
     return found
 
 
+def _loose(pattern: str) -> str:
+    """A pattern as compared across the answer: re-escaped text (doubled backslashes) and spacing do not matter."""
+    return re.sub(r"\\+", r"\\", pattern).replace(" ", "")
+
+
+def answered(answer: dict, patterns: list[str]) -> set[str]:
+    """The asked patterns the answer has an entry for (leniently: a re-escaped pattern text is the same pattern)."""
+    listed = {_loose(str(entry.get("pattern", ""))) for entry in answer.get("patterns", ()) if isinstance(entry, dict)}
+    return {p for p in patterns if _loose(p) in listed}
+
+
 def ask_sheet(transport, picture: Path, patterns: list[str], name: str = ""
-              ) -> list[tuple[str, tuple[int, int, int, int]]] | None:
+              ) -> tuple[list[tuple[str, tuple[int, int, int, int]]], set[str]] | None:
     """The sheet's one count question: every tile of the picture as its own image, every pattern asked together;
-    the found tags (of every pattern) in the whole picture's pixels, or None when there is no usable answer (waiting
-    for the chat, a transport failure, an answer that breaks the schema). Never raises for a bad pattern list
+    (the found tags (of every pattern) in the whole picture's pixels, the patterns the answer has an entry for), or
+    None when there is no usable answer (waiting for the chat, a transport failure, an answer that breaks the
+    schema). A pattern the answer leaves out is not counted: it is not among the listed patterns. Never raises for a bad pattern list
     (a pattern that is no regular expression gives None)."""
     from bms.ai import NoAnswer
 
     patterns = list(dict.fromkeys(patterns))
     if not patterns:
-        return []
+        return [], set()
     for pattern in patterns:
         re.compile(pattern)
     size, tiles = cut_tiles(picture)
@@ -183,4 +195,5 @@ def ask_sheet(transport, picture: Path, patterns: list[str], name: str = ""
             except Exception:
                 pass
         return None
-    return read_answer(answer, rects) if isinstance(answer, dict) else None
+    found = read_answer(answer, rects) if isinstance(answer, dict) else None
+    return None if found is None else (found, answered(answer, patterns))

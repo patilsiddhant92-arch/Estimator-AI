@@ -78,7 +78,8 @@ def count_sheet(image_path: Path, tag_patterns, *, transport=None) -> dict[str, 
     """Count every pattern of `tag_patterns` on one whole-sheet picture with ONE vision question (every tile as its
     own picture, every pattern together): {pattern: CountResult}, each as `count_tags` gives it. Every result is
     `CountResult(None, ())` when the sheet could not be counted (unreadable picture, a bad pattern, no transport,
-    no usable answer yet). Never raises."""
+    no usable answer yet). A pattern the answer leaves out is absent from the result (no count, not a count of 0).
+    Never raises."""
     patterns = list(dict.fromkeys(tag_patterns))
     unknown = {p: CountResult(None, ()) for p in patterns}
     try:
@@ -86,11 +87,14 @@ def count_sheet(image_path: Path, tag_patterns, *, transport=None) -> dict[str, 
             re.compile(pattern)
         if transport is None or not patterns:
             return unknown
-        found = ask_sheet(transport, Path(image_path), patterns)
-        if found is None:
+        asked = ask_sheet(transport, Path(image_path), patterns)
+        if asked is None:
             return unknown
+        found, listed = asked
         results = {}
         for pattern in patterns:
+            if pattern not in listed:
+                continue          # the answer leaves this pattern out: no vision count for it
             boxes = _distinct([(text, box) for text, box in found if fits(pattern, text)])
             results[pattern] = CountResult(len(boxes), tuple(boxes))
         return results
@@ -187,6 +191,7 @@ class _Sheet:
     picture: Path | None = None
     located: list | None = None      # (tag, box) on the sheet text; None when the page could not be read
     seen: list | None = None         # (tag, box) on the picture; None when not counted
+    counted: frozenset = frozenset() # the patterns the picture's answer counted (others were left out of it)
 
 
 class _Check:
@@ -266,7 +271,8 @@ class _Check:
             sheet.located = None
         if self.transport is not None and sheet.picture is not None:
             results = count_sheet(sheet.picture, here, transport=self.transport)    # one question for the sheet
-            if all(r.value is not None for r in results.values()):
+            if results and all(r.value is not None for r in results.values()):
+                sheet.counted = frozenset(results)
                 sheet.seen = [(b.text, (b.x, b.y, b.width, b.height)) for r in results.values() for b in r.boxes]
 
     def _located(self, sheet: _Sheet, pattern: str, default_scale: float) -> list:
@@ -288,7 +294,7 @@ class _Check:
     def _check_family(self, system, family, pattern: str, sheets: list[_Sheet]):
         counted = []          # (value, quote, where)
         for quote, attr, place in ((LOCATED_QUOTE, "located", "place"), (SEEN_QUOTE, "seen", "picture_place")):
-            read = [s for s in sheets if getattr(s, attr) is not None]
+            read = [s for s in sheets if getattr(s, attr) is not None and (attr == "located" or pattern in s.counted)]
             if not read:
                 continue
             tags = {canonical(t) for s in read for t, _ in getattr(s, attr) if fits(pattern, t)}
@@ -340,7 +346,8 @@ class _Check:
         folder = self.cache.resolve() / PROOFS_FOLDER
         for sheet in sheets:
             located = _distinct([(t, b) for t, b in sheet.located or () if fits(pattern, t)])
-            seen = _distinct([(t, b) for t, b in sheet.seen or () if fits(pattern, t)])
+            counted = sheet.seen is not None and pattern in sheet.counted
+            seen = _distinct([(t, b) for t, b in sheet.seen or () if fits(pattern, t)]) if counted else []
             proof = None
             if sheet.picture is not None:
                 try:
@@ -354,7 +361,7 @@ class _Check:
                 "picture": str(sheet.picture) if sheet.picture else None,
                 "proof": str(proof) if proof else None,
                 "located_text": len(located) if sheet.located is not None else None,
-                "vision": len(seen) if sheet.seen is not None else None,
+                "vision": len(seen) if counted else None,
                 "located_tags": [b.text for b in located], "vision_tags": [b.text for b in seen],
                 "located_boxes": [dataclasses.asdict(b) for b in located],
                 "vision_boxes": [dataclasses.asdict(b) for b in seen],

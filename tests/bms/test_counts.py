@@ -72,8 +72,9 @@ class FakeVision:
     question with, for each pattern asked, every tag fitting it lying wholly inside a tile, with its boxes in each
     tile's pixels (plus one tag that does not fit the pattern)."""
 
-    def __init__(self, tags: list[tuple[str, int, int, int, int]], fail_on: int | None = None):
+    def __init__(self, tags: list[tuple[str, int, int, int, int]], fail_on: int | None = None, omit: tuple = ()):
         self.tags = tags
+        self.omit = omit
         self.fail_on = fail_on
         self.asked: list[dict] = []
         self.waiting = 0
@@ -87,6 +88,8 @@ class FakeVision:
             raise NoAnswer("waiting for the chat", waiting=True)
         answer = []
         for pattern in extra["patterns"]:
+            if any(o in pattern for o in self.omit):
+                continue          # this answer leaves the pattern out
             tags: dict[str, list[dict]] = {}
             for text, x, y, tw, th in self.tags:
                 if not re.fullmatch(pattern, text.replace(" ", "-")):
@@ -187,6 +190,32 @@ def test_cross_check_asks_one_question_for_a_three_tile_sheet_with_two_families(
     assert rtu_proof["vision"] == 3 and rtu_proof["vision_tags"] == ["RTU-1", "RTU-2", "RTU-3"]
     assert {"x": 2800, "y": 1300, "width": 90, "height": 35, "text": "RTU-2"} in rtu_proof["vision_boxes"]
     assert Path(ef_proof["proof"]).exists() and Path(rtu_proof["proof"]).exists()
+
+
+def test_a_pattern_the_answer_leaves_out_gets_no_vision_count(tmp_path):
+    picture = _blank_picture(tmp_path / "p.png", (3000, 1500))
+    seen = [("EF-1", 100, 100, 80, 30), ("EF-2", 2800, 1200, 80, 30), ("RTU-1", 1400, 700, 90, 30)]
+    found = counts.count_sheet(picture, ["EF-[0-9]+", "RTU-[0-9]+"], transport=FakeVision(seen, omit=("RTU",)))
+    assert found["EF-[0-9]+"].value == 2 and "RTU-[0-9]+" not in found
+    assert counts.count_tags(picture, "RTU-[0-9]+", transport=FakeVision(seen, omit=("RTU",))).value is None
+
+    texts = ((200, 200, FILLER, 10), (300, 400, "EF-1", 14), (600, 300, "EF-2", 14), (500, 500, "RTU-1", 14))
+    pdf = make_pdf(tmp_path / "job" / "Drawings.pdf", Page(1440, 720, texts))
+    catalogue = _catalogue(pdf, [(1, "M-101", "FIRST FLOOR PLAN", "\n".join(t for _, _, t, _ in texts))])
+    seen = [("EF-1", 625, 800, 90, 35), ("EF-2", 1460, 600, 90, 35), ("EF-3", 2700, 600, 90, 35),
+            ("RTU-1", 1040, 1000, 90, 35), ("RTU-2", 2800, 1300, 90, 35)]
+    before = _sample_job()
+    cache = tmp_path / "cache"
+    checked = counts.cross_check(before, catalogue, cache, transport=FakeVision(seen, omit=("RTU",)))
+    assert _family(checked, "EF", "Exhaust Fan").count.value == 3
+    rtu = _family(checked, "RTU", "Rooftop Unit")
+    assert not any(o.ref.quote == "counted on the sheet picture" for o in rtu.count.others)
+    assert not any(r.quote == "counted on the sheet picture" for r in rtu.count.sources)
+    text_only = counts.cross_check(before, catalogue, tmp_path / "cache2")      # the sheet text alone, no vision
+    assert rtu == _family(text_only, "RTU", "Rooftop Unit")                  # the vision pass added nothing to RTU
+    assert checked.system("RTU").devices == text_only.system("RTU").devices
+    [rtu_proof] = counts.proofs_for(cache, "RTU", "Rooftop Unit")
+    assert rtu_proof["vision"] is None and rtu_proof["vision_tags"] == []
 
 
 def test_count_tags_gives_no_count_without_an_answer(tmp_path):
