@@ -900,3 +900,46 @@ def test_run_job_runs_the_rebuilt_app_by_default_and_checks_count_answers(tmp_pa
     assert {"judge_model", "writer_model", "qc_model", "count_model", "max_attempts"} <= set(settings)
     skill = (ROOT / ".claude" / "skills" / "run-job" / "SKILL.md").read_text(encoding="utf-8")
     assert "count_tags" in skill and "count_model" in skill and "--app estimator" in skill
+
+
+def test_answer_of_populates_late_fields_before_schema_check():
+    from bms.ai import _answer_of, _question
+    from bms.model import json_schema, System
+    schema = json_schema(System)
+    raw = {"key": "EF", "name": "Fans", "shape": "", "control": "none", "families": [], "sequence_refs": [],
+           "devices": [], "clarifications": [], "tech_hours": None, "alternate": "base"}
+    # Notice: 'serves' and 'no_scope_reason' are omitted from raw
+    assert "serves" not in raw and "no_scope_reason" not in raw
+
+    class FakeBlock:
+        type = "text"
+        text = json.dumps(raw)
+
+    class FakeResponse:
+        content = [FakeBlock()]
+        stop_reason = "end_turn"
+
+    q = _question("model", "write_system", "EF", "rules", "step", "prompt", schema, {}, ())
+    answer = _answer_of(FakeResponse(), q)
+    assert answer["serves"] == []
+    assert answer["no_scope_reason"] is None
+
+
+def test_a_chat_answer_file_fills_only_a_missing_late_field(tmp_path):
+    """The chat file path fills serves and no_scope_reason only when the answer omits them. A present null is not
+    replaced, and the schema rejects it."""
+    from bms.ai import _read_answer
+
+    schema = json_schema(System)
+    raw = {"key": "EF", "name": "Fans", "shape": "", "control": "none", "families": [], "sequence_refs": [],
+           "devices": [], "clarifications": [], "tech_hours": None, "alternate": "base"}
+    path = tmp_path / "answer.json"
+    path.write_text(json.dumps(raw), encoding="utf-8")
+    answer, errors = _read_answer(path, schema)
+    assert errors == []
+    assert answer["serves"] == [] and answer["no_scope_reason"] is None
+
+    path.write_text(json.dumps({**raw, "serves": None}), encoding="utf-8")
+    rejected, problems = _read_answer(path, schema)
+    assert rejected is None and any("serves" in problem for problem in problems)
+
