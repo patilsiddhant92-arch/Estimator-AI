@@ -400,6 +400,16 @@ def test_a_source_id_without_a_ref_is_removed_tidily(job, raw, dossier, playbook
     assert written.devices[0].assumption.why == cleaned
 
 
+def test_a_ledger_fact_id_is_removed_not_put_as_ledger_fact(job, raw, dossier, playbook):
+    def change(a):
+        a["devices"][0]["refs"].append({"source_id": "F17", "quote": "x", "where": "ledger fact"})
+        a["devices"][0]["assumption"] = {"what": "one per fan", "why": "the fans are on F17"}
+    system = dataclasses.replace(skeleton(job.system("EF")), sequence_refs=skeleton(job.system("EF")).sequence_refs
+                                 + (Ref("F17", "x", "ledger fact"),))
+    written = ai.write_system(system, ai.evidence_for(system, dossier), playbook, FakeTransport(_bad(raw, change)))
+    assert written.devices[0].assumption.why == "the fans are"
+
+
 def test_a_source_id_in_the_no_scope_reason_is_removed(job, raw, dossier, playbook):
     written = _written(job, raw, dossier, playbook, lambda a: a.update(
         devices=[], clarifications=[], tech_hours=None, no_scope_reason="The fans run on their own controls (S999)."))

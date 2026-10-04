@@ -748,11 +748,17 @@ def _discipline(text: str) -> str:
     return re.sub(r"\s*\bdrawings?\b\s*$", "", text, flags=re.I).strip(" .:;,")
 
 
+_NOT_A_PLACE = re.compile(r"^ledger\b|\.(?:png|jpe?g)\b", re.I)      # a ledger fact or a picture file: no document
+
+
 def _place_of(source_id: str, groups: Sequence[Sequence[dict]]) -> str:
+    """Where the first ref naming `source_id` is, as the renderer prints it ("M-101"); "" when none names a
+    document."""
     for group in groups:
         for ref in group:
-            if str(ref.get("source_id", "")).strip("[] ") == source_id and _place(ref.get("where", "")):
-                return _place(ref.get("where", ""))
+            place = _place(ref.get("where", ""))
+            if str(ref.get("source_id", "")).strip("[] ") == source_id and place and not _NOT_A_PLACE.search(place):
+                return place
     return ""
 
 
