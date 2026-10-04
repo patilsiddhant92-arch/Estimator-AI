@@ -172,7 +172,7 @@ def test_repo_playbook_loads():
     playbook = load_playbook()
     assert isinstance(playbook, Playbook)
     assert "Packaged units" in playbook.topics
-    assert playbook.rules["Every line cites this job"].sample
+    assert not any(rule.sample for rule in playbook.rules.values())      # workstream 1 replaced the samples
     assert playbook.shape("Exhaust Fan").header.startswith("Qty ({n})")
     assert playbook.wording.verbs == VERBS
     assert playbook.rules_text.startswith("# AME Playbook")
