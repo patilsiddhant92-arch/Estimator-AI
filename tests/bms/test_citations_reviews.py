@@ -280,11 +280,15 @@ def test_an_exception_of_only_an_issued_id_is_must_fix_and_never_prints_empty(jo
     ("schedule S9", ""),                            # r1 M2: not a sheet the ledger knows
     ("S141, Invented.pdf page 3", ""),              # an issued id is never a place
 ])
-def test_a_count_note_place_is_a_sheet_never_an_id(job, pb, where, place):
+def test_a_count_note_place_is_a_sheet_never_an_id_and_a_stale_note_is_not_rewritten(job, pb, where, place):
+    """r2 I-2 and r1 M2: the count note (built by code) keeps its sheet; the stale note "Valves per S141." beside it
+    loses the token only (it is never rewritten into a place)."""
     assert citations.SourceIds.of(["S141"], ()).place(where) == place
     count = Count(5, (Ref("S5", "q", where),), (OtherCount(3, M101),))
-    lines = [l.text for l in render(replace(job, systems=(_system(count=count),)), pb).lines if l.system_key == "EF"]
-    assert lines[-1] == (f"*Qty. (5) per {place}; 3 per M-101." if place else "*Qty. (5); 3 per M-101."), lines
+    j = replace(job, systems=(_system((Clarification("note", "Valves per S141."),), count=count),))
+    lines = [l.text for l in render(j, pb).lines if l.system_key == "EF"]
+    assert lines[-2:] == ["**Valves per", f"*Qty. (5) per {place}; 3 per M-101." if place else
+                          "*Qty. (5); 3 per M-101."], lines
     assert not any(token in " ".join(lines) for token in ("S9", "S141"))
 
 

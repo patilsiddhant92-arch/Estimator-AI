@@ -298,11 +298,12 @@ def test_signature(function):
     assert len(inspect.getdoc(function) or "") > 80          # the contract is stated
 
 
-@pytest.mark.parametrize("name", ["tags", "ids"])
-def test_the_writers_take_tags_and_ids_keyword_only_with_an_empty_default(name):
+def test_the_writers_take_tags_and_ids_keyword_only_with_an_empty_default():
     for function in (ai.write_system, ai.revise_system):
-        parameter = inspect.signature(function).parameters[name]
-        assert parameter.kind is parameter.KEYWORD_ONLY and parameter.default == (), (function, name)
+        for name in ("ids", "tags"):
+            parameter = inspect.signature(function).parameters.get(name)
+            assert parameter is not None, (function, name)
+            assert parameter.kind is parameter.KEYWORD_ONLY and parameter.default == (), (function, name)
 
 
 def test_estimate_defaults_to_chat():

@@ -354,7 +354,7 @@ def _note_of(job, kind, text, tags=("EF-1", "EF-2"), refs=(S141,), assumption=No
     ("confirm", "Confirm valves per S141 and S999.", "*Confirm valves per and S999"),
     ("note", "Valves open per S999.", "**Valves open per S999"),
     ("note", "Valves open [S999].", "**Valves open [S999]"),
-    ("note", "Fan C2 serves the lab.", "**Fan C2 serves the lab"),
+    ("note", "Valves open (S901, S902).", "**Valves open (S901, S902)"),
 ])
 def test_render_takes_out_only_issued_tokens_and_rewrites_nothing(job, kind, text, printed):
     """No sentence rewriting at render: an issued id goes (token only); an unissued token prints as written (the
