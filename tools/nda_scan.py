@@ -10,18 +10,23 @@ FILE inside the work tree and not ignored. Hits are still printed when a file
 could not be read.
 
 Text is read as UTF-16 when a byte-order mark is present, otherwise as UTF-8
-(a UTF-8 mark is accepted). A docx, xlsx, or pptx file is read from the XML
-parts inside the zip.
+(a UTF-8 mark is accepted). UTF-8 that contains NUL bytes is tried again as
+UTF-16 without a mark. A zip (a PK header, including docx, xlsx, and pptx)
+is read from its XML and .rels parts, both raw and with the tags removed.
+A file that is not valid UTF-8 is also scanned as Windows-1252 and is still
+reported unread. A file or a zip part over the size cap is unread.
 
 This file contains no job data.
 """
 from __future__ import annotations
 
 import argparse
+import html
 import re
 import subprocess
 import sys
 import zipfile
+import zlib
 from pathlib import Path
 
 
@@ -81,9 +86,14 @@ def _files(root: Path) -> list[str]:
     return names
 
 
+def _lines(text: str) -> list[str]:
+    """Break on LF and CR only. A form feed stays inside its line."""
+    return text.replace("\r\n", "\n").replace("\r", "\n").split("\n")
+
+
 def _hits(label: str, text: str, tokens: list[tuple[str, re.Pattern[str]]]) -> list[str]:
     found: list[str] = []
-    for number, line in enumerate(text.splitlines(), start=1):
+    for number, line in enumerate(_lines(text), start=1):
         for token, pattern in tokens:
             if pattern.search(line):
                 found.append(f"{label}:{number}: {token}")
@@ -91,40 +101,77 @@ def _hits(label: str, text: str, tokens: list[tuple[str, re.Pattern[str]]]) -> l
 
 
 _OFFICE = {".docx", ".xlsx", ".pptx"}
+_ZIP_MAGIC = b"PK\x03\x04"
+# A test may set this lower. Files and zip parts above it are unread, not loaded.
+_MAX_BYTES = 100 * 1024 * 1024
+_READ_ERRORS = (OSError, zipfile.BadZipFile, zlib.error, RuntimeError, NotImplementedError, EOFError)
 
 
 def _decode(raw: bytes) -> str | None:
-    """UTF-16 when the bytes start with a byte-order mark, otherwise strict UTF-8. None when neither fits."""
+    """UTF-16 when a mark is present, otherwise strict UTF-8. NUL bytes are tried as UTF-16 without a mark."""
     if raw.startswith((b"\xff\xfe", b"\xfe\xff")):
         try:
             return raw.decode("utf-16")
         except UnicodeError:
             return None
     try:
-        return raw.decode("utf-8-sig")
+        text = raw.decode("utf-8-sig")
     except UnicodeError:
         return None
+    if "\x00" not in text:
+        return text
+    for encoding in ("utf-16-le", "utf-16-be"):
+        try:
+            wide = raw.decode(encoding)
+        except UnicodeError:
+            continue
+        if "\x00" not in wide:
+            return wide
+    return None
+
+
+def _plain_xml(xml: str) -> str:
+    """Join Word runs and turn XML entities into characters. Paragraph ends stay line breaks."""
+    text = re.sub(r"</w:p\b[^>]*>", "\n", xml, flags=re.IGNORECASE)
+    text = re.sub(r"</a:p\b[^>]*>", "\n", text, flags=re.IGNORECASE)
+    text = re.sub(r"</si\b[^>]*>", "\n", text, flags=re.IGNORECASE)
+    text = re.sub(r"<w:br\b[^>]*/>", "\n", text, flags=re.IGNORECASE)
+    text = re.sub(r"<w:tab\b[^>]*/>", " ", text, flags=re.IGNORECASE)
+    text = re.sub(r"<[^>]+>", "", text)
+    return html.unescape(text)
+
+
+def _scanned_part(name: str) -> bool:
+    lower = name.lower()
+    return lower.endswith(".xml") or lower.endswith(".rels")
 
 
 def _office_xml(path: Path) -> list[str] | None:
-    """Text of each XML part in a docx, xlsx, or pptx. None when the zip cannot be read or a part is not text."""
+    """Text of each XML or .rels part. None when the zip or a part cannot be read."""
     try:
         archive = zipfile.ZipFile(path)
-    except (OSError, zipfile.BadZipFile):
+    except _READ_ERRORS:
         return None
     parts: list[str] = []
-    with archive:
-        for info in archive.infolist():
-            if info.is_dir() or not info.filename.lower().endswith(".xml"):
-                continue
-            try:
-                raw = archive.read(info)
-            except OSError:
-                return None
-            text = _decode(raw)
-            if text is None:
-                return None
-            parts.append(text)
+    try:
+        with archive:
+            for info in archive.infolist():
+                if info.is_dir() or not _scanned_part(info.filename):
+                    continue
+                if info.file_size > _MAX_BYTES:
+                    return None
+                try:
+                    raw = archive.read(info)
+                except _READ_ERRORS:
+                    return None
+                if len(raw) > _MAX_BYTES:
+                    return None
+                text = _decode(raw)
+                if text is None:
+                    return None
+                parts.append(text)
+    except _READ_ERRORS:
+        return None
     return parts
 
 
@@ -137,20 +184,35 @@ def _file_hits(root: Path, tokens: list[tuple[str, re.Pattern[str]]]) -> tuple[l
         if not path.is_file():
             continue
         try:
+            size = path.stat().st_size
+        except OSError:
+            unread.append(label)
+            continue
+        if size > _MAX_BYTES:
+            unread.append(label)
+            continue
+        try:
             raw = path.read_bytes()
         except OSError:
             unread.append(label)
             continue
-        text = _decode(raw)
-        if text is None and path.suffix.lower() in _OFFICE:
+        if raw.startswith(_ZIP_MAGIC) or (path.suffix.lower() in _OFFICE and _decode(raw) is None):
             parts = _office_xml(path)
             if parts is None:
                 unread.append(label)
                 continue
             for part in parts:
                 found.extend(_hits(label, part, tokens))
+                found.extend(_hits(label, _plain_xml(part), tokens))
             continue
+        text = _decode(raw)
         if text is None:
+            try:
+                latin = raw.decode("cp1252")
+            except UnicodeError:
+                latin = ""
+            if latin:
+                found.extend(_hits(label, latin, tokens))
             unread.append(label)
             continue
         found.extend(_hits(label, text, tokens))
