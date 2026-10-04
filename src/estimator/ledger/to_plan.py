@@ -56,6 +56,7 @@ def _clause(quote: str, number) -> str:
     quote = _squash(quote)
     if number is None:
         return quote
+    quote = re.sub(r"\s*\([^()]*\)", "", re.sub(r"^[^:;]*\):\s*", "", quote))   # the line's head and per-sheet lists
     holds = re.compile(rf"(?<![\w.\-]){re.escape(str(number).strip())}(?![\w.])")
     for clause in quote.split("; "):
         clause = re.sub(r"^[^:;]*\):\s*", "", clause).strip()
@@ -80,7 +81,9 @@ def _other_count(where: str, quote: str, value) -> str:
     """Another count in the note: the counts line's words carry their number; a sheet "lists" it."""
     place = place_words(where, quote, value)
     counts_line = _squash(where).casefold().startswith(_COUNTS_LINE) and _squash(quote)
-    return place if counts_line else f"{place} lists ({value})"
+    if counts_line:
+        return place
+    return f"{place} lists ({value})" if place else f"lists ({value})"
 
 
 def count_note(ledger: Ledger, fact: Fact) -> str:
@@ -96,7 +99,13 @@ def count_note(ledger: Ledger, fact: Fact) -> str:
     others = [(_squash(v), s, q) for v, s, q in others if not _same(v, printed)]
     place = place_words(ledger.sources.get(sid.strip("[]"), sid), quote, printed)
     rest = "; ".join(_other_count(ledger.sources.get(s.strip("[]"), s), q, v) for v, s, q in others)
-    return f"*Qty. ({printed}) per {place}; {rest}."
+    return _tidy(f"*Qty. ({printed}) per {place}; {rest}.")
+
+
+def _tidy(note: str) -> str:
+    """The note without an empty or unbalanced bracket pair."""
+    note = re.sub(r"\s*\(\s*\)", "", note)
+    return note if note.count("(") == note.count(")") else note.replace("(", "").replace(")", "")
 
 
 def _tags(ledger: Ledger, prefix: str) -> tuple[str, ...]:
@@ -135,11 +144,27 @@ def _alternate(ledger: Ledger, *names: str) -> str:
     return "add" if value.startswith("add") else "deduct" if value.startswith("deduct") else ""
 
 
+_PLAN_ONLY_LEAD = re.compile(r"^seen on [^:,]*,\s*not scheduled\s*:\s*", re.I)
+_PLAN_ONLY_WORDS = 8
+
+
+def _short_name(value) -> str:
+    """A family's name for the header and kind. A plan-only value ("seen on plans, not scheduled: <description>
+    (<reasoning>)") gives the description alone: no lead, no parenthetical, at most 8 words cut at a word. Any
+    other value is kept."""
+    text = _squash(value)
+    lead = _PLAN_ONLY_LEAD.match(text)
+    if not lead:
+        return text
+    rest = _squash(re.sub(r"\([^()]*\)?", "", text[lead.end():]))
+    return " ".join(rest.split()[:_PLAN_ONLY_WORDS])
+
+
 def _family(ledger: Ledger, fact: Fact) -> tuple[Family, list[str]]:
     prefix = fact.subject
     tags = _tags(ledger, prefix)
     unit = ledger.find("unit", prefix)
-    header = f"{_squash(fact.value)} {_squash(unit.value) if unit else prefix}".strip()
+    header = f"{_short_name(fact.value)} {_squash(unit.value) if unit else prefix}".strip()
     count = ledger.find("count", prefix)
     quantity, source, quote = _printed(ledger, count) if count else (None, "", "")
     ids = [f.id for f in ledger.about(prefix)]
@@ -159,7 +184,9 @@ def _system(ledger: Ledger, fact: Fact) -> PlannedSystem:
         why = "Seen on the drawings but on no schedule; confirm it exists."
     else:
         why = f"From the job ledger: {len(ids) + len(matched)} facts."
-    return PlannedSystem(key=prefix, header=family.header, kind=_squash(fact.value), tags=family.tags,
+    if _short_name(fact.value) != _squash(fact.value):
+        why = f"{why} Ledger name: {_squash(fact.value)}"
+    return PlannedSystem(key=prefix, header=family.header, kind=_short_name(fact.value), tags=family.tags,
                          quantity=family.quantity, quantity_source=family.quantity_source,
                          quantity_quote=family.quantity_quote, sequence_sources=sequence,
                          schedule_sources=(_bracket(count.source_id),) if count else (), group="",
@@ -286,7 +313,12 @@ def _link_dampers(ledger: Ledger, systems: list[PlannedSystem]) -> list[PlannedS
                 left = system.quantity - len(links)
                 if left <= 0:
                     continue
-                system = replace(system, quantity=left)
+                total = system.quantity
+                place = place_words(ledger.sources.get(system.quantity_source.strip("[]"), system.quantity_source),
+                                    system.quantity_quote, total)
+                note = (f"*Qty. ({left}) not claimed by a fan; ({total}) per {place}, {len(links)} of them listed "
+                        "under their fans.")
+                system = replace(system, quantity=left, count_note=_tidy(note))
             locations = [f for f in ledger.of_kind("location") if _naming(system.key).search(_squash(f.subject))]
             sheets = _sheets(ledger, locations + links)
             why = "Dampers no fan claims" + (f"; see {', '.join(sheets)}." if sheets else ".")
@@ -410,7 +442,7 @@ def _part_family(fact: Fact, family: Family, tags: tuple[str, ...], count: int |
         source, quote = _bracket(used[0].source_id), used[0].quote
     else:
         source, quote = family.quantity_source, family.quantity_quote
-    return Family(f"{_squash(fact.value)} {tag_list(list(tags))}".strip(), tags, count, source, quote)
+    return Family(f"{_short_name(fact.value)} {tag_list(list(tags))}".strip(), tags, count, source, quote)
 
 
 def _group_system(ledger: Ledger, group: Fact, parts: dict) -> tuple[PlannedSystem, list[str]]:

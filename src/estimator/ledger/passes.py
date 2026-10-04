@@ -60,11 +60,12 @@ PASSES: tuple[Pass, ...] = (
          "rows) and, from the notes under each schedule, who provides the unit controller (\"unit mfr\", \"AME\", "
          "\"owner\", or the words used). A schedule that is a picture is given as an image: read it. Nothing later "
          "can add a scheduled family, so be complete."),
-    Pass("plans", "Plans", ("location", "device", "link"), ("family", "unit", "count"), (6, 7), ("Plans",), False,
+    Pass("plans", "Plans", ("location", "device", "link"), ("family", "unit", "count", "note"), (6, 7), ("Plans",), False,
          "For each family already in the ledger, settle where its units are (floors, zones, rooms) and the devices "
          "around them: sensors, thermostats, damper actuators, and the keynotes that add controls scope. Equipment "
          "on the plans that no schedule lists may only be added, with the subject \"seen on plans, not scheduled\" "
-         "in its quote's words; it is flagged later. Give the count you can see, citing the sheet. When a motorized "
+         "in its quote's words; it is flagged later. Give the family a short kind name (a few words) and put the reasons in "
+         "a note fact, not in the name. Give the count you can see, citing the sheet. When a motorized "
          "damper sits on a fan's duct or next to a fan on the plan, record a link: subject the damper's tag or label, "
          "value the fan's tag. Note: a count's value is a whole number; put the words in the quote.",
          picture_types=("Plans",)),
@@ -73,13 +74,14 @@ PASSES: tuple[Pass, ...] = (
          "actuators, fire and smoke damper integration, expansion tank sensors, anything touching a scheduled "
          "unit. Write nothing about equipment the ledger does not hold.",
          not_sheet_types=("Air riser", "Water riser", "Network riser")),
-    Pass("risers", "Air and water risers", ("link", "group", "device"), ("family", "unit", "count"), (), ("Air riser", "Water riser"), False,
+    Pass("risers", "Air and water risers", ("link", "group", "device"), ("family", "unit", "count", "note"), (), ("Air riser", "Water riser"), False,
          "Settle how the systems fit together: which unit serves which (a link: subject the served unit, value the "
          "serving unit), the plant loop (a group: subject the plant's name, value the families in it, comma "
          "separated), and the sensors on the risers (pressure, differential pressure, stair pressurisation). "
          "A group is one plant that one sequence controls (a chilled water plant, a VRF system), never a riser, a "
          "shaft or a drain route; its subject is a short plant name of at most five words. "
-         "Equipment on a riser that neither the schedule nor the plans showed may only be added, quoting the riser. "
+         "Equipment on a riser that neither the schedule nor the plans showed may only be added, quoting the riser; give "
+         "it a short kind name (a few words) and put the reasons in a note fact, not in the name. "
          "Note: a count's value is a whole number; put the words in the quote.",
          picture_types=("Air riser", "Water riser")),
     Pass("network", "Network riser", ("provider", "link"), (), (), ("Network riser",), False,
@@ -89,9 +91,10 @@ PASSES: tuple[Pass, ...] = (
     Pass("sequence", "Sequence of operation and points list", ("sequence_match", "note"), ("family", "unit", "count"), (2, 3), (), False,
          "Match each sequence section (its Q id) to the family or group in the ledger it describes: a "
          "sequence_match fact whose subject is the section's heading and whose value is that family's prefix or "
-         "the group's name, citing the section. A section naming equipment the ledger does not hold may add it "
-         "only when the section itself states a count, quoting it; otherwise write a note fact with the subject "
-         "\"named in sequence, not found on drawings\". Notes are also for alternates (subject \"alternate\", value "
+         "the group's name, citing the section. When a section gives the BMS work on a system that no family in the "
+         "live list covers (plumbing pumps, domestic water heaters, heat tracing, a gas booster, glycol feed, a "
+         "generator), add a family fact for it (kind and name, with a short subject; no count fact), citing the "
+         "section; add a count fact only when the section itself states one, quoting it. Notes are also for alternates (subject \"alternate\", value "
          "\"add\" or \"deduct\" and the family), exceptions (subject \"exception\", value the one-line exception in "
          "capitals), questions for the estimator (subject \"question\"), and "
          "notes with subject \"general\" for rules the sequence sets for the whole job (fire/smoke damper control, "

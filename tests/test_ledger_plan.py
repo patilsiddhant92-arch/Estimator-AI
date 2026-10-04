@@ -533,3 +533,49 @@ def test_split_units_sharing_an_alternate_gather_into_their_own_block():
     assert add.key == "Split System (add alternate)" and add.alternate == "add"
     assert [f.tags for f in add.families] == [("SS-1",), ("CU-1",)]
     assert system_template(add).name == "Split System"
+
+
+# --- the leftovers: short plan-only names, clean quantity notes ------------------------------------------------
+
+def test_a_plan_only_family_value_gives_a_short_header_and_kind():
+    ledger = Ledger(SOURCES)
+    value = ("seen on plans, not scheduled: Glycol makeup feed skid for the snow melt loop and boiler room "
+             "(shown on M-201 with a pump symbol)")
+    ledger.add("family", "GLY", value, "[S10]", "GLY", "plans")
+    (system,) = ledger_plan(ledger).systems
+    assert system.kind == "Glycol makeup feed skid for the snow melt"
+    assert "(" not in system.header and "seen on" not in system.header and system.header.startswith(system.kind)
+    assert value in system.why
+    ledger = Ledger(SOURCES)
+    ledger.add("family", "SUMP", "seen on the risers, not scheduled: Sump Pump (drain riser)", "[S10]", "SUMP", "risers")
+    (sump,) = ledger_plan(ledger).systems
+    assert sump.kind == "Sump Pump"
+
+
+def test_a_counts_line_quote_is_said_as_plan_placements_without_the_sheet_list():
+    from estimator.ledger.to_plan import place_words
+    quote = ("VAV (Variable Air Volume Box): schedule rows 15; QUANTITY column total —; distinct tags 15; "
+             "plan placements 16 (M-101.00 5; M-102.00 11); riser —")
+    where = "equipment counts for VAV (schedules and plans)"
+    assert place_words(where, quote, 16) == "plan placements 16"
+    assert place_words(where, quote, 15) == "schedule rows 15"
+
+
+def test_a_damper_block_that_lost_dampers_to_fans_says_so():
+    ledger = _ledger()
+    ledger.add("family", "MD", "Motorized Damper", "[S10]", "MD", "plans")
+    ledger.add("count", "MD", 3, "[S10]", "MD ×3", "plans")
+    ledger.add("family", "EF", "Exhaust Fan", "[S10]", "EF-1", "plans")
+    ledger.add("count", "EF", 1, "[S10]", "EF-1", "plans")
+    ledger.add("link", "MD-1", "EF-1", "[S10]", "MD-1 at EF-1", "plans", SETTLED)
+    md = next(s for s in ledger_plan(ledger).systems if s.key == "MD")
+    assert md.count_note == "*Qty. (2) not claimed by a fan; (3) per M-201, 1 of them listed under their fans."
+
+
+def test_a_count_note_never_prints_an_empty_bracket_pair():
+    ledger = Ledger({"S5": "equipment counts for VAV (schedules and plans)", "S9": ", Drawings.pdf page 3"})
+    ledger.add("family", "VAV", "Variable Air Volume Box", "[S5]", "VAV", "seed", SETTLED)
+    count = ledger.add("count", "VAV", 14, "[S5]", "QUANTITY column total 14", "seed", SETTLED)
+    ledger.contradict(count.id, 12, "[S9]", "VAV-1 thru 12", "plans")
+    note = count_note(ledger, ledger.facts[count.id])
+    assert "()" not in note and note.count("(") == note.count(")")

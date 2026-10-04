@@ -17,7 +17,7 @@ CATALOGUE = SimpleNamespace(sheets=SHEETS)
 def test_the_passes_are_in_the_estimators_order():
     assert [p.name for p in PASSES] == ["schedules", "plans", "details", "risers", "network", "sequence", "spec"]
     assert pass_named("risers").settles == ("link", "group", "device")
-    assert pass_named("plans").may_add == ("family", "unit", "count")
+    assert pass_named("plans").may_add == ("family", "unit", "count", "note")
     assert pass_named("schedules").may_add == ()
 
 
@@ -348,3 +348,18 @@ def test_a_float_count_is_read_as_a_whole_number_only_when_whole():
     from estimator.ledger.passes import _value
     assert _value(16.0, "count") == 16 and isinstance(_value(16.0, "count"), int)
     assert _value(16.5, "count") is None
+
+
+def test_the_sequence_pass_adds_a_family_for_a_system_no_family_covers():
+    text = pass_named("sequence").instructions
+    assert ("When a section gives the BMS work on a system that no family in the live list covers (plumbing pumps, "
+            "domestic water heaters, heat tracing, a gas booster, glycol feed, a generator), add a family fact for it "
+            "(kind and name, with a short subject; no count fact), citing the section; add a count fact only when "
+            "the section itself states one, quoting it." in text)
+
+
+def test_plans_and_risers_ask_for_short_names_and_a_note_for_the_reasons():
+    for name in ("plans", "risers"):
+        pass_ = pass_named(name)
+        assert "short kind name" in pass_.instructions and "note fact" in pass_.instructions
+        assert "note" in pass_.kinds
