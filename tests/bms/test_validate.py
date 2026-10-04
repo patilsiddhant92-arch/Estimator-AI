@@ -244,12 +244,45 @@ def test_a_system_with_no_lines_is_a_check_with_the_writers_reason(job):
     assert "the invented heaters have no BMS work" in found[0].what
 
 
-def test_render_and_validate_share_one_source_id_pattern():
+def test_render_validate_and_the_intake_share_one_cleanup_module():
+    """M1: one module holds the id pattern, the issued-ids decision, the label stripper and the place lookup."""
+    import inspect
+
+    import bms.ai as ai_mod
     import bms.render as render_mod
     import bms.validate as validate_mod
     from bms import citations
-    assert render_mod._ONE_ID is citations.ONE_ID
-    assert validate_mod._SOURCE_ID is citations.SOURCE_ID
+    for name in ("SourceIds", "strip_label", "per_drawings_text", "clarification_text"):
+        assert hasattr(citations, name), name
+    assert "from bms.render import" not in inspect.getsource(ai_mod)
+    for module, copies in ((ai_mod, ("_ONE_SOURCE", "_SOURCE_RUN", "_SOURCE_ID", "_BRACKETED", "_LEAD_LABEL",
+                                     "_strip_lead", "_discipline", "_place_of", "_without_ids", "_NOT_A_PLACE")),
+                           (render_mod, ("_ONE_ID", "_ID_GROUP", "_SHEET", "_LABEL", "_PER", "_no_ids", "_place",
+                                         "_strip_labels", "_per_drawings_text", "_DANGLING", "_TRADE")),
+                           (validate_mod, ("_SOURCE_ID",))):
+        for name in copies:
+            assert not hasattr(module, name), (module.__name__, name)
+    source = inspect.getsource(validate_mod) + inspect.getsource(render_mod) + inspect.getsource(ai_mod)
+    assert "[SQIFC]" not in source
+
+
+@pytest.mark.parametrize("issued", [(), (Ref("C101", "x", "ledger fact"), Ref("F1", "x", "ledger fact"))])
+def test_tags_and_sheet_numbers_shaped_like_ids_are_no_check(job, issued):
+    """I5: only ids the run issued count; a family tag or a sheet number never does."""
+    vrf = job.system("VRF")
+    j = edit(job, "VRF", families=(dc.replace(vrf.families[0], tags=("F1", "F2")),) + vrf.families[1:],
+             clarifications=(Clarification("note", "Fans F1 and F2 serve the kitchen; see civil sheet C101."),),
+             sequence_refs=vrf.sequence_refs + issued)
+    assert rules(validate(j, PB), RULE["ids"]) == []
+
+
+def test_a_family_tag_shaped_like_an_issued_id_is_no_check(job):
+    tags = ("F1", "C2", "I3", "Q4", "S5")
+    vrf = job.system("VRF")
+    j = edit(job, "VRF", families=(dc.replace(vrf.families[0], tags=tags),) + vrf.families[1:],
+             clarifications=(Clarification("confirm", "the controls for units F1, C2, I3, Q4 and S5"),),
+             sequence_refs=tuple(Ref(t, "x", "ledger fact") for t in tags))
+    assert rules(validate(j, PB), RULE["ids"]) == []
 
 
 def test_q_i_f_and_c_ids_in_wording_are_a_check(job):
@@ -260,7 +293,8 @@ def test_q_i_f_and_c_ids_in_wording_are_a_check(job):
 def test_source_ids_in_assumption_or_clarification_wording_are_a_check(job):
     j = edit_device(job, "RTU", "RTU.d4", assumption=Assumption("one detector per unit", "S12 note 2 says so"))
     assert (RULE["ids"], "RTU", "RTU.d4", "check") in rules(validate(j, PB))
-    j2 = edit(job, "VRF", clarifications=(Clarification("confirm", "Branch selector count per S41"),))
+    j2 = edit(job, "VRF", clarifications=(Clarification("confirm", "Branch selector count per S41"),),
+              sequence_refs=(Ref("S41", "q", "M-002, Invented.pdf page 3"),))      # an id the run issued
     assert (RULE["ids"], "VRF", None, "check") in rules(validate(j2, PB))
     j3 = edit(job, "VRF", clarifications=(Clarification("confirm", "count per the SD-12 sheet; 5S7 is not an id"),))
     assert rules(validate(j3, PB), RULE["ids"]) == []

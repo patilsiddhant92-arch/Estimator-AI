@@ -53,7 +53,7 @@ from estimator.writing.judge import DEFAULT_MODEL, KEY_VARIABLE, MODEL_VARIABLE,
 from bms import ai_evidence
 from bms.model import Device, Finding, Job, ModelError, Ref, System, json_schema, schema_errors
 from bms.playbook import Playbook, Shape
-from bms.render import _DANGLING, _TRADE, _place, _squash     # the renderer's own id and place helpers
+from bms.citations import SourceIds, clarification_text, strip_label, system_tags
 
 WRITE_SYSTEM = "write_system"       # kind of both the write and the revise request
 QC_JOB = "qc_job"
@@ -751,7 +751,7 @@ def _check_system(answer, skeleton: System, shape: Shape | None, known: frozense
         return None, [f"it breaks the schema at {e.removeprefix('$.')}" for e in errors]
     problems: list[str] = []
     kept_ids = {d.id for d in keep}
-    _normalise(answer, skeleton, kept_ids, changes if changes is not None else [])
+    _normalise(answer, skeleton, kept_ids, changes if changes is not None else [], known)
     for n, device in enumerate(answer["devices"]):
         value = device["quantity"]["value"]
         if device.get("id") not in kept_ids and value is not None and value <= 0:
@@ -821,89 +821,27 @@ def _text_problems(text: str) -> list[str]:
     return []
 
 
-# ---- the intake: cosmetic slips in client text cleaned, not refused -----------------------------------------------
-
-_ONE_SOURCE = r"\b[SQIFC]\d{1,4}[a-z]?\b(?:\s+(?:note|paragraph)\s+\d+)?"
-_SOURCE_RUN = re.compile(rf"{_ONE_SOURCE}(?:\s*(?:,|and|to|through|thru|-|–)\s*{_ONE_SOURCE})*")
-_SOURCE_ID = re.compile(r"\b([SQIFC]\d{1,4}[a-z]?)\b")
-_BRACKETED = re.compile(rf"\[\s*({_ONE_SOURCE})\s*\]")
-_LEAD_LABEL = re.compile(r"^\s*(?:\*+|confirm\s+(?:quantities|quantity|ownership)\b|confirm\b|assumed\b|assumption\b"
-                         r"|quantity\s+per\b|note\s*:)\s*:?\s*", re.I)
-_LEAD_PER = re.compile(r"^\s*(?:as\s+)?per\b\s*:?\s*", re.I)
-
-
-def _strip_lead(text: str) -> str:
-    """The text without the label(s) it starts with ("*", "Confirm quantities", "Assumed:", "Quantity per")."""
-    while True:
-        stripped = _LEAD_LABEL.sub("", text, count=1)
-        if stripped == text:
-            return text.strip()
-        text = stripped
-
-
-def _discipline(text: str) -> str:
-    """A per-drawings clarification's text: the discipline word only ("plumbing"), else the text without its
-    "Quantity per" and "drawings"."""
-    trade = _TRADE.search(text)
-    if trade:
-        return trade.group(1).lower()
-    text = _LEAD_PER.sub("", _strip_lead(text), count=1)
-    return re.sub(r"\s*\bdrawings?\b\s*$", "", text, flags=re.I).strip(" .:;,")
-
-
-_NOT_A_PLACE = re.compile(r"^ledger\b|\.(?:png|jpe?g)\b", re.I)      # a ledger fact or a picture file: no document
-
-
-def _place_of(source_id: str, groups: Sequence[Sequence[dict]]) -> str:
-    """Where the first ref naming `source_id` is, as the renderer prints it ("M-101"); "" when none names a
-    document."""
-    for group in groups:
-        for ref in group:
-            place = _place(ref.get("where", ""))
-            if str(ref.get("source_id", "")).strip("[] ") == source_id and place and not _NOT_A_PLACE.search(place):
-                return place
-    return ""
-
-
-def _without_ids(text: str, groups: Sequence[Sequence[dict]]) -> str:
-    """The text with every source id ("S141", "[Q2]", "S6 and S7") put as the place of its ref, as the renderer
-    does, or taken out (and the words around it tidied) when no ref names a place for it."""
-    if not _SOURCE_ID.search(text):
-        return text
-    out = _BRACKETED.sub(r"\1", text)
-
-    def swap(match: re.Match) -> str:
-        places = (_place_of(i, groups) for i in _SOURCE_ID.findall(match.group(0)))
-        return " and ".join(dict.fromkeys(p for p in places if p))
-
-    out = _SOURCE_RUN.sub(swap, out)
-    out = re.sub(r"[(\[]\s*(?:(?:,|;|and)\s*)*[)\]]", " ", out)        # an emptied bracket
-    out = re.sub(r"\(\s+", "(", out)
-    out = re.sub(r"\s+([,;:.)])", r"\1", out)
-    while True:
-        tidy = _DANGLING.sub("", out)
-        tidy = re.sub(r"([,;:])\s*(?=[,;:.)]|$)", "", tidy)          # a separator left with nothing after it
-        if tidy == out:
-            break
-        out = tidy
-    return _squash(out).lstrip(",;: ")
-
+# ---- the intake: cosmetic slips in client text cleaned, not refused (bms.citations decides what is cleaned) ------
 
 def _device_refs(device: dict) -> list[dict]:
     quantity = device.get("quantity") or {}
     return [*device["refs"], *quantity.get("sources", []), *(o["ref"] for o in quantity.get("others", []))]
 
 
-def _normalise(answer: dict, skeleton: System, kept_ids: set[str], changes: list[str]) -> None:
-    """Clean the client texts of `answer` in place, each change added to `changes`: a leading label taken off an
-    assumption or a clarification (a per-drawings clarification keeps its discipline word only; one left empty is
-    dropped) and every source id put in words (`_without_ids`)."""
+def _normalise(answer: dict, skeleton: System, kept_ids: set[str], changes: list[str],
+               known: frozenset[str] = frozenset()) -> None:
+    """Clean the client texts of `answer` in place, each change added to `changes`: the leading label of the text's
+    own kind taken off an assumption or a clarification (a per-drawings clarification keeps its discipline word
+    only; one left empty is dropped) and every source id put in words. The source ids are the ids this run issued
+    (`known`, the evidence's, and every ref the skeleton and the answer carry), never a family tag or a sheet
+    number: one decision, `bms.citations.SourceIds`, the renderer's and the validator's too."""
     block = [*(r.to_dict() for r in ai_evidence.system_refs(skeleton))]
     for device in answer["devices"]:
         block += _device_refs(device)
+    ids = SourceIds.of([*known, *(r.get("source_id", "") for r in block)], system_tags(skeleton))
 
     def clean(where: str, text: str, groups, label: bool = True) -> str:
-        new = _without_ids(_strip_lead(text) if label else text.strip(), groups)
+        new = ids.strip(strip_label("assumed", text) if label else text.strip(), *groups).strip()
         if new != text.strip():
             changes.append(f"{where}: {text!r} written as {new!r}")
         return new
@@ -919,9 +857,7 @@ def _normalise(answer: dict, skeleton: System, kept_ids: set[str], changes: list
     kept = []
     for clarification in answer["clarifications"]:
         text, where = clarification["text"], f"clarification ({clarification['kind']})"
-        new = _without_ids(_strip_lead(text), (block,))
-        if clarification["kind"] == "per_drawings":
-            new = _discipline(new)
+        new = clarification_text(clarification["kind"], text, ids, block).strip()
         if not new and str(text).strip():
             changes.append(f"{where} {text!r} dropped: nothing left after its label")
             continue

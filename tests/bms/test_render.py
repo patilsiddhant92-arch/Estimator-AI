@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import replace
 from pathlib import Path
 
@@ -256,10 +257,11 @@ def test_source_ids_in_an_assumption_become_the_sheet_or_section_of_their_ref(jo
                        "sequence section B. Invented fans names no party")
 
 
-def test_source_ids_with_no_ref_are_dropped_and_the_words_tidied(job):
+def test_source_ids_with_no_place_are_dropped_and_the_words_tidied(job):
     pb = load_playbook(ROOT / "playbook")
     a = device(assumption=Assumption("one invented sensor per S900", "the schedule (S901, S902) shows one per unit"))
     b = device(id="X.d2", slot="damper_actuator", name="Damper",
+               refs=(REF,) + tuple(Ref(i, "x", "ledger fact") for i in ("S900", "S901", "S902", "S903")),
                assumption=Assumption("one damper", "the plan shows it in S903"))
     out = texts(render(one(job, system([a, b])), pb), "EF")
     assert out[-1] == ("*Assumed: one invented sensor, because the schedule shows one per unit; "
@@ -270,16 +272,68 @@ def test_source_ids_with_no_ref_are_dropped_and_the_words_tidied(job):
 def test_keynote_drawing_fact_and_count_ids_do_not_print(job):
     pb = load_playbook(ROOT / "playbook")
     clar = (Clarification("confirm", "Confirm the keynote Q3, drawing I12, fact F8 and count C2a"),)
-    out = texts(render(one(job, system([device()], clarifications=clar)), pb), "EF")
+    d = device(refs=(REF,) + tuple(Ref(i, "x", "ledger fact") for i in ("Q3", "I12", "F8", "C2a")))
+    out = texts(render(one(job, system([d], clarifications=clar)), pb), "EF")
     assert "Q3" not in out[-1] and "I12" not in out[-1] and "F8" not in out[-1] and "C2a" not in out[-1]
 
 
 def test_source_ids_in_a_clarification_are_replaced_too(job):
     pb = load_playbook(ROOT / "playbook")
-    d = device(refs=(Ref("S12", "q", "Q-100.00, Invented.pdf page 3"),))
+    d = device(refs=(Ref("S12", "q", "Q-100.00, Invented.pdf page 3"), Ref("S99", "q", "ledger fact")))
     clar = (Clarification("confirm", "Confirm quantity: 4 invented units per S12, 2 per S99"),)
     out = texts(render(one(job, system([d], clarifications=clar)), pb), "EF")
     assert out[-1] == "*Confirm quantity: 4 invented units per Q-100.00, 2"
+
+
+def test_a_clarification_prints_its_kind_label_once_and_keeps_its_content_words(job):
+    """I3: the renderer strips only the label of the clarification's own kind."""
+    pb = load_playbook(ROOT / "playbook")
+    for kind, text, printed in [
+        ("confirm", "Confirm ownership of the duct smoke detectors with the electrical contractor.",
+         "*Confirm ownership of the duct smoke detectors with the electrical contractor"),
+        ("confirm", "Confirm quantity: 4 invented dampers", "*Confirm quantity: 4 invented dampers"),
+        ("note", "Confirm with the owner the invented fan count", "**Confirm with the owner the invented fan count"),
+        ("note", "Note: the invented fans are by others", "**the invented fans are by others"),
+        ("assumed", "Assumed: one invented damper per fan", "*Assumed: one invented damper per fan"),
+    ]:
+        out = texts(render(one(job, system([device()], clarifications=(Clarification(kind, text),))), pb), "EF")
+        assert out[-1] == printed, text
+
+
+def test_a_where_that_holds_an_id_is_never_the_printed_place(job):
+    """I4: a ledger fact, a picture file or a where naming the id itself gives no place; the id never prints."""
+    pb = load_playbook(ROOT / "playbook")
+    refs = (REF, Ref("F17", "x", "Ledger fact F17"), Ref("I3", "x", "I3 picture, M-201.png"), Ref("S8", "x", "S8"))
+    a = device(refs=refs, assumption=Assumption("one invented actuator", "the actuator is shown on I3 and in F17"))
+    clar = (Clarification("confirm", "the invented damper count per S8"),)
+    fams = (Family("Exhaust Fan", ("EF-1",), Count(3, (Ref("F17", "x", "Ledger fact F17"),),
+                                                  (OtherCount(2, Ref("S2", "q", "M-101, Invented.pdf page 2")),))),)
+    out = texts(render(one(job, system([a], families=fams, clarifications=clar)), pb), "EF")
+    assert "*Confirm the invented damper count" in out
+    assert "*Assumed: one invented actuator, because the actuator is shown" in out
+    for line in out:
+        assert not re.search(r"\b(?:F17|I3|S8)\b", line), line
+
+
+@pytest.mark.parametrize("issued", [(), (Ref("C101", "x", "ledger fact"), Ref("F1", "x", "ledger fact"))])
+def test_tags_and_sheet_numbers_shaped_like_ids_print_unchanged(job, issued):
+    """I5: F1, F2 are not issued ids (or F1 is a family tag) and C101 reads as a sheet number."""
+    pb = load_playbook(ROOT / "playbook")
+    fams = (Family("Exhaust Fan", ("F1", "F2"), Count(value=2)),)
+    clar = (Clarification("note", "Fans F1 and F2 serve the kitchen; see civil sheet C101."),)
+    d = device(refs=(REF,) + issued)
+    out = texts(render(one(job, system([d], families=fams, clarifications=clar)), pb), "EF")
+    assert out[-1] == "**Fans F1 and F2 serve the kitchen; see civil sheet C101"
+
+
+def test_a_family_tag_shaped_like_an_id_prints_even_when_it_is_an_issued_id(job):
+    pb = load_playbook(ROOT / "playbook")
+    tags = ("F1", "C2", "I3", "Q4", "S5")
+    d = device(refs=tuple(Ref(t, "x", "ledger fact") for t in tags))
+    clar = (Clarification("confirm", "the controls for units F1, C2, I3, Q4 and S5"),)
+    out = texts(render(one(job, system([d], families=(Family("Unit", tags, Count(value=5)),),
+                                       clarifications=clar)), pb), "EF")
+    assert out[-1] == "*Confirm the controls for units F1, C2, I3, Q4 and S5"
 
 
 # ---- a system with no lines is left out ------------------------------------------------------------------------

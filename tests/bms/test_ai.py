@@ -377,9 +377,9 @@ def _written(job, raw, dossier, playbook, change):
 
 @pytest.mark.parametrize("kind, text, cleaned", [
     ("confirm", "Confirm: the fan count", "the fan count"),
-    ("confirm", "CONFIRM QUANTITIES the fans and dampers", "the fans and dampers"),
-    ("confirm", "Confirm ownership: who wires the dampers", "who wires the dampers"),
-    ("confirm", "** Confirm quantity: the dampers", "the dampers"),
+    ("confirm", "CONFIRM QUANTITIES the fans and dampers", "QUANTITIES the fans and dampers"),     # content kept
+    ("confirm", "Confirm ownership: who wires the dampers", "ownership: who wires the dampers"),
+    ("confirm", "** Confirm quantity: the dampers", "quantity: the dampers"),
     ("assumed", "Assumed: one damper per fan", "one damper per fan"),
     ("assumed", "Assumption one damper per fan", "one damper per fan"),
     ("note", "Confirmation of the fan count is by the owner", "Confirmation of the fan count is by the owner"),
@@ -424,9 +424,12 @@ def test_a_source_id_in_client_text_becomes_its_place(job, raw, dossier, playboo
     ("the schedule, see C4", "the schedule"),
     ("the schedule (S999)", "the schedule"),
 ])
-def test_a_source_id_without_a_ref_is_removed_tidily(job, raw, dossier, playbook, why, cleaned):
-    written = _written(job, raw, dossier, playbook, lambda a: a["devices"][0].update(
-        assumption={"what": "one per fan", "why": why}))
+def test_a_source_id_without_a_place_is_removed_tidily(job, raw, dossier, playbook, why, cleaned):
+    # the run issued these ids (refs that name no document); an id the run never issued is not a source id
+    system = _with(skeleton(job.system("EF")), *(Ref(i, "x", "ledger fact") for i in ("S141", "F17", "I9", "C4",
+                                                                                         "S999")))
+    answer = _bad(raw, lambda a: a["devices"][0].update(assumption={"what": "one per fan", "why": why}))
+    written = ai.write_system(system, ai.evidence_for(system, dossier), playbook, FakeTransport(answer))
     assert written.devices[0].assumption.why == cleaned
 
 
@@ -441,8 +444,9 @@ def test_a_ledger_fact_id_is_removed_not_put_as_ledger_fact(job, raw, dossier, p
 
 
 def test_a_source_id_in_the_no_scope_reason_is_removed(job, raw, dossier, playbook):
-    written = _written(job, raw, dossier, playbook, lambda a: a.update(
-        devices=[], clarifications=[], tech_hours=None, no_scope_reason="The fans run on their own controls (S999)."))
+    system = _with(skeleton(job.system("EF")), Ref("S999", "x", "ledger fact"))
+    written = ai.write_system(system, ai.evidence_for(system, dossier), playbook, FakeTransport(_bad(raw, lambda a: a.update(
+        devices=[], clarifications=[], tech_hours=None, no_scope_reason="The fans run on their own controls (S999)."))))
     assert written.no_scope_reason == "The fans run on their own controls."
 
 
@@ -486,9 +490,83 @@ def test_a_clean_answer_logs_nothing(job, raw, dossier, playbook, tmp_path):
 def test_the_writer_prompts_no_longer_threaten_refusal_for_labels():
     folder = ROOT / "src" / "bms" / "prompts"
     for name in ("write_system.md", "revise_system.md"):
-        for line in (folder / name).read_text(encoding="utf-8").splitlines():
-            if "label" in line.lower():
-                assert "refus" not in line.lower(), (name, line)
+        label_lines = [line for line in (folder / name).read_text(encoding="utf-8").splitlines()
+                       if "label" in line.lower()]
+        assert label_lines, name                                   # the label rule is still stated
+        for line in label_lines:
+            assert "refus" not in line.lower(), (name, line)
+            assert '"Confirm"' in line and '"Assumed:"' in line, (name, line)
+    write = (folder / "write_system.md").read_text(encoding="utf-8")
+    # the intake keeps a per-drawings text's discipline word only, and the writer is told so
+    assert ('Never start the text with a label ("Confirm", "Assumed:", "Note:", "Quantity"): the kind is the label '
+            'and the renderer prints it. For per_drawings the text is the discipline word only ("plumbing", '
+            '"electrical").') in write
+
+
+# ---- the shared cleanup: only ids this run issued are source ids; each kind strips its own label ----------------
+
+def _with(system: System, *refs: Ref, tags: tuple[str, ...] | None = None) -> System:
+    """The skeleton with more refs issued (as sequence refs) and, when given, more tags on its first family."""
+    families = system.families
+    if tags is not None:
+        families = (dataclasses.replace(families[0], tags=families[0].tags + tags),) + families[1:]
+    return dataclasses.replace(system, sequence_refs=system.sequence_refs + refs, families=families)
+
+
+def test_a_confirm_clarification_keeps_its_content_words(job, raw, dossier, playbook):
+    """I3: only the bare label word (and its colon) comes off; 'ownership' and 'quantity' are content."""
+    from bms.render import render
+    house = load_playbook(ROOT / "playbook")
+    for kind, text, cleaned, printed in [
+        ("confirm", "Confirm ownership of the duct smoke detectors with the electrical contractor.",
+         "ownership of the duct smoke detectors with the electrical contractor.",
+         "*Confirm ownership of the duct smoke detectors with the electrical contractor"),
+        ("confirm", "Confirm quantity: 4 invented dampers", "quantity: 4 invented dampers",
+         "*Confirm quantity: 4 invented dampers"),
+        ("confirm", "*Confirm: quantities of the invented dampers", "quantities of the invented dampers",
+         "*Confirm quantities of the invented dampers"),
+        ("note", "Confirm with the owner the invented fan count", "Confirm with the owner the invented fan count",
+         "**Confirm with the owner the invented fan count"),
+        ("note", "Assumption of the owner: invented fans", "Assumption of the owner: invented fans",
+         "**Assumption of the owner: invented fans"),
+    ]:
+        written = _written(job, raw, dossier, playbook,
+                           lambda a: a.update(clarifications=[{"kind": kind, "text": text}]))
+        assert written.clarifications[0].text == cleaned, text
+        out = render(dataclasses.replace(job, systems=(written,)), house)
+        assert [l.text for l in out.lines if l.kind == "note"][0] == printed, text
+
+
+def test_a_where_that_holds_an_id_is_never_the_printed_place(job, raw, dossier, playbook):
+    """I4: 'Ledger fact F17' and 'Picture I3, file M-201.png' name no document; the id never prints."""
+    system = _with(skeleton(job.system("EF")), Ref("F17", "x", "Ledger fact F17"),
+                   Ref("I3", "x", "Picture I3, file M-201.png"))
+
+    def change(a):
+        a["devices"][0]["assumption"] = {"what": "one per fan", "why": "as stated in F17"}
+        a["clarifications"] = [{"kind": "confirm", "text": "the actuator shown on I3"}]
+    written = ai.write_system(system, ai.evidence_for(system, dossier), playbook, FakeTransport(_bad(raw, change)))
+    assert written.devices[0].assumption.why == "as stated"
+    assert written.clarifications[0].text == "the actuator shown"
+
+
+@pytest.mark.parametrize("issued", [(), (Ref("C101", "x", "ledger fact"),)])
+def test_tags_and_sheet_numbers_shaped_like_ids_survive_the_intake(job, raw, dossier, playbook, issued):
+    """I5: F1, F2 are not issued ids and C101 reads as a sheet number, even when C101 is also an issued id."""
+    system = _with(skeleton(job.system("EF")), *issued)
+    text = "Fans F1 and F2 serve the kitchen; see civil sheet C101."
+    written = ai.write_system(system, ai.evidence_for(system, dossier), playbook, FakeTransport(
+        _bad(raw, lambda a: a.update(clarifications=[{"kind": "note", "text": text}]))))
+    assert written.clarifications[0].text == text
+
+
+def test_a_family_tag_shaped_like_an_id_survives_the_intake_even_when_issued(job, raw, dossier, playbook):
+    tags = ("F1", "C2", "I3", "Q4", "S5")
+    system = _with(skeleton(job.system("EF")), *(Ref(t, "x", "ledger fact") for t in tags), tags=tags)
+    text = "the controls for units F1, C2, I3, Q4 and S5"
+    written = ai.write_system(system, ai.evidence_for(system, dossier), playbook, FakeTransport(
+        _bad(raw, lambda a: a.update(clarifications=[{"kind": "confirm", "text": text}]))))
+    assert written.clarifications[0].text == text
 
 
 def test_a_block_with_nothing_to_scope_keeps_its_reason(job, raw, dossier, playbook):

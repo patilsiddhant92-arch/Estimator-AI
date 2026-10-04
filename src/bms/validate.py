@@ -11,7 +11,7 @@ from __future__ import annotations
 import re
 from typing import Callable, Iterator
 
-from bms.citations import SOURCE_ID as _SOURCE_ID
+from bms.citations import SourceIds
 from bms.model import PARTIES, Count, Device, Finding, Job, System
 from bms.playbook import Playbook, Shape
 
@@ -308,14 +308,16 @@ def _left_out(system, shape, job, playbook) -> Iterator[Hit]:
 
 
 def _ids(system, shape, job, playbook) -> Iterator[Hit]:
+    """Source ids in wording that prints: only ids the job issued, never a family tag or a sheet number."""
+    ids = SourceIds.of_job(job)
     for c in system.clarifications:
-        found = _SOURCE_ID.findall(c.text)
+        found = ids.found(c.text)
         if found:
             yield (None, "check", f"The {c.kind} clarification names source ids ({', '.join(found)})",
                    "Name the sheet or section instead; source ids never print.")
     for d in system.devices:
         a = d.assumption
-        found = _SOURCE_ID.findall(f"{a.what} {a.why}") if a is not None else []
+        found = ids.found(f"{a.what} {a.why}") if a is not None else []
         if found:
             yield (d.id, "check", f"The assumption on {d.name} names source ids ({', '.join(found)})",
                    "Name the sheet or section instead; source ids never print.")

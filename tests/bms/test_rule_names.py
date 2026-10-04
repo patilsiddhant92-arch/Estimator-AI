@@ -132,7 +132,7 @@ def _left_out():
 
 
 def _ids():
-    return job(sysm("EF", "Exhaust Fan", [dev("EF.d1", "controller", assumption=Assumption("one", "S7 says so"))]))
+    return job(sysm("EF", "Exhaust Fan", [dev("EF.d1", "controller", assumption=Assumption("one", "S1 says so"))]))
 
 
 def _long_note():
