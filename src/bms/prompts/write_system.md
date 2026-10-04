@@ -62,6 +62,12 @@ You write the system's devices (its scope lines, in print order), its clarificat
 - Otherwise no_scope_reason is null.
 - A unit with factory controls (an ECM fan, a fan with its own speed control) is not a field-controlled unit: write only the lines its evidence calls for, never integration or VFD lines it does not have.
 
+## Duct heaters in one place
+
+- The duct heaters are written in one place: their own block, the duct heater block. Never write them partly in the block of the unit they serve and again in the heater block.
+- When the prompt says the duct heaters serving this unit are written in another block, write no duct heater line here: no heater sensor, enable or SCR signal, status, alarm or interlock.
+- When this is the duct heater block, write the heater lines for all its heaters, whichever unit each serves, with the heater count as the quantity. For each served unit: when a sentence of the sequence of operation gives the BMS the control of its heater, the heater takes full field DDC scope (discharge air temperature sensor, enable or SCR signal, status, alarm); when none does, only the interlock to the served unit (the heater is packaged on its own controls). The duct heater block is never empty while the units it serves have duct heaters.
+
 ## Tech hours
 
 - tech_hours: the block's tech hours by the shape's tech hours rule and the Playbook's tech hours rules, from the counts and the lines you wrote. Null when the rule gives no hours, a count it needs is unknown, or there is no shape.

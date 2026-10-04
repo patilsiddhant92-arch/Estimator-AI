@@ -755,6 +755,94 @@ def test_duct_heaters_with_different_alternates_stay_apart():
     assert add.key == "XDH" and add.alternate == "add"
 
 
+def _heater_ledger() -> Ledger:
+    ledger = _ledger()
+    _family(ledger, "ERV", "Energy Recovery Ventilator", "ERV-1, ERV-2", 2)
+    _family(ledger, "MUA", "Make-Up Air Unit", "MUA-1", 1)
+    _family(ledger, "EF", "Exhaust Fan", "EF-1", 1)
+    _family(ledger, "EDH", "Electric Duct Heater", "EDH-3-1, EDH-3-2, EDH-4-1", 3)
+    ledger.add("sequence_match", "ROOFTOP UNITS", "ERV", "Q5", "ROOFTOP UNITS", "sequence", SETTLED)
+    ledger.add("location", "ERV-2", "fourth floor, beside EDH-4-1 (M-104)", "S2", "ERV-2 EDH-4-1", "plans", SETTLED)
+    ledger.add("location", "EDH-3-1, 3-2", "third floor make-up air and MUA-1 (M-103)", "S2", "EDH-3-1 MUA-1", "plans",
+               SETTLED)
+    ledger.add("note", "ERV", "the BMS starts the duct heater whenever the ventilator runs",
+               "S4", "starts the duct heater", "spec", SETTLED)
+    ledger.add("location", "EF-1", "level 1 roof (M-101)", "S2", "EF-1", "plans", SETTLED)
+    return ledger
+
+
+def test_a_duct_heater_block_lists_each_unit_it_serves_and_each_served_unit_names_it():
+    from bms.model import Served
+    job = _plan(_heater_ledger())
+    erv, mua, ef, edh = job.systems
+    to_erv = Served("ERV", "Energy Recovery Ventilator", ("ERV-1", "ERV-2"), ("EDH-4-1",), "EDH", "Electric Duct Heater")
+    to_mua = Served("MUA", "Make-Up Air Unit", ("MUA-1",), ("EDH-3-1", "EDH-3-2"), "EDH", "Electric Duct Heater")
+    assert edh.serves == (to_erv, to_mua)
+    assert erv.serves == (to_erv,) and mua.serves == (to_mua,) and ef.serves == ()
+    assert [r.source_id for r in edh.sequence_refs] == ["Q5"]
+    assert Job.from_dict(job.to_dict()) == job
+
+
+def test_a_linked_heater_names_the_served_units_tag_and_its_own():
+    ledger = _ledger()
+    _family(ledger, "RTU", "Rooftop Unit", "RTU-1, RTU-2", 2)
+    _family(ledger, "EDH", "Electric Duct Heater", "EDH-1", 1)
+    _family(ledger, "DH", "Duct Heater", "DH-1, DH-2", 2)
+    ledger.add("link", "RTU-1", "EDH-1", "S2", "EDH-1 in RTU-1 supply duct", "plans", SETTLED)
+    rtu, heaters = _plan(ledger).systems
+    (tie,) = heaters.serves
+    assert (tie.key, tie.tags, tie.heaters, tie.heater_key, tie.heater_name) == \
+        ("RTU", ("RTU-1",), ("EDH-1",), "Duct Heaters", "Duct Heaters")
+    assert rtu.serves == (tie,)
+
+
+def test_a_unit_whose_sequence_speaks_of_a_duct_heater_is_served():
+    ledger = _ledger()
+    _family(ledger, "OAF", "Outdoor Air Fan", "OAF-1", 1)
+    _family(ledger, "EDH", "Electric Duct Heater", "EDH-1, EDH-2", 2)
+    ledger.add("sequence_match", "OUTDOOR AIR FAN", "OAF", "Q4", "OUTDOOR AIR FAN", "sequence", SETTLED)
+    text = ("--- [Q4] OUTDOOR AIR FAN ---\n"
+            "[S50] The fan shall run in occupied mode and the electric duct heater shall hold the discharge air "
+            "temperature.\n")
+    dossier = dataclasses.replace(_dossier(), text=text)
+    oaf, edh = plan_job(ledger, None, dossier, PLAYBOOK).systems
+    (tie,) = edh.serves
+    assert (tie.key, tie.tags, tie.heaters) == ("OAF", ("OAF-1",), ())
+    assert oaf.serves == (tie,) and [r.source_id for r in edh.sequence_refs] == ["Q4"]
+
+
+def test_a_heater_serving_no_named_unit_has_no_ties():
+    ledger = _ledger()
+    _family(ledger, "EDH", "Electric Duct Heater", "EDH-1", 1)
+    (edh,) = _plan(ledger).systems
+    assert edh.serves == ()
+
+
+# ---- name case and number ----------------------------------------------------------------------------------------------
+
+def test_acronyms_stay_upper_case_in_a_specific_name():
+    ledger = _ledger()
+    _family(ledger, "ITF", "Fan", "ITF-1", 1)
+    ledger.add("sequence_match", "C. It closet relief fan", "ITF", "Q1", "C. It closet relief fan", "sequence",
+               SETTLED)
+    _family(ledger, "RXF", "Fan", "RXF-1", 1)
+    ledger.add("sequence_match", "F. VRF ROOM EXHAUST FAN", "RXF", "Q2", "F.", "sequence", SETTLED)
+    itf, rxf = _plan(ledger).systems
+    assert itf.name == "IT Closet Relief Fan" and itf.families[0].name == "IT Closet Relief Fan"
+    assert rxf.name == "VRF Room Exhaust Fan"
+
+
+def test_a_plural_kind_is_singular_for_one_unit():
+    ledger = _ledger()
+    _family(ledger, "EF", "Exhaust Fans", "EF-1", None)
+    _family(ledger, "KF", "Kitchen Fans", None, 1)
+    _family(ledger, "TF", "Toilet Fans", "TF-1, TF-2", 2)
+    ef, kf, tf = _plan(ledger).systems
+    assert ef.name == "Exhaust Fan" and ef.families[0].name == "Exhaust Fan"
+    assert kf.name == "Kitchen Fan"
+    assert tf.name == "Toilet Fans"
+
+
 # ---- the whole -----------------------------------------------------------------------------------------------------
 
 def test_keys_are_unique_and_the_plan_is_pure():

@@ -70,10 +70,16 @@ Device:         id: str, slot: str, name: str, verb: Verb, furnished_by: Party, 
                 assumption: Assumption | None = None, flag: Flag = "none"
                   id unique in the job ("EF.d3"); slot a slot of the system's shape; name the document's words.
 Clarification:  kind: ClarificationKind, text: str
+Served:         key: str, name: str, tags: tuple[str], heaters: tuple[str], heater_key: str, heater_name: str
+                  a unit duct heaters serve (its key, name, tags), the heater tags serving it, and the duct heater
+                  block that writes them.
 System:         key: str, name: str, shape: str, control: Control, families: tuple[Family],
                 sequence_refs: tuple[Ref] = (), devices: tuple[Device] = (), clarifications: tuple[Clarification] = (),
-                tech_hours: float | None = None, alternate: AlternateKind = "base"
+                tech_hours: float | None = None, alternate: AlternateKind = "base",
+                no_scope_reason: str | None = None, serves: tuple[Served] = ()
                   shape is a Playbook shape name, or "" when no shape applies (an untemplated system).
+                  serves (the planner's): on the duct heater block one entry per unit it serves; on a served unit's
+                  block its own entry, so its writer leaves the heaters to the heater block.
 ScopeException: system_key: str, text: str, refs: tuple[Ref] = ()        # design §4.2 "Exception" (renamed: builtin)
 FrontEnd:       mode: FrontEndMode, existing_system_name: str | None = None, devices: tuple[Device] = (),
                 clarifications: tuple[Clarification] = (), tech_hours: float | None = None
@@ -225,7 +231,7 @@ in `<cache>/judge/<key>.json` as `{"version": 1, "kind", "model", "answer"}` and
 Kinds: `write_system` (write and revise, so `/run-job` dispatches them to the writer model) and `qc_job`.
 `tools/run_job.py check` already accepts a System answer (Phase 0 changed its main-list check). API mode: the
 Playbook rules as the first system block with `cache_control: {"type": "ephemeral"}`, streamed, structured output.
-The skeleton fields of a System (key, name, shape, control, families, sequence_refs, alternate) always win over the
+The skeleton fields of a System (key, name, shape, control, families, sequence_refs, alternate, serves) always win over the
 answer's. Workstream 5 may also edit `tools/run_job.py` and `.claude/skills/run-job/SKILL.md` if the hand-off needs
 it (e.g. naming a revise request), keeping the old app working.
 
