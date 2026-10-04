@@ -4,8 +4,14 @@
 
 FILE is one sensitive token per line. Keep it outside git. A hit prints
 ``path:line: TOKEN`` or ``commit:<hash>:line: TOKEN`` and never the line
-itself. Exit 1 when any token matches, 0 when none. ``--self-check`` exits 2
-when FILE is inside the work tree and is not ignored.
+itself. Exit 1 when any token matches, 0 when none. Exit 2 when a file could
+not be read (the names are listed on stderr), or when ``--self-check`` finds
+FILE inside the work tree and not ignored. Hits are still printed when a file
+could not be read.
+
+Text is read as UTF-16 when a byte-order mark is present, otherwise as UTF-8
+(a UTF-8 mark is accepted). A docx, xlsx, or pptx file is read from the XML
+parts inside the zip.
 
 This file contains no job data.
 """
@@ -15,6 +21,7 @@ import argparse
 import re
 import subprocess
 import sys
+import zipfile
 from pathlib import Path
 
 
@@ -83,15 +90,71 @@ def _hits(label: str, text: str, tokens: list[tuple[str, re.Pattern[str]]]) -> l
     return found
 
 
-def _file_hits(root: Path, tokens: list[tuple[str, re.Pattern[str]]]) -> list[str]:
+_OFFICE = {".docx", ".xlsx", ".pptx"}
+
+
+def _decode(raw: bytes) -> str | None:
+    """UTF-16 when the bytes start with a byte-order mark, otherwise strict UTF-8. None when neither fits."""
+    if raw.startswith((b"\xff\xfe", b"\xfe\xff")):
+        try:
+            return raw.decode("utf-16")
+        except UnicodeError:
+            return None
+    try:
+        return raw.decode("utf-8-sig")
+    except UnicodeError:
+        return None
+
+
+def _office_xml(path: Path) -> list[str] | None:
+    """Text of each XML part in a docx, xlsx, or pptx. None when the zip cannot be read or a part is not text."""
+    try:
+        archive = zipfile.ZipFile(path)
+    except (OSError, zipfile.BadZipFile):
+        return None
+    parts: list[str] = []
+    with archive:
+        for info in archive.infolist():
+            if info.is_dir() or not info.filename.lower().endswith(".xml"):
+                continue
+            try:
+                raw = archive.read(info)
+            except OSError:
+                return None
+            text = _decode(raw)
+            if text is None:
+                return None
+            parts.append(text)
+    return parts
+
+
+def _file_hits(root: Path, tokens: list[tuple[str, re.Pattern[str]]]) -> tuple[list[str], list[str]]:
     found: list[str] = []
+    unread: list[str] = []
     for name in _files(root):
         path = root / name
+        label = Path(name).as_posix()
         if not path.is_file():
             continue
-        text = path.read_bytes().decode("utf-8", "replace")
-        found.extend(_hits(Path(name).as_posix(), text, tokens))
-    return found
+        try:
+            raw = path.read_bytes()
+        except OSError:
+            unread.append(label)
+            continue
+        text = _decode(raw)
+        if text is None and path.suffix.lower() in _OFFICE:
+            parts = _office_xml(path)
+            if parts is None:
+                unread.append(label)
+                continue
+            for part in parts:
+                found.extend(_hits(label, part, tokens))
+            continue
+        if text is None:
+            unread.append(label)
+            continue
+        found.extend(_hits(label, text, tokens))
+    return found, unread
 
 
 def _commit_hits(root: Path, tokens: list[tuple[str, re.Pattern[str]]]) -> list[str]:
@@ -123,9 +186,14 @@ def main(argv: list[str] | None = None) -> int:
         print(f"nda_scan.py: denylist is inside the work tree and is not ignored: {denylist}", file=sys.stderr)
         return 2
     tokens = _tokens(denylist)
-    hits = _file_hits(root, tokens) + _commit_hits(root, tokens)
+    file_hits, unread = _file_hits(root, tokens)
+    hits = file_hits + _commit_hits(root, tokens)
     for line in hits:
         print(line)
+    for name in unread:
+        print(f"nda_scan.py: could not read {name}", file=sys.stderr)
+    if unread:
+        return 2
     return 1 if hits else 0
 
 

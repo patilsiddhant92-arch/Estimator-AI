@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import subprocess
 import sys
+import zipfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -121,3 +122,41 @@ def test_self_check_allows_a_denylist_outside_or_ignored(tmp_path):
     ignored = _run(repo, listed, "--self-check")
     assert ignored.returncode == 0
     assert ignored.stdout == ""
+
+
+def test_a_utf16_file_is_read_and_the_line_is_not_printed(tmp_path):
+    repo = _repo(tmp_path)
+    (repo / "wide.txt").write_bytes("see QVEX-4410 please\n".encode("utf-16"))
+    result = _run(repo, _deny(tmp_path, "QVEX-4410\n"))
+    assert result.returncode == 1
+    assert "wide.txt:1: QVEX-4410" in result.stdout.splitlines()
+    assert "please" not in result.stdout
+
+
+def test_a_compressed_office_file_is_scanned_inside_its_xml(tmp_path):
+    repo = _repo(tmp_path)
+    parts = {
+        "book.docx": "word/document.xml",
+        "sheet.xlsx": "xl/sharedStrings.xml",
+        "deck.pptx": "ppt/slides/slide1.xml",
+    }
+    for name, part in parts.items():
+        path = repo / name
+        with zipfile.ZipFile(path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+            archive.writestr(part, "<t>see QVEX-4410 please</t>\n")
+        assert TOKEN.encode() not in path.read_bytes()
+    result = _run(repo, _deny(tmp_path, "QVEX-4410\n"))
+    assert result.returncode == 1
+    lines = result.stdout.splitlines()
+    for name in parts:
+        assert f"{name}:1: QVEX-4410" in lines
+    assert "please" not in result.stdout
+
+
+def test_an_unreadable_file_is_named_and_the_run_exits_2(tmp_path):
+    repo = _repo(tmp_path)
+    (repo / "noise.bin").write_bytes(b"\xff\x00\x80")
+    result = _run(repo, _deny(tmp_path, "QVEX-4410\n"))
+    assert result.returncode == 2
+    assert "noise.bin" in result.stderr
+    assert result.stdout == ""
