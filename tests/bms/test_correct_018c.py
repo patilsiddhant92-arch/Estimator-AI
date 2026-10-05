@@ -147,7 +147,7 @@ def test_a_carried_delete_that_took_effect_is_a_check_card_when_its_system_chang
     third = _reach(job_folder, out, cache, "done")
     assert not _damper(third, key)
     assert [(f.severity, f.device_id) for f in third.findings if f.rule == "decision not honored"] == [
-        ("should_fix", None)]
+        ("check", None)]
     again = _reach(job_folder, out, cache, "done")
     assert not [f for f in again.findings if f.rule == "decision not honored"]
     history = json.loads((out / review.DECISIONS_HISTORY).read_text(encoding="utf-8"))

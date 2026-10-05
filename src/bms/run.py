@@ -11,9 +11,12 @@ system's skeleton, so writing before they are in would ask the writer again once
 In chat mode a step with no answer yet writes its request and the run stops after the step has asked every question
 it can (all systems are asked before stopping); the next run picks the cached answers up and does not ask a
 question whose request is still waiting. A step that refuses an answer `max_attempts` times stops the run with a
-plain message naming the request. Decisions saved from the review page are applied once on the next run, and the
-writer is asked again only for the systems those decisions changed. The decision is not applied a second time
-after that ask: the writer numbers devices from d1, so a second "delete d1" would remove the next device. After
+plain message naming the request. Decisions saved from the review page are applied on the next run without asking
+the writer again; only a changed family count makes the writer write that system again. A device decision is not
+applied by id after that ask: the writer numbers devices from d1, so a second "delete d1" would remove the next
+device. A delete is applied again after it by the line's saved content only, so the rewrite never writes a deleted
+line back. A page change whose new name prints an issued source id is kept as the estimator wrote it, is not sent
+to the revise (which would write the line back under its old name), and is a must_fix card naming the id. After
 the last write, a saved decision that the final job does not still show is a must_fix "decision not honored" on
 the review page. The page shows the job after the revise, so a device decision whose saved line matches nothing
 the writer wrote (the revise re-worded it) is applied to the revised job instead; one that matches neither is a
@@ -21,14 +24,15 @@ must_fix "decision could not be applied" on the review page, never skipped in si
 answers, so the run keeps every save in `decisions history.json` and applies them all (`bms.review.merge_decisions`):
 a later save never undoes an earlier one in silence. An earlier delete that took effect and whose line is in no job
 any more makes no card while its system is as the last finished run left it; when the system changed since (it
-was asked again), it is a should_fix "check this system" card, since the line may have come back re-worded. An
-earlier change or accept that matches nothing keeps its "could not be applied" card. A malformed decisions.json
-stops the run with a plain message. The run's first and very last acts are a small `run state.json` in `out`:
-first "running" (rewritten with the quote and the job name once they are known), last how it ended (status, stage,
-how many requests wait, its plain messages, the quote and the job). Each is written whole or not at all, and one
-that cannot be written never stops the run. A run that crashes leaves "running", which `python -m bms status`
-reports as not finished; it trusts an ending only while no ledger or job is newer. Every output goes under `out`
-(NDA: never the repo). Prints "Wrote <path>" per file, as the old app does (tools/run_job.py reads those lines).
+was asked again), it is a "check this system" card (severity check), since the line may have come back
+re-worded. An earlier change or accept that matches nothing keeps its "could not be applied" card. A malformed
+decisions.json stops the run with a plain message. The run's first and very last acts are a small `run state.json`
+in `out`: first "running" (rewritten with the quote and the job name once they are known), last how it ended
+(status, stage, how many requests wait, its plain messages, the quote, the job, and how many decisions the history
+held). Each is written whole or not at all, and one that cannot be written never stops the run. A run that crashes
+leaves "running", which `python -m bms status` reports as not finished; a proposal that cannot be printed
+(`bms.render.RenderError`) ends it as stopped, in words. Status trusts an ending only while no ledger or job is
+newer. Every output goes under `out` (NDA: never the repo). Prints "Wrote <path>" per file, as the old app does (tools/run_job.py reads those lines).
 """
 from __future__ import annotations
 
@@ -57,12 +61,13 @@ from bms.evidence import write_evidence
 from bms.model import Decision, Finding, Header, Job, ModelError
 from bms.plan import plan_job
 from bms.playbook import load_playbook
-from bms.render import render
+from bms.citations import SourceIds
+from bms.render import RenderError, render
 from bms.status import RUN_STATE
 from bms.review import (DECISIONS_FILE, DECISIONS_HISTORY, SavedDecision, _matches_nothing, accept_families,
-                        apply_decisions, apply_seen, copies_seen, held_back, load_decisions, load_history, merge_decisions,
-                        review_page, save_history, system_digest, unhonored_decisions)
-from bms.validate import validate
+                        apply_decisions, apply_seen, copies_seen, held_back, keep_deleted, load_decisions, load_history,
+                        merge_decisions, review_page, save_history, system_digest, unhonored_decisions)
+from bms.validate import RULE, validate
 
 Mode = Literal["chat", "api"]
 MODES = ("chat", "api")
@@ -74,7 +79,8 @@ class RunResult:
     """What one run did. `status` "waiting": chat requests wait for answers (`waiting` of them, at `stage`);
     "done": the proposal, price sheet and Evidence Package are written."""
     status: Status
-    stage: str                              # the last step reached: "read", "count", "write", "qc", "revise", "done"
+    stage: str                              # the last step reached: "read", "count", "write", "decisions", "qc",
+                                            # "revise", "done"; "render" only in the run state of a print error
     waiting: int = 0
     job_file: Path | None = None            # out/<quote> Job.json: the Job model as last saved
     findings: tuple[Finding, ...] = ()      # the final validate's findings plus the QC findings left open
@@ -159,25 +165,60 @@ def _count_note(decisions: tuple[Decision, ...] | list[Decision], key: str) -> s
 
 
 def _check_this_system(decision: Decision) -> Finding:
-    """The should_fix for an earlier delete that took effect, whose line is in no job any more, on a system that
-    was asked again since: the line may be back in other words. About the system (no line), so its card has no
-    Delete button."""
+    """The check (severity "check", a model Severity) for an earlier delete that took effect, whose line is in no
+    job any more, on a system that was asked again since: the line may be back in other words. About the system (no
+    line), so its card has no Delete button."""
     line = decision.was.name if decision.was is not None else decision.device_id
-    return Finding("decision not honored", decision.system_key, None, "should_fix",
+    return Finding("decision not honored", decision.system_key, None, "check",
                    f"check this system: an earlier delete of {line} may have come back re-worded",
                    "This system was written again after your delete. Check that the line you deleted is not back "
                    "under other words; delete it again if it is.")
 
 
+def _ids_in_changes(job: Job, decisions) -> list[tuple[Decision, str, tuple[str, ...]]]:
+    """The estimator's changed lines of `job` whose new name prints an issued source id (the detector the validator
+    and the renderer use, `SourceIds.of_job`): (the change, the line's id in `job`, the issued tokens). A page change
+    does not go through the writer's intake, so this is where it is checked."""
+    ids = SourceIds.of_job(job)
+    found = []
+    for decision in decisions:
+        if decision.action != "change" or decision.device is None or decision.device_id is None:
+            continue
+        tokens = tuple(dict.fromkeys(f.token for f in ids.scan(decision.device.name) if f.kind == "issued"))
+        if not tokens:
+            continue
+        if decision.system_key == "":
+            devices = job.front_end.devices if job.front_end is not None else ()
+        else:
+            devices = next((s.devices for s in job.systems if s.key == decision.system_key), ())
+        probe = dataclasses.replace(decision.device, id="", flag="none")
+        for device in devices:
+            if dataclasses.replace(device, id="", flag="none") == probe:
+                found.append((decision, device.id, tokens))
+    return found
+
+
+def _id_change_card(decision: Decision, device_id: str, tokens: tuple[str, ...]) -> Finding:
+    """The must_fix for an estimator's change that prints an issued id: the line is kept as they wrote it."""
+    return Finding(RULE["ids"], decision.system_key, device_id, "must_fix",
+                   f"your change prints a source id ({', '.join(tokens)}): name the document in words",
+                   "Your line is kept as you wrote it, but a proposal must not print a source id. Change the line "
+                   "again with the document named in words (\"the mechanical schedule\", \"sheet M-101\").")
+
+
+def _not_answered(name: str, missing: ai.NoAnswer) -> str:
+    """A step's missing answer for the console: a stop in its own words, else the step's name and the reason."""
+    reason = str(missing.reason)
+    return _stopped(reason) if reason.startswith("Stopped:") else f"{name}: {reason}"
+
+
 def _save_history(out: Path, history: list[SavedDecision], job_file: Path) -> RunResult | None:
     """Save the decisions history; when it cannot be saved (another program has it open), the run stops with a
-    plain message naming the file, never a traceback."""
+    plain message naming the file, never a traceback (`save_history` gives every failure as a ModelError)."""
     try:
         save_history(out, history)
-    except (ModelError, OSError) as error:
-        text = str(error) if isinstance(error, ModelError) else (
-            f"{DECISIONS_HISTORY} could not be saved ({error}). Close the program that has it open and run again.")
-        return RunResult("waiting", "decisions", waiting=0, job_file=job_file, messages=(_stopped(text),))
+    except ModelError as error:
+        return RunResult("waiting", "decisions", waiting=0, job_file=job_file, messages=(_stopped(error),))
     return None
 
 
@@ -222,35 +263,56 @@ def _write_run_state(out: Path, state: dict) -> None:
             pass
 
 
-def _save_running(out: Path, quote: str = "", job: str = "") -> None:
+def _save_running(out: Path, quote: str = "", job: str = "", decisions: int = 0) -> None:
     """The run has started and not ended: written first, and again once the quote and the job name are known."""
-    _write_run_state(out, {"version": 1, "status": "running", "quote": quote, "job": job})
+    _write_run_state(out, {"version": 1, "status": "running", "quote": quote, "job": job, "decisions": decisions})
 
 
-def _save_run_state(out: Path, result: RunResult, quote: str = "", job: str = "") -> None:
+def _save_run_state(out: Path, result: RunResult, quote: str = "", job: str = "", decisions: int = 0) -> None:
     """How the run ended, for `python -m bms status`, as the run's last act; with the quote (as in the ledger's file
-    name) and the job name, so status never takes another job's ending for this one."""
+    name) and the job name, so status never takes another job's ending for this one. `decisions`: how many
+    decisions the decisions history held when a run last saved it (0: none saved yet), so a later run can tell a
+    lost history from a first save."""
     _write_run_state(out, {"version": 1, "status": result.status, "stage": result.stage, "waiting": result.waiting,
-                           "messages": [str(m) for m in result.messages], "quote": quote, "job": job})
+                           "messages": [str(m) for m in result.messages], "quote": quote, "job": job,
+                           "decisions": decisions})
+
+
+def _decisions_saved_before(out: Path) -> int:
+    """How many decisions the last run's state says the history held; 0 when not known."""
+    try:
+        value = json.loads((out / RUN_STATE).read_text(encoding="ascii")).get("decisions")
+    except (OSError, ValueError, AttributeError):
+        return 0
+    return value if isinstance(value, int) and not isinstance(value, bool) and value > 0 else 0
 
 
 def estimate(job_folder: Path, out: Path, cache: Path, mode: Mode = "chat") -> RunResult:
     """Run the rebuilt estimate on one job folder. `cache` is where reading is kept and where the chat requests go
     (`cache/judge-chat`); `mode` "chat" or "api" for every AI question (the reading passes too). Its first act is a
     "running" `out/run state.json`; however the run ends (done, waiting or stopped), its last act replaces it with
-    how it ended. An exception reaches the caller unchanged and leaves "running"."""
+    how it ended. A proposal that cannot be printed (`RenderError`) ends it as stopped with the error's words (status
+    "waiting", nothing waiting, a "Stopped:" message), and the error reaches the caller. Any other exception reaches
+    the caller unchanged and leaves "running"."""
     if mode not in MODES:
         raise ValueError(f"the mode must be chat or api, not {mode!r}")
     job_folder, out, cache = Path(job_folder), Path(out), Path(cache)
     out.mkdir(parents=True, exist_ok=True)
-    _save_running(out)
-    known: dict[str, str] = {}               # the quote and the job name, once _estimate knows them
-    result = _estimate(job_folder, out, cache, mode, known)
-    _save_run_state(out, result, known.get("quote", ""), known.get("job", ""))
+    # the quote and the job name once _estimate knows them; how many decisions the history held at the last save
+    known: dict = {"decisions": _decisions_saved_before(out)}
+    _save_running(out, decisions=known["decisions"])
+    try:
+        result = _estimate(job_folder, out, cache, mode, known)
+    except RenderError as error:
+        stopped = RunResult("waiting", "render", waiting=0, messages=(
+            _stopped(f"the proposal could not be printed: {error}. Fix what it names and run again."),))
+        _save_run_state(out, stopped, known.get("quote", ""), known.get("job", ""), known["decisions"])
+        raise
+    _save_run_state(out, result, known.get("quote", ""), known.get("job", ""), known["decisions"])
     return result
 
 
-def _estimate(job_folder: Path, out: Path, cache: Path, mode: Mode, known: dict[str, str]) -> RunResult:
+def _estimate(job_folder: Path, out: Path, cache: Path, mode: Mode, known: dict) -> RunResult:
 
     # 1. read: catalogue, reading, dossier, the ledger's staged passes (old app, unchanged)
     catalogue = catalogue_job(job_folder, cache, _workers())
@@ -259,7 +321,7 @@ def _estimate(job_folder: Path, out: Path, cache: Path, mode: Mode, known: dict[
     quote = _safe_filename(old_header.quote_number)
     dossier = build_dossier(catalogue, reading, cache)
     known.update(quote=quote, job=str(dossier.job_name or ""))
-    _save_running(out, known["quote"], known["job"])
+    _save_running(out, known["quote"], known["job"], known["decisions"])
     judge = Judge(cache, mode=mode, job=dossier.job_name)
     judge.retire_requests(dossier.sources)
     ledger_file = out / f"{quote} Ledger.json"
@@ -313,8 +375,7 @@ def _estimate(job_folder: Path, out: Path, cache: Path, mode: Mode, known: dict[
                 ai.write_system(system, evidence[system.key], playbook, transport, tags=job_tags(job),
                                 ids=issued(job), sheets=sheets(job))))
         except ai.NoAnswer as missing:
-            pending.append(_stopped(missing.reason) if str(missing.reason).startswith("Stopped:")
-                           else f"{system.name}: {missing.reason}")
+            pending.append(_not_answered(system.name, missing))
     save(job)
     if pending:
         return RunResult("waiting", "write", waiting=transport.waiting, job_file=job_file, messages=tuple(pending))
@@ -331,18 +392,23 @@ def _estimate(job_folder: Path, out: Path, cache: Path, mode: Mode, known: dict[
     except ModelError as error:
         return RunResult("waiting", "decisions", waiting=0, job_file=job_file, messages=(_stopped(error),))
     notes: tuple[str, ...] = ()
-    if saved and not (out / DECISIONS_HISTORY).is_file():
+    # a first save has no history yet, which is normal: the note only when an earlier run saved one (its run state)
+    if saved and not (out / DECISIONS_HISTORY).is_file() and known.get("decisions", 0) > 0:
         notes = (f"Decisions: no {DECISIONS_HISTORY} was found, so the decisions start from {DECISIONS_FILE} "
                  "alone; if an earlier history was deleted, the decisions of earlier saves are not applied.",)
     if history:
         stop = _save_history(out, history, job_file)
         if stop is not None:
             return stop
+        known["decisions"] = len(history)
     decisions = [entry.decision for entry in history]
     latest = max((entry.round for entry in history), default=0)
     decided_from = job
     copies = copies_seen(history)       # a twin's delete never takes the only copy (bms.review.apply_decisions)
     job = apply_seen(job, decisions, copies)
+    # the deletes applied to the written job; after a count rewrite they are applied again by the saved line only
+    deletes = [d for d in decisions if d.action == "delete" and not _matches_nothing(decided_from, d)
+               and not held_back(decided_from, d, copies)]
     for key in _changed_system_keys(decided_from, job):
         system = job.system(key)
         if not _families_changed(decided_from, key, job):
@@ -354,11 +420,12 @@ def _estimate(job_folder: Path, out: Path, cache: Path, mode: Mode, known: dict[
             standing = _standing_accepts(history, key, decided_from)    # accepted after it saw the new count
             if standing:
                 rewritten = apply_decisions(job.with_system(rewritten), standing).system(key)
-            job = job.with_system(rewritten)
+            # the rewrite is asked from the evidence and may write a deleted line again; the rewrite numbers lines
+            # again, so the delete is applied by its saved content (`was`) only, never by id
+            job = job.with_system(keep_deleted(job, rewritten, deletes))
 
         except ai.NoAnswer as missing:
-            pending.append(_stopped(missing.reason) if str(missing.reason).startswith("Stopped:")
-                           else f"{system.name}: {missing.reason}")
+            pending.append(_not_answered(system.name, missing))
     save(job)
     if pending:
         return RunResult("waiting", "write", waiting=transport.waiting, job_file=job_file,
@@ -370,12 +437,15 @@ def _estimate(job_folder: Path, out: Path, cache: Path, mode: Mode, known: dict[
         qc = ai.qc_job(job, ai.evidence_index(dossier), playbook, transport)
     except ai.NoAnswer as missing:
         save(job)
-        text = _stopped(missing.reason) if str(missing.reason).startswith("Stopped:") else f"QC: {missing.reason}"
         return RunResult("waiting", "qc", waiting=transport.waiting, job_file=job_file, findings=tuple(findings),
-                         messages=(*notes, text))
+                         messages=(*notes, _not_answered("QC", missing)))
 
     # 5. revise (must_fix only, one round), validate again
-    must_fix = [f for f in [*findings, *qc] if f.severity == "must_fix"]
+    # an estimator's change that prints an issued id is kept as written: its id finding is not the revise's to fix
+    # (the revise would write the line back under its old name); it gets its own card below
+    estimators = {(d.system_key, device_id) for d, device_id, _ in _ids_in_changes(job, decisions)}
+    must_fix = [f for f in [*findings, *qc] if f.severity == "must_fix"
+                and not (f.rule == RULE["ids"] and (f.system_key, f.device_id) in estimators)]
     written = job
     for key in dict.fromkeys(f.system_key for f in must_fix if f.system_key):
         system = job.system(key)
@@ -386,8 +456,7 @@ def _estimate(job_folder: Path, out: Path, cache: Path, mode: Mode, known: dict[
                                             ids=issued(job), sheets=sheets(job)))
 
         except ai.NoAnswer as missing:
-            pending.append(_stopped(missing.reason) if str(missing.reason).startswith("Stopped:")
-                           else f"{system.name}: {missing.reason}")
+            pending.append(_not_answered(system.name, missing))
     # a device decision made on the page's (revised) wording that matched nothing the writer wrote is applied to
     # the revised job; one decision is never applied twice
     # (an accept a count change overrules is not applied late either)
@@ -405,7 +474,7 @@ def _estimate(job_folder: Path, out: Path, cache: Path, mode: Mode, known: dict[
 
     # a delete from an earlier save that took effect on some run and whose line is now in no job did its work: it
     # makes no card while its system is as the last finished run left it. When the system changed since (it was
-    # asked again), the line may have come back re-worded: a should_fix asks the estimator to check the system.
+    # asked again), the line may have come back re-worded: a check card asks the estimator to check the system.
     # A change or an accept that matches nothing, and a delete that never took effect, keep the card of every
     # decision ("could not be applied").
     quiet = [entry for entry in history if entry.round < latest and entry.took_effect
@@ -429,7 +498,8 @@ def _estimate(job_folder: Path, out: Path, cache: Path, mode: Mode, known: dict[
                          messages=(*notes, *pending))
     findings = validate(job, playbook)
     open_qc = [f for f in qc if f.severity != "must_fix" or _untouched(f, written, job)]
-    all_findings = tuple([*findings, *open_qc, *unhonored_decisions(decided_from, early, job, copies=copies),
+    id_cards = [_id_change_card(*found) for found in _ids_in_changes(job, decisions)]
+    all_findings = tuple([*id_cards, *findings, *open_qc, *unhonored_decisions(decided_from, early, job, copies=copies),
                           *unhonored_decisions(revised_job, checked_late, job, copies=copies), *rechecks])
 
     # 6. the review page, the render and the three documents

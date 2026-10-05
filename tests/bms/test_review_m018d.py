@@ -99,7 +99,7 @@ def _dampers(system: dict) -> list[dict]:
 def test_attack_a_run_that_crashes_after_the_history_save_does_not_lose_the_check_card(job_folder, tmp_path,
                                                                                        monkeypatch):
     """Failing input: round 1 deletes the damper (run 2 honors it); round 2 accepts the controller and the revise
-    words the damper again ("Damper, motor driven"). Run 3 computes the should_fix check card and stores the new
+    words the damper again ("Damper, motor driven"). Run 3 computes the check card and stores the new
     system digest in decisions history.json, then stops before the review page (here review_page raises, as a
     full disk or a locked Review.html would). Run 4, a plain re-run, finds the system as `settled` says and shows
     no card: the line is back and nothing on any page says so."""
@@ -124,7 +124,7 @@ def test_attack_a_run_that_crashes_after_the_history_save_does_not_lose_the_chec
     monkeypatch.setattr(run, "review_page", real_page)
     fourth = _reach(job_folder, out, cache, "done")
     assert [d["name"] for d in _dampers(_system(fourth, key))] == ["Damper, motor driven"]
-    cards = [f for f in fourth.findings if f.rule == "decision not honored" and f.severity == "should_fix"]
+    cards = [f for f in fourth.findings if f.rule == "decision not honored" and f.severity == "check"]
     assert cards, "the re-worded line is back and no card says so"
 
 

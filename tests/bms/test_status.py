@@ -11,7 +11,7 @@ from pathlib import Path
 import pytest
 
 from bms.__main__ import main
-from bms.status import report
+from bms.status import check
 
 from test_run import _reach, answer_all, job_folder  # noqa: F401  (job_folder is a fixture)
 
@@ -73,7 +73,7 @@ def test_a_waiting_write_names_the_systems_the_requests_and_the_findings(tmp_pat
         '<span class="rule">Rule: Name the verb</span>'
         '<span class="rule">Rule: Name the verb</span>'
         '<span class="rule">Rule: A point needs a source</span>', encoding="utf-8")
-    text = "\n".join(report(out, cache))
+    text = "\n".join(check(out, cache).lines)
     assert "Stage: write" in text
     assert "Systems written: Exhaust Fans, Rooftop Units." in text
     assert "1 write_system request(s): Exhaust Fans" in text
@@ -86,7 +86,7 @@ def test_a_waiting_write_names_the_systems_the_requests_and_the_findings(tmp_pat
 def test_reading_that_stopped_names_the_pass(tmp_path):
     out = tmp_path / "out"
     _write(out / "00-0000 Ledger.json", {"complete": False, "stopped_at": "scope"})
-    text = "\n".join(report(out, tmp_path / "cache"))
+    text = "\n".join(check(out, tmp_path / "cache").lines)
     assert "Stage: read" in text and "scope" in text
     assert "none yet" in text
 
@@ -269,7 +269,7 @@ def test_a_planned_system_is_not_called_written(tmp_path):
     _write(out / "00-0000 Job.json", {"systems": [
         {"key": "EF", "name": "Exhaust Fans", "devices": [{"id": "EF.d1"}]},
         {"key": "RTU", "name": "Rooftop Units", "devices": []}]})
-    text = "\n".join(report(out, tmp_path / "cache"))
+    text = "\n".join(check(out, tmp_path / "cache").lines)
     assert "Systems written: Exhaust Fans." in text
     assert "Systems planned, not written yet: Rooftop Units." in text
 
@@ -293,7 +293,7 @@ def test_odd_run_files_are_reported_not_raised(tmp_path, name, body):
     _write(cache / "intake.json", [{"system": None, "change": None}, "odd", 3])
     (cache / "judge-chat" / "requests").mkdir(parents=True)
     (cache / "judge-chat" / "requests" / "half.json").write_text('{"kind": "qc_j', encoding="utf-8")
-    text = "\n".join(report(out, cache))
+    text = "\n".join(check(out, cache).lines)
     assert text and "None" not in text
 
 
@@ -301,7 +301,7 @@ def test_a_truncated_ledger_is_named(tmp_path):
     out = tmp_path / "out"
     out.mkdir()
     (out / "00-0000 Ledger.json").write_text('{"complete": fa', encoding="utf-8")
-    text = "\n".join(report(out, tmp_path / "cache"))
+    text = "\n".join(check(out, tmp_path / "cache").lines)
     assert "could not be read" in text and "pass pass" not in text
 
 
@@ -321,7 +321,7 @@ def test_a_locked_or_vanishing_file_is_named_not_raised(tmp_path, monkeypatch):
 
     monkeypatch.setattr(Path, "read_bytes", lambda self: blocked(self) or real_bytes(self))
     monkeypatch.setattr(Path, "read_text", lambda self, *a, **k: blocked(self) or real_text(self, *a, **k))
-    text = "\n".join(report(out, cache))
+    text = "\n".join(check(out, cache).lines)
     assert "the review page could not be read" in text
 
 
@@ -345,7 +345,7 @@ def test_the_newest_ledger_and_job_are_used(tmp_path):
     _age(out / "Unknown Job.json", 100)
     _write(out / "00-0000 Ledger.json", {"job_name": "Invented A", "complete": True})
     _write(out / "00-0000 Job.json", {"systems": [{"key": "EF", "name": "New Fans", "devices": [{"id": "x"}]}]})
-    text = "\n".join(report(out, tmp_path / "cache"))
+    text = "\n".join(check(out, tmp_path / "cache").lines)
     assert "New Fans" in text and "Old Fans" not in text and "scope" not in text
 
 
@@ -355,5 +355,5 @@ def test_findings_are_read_from_the_rule_spans_only(tmp_path):
     (out / "Review.html").write_text(
         '<p>quoted job text: Rule: not a finding</p><span class="rule">Rule: Wire &amp; tag</span>',
         encoding="utf-8")
-    text = "\n".join(report(out, cache))
+    text = "\n".join(check(out, cache).lines)
     assert "1 for Wire & tag" in text and "not a finding" not in text

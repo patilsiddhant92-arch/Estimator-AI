@@ -250,6 +250,8 @@ def check(out: Path, cache: Path) -> Status:
                          + (f" {more} more have an answer; run estimate again once all are in." if more else ""))
         else:
             lines.append(f"Stage: {stage}. Every waiting request has an answer: run estimate again to read them.")
+        # a request stopped after the most refusals leaves no request file: only the run's own words name it
+        lines += [f"  {m}" for m in said if m.startswith("Stopped:")]
     elif status == "waiting":
         code = 1
         lines.append(f"Stage: {stage or 'not known'}. The run stopped, and nothing it asked waits for an answer:")
@@ -298,8 +300,3 @@ def check(out: Path, cache: Path) -> Status:
     lines += _intake(cache)
     lines.append(_findings(page, current=outputs_current))
     return Status(code, tuple(lines))
-
-
-def report(out: Path, cache: Path) -> list[str]:
-    """Lines a person can read. An empty run says so."""
-    return list(check(out, cache).lines)
