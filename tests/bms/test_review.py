@@ -352,6 +352,29 @@ def test_apply_decisions_with_was_deletes_matching_device_when_ids_differ(job):
     assert len(applied.system("EF").devices) == len(system.devices) - 1
 
 
+def test_apply_decisions_with_duplicate_identical_devices_deletes_named_id(job):
+    system = job.system("EF")
+    d1 = dataclasses.replace(system.devices[0], id="EF.d1")
+    d2 = dataclasses.replace(system.devices[0], id="EF.d2")
+    job_dup = job.with_system(dataclasses.replace(system, devices=(d1, d2)))
+    decision = Decision("EF", "delete", device_id="EF.d2", was=d2)
+    applied = review.apply_decisions(job_dup, [decision])
+    remaining = applied.system("EF").devices
+    assert len(remaining) == 1
+    assert remaining[0].id == "EF.d1"
+
+
+def test_apply_decisions_with_stale_nonmatching_was_does_not_delete_reused_id(job):
+    system = job.system("EF")
+    d1 = system.devices[0]
+    stale_was = dataclasses.replace(d1, name="Completely Different Nonexistent Sensor")
+    decision = Decision("EF", "delete", device_id=d1.id, was=stale_was)
+    applied = review.apply_decisions(job, [decision])
+    # The unrelated line d1 is retained
+    assert any(d.id == d1.id for d in applied.system("EF").devices)
+    assert len(applied.system("EF").devices) == len(system.devices)
+
+
 def test_a_decision_that_names_nothing_on_the_job_is_not_a_finding(job):
     assert review.unhonored_decisions(job, [Decision("EF", "delete", device_id="EF.zz"),
                                             Decision("NOPE", "delete")], job) == []

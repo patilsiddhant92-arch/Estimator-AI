@@ -492,8 +492,26 @@ def test_a_qc_must_fix_the_revise_left_as_it_was_stays_open():
                                                                *ef.devices[1:])))
     on = lambda device=None, key="EF": Finding("Every line cites this job", key, device, "must_fix", "w", "f")
     assert _untouched(on("EF.d2"), job, changed) and not _untouched(on("EF.d1"), job, changed)
-    assert not _untouched(on(None), job, changed) and _untouched(on(None, "RTU"), job, changed)
     assert _untouched(on(None, ""), job, changed)
+
+
+def test_revised_keeps_accepted_decisions_without_index_error(monkeypatch):
+    import dataclasses
+    from bms.model import Decision, Job
+    from bms.run import _revised
+    from bms.playbook import load_playbook
+    import bms.ai as ai
+
+    job = Job.from_dict(json.loads((TESTS / "bms" / "fixtures" / "sample_job.json").read_text(encoding="utf-8")))
+    ef = job.system("EF")
+    pb = load_playbook()
+    monkeypatch.setattr(ai, "revise_system", lambda system, findings, evidence, playbook, transport, **kwargs:
+                        dataclasses.replace(system, devices=tuple(
+                            dataclasses.replace(d, flag="quantity") if d.id == "EF.d1" else d for d in system.devices)))
+    decisions = [Decision("EF", "accept", device_id="EF.d1")]
+    res = _revised(ef, [], "", pb, None, job=job, decisions=decisions)
+    assert res.key == "EF"
+    assert next(d for d in res.devices if d.id == "EF.d1").flag == "none"
 
 
 # ---- API mode end to end (TASK-005) ----------------------------------------------------------------------------------

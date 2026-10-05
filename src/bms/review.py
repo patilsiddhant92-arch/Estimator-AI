@@ -449,11 +449,16 @@ def load_decisions(out_dir: Path) -> list[Decision]:
 
 
 def _apply_to_devices(devices: tuple[Device, ...], device_id: str, decision: Decision) -> tuple[Device, ...]:
-    target_id = device_id
+    target_id: str | None = device_id
     if decision.was is not None:
-        matched = next((dev for dev in devices if _same_device((dev,), decision.was)), None)
-        if matched is not None:
-            target_id = matched.id
+        exact = next((dev for dev in devices if dev.id == device_id and _same_device((dev,), decision.was)), None)
+        if exact is not None:
+            target_id = exact.id
+        else:
+            by_content = next((dev for dev in devices if _same_device((dev,), decision.was)), None)
+            target_id = by_content.id if by_content is not None else None
+    if target_id is None:
+        return devices
     out: list[Device] = []
     for device in devices:
         if device.id != target_id:
@@ -480,7 +485,9 @@ def apply_decisions(job: Job, decisions: Sequence[Decision]) -> Job:
 def _apply_one(job: Job, d: Decision) -> Job:
     if d.system_key == "":
         front = job.front_end
-        if front is None or d.device_id is None or not any(x.id == d.device_id for x in front.devices):
+        if front is None or d.device_id is None:
+            return job
+        if d.was is None and not any(x.id == d.device_id for x in front.devices):
             return job
         return dataclasses.replace(
             job, front_end=dataclasses.replace(front, devices=_apply_to_devices(front.devices, d.device_id, d)))
@@ -488,7 +495,7 @@ def _apply_one(job: Job, d: Decision) -> Job:
         return job
     system: System = job.system(d.system_key)
     if d.device_id is not None:
-        if not any(x.id == d.device_id for x in system.devices):
+        if d.was is None and not any(x.id == d.device_id for x in system.devices):
             return job
         return job.with_system(dataclasses.replace(
             system, devices=_apply_to_devices(system.devices, d.device_id, d)))
@@ -555,7 +562,12 @@ def _device_holds(before: Job, decision: Decision, after: Job) -> bool:
     earlier = _devices(before, decision.system_key)
     if earlier is None:
         return True
-    target = decision.was or next((device for device in earlier if device.id == decision.device_id), None)
+    if decision.was is not None:
+        target = next((d for d in earlier if d.id == decision.device_id and _same_device((d,), decision.was)), None)
+        if target is None:
+            target = next((d for d in earlier if _same_device((d,), decision.was)), None)
+    else:
+        target = next((device for device in earlier if device.id == decision.device_id), None)
     if target is None:
         return True
     applied = _apply_one(before, decision)

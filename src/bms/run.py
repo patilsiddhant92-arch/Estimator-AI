@@ -89,7 +89,11 @@ def _revised(system, findings, evidence, playbook, transport, job=None, decision
     accepted = [d for d in decisions if d.action == "accept" and (d.system_key == system.key or d.system_key == "")]
     if not accepted:
         return flagged
-    return apply_decisions(Job((flagged,)), accepted).systems[0]
+    if job is not None:
+        temp_job = dataclasses.replace(job, systems=(flagged,))
+    else:
+        temp_job = Job("temp", systems=(flagged,))
+    return apply_decisions(temp_job, accepted).system(system.key)
 
 
 def _families_changed(before: Job, key: str, after: Job) -> bool:
