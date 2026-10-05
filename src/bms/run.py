@@ -36,7 +36,7 @@ from estimator.writing.front_end import job_header
 from estimator.writing.judge import Judge
 
 from bms import ai, ai_evidence
-from bms.citations import job_ids, job_tags
+from bms.citations import job_ids, job_sheets, job_tags
 from bms.counts import cross_check, flag_written_devices, publish_proofs
 from bms.evidence import write_evidence
 from bms.model import Decision, Finding, Header, Job, ModelError
@@ -164,12 +164,17 @@ def estimate(job_folder: Path, out: Path, cache: Path, mode: Mode = "chat") -> R
     def issued(current: Job) -> tuple[str, ...]:
         return tuple(dict.fromkeys([*job_ids(current), *evidence_ids]))
 
+    # K, one set for every writer, the decision rewrite and the revise: the sheet numbers the planner's wheres name
+    # (after the counts cross-check, whose refs carry sheets). The skeleton's refs win over every answer, so K never
+    # changes while the systems are written, and it is the validator's and the renderer's K too.
+    sheets = tuple(sorted(job_sheets(job)))
+
     pending: list[str] = []
     for system in job.systems:
         try:
             job = job.with_system(flag_written_devices(
                 ai.write_system(system, evidence[system.key], playbook, transport, tags=job_tags(job),
-                                ids=issued(job))))
+                                ids=issued(job), sheets=sheets)))
         except ai.NoAnswer as missing:
             pending.append(_stopped(missing.reason) if str(missing.reason).startswith("Stopped:")
                            else f"{system.name}: {missing.reason}")
@@ -190,7 +195,7 @@ def estimate(job_folder: Path, out: Path, cache: Path, mode: Mode = "chat") -> R
         try:
             job = job.with_system(flag_written_devices(ai.write_system(
                 system, f"{evidence[key]}\n\n{_decision_note(decisions, key)}", playbook, transport,
-                tags=job_tags(job), ids=issued(job))))
+                tags=job_tags(job), ids=issued(job), sheets=sheets)))
         except ai.NoAnswer as missing:
             pending.append(_stopped(missing.reason) if str(missing.reason).startswith("Stopped:")
                            else f"{system.name}: {missing.reason}")
@@ -218,7 +223,7 @@ def estimate(job_folder: Path, out: Path, cache: Path, mode: Mode = "chat") -> R
         try:
             job = job.with_system(ai.revise_system(system, [f for f in must_fix if f.system_key == key],
                                                    evidence[key], playbook, transport, tags=job_tags(job),
-                                                   ids=issued(job)))
+                                                   ids=issued(job), sheets=sheets))
         except ai.NoAnswer as missing:
             pending.append(_stopped(missing.reason) if str(missing.reason).startswith("Stopped:")
                            else f"{system.name}: {missing.reason}")

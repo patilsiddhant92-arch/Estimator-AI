@@ -10,8 +10,9 @@ ASCII), zero-width characters taken out. The text itself is never rewritten by d
 covering F1 to F4) into four kinds (the estimator's ruling of 2026-10-05):
 
 - sheet: a sheet number, issued or not, kept as written and never reported: a token right after a sheet word
-  ("sheet S12", "sheets C101 and S13", "(sheet C101)"), or one the job's refs name as a sheet (K, `ref_sheets`:
-  the where "S101, Structural.pdf page 3" makes S101 a sheet of the job).
+  ("sheet S12", "sheets C101 and S13", "(sheet C101)"), or one the planner's wheres name as a sheet (K,
+  `job_sheets`: the where "S101, Structural.pdf page 3" on a sequence ref makes S101 a sheet of the job). A where on
+  a writer's device ref is the writer's and makes no sheet; the run passes the whole plan's K to every intake.
 - issued: any other id the job issued (I, every `Ref.source_id`; at intake also the evidence's ids). The intake
   refuses the text; the validator reports must_fix; the renderer's safety net takes out exactly that token.
 - cited: an unissued token joined by and / or / , / to / through / thru / a dash / a slash to an issued id, along
@@ -46,6 +47,9 @@ _WINDOW = 32                                      # how far back a sheet word is
 _ZERO_WIDTH = frozenset("​‌‍⁠﻿­")
 _TAG_RANGE = re.compile(r"\b([SQIFC])-?(\d{1,4})\s*(?:-|–|\bthru\b|\bthrough\b|\bto\b)\s*(?:\1-?)?(\d{1,4})\b",
                         re.IGNORECASE)
+# an id-shaped part of a tag, the tag's own way of writing it: "S1", "S-1", "S_1A", "AHU_S12" (the letter starts the
+# tag or follows a separator, one dash or underscore may sit before the digits, and the part ends there)
+_TAG_PART = re.compile(r"(?<![^\W_])([SQIFC])[-_]?([0-9]{1,4}[A-Za-z]?)(?![^\W_])", re.IGNORECASE)
 MAX_RANGE = 500                                   # a tag range wider than this is not expanded
 TRADE = re.compile(r"\b(plumbing|electrical|mechanical|architectural|fire protection|civil|structural)\b",
                    re.IGNORECASE)
@@ -75,9 +79,7 @@ def without_ledger_brackets(text: str) -> str:
 
 def system_refs(system) -> list:
     """Every Ref a System carries: its sequence refs, its families' counts, its devices' refs and quantities."""
-    refs = list(system.sequence_refs)
-    for family in system.families:
-        refs += list(family.count.sources) + [o.ref for o in family.count.others]
+    refs = plan_refs(system)
     for device in system.devices:
         refs += _device_refs(device)
     return refs
@@ -103,6 +105,25 @@ def job_tags(job) -> tuple[str, ...]:
 def job_ids(job) -> tuple[str, ...]:
     """I: every source id a Ref of the job carries (systems, front end, exceptions)."""
     return tuple(dict.fromkeys(plain_id(r.source_id) for r in job_refs(job) if plain_id(r.source_id)))
+
+
+def plan_refs(system) -> list:
+    """The Refs the planner set on a System, which the writer cannot change: its sequence refs and its families'
+    counts (the counts cross-check's sheet refs among them). Never its devices' refs."""
+    refs = list(system.sequence_refs)
+    for family in system.families:
+        refs += list(family.count.sources) + [o.ref for o in family.count.others]
+    return refs
+
+
+def job_sheets(job) -> frozenset[str]:
+    """K of the whole job: the sheet numbers the planner's wheres name (`ref_sheets` of every system's
+    `plan_refs`, the front end's devices and the exceptions, which the planner makes). A where on a writer's
+    device ref never counts: a writer could type any id there."""
+    refs = [r for s in job.systems for r in plan_refs(s)]
+    if job.front_end is not None:
+        refs += [r for d in job.front_end.devices for r in _device_refs(d)]
+    return ref_sheets(refs + [r for x in job.exceptions for r in x.refs])
 
 
 def job_refs(job) -> list:
@@ -142,12 +163,13 @@ def ref_sheets(refs) -> frozenset[str]:
 
 
 def tag_tokens(tags: Iterable[str]) -> frozenset[str]:
-    """The id-shaped tokens the tags protect, upper case: each one named ("F1", "C2") and each one a range covers
-    ("F1-F4", "F1 thru 4": F1, F2, F3, F4)."""
+    """The id-shaped tokens the tags protect, upper case: each one named ("F1", "C2"; "S-1" and "S_1" as "S1",
+    "AHU_S12" as "S12") and each one a range covers ("F1-F4", "F1 thru 4": F1, F2, F3, F4). A part only: "EF-1"
+    protects no "F1", "S-12" no "S1", "AHU_S12X3" nothing."""
     out: set[str] = set()
     for tag in tags:
         tag = unicodedata.normalize("NFKC", str(tag or ""))
-        out |= {t.upper() for t in ONE_ID.findall(tag)}
+        out |= {(letter + rest).upper() for letter, rest in _TAG_PART.findall(tag)}
         for found in _TAG_RANGE.finditer(tag):
             first, last = int(found.group(2)), int(found.group(3))
             if first <= last <= first + MAX_RANGE:
@@ -187,7 +209,7 @@ class SourceIds:
     """The one decision: which id-shaped tokens in a text are sheets, issued ids, citations or loose tokens."""
     ids: frozenset[str] = frozenset()       # I, upper case
     tags: frozenset[str] = frozenset()      # T's id-shaped tokens, upper case
-    sheets: frozenset[str] = frozenset()    # K, the job's id-shaped sheet numbers (`ref_sheets`), upper case
+    sheets: frozenset[str] = frozenset()    # K, the planner's id-shaped sheet numbers (`job_sheets`), upper case
 
     @classmethod
     def of(cls, ids: Iterable[str] = (), tags: Iterable[str] = (), sheets: Iterable[str] = ()) -> "SourceIds":
@@ -196,14 +218,14 @@ class SourceIds:
 
     @classmethod
     def of_job(cls, job) -> "SourceIds":
-        """T, I and K of the job (`job_tags`, `job_ids`, `ref_sheets` of every Ref of the job)."""
-        return cls.of(job_ids(job), job_tags(job), ref_sheets(job_refs(job)))
+        """T, I and K of the job (`job_tags`, `job_ids`, `job_sheets`: the planner's wheres only)."""
+        return cls.of(job_ids(job), job_tags(job), job_sheets(job))
 
     def is_tag(self, token: str) -> bool:
         return _key(token) in self.tags
 
     def is_id(self, token: str) -> bool:
-        """An issued id that is not a tag and not a sheet number the job's refs name."""
+        """An issued id that is not a tag and not a sheet number the planner's wheres name (K)."""
         return _key(token) in self.ids and not self.is_tag(token) and _key(token) not in self.sheets
 
     def scan(self, text: str) -> list[Found]:
@@ -273,9 +295,9 @@ class SourceIds:
 
     def _sheet_ok(self, text: str, found: re.Match) -> bool:
         """A sheet number found in a where: printable unless it is id-shaped and the ledger does not know it as a
-        sheet. An id-shaped token is a sheet when a sheet word comes before it ("Sheet C501") or the job's refs name
-        it as a sheet (K), issued or not; else only when it is no issued id and stands first with a file part after
-        it ("C101, Controls.pdf page 2")."""
+        sheet. An id-shaped token is a sheet when a sheet word comes before it ("Sheet C501") or the planner's
+        wheres name it as a sheet (K), issued or not; else only when it is no issued id and stands first with a file
+        part after it ("C101, Controls.pdf page 2")."""
         token = found.group(0)
         if not ONE_ID.fullmatch(token):
             return True

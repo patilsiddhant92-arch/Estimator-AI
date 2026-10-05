@@ -307,6 +307,46 @@ def test_the_decision_rewrite_and_the_revise_are_given_the_source_ids_of_the_who
         assert seen and all(ids and set(ids) >= _planned_ids(job) for ids in seen), seen
 
 
+def test_every_writer_the_decision_rewrite_and_the_revise_are_given_the_sheets_of_the_whole_plan(job_folder, tmp_path,
+                                                                                                 monkeypatch):
+    """K, the sheet numbers the planner's wheres name (`citations.job_sheets`), is computed once for the whole plan
+    and passed to every writer, the decision rewrite and the revise, so a sheet only another system's where names is
+    accepted at intake as the validator and the renderer accept it (review of record, cleanup round 4, L-B)."""
+    from bms import ai, citations, run
+    from bms.model import Finding, Job
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    real_write, written, rewritten, revised = ai.write_system, [], [], []
+
+    def spy(system, evidence, playbook, transport, **kw):
+        (rewritten if "The estimator's decisions" in evidence else written).append(kw.get("sheets"))
+        return real_write(system, evidence, playbook, transport, **kw)
+
+    def revise_spy(system, findings, evidence, playbook, transport, **kw):
+        revised.append(kw.get("sheets"))
+        return system
+
+    def must_fix(job, playbook):
+        return [Finding("Every line cites this job", s.key, None, "must_fix", "invented", "invented")
+                for s in job.systems[:1]]
+    monkeypatch.setattr(run.ai, "write_system", spy)
+    out, cache = tmp_path / "out", tmp_path / "cache"
+    assert _reach(job_folder, out, cache, "write").stage == "write"
+    requests = sorted((cache / "judge-chat" / "requests").glob("*.json"))
+    changed = json.loads(requests[0].read_text(encoding="utf-8"))["plan_key"]
+    (out / "decisions.json").write_text(json.dumps([{
+        "system_key": changed, "action": "delete", "device_id": f"{changed}.d1", "reason": "invented",
+    }]), encoding="utf-8")
+    assert answer_all(cache)
+    monkeypatch.setattr(run.ai, "revise_system", revise_spy)
+    monkeypatch.setattr(run, "validate", must_fix)
+    result = _reach(job_folder, out, cache, "never")
+    job = Job.from_json(result.job_file.read_text(encoding="utf-8"))
+    assert written and rewritten and revised, (written, rewritten, revised)
+    every = [*written, *rewritten, *revised]
+    assert all(sheets is not None and tuple(sheets) == tuple(every[0]) for sheets in every), every
+    assert set(every[0]) == set(citations.job_sheets(job)), (every[0], citations.job_sheets(job))
+
+
 def test_a_killed_write_resumes_from_cached_answers_without_asking_again(job_folder, tmp_path, monkeypatch):
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     out, cache = tmp_path / "out", tmp_path / "cache"

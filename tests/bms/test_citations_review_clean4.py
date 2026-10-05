@@ -44,7 +44,7 @@ def _with_refs(job: Job, refs) -> Job:
     return replace(job, systems=tuple(add(s) for s in job.systems))
 
 
-def _intake(text: str, issued=ISSUED, extra_refs=()):
+def _intake(text: str, issued=ISSUED, extra_refs=(), sheets=()):
     """The real intake on one EF note clarification: the stored text, or None when refused."""
     skeleton = System("EF", "Exhaust Fans", "Exhaust Fan", "field", (FAMILY,),
                       sequence_refs=tuple(Ref(i, "q", "M-101, Invented.pdf page 2") for i in issued) + tuple(extra_refs))
@@ -52,7 +52,8 @@ def _intake(text: str, issued=ISSUED, extra_refs=()):
                     (CITED,))
     answer = System("EF", "Exhaust Fans", "Exhaust Fan", "field", (FAMILY,), devices=(device,),
                     clarifications=(Clarification("note", text),)).to_dict()
-    written, _ = ai._check_system(answer, skeleton, None, frozenset({*issued, CITED.source_id}), (), (), [], TAGS)
+    written, _ = ai._check_system(answer, skeleton, None, frozenset({*issued, CITED.source_id}), (), (), [], TAGS,
+                                    sheets=tuple(sheets))
     return written.clarifications[0].text if written is not None else None
 
 
@@ -128,17 +129,20 @@ def test_a_device_named_by_an_issued_id_never_protects_that_id_in_another_text(j
     assert not any(_prints(line, "S12") for line in ef), ef
 
 
-@pytest.mark.xfail(strict=True, reason="lead report concern 2: the intake knows only the sheets of its own system's "
-                                       "refs; render keeps the same text (safe direction: refused, never cut)")
 def test_a_sheet_number_another_systems_ref_names_is_accepted_at_intake_too(job):
-    j = _with_refs(job, [Ref("Q3", "q", "Sheet S101, Structural.pdf page 3"), Ref("S101", "q", "M-101, x.pdf page 2")])
+    """L-B, fixed on lead/detector-gaps: the run passes the whole plan's sheets (`citations.job_sheets`) to every
+    intake. The S101 where sits on VRF's planner refs (its sequence refs): after L-A a device ref's where is the
+    writer's and makes no sheet."""
+    j = replace(job, systems=tuple(replace(s, sequence_refs=s.sequence_refs + (
+        Ref("Q3", "q", "Sheet S101, Structural.pdf page 3"),)) if s.key == "VRF" else s for s in job.systems))
+    j = _with_refs(j, [Ref("S101", "q", "M-101, x.pdf page 2")])
     assert _downstream(j, "Damper per S101") == ([], "*Damper per S101")      # render keeps it as a sheet
-    assert _intake("Damper per S101", issued=ISSUED + ("S101",)) == "Damper per S101"
+    assert _intake("Damper per S101", issued=ISSUED + ("S101",),
+                   sheets=citations.job_sheets(j)) == "Damper per S101"
 
 
-@pytest.mark.xfail(strict=True, reason="lead report concern 3: a where the writer types, starting with another "
-                                       "issued id and a file part, makes that id a sheet job-wide")
 def test_a_where_starting_with_another_issued_id_never_protects_that_id(job):
+    """L-A, fixed on lead/detector-gaps: the known sheets come only from the planner's wheres."""
     j = _with_refs(job, [Ref("Q12", "q", "S141, Mechanical.pdf page 3")])
     found, printed = _downstream(j, "Valves per S141.")
     assert "must_fix" in found and not _prints(printed, "S141"), (found, printed)
