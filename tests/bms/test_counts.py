@@ -25,6 +25,27 @@ from estimator.catalogue.documents import Document  # noqa: E402
 from estimator.catalogue.register import PageRecord  # noqa: E402
 from estimator.catalogue.sheet_types import Sheet  # noqa: E402
 
+def test_a_revise_puts_the_quantity_flag_back(monkeypatch):
+    """Revise clears flags. The run puts a quantity flag back when the counts still disagree."""
+    from bms import ai, run
+
+    job = Job.from_dict(json.loads(SAMPLE_JOB.read_text(encoding="utf-8")))
+    system = next(s for s in job.systems if s.families and s.devices)
+    ref = system.devices[0].refs[0]
+    device = dataclasses.replace(system.devices[0], flag="none", quantity=Count(3, (ref,)))
+    family = dataclasses.replace(system.families[0], count=Count(
+        4, (ref,), (OtherCount(2, Ref("C1", "counted on the sheet picture", "invented sheet")),)))
+    written = dataclasses.replace(system, devices=(device,), families=(family,))
+
+    def cleared(system, findings, evidence, playbook, transport):
+        return dataclasses.replace(system, devices=tuple(dataclasses.replace(item, flag="none")
+                                                        for item in system.devices))
+
+    monkeypatch.setattr(ai, "revise_system", cleared)
+    revised = run._revised(written, [], "", None, None)
+    assert revised.devices[0].flag == "quantity"
+
+
 def test_a_count_disagreement_flags_the_devices_the_writer_creates():
     job = Job.from_dict(json.loads(SAMPLE_JOB.read_text(encoding="utf-8")))
     system = next(s for s in job.systems if s.families and s.devices)

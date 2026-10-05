@@ -92,7 +92,7 @@ Finding:        rule: str, system_key: str, device_id: str | None, severity: Sev
                   rule = a Playbook rule name (### heading); system_key "" for the front end / whole job.
 Decision:       system_key: str, action: DecisionAction, device_id: str | None = None, family_name: str | None = None,
                 device: Device | None = None, count: Count | None = None, finding_rule: str | None = None,
-                reason: str = ""
+                reason: str = "", was: Device | None = None
 ```
 
 `MODEL_CLASSES` lists them all.
@@ -283,7 +283,10 @@ then stop "waiting" at "write" if any NoAnswer; saves `<quote> Job.json`) → `a
 QC's; one round; waiting at "revise") → `validate` → `review_page` → `render` → `write_evidence` → `_build`
 (proposal and price sheet). Prints `Wrote <path>` for every file.
 `RunResult(status: "waiting"|"done", stage, waiting=0, job_file=None, findings=(), review=None, proposal=None,
-price_sheet=None, evidence=None, messages=())`. `python -m bms estimate` exits 0 when done, 2 when waiting.
+price_sheet=None, evidence=None, messages=())`. `stage` is `read`, `count`, `write`, `decisions`, `qc`, `revise`
+or `done`. `decisions` is a bad decisions file: the run stops in words and waits for no request.
+`python -m bms estimate` exits 0 when done, 2 when requests are waiting, and 1 when it stops with nothing to answer
+(a refusal limit, or the `decisions` stage).
 `tools/run_job.py status` still calls `python -m estimator`; switching it to `python -m bms` is integration's.
 
 ## 7. Fixtures

@@ -199,9 +199,18 @@ def _max_attempts() -> int:
     return value if value >= 1 else 3
 
 
+_RETRY_MARK = "\n\nYour earlier answer to this question could not be used:"
+
+
 def _attempt_file(cache: _Cache, q: _Question) -> Path:
-    """One counter per request (kind, step, name, plan key), so a retry whose prompt grew still counts."""
-    ident = f"{q.kind}|{q.extra.get('step', '')}|{q.name}|{q.extra.get('plan_key', '')}"
+    """One counter per question. The prompt is part of the id, so a decision rewrite and new evidence do not
+    share the first write's counter. The API's one immediate retry appends a fixed note; that note is not part
+    of the id, so the retry keeps counting."""
+    prompt = q.prompt
+    mark = prompt.find(_RETRY_MARK)
+    if mark != -1:
+        prompt = prompt[:mark]
+    ident = f"{q.kind}|{q.extra.get('step', '')}|{q.name}|{q.extra.get('plan_key', '')}|{prompt}"
     digest = hashlib.sha256(ident.encode()).hexdigest()
     return cache.folder / "attempts" / f"{digest}.json"
 
@@ -217,12 +226,45 @@ def _refusal_count(transport) -> int:
         return 0
 
 
+def _mtime_ns(path: Path) -> int | None:
+    try:
+        return path.stat().st_mtime_ns
+    except OSError:
+        return None
+
+
+def _answer_path(transport) -> Path | None:
+    last = getattr(transport, "_last", None)
+    answers = getattr(transport, "answers_dir", None)
+    if last is None or answers is None:
+        return None
+    return Path(answers) / f"{last.key}.json"
+
+
+def _rejected_answer_mtime(transport) -> int | None:
+    """The mtime of the answer file last refused for this request, if one was recorded."""
+    cache, last = getattr(transport, "cache", None), getattr(transport, "_last", None)
+    if cache is None or last is None:
+        return None
+    try:
+        data = json.loads(_attempt_file(cache, last).read_text(encoding="utf-8"))
+        value = data.get("answer_mtime_ns")
+        return int(value) if value is not None else None
+    except (OSError, ValueError, TypeError):
+        return None
+
+
 def _record_refusal(transport) -> int:
     cache, last = getattr(transport, "cache", None), getattr(transport, "_last", None)
     count = _refusal_count(transport) + 1
     if cache is not None and last is not None:
+        payload: dict = {"attempts": count}
+        path = _answer_path(transport)
+        mtime = _mtime_ns(path) if path is not None else None
+        if mtime is not None:
+            payload["answer_mtime_ns"] = mtime
         try:
-            _write_json(_attempt_file(cache, last), {"attempts": count})
+            _write_json(_attempt_file(cache, last), payload)
         except OSError:
             pass
     return count
@@ -238,8 +280,34 @@ def _clear_attempts(transport) -> None:
         pass
 
 
+def _answer_is_fresh(transport, answer_file: Path, request_file: Path) -> bool:
+    """A chat answer counts only when it is newer than the request that asked for it and newer than the answer
+    already refused. `refuse` leaves the old file in place; reading it again would burn an attempt."""
+    answer_mtime = _mtime_ns(answer_file)
+    if answer_mtime is None:
+        return False
+    if request_file.is_file():
+        request_mtime = _mtime_ns(request_file)
+        if request_mtime is not None and answer_mtime <= request_mtime:
+            return False
+    rejected = _rejected_answer_mtime(transport)
+    return rejected is None or answer_mtime > rejected
+
+
+def _restart_attempts_for_new_answer(transport, answer_file: Path) -> None:
+    """After the run has stopped, one newer answer file gets a fresh set of attempts. The same file does not:
+    a re-run with nothing new waits, it does not stop again."""
+    if _refusal_count(transport) < _max_attempts():
+        return
+    rejected = _rejected_answer_mtime(transport)
+    answer_mtime = _mtime_ns(answer_file)
+    if rejected is not None and answer_mtime is not None and answer_mtime > rejected:
+        _clear_attempts(transport)
+
+
 def _drop_refused(transport) -> None:
-    """The refused answer leaves the cache, and a chat request still on disk is not asked again."""
+    """The refused answer leaves the cache, and a chat request still on disk is not asked again. A stop also
+    removes the answer file. The attempt counter stays until that file is deleted or a newer answer arrives."""
     last = getattr(transport, "_last", None)
     cache = getattr(transport, "cache", None)
     if last is not None and cache is not None:
@@ -250,10 +318,18 @@ def _drop_refused(transport) -> None:
             (Path(requests) / f"{last.key}.json").unlink(missing_ok=True)
         except OSError:
             pass
+    answer = _answer_path(transport)
+    if answer is not None:
+        try:
+            answer.unlink(missing_ok=True)
+        except OSError:
+            pass
 
 
-def _stop_reason(name: str, attempts: int, reason: str) -> str:
-    return f"Stopped: the request {name} was refused {attempts} times. {reason}"
+def _stop_reason(name: str, attempts: int, reason: str, counter: Path | None = None) -> str:
+    where = f" To ask this question again, delete {counter}." if counter is not None else ""
+    return (f"Stopped: the request {name} was refused {attempts} times. {reason}.{where}"
+            " A new prompt starts a new count.")
 
 
 def _problems(errors: list[str]) -> str:
@@ -309,6 +385,14 @@ class ChatTransport(_IntakeLog):
     def requests_dir(self) -> Path:
         return self.handoff_dir / "requests"
 
+    def _drop_request(self, key: str) -> None:
+        """Remove this question's request, and the copy a new run parked in requests/old/."""
+        for path in (self.requests_dir / f"{key}.json", self.requests_dir / "old" / f"{key}.json"):
+            try:
+                path.unlink(missing_ok=True)
+            except OSError:
+                pass
+
     @property
     def answers_dir(self) -> Path:
         return self.handoff_dir / "answers"
@@ -321,23 +405,26 @@ class ChatTransport(_IntakeLog):
         if cached is not None:
             self.cached += 1
             self.last_error = None
-            (self.requests_dir / f"{q.key}.json").unlink(missing_ok=True)   # a killed run may have left it
+            self._drop_request(q.key)   # a killed run may have left it, including the copy parked in old/
             return cached
         answer_file = self.answers_dir / f"{q.key}.json"
+        request_file = self.requests_dir / f"{q.key}.json"
         problem = None
-        if answer_file.exists():
+        if answer_file.is_file() and _answer_is_fresh(self, answer_file, request_file):
+            _restart_attempts_for_new_answer(self, answer_file)
             answer, errors = _read_answer(answer_file, q.schema)
             if answer is not None:
                 self.cache.write(q, CHAT_MODEL, answer)
-                (self.requests_dir / f"{q.key}.json").unlink(missing_ok=True)
+                self._drop_request(q.key)
                 self.answered_in_chat += 1
                 self.last_error = None
                 return answer
             problem = f"the answer for {name} could not be read: {_problems(errors)}"
             attempts = _record_refusal(self)
             if attempts >= _max_attempts():
+                counter = _attempt_file(self.cache, q) if self.cache is not None else None
                 _drop_refused(self)
-                self.last_error = _stop_reason(name, attempts, problem)
+                self.last_error = _stop_reason(name, attempts, problem, counter)
                 raise NoAnswer(self.last_error, waiting=False)
         raise self._request(q, problem)
 
@@ -361,20 +448,36 @@ class ChatTransport(_IntakeLog):
         data |= {"schema": q.schema, "answer_file": str(answer_file)}
         if problem:
             data["previous_problem"] = problem
+        payload = json.dumps(data, ensure_ascii=False, indent=2)
+        old = self.requests_dir / "old" / request.name
+        # A new run parks this job's requests in old/ and would write them again. An unchanged request
+        # goes back where it was, so the file and its mtime stay and nothing is left in old/.
+        if not request.is_file() and old.is_file():
+            try:
+                if old.read_text(encoding="utf-8") == payload:
+                    os.replace(old, request)
+            except OSError:
+                pass
         if request.is_file():
             try:
-                same = json.loads(request.read_text(encoding="utf-8")) == data
-            except (OSError, ValueError):
+                same = request.read_text(encoding="utf-8") == payload
+            except OSError:
                 same = False
             if same:                                 # still waiting: do not ask this question a second time
-                (self.requests_dir / "old" / request.name).unlink(missing_ok=True)
+                try:
+                    (self.requests_dir / "old" / request.name).unlink(missing_ok=True)
+                except OSError:
+                    pass
                 self.waiting += 1
                 waiting = f"waiting for an answer in the chat (requests folder: {request.parent})"
                 self.last_error = f"{problem}; asked again, {waiting}" if problem else waiting
                 return NoAnswer(self.last_error, waiting=True)
         try:
             _write_json(request, data, indent=2)
-            (self.requests_dir / "old" / request.name).unlink(missing_ok=True)     # asked again: no longer stale
+            try:
+                (self.requests_dir / "old" / request.name).unlink(missing_ok=True)  # asked again: no longer stale
+            except OSError:
+                pass
         except OSError:
             self.last_error = f"the request for {q.name} could not be written to {request.parent}"
             return NoAnswer(self.last_error, waiting=False)
@@ -429,6 +532,10 @@ class ApiTransport(_IntakeLog):
             self.cached += 1
             self.last_error = None
             return cached
+        attempts = _refusal_count(self)            # the saved count: a stopped question is not asked again
+        if attempts >= (getattr(self, "max_attempts", None) or _max_attempts()):
+            self.last_error = _stop_reason(name, attempts, "It is not asked again", _attempt_file(self.cache, q))
+            raise NoAnswer(self.last_error, waiting=False)
         try:
             response = self._call(q)
             answer = _answer_of(response, q)
@@ -538,13 +645,17 @@ def _ask_checked(transport, kind: str, name: str, instructions: str, system_prom
             _clear_attempts(transport)
             return value
         reason = f"the answer for {name} could not be used: {_problems(problems)}"
+        counter = None
+        cache, last = getattr(transport, "cache", None), getattr(transport, "_last", None)
+        if cache is not None and last is not None:
+            counter = _attempt_file(cache, last)
         if _refusal_count(transport) >= limit:
             _drop_refused(transport)
-            raise NoAnswer(_stop_reason(name, limit, reason), waiting=False)
+            raise NoAnswer(_stop_reason(name, limit, reason, counter), waiting=False)
         attempts = _record_refusal(transport)
         if attempts >= limit:
             _drop_refused(transport)
-            raise NoAnswer(_stop_reason(name, attempts, reason), waiting=False)
+            raise NoAnswer(_stop_reason(name, attempts, reason, counter), waiting=False)
         refuse = getattr(transport, "refuse", None)
         if refuse is None:
             raise NoAnswer(reason)
@@ -553,8 +664,7 @@ def _ask_checked(transport, kind: str, name: str, instructions: str, system_prom
         if retried:                         # the API's one immediate retry already happened
             raise NoAnswer(reason)
         retried = True
-        prompt_now = (f"{prompt}\n\nYour earlier answer to this question could not be used: {_problems(problems)}. "
-                      "Answer again, fixing that.")
+        prompt_now = f"{prompt}{_RETRY_MARK} {_problems(problems)}. Answer again, fixing that."
 
 
 # ---- the evidence ------------------------------------------------------------------------------------------------
@@ -966,6 +1076,24 @@ def write_system(system: System, evidence: str, playbook: Playbook, transport: T
     return _ask_system(transport, system.name, playbook, "write_system", _write_prompt(system, shape, evidence),
                        {"step": "write", "plan_key": system.key, "images": listing}, images, system, shape, known,
                        tags=tags, ids=ids, sheets=sheets)
+
+
+def rewrite_for_count(system: System, evidence: str, playbook: Playbook, transport: Transport, *,
+                      tags: Sequence[str] = (), ids: Sequence[str] = ()) -> System:
+    """Ask again only because a family count changed. Devices already on the system are kept by content and id.
+
+    The prompt names those devices by their words, not as a list of ids to delete. A device decision does not
+    come here: the run applies it and does not ask the writer again."""
+    shape = _shape(system, playbook)
+    images, listing = _pictures(evidence)
+    known = ai_evidence.cited_ids(evidence) | _ref_ids(ai_evidence.system_refs(system))
+    kept = "\n".join(f"- {device.name} ({device.slot})" for device in system.devices)
+    prompt = (_write_prompt(system, shape, evidence)
+              + "\n\nThe estimator changed a count. Keep every device already written. Do not drop one and do not "
+              + "add a replacement.\n" + kept)
+    return _ask_system(transport, system.name, playbook, "write_system", prompt,
+                       {"step": "decide", "plan_key": system.key, "images": listing}, images, system, shape, known,
+                       system.devices, system.devices, tags=tags, ids=ids)
 
 
 def _ask_system(transport, name: str, playbook: Playbook, step: str, prompt: str, extra: dict,

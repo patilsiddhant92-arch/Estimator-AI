@@ -48,6 +48,16 @@ def test_a_request_whose_answer_was_rejected_is_listed_and_its_answer_removed(tm
     assert not answer.exists() and attempts == {"a": 1} and waiting[0]["attempts"] == 1
 
 
+def test_a_stop_names_the_decisions_stage():
+    sys.path.insert(0, "tools")
+    from run_job import stage_of
+
+    assert stage_of("Stopped at the decisions step.") == "decisions"
+    assert stage_of("Waiting: 2 request(s) at the write step.") == "write"
+    text = Path("docs/superpowers/specs/2026-10-04-rebuild-interfaces.md").read_text(encoding="utf-8")
+    assert "decisions" in text and "exits 0 when done, 2 when requests are waiting, and 1 when" in text
+
+
 def test_the_skill_stops_when_nothing_waits_and_no_proposal_was_written():
     text = Path(".claude/skills/run-job/SKILL.md").read_text(encoding="utf-8")
     assert "no waiting requests and no proposal: report the last summary and stop" in text

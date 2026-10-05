@@ -54,10 +54,14 @@ def main(argv=None) -> int:
     target = folder / (args.branch.replace("/", "-") + ".diff")
     target.write_text(text, encoding="utf-8")
     with tempfile.TemporaryDirectory() as empty:
-        run = subprocess.run(
-            [str(GROK), "-p", PROMPT.format(diff=target), "--max-turns", str(args.turns), "--sandbox", "read-only",
-             "--output-format", "plain"],
-            cwd=empty, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=args.timeout)
+        try:
+            run = subprocess.run(
+                [str(GROK), "-p", PROMPT.format(diff=target), "--max-turns", str(args.turns), "--sandbox", "read-only",
+                 "--output-format", "plain"],
+                cwd=empty, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=args.timeout)
+        except subprocess.TimeoutExpired:
+            print("The review did not finish in time.", file=sys.stderr)
+            return 2
     print(run.stdout.strip() or run.stderr.strip())
     return run.returncode
 

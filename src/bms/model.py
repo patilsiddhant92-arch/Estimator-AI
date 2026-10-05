@@ -257,6 +257,7 @@ class Decision(_Model):
     count: Count | None = None
     finding_rule: str | None = None
     reason: str = ""
+    was: Device | None = None
 
 
 MODEL_CLASSES = (Ref, OtherCount, Count, Family, Assumption, Device, Clarification, Served, System, ScopeException,

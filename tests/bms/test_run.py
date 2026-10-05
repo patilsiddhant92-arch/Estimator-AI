@@ -194,25 +194,28 @@ def test_every_writer_is_given_the_tags_of_the_whole_job(job_folder, tmp_path, m
 
 
 def test_the_decision_rewrite_is_given_the_tags_of_the_whole_job(job_folder, tmp_path, monkeypatch):
-    """I2: the writer asked again for a system an estimator's decision changed gets every tag of the job too."""
+    """A family-count change asks the writer again, and that ask gets every tag of the job. A device edit does not."""
     from bms import ai, citations, run
     from bms.model import Job
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     out, cache = tmp_path / "out", tmp_path / "cache"
-    assert _reach(job_folder, out, cache, "write").stage == "write"
-    requests = sorted((cache / "judge-chat" / "requests").glob("*.json"))
-    changed = json.loads(requests[0].read_text(encoding="utf-8"))["plan_key"]
+    reached = _reach(job_folder, out, cache, "write")
+    assert reached.stage == "write"
+    saved = json.loads(reached.job_file.read_text(encoding="utf-8"))
+    system = next(item for item in saved["systems"] if item.get("families"))
+    changed, family = system["key"], system["families"][0]["name"]
     (out / "decisions.json").write_text(json.dumps([{
-        "system_key": changed, "action": "delete", "device_id": f"{changed}.d1", "reason": "invented",
+        "system_key": changed, "action": "change", "family_name": family,
+        "count": {"value": 99, "sources": [], "others": []}, "reason": "invented",
     }]), encoding="utf-8")
     assert answer_all(cache)
-    real, seen = ai.write_system, []
+    real, seen = ai.rewrite_for_count, []
 
     def spy(system, evidence, playbook, transport, **kw):
-        if "The estimator's decisions" in evidence:
+        if "The estimator's count decisions" in evidence:
             seen.append(kw.get("tags"))
         return real(system, evidence, playbook, transport, **kw)
-    monkeypatch.setattr(run.ai, "write_system", spy)
+    monkeypatch.setattr(run.ai, "rewrite_for_count", spy)
     result = estimate(job_folder, out, cache, "chat")
     job = Job.from_json(result.job_file.read_text(encoding="utf-8"))
     assert seen and all(tags == tuple(citations.job_tags(job)) and tags for tags in seen), seen
@@ -277,17 +280,20 @@ def test_the_decision_rewrite_and_the_revise_are_given_the_source_ids_of_the_who
     from bms.model import Finding, Job
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     out, cache = tmp_path / "out", tmp_path / "cache"
-    assert _reach(job_folder, out, cache, "write").stage == "write"
-    requests = sorted((cache / "judge-chat" / "requests").glob("*.json"))
-    changed = json.loads(requests[0].read_text(encoding="utf-8"))["plan_key"]
+    reached = _reach(job_folder, out, cache, "write")
+    assert reached.stage == "write"
+    saved = json.loads(reached.job_file.read_text(encoding="utf-8"))
+    system = next(item for item in saved["systems"] if item.get("families"))
+    changed, family = system["key"], system["families"][0]["name"]
     (out / "decisions.json").write_text(json.dumps([{
-        "system_key": changed, "action": "delete", "device_id": f"{changed}.d1", "reason": "invented",
+        "system_key": changed, "action": "change", "family_name": family,
+        "count": {"value": 99, "sources": [], "others": []}, "reason": "invented",
     }]), encoding="utf-8")
     assert answer_all(cache)
-    real, rewritten, revised = ai.write_system, [], []
+    real, rewritten, revised = ai.rewrite_for_count, [], []
 
     def spy(system, evidence, playbook, transport, **kw):
-        if "The estimator's decisions" in evidence:
+        if "The estimator's count decisions" in evidence:
             rewritten.append(kw.get("ids"))
         return real(system, evidence, playbook, transport, **kw)
 
@@ -298,7 +304,7 @@ def test_the_decision_rewrite_and_the_revise_are_given_the_source_ids_of_the_who
     def must_fix(job, playbook):
         return [Finding("Every line cites this job", s.key, None, "must_fix", "invented", "invented")
                 for s in job.systems[:1]]
-    monkeypatch.setattr(run.ai, "write_system", spy)
+    monkeypatch.setattr(run.ai, "rewrite_for_count", spy)
     monkeypatch.setattr(run.ai, "revise_system", revise_spy)
     monkeypatch.setattr(run, "validate", must_fix)
     result = _reach(job_folder, out, cache, "never")
@@ -356,11 +362,14 @@ def test_a_killed_write_resumes_from_cached_answers_without_asking_again(job_fol
     requests = sorted(folder.glob("*.json"))
     assert requests and {json.loads(p.read_text(encoding="utf-8"))["kind"] for p in requests} == {"write_system"}
     saved = {p.name: p.read_bytes() for p in requests}
+    stamped = {p.name: p.stat().st_mtime_ns for p in requests}
 
     # killed after the requests were written, before any answer: the same files, not a second ask
     resumed = estimate(job_folder, out, cache, "chat")
     assert resumed.status == "waiting" and resumed.stage == "write"
     assert {p.name: p.read_bytes() for p in folder.glob("*.json")} == saved
+    assert {p.name: p.stat().st_mtime_ns for p in folder.glob("*.json")} == stamped
+    assert not any(p.name in saved for p in (folder / "old").glob("*.json"))
 
     # those answers are now cached, but a kill left the request files behind: resume must drop them
     for path in folder.glob("*.json"):
@@ -373,7 +382,7 @@ def test_a_killed_write_resumes_from_cached_answers_without_asking_again(job_fol
     for name, payload in saved.items():
         (folder / name).write_bytes(payload)
     estimate(job_folder, out, cache, "chat")
-    assert not any(p.name in saved for p in folder.glob("*.json"))
+    assert not any(p.name in saved for p in folder.rglob("*.json"))
 
 
 def test_a_malformed_decisions_file_stops_with_a_plain_message(job_folder, tmp_path, monkeypatch):
@@ -387,7 +396,27 @@ def test_a_malformed_decisions_file_stops_with_a_plain_message(job_folder, tmp_p
     assert result.proposal is None
 
 
-def test_a_rerun_asks_the_writer_again_only_for_the_system_a_decision_changed(job_folder, tmp_path, monkeypatch):
+def _plant(cache: Path, names_for: dict[str, tuple[str, ...]]) -> None:
+    """Answer every waiting request. A listed system gets those device names, in order, as d1, d2, ..."""
+    for path in sorted((cache / "judge-chat" / "requests").glob("*.json")):
+        request = json.loads(path.read_text(encoding="utf-8"))
+        answer = _answer(request)
+        key = request.get("plan_key")
+        if request.get("kind") == "write_system" and key in names_for:
+            base = dict(answer["devices"][0])
+            answer["devices"] = []
+            for number, name in enumerate(names_for[key], start=1):
+                device = dict(base)
+                device["id"] = f"{key}.d{number}"
+                device["name"] = name
+                answer["devices"].append(device)
+        dest = Path(request["answer_file"])
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_text(json.dumps(answer), encoding="utf-8")
+
+
+def test_a_device_decision_is_not_sent_back_to_the_writer(job_folder, tmp_path, monkeypatch):
+    """A delete is applied to the written device. The writer is not asked again, so it cannot put the line back."""
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     out, cache = tmp_path / "out", tmp_path / "cache"
     assert _reach(job_folder, out, cache, "write").stage == "write"
@@ -398,11 +427,159 @@ def test_a_rerun_asks_the_writer_again_only_for_the_system_a_decision_changed(jo
     }]), encoding="utf-8")
     assert answer_all(cache)
     result = estimate(job_folder, out, cache, "chat")
-    assert result.status == "waiting"
+    assert result.stage == "qc"
     fresh = [json.loads(p.read_text(encoding="utf-8"))
              for p in (cache / "judge-chat" / "requests").glob("*.json")]
-    assert [r.get("plan_key") for r in fresh] == [changed]
-    assert fresh[0]["step"] == "write" and "estimator" in fresh[0]["prompt"].lower()
+    assert all(item.get("kind") != "write_system" for item in fresh)
+    saved = json.loads(result.job_file.read_text(encoding="utf-8"))
+    system = next(item for item in saved["systems"] if item["key"] == changed)
+    assert system["devices"] == []
+
+
+def test_deleting_the_damper_keeps_the_start_stop_when_the_writer_would_renumber(job_folder, tmp_path, monkeypatch):
+    """The written devices are Controller, Start Stop, Damper Actuator. The estimator deletes the damper.
+    If the writer were asked again it would number the damper d2 and drop the start/stop. The damper is the
+    device that ends up gone."""
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    out, cache = tmp_path / "out", tmp_path / "cache"
+    assert _reach(job_folder, out, cache, "write").stage == "write"
+    requests = sorted((cache / "judge-chat" / "requests").glob("*.json"))
+    changed = json.loads(requests[0].read_text(encoding="utf-8"))["plan_key"]
+    (out / "decisions.json").write_text(json.dumps([{
+        "system_key": changed, "action": "delete", "device_id": f"{changed}.d3", "reason": "invented",
+    }]), encoding="utf-8")
+    _plant(cache, {changed: ("Controller", "Start Stop", "Damper Actuator")})
+    result = estimate(job_folder, out, cache, "chat")
+    if result.stage == "write":
+        _plant(cache, {changed: ("Controller", "Damper Actuator")})
+        result = estimate(job_folder, out, cache, "chat")
+    saved = json.loads(result.job_file.read_text(encoding="utf-8"))
+    system = next(item for item in saved["systems"] if item["key"] == changed)
+    names = [device["name"] for device in system["devices"]]
+    assert names == ["Controller", "Start Stop"]
+    assert names.count("Damper Actuator") == 0 and len(names) == len(set(names))
+
+
+def test_an_accepted_quantity_flag_stays_cleared_on_the_rerun(job_folder, tmp_path, monkeypatch):
+    """An estimator accepts a quantity flag. On re-running, the device flag remains 'none'."""
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    out, cache = tmp_path / "out", tmp_path / "cache"
+    assert _reach(job_folder, out, cache, "write").stage == "write"
+    requests = sorted((cache / "judge-chat" / "requests").glob("*.json"))
+    changed = json.loads(requests[0].read_text(encoding="utf-8"))["plan_key"]
+    _plant(cache, {changed: ("Controller", "Start Stop")})
+    (out / "decisions.json").write_text(json.dumps([{
+        "system_key": changed, "action": "accept", "device_id": f"{changed}.d1", "reason": "invented",
+    }]), encoding="utf-8")
+    result = estimate(job_folder, out, cache, "chat")
+    saved = json.loads(result.job_file.read_text(encoding="utf-8"))
+    system = next(item for item in saved["systems"] if item["key"] == changed)
+    assert system["devices"][0]["flag"] == "none"
+
+
+def test_a_delete_made_on_a_revised_page_removes_the_line_shown_on_the_page(job_folder, tmp_path, monkeypatch):
+    """The review page showed the Damper as d2 with was snapshot.
+    Deleting it removes the Damper from the first-write job even though Damper was d3 there."""
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    out, cache = tmp_path / "out", tmp_path / "cache"
+    assert _reach(job_folder, out, cache, "write").stage == "write"
+    requests = sorted((cache / "judge-chat" / "requests").glob("*.json"))
+    changed = json.loads(requests[0].read_text(encoding="utf-8"))["plan_key"]
+    _plant(cache, {changed: ("Controller", "Start Stop", "Damper Actuator")})
+    answer_path = Path(json.loads(requests[0].read_text(encoding="utf-8"))["answer_file"])
+    planted = json.loads(answer_path.read_text(encoding="utf-8"))
+    damper = next(d for d in planted["devices"] if d["name"] == "Damper Actuator")
+    damper_was = dict(damper)
+    damper_was["id"] = f"{changed}.d2"  # as shown on the revised review page
+    (out / "decisions.json").write_text(json.dumps([{
+        "system_key": changed, "action": "delete", "device_id": f"{changed}.d2", "was": damper_was, "reason": "invented",
+    }]), encoding="utf-8")
+    result = estimate(job_folder, out, cache, "chat")
+    saved = json.loads(result.job_file.read_text(encoding="utf-8"))
+    system = next(item for item in saved["systems"] if item["key"] == changed)
+    names = [device["name"] for device in system["devices"]]
+    assert names == ["Controller", "Start Stop"]
+
+
+def test_a_device_delete_stays_honored_because_the_writer_is_not_asked(job_folder, tmp_path, monkeypatch):
+    """The deleted line does not come back, and the review page does not call the decision unhonored."""
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    out, cache = tmp_path / "out", tmp_path / "cache"
+    assert _reach(job_folder, out, cache, "write").stage == "write"
+    requests = sorted((cache / "judge-chat" / "requests").glob("*.json"))
+    changed = json.loads(requests[0].read_text(encoding="utf-8"))["plan_key"]
+    (out / "decisions.json").write_text(json.dumps([{
+        "system_key": changed, "action": "delete", "device_id": f"{changed}.d1", "reason": "invented",
+    }]), encoding="utf-8")
+    result = None
+    for _ in range(25):
+        assert answer_all(cache)
+        result = estimate(job_folder, out, cache, "chat")
+        if result.status == "done":
+            break
+    assert result is not None and result.status == "done", result
+    assert not any(finding.what.startswith("decision not honored") for finding in result.findings)
+    saved = json.loads(result.job_file.read_text(encoding="utf-8"))
+    system = next(item for item in saved["systems"] if item["key"] == changed)
+    assert system["devices"] == []
+
+
+def _reworded_damper_run(job_folder, tmp_path, monkeypatch):
+    """A run to done where QC's must_fix makes the revise re-word the damper line, as the review page then shows it.
+    Returns (out, cache, system key, the damper as shown on the page)."""
+    import dataclasses
+
+    from bms import ai, run
+    from bms.model import Finding
+
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    out, cache = tmp_path / "out", tmp_path / "cache"
+    assert _reach(job_folder, out, cache, "write").stage == "write"
+    requests = sorted((cache / "judge-chat" / "requests").glob("*.json"))
+    key = json.loads(requests[0].read_text(encoding="utf-8"))["plan_key"]
+    _plant(cache, {key: ("Controller", "Start Stop", "Damper Actuator")})
+    real_validate = run.validate
+    monkeypatch.setattr(run, "validate", lambda job, playbook: [*real_validate(job, playbook), Finding(
+        "Every line cites this job", key, None, "must_fix", "invented must_fix", "invented fix")])
+
+    def reword(system, findings, evidence, playbook, transport, **kw):   # stands for the cached revise answer
+        return dataclasses.replace(system, devices=tuple(
+            dataclasses.replace(d, name="Damper Actuator, motorized") if d.name == "Damper Actuator" else d
+            for d in system.devices))
+    monkeypatch.setattr(ai, "revise_system", reword)
+    first = _reach(job_folder, out, cache, "done")
+    assert first.status == "done"
+    shown = next(s for s in json.loads(first.job_file.read_text(encoding="utf-8"))["systems"] if s["key"] == key)
+    return out, cache, key, next(d for d in shown["devices"] if d["name"] == "Damper Actuator, motorized")
+
+
+def test_a_delete_of_a_line_the_revise_reworded_removes_that_line(job_folder, tmp_path, monkeypatch):
+    """The estimator deletes the line as the review page showed it, after the revise re-worded it. The next run
+    applies the delete to the revised job too, so the line is gone and nothing is reported."""
+    out, cache, key, damper = _reworded_damper_run(job_folder, tmp_path, monkeypatch)
+    (out / "decisions.json").write_text(json.dumps([{
+        "system_key": key, "action": "delete", "device_id": damper["id"], "was": damper,
+        "reason": "invented"}]), encoding="utf-8")
+    again = _reach(job_folder, out, cache, "done")
+    assert again.status == "done"
+    final = next(s for s in json.loads(again.job_file.read_text(encoding="utf-8"))["systems"] if s["key"] == key)
+    assert [d["name"] for d in final["devices"]] == ["Controller", "Start Stop"]
+    assert not [f for f in again.findings if f.rule == "decision not honored"]
+
+
+def test_a_decision_on_a_line_no_run_has_shows_on_the_review_page(job_folder, tmp_path, monkeypatch):
+    """A saved change names a line that neither the write nor the revise has (the answers changed since the page
+    was made). The run cannot apply it, and the review page says so."""
+    out, cache, key, damper = _reworded_damper_run(job_folder, tmp_path, monkeypatch)
+    stale = dict(damper, name="Damper Actuator, as an older run wrote it")
+    (out / "decisions.json").write_text(json.dumps([{
+        "system_key": key, "action": "change", "device_id": damper["id"], "was": stale,
+        "device": dict(stale, name="Damper Actuator, edited"), "reason": "invented"}]), encoding="utf-8")
+    again = _reach(job_folder, out, cache, "done")
+    assert again.status == "done"
+    assert [f.what for f in again.findings if f.rule == "decision not honored"] == [
+        f"decision could not be applied: change {damper['id']}"]
+    assert "decision could not be applied" in again.review.read_text(encoding="utf-8")
 
 
 def test_a_qc_must_fix_the_revise_left_as_it_was_stays_open():
@@ -419,6 +596,25 @@ def test_a_qc_must_fix_the_revise_left_as_it_was_stays_open():
     assert _untouched(on("EF.d2"), job, changed) and not _untouched(on("EF.d1"), job, changed)
     assert not _untouched(on(None), job, changed) and _untouched(on(None, "RTU"), job, changed)
     assert _untouched(on(None, ""), job, changed)
+
+
+def test_revised_keeps_accepted_decisions_without_index_error(monkeypatch):
+    import dataclasses
+    from bms.model import Decision, Job
+    from bms.run import _revised
+    from bms.playbook import load_playbook
+    import bms.ai as ai
+
+    job = Job.from_dict(json.loads((TESTS / "bms" / "fixtures" / "sample_job.json").read_text(encoding="utf-8")))
+    ef = job.system("EF")
+    pb = load_playbook()
+    monkeypatch.setattr(ai, "revise_system", lambda system, findings, evidence, playbook, transport, **kwargs:
+                        dataclasses.replace(system, devices=tuple(
+                            dataclasses.replace(d, flag="quantity") if d.id == "EF.d1" else d for d in system.devices)))
+    decisions = [Decision("EF", "accept", device_id="EF.d1")]
+    res = _revised(ef, [], "", pb, None, job=job, decisions=decisions)
+    assert res.key == "EF"
+    assert next(d for d in res.devices if d.id == "EF.d1").flag == "none"
 
 
 # ---- API mode end to end (TASK-005) ----------------------------------------------------------------------------------

@@ -5,8 +5,10 @@ from __future__ import annotations
 import copy
 import dataclasses
 import json
+import os
 import re
 import sys
+import time
 from pathlib import Path
 
 import pytest
@@ -744,8 +746,15 @@ def test_write_system_through_the_chat_rejects_and_asks_again(job, raw, dossier,
     assert len(written.devices) == 3 and not request_file.exists()
 
 
+def _stamp(path: Path, seconds: int) -> None:
+    """Put the file's mtime `seconds` ahead of the clock, past any request written during this test."""
+    mtime = time.time_ns() + seconds * 1_000_000_000
+    os.utime(path, ns=(mtime, mtime))
+
+
 def test_a_check_refusal_stops_after_max_attempts_and_names_the_request(job, raw, dossier, playbook, tmp_path):
-    """Three refused answers (the repo's max_attempts) stop the run. The message names the request."""
+    """Three newer refused answers (the repo's max_attempts) stop the run. The message names the request.
+    The same answer file is not read again: a re-run waits, and a newer good answer is accepted."""
     system = skeleton(job.system("EF"))
     evidence = ai.evidence_for(system, dossier)
     cache = tmp_path / "cache"
@@ -755,15 +764,175 @@ def test_a_check_refusal_stops_after_max_attempts_and_names_the_request(job, raw
     answer = Path(json.loads(request_file.read_text(encoding="utf-8"))["answer_file"])
     answer.parent.mkdir(parents=True, exist_ok=True)
     answer.write_text(json.dumps(_bad(raw, lambda a: a["devices"][0].update(slot="gadget"))), encoding="utf-8")
-    for _ in range(2):
+    _stamp(answer, 10)
+    for seconds in (20, 30):
         with pytest.raises(ai.NoAnswer) as refused:
             ai.write_system(system, evidence, playbook, ai.ChatTransport(cache, job="00-0000"))
         assert refused.value.waiting
+        _stamp(answer, seconds)
     with pytest.raises(ai.NoAnswer) as stopped:
         ai.write_system(system, evidence, playbook, ai.ChatTransport(cache, job="00-0000"))
     assert not stopped.value.waiting
     assert "Stopped" in stopped.value.reason and "Exhaust Fans" in stopped.value.reason
     assert list((cache / "judge-chat" / "requests").glob("*.json")) == []
+
+    with pytest.raises(ai.NoAnswer) as waiting:
+        ai.write_system(system, evidence, playbook, ai.ChatTransport(cache, job="00-0000"))
+    assert waiting.value.waiting and "Stopped" not in waiting.value.reason
+    assert list((cache / "judge-chat" / "requests").glob("*.json"))
+
+    answer.write_text(json.dumps(raw["systems"][1]), encoding="utf-8")
+    _stamp(answer, 40)
+    written = ai.write_system(system, evidence, playbook, ai.ChatTransport(cache, job="00-0000"))
+    assert len(written.devices) == 3
+
+
+def test_revise_source_id_refusal_is_actionable_and_stops_at_three(job, raw, dossier, playbook, tmp_path):
+    """From Luna's review (luna/review-006 0d11239), unchanged: after the stop the API is not called a fourth time."""
+    system = job.system("EF")
+    bad = _bad(raw, lambda a: a["devices"][2].update(name="Motorized damper S999"))
+    client = FakeClient(*(_Response(json.dumps(bad)) for _ in range(4)))
+    transport = ai.ApiTransport(tmp_path, model="claude-test", client=client)
+    finding = Finding("Every line cites this job", "EF", "EF.d3", "must_fix", "missing detail",
+                      "name the document in words")
+    args = (system, [finding], ai.evidence_for(system, dossier), playbook, transport)
+
+    with pytest.raises(ai.NoAnswer) as retry:
+        ai.revise_system(*args, ids=("S999",))
+    assert len(client.calls) == 2
+    retry_prompt = client.calls[1]["messages"][0]["content"][0]["text"]
+    assert "S999" in retry_prompt and "name the document in words" in retry_prompt
+
+    with pytest.raises(ai.NoAnswer) as stopped:
+        ai.revise_system(*args, ids=("S999",))
+    assert len(client.calls) == 3
+    assert not stopped.value.waiting
+    assert "Stopped" in stopped.value.reason and "Exhaust Fans (revise)" in stopped.value.reason
+    assert "3 times" in stopped.value.reason and "S999" in stopped.value.reason
+
+    with pytest.raises(ai.NoAnswer) as still_stopped:
+        ai.revise_system(*args, ids=("S999",))
+    assert len(client.calls) == 3
+    assert "Stopped" in still_stopped.value.reason and "3 times" in still_stopped.value.reason
+
+
+def test_a_new_api_transport_after_the_stop_does_not_call_again(job, raw, dossier, playbook, tmp_path):
+    """The count is saved: a later run (a new transport on the same cache) is stopped before it calls."""
+    system = skeleton(job.system("EF"))
+    bad = _bad(raw, lambda a: a["devices"][0].update(slot="gadget"))
+    client = FakeClient(*(_Response(json.dumps(bad)) for _ in range(5)))
+    evidence = ai.evidence_for(system, dossier)
+    for _ in range(2):
+        with pytest.raises(ai.NoAnswer):
+            ai.write_system(system, evidence, playbook, ai.ApiTransport(tmp_path, model="claude-test", client=client))
+    assert len(client.calls) == 3
+    with pytest.raises(ai.NoAnswer) as again:
+        ai.write_system(system, evidence, playbook, ai.ApiTransport(tmp_path, model="claude-test", client=client))
+    assert len(client.calls) == 3
+    assert not again.value.waiting and "Stopped" in again.value.reason and "3 times" in again.value.reason
+
+
+def test_a_chat_rerun_after_the_stop_with_the_same_refused_answer_records_no_new_refusal(job, raw, dossier,
+                                                                                          playbook, tmp_path):
+    """Chat waits again after a stop (by design: a newer answer starts a fresh count). The refused answer put
+    back with its old time is not read again, so the counter stays at the cap."""
+    system = skeleton(job.system("EF"))
+    evidence = ai.evidence_for(system, dossier)
+    cache = tmp_path / "cache"
+    with pytest.raises(ai.NoAnswer):
+        ai.write_system(system, evidence, playbook, ai.ChatTransport(cache, job="00-0000"))
+    (request_file,) = (cache / "judge-chat" / "requests").glob("*.json")
+    answer = Path(json.loads(request_file.read_text(encoding="utf-8"))["answer_file"])
+    answer.parent.mkdir(parents=True, exist_ok=True)
+    text = json.dumps(_bad(raw, lambda a: a["devices"][0].update(slot="gadget")))
+    stopped = None
+    for seconds in (10, 20, 30):
+        answer.write_text(text, encoding="utf-8")
+        _stamp(answer, seconds)
+        with pytest.raises(ai.NoAnswer) as stopped:
+            ai.write_system(system, evidence, playbook, ai.ChatTransport(cache, job="00-0000"))
+    assert stopped is not None and not stopped.value.waiting
+    (counter,) = (cache / "judge" / "attempts").glob("*.json")
+    saved = json.loads(counter.read_text(encoding="utf-8"))
+    assert saved["attempts"] == 3
+    answer.write_text(text, encoding="utf-8")
+    os.utime(answer, ns=(saved["answer_mtime_ns"], saved["answer_mtime_ns"]))
+    with pytest.raises(ai.NoAnswer) as waiting:
+        ai.write_system(system, evidence, playbook, ai.ChatTransport(cache, job="00-0000"))
+    assert waiting.value.waiting
+    assert json.loads(counter.read_text(encoding="utf-8"))["attempts"] == 3
+
+
+def test_a_second_prompt_keeps_its_refusal_count_when_the_first_succeeds(job, raw, dossier, playbook, tmp_path):
+    """The first write and a later prompt do not share a counter. A success must not wipe the other count.
+    A stop names the counter file, and the stale answer file is removed."""
+    system = skeleton(job.system("EF"))
+    evidence = ai.evidence_for(system, dossier)
+    cache = tmp_path / "cache"
+    chat = ai.ChatTransport(cache, job="00-0000")
+    with pytest.raises(ai.NoAnswer):
+        ai.write_system(system, evidence, playbook, chat)
+    (request_file,) = (cache / "judge-chat" / "requests").glob("*.json")
+    answer = Path(json.loads(request_file.read_text(encoding="utf-8"))["answer_file"])
+    answer.parent.mkdir(parents=True, exist_ok=True)
+    answer.write_text(json.dumps(_bad(raw, lambda a: a["devices"][0].update(slot="gadget"))), encoding="utf-8")
+    _stamp(answer, 10)
+    with pytest.raises(ai.NoAnswer):
+        ai.write_system(system, evidence, playbook, ai.ChatTransport(cache, job="00-0000"))
+    (counter,) = (cache / "judge" / "attempts").glob("*.json")
+    assert json.loads(counter.read_text(encoding="utf-8"))["attempts"] == 1
+
+    other = evidence + "\nA later invented sentence."
+    with pytest.raises(ai.NoAnswer):
+        ai.write_system(system, other, playbook, ai.ChatTransport(cache, job="00-0000"))
+    other_request = next(path for path in (cache / "judge-chat" / "requests").glob("*.json")
+                         if "later invented" in path.read_text(encoding="utf-8"))
+    other_answer = Path(json.loads(other_request.read_text(encoding="utf-8"))["answer_file"])
+    other_answer.parent.mkdir(parents=True, exist_ok=True)
+    other_answer.write_text(json.dumps(raw["systems"][1]), encoding="utf-8")
+    _stamp(other_answer, 20)
+    ai.write_system(system, other, playbook, ai.ChatTransport(cache, job="00-0000"))
+    assert counter.is_file() and json.loads(counter.read_text(encoding="utf-8"))["attempts"] == 1
+
+    stopped = None
+    for seconds in (30, 40, 50):
+        answer.write_text(json.dumps(_bad(raw, lambda a: a["devices"][0].update(slot="gadget"))), encoding="utf-8")
+        _stamp(answer, seconds)
+        with pytest.raises(ai.NoAnswer) as stopped:
+            ai.write_system(system, evidence, playbook, ai.ChatTransport(cache, job="00-0000"))
+        if not stopped.value.waiting:
+            break
+    assert stopped is not None and not stopped.value.waiting
+    assert "attempts" in stopped.value.reason and str(counter) in stopped.value.reason
+    assert not answer.exists()
+
+
+def test_a_locked_request_file_does_not_crash_a_cached_answer(job, raw, dossier, playbook, tmp_path, monkeypatch):
+    system = skeleton(job.system("EF"))
+    evidence = ai.evidence_for(system, dossier)
+    cache = tmp_path / "cache"
+    with pytest.raises(ai.NoAnswer):
+        ai.write_system(system, evidence, playbook, ai.ChatTransport(cache, job="00-0000"))
+    (request_file,) = (cache / "judge-chat" / "requests").glob("*.json")
+    answer = Path(json.loads(request_file.read_text(encoding="utf-8"))["answer_file"])
+    answer.parent.mkdir(parents=True, exist_ok=True)
+    answer.write_text(json.dumps(raw["systems"][1]), encoding="utf-8")
+    _stamp(answer, 10)
+    written = ai.write_system(system, evidence, playbook, ai.ChatTransport(cache, job="00-0000"))
+    assert len(written.devices) == 3
+
+    real = Path.unlink
+
+    def locked(self, *args, **kwargs):
+        if self.parent.name == "requests":
+            raise PermissionError("locked")
+        return real(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "unlink", locked)
+    (cache / "judge-chat" / "requests").mkdir(parents=True, exist_ok=True)
+    request_file.write_text("{}", encoding="utf-8")
+    again = ai.write_system(system, evidence, playbook, ai.ChatTransport(cache, job="00-0000"))
+    assert len(again.devices) == 3
 
 
 def test_the_api_stops_after_max_attempts_instead_of_calling_again(job, raw, dossier, playbook, tmp_path):
