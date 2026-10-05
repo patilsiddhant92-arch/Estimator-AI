@@ -45,11 +45,10 @@ _SHEET_BEFORE = re.compile(r"(?<![^\W_])(?:sheets?|dwgs?\.?)\s*$", re.IGNORECASE
 _JOIN = re.compile(r"\s*(?:,|and|or|to|through|thru|[-–—/‐‑])\s*", re.IGNORECASE)
 _WINDOW = 32                                      # how far back a sheet word is looked for
 _ZERO_WIDTH = frozenset("​‌‍⁠﻿­")
-_TAG_RANGE = re.compile(r"\b([SQIFC])-?(\d{1,4})\s*(?:-|–|\bthru\b|\bthrough\b|\bto\b)\s*(?:\1-?)?(\d{1,4})\b",
+# a range of plain ids in a tag ("F1-F4", "F1 thru 4"); a hyphen between the letter and the digits ("F-1 thru F-4")
+# is no plain id, so it is no range of them either
+_TAG_RANGE = re.compile(r"\b([SQIFC])(\d{1,4})\s*(?:-|–|\bthru\b|\bthrough\b|\bto\b)\s*(?:\1)?(\d{1,4})\b",
                         re.IGNORECASE)
-# an id-shaped part of a tag, the tag's own way of writing it: "S1", "S-1", "S_1A", "AHU_S12" (the letter starts the
-# tag or follows a separator, one dash or underscore may sit before the digits, and the part ends there)
-_TAG_PART = re.compile(r"(?<![^\W_])([SQIFC])[-_]?([0-9]{1,4}[A-Za-z]?)(?![^\W_])", re.IGNORECASE)
 MAX_RANGE = 500                                   # a tag range wider than this is not expanded
 TRADE = re.compile(r"\b(plumbing|electrical|mechanical|architectural|fire protection|civil|structural)\b",
                    re.IGNORECASE)
@@ -163,13 +162,15 @@ def ref_sheets(refs) -> frozenset[str]:
 
 
 def tag_tokens(tags: Iterable[str]) -> frozenset[str]:
-    """The id-shaped tokens the tags protect, upper case: each one named ("F1", "C2"; "S-1" and "S_1" as "S1",
-    "AHU_S12" as "S12") and each one a range covers ("F1-F4", "F1 thru 4": F1, F2, F3, F4). A part only: "EF-1"
-    protects no "F1", "S-12" no "S1", "AHU_S12X3" nothing."""
+    """The id-shaped tokens the tags protect, upper case: a tag is protected only in the form it is written. Each
+    token the scanner itself reads inside the tag ("F1", "C2", "AHU-S1" and "AHU_S12" as "S1" and "S12") and each one
+    a range of them covers ("F1-F4", "F1 thru 4": F1, F2, F3, F4). "S-1", "S_1A", "F-1 thru F-4", "EF-S-1" and
+    "AHU_S12X3" protect nothing: the scanner never reads a plain id out of them, and their plain forms are issued ids
+    of the job (facts F1, counts C1), never the tag."""
     out: set[str] = set()
     for tag in tags:
         tag = unicodedata.normalize("NFKC", str(tag or ""))
-        out |= {(letter + rest).upper() for letter, rest in _TAG_PART.findall(tag)}
+        out |= {match.group(0).upper() for match in _TOKEN.finditer(tag)}
         for found in _TAG_RANGE.finditer(tag):
             first, last = int(found.group(2)), int(found.group(3))
             if first <= last <= first + MAX_RANGE:

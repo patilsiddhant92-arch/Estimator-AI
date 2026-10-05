@@ -76,16 +76,26 @@ def _prints(printed: str, token: str) -> bool:
 # ---- hyphen and underscore tag forms -------------------------------------------------------------------------------
 
 @pytest.mark.parametrize("tag", ["S-12345", "XS-1", "1S-1", "S--1", "S__1", "S-1A2", "AHU_S12X3", "EF-1", "CS-1",
-                                 "S\u20101", "S\u20131", "S-\u200b1", "S\u00ad1"])
+                                 "S\u20101", "S\u20131", "S-\u200b1", "S\u00ad1",
+                                 # the estimator's ruling (lead/detector-fix3, R-2): a tag is protected only in the
+                                 # form it is written, so a hyphen or underscore between the letter and the digits
+                                 # protects no plain id
+                                 "s-1", "\uff33\uff0d\uff11", "Fan F-1/F-2", "S_1_2", "S-1.5", "S-1/2", "EF-S-1",
+                                 "F-1", "C-1", "Q-1", "I-1", "S_1A", "S-12", "S-1-2", "F-1 thru F-4", "C-1 to 4",
+                                 "S-0001"])
 def test_a_tag_form_that_is_no_plain_id_part_protects_nothing(tag):
-    """A longer number, a letter or digit glued in front, a doubled separator, a trailing digit-letter-digit, and a
-    unicode hyphen or dash (NFKC keeps it) never make a protected id."""
+    """A longer number, a letter or digit glued in front, a doubled separator, a trailing digit-letter-digit, a
+    unicode hyphen or dash (NFKC keeps it), and a hyphen or underscore between the letter and the digits (also in a
+    range) never make a protected id."""
     assert citations.tag_tokens([tag]) == frozenset(), tag
 
 
-@pytest.mark.parametrize("tag, protected", [("AHU-S1", {"S1"}), ("_S1", {"S1"}), ("s-1", {"S1"}),
-                                            ("\uff33\uff0d\uff11", {"S1"}), ("Fan F-1/F-2", {"F1", "F2"})])
+@pytest.mark.parametrize("tag, protected", [("AHU-S1", {"S1"}), ("_S1", {"S1"}), ("S1_", {"S1"}),
+                                            ("AHU_S12", {"S12"}), ("Fan F1/F2", {"F1", "F2"}),
+                                            ("F1 thru F-3", {"F1"})])
 def test_a_tag_part_after_a_separator_protects_its_plain_form(tag, protected):
+    """Only where the scanner itself reads the plain id inside the written tag ("AHU_S12": the underscore is a
+    boundary for the scanner)."""
     assert citations.tag_tokens([tag]) == frozenset(protected)
 
 

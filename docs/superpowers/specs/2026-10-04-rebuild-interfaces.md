@@ -224,7 +224,7 @@ revise_system(system: System, findings: Sequence[Finding], evidence: str, playbo
 # tags (optional): every tag of the job (bms.citations.job_tags); the run passes it so the intake never refuses a tag shaped like a source id
 # ids (optional): the source ids the intake refuses in client text; the run passes one set to every writer and the revise: every id of the job (bms.citations.job_ids) and of every system's evidence. A tag or a sheet number (after a sheet word, or named as a sheet by a planner's where) is never refused
 # (with the evidence's own ids). A source id in client text is detected and refused, never rewritten.
-# sheets (optional): the whole plan's sheet numbers (bms.citations.job_sheets: the wheres of the planner's refs, never a writer's device refs); the run computes it once and passes it to every writer, the decision rewrite and the revise, so intake, validator and render agree on a sheet another system's where names
+# sheets (optional): the whole plan's sheet numbers (bms.citations.job_sheets: the wheres of the planner's refs, never a writer's device refs); the run works it out per call from the job it writes into (a decision can take planner refs out) and passes it to every writer, the count rewrite (bms.ai.rewrite_for_count, which takes tags, ids and sheets the same way) and the revise, so intake, validator and render agree on a sheet another system's where names
 ```
 Chat hand-off (unchanged from the old Judge so `tools/run_job.py` and the `/run-job` skill drive it):
 request `<cache>/judge-chat/requests/<key>.json` with fields `key`, `kind`, `system` (the system name, or "QC"),
