@@ -65,6 +65,20 @@ def test_a_delete_saved_after_a_change_and_a_count_change_stays_deleted(job_fold
     assert not [f for f in third.findings if f.rule == "decision not honored" and f.severity == "must_fix"]
 
 
+def test_keep_deleted_takes_out_only_the_copies_the_delete_took(sample_job):
+    """Two identical lines, one deleted: a rewrite that writes both again keeps one; one that writes one keeps it."""
+    from bms.model import Decision
+    from bms.review import keep_deleted
+    line = sample_job.system("EF").devices[0]
+    twins = (replace(line, id="EF.d1"), replace(line, id="EF.d2"))
+    decided = sample_job.with_system(replace(sample_job.system("EF"), devices=twins[1:]))
+    delete = Decision("EF", "delete", device_id="EF.d1", was=twins[0])
+    again = replace(sample_job.system("EF"), devices=twins)
+    assert [d.id for d in keep_deleted(decided, again, [delete]).devices] == ["EF.d1"]
+    once = replace(sample_job.system("EF"), devices=twins[:1])
+    assert keep_deleted(decided, once, [delete]) == once
+
+
 # ---- F7: an estimator's change that prints an issued id -------------------------------------------------------------
 
 def test_a_change_printing_an_issued_id_is_kept_as_written_and_names_the_id(job_folder, tmp_path, monkeypatch):
