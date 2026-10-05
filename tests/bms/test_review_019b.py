@@ -103,6 +103,7 @@ def test_a_family_accept_with_an_assumed_counted_line_gives_no_must_fix_through_
         if result.status == "done":
             break
     assert result.status == "done"
+    # the finding is this last assert (seen with --runxfail): "decision not honored: accept Variable Air Volume Box"
     assert not [f.what for f in result.findings if f.rule == "decision not honored"]
 
 
