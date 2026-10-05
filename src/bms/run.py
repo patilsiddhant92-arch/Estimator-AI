@@ -23,13 +23,16 @@ a later save never undoes an earlier one in silence. An earlier delete that took
 any more makes no card while its system is as the last finished run left it; when the system changed since (it
 was asked again), it is a should_fix "check this system" card, since the line may have come back re-worded. An
 earlier change or accept that matches nothing keeps its "could not be applied" card. A malformed decisions.json
-stops the run with a plain message. Every output goes under `out`
+stops the run with a plain message. The run's very last act is a small `run state.json` in `out` (how it ended:
+status, stage, how many requests wait, its plain messages), written whole or not at all; `python -m bms status`
+trusts it only while no ledger or job is newer, and a run that crashes leaves none. Every output goes under `out`
 (NDA: never the repo). Prints "Wrote <path>" per file, as the old app does (tools/run_job.py reads those lines).
 """
 from __future__ import annotations
 
 import dataclasses
 import datetime as dt
+import json
 import os
 from dataclasses import dataclass
 from pathlib import Path
@@ -53,6 +56,7 @@ from bms.model import Decision, Finding, Header, Job, ModelError
 from bms.plan import plan_job
 from bms.playbook import load_playbook
 from bms.render import render
+from bms.status import RUN_STATE
 from bms.review import (DECISIONS_FILE, DECISIONS_HISTORY, SavedDecision, _matches_nothing, accept_families,
                         apply_decisions, apply_seen, copies_seen, held_back, load_decisions, load_history, merge_decisions,
                         review_page, save_history, system_digest, unhonored_decisions)
@@ -200,13 +204,37 @@ def _untouched(finding: Finding, before: Job, after: Job) -> bool:
     return device is not None and device == {d.id: d for d in old.devices}.get(finding.device_id)
 
 
+def _save_run_state(out: Path, result: RunResult) -> None:
+    """How the run ended, for `python -m bms status`: written whole (a temporary name, then swapped in) as the run's
+    last act. One that cannot be written only leaves status saying the run has not finished."""
+    state = {"version": 1, "status": result.status, "stage": result.stage, "waiting": result.waiting,
+             "messages": [str(m) for m in result.messages]}
+    path = out / RUN_STATE
+    tmp = path.with_name(path.name + ".tmp")
+    try:
+        tmp.write_text(json.dumps(state, ensure_ascii=False, indent=1), encoding="utf-8")
+        os.replace(tmp, path)
+    except OSError:
+        try:
+            tmp.unlink(missing_ok=True)
+        except OSError:
+            pass
+
+
 def estimate(job_folder: Path, out: Path, cache: Path, mode: Mode = "chat") -> RunResult:
     """Run the rebuilt estimate on one job folder. `cache` is where reading is kept and where the chat requests go
-    (`cache/judge-chat`); `mode` "chat" or "api" for every AI question (the reading passes too)."""
+    (`cache/judge-chat`); `mode` "chat" or "api" for every AI question (the reading passes too). However the run
+    ends (done, waiting or stopped), its last act is `out/run state.json`."""
     if mode not in MODES:
         raise ValueError(f"the mode must be chat or api, not {mode!r}")
     job_folder, out, cache = Path(job_folder), Path(out), Path(cache)
     out.mkdir(parents=True, exist_ok=True)
+    result = _estimate(job_folder, out, cache, mode)
+    _save_run_state(out, result)
+    return result
+
+
+def _estimate(job_folder: Path, out: Path, cache: Path, mode: Mode) -> RunResult:
 
     # 1. read: catalogue, reading, dossier, the ledger's staged passes (old app, unchanged)
     catalogue = catalogue_job(job_folder, cache, _workers())

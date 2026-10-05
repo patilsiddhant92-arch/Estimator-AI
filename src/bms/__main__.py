@@ -14,9 +14,12 @@ run from); prints each problem in plain words and exits 1, or says it is clean a
 doctor: checks Python environment, dependencies, configured models, Playbook, and cache folder writability; prints
 diagnostic messages in plain words and exits 0 if all checks pass or 1 on error.
 
-status: says, in plain words, how far a run got, from the files it already wrote. It does not call the AI.
+status: says, in plain words, how far the run in OUT got, from the files it already wrote; it never calls the AI and
+writes nothing. Exits as estimate does: 0 done, 2 waiting for answers, 1 stopped, not finished, no folder or no run.
+It may be run while an estimate is running: what it shows may then be a moment old.
 
-Each subcommand is one entry in COMMANDS (name -> function of the parsed arguments, returning the exit code).
+Each subcommand is one entry in COMMANDS (name -> function of the parsed arguments, returning the exit code). The
+heavy imports are inside each entry, so status (and playbook-lint) work even when the estimate stack cannot import.
 """
 from __future__ import annotations
 
@@ -27,8 +30,8 @@ from typing import Callable
 
 from bms.playbook import DEFAULT_ROOT
 from bms.playbook_lint import lint_playbook, referenced_rule_names
-from bms.run import MODES, estimate
-from bms.status import report as status_report
+
+MODES = ("chat", "api")             # bms.run.MODES, kept here so the parser does not import the estimate stack
 
 
 def parser() -> argparse.ArgumentParser:
@@ -47,14 +50,24 @@ def parser() -> argparse.ArgumentParser:
     d.add_argument("--cache", type=Path, default=None, help="cache directory to check (default: system temp / bms_cache)")
     d.add_argument("--playbook", type=Path, default=None, help="playbook directory to check (default: repo playbook/)")
     d.add_argument("--config", type=Path, default=None, help="configuration file to check (default: repo .claude/run-job.json)")
-    s = commands.add_parser("status", help="say, in plain words, how far a run got, from the files it already wrote")
+    s = commands.add_parser(
+        "status", help="say, in plain words, how far a run got, from the files it already wrote",
+        description="Say, in plain words, how far the run in OUT got, from the files it already wrote. It never "
+                    "calls the AI and writes nothing. Exits 0 when done, 2 when requests wait for answers, and 1 "
+                    "when the run stopped or has not finished, or there is no folder or no run. It may be run "
+                    "while an estimate is running; what it shows may then be a moment old.")
     s.add_argument("out", type=Path, help="the output folder")
     s.add_argument("--cache", type=Path, help="where reading and chat requests are (default: OUT/.cache)")
     return p
 
 
+def _cache(args: argparse.Namespace) -> Path:
+    return args.cache or args.out / ".cache"
+
+
 def _estimate(args: argparse.Namespace) -> int:
-    result = estimate(args.job, args.out, args.cache or args.out / ".cache", args.mode)
+    from bms.run import estimate
+    result = estimate(args.job, args.out, _cache(args), args.mode)
     for line in result.messages:
         print(line)
     if result.status == "waiting":
@@ -86,9 +99,11 @@ def _doctor(args: argparse.Namespace) -> int:
 
 
 def _status(args: argparse.Namespace) -> int:
-    for line in status_report(args.out, args.cache or args.out / ".cache"):
+    from bms.status import check
+    found = check(args.out, _cache(args))
+    for line in found.lines:
         print(line)
-    return 0
+    return found.code
 
 
 COMMANDS: dict[str, Callable[[argparse.Namespace], int]] = {
