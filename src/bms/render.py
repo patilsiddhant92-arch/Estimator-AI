@@ -217,13 +217,13 @@ _COUNT_LABELS = (
 
 def _named(devices, ids: SourceIds) -> list[Device]:
     """The devices with an issued id left in a stale name taken out, token only (`SourceIds.without_issued`, the
-    safety net every client text goes through; the validator reports it as must_fix before render)."""
+    safety net every client text goes through; the validator reports it as must_fix before render). A name that is
+    nothing but such tokens (a device named "S4") is a name, not a citation: it prints as written."""
     out = []
     for device in devices:
         name = ids.without_issued(device.name)
         if not name.strip():
-            raise RenderError(f"device {device.id}: the name {device.name!r} has no words left once its source ids "
-                              "are taken out")
+            name = device.name
         out.append(device if name == device.name else replace(device, name=name))
     return out
 

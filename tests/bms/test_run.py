@@ -249,22 +249,26 @@ def _planned_ids(job) -> set[str]:
 
 def test_every_writer_is_given_the_source_ids_of_the_whole_job(job_folder, tmp_path, monkeypatch):
     """The intake refuses a client text that prints any source id of the job, not only this system's: the run
-    passes every one (`citations.job_ids`)."""
-    from bms import ai, citations, run
+    passes every one (`citations.job_ids`) and every id of every system's evidence, one set for all writers, so a
+    text the first writer accepts is never an issued id once a later system cites it (secondary review M1)."""
+    from bms import ai, ai_evidence, citations, run
     from bms.model import Job
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     seen: list = []
+    evidence_ids: set = set()
 
     def spy(system, evidence, playbook, transport, **kw):
         seen.append(kw.get("ids"))
+        evidence_ids.update(ai_evidence.cited_ids(evidence))
         raise ai.NoAnswer("spied", waiting=True)
     monkeypatch.setattr(run.ai, "write_system", spy)
     out, cache = tmp_path / "out", tmp_path / "cache"
     result = _reach(job_folder, out, cache, "write")
     job = Job.from_json(result.job_file.read_text(encoding="utf-8"))
     assert len(seen) == len(job.systems) >= 1, seen
+    assert evidence_ids, "the evidence names no source id"
     for ids in seen:
-        assert ids == tuple(citations.job_ids(job)) and set(ids) >= _planned_ids(job) and ids, ids
+        assert ids == seen[0] and set(ids) >= set(citations.job_ids(job)) | _planned_ids(job) | evidence_ids, ids
 
 
 def test_the_decision_rewrite_and_the_revise_are_given_the_source_ids_of_the_whole_job(job_folder, tmp_path,

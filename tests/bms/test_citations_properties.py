@@ -6,6 +6,8 @@ The policy is detect and refuse, never rewrite. For every text exactly one of:
       stripped; or
  (ii) it is refused, with a reason naming a token that is in the text.
 Never anything in between. Also: idempotent, deterministic, fast; the renderer's safety net leaves no issued id.
+Under the estimator's ruling of 2026-10-05 an issued id after a sheet word ("sheet S141", "sheets C101 and S141")
+is a sheet number, not an issued id, and a text is refused only when it holds an issued id.
 
 The oracle below is written apart from citations.py (its own normalisation, token pattern and tag tokens)."""
 from __future__ import annotations
@@ -35,7 +37,6 @@ LABELS = ("Note: ", "Assumed: ", "Confirm: ", "**Confirm**: ", "Assumed—", "Co
 KINDS = ("note", "confirm", "assumed")
 BRACKETS = ("()", "[]", "{}")
 ZERO_WIDTH = "​‌‍⁠﻿­"
-CUE_WORD = re.compile(r"\b(?:per|see|from|ref|refer to|cited in)\b")
 TOKEN = re.compile(r"(?<![0-9A-Za-z])[SQIFCsqifc][0-9]{1,4}[A-Za-z]?(?![0-9A-Za-z])")
 
 
@@ -101,8 +102,31 @@ def _normal(text: str) -> str:
     return unicodedata.normalize("NFKC", "".join(c for c in text if c not in ZERO_WIDTH))
 
 
+SHEET_WORD = re.compile(r"(?<![0-9A-Za-z])(?:sheets?|dwgs?\.?)\s*$", re.IGNORECASE)
+JOIN = re.compile(r"\s*(?:,|and|or|to|through|thru|[-–—/‐‑])\s*", re.IGNORECASE)
+
+
+def _tokens(text: str) -> list[tuple[str, bool]]:
+    """The oracle's tokens of `text`, each with whether it is an issued id (not a tag, not after a sheet word or in
+    a list joined to one)."""
+    normal = _normal(text)
+    out, listed, last_end = [], False, None
+    for match in TOKEN.finditer(normal):
+        token = match.group(0)
+        if token.upper() in TAG_TOKENS:
+            out.append((token, False))
+            listed, last_end = False, match.end()
+            continue
+        joined = last_end is not None and match.start() - last_end <= 32 and bool(
+            JOIN.fullmatch(normal[last_end:match.start()]))
+        listed = bool(SHEET_WORD.search(normal[max(0, match.start() - 32):match.start()])) or (joined and listed)
+        out.append((token, token.upper() in ISSUED and not listed))
+        last_end = match.end()
+    return out
+
+
 def _issued_in(text: str) -> list[str]:
-    return [t for t in TOKEN.findall(_normal(text)) if t.upper() in ISSUED and t.upper() not in TAG_TOKENS]
+    return [t for t, issued in _tokens(text) if issued]
 
 
 def _named(reason: str) -> list[str]:
@@ -151,9 +175,8 @@ def test_every_text_is_either_accepted_unchanged_or_refused_naming_a_token():
                 problems.append(f"(i) not byte-identical: {stored!r} != {label_off!r}")
         if _issued_in(stored) and not reason:
             problems.append("an issued id and no refusal")
-        bare = not any(c in normal for c in "([{)]}") and not CUE_WORD.search(normal.lower())
-        if bare and not _issued_in(stored) and reason:
-            problems.append(f"refused with no issued id, no bracket and no cue word: {reason!r}")
+        if reason and not _issued_in(stored):
+            problems.append(f"refused with no issued id (a bracket or a cue word alone never refuses): {reason!r}")
         again = _intake(ids, kind, text)
         if again != (stored, reason):
             problems.append("not deterministic")
@@ -184,8 +207,7 @@ def test_the_safety_net_leaves_no_issued_id_and_takes_out_nothing_else():
             failures.append((text, out, "changed a text with no issued id"))
         elif ids.without_issued(out) != out:
             failures.append((text, out, "not idempotent"))
-        elif [t.upper() for t in TOKEN.findall(_normal(out))] != [
-                t.upper() for t in TOKEN.findall(_normal(text)) if t.upper() not in ISSUED or t.upper() in TAG_TOKENS]:
+        elif [t.upper() for t in TOKEN.findall(_normal(out))] != [t.upper() for t, issued in _tokens(text) if not issued]:
             failures.append((text, out, "a token other than an issued id was taken out"))
     shown = "\n".join(f"{t!a} -> {o!a}: {p}" for t, o, p in failures[:15])
     assert not failures, f"{len(failures)} of {N}:\n{shown}"

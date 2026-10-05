@@ -35,7 +35,7 @@ from estimator.writing.dossier import build_dossier
 from estimator.writing.front_end import job_header
 from estimator.writing.judge import Judge
 
-from bms import ai
+from bms import ai, ai_evidence
 from bms.citations import job_ids, job_tags
 from bms.counts import cross_check, flag_written_devices, publish_proofs
 from bms.evidence import write_evidence
@@ -156,12 +156,20 @@ def estimate(job_folder: Path, out: Path, cache: Path, mode: Mode = "chat") -> R
 
     # 3. write every system (all are asked before stopping for answers)
     evidence = {s.key: ai.evidence_for(s, dossier) for s in job.systems}
+    # I, one set for every writer and the revise: every id of the job and of every system's evidence. A ref may
+    # cite only its system's evidence, so the final job's ids (the validator's and the renderer's I) are in it, and a
+    # text one writer accepts is never an issued id once a later system cites it.
+    evidence_ids = sorted(set().union(*(ai_evidence.cited_ids(e) for e in evidence.values())))
+
+    def issued(current: Job) -> tuple[str, ...]:
+        return tuple(dict.fromkeys([*job_ids(current), *evidence_ids]))
+
     pending: list[str] = []
     for system in job.systems:
         try:
             job = job.with_system(flag_written_devices(
                 ai.write_system(system, evidence[system.key], playbook, transport, tags=job_tags(job),
-                                ids=job_ids(job))))
+                                ids=issued(job))))
         except ai.NoAnswer as missing:
             pending.append(_stopped(missing.reason) if str(missing.reason).startswith("Stopped:")
                            else f"{system.name}: {missing.reason}")
@@ -182,7 +190,7 @@ def estimate(job_folder: Path, out: Path, cache: Path, mode: Mode = "chat") -> R
         try:
             job = job.with_system(flag_written_devices(ai.write_system(
                 system, f"{evidence[key]}\n\n{_decision_note(decisions, key)}", playbook, transport,
-                tags=job_tags(job), ids=job_ids(job))))
+                tags=job_tags(job), ids=issued(job))))
         except ai.NoAnswer as missing:
             pending.append(_stopped(missing.reason) if str(missing.reason).startswith("Stopped:")
                            else f"{system.name}: {missing.reason}")
@@ -210,7 +218,7 @@ def estimate(job_folder: Path, out: Path, cache: Path, mode: Mode = "chat") -> R
         try:
             job = job.with_system(ai.revise_system(system, [f for f in must_fix if f.system_key == key],
                                                    evidence[key], playbook, transport, tags=job_tags(job),
-                                                   ids=job_ids(job)))
+                                                   ids=issued(job)))
         except ai.NoAnswer as missing:
             pending.append(_stopped(missing.reason) if str(missing.reason).startswith("Stopped:")
                            else f"{system.name}: {missing.reason}")

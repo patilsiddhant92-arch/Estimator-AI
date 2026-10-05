@@ -309,15 +309,16 @@ def _left_out(system, shape, job, playbook) -> Iterator[Hit]:
 
 def _id_hits(device_id, field: str, text: str, ids: SourceIds) -> Iterator[Hit]:
     """A client text checked with the shared detector (`SourceIds.scan`): an issued id in it is must_fix (the
-    renderer takes the token out, so the sentence would print broken; the revise fixes it); an id-shaped token that
-    is neither issued nor a tag nor a sheet number is a check (it prints as written)."""
+    renderer takes the token out, so the sentence would print broken; the revise fixes it); an unissued token joined
+    to an issued id ("S141 and S999", a citation) is a check (it prints as written). A tag, a sheet number and any
+    other unissued lookalike ("Supply Fan F1", "(F1, F2)") are no finding (the estimator's ruling of 2026-10-05)."""
     found = ids.scan(text)
     issued = list(dict.fromkeys(f.token for f in found if f.kind == "issued"))
     if issued:
         yield (device_id, "must_fix", f"an id is in the client text of {field} ({', '.join(issued)})",
                "Name the document in words (\"the mechanical schedule\", \"sheet M-101\"); cite it as a Ref, never "
                "print an id.")
-    other = list(dict.fromkeys(f.token for f in found if f.kind in ("cited", "loose")))
+    other = list(dict.fromkeys(f.token for f in found if f.kind == "cited"))
     if other:
         yield (device_id, "check", f"{field} names {', '.join(other)}, which is no source id of this job and no tag; "
                "it prints as written", "Say what it is (a tag the schedule names), or take it out.")
@@ -325,7 +326,7 @@ def _id_hits(device_id, field: str, text: str, ids: SourceIds) -> Iterator[Hit]:
 
 def _ids(system, shape, job, playbook) -> Iterator[Hit]:
     """Id-shaped tokens in wording that prints (clarifications, assumptions, device names, the reason a block has
-    no lines): an issued id is must_fix, an unissued one that is no tag a check (`bms.citations`)."""
+    no lines): an issued id is must_fix, an unissued one joined to it a check (`bms.citations`, `_id_hits`)."""
     ids = SourceIds.of_job(job)
     for c in system.clarifications:
         yield from _id_hits(None, f"the {c.kind} clarification", c.text, ids)
@@ -439,10 +440,9 @@ def validate(job: Job, playbook: Playbook) -> list[Finding]:
                 add(index, system.key, order, "once", duplicate(system.key, d))
             seen.add(d.id)
     ids = SourceIds.of_job(job)                   # a named exception prints too
-    planned = {s.key for s in job.systems}
     for exception in job.exceptions:
-        key = exception.system_key if exception.system_key in planned else ""     # no block: the whole job's
+        # the whole job's finding (system key ""): no writer writes an exception, so no system's revise can fix it
         for hit in _id_hits(None, "the named exception", exception.text, ids):
-            add(len(job.systems), key, {}, "ids", hit)
+            add(len(job.systems), "", {}, "ids", hit)
     found.sort(key=lambda item: item[0])
     return [f for _, f in found]

@@ -7,19 +7,19 @@ S is a schedule line, Q a keynote, I a drawing, F a fact, C a count. A token is 
 ASCII), zero-width characters taken out. The text itself is never rewritten by detection.
 
 `SourceIds.scan` sorts the id-shaped tokens of a text that are not tags (T, every tag of the job, a range "F1-F4"
-covering F1 to F4):
+covering F1 to F4) into four kinds (the estimator's ruling of 2026-10-05):
 
-- issued: an id the job issued (I, every `Ref.source_id`; at intake also the evidence's ids), anywhere, after a
-  sheet word too. The intake refuses the text; the validator reports must_fix; the renderer's safety net takes out
-  exactly that token.
-- cited: an unissued token in a citation: inside a bracket pair, right after per / see / from / ref / refer to /
-  cited in, or joined by and / or / , / to / through / thru / a dash / a slash to an issued or cited id ("S141 and
-  S999"). The intake refuses the text.
-- loose: any other unissued token ("Fan C2 serves the lab"): accepted as written (more likely a tag or a part
-  number); the validator reports a check.
-
-An unissued token right after a sheet word ("sheet C101", "sheets C101 and C102", "(sheet C101)") is a sheet number:
-never cited, never reported.
+- sheet: a sheet number, issued or not, kept as written and never reported: a token right after a sheet word
+  ("sheet S12", "sheets C101 and S13", "(sheet C101)"), or one the job's refs name as a sheet (K, `ref_sheets`:
+  the where "S101, Structural.pdf page 3" makes S101 a sheet of the job).
+- issued: any other id the job issued (I, every `Ref.source_id`; at intake also the evidence's ids). The intake
+  refuses the text; the validator reports must_fix; the renderer's safety net takes out exactly that token.
+- cited: an unissued token joined by and / or / , / to / through / thru / a dash / a slash to an issued id, along
+  the run ("S141 and S999", "S141-S145"): the writer is citing ids. The intake refuses the text; the validator
+  reports a check.
+- loose: any other unissued token ("Fan C2 serves the lab", "(F1, F2)", "See C101"): a tag, a sheet or a part
+  number the job never issued as a source id. Accepted as written, never reported, in brackets or after a cue word
+  too.
 """
 from __future__ import annotations
 
@@ -41,12 +41,9 @@ _NOT_A_DOCUMENT = ("equipment counts",)          # the dossier's own label for a
 _NOT_A_PLACE = re.compile(r"^\s*ledger\b|\.(?:png|jpe?g)\b", re.IGNORECASE)   # a ledger fact or a picture file
 # "sheet C101", "sheets C101 and C102", "dwg C3"; not "drawing", which the writer uses for a picture id ("drawing I12")
 _SHEET_BEFORE = re.compile(r"(?<![^\W_])(?:sheets?|dwgs?\.?)\s*$", re.IGNORECASE)
-_CUE_BEFORE = re.compile(r"(?<![^\W_])(?:per|see|from|ref\.?|refer\s+to|cited\s+in)\s*[:\-–]?\s*[\[({]?\s*$",
-                         re.IGNORECASE)
 _JOIN = re.compile(r"\s*(?:,|and|or|to|through|thru|[-–—/‐‑])\s*", re.IGNORECASE)
-_WINDOW = 32                                      # how far back a cue word or a sheet word is looked for
+_WINDOW = 32                                      # how far back a sheet word is looked for
 _ZERO_WIDTH = frozenset("​‌‍⁠﻿­")
-_OPEN, _CLOSE = "([{", ")]}"
 _TAG_RANGE = re.compile(r"\b([SQIFC])-?(\d{1,4})\s*(?:-|–|\bthru\b|\bthrough\b|\bto\b)\s*(?:\1-?)?(\d{1,4})\b",
                         re.IGNORECASE)
 MAX_RANGE = 500                                   # a tag range wider than this is not expanded
@@ -105,11 +102,43 @@ def job_tags(job) -> tuple[str, ...]:
 
 def job_ids(job) -> tuple[str, ...]:
     """I: every source id a Ref of the job carries (systems, front end, exceptions)."""
+    return tuple(dict.fromkeys(plain_id(r.source_id) for r in job_refs(job) if plain_id(r.source_id)))
+
+
+def job_refs(job) -> list:
+    """Every Ref of the job (systems, front end, exceptions)."""
     refs = [r for s in job.systems for r in system_refs(s)]
     if job.front_end is not None:
         refs += [r for d in job.front_end.devices for r in _device_refs(d)]
-    refs += [r for x in job.exceptions for r in x.refs]
-    return tuple(dict.fromkeys(plain_id(r.source_id) for r in refs if plain_id(r.source_id)))
+    return refs + [r for x in job.exceptions for r in x.refs]
+
+
+def _sheet_form(text: str, found: re.Match) -> bool:
+    """`found` (a sheet-number match in a where) reads as a sheet: a sheet word comes before it ("Sheet C501") or
+    it stands first with a file part after it ("C101, Controls.pdf page 2", the ledger's own sheet form)."""
+    if _SHEET_BEFORE.search(text[max(0, found.start() - _WINDOW):found.start()]):
+        return True
+    return found.start() == 0 and bool(_FILE_PART.search(text[found.end():]))
+
+
+def _where_text(where) -> str:
+    return squash(re.sub(r"\([^)]*\)", " ", str(where or "")))
+
+
+def ref_sheets(refs) -> frozenset[str]:
+    """K: the id-shaped sheet numbers the wheres of `refs` (Refs or their dicts) name in sheet form, upper case. A
+    where naming its own ref's source id as the sheet is not trusted (that is the id, misplaced)."""
+    out: set[str] = set()
+    for ref in refs:
+        get = ref.get if isinstance(ref, dict) else (lambda name, default="": getattr(ref, name, default))
+        text, own = _where_text(get("where", "")), _key(get("source_id", ""))
+        if _NOT_A_PLACE.search(text) or text.lower().startswith(_NOT_A_DOCUMENT):
+            continue
+        for found in SHEET.finditer(text):
+            token = _key(found.group(0))
+            if ONE_ID.fullmatch(token) and token != own and _sheet_form(text, found):
+                out.add(token)
+    return frozenset(out)
 
 
 def tag_tokens(tags: Iterable[str]) -> frozenset[str]:
@@ -144,54 +173,38 @@ def _for_detection(text: str) -> tuple[str, list[int] | None]:
     return "".join(out), origin
 
 
-def _bracketed(text: str) -> list[int]:
-    """For each position of `text`, how many matched bracket pairs hold it (one pass)."""
-    stack: list[tuple[str, int]] = []
-    change = [0] * (len(text) + 1)
-    for n, char in enumerate(text):
-        if char in _OPEN:
-            stack.append((char, n))
-        elif char in _CLOSE and stack and _OPEN.index(stack[-1][0]) == _CLOSE.index(char):
-            start = stack.pop()[1]
-            change[start + 1] += 1
-            change[n] -= 1
-    depth, out = 0, []
-    for step in change[:-1]:
-        depth += step
-        out.append(depth)
-    return out
-
-
 @dataclass(frozen=True)
 class Found:
     """One id-shaped token that is not a tag: as written on the detection copy, its span in the text, its kind."""
     token: str
     start: int
     end: int
-    kind: str                       # "issued", "cited", "loose" or "sheet"
+    kind: str                       # "sheet", "issued", "cited" or "loose"
 
 
 @dataclass(frozen=True)
 class SourceIds:
-    """The one decision: which id-shaped tokens in a text are issued ids, citations, loose tokens or sheets."""
+    """The one decision: which id-shaped tokens in a text are sheets, issued ids, citations or loose tokens."""
     ids: frozenset[str] = frozenset()       # I, upper case
     tags: frozenset[str] = frozenset()      # T's id-shaped tokens, upper case
+    sheets: frozenset[str] = frozenset()    # K, the job's id-shaped sheet numbers (`ref_sheets`), upper case
 
     @classmethod
-    def of(cls, ids: Iterable[str] = (), tags: Iterable[str] = ()) -> "SourceIds":
-        return cls(frozenset(_key(i) for i in ids if _key(i)), tag_tokens(tags))
+    def of(cls, ids: Iterable[str] = (), tags: Iterable[str] = (), sheets: Iterable[str] = ()) -> "SourceIds":
+        return cls(frozenset(_key(i) for i in ids if _key(i)), tag_tokens(tags),
+                   frozenset(_key(k) for k in sheets if _key(k)))
 
     @classmethod
     def of_job(cls, job) -> "SourceIds":
-        """T and I of the job (`job_tags`, `job_ids`)."""
-        return cls.of(job_ids(job), job_tags(job))
+        """T, I and K of the job (`job_tags`, `job_ids`, `ref_sheets` of every Ref of the job)."""
+        return cls.of(job_ids(job), job_tags(job), ref_sheets(job_refs(job)))
 
     def is_tag(self, token: str) -> bool:
         return _key(token) in self.tags
 
     def is_id(self, token: str) -> bool:
-        """An issued id that is not a tag."""
-        return _key(token) in self.ids and not self.is_tag(token)
+        """An issued id that is not a tag and not a sheet number the job's refs name."""
+        return _key(token) in self.ids and not self.is_tag(token) and _key(token) not in self.sheets
 
     def scan(self, text: str) -> list[Found]:
         """Every id-shaped token of `text` that is not a tag, in text order, with its kind (module docstring).
@@ -201,9 +214,8 @@ class SourceIds:
         tokens = list(_TOKEN.finditer(copy))
         if not tokens:
             return []
-        depth = _bracketed(copy)
         found: list[list] = []           # [token, start, end, kind, joined to the one before], on the copy
-        listed = False                   # the token before is in a list of sheets ("sheets C101, S141 and C102")
+        listed = False                   # the token is in a list after a sheet word ("sheets C101, S141 and C102")
         for match in tokens:
             token, start, end = match.group(0), match.start(), match.end()
             if self.is_tag(token):
@@ -211,14 +223,11 @@ class SourceIds:
                 listed = False
                 continue
             joined = bool(found) and start - found[-1][2] <= _WINDOW and bool(_JOIN.fullmatch(copy[found[-1][2]:start]))
-            before = copy[max(0, start - _WINDOW):start]
-            listed = bool(_SHEET_BEFORE.search(before)) or (joined and listed)
-            if self.is_id(token):
-                kind = "issued"
-            elif listed:
+            listed = bool(_SHEET_BEFORE.search(copy[max(0, start - _WINDOW):start])) or (joined and listed)
+            if listed or _key(token) in self.sheets:
                 kind = "sheet"
-            elif depth[start] > 0 or _CUE_BEFORE.search(before):
-                kind = "cited"
+            elif self.is_id(token):
+                kind = "issued"
             else:
                 kind = "loose"
             found.append([token, start, end, kind, joined])
@@ -239,8 +248,8 @@ class SourceIds:
         return out
 
     def refusal(self, text: str) -> str:
-        """Why the intake refuses `text` ("" when it does not): an issued id anywhere, or an unissued one in a
-        citation, named in text order."""
+        """Why the intake refuses `text` ("" when it does not): an issued id that is no tag and no sheet number, or
+        an unissued token joined to one, named in text order."""
         named = list(dict.fromkeys(f.token for f in self.scan(text) if f.kind in ("issued", "cited")))
         if not named:
             return ""
@@ -264,16 +273,15 @@ class SourceIds:
 
     def _sheet_ok(self, text: str, found: re.Match) -> bool:
         """A sheet number found in a where: printable unless it is id-shaped and the ledger does not know it as a
-        sheet. An id-shaped token is a sheet only when it is not an issued id and either a sheet word comes before
-        it ("Sheet C501") or it stands first with a file part after it ("C101, Controls.pdf page 2")."""
+        sheet. An id-shaped token is a sheet when a sheet word comes before it ("Sheet C501") or the job's refs name
+        it as a sheet (K), issued or not; else only when it is no issued id and stands first with a file part after
+        it ("C101, Controls.pdf page 2")."""
         token = found.group(0)
         if not ONE_ID.fullmatch(token):
             return True
-        if _key(token) in self.ids:
-            return False
-        if _SHEET_BEFORE.search(text[max(0, found.start() - _WINDOW):found.start()]):
+        if _key(token) in self.sheets or _SHEET_BEFORE.search(text[max(0, found.start() - _WINDOW):found.start()]):
             return True
-        return found.start() == 0 and bool(_FILE_PART.search(text[found.end():]))
+        return _key(token) not in self.ids and _sheet_form(text, found)
 
     def sheet(self, where: str) -> str:
         """The first printable sheet number in `where` (`_sheet_ok`); "" for a ledger fact or a picture file."""

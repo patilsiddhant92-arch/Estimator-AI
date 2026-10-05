@@ -593,12 +593,14 @@ def test_tags_and_sheet_numbers_shaped_like_ids_survive_the_intake(job, raw, dos
     assert written.clarifications[0].text == text
 
 
-def test_an_issued_id_after_a_sheet_word_is_refused(job, raw, dossier, playbook):
-    """Review 3 C1: an issued id is refused anywhere, after a sheet word too."""
+def test_an_issued_id_after_a_sheet_word_is_a_sheet_number_kept_as_written(job, raw, dossier, playbook):
+    """The estimator's ruling of 2026-10-05 (it replaces review 3 C1's "issued wins"): S ids number every dossier
+    line, so a real sheet "C101" or "S12" collides with an issued id; after a sheet word it is the sheet."""
     system = _with(skeleton(job.system("EF")), Ref("C101", "x", "ledger fact"))
-    answer = _bad(raw, lambda a: a.update(clarifications=[{"kind": "note",
-                                                             "text": "Fans serve the kitchen; see civil sheet C101."}]))
-    assert "prints the source id C101" in _refused(system, dossier, playbook, answer)
+    text = "Fans serve the kitchen; see civil sheet C101."
+    written = ai.write_system(system, ai.evidence_for(system, dossier), playbook, FakeTransport(
+        _bad(raw, lambda a: a.update(clarifications=[{"kind": "note", "text": text}]))))
+    assert written.clarifications[0].text == text
 
 
 def test_a_family_tag_shaped_like_an_id_survives_the_intake_even_when_issued(job, raw, dossier, playbook):
@@ -612,30 +614,34 @@ def test_a_family_tag_shaped_like_an_id_survives_the_intake_even_when_issued(job
 
 # ---- a source id in client text: refused, never rewritten ----------------------------------------------------------
 
-def test_an_unissued_id_in_a_citation_is_refused_and_a_loose_one_kept(job, raw, dossier, playbook):
-    """C1: S998 was never issued; after a cue word it is a citation, refused. Outside any citation ("Fan C2 serves
-    the lab") an unissued token is accepted as written."""
+def test_an_unissued_id_joined_to_an_issued_one_is_refused_and_a_loose_one_kept(job, raw, dossier, playbook):
+    """C1 under the ruling of 2026-10-05: S998 was never issued; joined to the issued Q2 it is a citation, refused.
+    A lookalike on its own ("Fan C2 serves the lab", "see S998") is accepted as written."""
     def change(a):
-        a["devices"][0]["assumption"] = {"what": "one per fan", "why": "the sequence, see S998"}
+        a["devices"][0]["assumption"] = {"what": "one per fan", "why": "the sequence, see Q2 and S998"}
         a["devices"][1]["assumption"] = {"what": "one per fan", "why": "Fan C2 serves the lab"}
     system = skeleton(job.system("EF"))
     reason = _refused(system, dossier, playbook, _bad(raw, change))
-    assert "assumption why prints the source id S998" in reason and "C2" not in reason
+    assert "assumption why prints the source ids Q2, S998" in reason and "C2" not in reason
     written = ai.write_system(system, ai.evidence_for(system, dossier), playbook, FakeTransport(_bad(
         raw, lambda a: a["devices"][1].update(assumption={"what": "one per fan", "why": "Fan C2 serves the lab"}))))
     assert written.devices[1].assumption.why == "Fan C2 serves the lab"
 
 
 @pytest.mark.parametrize("why, named", [
-    ("per S141 and Q2", "S141, Q2"),         # the issued Q2 (and S141 after a cue word)
-    ("the schedule, see C4", "C4"),          # after a cue word
-    ("the schedule (S999)", "S999"),         # in a bracket group
-    ("the schedule [S998, S999]", "S998, S999"),
+    ("per S141 and Q2", "S141, Q2"),         # the issued Q2, and S141 joined to it
+    ("the schedule, see C4", ""),            # ruling 2026-10-05: an unissued lookalike after a cue word is accepted
+    ("the schedule (S999)", ""),             # and in a bracket group
+    ("the schedule [S998, S999]", ""),
 ])
-def test_an_unissued_id_in_any_citation_is_refused_with_nothing_else_issued(job, raw, dossier, playbook, why,
-                                                                              named):
+def test_only_an_issued_id_or_one_joined_to_it_is_refused(job, raw, dossier, playbook, why, named):
     answer = _bad(raw, lambda a: a["devices"][0].update(assumption={"what": "one per fan", "why": why}))
-    reason = _refused(skeleton(job.system("EF")), dossier, playbook, answer)
+    system = skeleton(job.system("EF"))
+    if not named:
+        written = ai.write_system(system, ai.evidence_for(system, dossier), playbook, FakeTransport(answer))
+        assert written.devices[0].assumption.why == why
+        return
+    reason = _refused(system, dossier, playbook, answer)
     assert f"prints the source id{'s' if ',' in named else ''} {named}:" in reason
 
 
@@ -643,13 +649,10 @@ def test_an_unissued_id_in_any_citation_is_refused_with_nothing_else_issued(job,
                                   "the fans run, see C2 in the lab"])
 @pytest.mark.parametrize("tags", [(), ("C2",)], ids=["C2-no-tag", "C2-a-tag"])
 def test_an_id_in_a_bracket_or_after_a_cue_word_at_intake(job, raw, dossier, playbook, text, tags):
-    """The chosen behaviour for "(see C2 in the lab)": C2 no tag is a citation, refused; C2 a tag of the job is
-    accepted as written."""
+    """The estimator's ruling of 2026-10-05 for "(see C2 in the lab)": C2 is no issued id, so it is accepted as
+    written whether or not it is a tag of the job (before the ruling, C2 no tag was refused as a citation)."""
     system = skeleton(job.system("EF"))
     answer = _bad(raw, lambda a: a.update(clarifications=[{"kind": "note", "text": text}]))
-    if not tags:
-        assert "prints the source id C2" in _refused(system, dossier, playbook, answer)
-        return
     written = ai.write_system(system, ai.evidence_for(system, dossier), playbook, FakeTransport(answer), tags=tags)
     assert written.clarifications[0].text == text
 

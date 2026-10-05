@@ -53,7 +53,7 @@ from estimator.writing.judge import DEFAULT_MODEL, KEY_VARIABLE, MODEL_VARIABLE,
 from bms import ai_evidence
 from bms.model import Device, Finding, Job, ModelError, Ref, System, json_schema, schema_errors
 from bms.playbook import Playbook, Shape
-from bms.citations import SourceIds, label_off, system_tags
+from bms.citations import SourceIds, label_off, ref_sheets, system_tags
 
 WRITE_SYSTEM = "write_system"       # kind of both the write and the revise request
 QC_JOB = "qc_job"
@@ -841,13 +841,15 @@ def _normalise(answer: dict, skeleton: System, kept_ids: set[str], changes: list
     dropped). The label comes off first; nothing else in a text is changed. Then every client text (device name,
     assumption what and why, clarification text, no_scope_reason) is scanned for source ids
     (`bms.citations.SourceIds`, the renderer's and the validator's decision too). The problems returned refuse the
-    answer, one for each text that prints an issued id anywhere (I: `job_ids`, the evidence's ids `known` and every
-    ref the skeleton and the answer carry) or an unissued id-shaped token in a citation. T, never refused, is `tags`
-    (the run passes every tag of the job) and this system's own tags."""
+    answer, one for each text that prints an issued id (I: `job_ids`, the evidence's ids `known` and every ref the
+    skeleton and the answer carry) or an unissued token joined to one. Never refused: T, `tags` (the run passes
+    every tag of the job) and this system's own tags; a sheet number (after a sheet word, or one the refs' wheres
+    name, K); any other unissued lookalike ("(F1, F2)", "see C101")."""
     block = [*(r.to_dict() for r in ai_evidence.system_refs(skeleton))]
     for device in answer["devices"]:
         block += _device_refs(device)
-    ids = SourceIds.of([*job_ids, *known, *(r.get("source_id", "") for r in block)], [*tags, *system_tags(skeleton)])
+    ids = SourceIds.of([*job_ids, *known, *(r.get("source_id", "") for r in block)], [*tags, *system_tags(skeleton)],
+                       ref_sheets(block))
     problems: list[str] = []
 
     def check(where: str, text) -> None:

@@ -51,7 +51,7 @@ You write the system's devices (its scope lines, in print order), its clarificat
 ## Source ids never print
 
 - Source ids ("S141", "Q7", "I2", "F17") belong only in refs. No text you write prints one: not a device name, an assumption's what or why, a clarification or a no_scope_reason. Name the document in a few plain words and cite it as a Ref. Wrong: valves per S141. Right: valves per the mechanical schedule.
-- An answer with a source id in any of those texts is refused and asked again, with the id named. A tag the documents give (a fan "F1") is not a source id.
+- An answer with a source id in any of those texts is refused and asked again, with the id named. A tag the documents give (a fan "F1") or a sheet number ("sheet S101") is not a source id.
 
 ## One clarification per block
 
