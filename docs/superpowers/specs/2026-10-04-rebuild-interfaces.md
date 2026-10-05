@@ -1,8 +1,8 @@
 # Estimator rebuild — the interfaces (Phase 0, 2026-10-04)
 
 The contract every workstream builds against, with the design (`2026-10-04-rebuild-design.md`, §2–§5 binding).
-Everything named here exists on branch `rebuild` as code; the stubs raise `NotImplementedError` and their docstrings
-repeat the contract. `tests/bms/test_contracts.py` pins it: a workstream that needs a contract change asks the
+Everything named here exists on branch `rebuild` as working code (no stubs are left); the docstrings repeat the
+contract. `tests/bms/test_contracts.py` pins it: a workstream that needs a contract change asks the
 controller; it never edits `model.py`, `playbook.py`, `run.py`, `__main__.py`, the fixtures or the contract tests.
 
 Ground rules for every workstream: Python via `.venv/Scripts/python.exe`; `src` is on the path through the
@@ -23,12 +23,16 @@ dependency without the controller (`jsonschema` and `yaml` are not installed —
 | `src/bms/plan.py` | `plan_job` | workstream 2 |
 | `src/bms/validate.py` | `validate` | workstream 3 |
 | `src/bms/render.py` | `render`, `ProposalDraft`, `RenderedLine` | workstream 4 |
-| `src/bms/ai.py` | `write_system`, `qc_job`, `revise_system`, `evidence_for`, `evidence_index`, transports | workstream 5 |
-| `src/bms/counts.py` | `count_tags`, `cross_check`, `CountResult`, `Box` | workstream 6 |
-| `src/bms/review.py` | `review_page`, `load_decisions`, `apply_decisions` | workstream 7 |
+| `src/bms/ai.py` | `write_system`, `rewrite_for_count`, `qc_job`, `revise_system`, `evidence_for`, `evidence_index`, transports | workstream 5 |
+| `src/bms/citations.py` | source ids in client text: `SourceIds` (`scan`, `refusal`, `without_issued`), `job_tags`, `job_ids`, `job_sheets`, `tag_tokens`, `plan_refs`, `ref_sheets`, the clarification labels | controller |
+| `src/bms/counts.py` | `count_tags`, `cross_check`, `CountResult`, `Box`, `flag_written_devices`, `publish_proofs` | workstream 6 |
+| `src/bms/review.py` | `review_page`, `load_decisions`, `apply_decisions`; the decisions history: `SavedDecision`, `load_history`, `save_history`, `merge_decisions(history, saved, *, job=None)`, `apply_seen`, `copies_seen`, `held_back`, `unhonored_decisions`, `system_digest`, `accept_families`; `DECISIONS_FILE`, `DECISIONS_HISTORY` | workstream 7 |
 | `tools/measure.py` | `measure`, `MeasureResult`, `LineMatch` | workstream 7 |
 | `src/bms/run.py` | `estimate`, `RunResult` (the orchestration) | controller |
-| `src/bms/__main__.py` | `python -m bms estimate JOB --out OUT [--cache C] [--mode chat\|api]` | controller |
+| `src/bms/status.py` | `check(out, cache) -> Status` (exit code and plain lines), `Status`, `RUN_STATE` (`"run state.json"`) | controller |
+| `src/bms/doctor.py` | `run_doctor` and its checks (Python, dependencies, `.claude/run-job.json` models, Playbook, cache folder) | controller |
+| `src/bms/playbook_lint.py` | `lint_playbook`, `LintProblem`, `referenced_rule_names` | controller |
+| `src/bms/__main__.py` | `python -m bms estimate JOB --out OUT [--cache C] [--mode chat\|api]`; `status OUT [--cache C]`; `doctor [--cache C] [--playbook P] [--config F]`; `playbook-lint [ROOT]` | controller |
 | `playbook/rules.md`, `shapes.json`, `wording.json` | the Playbook | workstream 1 (content), controller (format) |
 | `tests/bms/fixtures/sample_job.json`, `sample_playbook/` | the invented test job and minimal Playbook | controller |
 | `tests/bms/test_contracts.py` | contract tests | controller |
@@ -96,6 +100,10 @@ Decision:       system_key: str, action: DecisionAction, device_id: str | None =
 ```
 
 `MODEL_CLASSES` lists them all.
+
+`Finding.severity` is only ever `must_fix` or `check`, the run's own findings too: the run's "check this system"
+card (an earlier delete that may be back re-worded) is a `check` (REVIEW-FINAL F2: the run built it as
+"should_fix", which is not a `Severity`; the fix is to use `check`).
 
 ### 2.3 JSON Schema and the schema check
 
@@ -221,10 +229,11 @@ evidence_index(dossier: Dossier) -> dict[str, str]
 write_system(system: System, evidence: str, playbook: Playbook, transport: Transport, *, tags: Sequence[str] = (), ids: Sequence[str] = (), sheets: Sequence[str] = ()) -> System
 qc_job(job: Job, evidence_index: Mapping[str, str], playbook: Playbook, transport: Transport) -> list[Finding]
 revise_system(system: System, findings: Sequence[Finding], evidence: str, playbook: Playbook, transport, *, tags: Sequence[str] = (), ids: Sequence[str] = (), sheets: Sequence[str] = ()) -> System
-# tags (optional): every tag of the job (bms.citations.job_tags); the run passes it so the intake never refuses a tag shaped like a source id
-# ids (optional): the source ids the intake refuses in client text; the run passes one set to every writer and the revise: every id of the job (bms.citations.job_ids) and of every system's evidence. A tag or a sheet number (after a sheet word, or named as a sheet by a planner's where) is never refused
-# (with the evidence's own ids). A source id in client text is detected and refused, never rewritten.
-# sheets (optional): the whole plan's sheet numbers (bms.citations.job_sheets: the wheres of the planner's refs, never a writer's device refs); the run works it out per call from the job it writes into (a decision can take planner refs out) and passes it to every writer, the count rewrite (bms.ai.rewrite_for_count, which takes tags, ids and sheets the same way) and the revise, so intake, validator and render agree on a sheet another system's where names
+rewrite_for_count(system: System, evidence: str, playbook: Playbook, transport: Transport, *, tags: Sequence[str] = (), ids: Sequence[str] = (), sheets: Sequence[str] = ()) -> System
+# rewrite_for_count: asked only when an estimator's decision changed a family count; the devices already written are named in the prompt by their words and kept (by content and id); a device decision never comes here
+# tags (optional): every tag of the job (bms.citations.job_tags). A tag protects only the form it is written in (bms.citations.tag_tokens): "F1", "C2", "AHU-S1" (as S1) and a range "F1-F4" protect those tokens; "S-1", "EF-S-1" and "F-1 thru F-4" protect nothing, since their plain forms are issued ids of the job
+# ids (optional): I, the source ids the intake refuses in client text; the run passes one set to every writer, the count rewrite and the revise: every id of the job (bms.citations.job_ids) plus every id each system's evidence cites. A tag (in its written form) and a sheet number in K are never refused. A source id in client text is detected and refused, never rewritten
+# sheets (optional): K, the whole plan's sheet numbers (bms.citations.job_sheets: the wheres of the planner's refs, never a writer's device refs); the run works it out per call from the job it writes into (a decision can take planner refs out) and passes it to every writer, the count rewrite and the revise, so intake, validator and render agree on a sheet another system's where names
 ```
 Chat hand-off (unchanged from the old Judge so `tools/run_job.py` and the `/run-job` skill drive it):
 request `<cache>/judge-chat/requests/<key>.json` with fields `key`, `kind`, `system` (the system name, or "QC"),
@@ -232,7 +241,21 @@ request `<cache>/judge-chat/requests/<key>.json` with fields `key`, `kind`, `sys
 the extras (`step`, `plan_key`, `images`), `schema`, `answer_file` (`<cache>/judge-chat/answers/<key>.json`);
 `key = estimator.writing.judge._key(CHAT_MODEL, prompt, system_prompt)`; on a usable answer the answer is cached
 in `<cache>/judge/<key>.json` as `{"version": 1, "kind", "model", "answer"}` and the request file is deleted.
-Kinds: `write_system` (write and revise, so `/run-job` dispatches them to the writer model) and `qc_job`.
+Kinds: `write_system` (write, count rewrite and revise, so `/run-job` dispatches them to the writer model) and
+`qc_job`. The `step` extra is `"write"`, `"decide"` (the count rewrite, `rewrite_for_count`) or `"revise"` on a
+`write_system` request, and `"qc"` on a `qc_job` request (`STEPS` still lists only write and revise). A request whose
+earlier answer was refused also carries `previous_problem`.
+Answer freshness: an answer file counts only when it is newer than its request file and newer than the answer last
+refused for that request; an older file is not read again (it would burn an attempt).
+Old requests: a new run parks this job's waiting requests in `requests/old/`; a request the run writes again
+unchanged goes back where it was (same file, same mtime), and a cached answer removes both copies.
+Refusals: an answer a step refuses is dropped from the cache and its request written again with the reason. After
+`max_attempts` refusals of one request (`.claude/run-job.json`, else 3) the run stops with a plain "Stopped:" message
+naming the request; the counter is `<cache>/judge/attempts/<digest>.json`, one per question (the digest covers the
+model, the step's instructions, the Playbook rules text, the schema and the prompt, so a changed Playbook, new
+evidence or another model starts a new count). In chat mode, a newer answer file for a stopped request gets a fresh
+set of attempts on the next run. The API transport reads the saved count first and, at the cap, stops without
+calling the API.
 `tools/run_job.py check` already accepts a System answer (Phase 0 changed its main-list check). API mode: the
 Playbook rules as the first system block with `cache_control: {"type": "ephemeral"}`, streamed, structured output.
 The skeleton fields of a System (key, name, shape, control, families, sequence_refs, alternate, serves) always win over the
@@ -255,6 +278,21 @@ does not cover every tile sent is refused and asked again like a bad answer.
 self-contained file; at most about 15 ranked questions; Accept / Change / Delete; decisions saved as
 `decisions.json` = list of `Decision.to_dict()`); `load_decisions(out_dir: Path) -> list[Decision]` ([] when
 missing; ModelError when malformed); `apply_decisions(job: Job, decisions: Sequence[Decision]) -> Job` (pure).
+The decisions history: the page saves only its own answers, so the run keeps every save in
+`out/decisions history.json` (`DECISIONS_HISTORY`), a list of `SavedDecision(decision, round, took_effect=False,
+saved=None, settled=None, copies=None)`; `round` is the save it came from (1 for the first). `load_history(out_dir)`
+([] when missing; ModelError naming the file when malformed); `save_history(out_dir, entries)` (written whole to a
+temporary file and swapped in, or not at all; ModelError in plain words); `merge_decisions(history, saved, *,
+job=None)` adds one decisions.json: earlier rounds stay unless the new save decides the same line (the new answer
+wins); reading the same file again adds nothing; a delete or change of a line an earlier save changed is rebased
+onto the line the writer wrote (change X to Y then delete Y is kept as delete X). `apply_seen(job, decisions,
+copies)` is `apply_decisions` with `copies_seen(history)`, the number of copies of its line each delete saw;
+`held_back` is true for a delete of a twin line whose number of copies changed, which is not applied.
+`unhonored_decisions(before, decisions, after, *, copies=None) -> list[Finding]`: a must_fix "decision not honored"
+for each decision the final job does not still show (lines recognised by content, not id), and a must_fix
+"decision could not be applied" (same rule name) for a device decision whose line is in no job of this run, or a
+held-back delete. `system_digest(job, key)` is what `settled` stores; `accept_families(job, decision)` is the set of
+families an accept is about (a count change of any of them overrules the accept).
 `measure(rendered_lines: Sequence[RenderedLine], final_proposal_path: Path) -> MeasureResult` —
 `MeasureResult(matched: tuple[(LineMatch, LineMatch)], missed: tuple[LineMatch], extra: tuple[LineMatch])`,
 `.share_matched`, `.summary()`; `LineMatch(system, device, verb, quantity)`. Held-out jobs only, never to tune.
@@ -278,16 +316,28 @@ runs `python -m bms` by default (`--app estimator` for the old app).
 `catalogue_job` → `estimator.reading.job.read_job` → `job_header` → `build_dossier` → `Judge` +
 `retire_requests` → `estimator.ledger.run.read_job` (saves `<quote> Ledger.json`; stops "waiting" at "read" when
 incomplete) → `load_playbook` → `plan_job` → header set → `cross_check` → `write_system` per system (all asked,
-then stop "waiting" at "write" if any NoAnswer; saves `<quote> Job.json`) → `apply_decisions(load_decisions(out))`
-→ `validate` → `qc_job` (waiting at "qc") → `revise_system` for systems with must_fix findings (validate's and
-QC's; one round; waiting at "revise") → `validate` → `review_page` → `render` → `write_evidence` → `_build`
-(proposal and price sheet). Prints `Wrote <path>` for every file.
+then stop "waiting" at "write" if any NoAnswer; saves `<quote> Job.json`) → `load_history` + `load_decisions`
+(a malformed file stops at "decisions") → `merge_decisions(job=)` → save the history → `apply_seen` (every
+decision of the history) → `rewrite_for_count` for each system whose family counts the decisions changed, then the
+standing accepts applied to it (waiting at "write") → `validate` → `qc_job` (waiting at "qc") → `revise_system`
+for systems with must_fix findings (validate's and QC's; one round; the standing accepts applied again; waiting at
+"revise") → the late decisions (device decisions made on the page's revised wording, which matched nothing the
+writer wrote) applied to the revised job → history saved (`took_effect`) → `validate` → the "not honored", "could
+not be applied" and "check this system" findings → `publish_proofs` → `review_page` → `render` → `write_evidence`
+→ `_build` (proposal and price sheet) → history saved (`settled`). The run's first act writes `out/run state.json`
+as "running" (again once the quote and job name are known); its last act replaces it with how the run ended
+(status, stage, waiting, messages, quote, job). Prints `Wrote <path>` for every file.
 `RunResult(status: "waiting"|"done", stage, waiting=0, job_file=None, findings=(), review=None, proposal=None,
 price_sheet=None, evidence=None, messages=())`. `stage` is `read`, `count`, `write`, `decisions`, `qc`, `revise`
 or `done`. `decisions` is a bad decisions file: the run stops in words and waits for no request.
 `python -m bms estimate` exits 0 when done, 2 when requests are waiting, and 1 when it stops with nothing to answer
 (a refusal limit, or the `decisions` stage).
-`tools/run_job.py status` still calls `python -m estimator`; switching it to `python -m bms` is integration's.
+Two commands are called "status" and they mean different things. `tools/run_job.py status JOB --out OUT` *runs the
+estimate* (`python -m bms estimate --mode chat` by default, `--app estimator` for the old app) and lists the
+requests still waiting. `python -m bms status OUT [--cache C]` (`bms.status.check`) never runs anything, never
+calls the AI and writes nothing: it reads the files the run already wrote (`run state.json`, the ledger, the job,
+the chat requests and answers, the refusal counters, the review page and the documents) and says how far the run
+got, with the same exit codes as `estimate` (0 done, 2 waiting, 1 stopped, not finished, no folder or no run).
 
 ## 7. Fixtures
 
