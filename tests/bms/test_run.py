@@ -3,6 +3,7 @@ answers every request the run writes (reading passes, plan count sheets, write a
 answers. No real job data: the PDFs are built here."""
 from __future__ import annotations
 
+import dataclasses
 import json
 import re
 import sys
@@ -315,17 +316,25 @@ def test_the_decision_rewrite_and_the_revise_are_given_the_source_ids_of_the_who
 
 def test_every_writer_the_decision_rewrite_and_the_revise_are_given_the_sheets_of_the_whole_plan(job_folder, tmp_path,
                                                                                                  monkeypatch):
-    """K, the sheet numbers the planner's wheres name (`citations.job_sheets`), is computed once for the whole plan
-    and passed to every writer, the decision rewrite and the revise, so a sheet only another system's where names is
-    accepted at intake as the validator and the renderer accept it (review of record, cleanup round 4, L-B)."""
+    """K, the sheet numbers the planner's wheres name (`citations.job_sheets`), is the whole plan's and is passed to
+    every writer, the count rewrite and the revise, so a sheet only another system's where names is accepted at
+    intake as the validator and the renderer accept it (review of record, cleanup round 4, L-B). It is worked out per
+    call: the writers all get the same K, the count rewrite and the revise the K of the job after the decisions
+    (lead/detector-fix3, R-1). Since the merge of 018c a device decision is applied without asking again, so the
+    decision here is a family-count change, which asks `ai.rewrite_for_count`; the real one is called, and it takes
+    `sheets` (on rebuild 7befe74 it did not, and the count rewrite stopped with a TypeError)."""
     from bms import ai, citations, run
     from bms.model import Finding, Job
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
-    real_write, written, rewritten, revised = ai.write_system, [], [], []
+    real_write, real_rewrite, written, rewritten, revised = ai.write_system, ai.rewrite_for_count, [], [], []
 
     def spy(system, evidence, playbook, transport, **kw):
-        (rewritten if "The estimator's decisions" in evidence else written).append(kw.get("sheets"))
+        written.append(kw.get("sheets"))
         return real_write(system, evidence, playbook, transport, **kw)
+
+    def rewrite_spy(system, evidence, playbook, transport, **kw):
+        rewritten.append(kw.get("sheets"))
+        return real_rewrite(system, evidence, playbook, transport, **kw)
 
     def revise_spy(system, findings, evidence, playbook, transport, **kw):
         revised.append(kw.get("sheets"))
@@ -335,12 +344,16 @@ def test_every_writer_the_decision_rewrite_and_the_revise_are_given_the_sheets_o
         return [Finding("Every line cites this job", s.key, None, "must_fix", "invented", "invented")
                 for s in job.systems[:1]]
     monkeypatch.setattr(run.ai, "write_system", spy)
+    monkeypatch.setattr(run.ai, "rewrite_for_count", rewrite_spy)
     out, cache = tmp_path / "out", tmp_path / "cache"
-    assert _reach(job_folder, out, cache, "write").stage == "write"
-    requests = sorted((cache / "judge-chat" / "requests").glob("*.json"))
-    changed = json.loads(requests[0].read_text(encoding="utf-8"))["plan_key"]
+    first = _reach(job_folder, out, cache, "write")
+    assert first.stage == "write"
+    planned = Job.from_json(first.job_file.read_text(encoding="utf-8"))
+    system = planned.systems[0]
+    family = system.families[0]
     (out / "decisions.json").write_text(json.dumps([{
-        "system_key": changed, "action": "delete", "device_id": f"{changed}.d1", "reason": "invented",
+        "system_key": system.key, "action": "change", "family_name": family.name,
+        "count": dataclasses.replace(family.count, value=99).to_dict(), "reason": "invented",
     }]), encoding="utf-8")
     assert answer_all(cache)
     monkeypatch.setattr(run.ai, "revise_system", revise_spy)
@@ -348,9 +361,10 @@ def test_every_writer_the_decision_rewrite_and_the_revise_are_given_the_sheets_o
     result = _reach(job_folder, out, cache, "never")
     job = Job.from_json(result.job_file.read_text(encoding="utf-8"))
     assert written and rewritten and revised, (written, rewritten, revised)
-    every = [*written, *rewritten, *revised]
-    assert all(sheets is not None and tuple(sheets) == tuple(every[0]) for sheets in every), every
-    assert set(every[0]) == set(citations.job_sheets(job)), (every[0], citations.job_sheets(job))
+    assert all(sheets is not None and tuple(sheets) == tuple(written[0]) for sheets in written), written
+    assert set(written[0]) == set(citations.job_sheets(planned)), (written[0], citations.job_sheets(planned))
+    for sheets in (*rewritten, *revised):
+        assert sheets is not None and set(sheets) == set(citations.job_sheets(job)), (sheets, job)
 
 
 def test_a_killed_write_resumes_from_cached_answers_without_asking_again(job_folder, tmp_path, monkeypatch):

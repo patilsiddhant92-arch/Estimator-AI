@@ -102,8 +102,8 @@ def _revised(system, findings, evidence, playbook, transport, job=None, decision
     if job is None:
         revised = ai.revise_system(system, findings, evidence, playbook, transport)
     else:
-        revised = ai.revise_system(system, findings, evidence, playbook, transport,
-                                    tags=job_tags(job), ids=job_ids(job))
+        revised = ai.revise_system(system, findings, evidence, playbook, transport, tags=job_tags(job),
+                                    ids=job_ids(job) if ids is None else ids, sheets=sheets)
     flagged = flag_written_devices(revised)
     if not decisions:
         return flagged
@@ -212,17 +212,19 @@ def estimate(job_folder: Path, out: Path, cache: Path, mode: Mode = "chat") -> R
     def issued(current: Job) -> tuple[str, ...]:
         return tuple(dict.fromkeys([*job_ids(current), *evidence_ids]))
 
-    # K, one set for every writer, the decision rewrite and the revise: the sheet numbers the planner's wheres name
-    # (after the counts cross-check, whose refs carry sheets). The skeleton's refs win over every answer, so K never
-    # changes while the systems are written, and it is the validator's and the renderer's K too.
-    sheets = tuple(sorted(job_sheets(job)))
+    # K, the sheet numbers the planner's wheres name (after the counts cross-check, whose refs carry sheets), worked
+    # out per call like I: the skeleton's refs win over every answer, so the writers all get the same K, but an
+    # estimator's decision (a system deleted, a family count changed) can take planner refs out of the job, so the
+    # decision rewrite and the revise get the K of the job they write into: the validator's and the renderer's K.
+    def sheets(current: Job) -> tuple[str, ...]:
+        return tuple(sorted(job_sheets(current)))
 
     pending: list[str] = []
     for system in job.systems:
         try:
             job = job.with_system(flag_written_devices(
                 ai.write_system(system, evidence[system.key], playbook, transport, tags=job_tags(job),
-                                ids=issued(job), sheets=sheets)))
+                                ids=issued(job), sheets=sheets(job))))
         except ai.NoAnswer as missing:
             pending.append(_stopped(missing.reason) if str(missing.reason).startswith("Stopped:")
                            else f"{system.name}: {missing.reason}")
@@ -252,7 +254,7 @@ def estimate(job_folder: Path, out: Path, cache: Path, mode: Mode = "chat") -> R
         try:
             rewritten = flag_written_devices(ai.rewrite_for_count(
                 system, f"{evidence[key]}\n\n{_count_note(decisions, key)}", playbook, transport,
-                tags=job_tags(job), ids=issued(job), sheets=sheets))
+                tags=job_tags(job), ids=issued(job), sheets=sheets(job)))
             standing = _standing_accepts(history, key)          # accepted after the estimator saw the new count
             if standing:
                 rewritten = apply_decisions(job.with_system(rewritten), standing).system(key)
@@ -284,7 +286,7 @@ def estimate(job_folder: Path, out: Path, cache: Path, mode: Mode = "chat") -> R
             job = job.with_system(_revised(system, [f for f in must_fix if f.system_key == key],
                                             evidence[key], playbook, transport, job,
                                             decisions=_standing_accepts(history, key),
-                                            ids=issued(job), sheets=sheets))
+                                            ids=issued(job), sheets=sheets(job)))
 
         except ai.NoAnswer as missing:
             pending.append(_stopped(missing.reason) if str(missing.reason).startswith("Stopped:")

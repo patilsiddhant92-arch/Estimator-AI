@@ -5,8 +5,9 @@ fixture only.
   the exceptions), never from a writer's device refs, so a where the writer types never makes an issued id a sheet.
 - L-B: the run computes the whole plan's K once and passes it to every writer, the decision rewrite and the revise,
   so intake, validator and render agree on a sheet another system's where names.
-- L-C: a documents tag written with a hyphen or underscore ("S-1", "AHU_S12") protects its plain form ("S1",
-  "S12") and nothing else; a device name is never a tag.
+- L-C, as the estimator ruled (lead/detector-fix3, R-2): a documents tag is protected only in the form it is written.
+  "AHU_S12" protects "S12", which the scanner reads inside it; "S-1" and "S_1A" protect no plain "S1" or "S1A",
+  which the scanner never reads out of them. A device name is never a tag.
 """
 from __future__ import annotations
 
@@ -136,26 +137,43 @@ def test_intake_validator_and_render_agree_on_a_sheet_only_another_systems_plann
 # ---- L-C: hyphen and underscore tag forms ------------------------------------------------------------------------
 
 @pytest.mark.parametrize("tags, protected", [
-    (["S-1"], {"S1"}),
-    (["S_1A"], {"S1A"}),
-    (["AHU_S12"], {"S12"}),
-    (["S-1", "EF-1", "CS-1", "SF-1", "IC-3", "FCU-1", "S-12345", "AHU_S12X3"], {"S1"}),
-    (["S-12"], {"S12"}),                                # never S1
+    (["S-1"], set()),                                   # the ruling: protected only as written
+    (["S_1A"], set()),
+    (["AHU_S12"], {"S12"}),                             # the scanner reads S12 inside it
+    (["S-1", "EF-1", "CS-1", "SF-1", "IC-3", "FCU-1", "S-12345", "AHU_S12X3"], set()),
+    (["S-12"], set()),                                  # never S1, nor S12
 ])
-def test_a_hyphen_or_underscore_tag_protects_its_plain_form_and_nothing_else(tags, protected):
+def test_a_tag_protects_only_the_plain_id_the_scanner_reads_inside_it(tags, protected):
     assert citations.tag_tokens(tags) == frozenset(protected)
 
 
-def test_a_hyphen_tag_protects_the_plain_form_in_every_stage_and_a_device_name_is_never_a_tag(job):
-    """A documents tag "S-1" protects a writer's "S1" (S1 issued) at intake, in the validator and at render. A device
-    named "S12" (one id-shaped token) never becomes a tag of the whole job: "Interlock per S12" stays must_fix."""
+def test_a_hyphen_tag_never_protects_the_plain_id_in_any_stage_and_a_device_name_is_never_a_tag(job):
+    """The estimator's ruling (R-2): a documents tag "S-1" does not protect a writer's "S1" (S1 issued): refused at
+    intake, must_fix in the validator and cut at render, while "S-1" itself, as written, prints. A device named "S12"
+    (one id-shaped token) never becomes a tag of the whole job: "Interlock per S12" stays must_fix."""
     j = _tags(job, "EF", ["EF-1", "S-1"])
     rtu = j.system("RTU")
     j = replace(j, systems=tuple(replace(s, devices=(replace(rtu.devices[0], name="S12"),) + rtu.devices[1:])
                                  if s.key == "RTU" else s for s in j.systems))
-    assert _intake("Supply fan S1 on a VFD", tags=citations.job_tags(j)) == "Supply fan S1 on a VFD"
-    assert _downstream(j, "Supply fan S1 on a VFD") == ([], "*Supply fan S1 on a VFD")
+    assert _intake("Supply fan S1 on a VFD", tags=citations.job_tags(j)) is None
+    found, printed = _downstream(j, "Supply fan S1 on a VFD")
+    assert "must_fix" in found and not _prints(printed, "S1"), (found, printed)
+    assert _intake("Supply fan S-1 on a VFD", tags=citations.job_tags(j)) == "Supply fan S-1 on a VFD"
+    assert _downstream(j, "Supply fan S-1 on a VFD") == ([], "*Supply fan S-1 on a VFD")
     assert "S12" not in citations.tag_tokens(citations.job_tags(j))
     assert _intake("Interlock per S12", tags=citations.job_tags(j)) is None
     found, printed = _downstream(j, "Interlock per S12")
     assert "must_fix" in found and not _prints(printed, "S12"), (found, printed)
+
+
+@pytest.mark.parametrize("tag, token", [("F-7", "F7"), ("Fan F-7/F-8", "F7"), ("F-6 thru F-8", "F7"),
+                                        ("S-141", "S141"), ("S_1_2", "S1"), ("EF-S-1", "S1"), ("S-1.5", "S1")])
+def test_a_hyphen_family_tag_never_makes_an_issued_id_printable_anywhere_in_the_job(job, tag, token):
+    """R-2: a fan tagged "F-7" (or a range of them) on one system does not let the fact id F7 print in any system's
+    text: refused at intake, must_fix in the validator, cut at render. T is the whole job's tags."""
+    j = _tags(job, "RTU", [tag])
+    assert token not in citations.tag_tokens(citations.job_tags(j))
+    text = f"Interlock per {token}"
+    assert _intake(text, tags=citations.job_tags(j)) is None
+    found, printed = _downstream(j, text)
+    assert "must_fix" in found and not _prints(printed, token), (found, printed)

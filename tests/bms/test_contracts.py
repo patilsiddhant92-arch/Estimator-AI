@@ -299,7 +299,7 @@ def test_signature(function):
 
 
 def test_the_writers_take_tags_ids_and_sheets_keyword_only_with_an_empty_default():
-    for function in (ai.write_system, ai.revise_system):
+    for function in (ai.write_system, ai.revise_system, ai.rewrite_for_count):     # the count rewrite too (R-1)
         for name in ("ids", "tags", "sheets"):
             parameter = inspect.signature(function).parameters.get(name)
             assert parameter is not None, (function, name)

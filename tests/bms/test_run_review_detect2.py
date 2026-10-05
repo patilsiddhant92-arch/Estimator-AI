@@ -1,9 +1,10 @@
 """Review of record, source-id detector gaps (lead/detector-gaps): the run's K after the estimator's decisions.
 Invented job folder only (the one `test_run` builds).
 
-The run computes K (`citations.job_sheets`) once, before the writers, and gives that same set to the decision
-rewrite and the revise. A decision can take planner refs out of the job (it deletes a system, or changes a family's
-count to the estimator's own), so the validator's and the renderer's K shrink. The decision rewrite and the revise
+Finding R-1 (fixed on lead/detector-fix3): the run used to compute K (`citations.job_sheets`) once, before the
+writers, and give that same set to the decision rewrite and the revise. A decision can take planner refs out of the job (it deletes a system, or changes a family's
+count to the estimator's own; the count change asks `ai.rewrite_for_count`, which on rebuild 7befe74 did not take the
+`sheets` the run passed it, so the count rewrite stopped with a TypeError), so the validator's and the renderer's K shrink. The decision rewrite and the revise
 must be given the K of the job they write into, or a text their intake accepts as a sheet is must_fix and cut at
 render ("Damper per S901" prints "Damper per").
 """
@@ -19,9 +20,6 @@ from test_run import _reach, answer_all, job_folder  # noqa: F401  (job_folder i
 SHEET_REF = {"source_id": "Q901", "quote": "invented", "where": "Sheet S901, Structural.pdf page 3"}
 
 
-@pytest.mark.xfail(strict=True, reason="review of record detector gaps, finding R-1: run.py computes K once; a "
-                                       "decision that takes a planner's sheet ref out of the job leaves that sheet "
-                                       "in the decision rewrite's and the revise's K")
 def test_the_decision_rewrite_and_the_revise_are_given_the_sheets_of_the_job_after_the_decisions(job_folder, tmp_path,
                                                                                                 monkeypatch):
     from bms import ai, citations, run
@@ -38,11 +36,15 @@ def test_the_decision_rewrite_and_the_revise_are_given_the_sheets_of_the_job_aft
             system, families=(dataclasses.replace(family, count=count),) + system.families[1:]))
 
     written, rewritten, revised = [], [], []
-    real_write = ai.write_system
+    real_write, real_rewrite = ai.write_system, ai.rewrite_for_count
 
     def spy(system, evidence, playbook, transport, **kw):
-        (rewritten if "The estimator's decisions" in evidence else written).append(kw.get("sheets"))
+        written.append(kw.get("sheets"))
         return real_write(system, evidence, playbook, transport, **kw)
+
+    def rewrite_spy(system, evidence, playbook, transport, **kw):    # the count rewrite (merge of 018c)
+        rewritten.append(kw.get("sheets"))
+        return real_rewrite(system, evidence, playbook, transport, **kw)    # the real one takes `sheets` too
 
     def revise_spy(system, findings, evidence, playbook, transport, **kw):
         revised.append(kw.get("sheets"))
@@ -54,6 +56,7 @@ def test_the_decision_rewrite_and_the_revise_are_given_the_sheets_of_the_job_aft
 
     monkeypatch.setattr(run, "cross_check", cross_check)
     monkeypatch.setattr(run.ai, "write_system", spy)
+    monkeypatch.setattr(run.ai, "rewrite_for_count", rewrite_spy)
     out, cache = tmp_path / "out", tmp_path / "cache"
     first = _reach(job_folder, out, cache, "write")
     assert first.stage == "write"

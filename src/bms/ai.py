@@ -1079,8 +1079,9 @@ def write_system(system: System, evidence: str, playbook: Playbook, transport: T
 
 
 def rewrite_for_count(system: System, evidence: str, playbook: Playbook, transport: Transport, *,
-                      tags: Sequence[str] = (), ids: Sequence[str] = ()) -> System:
+                      tags: Sequence[str] = (), ids: Sequence[str] = (), sheets: Sequence[str] = ()) -> System:
     """Ask again only because a family count changed. Devices already on the system are kept by content and id.
+    `tags`, `ids` and `sheets` are as for `write_system` (the run passes the job's after the decisions).
 
     The prompt names those devices by their words, not as a list of ids to delete. A device decision does not
     come here: the run applies it and does not ask the writer again."""
@@ -1093,7 +1094,7 @@ def rewrite_for_count(system: System, evidence: str, playbook: Playbook, transpo
               + "add a replacement.\n" + kept)
     return _ask_system(transport, system.name, playbook, "write_system", prompt,
                        {"step": "decide", "plan_key": system.key, "images": listing}, images, system, shape, known,
-                       system.devices, system.devices, tags=tags, ids=ids)
+                       system.devices, system.devices, tags=tags, ids=ids, sheets=sheets)
 
 
 def _ask_system(transport, name: str, playbook: Playbook, step: str, prompt: str, extra: dict,
