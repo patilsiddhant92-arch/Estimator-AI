@@ -96,7 +96,7 @@ def test_reading_the_same_file_again_adds_no_round_and_a_new_save_wins_per_line(
     assert [(h.decision, h.round) for h in history] == [(first[0], 1), (first[1], 1)]
     assert review.merge_decisions(history, first) == history                      # a plain re-run
     second = [Decision("EF", "delete", device_id="EF.d1", was=d2)]                 # same line as the accept
-    merged = review.merge_decisions(history, second)
+    merged = review.merge_decisions(history, second, job=job)   # (only one line of the job has d2's content)
     assert [(h.decision, h.round) for h in merged] == [(first[0], 1), (second[0], 2)]
     assert review.merge_decisions(merged, []) == merged                            # no file: the history stands
 

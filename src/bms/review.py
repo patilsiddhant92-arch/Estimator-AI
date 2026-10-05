@@ -11,8 +11,10 @@ same file again adds nothing. Starting over means deleting both files.
 from __future__ import annotations
 
 import dataclasses
+import hashlib
 import html
 import json
+import os
 import re
 from collections.abc import Sequence
 from dataclasses import dataclass
@@ -458,11 +460,14 @@ def load_decisions(out_dir: Path) -> list[Decision]:
 class SavedDecision:
     """One decision kept in the run's history: the save it came from (`round`, 1 for the first) and whether it took
     effect on some run (it matched a line and was applied). `saved` is the decision as decisions.json had it when
-    the run rebased it onto an earlier change (`merge_decisions`); None when `decision` is that decision."""
+    the run rebased it onto an earlier change (`merge_decisions`); None when `decision` is that decision.
+    `settled` holds the lines of the decision's system in the final job of the last run that reached the end, one
+    digest per line (`system_lines`); None before such a run. A line not among them is new since that run."""
     decision: Decision
     round: int
     took_effect: bool = False
     saved: Decision | None = None
+    settled: tuple[str, ...] | None = None
 
     @property
     def as_saved(self) -> Decision:
@@ -472,7 +477,17 @@ class SavedDecision:
         data = {"decision": self.decision.to_dict(), "round": self.round, "took_effect": self.took_effect}
         if self.saved is not None:
             data["saved"] = self.saved.to_dict()
+        if self.settled is not None:
+            data["settled"] = list(self.settled)
         return data
+
+
+def system_lines(job: Job, key: str) -> tuple[str, ...]:
+    """One digest per distinct line of system `key` of `job` (the front end for ""), sorted; the id and the flag
+    are left out, as `_same_device` leaves them out. () when the job has no such system."""
+    return tuple(sorted({hashlib.sha256(json.dumps(dataclasses.replace(d, id="", flag="none").to_dict(),
+                                                   sort_keys=True).encode()).hexdigest()
+                         for d in _devices(job, key) or ()}))
 
 
 def load_history(out_dir: Path) -> list[SavedDecision]:
@@ -487,36 +502,58 @@ def load_history(out_dir: Path) -> list[SavedDecision]:
             raise ModelError(f"expected a list, got {type(data).__name__}")
         return [SavedDecision(Decision.from_dict(entry["decision"]), int(entry["round"]),
                               bool(entry.get("took_effect", False)),
-                              Decision.from_dict(entry["saved"]) if entry.get("saved") is not None else None)
+                              Decision.from_dict(entry["saved"]) if entry.get("saved") is not None else None,
+                              _settled(entry.get("settled")))
                 for entry in data]
     except (json.JSONDecodeError, UnicodeDecodeError, ModelError, KeyError, TypeError, ValueError) as error:
-        raise ModelError(f"{DECISIONS_HISTORY}: cannot be read ({error}). Delete it and {DECISIONS_FILE} to start "
-                         "the decisions over.") from None
+        raise ModelError(f"{DECISIONS_HISTORY}: cannot be read ({error}). This file keeps the decisions of every "
+                         f"earlier save; {DECISIONS_FILE} is fine. Put back a good copy of {DECISIONS_HISTORY} if "
+                         f"you have one. Otherwise delete only {DECISIONS_HISTORY}: the next run starts again from "
+                         f"the decisions in {DECISIONS_FILE}, and the decisions of earlier saves are not applied "
+                         "(answer them again on the review page).") from None
+
+
+def _settled(value: object) -> tuple[str, ...] | None:
+    if value is None:
+        return None
+    if isinstance(value, list) and all(isinstance(v, str) for v in value):
+        return tuple(value)
+    raise ModelError(f"settled: expected a list of text, got {type(value).__name__}")
 
 
 def save_history(out_dir: Path, entries: Sequence[SavedDecision]) -> Path:
+    """Written whole or not at all: to a temporary file in the same folder first, then swapped into place."""
     path = Path(out_dir) / DECISIONS_HISTORY
-    path.write_text(json.dumps([e.to_dict() for e in entries], indent=2), encoding="utf-8")
+    tmp = path.with_name(path.name + ".tmp")
+    tmp.write_text(json.dumps([e.to_dict() for e in entries], indent=2), encoding="utf-8")
+    os.replace(tmp, path)
     return path
 
 
-def _same_line(a: Decision, b: Decision) -> bool:
-    """True when two decisions are about the same thing: a line (by the content the page showed, else its id), a
-    family's count, or the whole system."""
+def _same_line(a: Decision, b: Decision, job: Job | None = None) -> bool:
+    """True when two decisions are about the same thing: a line, a family's count, or the whole system. Two device
+    decisions with the line as the page showed it (`was`) are about the same line when that content is equal and
+    so is the id, or when only one line of `job`'s system has that content (the writer numbers lines again, so the
+    id may differ). Twin lines (the same content twice) are told apart by id. Without `was`, by id."""
     if a.system_key != b.system_key:
         return False
     if a.device_id is not None or b.device_id is not None:
         if a.device_id is None or b.device_id is None:
             return False
         if a.was is not None and b.was is not None:
-            return _same_device((a.was,), b.was)
+            if not _same_device((a.was,), b.was):
+                return False
+            if a.device_id == b.device_id:
+                return True
+            return job is not None and _how_many(_devices(job, a.system_key), a.was) == 1
         return a.was is None and b.was is None and a.device_id == b.device_id
     if a.family_name is not None or b.family_name is not None:
         return a.family_name == b.family_name
     return True
 
 
-def merge_decisions(history: Sequence[SavedDecision], saved: Sequence[Decision]) -> list[SavedDecision]:
+def merge_decisions(history: Sequence[SavedDecision], saved: Sequence[Decision], *,
+                    job: Job | None = None) -> list[SavedDecision]:
     """The history with this decisions.json added. The page saves only its own answers, so earlier saves are kept:
     a decision from an earlier round stays unless the new save decides the same line (the new answer wins). Every
     decision in one save is kept, in order (a change then a delete of one line are both kept). Reading the same
@@ -524,7 +561,9 @@ def merge_decisions(history: Sequence[SavedDecision], saved: Sequence[Decision])
 
     A new delete or change of a line an earlier save changed (the page showed the changed line) is rebased onto the
     line the writer wrote: change X to Y, then delete Y, is kept as delete X; change X to Y, then Y to Z, as change X
-    to Z. So every kept decision names a line of the written job. Pure."""
+    to Z. So every kept decision names a line of the written job; a newer answer on the line a rebased decision now
+    names replaces it too. `job` is the written job: a line whose content only one of its lines has is the same
+    line whatever id the page showed (`_same_line`). Pure."""
     history = list(history)
     saved = list(saved)
     if not saved:
@@ -532,7 +571,8 @@ def merge_decisions(history: Sequence[SavedDecision], saved: Sequence[Decision])
     latest = max((h.round for h in history), default=0)
     if history and [h.as_saved for h in history if h.round == latest] == saved:
         return history
-    carried = [h for h in history if not any(_same_line(h.as_saved, d) for d in saved)]
+    carried = [h for h in history
+               if not any(_same_line(h.as_saved, d, job) or _same_line(h.decision, d, job) for d in saved)]
     new: list[SavedDecision] = []
     for d in saved:
         base = _changed_into(carried, d)
@@ -727,11 +767,8 @@ def _device_holds(before: Job, decision: Decision, after: Job, expected: Job) ->
     if _how_many(later, target) < _how_many(want, target):
         return False
     if decision.action == "accept":
-        matching_later = next((dev for dev in later or () if _same_device((dev,), target)), None)
-        before_family = _family_of_device(before, decision.system_key, target)
-        after_family = _family_of_device(after, decision.system_key, matching_later)
-        counts_changed = (before_family is not None and after_family is not None
-                          and before_family.count != after_family.count)
+        counts_changed = _count_changed_between(before, after, decision.system_key,
+                                                accept_family(before, decision))
         if not counts_changed and _how_many(later, target, unflagged=True) < _how_many(want, target, unflagged=True):
             return False
     return True
@@ -761,6 +798,34 @@ def _family_holds(before: Job, decision: Decision, after: Job, expected: Job) ->
                         if dev.flag != "none":
                             return False
     return True
+
+
+def accept_family(job: Job | None, decision: Decision) -> str | None:
+    """The family an accept (or any decision) is about: the family it names, else the family whose count the
+    line's quantity cites (the line as saved, else the line of `job` with its id). None when that is not known;
+    then a count change of any family of the system counts as a change of its family."""
+    if decision.family_name is not None:
+        return decision.family_name
+    if job is None or decision.device_id is None:
+        return None
+    line = decision.was or next((d for d in _devices(job, decision.system_key) or ()
+                                 if d.id == decision.device_id), None)
+    family = _family_of_device(job, decision.system_key, line)
+    return family.name if family is not None else None
+
+
+def _count_changed_between(before: Job, after: Job, key: str, family: str | None) -> bool:
+    """True when the count of family `family` of system `key` (any family of it, for None) differs between the
+    two jobs."""
+    if key == "":
+        return False
+    old = next((s for s in before.systems if s.key == key), None)
+    new = next((s for s in after.systems if s.key == key), None)
+    if old is None or new is None:
+        return False
+    counts = {f.name: f.count for f in new.families}
+    return any(counts.get(f.name, f.count) != f.count for f in old.families
+               if family is None or f.name == family)
 
 
 def _family_of_device(job: Job, key: str, device: Device | None) -> Family | None:
