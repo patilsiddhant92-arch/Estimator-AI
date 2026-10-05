@@ -784,6 +784,82 @@ def test_a_check_refusal_stops_after_max_attempts_and_names_the_request(job, raw
     assert len(written.devices) == 3
 
 
+def test_revise_source_id_refusal_is_actionable_and_stops_at_three(job, raw, dossier, playbook, tmp_path):
+    """From Luna's review (luna/review-006 0d11239), unchanged: after the stop the API is not called a fourth time."""
+    system = job.system("EF")
+    bad = _bad(raw, lambda a: a["devices"][2].update(name="Motorized damper S999"))
+    client = FakeClient(*(_Response(json.dumps(bad)) for _ in range(4)))
+    transport = ai.ApiTransport(tmp_path, model="claude-test", client=client)
+    finding = Finding("Every line cites this job", "EF", "EF.d3", "must_fix", "missing detail",
+                      "name the document in words")
+    args = (system, [finding], ai.evidence_for(system, dossier), playbook, transport)
+
+    with pytest.raises(ai.NoAnswer) as retry:
+        ai.revise_system(*args, ids=("S999",))
+    assert len(client.calls) == 2
+    retry_prompt = client.calls[1]["messages"][0]["content"][0]["text"]
+    assert "S999" in retry_prompt and "name the document in words" in retry_prompt
+
+    with pytest.raises(ai.NoAnswer) as stopped:
+        ai.revise_system(*args, ids=("S999",))
+    assert len(client.calls) == 3
+    assert not stopped.value.waiting
+    assert "Stopped" in stopped.value.reason and "Exhaust Fans (revise)" in stopped.value.reason
+    assert "3 times" in stopped.value.reason and "S999" in stopped.value.reason
+
+    with pytest.raises(ai.NoAnswer) as still_stopped:
+        ai.revise_system(*args, ids=("S999",))
+    assert len(client.calls) == 3
+    assert "Stopped" in still_stopped.value.reason and "3 times" in still_stopped.value.reason
+
+
+def test_a_new_api_transport_after_the_stop_does_not_call_again(job, raw, dossier, playbook, tmp_path):
+    """The count is saved: a later run (a new transport on the same cache) is stopped before it calls."""
+    system = skeleton(job.system("EF"))
+    bad = _bad(raw, lambda a: a["devices"][0].update(slot="gadget"))
+    client = FakeClient(*(_Response(json.dumps(bad)) for _ in range(5)))
+    evidence = ai.evidence_for(system, dossier)
+    for _ in range(2):
+        with pytest.raises(ai.NoAnswer):
+            ai.write_system(system, evidence, playbook, ai.ApiTransport(tmp_path, model="claude-test", client=client))
+    assert len(client.calls) == 3
+    with pytest.raises(ai.NoAnswer) as again:
+        ai.write_system(system, evidence, playbook, ai.ApiTransport(tmp_path, model="claude-test", client=client))
+    assert len(client.calls) == 3
+    assert not again.value.waiting and "Stopped" in again.value.reason and "3 times" in again.value.reason
+
+
+def test_a_chat_rerun_after_the_stop_with_the_same_refused_answer_records_no_new_refusal(job, raw, dossier,
+                                                                                          playbook, tmp_path):
+    """Chat waits again after a stop (by design: a newer answer starts a fresh count). The refused answer put
+    back with its old time is not read again, so the counter stays at the cap."""
+    system = skeleton(job.system("EF"))
+    evidence = ai.evidence_for(system, dossier)
+    cache = tmp_path / "cache"
+    with pytest.raises(ai.NoAnswer):
+        ai.write_system(system, evidence, playbook, ai.ChatTransport(cache, job="00-0000"))
+    (request_file,) = (cache / "judge-chat" / "requests").glob("*.json")
+    answer = Path(json.loads(request_file.read_text(encoding="utf-8"))["answer_file"])
+    answer.parent.mkdir(parents=True, exist_ok=True)
+    text = json.dumps(_bad(raw, lambda a: a["devices"][0].update(slot="gadget")))
+    stopped = None
+    for seconds in (10, 20, 30):
+        answer.write_text(text, encoding="utf-8")
+        _stamp(answer, seconds)
+        with pytest.raises(ai.NoAnswer) as stopped:
+            ai.write_system(system, evidence, playbook, ai.ChatTransport(cache, job="00-0000"))
+    assert stopped is not None and not stopped.value.waiting
+    (counter,) = (cache / "judge" / "attempts").glob("*.json")
+    saved = json.loads(counter.read_text(encoding="utf-8"))
+    assert saved["attempts"] == 3
+    answer.write_text(text, encoding="utf-8")
+    os.utime(answer, ns=(saved["answer_mtime_ns"], saved["answer_mtime_ns"]))
+    with pytest.raises(ai.NoAnswer) as waiting:
+        ai.write_system(system, evidence, playbook, ai.ChatTransport(cache, job="00-0000"))
+    assert waiting.value.waiting
+    assert json.loads(counter.read_text(encoding="utf-8"))["attempts"] == 3
+
+
 def test_a_second_prompt_keeps_its_refusal_count_when_the_first_succeeds(job, raw, dossier, playbook, tmp_path):
     """The first write and a later prompt do not share a counter. A success must not wipe the other count.
     A stop names the counter file, and the stale answer file is removed."""

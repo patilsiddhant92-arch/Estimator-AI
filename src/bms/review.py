@@ -2,7 +2,10 @@
 
 `review_page` writes one self-contained `Review.html`; the estimator answers the open questions in a browser, which
 cannot write files, so the page downloads `decisions.json` and the estimator saves it into the out folder.
-`load_decisions` reads it back and `apply_decisions` (pure) applies it to the Job.
+`load_decisions` reads it back and `apply_decisions` (pure) applies it to the Job. Each save holds only the answers
+on the page it came from, so the run keeps every saved decision in `decisions history.json` (`merge_decisions`):
+a new save adds a round, its answer on a line replaces an earlier round's answer on the same line, and reading the
+same file again adds nothing. Starting over means deleting both files.
 `unhonored_decisions` is the post-check: a saved decision that the final job does not still show.
 """
 from __future__ import annotations
@@ -20,6 +23,7 @@ from bms.model import PARTIES, VERBS, Count, Decision, Device, Finding, Job, Mod
 
 REVIEW_PAGE = "Review.html"
 DECISIONS_FILE = "decisions.json"
+DECISIONS_HISTORY = "decisions history.json"
 MAX_QUESTIONS = 15
 PROOFS_FOLDER, PROOFS_MANIFEST = "count-proofs", "proofs.json"     # as bms.counts publishes them into the out folder
 
@@ -200,7 +204,8 @@ def _select(name: str, options: Sequence[str], current: str) -> str:
 
 
 def _question_html(q: _Question, extra: bool, proofs: dict[str, list[str]] | None = None) -> str:
-    can_delete = q.level == "device" or (q.level == "system" and q.system_key != "")
+    can_delete = q.level == "device" or (q.level == "system" and q.system_key != ""
+                                         and q.finding_rule != "decision not honored")
     data = {"id": q.qid, "system_key": q.system_key, "level": q.level, "device_id": q.device_id,
             "family_name": q.family_name, "finding_rule": q.finding_rule,
             "device": q.device.to_dict() if q.device else None,
@@ -415,7 +420,8 @@ def review_page(job: Job, findings: Sequence[Finding], out_dir: Path) -> Path:
 Answered: <span id="answered">0</span>
 <button type="button" id="save" class="primary">Save decisions</button></div>
 <div class="hint">Your browser cannot write into the out folder. "Save decisions" downloads decisions.json;
-save that file into the out folder, then run the estimate again.</div><div id="saved"></div></header>
+save that file into the out folder, then run the estimate again. Decisions saved earlier are kept; a new answer on
+the same line replaces the earlier one.</div><div id="saved"></div></header>
 <main>{"".join(body)}</main>
 <script>{_SCRIPT_CORE}{_SCRIPT_PAGE}</script></body></html>
 """
@@ -446,6 +452,73 @@ def load_decisions(out_dir: Path) -> list[Decision]:
         except ModelError as error:
             raise ModelError(f"{DECISIONS_FILE}: decisions[{n}]: {error}") from None
     return out
+
+
+@dataclass(frozen=True)
+class SavedDecision:
+    """One decision kept in the run's history: the save it came from (`round`, 1 for the first) and whether it took
+    effect on some run (it matched a line and was applied)."""
+    decision: Decision
+    round: int
+    took_effect: bool = False
+
+    def to_dict(self) -> dict:
+        return {"decision": self.decision.to_dict(), "round": self.round, "took_effect": self.took_effect}
+
+
+def load_history(out_dir: Path) -> list[SavedDecision]:
+    """The decisions kept from earlier saves (`out_dir/decisions history.json`); [] when there is none. Raises
+    `bms.model.ModelError` naming the file when it is malformed (it is never dropped in silence)."""
+    path = Path(out_dir) / DECISIONS_HISTORY
+    if not path.is_file():
+        return []
+    try:
+        data = json.loads(path.read_text(encoding="utf-8-sig"))
+        if not isinstance(data, list):
+            raise ModelError(f"expected a list, got {type(data).__name__}")
+        return [SavedDecision(Decision.from_dict(entry["decision"]), int(entry["round"]),
+                              bool(entry.get("took_effect", False))) for entry in data]
+    except (json.JSONDecodeError, UnicodeDecodeError, ModelError, KeyError, TypeError, ValueError) as error:
+        raise ModelError(f"{DECISIONS_HISTORY}: cannot be read ({error}). Delete it and {DECISIONS_FILE} to start "
+                         "the decisions over.") from None
+
+
+def save_history(out_dir: Path, entries: Sequence[SavedDecision]) -> Path:
+    path = Path(out_dir) / DECISIONS_HISTORY
+    path.write_text(json.dumps([e.to_dict() for e in entries], indent=2), encoding="utf-8")
+    return path
+
+
+def _same_line(a: Decision, b: Decision) -> bool:
+    """True when two decisions are about the same thing: a line (by the content the page showed, else its id), a
+    family's count, or the whole system."""
+    if a.system_key != b.system_key:
+        return False
+    if a.device_id is not None or b.device_id is not None:
+        if a.device_id is None or b.device_id is None:
+            return False
+        if a.was is not None and b.was is not None:
+            return _same_device((a.was,), b.was)
+        return a.was is None and b.was is None and a.device_id == b.device_id
+    if a.family_name is not None or b.family_name is not None:
+        return a.family_name == b.family_name
+    return True
+
+
+def merge_decisions(history: Sequence[SavedDecision], saved: Sequence[Decision]) -> list[SavedDecision]:
+    """The history with this decisions.json added. The page saves only its own answers, so earlier saves are kept:
+    a decision from an earlier round stays unless the new save decides the same line (the new answer wins). Every
+    decision in one save is kept, in order (a change then a delete of one line are both kept). Reading the same
+    file again adds nothing; no file leaves the history as it is. Pure."""
+    history = list(history)
+    saved = list(saved)
+    if not saved:
+        return history
+    latest = max((h.round for h in history), default=0)
+    if history and [h.decision for h in history if h.round == latest] == saved:
+        return history
+    carried = [h for h in history if not any(_same_line(h.decision, d) for d in saved)]
+    return [*carried, *(SavedDecision(d, latest + 1) for d in saved)]
 
 
 def _apply_to_devices(devices: tuple[Device, ...], device_id: str, decision: Decision) -> tuple[Device, ...]:
@@ -519,16 +592,20 @@ def _apply_one(job: Job, d: Decision) -> Job:
 def unhonored_decisions(before: Job, decisions: Sequence[Decision], after: Job) -> list[Finding]:
     """A must_fix for each saved decision the final job does not still show.
 
-    `before` is the job the decision was applied to, `after` the job after the last write. The writer numbers
-    devices again (`d1`, `d2`, …), so a device is recognized by its content, not by the id it wore. A delete is
-    honored when that device is gone, even if a different device now has its old id. A change is honored while its
-    new line is in the final job. An accept sticks unless family counts changed or the line has been re-flagged.
+    `before` is the job the decisions were applied to, `after` the job after the last write. The job the decisions
+    ask for is built once, `apply_decisions(before, decisions)`, so two decisions on one line (a change, then a
+    delete of it or of its system) are checked together. The writer numbers devices again (`d1`, `d2`, ...), so a
+    line is recognized by its content, not by the id it wore, and by how many lines have that content: deleting one
+    of two identical lines is honored while the final job has no more of them than the decisions left. A change is
+    honored while its new line is in the final job and the old line is not back. An accept sticks unless family
+    counts changed or the line has been re-flagged. A "not honored" card sits on the line that came back.
     A device decision that carries the line as the page showed it (`was`) but matches no line of `before` could not
     be applied: it is a must_fix "decision could not be applied" (same rule name), on the line in `after` that still
-    has that content when there is one. A decision without `was` that named nothing the earlier job had is skipped,
-    as `apply_decisions` skips it."""
+    has that content when there is one, else on the system (no device). A decision without `was` that named
+    nothing the earlier job had is skipped, as `apply_decisions` skips it."""
+    expected = apply_decisions(before, decisions)
     return [finding for decision in decisions
-            if (finding := _unhonored(before, decision, after)) is not None]
+            if (finding := _unhonored(before, decision, after, expected)) is not None]
 
 
 def _matches_nothing(job: Job, decision: Decision) -> bool:
@@ -540,36 +617,42 @@ def _matches_nothing(job: Job, decision: Decision) -> bool:
     return devices is not None and not _same_device(devices, decision.was)
 
 
-def _unhonored(before: Job, decision: Decision, after: Job) -> Finding | None:
+_GONE_DELETE = ("The line you deleted is not in this run's job as you saw it. It may have been removed or re-worded. "
+                "Check this system.")
+_GONE_OTHER = ("The line you decided on is not in this run's job, so your decision was not applied. "
+               "Find the line on this page and decide again.")
+
+
+def _unhonored(before: Job, decision: Decision, after: Job, expected: Job | None = None) -> Finding | None:
+    if expected is None:
+        expected = apply_decisions(before, [decision])
     subject = decision.device_id or decision.family_name or decision.system_key or "the front end"
     if _matches_nothing(before, decision):
         still = next((dev for dev in _devices(after, decision.system_key) or () if _same_device((dev,), decision.was)),
                      None)
-        return Finding("decision not honored", decision.system_key, still.id if still else decision.device_id,
-                       "must_fix", f"decision could not be applied: {decision.action} {subject}",
-                       "The line you decided on is not in this run's job, so your decision was not applied. "
-                       "Find the line on this page and decide again.")
-    if not _decision_holds(before, decision, after):
+        fix = _GONE_DELETE if decision.action == "delete" and still is None else _GONE_OTHER
+        return Finding("decision not honored", decision.system_key, still.id if still else None,
+                       "must_fix", f"decision could not be applied: {decision.action} {subject}", fix)
+    if not _decision_holds(before, decision, after, expected):
         device_id = decision.device_id
-        if decision.device_id is not None or decision.was is not None:
-            earlier = _devices(before, decision.system_key) or ()
-            target = decision.was or next((device for device in earlier if device.id == decision.device_id), None)
-            later = _devices(after, decision.system_key) or ()
-            if target is not None:
-                reappeared = next((dev for dev in later if _same_device((dev,), target)), None)
-                if reappeared is not None:
-                    device_id = reappeared.id
+        target = _target(before, decision)
+        if target is not None:
+            later = [dev for dev in _devices(after, decision.system_key) or () if _same_device((dev,), target)]
+            kept = {dev.id for dev in _devices(expected, decision.system_key) or () if _same_device((dev,), target)}
+            back = [dev for dev in later if dev.id not in kept] or later
+            if back:
+                device_id = back[-1].id
         return Finding("decision not honored", decision.system_key, device_id, "must_fix",
                        f"decision not honored: {decision.action} {subject}",
                        "The estimator's decision stands. The last write undid it.")
     return None
 
 
-def _decision_holds(before: Job, decision: Decision, after: Job) -> bool:
+def _decision_holds(before: Job, decision: Decision, after: Job, expected: Job) -> bool:
     if decision.device_id is not None:
-        return _device_holds(before, decision, after)
+        return _device_holds(before, decision, after, expected)
     if decision.family_name is not None:
-        return _family_holds(before, decision, after)
+        return _family_holds(before, decision, after, expected)
     if decision.system_key == "" or not any(s.key == decision.system_key for s in before.systems):
         return True
     gone = decision.action == "delete"
@@ -577,49 +660,56 @@ def _decision_holds(before: Job, decision: Decision, after: Job) -> bool:
     return present != gone
 
 
-def _device_holds(before: Job, decision: Decision, after: Job) -> bool:
+def _target(before: Job, decision: Decision) -> Device | None:
+    """The line of `before` the device decision is about: by its saved content when it has one, else by id."""
     earlier = _devices(before, decision.system_key)
-    if earlier is None:
-        return True
+    if earlier is None or decision.device_id is None:
+        return None
     if decision.was is not None:
-        target = next((d for d in earlier if d.id == decision.device_id and _same_device((d,), decision.was)), None)
-        if target is None:
-            target = next((d for d in earlier if _same_device((d,), decision.was)), None)
-    else:
-        target = next((device for device in earlier if device.id == decision.device_id), None)
+        return (next((d for d in earlier if d.id == decision.device_id and _same_device((d,), decision.was)), None)
+                or next((d for d in earlier if _same_device((d,), decision.was)), None))
+    return next((device for device in earlier if device.id == decision.device_id), None)
+
+
+def _how_many(devices: tuple[Device, ...] | None, line: Device, unflagged: bool = False) -> int:
+    """How many lines are `line` (the id and the flag may differ); with `unflagged`, only those with no flag."""
+    return sum(1 for dev in devices or () if _same_device((dev,), line) and (not unflagged or dev.flag == "none"))
+
+
+def _device_holds(before: Job, decision: Decision, after: Job, expected: Job) -> bool:
+    target = _target(before, decision)
     if target is None:
         return True
-    applied = _apply_one(before, decision)
-    applied_devices = _devices(applied, decision.system_key) or ()
-    if decision.was is None:
-        kept = next((device for device in applied_devices if device.id == decision.device_id), None)
-    elif decision.action == "change" and decision.device is not None:
-        kept = next((device for device in applied_devices if _same_device((device,), decision.device)), None)
-    else:
-        kept = next((device for device in applied_devices if _same_device((device,), decision.was)), None)
+    want = _devices(expected, decision.system_key)
+    if want is None:
+        return True                                 # the same file deleted the system; that decision reports itself
     later = _devices(after, decision.system_key)
-    if later is None:
-        return kept is None
-    if kept is None:
-        return not _same_device(later, target)
-    matching_later = next((dev for dev in later if _same_device((dev,), kept)), None)
-    if matching_later is None:
+    if decision.action == "delete":
+        return _how_many(later, target) <= _how_many(want, target)
+    if decision.action == "change" and decision.device is not None:
+        new = decision.device
+        return (_how_many(later, new) >= _how_many(want, new)
+                and (_same_device((target,), new) or _how_many(later, target) <= _how_many(want, target)))
+    if _how_many(later, target) < _how_many(want, target):
         return False
     if decision.action == "accept":
+        matching_later = next((dev for dev in later or () if _same_device((dev,), target)), None)
         before_family = _family_of_device(before, decision.system_key, target)
         after_family = _family_of_device(after, decision.system_key, matching_later)
-        counts_changed = (before_family is not None and after_family is not None and before_family.count != after_family.count)
-        if not counts_changed and matching_later.flag != "none":
+        counts_changed = (before_family is not None and after_family is not None
+                          and before_family.count != after_family.count)
+        if not counts_changed and _how_many(later, target, unflagged=True) < _how_many(want, target, unflagged=True):
             return False
-    return _same_device((target,), kept) or not _same_device(later, target)
+    return True
 
 
-def _family_holds(before: Job, decision: Decision, after: Job) -> bool:
+def _family_holds(before: Job, decision: Decision, after: Job, expected: Job) -> bool:
     earlier = _family(before, decision.system_key, decision.family_name)
     if earlier is None:
         return True
-    applied = _apply_one(before, decision)
-    want = _family(applied, decision.system_key, decision.family_name)
+    if not any(s.key == decision.system_key for s in expected.systems):
+        return True                                 # the same file deleted the system; that decision reports itself
+    want = _family(expected, decision.system_key, decision.family_name)
     got = _family(after, decision.system_key, decision.family_name)
     if want is None or got is None or got.count != want.count:
         return False

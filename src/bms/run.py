@@ -47,7 +47,8 @@ from bms.model import Decision, Finding, Header, Job, ModelError
 from bms.plan import plan_job
 from bms.playbook import load_playbook
 from bms.render import render
-from bms.review import _matches_nothing, apply_decisions, load_decisions, review_page, unhonored_decisions
+from bms.review import (SavedDecision, _matches_nothing, apply_decisions, load_decisions, load_history,
+                        merge_decisions, review_page, save_history, unhonored_decisions)
 from bms.validate import validate
 
 Mode = Literal["chat", "api"]
@@ -78,8 +79,23 @@ def _changed_system_keys(before: Job, after: Job) -> tuple[str, ...]:
                  if system.key in kept and system != after.system(system.key))
 
 
+def _counts_changed(decisions, key: str) -> bool:
+    return any(d.system_key == key and d.family_name is not None and d.action == "change" and d.count is not None
+               for d in decisions)
+
+
+def _standing_accepts(entries: list[SavedDecision], key: str) -> list[Decision]:
+    """The accepts on system `key` that a count change does not overrule: those saved in a later round than every
+    count change on that system (the estimator saw the new count when accepting). An accept from the same save as a
+    count change, or an older one, is dropped: the rewrite for the count flags the system again."""
+    last = max((e.round for e in entries if _counts_changed([e.decision], key)), default=0)
+    return [e.decision for e in entries
+            if e.decision.system_key == key and e.decision.action == "accept" and e.round > last]
+
+
 def _revised(system, findings, evidence, playbook, transport, job=None, decisions=None):
-    """Revise, then flag quantity disagreements again. Devices accepted by the estimator stay accepted."""
+    """Revise, then flag quantity disagreements again. Devices accepted by the estimator stay accepted, unless a
+    decision in `decisions` changes a family count of this system (the new count flags the system again)."""
     if job is None:
         revised = ai.revise_system(system, findings, evidence, playbook, transport)
     else:
@@ -88,8 +104,8 @@ def _revised(system, findings, evidence, playbook, transport, job=None, decision
     flagged = flag_written_devices(revised)
     if not decisions:
         return flagged
-    accepted = [d for d in decisions if d.action == "accept" and (d.system_key == system.key or d.system_key == "")]
-    if not accepted:
+    accepted = [d for d in decisions if d.action == "accept" and d.system_key == system.key]
+    if not accepted or _counts_changed(decisions, system.key):
         return flagged
     if job is not None:
         temp_job = dataclasses.replace(job, systems=(flagged,))
@@ -201,11 +217,16 @@ def estimate(job_folder: Path, out: Path, cache: Path, mode: Mode = "chat") -> R
     # 4. the estimator's decisions. A device accept, change or delete is applied to the written devices and
     # the writer is not asked again: it would number devices from d1 and a later apply would hit the wrong one.
     # A family-count change is the only reason to ask again, and the devices already written are kept.
-    # A malformed file stops the run in words.
+    # A malformed file stops the run in words. The page saves only its own answers, so the run keeps every save in
+    # the history (bms.review.merge_decisions) and applies them all: a second save never undoes the first in silence.
     try:
-        decisions = load_decisions(out)
+        history = merge_decisions(load_history(out), load_decisions(out))
     except ModelError as error:
         return RunResult("waiting", "decisions", waiting=0, job_file=job_file, messages=(_stopped(error),))
+    if history:
+        save_history(out, history)
+    decisions = [entry.decision for entry in history]
+    latest = max((entry.round for entry in history), default=0)
     decided_from = job
     job = apply_decisions(job, decisions)
     for key in _changed_system_keys(decided_from, job):
@@ -213,9 +234,13 @@ def estimate(job_folder: Path, out: Path, cache: Path, mode: Mode = "chat") -> R
         if not _families_changed(decided_from, key, job):
             continue
         try:
-            job = job.with_system(flag_written_devices(ai.rewrite_for_count(
+            rewritten = flag_written_devices(ai.rewrite_for_count(
                 system, f"{evidence[key]}\n\n{_count_note(decisions, key)}", playbook, transport,
-                tags=job_tags(job), ids=job_ids(job))))
+                tags=job_tags(job), ids=job_ids(job)))
+            standing = _standing_accepts(history, key)          # accepted after the estimator saw the new count
+            if standing:
+                rewritten = apply_decisions(job.with_system(rewritten), standing).system(key)
+            job = job.with_system(rewritten)
         except ai.NoAnswer as missing:
             pending.append(_stopped(missing.reason) if str(missing.reason).startswith("Stopped:")
                            else f"{system.name}: {missing.reason}")
@@ -240,23 +265,39 @@ def estimate(job_folder: Path, out: Path, cache: Path, mode: Mode = "chat") -> R
         system = job.system(key)
         try:
             job = job.with_system(_revised(system, [f for f in must_fix if f.system_key == key],
-                                            evidence[key], playbook, transport, job, decisions=decisions))
+                                            evidence[key], playbook, transport, job,
+                                            decisions=_standing_accepts(history, key)))
         except ai.NoAnswer as missing:
             pending.append(_stopped(missing.reason) if str(missing.reason).startswith("Stopped:")
                            else f"{system.name}: {missing.reason}")
     # a device decision made on the page's (revised) wording that matched nothing the writer wrote is applied to
     # the revised job; one decision is never applied twice
-    late = [d for d in decisions if _matches_nothing(decided_from, d)]
+    # (an accept a count change overrules is not applied late either)
+    late = [d for d in decisions if _matches_nothing(decided_from, d)
+            and (d.action != "accept" or d in _standing_accepts(history, d.system_key))]
     early = [d for d in decisions if not _matches_nothing(decided_from, d)]
     revised_job = job
     job = apply_decisions(job, late)
+
+    def took_effect(decision: Decision) -> bool:
+        return not _matches_nothing(decided_from, decision) or (
+            decision in late and not _matches_nothing(revised_job, decision))
+
+    # a decision from an earlier save that took effect on some run and whose line is now in no job stays silent:
+    # it did its work. One that never took effect keeps its "could not be applied" card.
+    quiet = [entry.decision for entry in history if entry.round < latest and entry.took_effect]
+    checked_late = [d for d in late if not (d in quiet and _matches_nothing(revised_job, d))]
+    history = [dataclasses.replace(entry, took_effect=entry.took_effect or took_effect(entry.decision))
+               for entry in history]
+    if history:
+        save_history(out, history)
     save(job)
     if pending:
         return RunResult("waiting", "revise", waiting=transport.waiting, job_file=job_file, messages=tuple(pending))
     findings = validate(job, playbook)
     open_qc = [f for f in qc if f.severity != "must_fix" or _untouched(f, written, job)]
     all_findings = tuple([*findings, *open_qc, *unhonored_decisions(decided_from, early, job),
-                          *unhonored_decisions(revised_job, late, job)])
+                          *unhonored_decisions(revised_job, checked_late, job)])
 
     # 6. the review page, the render and the three documents
     publish_proofs(job, cache, out)

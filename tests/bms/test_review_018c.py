@@ -25,7 +25,7 @@ def job() -> Job:
 # ---- unit level: the "could not be applied" card -------------------------------------------------------------------
 
 
-@pytest.mark.xfail(strict=True, reason="REVIEW-018c F1: the card falls back to the old id, now an unrelated line")
+
 def test_attack_a_card_that_could_not_be_applied_never_sits_on_an_unrelated_line(job):
     """The deleted line is in no job any more and its old id EF.d1 now belongs to a different line. The card must
     not be a device question on that different line: its Delete button would delete the wrong line."""
@@ -38,7 +38,7 @@ def test_attack_a_card_that_could_not_be_applied_never_sits_on_an_unrelated_line
     assert all(f.device_id != "EF.d1" for f in findings), findings
 
 
-@pytest.mark.xfail(strict=True, reason="REVIEW-018c F3 (still open): _revised re-applies an accept when the count changed")
+
 def test_attack_an_accept_does_not_survive_a_count_change_in_the_same_run(job, monkeypatch):
     """The same saved file changes a family's count and accepts a device's quantity flag. The count change
     re-flags the device; the revise must not clear that new flag with the old accept."""
@@ -156,7 +156,7 @@ def test_guard_an_early_delete_the_revise_brings_back_is_reported_once(job_folde
     assert [(f.what, f.device_id) for f in cards] == [(f"decision not honored: delete {damper['id']}", back[0]["id"])]
 
 
-@pytest.mark.xfail(strict=True, reason="REVIEW-018c F2 (still open): a second save from the page drops the first round's delete")
+
 def test_attack_a_second_save_from_the_page_does_not_bring_a_deleted_line_back_in_silence(job_folder, tmp_path,
                                                                                             monkeypatch):
     """Run 1, the page saves a delete of the reworded damper; run 2 removes it. On run 2's page the estimator

@@ -532,6 +532,10 @@ class ApiTransport(_IntakeLog):
             self.cached += 1
             self.last_error = None
             return cached
+        attempts = _refusal_count(self)            # the saved count: a stopped question is not asked again
+        if attempts >= (getattr(self, "max_attempts", None) or _max_attempts()):
+            self.last_error = _stop_reason(name, attempts, "It is not asked again", _attempt_file(self.cache, q))
+            raise NoAnswer(self.last_error, waiting=False)
         try:
             response = self._call(q)
             answer = _answer_of(response, q)
