@@ -174,6 +174,31 @@ def test_a_delete_saved_with_a_family_count_change_stays_deleted(job_folder, tmp
     assert [d["name"] for d in system["devices"]] == []
 
 
+# ---- (2b) an estimator's change that prints an issued id ------------------------------------------------------------
+
+@pytest.mark.xfail(strict=True, reason="REVIEW-FINAL F7: a page change is applied without the intake's id check; the "
+                                       "validator's must_fix sends it to the revise, which undoes it")
+def test_a_change_whose_new_name_prints_an_issued_id_is_reported_as_such_not_as_undone(job_folder, tmp_path,
+                                                                                    monkeypatch):
+    """Failing input: after a finished first run the estimator renames the sensor to "Room Temperature Sensor <id>",
+    where <id> is the line's own ref source id (an issued id). The decision bypasses the writer intake, so validate
+    makes it a must_fix "an id is in the client text", the revise is asked and writes the line back under its old
+    name, and the page shows "decision not honored: change VAV.d1 / The last write undid it", which hides the cause
+    (the replay of the cached revise keeps the card on every rerun). Asserting line: the card names the id, not
+    "the last write undid it"."""
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    out, cache = tmp_path / "out", tmp_path / "cache"
+    _drive(job_folder, out, cache, [])
+    sensor = next(c for c in _cards(out) if c["level"] == "device")
+    renamed = copy.deepcopy(sensor["device"])
+    renamed.update(name=f"Room Temperature Sensor {renamed['refs'][0]['source_id']}", flag="none")
+    (out / "decisions.json").write_text(json.dumps([_decision(sensor, "change", device=renamed, reason="x")]),
+                                        encoding="utf-8")
+    second = _drive(job_folder, out, cache, [])
+    cards = [f for f in second.findings if f.rule == "decision not honored"]
+    assert not cards or all("undid" not in f.fix for f in cards), [(f.what, f.fix) for f in cards]
+
+
 # ---- (3) the "check this system" card's severity -------------------------------------------------------------------
 
 @pytest.mark.xfail(strict=True, reason="REVIEW-FINAL F2: the check card's severity 'should_fix' is no Severity "
