@@ -20,8 +20,8 @@ the writer wrote (the revise re-worded it) is applied to the revised job instead
 must_fix "decision could not be applied" on the review page, never skipped in silence. The page saves only its own
 answers, so the run keeps every save in `decisions history.json` and applies them all (`bms.review.merge_decisions`):
 a later save never undoes an earlier one in silence. An earlier delete that took effect and whose line is in no job
-any more makes no card while its system has no line the last finished run did not have; when it has one (the
-system was asked again), it is a should_fix "check this system" card: that may be the line back re-worded. An
+any more makes no card while its system is as the last finished run left it; when the system changed since (it
+was asked again), it is a should_fix "check this system" card, since the line may have come back re-worded. An
 earlier change or accept that matches nothing keeps its "could not be applied" card. A malformed decisions.json
 stops the run with a plain message. Every output goes under `out`
 (NDA: never the repo). Prints "Wrote <path>" per file, as the old app does (tools/run_job.py reads those lines).
@@ -55,7 +55,7 @@ from bms.playbook import load_playbook
 from bms.render import render
 from bms.review import (DECISIONS_FILE, DECISIONS_HISTORY, SavedDecision, _matches_nothing, accept_family,
                         apply_decisions, load_decisions, load_history, merge_decisions, review_page, save_history,
-                        system_lines, unhonored_decisions)
+                        system_digest, unhonored_decisions)
 from bms.validate import validate
 
 Mode = Literal["chat", "api"]
@@ -337,8 +337,8 @@ def estimate(job_folder: Path, out: Path, cache: Path, mode: Mode = "chat") -> R
             decision in late and not _matches_nothing(revised_job, decision))
 
     # a delete from an earlier save that took effect on some run and whose line is now in no job did its work: it
-    # makes no card while its system has no line the last finished run did not have. When it has one (the system
-    # was asked again), that may be the line back in other words: a should_fix asks the estimator to check.
+    # makes no card while its system is as the last finished run left it. When the system changed since (it was
+    # asked again), the line may have come back re-worded: a should_fix asks the estimator to check the system.
     # A change or an accept that matches nothing, and a delete that never took effect, keep the card of every
     # decision ("could not be applied").
     quiet = [entry for entry in history if entry.round < latest and entry.took_effect
@@ -346,11 +346,10 @@ def estimate(job_folder: Path, out: Path, cache: Path, mode: Mode = "chat") -> R
              and _matches_nothing(revised_job, entry.decision)]
     checked_late = [d for d in late if not any(d == entry.decision for entry in quiet)]
     rechecks = [_check_this_system(entry.decision) for entry in quiet
-                if entry.settled is None
-                or set(system_lines(job, entry.decision.system_key)) - set(entry.settled)]
+                if entry.settled != system_digest(job, entry.decision.system_key)]
     history = [dataclasses.replace(
         entry, took_effect=entry.took_effect or took_effect(entry.decision),
-        settled=entry.settled if pending else system_lines(job, entry.decision.system_key)) for entry in history]
+        settled=entry.settled if pending else system_digest(job, entry.decision.system_key)) for entry in history]
     if history:
         save_history(out, history)
     save(job)

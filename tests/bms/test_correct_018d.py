@@ -106,7 +106,8 @@ def test_f3_a_delete_of_the_line_a_rebased_change_names_replaces_it(job):
 # ---- F5: a count change is scoped to its own family ---------------------------------------------------------------
 
 
-def _two_families(job: Job) -> Job:
+@pytest.fixture
+def two_families(job) -> Job:
     """VRF with its first line counted by the Indoor Unit family (S9) and its second by the Condensing Unit (S10)."""
     vrf = job.system("VRF")
     d1, d2, *rest = vrf.devices
@@ -117,9 +118,9 @@ def _two_families(job: Job) -> Job:
     return job.with_system(dataclasses.replace(vrf, devices=(d1, d2, *rest)))
 
 
-def test_f5_an_accept_stands_when_only_another_family_count_changed(job):
+def test_f5_an_accept_stands_when_only_another_family_count_changed(two_families):
     from bms import run
-    job = _two_families(job)
+    job = two_families
     d1, d2 = job.system("VRF").devices[:2]
     count = Decision("VRF", "change", family_name="Indoor Unit", count=Count(6))
     own = Decision("VRF", "accept", device_id=d1.id, was=d1)
@@ -128,10 +129,10 @@ def test_f5_an_accept_stands_when_only_another_family_count_changed(job):
     assert run._standing_accepts(entries, "VRF", job) == [other]
 
 
-def test_f5_the_honored_check_exempts_an_accept_of_an_unknown_family_when_any_count_changed(job):
+def test_f5_the_honored_check_exempts_an_accept_of_an_unknown_family_when_any_count_changed(two_families):
     """VRF.d3 cites no family's count. A count change of a VRF family drops its accept (the rewrite flags the
     system again), so the honored check must not call the re-flagged line "not honored"."""
-    job = _two_families(job)
+    job = two_families
     d3 = dataclasses.replace(job.system("VRF").devices[2], flag="quantity")
     job = job.with_system(dataclasses.replace(job.system("VRF"), devices=(*job.system("VRF").devices[:2], d3)))
     decisions = [Decision("VRF", "change", family_name="Indoor Unit", count=Count(6)),
@@ -140,8 +141,8 @@ def test_f5_the_honored_check_exempts_an_accept_of_an_unknown_family_when_any_co
     assert review.unhonored_decisions(job, decisions, after) == []
 
 
-def test_f5_the_honored_check_still_cards_a_reflagged_accept_whose_own_family_did_not_change(job):
-    job = _two_families(job)
+def test_f5_the_honored_check_still_cards_a_reflagged_accept_whose_own_family_did_not_change(two_families):
+    job = two_families
     d2 = job.system("VRF").devices[1]
     decisions = [Decision("VRF", "change", family_name="Indoor Unit", count=Count(6)),
                  Decision("VRF", "accept", device_id=d2.id, was=d2)]

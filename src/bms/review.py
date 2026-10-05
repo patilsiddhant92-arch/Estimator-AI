@@ -461,13 +461,13 @@ class SavedDecision:
     """One decision kept in the run's history: the save it came from (`round`, 1 for the first) and whether it took
     effect on some run (it matched a line and was applied). `saved` is the decision as decisions.json had it when
     the run rebased it onto an earlier change (`merge_decisions`); None when `decision` is that decision.
-    `settled` holds the lines of the decision's system in the final job of the last run that reached the end, one
-    digest per line (`system_lines`); None before such a run. A line not among them is new since that run."""
+    `settled` is a digest of the decision's system in the final job of the last run that reached the end
+    (`system_digest`); None before such a run. A different digest now: the system was asked again since."""
     decision: Decision
     round: int
     took_effect: bool = False
     saved: Decision | None = None
-    settled: tuple[str, ...] | None = None
+    settled: str | None = None
 
     @property
     def as_saved(self) -> Decision:
@@ -478,16 +478,19 @@ class SavedDecision:
         if self.saved is not None:
             data["saved"] = self.saved.to_dict()
         if self.settled is not None:
-            data["settled"] = list(self.settled)
+            data["settled"] = self.settled
         return data
 
 
-def system_lines(job: Job, key: str) -> tuple[str, ...]:
-    """One digest per distinct line of system `key` of `job` (the front end for ""), sorted; the id and the flag
-    are left out, as `_same_device` leaves them out. () when the job has no such system."""
-    return tuple(sorted({hashlib.sha256(json.dumps(dataclasses.replace(d, id="", flag="none").to_dict(),
-                                                   sort_keys=True).encode()).hexdigest()
-                         for d in _devices(job, key) or ()}))
+def system_digest(job: Job, key: str) -> str:
+    """A digest of system `key` of `job` (the front end for ""); "" when the job has no such system."""
+    if key == "":
+        part = None if job.front_end is None else job.front_end.to_dict()
+    else:
+        part = next((s.to_dict() for s in job.systems if s.key == key), None)
+    if part is None:
+        return ""
+    return hashlib.sha256(json.dumps(part, sort_keys=True).encode()).hexdigest()
 
 
 def load_history(out_dir: Path) -> list[SavedDecision]:
@@ -513,12 +516,10 @@ def load_history(out_dir: Path) -> list[SavedDecision]:
                          "(answer them again on the review page).") from None
 
 
-def _settled(value: object) -> tuple[str, ...] | None:
-    if value is None:
-        return None
-    if isinstance(value, list) and all(isinstance(v, str) for v in value):
-        return tuple(value)
-    raise ModelError(f"settled: expected a list of text, got {type(value).__name__}")
+def _settled(value: object) -> str | None:
+    if value is None or isinstance(value, str):
+        return value
+    raise ModelError(f"settled: expected text, got {type(value).__name__}")
 
 
 def save_history(out_dir: Path, entries: Sequence[SavedDecision]) -> Path:
