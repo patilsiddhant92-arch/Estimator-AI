@@ -167,3 +167,29 @@ def test_a_carried_decision_that_never_took_effect_keeps_its_card(job_folder, tm
 def test_the_page_says_earlier_decisions_are_kept(job, tmp_path):
     page = review.review_page(job, [], tmp_path).read_text(encoding="utf-8")
     assert "Decisions saved earlier are kept" in page
+
+
+@pytest.mark.parametrize("second", ["delete", "change"])
+def test_a_line_changed_in_one_save_and_decided_again_in_the_next_lands_with_no_card(job_folder, tmp_path,
+                                                                                    monkeypatch, second):
+    """Round 1 renames the controller; run 2 shows the new name. Round 2 deletes (or renames again) that line.
+    Run 3 and a plain re-run give the job the estimator asked for, with no "decision not honored" card."""
+    out, cache, key, _state, first = _run_with_reworded(
+        job_folder, tmp_path, monkeypatch, ("Controller", "Start Stop", "Damper Actuator"), "Damper, motorized")
+    x = _system(first, key)["devices"][0]
+    y = dict(x, name="Controller, renamed", flag="none")
+    _save(out, {"system_key": key, "action": "change", "device_id": x["id"], "was": x, "device": y,
+                "reason": "x"})
+    second_run = _reach(job_folder, out, cache, "done")
+    shown = next(d for d in _system(second_run, key)["devices"] if d["name"] == "Controller, renamed")
+    z = dict(shown, name="Controller, renamed again", flag="none")
+    _save(out, {"system_key": key, "action": second, "device_id": shown["id"], "was": shown,
+                **({"device": z} if second == "change" else {}), "reason": "x"})
+    for _ in range(2):
+        third = _reach(job_folder, out, cache, "done")
+        names = [d["name"] for d in _system(third, key)["devices"]]
+        assert "Controller" not in names and "Controller, renamed" not in names
+        assert ("Controller, renamed again" in names) == (second == "change")
+        assert not [f for f in third.findings if f.rule == "decision not honored"], third.findings
+    rounds = [h["round"] for h in json.loads((out / review.DECISIONS_HISTORY).read_text(encoding="utf-8"))]
+    assert max(rounds) == 2

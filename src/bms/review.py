@@ -457,13 +457,22 @@ def load_decisions(out_dir: Path) -> list[Decision]:
 @dataclass(frozen=True)
 class SavedDecision:
     """One decision kept in the run's history: the save it came from (`round`, 1 for the first) and whether it took
-    effect on some run (it matched a line and was applied)."""
+    effect on some run (it matched a line and was applied). `saved` is the decision as decisions.json had it when
+    the run rebased it onto an earlier change (`merge_decisions`); None when `decision` is that decision."""
     decision: Decision
     round: int
     took_effect: bool = False
+    saved: Decision | None = None
+
+    @property
+    def as_saved(self) -> Decision:
+        return self.saved if self.saved is not None else self.decision
 
     def to_dict(self) -> dict:
-        return {"decision": self.decision.to_dict(), "round": self.round, "took_effect": self.took_effect}
+        data = {"decision": self.decision.to_dict(), "round": self.round, "took_effect": self.took_effect}
+        if self.saved is not None:
+            data["saved"] = self.saved.to_dict()
+        return data
 
 
 def load_history(out_dir: Path) -> list[SavedDecision]:
@@ -477,7 +486,9 @@ def load_history(out_dir: Path) -> list[SavedDecision]:
         if not isinstance(data, list):
             raise ModelError(f"expected a list, got {type(data).__name__}")
         return [SavedDecision(Decision.from_dict(entry["decision"]), int(entry["round"]),
-                              bool(entry.get("took_effect", False))) for entry in data]
+                              bool(entry.get("took_effect", False)),
+                              Decision.from_dict(entry["saved"]) if entry.get("saved") is not None else None)
+                for entry in data]
     except (json.JSONDecodeError, UnicodeDecodeError, ModelError, KeyError, TypeError, ValueError) as error:
         raise ModelError(f"{DECISIONS_HISTORY}: cannot be read ({error}). Delete it and {DECISIONS_FILE} to start "
                          "the decisions over.") from None
@@ -509,16 +520,39 @@ def merge_decisions(history: Sequence[SavedDecision], saved: Sequence[Decision])
     """The history with this decisions.json added. The page saves only its own answers, so earlier saves are kept:
     a decision from an earlier round stays unless the new save decides the same line (the new answer wins). Every
     decision in one save is kept, in order (a change then a delete of one line are both kept). Reading the same
-    file again adds nothing; no file leaves the history as it is. Pure."""
+    file again adds nothing; no file leaves the history as it is.
+
+    A new delete or change of a line an earlier save changed (the page showed the changed line) is rebased onto the
+    line the writer wrote: change X to Y, then delete Y, is kept as delete X; change X to Y, then Y to Z, as change X
+    to Z. So every kept decision names a line of the written job. Pure."""
     history = list(history)
     saved = list(saved)
     if not saved:
         return history
     latest = max((h.round for h in history), default=0)
-    if history and [h.decision for h in history if h.round == latest] == saved:
+    if history and [h.as_saved for h in history if h.round == latest] == saved:
         return history
-    carried = [h for h in history if not any(_same_line(h.decision, d) for d in saved)]
-    return [*carried, *(SavedDecision(d, latest + 1) for d in saved)]
+    carried = [h for h in history if not any(_same_line(h.as_saved, d) for d in saved)]
+    new: list[SavedDecision] = []
+    for d in saved:
+        base = _changed_into(carried, d)
+        if base is None:
+            new.append(SavedDecision(d, latest + 1))
+            continue
+        carried.remove(base)
+        old = base.decision
+        rebased = dataclasses.replace(d, device_id=old.device_id, was=old.was)
+        new.append(SavedDecision(rebased, latest + 1, saved=d))
+    return [*carried, *new]
+
+
+def _changed_into(history: Sequence[SavedDecision], d: Decision) -> SavedDecision | None:
+    """The earlier change whose new line is the line `d` deletes or changes, if there is one."""
+    if d.action not in ("delete", "change") or d.device_id is None or d.was is None:
+        return None
+    return next((h for h in history if h.decision.system_key == d.system_key and h.decision.action == "change"
+                 and h.decision.device is not None and h.decision.device_id is not None
+                 and _same_device((h.decision.device,), d.was)), None)
 
 
 def _apply_to_devices(devices: tuple[Device, ...], device_id: str, decision: Decision) -> tuple[Device, ...]:

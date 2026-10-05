@@ -17,7 +17,10 @@ after that ask: the writer numbers devices from d1, so a second "delete d1" woul
 the last write, a saved decision that the final job does not still show is a must_fix "decision not honored" on
 the review page. The page shows the job after the revise, so a device decision whose saved line matches nothing
 the writer wrote (the revise re-worded it) is applied to the revised job instead; one that matches neither is a
-must_fix "decision could not be applied" on the review page, never skipped in silence. A malformed decisions.json stops the run with a plain message. Every output goes under `out`
+must_fix "decision could not be applied" on the review page, never skipped in silence. The page saves only its own
+answers, so the run keeps every save in `decisions history.json` and applies them all (`bms.review.merge_decisions`):
+a later save never undoes an earlier one in silence, and an earlier decision that took effect and whose line is in
+no job any more makes no card. A malformed decisions.json stops the run with a plain message. Every output goes under `out`
 (NDA: never the repo). Prints "Wrote <path>" per file, as the old app does (tools/run_job.py reads those lines).
 """
 from __future__ import annotations
