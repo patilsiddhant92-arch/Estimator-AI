@@ -406,26 +406,26 @@ def test_the_header_from_the_folder_name_sheets_and_versions():
         _version("M-001.00", 1, dt.date(2026, 5, 1)), _version("M-101.00", 2, dt.date(2026, 6, 26)),
         _version("M-701.00", 3, None), _version("E-101.00", 4, dt.date(2026, 7, 1)),
         _version("TC-001", 5, dt.date(2026, 6, 1), "Controls.pdf")))
-    firm = ("Project Architect/Engineer:", "HARTLAND ENGINEERING, DPC", "Architecture & Engineering")
+    firm = ("Project Architect/Engineer:", "BAYSIDE ENGINEERING, DPC", "Architecture & Engineering")
     pages = [PageRecord(MECH, n, "text", "", 0, True, _title_block(*firm)) for n in (1, 2, 3)]
-    catalogue = _catalogue(folder="26-0352, Tishman Speyer, 45 Rockefeller Suite 2100", sheets=sheets, pages=pages)
+    catalogue = _catalogue(folder="26-0352, Harbor Point, 1 Invented Street Suite 2100", sheets=sheets, pages=pages)
     header, flags = job_header(catalogue, versions, TODAY)
     assert isinstance(header, Header)
     assert header.quote_number == "26-0352"
-    assert header.reference == "Tishman Speyer, 45 Rockefeller Suite 2100"
-    assert header.mep_engineer == "HARTLAND ENGINEERING, DPC"
+    assert header.reference == "Harbor Point, 1 Invented Street Suite 2100"
+    assert header.mep_engineer == "BAYSIDE ENGINEERING, DPC"
     assert header.date == TODAY and header.to == "All Bidders"
     assert header.based_on == ("M-001.00 Thru M-701.00 Dated: 06/26/2026", "TC-001 Dated: 06/01/2026")
     assert flags == []
 
 
 def test_the_engineer_label_in_the_title_block_wins_even_with_no_corporate_suffix_word():
-    # "GILLAN & HARTMANN, Inc." names no "engineer/consulting/associates" word of its own — only the
+    # "ALDER & BRISK, Inc." names no "engineer/consulting/associates" word of its own — only the
     # label beside it says what it is (test1-fixes.md 3.1, 26-0478's H601).
-    pages = [PageRecord(MECH, 1, "text", "", 0, True, _title_block("ENGINEER", "GILLAN & HARTMANN, Inc."))]
-    catalogue = _catalogue(folder="26-0478, Somerville HS", sheets=[_sheet("M-001", 1)], pages=pages)
+    pages = [PageRecord(MECH, 1, "text", "", 0, True, _title_block("ENGINEER", "ALDER & BRISK, Inc."))]
+    catalogue = _catalogue(folder="26-0478, Example HS", sheets=[_sheet("M-001", 1)], pages=pages)
     header, flags = job_header(catalogue, SimpleNamespace(versions=()), TODAY)
-    assert header.mep_engineer == "GILLAN & HARTMANN, Inc."
+    assert header.mep_engineer == "ALDER & BRISK, Inc."
     assert not any("engineer" in f.lower() for f in flags)
 
 
@@ -450,26 +450,26 @@ def _spec_footer_pages(*, firm: str, count: int = 6) -> list[PageRecord]:
 
 
 def test_the_engineer_falls_back_to_the_spec_page_footers():
-    # 26-0193: no title-block label, but "MG Engineering D.P.C." is the most common name in the
+    # 26-0193: no title-block label, but "KL Engineering D.P.C." is the most common name in the
     # spec's page footers (test1-fixes.md 3.1).
-    pages = _spec_footer_pages(firm="MG Engineering D.P.C.")
+    pages = _spec_footer_pages(firm="KL Engineering D.P.C.")
     catalogue = _catalogue(folder="26-9999, Harbor Point", sheets=[_sheet("M-001", 1)], pages=pages)
     header, flags = job_header(catalogue, SimpleNamespace(versions=()), TODAY)
-    assert header.mep_engineer == "MG Engineering D.P.C."
+    assert header.mep_engineer == "KL Engineering D.P.C."
     assert not any("engineer" in f.lower() for f in flags)
 
 
 def test_the_spec_footer_fallback_is_the_most_common_name():
-    pages = _spec_footer_pages(firm="MG Engineering D.P.C.", count=5)
+    pages = _spec_footer_pages(firm="KL Engineering D.P.C.", count=5)
     pages += [PageRecord(SPEC, 90, "text", "Odd page.\nSomeone Else Engineering, LLC", 0)]
     catalogue = _catalogue(sheets=[_sheet("M-001", 1)], pages=pages)
     header, _ = job_header(catalogue, SimpleNamespace(versions=()), TODAY)
-    assert header.mep_engineer == "MG Engineering D.P.C."
+    assert header.mep_engineer == "KL Engineering D.P.C."
 
 
 def test_a_title_block_label_wins_over_the_spec_footer():
     pages = [PageRecord(MECH, 1, "text", "", 0, True, _title_block("ENGINEER", "Doyle & Shea"))]
-    pages += _spec_footer_pages(firm="MG Engineering D.P.C.")
+    pages += _spec_footer_pages(firm="KL Engineering D.P.C.")
     catalogue = _catalogue(sheets=[_sheet("M-001", 1)], pages=pages)
     header, _ = job_header(catalogue, SimpleNamespace(versions=()), TODAY)
     assert header.mep_engineer == "Doyle & Shea"
@@ -478,7 +478,7 @@ def test_a_title_block_label_wins_over_the_spec_footer():
 def test_a_folder_with_only_a_number_and_no_firm_is_pending():
     sheets = [_sheet("M-001", 1), _sheet("M-002", 2)]
     versions = SimpleNamespace(versions=(_version("M-001", 1, None), _version("M-002", 2, None)))
-    pages = [PageRecord(MECH, 1, "text", "", 0, True, _title_block("Engineer of Record:", "Texas Engineering Firm F-26237"))]
+    pages = [PageRecord(MECH, 1, "text", "", 0, True, _title_block("Engineer of Record:", "Texas Engineering Firm F-99999"))]
     header, flags = job_header(_catalogue(folder="26-0445", sheets=sheets, pages=pages), versions, TODAY)
     assert header.quote_number == "26-0445"
     assert header.reference == "[project name]"
@@ -624,9 +624,9 @@ def test_the_spec_date_comes_from_the_sections_header_or_footer_not_its_body():
 
 def test_the_spec_date_near_the_project_number_on_the_volumes_cover():
     sections = (SpecSection("23 09 23", "DIRECT DIGITAL CONTROL (DDC) SYSTEM", SPEC, 332, 333),)
-    cover = "NEW GYMNASIUM BUILDING\nFVHD PROJECT #5567F\nConsulting Engineers:\nGillan & Hartmann, Inc.\nAugust 27, 2026\n"
+    cover = "NEW GYMNASIUM BUILDING\nXYZA PROJECT #1234F\nConsulting Engineers:\nAlder & Brisk, Inc.\nAugust 27, 2026\n"
     pages = [PageRecord(SPEC, 1, "text", cover, 0)]
-    pages += [PageRecord(SPEC, n, "text", "FVHD 5567F\n5:230923 - 1\nSECTION 230923 - GENERAL\nText.", 0)
+    pages += [PageRecord(SPEC, n, "text", "XYZA 1234F\n5:230923 - 1\nSECTION 230923 - GENERAL\nText.", 0)
               for n in (332, 333)]
     catalogue = _catalogue(folder="26-0001", sections=sections, pages=pages)
     reading = SimpleNamespace(versions=(), backbone=(_backbone(SPEC, 332, 333),), schedules=())

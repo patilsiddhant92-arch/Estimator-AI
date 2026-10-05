@@ -100,7 +100,7 @@ class MakerRow:
     quote: str
     terms: str                  # "Basis of design" / "Or approved equal" / "No substitutions" / "" — from the quoted sentence
     ame_quotes: bool
-    vendors: tuple[str, ...]    # "Broudy Precision — jchandler@…; tsanroman@…", one per matching vendor
+    vendors: tuple[str, ...]    # "Broudy Precision — name@…; name@…", one per matching vendor
     email_draft: str            # the template filled in, only when ame_quotes; else ""
     priced: bool = True         # False for a category that isn't a device to price (the controls platform)
 

@@ -9,7 +9,7 @@ TEXT = """JOB DOSSIER — 26-9999
 Everything controls-relevant.
 
 == 1. JOB ==
-[S1] 26-9999 Somerville HS. Controls: new BACnet system.
+[S1] 26-9999 Example HS. Controls: new BACnet system.
 
 == 2. SEQUENCE OF OPERATION ==
 --- [Q1] VAV BOXES ---

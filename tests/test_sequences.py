@@ -127,7 +127,7 @@ def test_sequence_and_points_together_raise_no_flag():
     assert flags == []
 
 
-POINTS_HEADER = ("QTS CAMPUS\n26061 Issue for Construction\nV1.0\n05.29.26\n\"X\"\nfor Macro\nSorting\n"
+POINTS_HEADER = ("OWNERCO CAMPUS\n00000 Issue for Construction\nV1.0\n05.29.26\n\"X\"\nfor Macro\nSorting\n"
                  "Point List Group ID\nfor Macro Sorting\nPOINT DESCRIPTION\nX\nCDU\nFacility Water Flowrate\nAI\n")
 
 
