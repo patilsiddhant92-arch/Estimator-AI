@@ -218,12 +218,13 @@ class ApiTransport:   __init__(cache_dir: Path, model: str | None = None, client
 WRITE_SYSTEM = "write_system"; QC_JOB = "qc_job"; STEPS = ("write", "revise"); CHAT_MODEL = "claude (chat)"
 evidence_for(system: System, dossier: Dossier) -> str
 evidence_index(dossier: Dossier) -> dict[str, str]
-write_system(system: System, evidence: str, playbook: Playbook, transport: Transport, *, tags: Sequence[str] = (), ids: Sequence[str] = ()) -> System
+write_system(system: System, evidence: str, playbook: Playbook, transport: Transport, *, tags: Sequence[str] = (), ids: Sequence[str] = (), sheets: Sequence[str] = ()) -> System
 qc_job(job: Job, evidence_index: Mapping[str, str], playbook: Playbook, transport: Transport) -> list[Finding]
-revise_system(system: System, findings: Sequence[Finding], evidence: str, playbook: Playbook, transport, *, tags: Sequence[str] = (), ids: Sequence[str] = ()) -> System
+revise_system(system: System, findings: Sequence[Finding], evidence: str, playbook: Playbook, transport, *, tags: Sequence[str] = (), ids: Sequence[str] = (), sheets: Sequence[str] = ()) -> System
 # tags (optional): every tag of the job (bms.citations.job_tags); the run passes it so the intake never refuses a tag shaped like a source id
-# ids (optional): the source ids the intake refuses in client text; the run passes one set to every writer and the revise: every id of the job (bms.citations.job_ids) and of every system's evidence. A tag or a sheet number (after a sheet word, or named as a sheet by a ref's where) is never refused
+# ids (optional): the source ids the intake refuses in client text; the run passes one set to every writer and the revise: every id of the job (bms.citations.job_ids) and of every system's evidence. A tag or a sheet number (after a sheet word, or named as a sheet by a planner's where) is never refused
 # (with the evidence's own ids). A source id in client text is detected and refused, never rewritten.
+# sheets (optional): the whole plan's sheet numbers (bms.citations.job_sheets: the wheres of the planner's refs, never a writer's device refs); the run computes it once and passes it to every writer, the decision rewrite and the revise, so intake, validator and render agree on a sheet another system's where names
 ```
 Chat hand-off (unchanged from the old Judge so `tools/run_job.py` and the `/run-job` skill drive it):
 request `<cache>/judge-chat/requests/<key>.json` with fields `key`, `kind`, `system` (the system name, or "QC"),

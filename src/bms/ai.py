@@ -53,7 +53,7 @@ from estimator.writing.judge import DEFAULT_MODEL, KEY_VARIABLE, MODEL_VARIABLE,
 from bms import ai_evidence
 from bms.model import Device, Finding, Job, ModelError, Ref, System, json_schema, schema_errors
 from bms.playbook import Playbook, Shape
-from bms.citations import SourceIds, label_off, ref_sheets, system_tags
+from bms.citations import SourceIds, label_off, plan_refs, ref_sheets, system_tags
 
 WRITE_SYSTEM = "write_system"       # kind of both the write and the revise request
 QC_JOB = "qc_job"
@@ -741,7 +741,7 @@ def _all_refs(system: System) -> list[Ref]:
 def _check_system(answer, skeleton: System, shape: Shape | None, known: frozenset[str],
                   keep: Sequence[Device] = (), originals: Sequence[Device] = (),
                   changes: list[str] | None = None, tags: Sequence[str] = (),
-                  ids: Sequence[str] = ()) -> tuple[System | None, list[str]]:
+                  ids: Sequence[str] = (), sheets: Sequence[str] = ()) -> tuple[System | None, list[str]]:
     """A System answer made usable, or the problems that stop it: the skeleton's fields win; untouched devices
     (`keep`) are put back as they were; labels come off the client texts (`_normalise`, each change added to
     `changes`) and a client text that prints a source id is refused;
@@ -756,7 +756,8 @@ def _check_system(answer, skeleton: System, shape: Shape | None, known: frozense
     if errors:
         return None, [f"it breaks the schema at {e.removeprefix('$.')}" for e in errors]
     kept_ids = {d.id for d in keep}
-    problems = _normalise(answer, skeleton, kept_ids, changes if changes is not None else [], known, tags, ids)
+    problems = _normalise(answer, skeleton, kept_ids, changes if changes is not None else [], known, tags, ids,
+                          sheets)
     for n, device in enumerate(answer["devices"]):
         value = device["quantity"]["value"]
         if device.get("id") not in kept_ids and value is not None and value <= 0:
@@ -835,7 +836,7 @@ def _device_refs(device: dict) -> list[dict]:
 
 def _normalise(answer: dict, skeleton: System, kept_ids: set[str], changes: list[str],
                known: frozenset[str] = frozenset(), tags: Sequence[str] = (),
-               job_ids: Sequence[str] = ()) -> list[str]:
+               job_ids: Sequence[str] = (), sheets: Sequence[str] = ()) -> list[str]:
     """Take the leading label of its own kind off each assumption and clarification of `answer`, in place, each
     change added to `changes` (a per-drawings clarification keeps its discipline word only; one left empty is
     dropped). The label comes off first; nothing else in a text is changed. Then every client text (device name,
@@ -843,13 +844,14 @@ def _normalise(answer: dict, skeleton: System, kept_ids: set[str], changes: list
     (`bms.citations.SourceIds`, the renderer's and the validator's decision too). The problems returned refuse the
     answer, one for each text that prints an issued id (I: `job_ids`, the evidence's ids `known` and every ref the
     skeleton and the answer carry) or an unissued token joined to one. Never refused: T, `tags` (the run passes
-    every tag of the job) and this system's own tags; a sheet number (after a sheet word, or one the refs' wheres
-    name, K); any other unissued lookalike ("(F1, F2)", "see C101")."""
+    every tag of the job) and this system's own tags; a sheet number (after a sheet word, or one the planner's
+    wheres name, K: `sheets`, the whole plan's that the run passes, and the skeleton's own; never a where on a
+    device ref, which the writer types); any other unissued lookalike ("(F1, F2)", "see C101")."""
     block = [*(r.to_dict() for r in ai_evidence.system_refs(skeleton))]
     for device in answer["devices"]:
         block += _device_refs(device)
     ids = SourceIds.of([*job_ids, *known, *(r.get("source_id", "") for r in block)], [*tags, *system_tags(skeleton)],
-                       ref_sheets(block))
+                       [*sheets, *ref_sheets(plan_refs(skeleton))])
     problems: list[str] = []
 
     def check(where: str, text) -> None:
@@ -936,7 +938,7 @@ def _put_back(devices, keep: Sequence[Device], originals: Sequence[Device]):
 
 
 def write_system(system: System, evidence: str, playbook: Playbook, transport: Transport, *,
-                 tags: Sequence[str] = (), ids: Sequence[str] = ()) -> System:
+                 tags: Sequence[str] = (), ids: Sequence[str] = (), sheets: Sequence[str] = ()) -> System:
     """The system with `devices`, `clarifications` and `tech_hours` filled from `evidence`.
 
     Contract: one WRITE_SYSTEM request (extra step "write", plan_key system.key) whose schema is
@@ -954,7 +956,8 @@ def write_system(system: System, evidence: str, playbook: Playbook, transport: T
     in client text is never rewritten: a text that prints an issued id (`ids`, every source id of the job, which the
     run passes, plus the evidence's ids), or an unissued id-shaped token in a citation, refuses the answer with the
     token named. `tags` is every tag of the job (`citations.job_tags`, which the run passes): a tag shaped like an
-    id is never refused. Duct heaters are written in one place: the duct heater block's writer is told the units it serves
+    id is never refused. `sheets` is the whole plan's sheet numbers (`citations.job_sheets`, the planner's wheres,
+    which the run passes): one is never refused, as the validator and the renderer keep it. Duct heaters are written in one place: the duct heater block's writer is told the units it serves
     and must write all its heaters (an empty heater block is refused); a served unit's writer is told the heater
     block writes its heaters (a duct heater line there is refused)."""
     shape = _shape(system, playbook)
@@ -962,20 +965,20 @@ def write_system(system: System, evidence: str, playbook: Playbook, transport: T
     known = ai_evidence.cited_ids(evidence) | _ref_ids(ai_evidence.system_refs(system))
     return _ask_system(transport, system.name, playbook, "write_system", _write_prompt(system, shape, evidence),
                        {"step": "write", "plan_key": system.key, "images": listing}, images, system, shape, known,
-                       tags=tags, ids=ids)
+                       tags=tags, ids=ids, sheets=sheets)
 
 
 def _ask_system(transport, name: str, playbook: Playbook, step: str, prompt: str, extra: dict,
                 images: Sequence[Path], system: System, shape: Shape | None, known: frozenset[str],
                 keep: Sequence[Device] = (), originals: Sequence[Device] = (), tags: Sequence[str] = (),
-                ids: Sequence[str] = ()) -> System:
+                ids: Sequence[str] = (), sheets: Sequence[str] = ()) -> System:
     """One WRITE_SYSTEM question checked by `_check_system`; what the intake cleaned in the used answer goes to
     the transport's intake log."""
     changes: list[str] = []
 
     def check(answer):
         changes.clear()                     # only the used answer's changes are logged
-        return _check_system(answer, system, shape, known, keep, originals, changes, tags, ids)
+        return _check_system(answer, system, shape, known, keep, originals, changes, tags, ids, sheets)
 
     written = _ask_checked(transport, WRITE_SYSTEM, name, playbook.rules_text, _instructions(step), prompt,
                            json_schema(System), extra, images, check)
@@ -984,7 +987,8 @@ def _ask_system(transport, name: str, playbook: Playbook, step: str, prompt: str
 
 
 def revise_system(system: System, findings: Sequence[Finding], evidence: str, playbook: Playbook,
-                  transport: Transport, *, tags: Sequence[str] = (), ids: Sequence[str] = ()) -> System:
+                  transport: Transport, *, tags: Sequence[str] = (), ids: Sequence[str] = (),
+                  sheets: Sequence[str] = ()) -> System:
     """The system revised for its `must_fix` findings only (the others are ignored), one round: one WRITE_SYSTEM
     request with extra step "revise"; same schema, checks and kept skeleton fields as `write_system`. With no
     must_fix finding for this system it returns `system` unchanged without asking. Raises NoAnswer.
@@ -1003,7 +1007,7 @@ def revise_system(system: System, findings: Sequence[Finding], evidence: str, pl
     return _ask_system(transport, f"{system.name} (revise)", playbook, "revise_system",
                        _revise_prompt(system, mine, shape, evidence),
                        {"step": "revise", "plan_key": system.key, "images": listing}, images, system, shape, known,
-                       keep, system.devices, tags, ids)
+                       keep, system.devices, tags, ids, sheets)
 
 
 # ---- QC -------------------------------------------------------------------------------------------------------------
