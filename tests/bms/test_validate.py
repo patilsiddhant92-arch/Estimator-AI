@@ -280,11 +280,13 @@ def _ids_found(j):
     return [f for f in validate(j, PB) if f.rule == RULE["ids"]]
 
 
-def test_an_unissued_id_outside_a_citation_is_a_check_naming_it(job):
-    """C1: 'Fan C2 serves the lab' prints as written (C2 is neither issued nor a tag); the estimator is told."""
+def test_an_unissued_lookalike_is_no_finding_and_one_joined_to_an_issued_id_is_a_check(job):
+    """The estimator's ruling of 2026-10-05 (secondary review M2): 'Fan C2 serves the lab' prints as written and is
+    no finding (C2 is more likely a tag); 'per S9 and S999' cites S999 beside the issued S9, so S999 is a check."""
     j = edit(job, "VRF", clarifications=(Clarification("note", "Fan C2 serves the lab"),))
-    found = _ids_found(j)
-    assert [(f.system_key, f.severity) for f in found] == [("VRF", "check")] and "C2" in found[0].what
+    assert _ids_found(j) == []
+    j2 = edit(job, "VRF", clarifications=(Clarification("note", "the units per S9 and S999"),))
+    assert sorted((f.severity, "S999" in f.what) for f in _ids_found(j2)) == [("check", True), ("must_fix", False)]
 
 
 def test_an_issued_id_in_any_case_is_must_fix(job):
@@ -300,8 +302,10 @@ def test_issued_ids_in_device_names_and_named_exceptions_are_must_fix(job):
     j2 = dc.replace(job, exceptions=(dc.replace(job.exceptions[0], text="Fire alarm system by others per S14"),))
     # FA is no planned system: the finding is the whole job's, so the review page and the revise find no block
     assert [(f.system_key, f.severity) for f in _ids_found(j2) if "S14" in f.what] == [("", "must_fix")]
+    # an exception of a planned system is the whole job's too (secondary review M4): no writer writes an exception,
+    # so a system revise could never fix it
     j3 = dc.replace(job, exceptions=(dc.replace(job.exceptions[0], system_key="EF", text="Fans by others per S14"),))
-    assert [(f.system_key, f.severity) for f in _ids_found(j3) if "S14" in f.what] == [("EF", "must_fix")]
+    assert [(f.system_key, f.severity) for f in _ids_found(j3) if "S14" in f.what] == [("", "must_fix")]
 
 
 def test_a_tag_range_shaped_like_ids_is_no_check(job):

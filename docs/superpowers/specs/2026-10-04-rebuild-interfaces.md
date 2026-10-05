@@ -222,7 +222,7 @@ write_system(system: System, evidence: str, playbook: Playbook, transport: Trans
 qc_job(job: Job, evidence_index: Mapping[str, str], playbook: Playbook, transport: Transport) -> list[Finding]
 revise_system(system: System, findings: Sequence[Finding], evidence: str, playbook: Playbook, transport, *, tags: Sequence[str] = (), ids: Sequence[str] = ()) -> System
 # tags (optional): every tag of the job (bms.citations.job_tags); the run passes it so the intake never refuses a tag shaped like a source id
-# ids (optional): every source id of the job (bms.citations.job_ids); the run passes it so the intake refuses a client text that prints any of them
+# ids (optional): the source ids the intake refuses in client text; the run passes one set to every writer and the revise: every id of the job (bms.citations.job_ids) and of every system's evidence. A tag or a sheet number (after a sheet word, or named as a sheet by a ref's where) is never refused
 # (with the evidence's own ids). A source id in client text is detected and refused, never rewritten.
 ```
 Chat hand-off (unchanged from the old Judge so `tools/run_job.py` and the `/run-job` skill drive it):

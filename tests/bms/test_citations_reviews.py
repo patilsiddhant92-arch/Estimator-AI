@@ -82,7 +82,6 @@ REFUSED = [
     ("r1 C1", "clarification", "note", "Valves per S141 to S145.", S141, TAGS, ("S141", "S145")),
     ("r1 C1", "clarification", "note", "[S141, S999]", S141, TAGS, ("S141", "S999")),
     ("r1 C1", "clarification", "note", "S141-S999", S141, TAGS, ("S141", "S999")),
-    ("r1 C1", "what", "", "two valves per S999", S141, TAGS, ("S999",)),
     ("r1 C1", "why", "", "S141 shows two", S141, TAGS, ("S141",)),
     ("r1 C1", "clarification", "note", "Valves per S141 and S999.", ("S141", "F1", "I3"), TAGS, ("S141", "S999")),
     ("r1 C1", "no_scope_reason", "", "No BMS scope per S141 and S999; the fans are on their own controls.", S141,
@@ -91,7 +90,6 @@ REFUSED = [
     ("r1 I1", "clarification", "note", "Fans F1 thru F4 per I3.", ("I3", "F1"), ("F1-F4",), ("I3",)),
     ("r1 I2", "clarification", "note", "Fan C2 serves the lab", ("C2",), TAGS, ("C2",)),
     ("r1 I3", "clarification", "note", "Valves per s141.", S141, TAGS, ("s141",)),
-    ("r1 I3", "clarification", "note", "Per S141A.", S141, TAGS, ("S141A",)),
     ("r1 I4", "name", "", "Control Valve per S141", S141, TAGS, ("S141",)),
     # review 2
     ("r2 I-1", "clarification", "note", "two valves[S141].", S141, TAGS, ("S141",)),
@@ -102,15 +100,9 @@ REFUSED = [
     ("r2 I-3", "clarification", "note", "Fans F5 to F8, S141", S141, ("F5-F8",), ("S141",)),
     ("r2 I-3", "clarification", "note", "Fans (F5-F8, S141)", S141, ("F5-F8",), ("S141",)),
     ("r2 I-3", "clarification", "note", "Fans F5-F8, F1", ("F1",), ("F5-F8",), ("F1",)),
-    ("r2 I-4", "clarification", "note", "Two valves (see S999).", S141, TAGS, ("S999",)),
-    ("r2 I-4", "clarification", "note", "Two valves (per S999).", S141, TAGS, ("S999",)),
-    ("r2 I-4", "name", "", "Valve (see S999)", S141, TAGS, ("S999",)),
-    ("r2 I-4", "clarification", "note", "Two valves [see S999]", S141, TAGS, ("S999",)),
     ("r2 I-4", "clarification", "note", "Two valves (per S7).", ("S7",), TAGS, ("S7",)),
     ("r2 I-5", "clarification", "note", "Fans stay on, valves per S141.", S141, TAGS, ("S141",)),
-    ("r2 I-5", "clarification", "note", "Fans stay on, valves per S999.", S141, TAGS, ("S999",)),
     ("r2 I-5", "clarification", "note", "Valves per S141; the fans are left on.", S141, TAGS, ("S141",)),
-    ("r2 I-5", "clarification", "note", "Fans per S999 stay on.", S141, TAGS, ("S999",)),
     ("r2 m-3", "clarification", "note", "per S141/S999", S141, TAGS, ("S141", "S999")),
     ("r2 m-3", "clarification", "note", "per S141 / S999", S141, TAGS, ("S141", "S999")),
     ("r2 m-3", "clarification", "note", "S141‐S999", S141, TAGS, ("S141", "S999")),
@@ -118,19 +110,12 @@ REFUSED = [
     ("r2 m-4", "name", "", "F1", ("F1",), TAGS, ("F1",)),
     ("r2 m-5", "clarification", "note", "see S998 S999", ("S998",), TAGS, ("S998",)),
     # review 3
-    ("r3 C1", "clarification", "note", "see sheet S141", S141, TAGS, ("S141",)),
-    ("r3 C1", "clarification", "note", "sheet S141.", S141, TAGS, ("S141",)),
-    ("r3 C1", "clarification", "note", "dwg S141", S141, TAGS, ("S141",)),
-    ("r3 C1", "clarification", "note", "sheets S962a, F10", ("S962a",), TAGS, ("S962a",)),
-    ("r3 C1", "clarification", "note", "Fans per sheet I3.", ("I3",), TAGS, ("I3",)),
-    ("r3 C1", "clarification", "note", "sheets C101 and I3", ("I3",), TAGS, ("I3",)),
     ("r3 C2", "clarification", "note", "S​141 runs", S141, TAGS, ("S141",)),
     ("r3 C2", "clarification", "note", "Fan Ｓ１４１ runs", S141, TAGS, ("S141",)),
     ("r3 I1", "clarification", "note", "Fans per S141.", S141, TAGS, ("S141",)),
     ("r3 I1", "clarification", "note", "(S141; I3).", ("S141", "I3"), TAGS, ("S141", "I3")),
     ("r3 I1", "clarification", "note", "Fans (per S141, see Q4A) run", ("S141", "Q4A"), TAGS, ("S141", "Q4A")),
     ("r3 I1", "clarification", "note", "Fans refer to S141 and I3.", ("S141", "I3"), TAGS, ("S141", "I3")),
-    ("r3 I2", "clarification", "note", "Damper [S999; M-101] closes.", S141, TAGS, ("S999",)),
     ("r3 I2", "clarification", "note", "Damper (see I3; sheet M-101) closes.", ("I3",), TAGS, ("I3",)),
     ("r3 I2", "clarification", "note", "(I3, see sheet M-101)", ("I3",), TAGS, ("I3",)),
     ("r3 I3", "clarification", "note", "duct-S141 runs", S141, TAGS, ("S141",)),
@@ -138,13 +123,9 @@ REFUSED = [
     ("r3 I3", "clarification", "note", "EF-1-S141.", S141, TAGS, ("S141",)),
     ("r3 I3", "clarification", "note", "fans – S141", S141, TAGS, ("S141",)),
     ("r3 I3", "clarification", "note", "S141 – I3 – fans", ("S141", "I3"), TAGS, ("S141", "I3")),
-    ("r3 I3", "clarification", "note", "P-14 or AHU-5/I512 4 per F9032 %", S141, TAGS, ("F9032",)),
     ("r3 I4", "clarification", "note", "RTU-2-I3, C2 runs", ("I3",), TAGS, ("I3", "C2")),     # joined by "," to I3
     ("r3 I4", "clarification", "note", "fan-S141, C2 runs", S141, TAGS, ("S141", "C2")),
-    ("r3 I4", "clarification", "note", "(relay RTU9 RTU9-I740a,I29)", S141, TAGS, ("I740a", "I29")),
-    ("r3 I5", "clarification", "note", "Fans (pump (I3) runs C7777) stop.", ("I3",), TAGS, ("I3", "C7777")),
-    ("r3 I5", "clarification", "note", "(Straße-Q240 is wired to (per Q1199) F2856/FCU-7)", S141, TAGS,
-     ("Q240", "Q1199", "F2856")),
+    ("r3 I5", "clarification", "note", "Fans (pump (I3) runs C7777) stop.", ("I3",), TAGS, ("I3",)),   # C7777: ruling
     ("r3 I6", "clarification", "note", "Note: see I3.", ("I3",), TAGS, ("I3",)),
     ("r3 I6", "clarification", "note", "Note: [I3]", ("I3",), TAGS, ("I3",)),
     ("r3 I6", "clarification", "confirm", "Confirm: per I3, ownership of the panel", ("I3",), TAGS, ("I3",)),
@@ -186,6 +167,26 @@ ACCEPTED = [
     ("r2 m-2", "clarification", "confirm", "Confirm—ownership of valves", S141, TAGS, "ownership of valves"),
     ("r3 C1", "clarification", "note", "sheet C101 shows the fans", S141, TAGS, "sheet C101 shows the fans"),
     ("r3 C2", "clarification", "note", "3 per S141ft", S141, TAGS, "3 per S141ft"),       # no whole token: policy
+    # the estimator's ruling of 2026-10-05: an unissued lookalike in brackets or after a cue word, and an issued id
+    # after a sheet word (a sheet number), are accepted as written. These were refused before the ruling.
+    ("r1 C1 ruling", "what", "", "two valves per S999", S141, TAGS, "two valves per S999"),
+    ("r1 I3 ruling", "clarification", "note", "Per S141A.", S141, TAGS, "Per S141A."),
+    ("r2 I-4 ruling", "clarification", "note", "Two valves (see S999).", S141, TAGS, "Two valves (see S999)."),
+    ("r2 I-4 ruling", "clarification", "note", "Two valves (per S999).", S141, TAGS, "Two valves (per S999)."),
+    ("r2 I-4 ruling", "name", "", "Valve (see S999)", S141, TAGS, "Valve (see S999)"),
+    ("r2 I-4 ruling", "clarification", "note", "Two valves [see S999]", S141, TAGS, "Two valves [see S999]"),
+    ("r2 I-5 ruling", "clarification", "note", "Fans stay on, valves per S999.", S141, TAGS, "Fans stay on, valves per S999."),
+    ("r2 I-5 ruling", "clarification", "note", "Fans per S999 stay on.", S141, TAGS, "Fans per S999 stay on."),
+    ("r3 C1 ruling", "clarification", "note", "see sheet S141", S141, TAGS, "see sheet S141"),
+    ("r3 C1 ruling", "clarification", "note", "sheet S141.", S141, TAGS, "sheet S141."),
+    ("r3 C1 ruling", "clarification", "note", "dwg S141", S141, TAGS, "dwg S141"),
+    ("r3 C1 ruling", "clarification", "note", "sheets S962a, F10", ("S962a",), TAGS, "sheets S962a, F10"),
+    ("r3 C1 ruling", "clarification", "note", "Fans per sheet I3.", ("I3",), TAGS, "Fans per sheet I3."),
+    ("r3 C1 ruling", "clarification", "note", "sheets C101 and I3", ("I3",), TAGS, "sheets C101 and I3"),
+    ("r3 I2 ruling", "clarification", "note", "Damper [S999; M-101] closes.", S141, TAGS, "Damper [S999; M-101] closes."),
+    ("r3 I3 ruling", "clarification", "note", "P-14 or AHU-5/I512 4 per F9032 %", S141, TAGS, "P-14 or AHU-5/I512 4 per F9032 %"),
+    ("r3 I4 ruling", "clarification", "note", "(relay RTU9 RTU9-I740a,I29)", S141, TAGS, "(relay RTU9 RTU9-I740a,I29)"),
+    ("r3 I5 ruling", "clarification", "note", "(Straße-Q240 is wired to (per Q1199) F2856/FCU-7)", S141, TAGS, "(Straße-Q240 is wired to (per Q1199) F2856/FCU-7)"),
 ]
 
 
@@ -248,8 +249,8 @@ def test_a_per_drawings_text_of_only_an_id_prints_no_line(job, pb):
 
 
 def test_the_validator_reports_every_review_text_before_render(job):
-    """r1 I4, r2 I-4, r2 m-4, r3 M3: issued ids in names, exceptions and texts are must_fix; an unissued token is a
-    check."""
+    """r1 I4, r2 I-4, r2 m-4, r3 M3: issued ids in names, exceptions and texts are must_fix. Ruling 2026-10-05: an
+    exception's finding is the whole job's (system key ""), and an unissued lookalike "(see S999)" is no finding."""
     j = replace(job, systems=(_system(devices=(Device("EF.d1", "controller", "Control Valve per S141",
                                                       "Furnish and Install", "AME", "AME", "AME", Count(2),
                                                       (M101,)),)),),
@@ -259,9 +260,9 @@ def test_the_validator_reports_every_review_text_before_render(job):
     found = _ids(j)
     assert ("EF", "EF.d1", "must_fix", "an id is in the client text of the name of Control Valve per S141 (S141)") \
         in found
-    assert ("EF", None, "must_fix", "an id is in the client text of the named exception (S141)") in found
+    assert ("", None, "must_fix", "an id is in the client text of the named exception (S141)") in found
     assert sum(1 for _, _, s, w in found if s == "must_fix" and "named exception (S141)" in w) == 2
-    assert any(s == "check" and "S999" in w for _, _, s, w in found), found
+    assert not any("S999" in w for _, _, s, w in found), found
 
 
 def test_an_exception_of_only_an_issued_id_is_must_fix_and_never_prints_empty(job, pb):
@@ -293,6 +294,10 @@ def test_a_count_note_place_is_a_sheet_never_an_id_and_a_stale_note_is_not_rewri
     count = Count(5, (Ref("S5", "q", where),), (OtherCount(3, M101),))
     j = replace(job, systems=(_system((Clarification("note", "Valves per S141."),), count=count),))
     lines = [l.text for l in render(j, pb).lines if l.system_key == "EF"]
+    if where.startswith("S141,"):
+        # ruling 2026-10-05: this job's own ref names S141 as a sheet, so S141 is the sheet, kept everywhere
+        assert lines[-2:] == ["**Valves per S141", "*Qty. (5) per S141; 3 per M-101."], lines
+        return
     assert lines[-2:] == ["**Valves per", f"*Qty. (5) per {place}; 3 per M-101." if place else
                           "*Qty. (5); 3 per M-101."], lines
     assert not any(token in " ".join(lines) for token in ("S9", "S141"))
@@ -327,3 +332,96 @@ def test_the_review_long_texts_are_detected_in_linear_time():
         start = time.perf_counter()
         assert ids.refusal(text) and "S141" not in ids.without_issued(text).replace("I3", "")
         assert time.perf_counter() - start < 1.0
+
+
+# ---- the estimator's ruling of 2026-10-05 (the secondary review of the cleanup, H1, H2, M1 to M4) ----------------
+# (a) an issued id that is also a tag or a sheet number is the tag or the sheet, kept as written; (b) a tag
+# lookalike that is no issued id is accepted, in brackets and after see / per too; (c) only an issued id, or an
+# unissued token joined to one ("per S141 and S999"), is refused; (d) nothing is rewritten.
+
+SAMPLE = load_playbook(FIX / "sample_playbook")       # the fixture's own playbook (its shapes)
+
+
+def _vrf(job, **changes) -> Job:
+    return replace(job, systems=tuple(replace(s, **changes) if s.key == "VRF" else s for s in job.systems))
+
+
+def test_an_issued_id_after_a_sheet_word_is_a_sheet_number_kept_as_written():
+    """H1: S ids number every dossier line, so a sheet S12 collides with the issued S12; the sheet word wins."""
+    ids = citations.SourceIds.of(["S12", "S13", "S101", "I3"], TAGS)
+    for text in ("Branch selector count per sheet S12 and S13", "see sheet S101", "sheets C101 and I3",
+                 "Damper actuators per sheet S101 and S12."):
+        assert [f.kind for f in ids.scan(text)] == ["sheet"] * len(ids.scan(text)), text
+        assert ids.refusal(text) == "" and ids.without_issued(text) == text, text
+
+
+def test_a_sheet_number_the_jobs_refs_name_is_kept_even_when_issued_and_without_a_sheet_word():
+    """H1: a Ref whose where is "S101, Structural.pdf page 3" makes S101 a sheet of the job."""
+    sheets = citations.ref_sheets([Ref("S5", "q", "S101, Structural.pdf page 3"), Ref("S7", "q", "S7, x.pdf page 2")])
+    assert sheets == {"S101"}                              # a where naming its own id is no sheet
+    ids = citations.SourceIds.of(["S101", "S7"], TAGS, sheets)
+    assert ids.place("S101, Structural.pdf page 3") == "S101"
+    assert [f.kind for f in ids.scan("Damper actuators per S101 and S7")] == ["sheet", "issued"]
+    assert ids.refusal("Damper actuators per S101") == ""
+    assert ids.without_issued("Damper actuators per S101") == "Damper actuators per S101"
+
+
+def test_a_sheet_number_equal_to_an_issued_id_prints_in_the_proposal(job, pb):
+    """H1 on the invented fixture: S12 and S13 are issued; "per sheet S12 and S13" prints whole."""
+    j = _vrf(job, clarifications=(Clarification("confirm", "Branch selector count per sheet S12 and S13"),))
+    lines = [l.text for l in render(j, SAMPLE).lines if l.system_key == "VRF"]
+    assert any("per sheet S12 and S13" in line for line in lines), lines
+    assert not [f for f in validate(j, SAMPLE) if f.rule == RULE["ids"]]
+
+
+def test_a_device_named_only_by_an_issued_id_never_crashes_render(job, pb):
+    """H1: a device named "S4" (S4 issued in the fixture) prints as written; the validator still reports it."""
+    rtu = job.system("RTU")
+    j = replace(job, systems=tuple(replace(s, devices=(replace(rtu.devices[0], name="S4"),) + rtu.devices[1:])
+                                   if s.key == "RTU" else s for s in job.systems))
+    lines = [l.text for l in render(j, SAMPLE).lines if l.system_key == "RTU"]
+    assert any(line.endswith(" S4") for line in lines), lines
+    assert [f.severity for f in validate(j, SAMPLE) if f.rule == RULE["ids"] and f.device_id == "RTU.d1"] == ["must_fix"]
+
+
+@pytest.mark.parametrize("field, kind, text", [
+    ("name", "", "Fan Start / Stop and Status (F1, F2)"),
+    ("clarification", "note", "Fans (F1, F2) start/stop."),
+    ("why", "", "See C101 for the layout"),
+    ("clarification", "note", "Two valves (see S999)."),
+    ("clarification", "note", "the fans run, see C2 in the lab"),
+    ("clarification", "note", "Damper [S999; M-101] closes."),
+])
+def test_an_unissued_tag_lookalike_in_brackets_or_after_a_cue_word_is_accepted_as_written(field, kind, text):
+    """H2: refuse only an issued id; a lookalike that is no issued id prints as the writer wrote it."""
+    written, problems = _intake(field, kind, text, S141, ())
+    assert problems == [] and _stored(written, field) == text
+
+
+def test_an_unissued_token_joined_to_an_issued_id_is_still_refused():
+    """(c): "per S141 and S999" cites ids: both are named."""
+    written, problems = _intake("clarification", "note", "Valves per S141 and S999.", S141, ())
+    assert written is None and "prints the source ids S141, S999" in " ".join(problems)
+
+
+def test_an_equipment_tag_lookalike_is_not_a_finding(job, pb):
+    """M2: "Supply Fan F1" names a fan, not a citation: no check on the review page."""
+    j = _vrf(job, clarifications=(Clarification("note", "Interlock with Supply Fan F1 (by others)"),))
+    assert [f for f in validate(j, SAMPLE) if f.rule == RULE["ids"]] == []
+
+
+def test_every_prompt_that_polices_source_ids_says_a_tag_is_not_one():
+    """M3: the QC pass must not send a real tag back as a must_fix."""
+    folder = ROOT / "src" / "bms" / "prompts"
+    for name in ("write_system.md", "revise_system.md", "qc_job.md"):
+        text = (folder / name).read_text(encoding="utf-8")
+        assert 'A tag the documents give (a fan "F1")' in text and "is not a source id" in text, name
+        assert 'sheet number ("sheet S101")' in text, name
+
+
+def test_an_id_in_a_named_exception_sends_no_system_to_revise(job, pb):
+    """M4: no writer writes an exception, so its finding is the whole job's (system key ""), never a system's."""
+    j = replace(job, exceptions=(ScopeException("EF", "Kitchen exhaust fan controls by others per S14",
+                                                (Ref("S14", "q", "E-001, Drawings.pdf page 5"),)),))
+    found = [(f.system_key, f.device_id, f.severity) for f in validate(j, SAMPLE) if f.rule == RULE["ids"]]
+    assert found == [("", None, "must_fix")]
