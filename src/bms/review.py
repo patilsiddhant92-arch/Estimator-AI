@@ -682,15 +682,20 @@ def _apply_to_devices(devices: tuple[Device, ...], device_id: str, decision: Dec
     return tuple(out)
 
 
-def apply_decisions(job: Job, decisions: Sequence[Decision], *, copies: dict[Decision, int] | None = None) -> Job:
+def apply_decisions(job: Job, decisions: Sequence[Decision]) -> Job:
     """The job with the decisions applied, in order: accept clears the device's flag, or, for a family, the
     quantity flags on that system's devices; delete removes the device (or the system, when no device or family is
     named); change replaces the device (same id) or the family's Count. A decision naming a system or device the
     job no longer has is skipped. Pure. System key "" names the front end's devices.
 
     A device delete whose id no longer holds its line is applied to a line with the same content only when as many
-    copies of it are left as the estimator saw (`copies`, from `copies_seen`; when not known, see `_held_back`):
-    else it is not applied, and `unhonored_decisions` gives it a "could not be applied" card."""
+    copies of it are left as the estimator saw (`apply_seen`, with `copies_seen` of the history; when not known, see
+    `_held_back`): else it is not applied, and `unhonored_decisions` gives it a "could not be applied" card."""
+    return apply_seen(job, decisions, None)
+
+
+def apply_seen(job: Job, decisions: Sequence[Decision], copies: dict[Decision, int] | None) -> Job:
+    """`apply_decisions` with the number of copies of its line each delete saw (`copies_seen` of the history)."""
     copies = copies or {}
     for decision in decisions:
         job = _apply_one(job, decision, copies.get(decision))
@@ -749,7 +754,7 @@ def unhonored_decisions(before: Job, decisions: Sequence[Decision], after: Job, 
     nothing the earlier job had is skipped, as `apply_decisions` skips it. A delete `apply_decisions` holds back
     (`copies`: the number of copies of the line differs from what the estimator saw) could not be applied either."""
     copies = copies or {}
-    expected = apply_decisions(before, decisions, copies=copies)
+    expected = apply_seen(before, decisions, copies)
     return [finding for decision in decisions
             if (finding := _unhonored(before, decision, after, expected, copies.get(decision))) is not None]
 
@@ -775,7 +780,7 @@ _TWIN_DELETE = ("When you deleted this line, the job had a different number of c
 def _unhonored(before: Job, decision: Decision, after: Job, expected: Job | None = None,
                seen: int | None = None) -> Finding | None:
     if expected is None:
-        expected = apply_decisions(before, [decision], copies={decision: seen} if seen is not None else None)
+        expected = apply_seen(before, [decision], {decision: seen} if seen is not None else None)
     subject = decision.device_id or decision.family_name or decision.system_key or "the front end"
     if _held_back(_devices(before, decision.system_key), decision, seen):
         still = next((dev for dev in _devices(after, decision.system_key) or () if _same_device((dev,), decision.was)),

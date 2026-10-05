@@ -128,7 +128,7 @@ def test_f3_a_twin_delete_on_a_job_with_one_copy_left_is_not_applied_and_gets_a_
     history = review.merge_decisions([], [delete], job=twins)
     copies = review.copies_seen(history)
     x = delete.was
-    after = review.apply_decisions(job, [delete], copies=copies)
+    after = review.apply_seen(job, [delete], copies)
     assert _copies(after, "EF", x) == 1
     cards = review.unhonored_decisions(job, [delete], after, copies=copies)
     assert [(c.severity, c.what, c.device_id) for c in cards] == [
@@ -146,7 +146,7 @@ def test_f3_a_twin_delete_whose_id_now_holds_another_line_is_not_applied_by_cont
     delete = Decision("EF", "delete", device_id="EF.d2", was=x)
     copies = review.copies_seen(review.merge_decisions([], [delete], job=twins))
     assert y.id == "EF.d2" and not review._same_device((y,), x)
-    after = review.apply_decisions(job, [delete], copies=copies)
+    after = review.apply_seen(job, [delete], copies)
     assert after == job
     assert review.unhonored_decisions(job, [delete], after, copies=copies)[0].what == (
         "decision could not be applied: delete EF.d2")

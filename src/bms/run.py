@@ -54,7 +54,7 @@ from bms.plan import plan_job
 from bms.playbook import load_playbook
 from bms.render import render
 from bms.review import (DECISIONS_FILE, DECISIONS_HISTORY, SavedDecision, _matches_nothing, accept_families,
-                        apply_decisions, copies_seen, held_back, load_decisions, load_history, merge_decisions,
+                        apply_decisions, apply_seen, copies_seen, held_back, load_decisions, load_history, merge_decisions,
                         review_page, save_history, system_digest, unhonored_decisions)
 from bms.validate import validate
 
@@ -296,7 +296,7 @@ def estimate(job_folder: Path, out: Path, cache: Path, mode: Mode = "chat") -> R
     latest = max((entry.round for entry in history), default=0)
     decided_from = job
     copies = copies_seen(history)       # a twin's delete never takes the only copy (bms.review.apply_decisions)
-    job = apply_decisions(job, decisions, copies=copies)
+    job = apply_seen(job, decisions, copies)
     for key in _changed_system_keys(decided_from, job):
         system = job.system(key)
         if not _families_changed(decided_from, key, job):
@@ -349,7 +349,7 @@ def estimate(job_folder: Path, out: Path, cache: Path, mode: Mode = "chat") -> R
             and (d.action != "accept" or d in _standing_accepts(history, d.system_key, decided_from))]
     early = [d for d in decisions if not _matches_nothing(decided_from, d)]
     revised_job = job
-    job = apply_decisions(job, late, copies=copies)
+    job = apply_seen(job, late, copies)
 
     def took_effect(decision: Decision) -> bool:
         if not _matches_nothing(decided_from, decision):
