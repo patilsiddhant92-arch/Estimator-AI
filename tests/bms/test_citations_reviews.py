@@ -19,7 +19,7 @@ from bms import ai, citations
 from bms.model import (Assumption, Clarification, Count, Device, Family, Job, OtherCount, Ref, ScopeException,
                        System)
 from bms.playbook import load_playbook
-from bms.render import RenderError, render
+from bms.render import render
 from bms.validate import RULE, validate
 
 FIX = Path(__file__).resolve().parent / "fixtures"
@@ -266,11 +266,10 @@ def test_the_validator_reports_every_review_text_before_render(job):
 
 
 def test_an_exception_of_only_an_issued_id_is_must_fix_and_never_prints_empty(job, pb):
-    """r2 m-4."""
+    """r2 m-4; REVIEW-FINAL F6: the render leaves it out (no crash, no empty line); the must_fix names it."""
     j = replace(job, systems=(_system(),), exceptions=(ScopeException("EF", "S141", ()),))
     assert [s for _, _, s, w in _ids(j) if "S141" in w] == ["must_fix"]
-    with pytest.raises(RenderError, match="no words left"):
-        render(j, pb)
+    assert render(j, pb).scope.named_exceptions == ()
 
 
 # ---- places, built by code for the count note (kept: lossless and deterministic) -----------------------------------
