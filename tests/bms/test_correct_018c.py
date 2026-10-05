@@ -96,7 +96,7 @@ def test_reading_the_same_file_again_adds_no_round_and_a_new_save_wins_per_line(
     assert [(h.decision, h.round) for h in history] == [(first[0], 1), (first[1], 1)]
     assert review.merge_decisions(history, first) == history                      # a plain re-run
     second = [Decision("EF", "delete", device_id="EF.d1", was=d2)]                 # same line as the accept
-    merged = review.merge_decisions(history, second)
+    merged = review.merge_decisions(history, second, job=job)   # (only one line of the job has d2's content)
     assert [(h.decision, h.round) for h in merged] == [(first[0], 1), (second[0], 2)]
     assert review.merge_decisions(merged, []) == merged                            # no file: the history stands
 
@@ -124,9 +124,12 @@ def _damper(result, key, prefix="Damper"):
     return [d for d in _system(result, key)["devices"] if d["name"].startswith(prefix)]
 
 
-def test_a_carried_delete_that_took_effect_stays_silent_when_its_line_is_gone(job_folder, tmp_path, monkeypatch):
+def test_a_carried_delete_that_took_effect_is_a_check_card_when_its_system_changed_and_silent_when_not(
+        job_folder, tmp_path, monkeypatch):
     """Run 2 honored the delete. On run 3 the revise drops the damper, so no job has the saved line: the carried
-    delete took effect before, so it makes no "could not be applied" card."""
+    delete took effect before, so it makes no "could not be applied" card. The accept changed the system since
+    run 2 (it was asked again), so run 3 asks the estimator to check it (CORRECT-018d, lead ruling on F2); a plain
+    re-run, with the system as run 3 left it, makes no card."""
     from bms import ai
     out, cache, key, _state, first = _run_with_reworded(
         job_folder, tmp_path, monkeypatch, ("Controller", "Start Stop", "Damper Actuator"), "Damper, motorized")
@@ -143,7 +146,10 @@ def test_a_carried_delete_that_took_effect_stays_silent_when_its_line_is_gone(jo
                                              if not d.name.startswith("Damper"))))
     third = _reach(job_folder, out, cache, "done")
     assert not _damper(third, key)
-    assert not [f for f in third.findings if f.rule == "decision not honored"]
+    assert [(f.severity, f.device_id) for f in third.findings if f.rule == "decision not honored"] == [
+        ("should_fix", None)]
+    again = _reach(job_folder, out, cache, "done")
+    assert not [f for f in again.findings if f.rule == "decision not honored"]
     history = json.loads((out / review.DECISIONS_HISTORY).read_text(encoding="utf-8"))
     assert [(h["round"], h["decision"]["action"]) for h in history] == [(1, "delete"), (2, "accept")]
 

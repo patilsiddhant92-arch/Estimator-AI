@@ -120,6 +120,7 @@ class _Question:
     extra: dict
     images: tuple[Path, ...]
     key: str
+    model: str = ""
 
     @property
     def full_system_prompt(self) -> str:
@@ -145,7 +146,7 @@ def _question(model: str, kind: str, name: str, instructions: str, system_prompt
               extra: dict | None, images: Sequence[Path]) -> _Question:
     images = tuple(Path(p) for p in images or ())
     key = _key(model, prompt + _fingerprint(images), f"{instructions}\n\n{system_prompt}")
-    return _Question(kind, name, instructions, system_prompt, prompt, schema, dict(extra or {}), images, key)
+    return _Question(kind, name, instructions, system_prompt, prompt, schema, dict(extra or {}), images, key, model)
 
 
 def _write_json(path: Path, data, indent: int | None = None) -> None:
@@ -203,14 +204,17 @@ _RETRY_MARK = "\n\nYour earlier answer to this question could not be used:"
 
 
 def _attempt_file(cache: _Cache, q: _Question) -> Path:
-    """One counter per question. The prompt is part of the id, so a decision rewrite and new evidence do not
-    share the first write's counter. The API's one immediate retry appends a fixed note; that note is not part
+    """One counter per question. The prompt, the model, the Playbook rules text, the step's instructions and the
+    answer's schema are part of the id, so a decision rewrite, new evidence, a fixed rules.md or another model does
+    not share the first write's counter. The API's one immediate retry appends a fixed note; that note is not part
     of the id, so the retry keeps counting."""
     prompt = q.prompt
     mark = prompt.find(_RETRY_MARK)
     if mark != -1:
         prompt = prompt[:mark]
-    ident = f"{q.kind}|{q.extra.get('step', '')}|{q.name}|{q.extra.get('plan_key', '')}|{prompt}"
+    asked = hashlib.sha256("|".join((q.model, q.instructions, q.system_prompt,
+                                    json.dumps(q.schema, sort_keys=True))).encode()).hexdigest()
+    ident = f"{q.kind}|{q.extra.get('step', '')}|{q.name}|{q.extra.get('plan_key', '')}|{asked}|{prompt}"
     digest = hashlib.sha256(ident.encode()).hexdigest()
     return cache.folder / "attempts" / f"{digest}.json"
 
@@ -329,7 +333,7 @@ def _drop_refused(transport) -> None:
 def _stop_reason(name: str, attempts: int, reason: str, counter: Path | None = None) -> str:
     where = f" To ask this question again, delete {counter}." if counter is not None else ""
     return (f"Stopped: the request {name} was refused {attempts} times. {reason}.{where}"
-            " A new prompt starts a new count.")
+            " A changed question (new evidence, a changed Playbook, another model) starts a new count.")
 
 
 def _problems(errors: list[str]) -> str:
