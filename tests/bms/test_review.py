@@ -405,3 +405,55 @@ def test_a_delete_that_could_not_be_applied_points_at_the_line_still_on_the_job(
     final = job.with_system(dataclasses.replace(ef, devices=(*ef.devices[:2], dataclasses.replace(reworded, id="EF.d7"))))
     findings = review.unhonored_decisions(job, [decision], final)
     assert [(f.what, f.device_id) for f in findings] == [("decision could not be applied: delete EF.d1", "EF.d7")]
+
+# ---- review of record (REVIEW-006c): decisions that the final job does honor ----------------------------------------
+
+
+def test_deleting_one_of_two_identical_lines_is_honored_when_the_other_stays(job):
+    """A duplicate line is the usual reason to delete one. The twin that stays is not the deleted line coming back."""
+    system = job.system("EF")
+    first = system.devices[0]
+    twin = dataclasses.replace(first, id="EF.d9")
+    doubled = job.with_system(dataclasses.replace(system, devices=(*system.devices, twin)))
+    decision = Decision("EF", "delete", device_id=first.id)
+    after = review.apply_decisions(doubled, [decision])
+    assert review.unhonored_decisions(doubled, [decision], after) == []
+
+
+def test_a_change_then_a_delete_of_the_same_line_is_honored(job):
+    """The estimator changed a line, then deleted it. The final job has neither, as the page asked."""
+    old = job.system("EF").devices[0]
+    decisions = [Decision("EF", "change", device_id=old.id, device=dataclasses.replace(old, name="Changed sensor")),
+                 Decision("EF", "delete", device_id=old.id)]
+    after = review.apply_decisions(job, decisions)
+    assert review.unhonored_decisions(job, decisions, after) == []
+
+
+def test_a_change_inside_a_system_the_estimator_then_deleted_is_honored(job):
+    old = job.system("EF").devices[0]
+    decisions = [Decision("EF", "change", device_id=old.id, device=dataclasses.replace(old, name="Changed sensor")),
+                 Decision("EF", "delete")]
+    after = review.apply_decisions(job, decisions)
+    assert review.unhonored_decisions(job, decisions, after) == []
+
+
+def test_the_job_exactly_as_the_decisions_left_it_is_never_a_finding(job):
+    """No rewrite at all: the final job is apply_decisions' own result, so every decision holds."""
+    system = job.system("EF")
+    decisions = [Decision("EF", "delete", device_id=system.devices[0].id),
+                 Decision("EF", "accept", device_id=system.devices[1].id),
+                 Decision("CUH", "change", family_name="Cabinet Unit Heater", count=Count(4)),
+                 Decision("DH", "delete")]
+    after = review.apply_decisions(job, decisions)
+    assert review.unhonored_decisions(job, decisions, after) == []
+
+
+def test_the_not_honored_card_sits_on_the_line_that_came_back_not_on_the_line_now_wearing_its_old_id(job):
+    """Delete EF.d1; the writer returns a different line as EF.d1 and the deleted line as EF.d9. The card must point
+    at EF.d9: a Delete clicked on a card bound to EF.d1 would remove the line the estimator kept."""
+    system = job.system("EF")
+    deleted, kept = system.devices[0], system.devices[1]
+    after = job.with_system(dataclasses.replace(system, devices=(
+        dataclasses.replace(kept, id=deleted.id), dataclasses.replace(deleted, id="EF.d9"))))
+    findings = review.unhonored_decisions(job, [Decision("EF", "delete", device_id=deleted.id)], after)
+    assert [f.device_id for f in findings] == ["EF.d9"]
