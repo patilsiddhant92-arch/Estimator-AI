@@ -330,10 +330,24 @@ def _drop_refused(transport) -> None:
             pass
 
 
-def _stop_reason(name: str, attempts: int, reason: str, counter: Path | None = None) -> str:
-    where = f" To ask this question again, delete {counter}." if counter is not None else ""
+def _stop_reason(name: str, attempts: int, reason: str, counter: Path | None = None, *, chat: bool = False) -> str:
+    """The stop, in sentences. In chat mode the next run writes the request again by itself, and only an answer
+    newer than the one last refused is read (it gets a fresh set of attempts); the API asks again only once the
+    counter file is deleted."""
+    reason = str(reason).strip().rstrip(".")
+    reason = reason[:1].upper() + reason[1:]
+    if chat:
+        where = (" The next run asks this question again by itself; only an answer saved after the one last refused "
+                 "is read, and it starts a new count.")
+    else:
+        where = f" To ask this question again, delete {counter}." if counter is not None else ""
     return (f"Stopped: the request {name} was refused {attempts} times. {reason}.{where}"
             " A changed question (new evidence, a changed Playbook, another model) starts a new count.")
+
+
+def _is_chat(transport) -> bool:
+    """A chat transport writes request files for the next run (`requests_dir`); the API asks at once."""
+    return getattr(transport, "requests_dir", None) is not None
 
 
 def _problems(errors: list[str]) -> str:
@@ -428,7 +442,7 @@ class ChatTransport(_IntakeLog):
             if attempts >= _max_attempts():
                 counter = _attempt_file(self.cache, q) if self.cache is not None else None
                 _drop_refused(self)
-                self.last_error = _stop_reason(name, attempts, problem, counter)
+                self.last_error = _stop_reason(name, attempts, problem, counter, chat=True)
                 raise NoAnswer(self.last_error, waiting=False)
         raise self._request(q, problem)
 
@@ -655,11 +669,11 @@ def _ask_checked(transport, kind: str, name: str, instructions: str, system_prom
             counter = _attempt_file(cache, last)
         if _refusal_count(transport) >= limit:
             _drop_refused(transport)
-            raise NoAnswer(_stop_reason(name, limit, reason, counter), waiting=False)
+            raise NoAnswer(_stop_reason(name, limit, reason, counter, chat=_is_chat(transport)), waiting=False)
         attempts = _record_refusal(transport)
         if attempts >= limit:
             _drop_refused(transport)
-            raise NoAnswer(_stop_reason(name, attempts, reason, counter), waiting=False)
+            raise NoAnswer(_stop_reason(name, attempts, reason, counter, chat=_is_chat(transport)), waiting=False)
         refuse = getattr(transport, "refuse", None)
         if refuse is None:
             raise NoAnswer(reason)

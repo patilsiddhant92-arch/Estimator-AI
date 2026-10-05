@@ -21,7 +21,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from bms.counts import counted_from
-from bms.model import PARTIES, VERBS, Count, Decision, Device, Finding, Job, ModelError, Ref, System
+from bms.model import PARTIES, VERBS, Count, Decision, Device, Family, Finding, Job, ModelError, Ref, System
 
 REVIEW_PAGE = "Review.html"
 DECISIONS_FILE = "decisions.json"
@@ -711,6 +711,22 @@ def apply_seen(job: Job, decisions: Sequence[Decision], copies: dict[Decision, i
     for decision in decisions:
         job = _apply_one(job, decision, copies.get(decision))
     return job
+
+
+def keep_deleted(decided: Job, system: System, deletes: Sequence[Decision]) -> System:
+    """`system`, written again (the count rewrite), with the lines the device deletes in `deletes` took out of
+    `decided` (the job the decisions were applied to) taken out again. By the saved line (`was`) only, never by id:
+    the writer numbers lines again. While `system` has more lines with a deleted line's content than `decided`'s
+    system has, the last of them is dropped, so a twin the estimator kept is never taken. Pure."""
+    before = _devices(decided, system.key) or ()
+    devices = list(system.devices)
+    lines = dict.fromkeys(d.was for d in deletes if d.system_key == system.key and d.action == "delete"
+                          and d.device_id is not None and d.was is not None)
+    for was in lines:
+        allowed = _how_many(before, was)
+        while _how_many(tuple(devices), was) > allowed:
+            del devices[max(n for n, dev in enumerate(devices) if _same_device((dev,), was))]
+    return system if len(devices) == len(system.devices) else dataclasses.replace(system, devices=tuple(devices))
 
 
 def _apply_one(job: Job, d: Decision, seen: int | None = None) -> Job:

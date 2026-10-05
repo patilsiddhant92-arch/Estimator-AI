@@ -115,7 +115,8 @@ def render(job: Job, playbook: Playbook) -> ProposalDraft:
             continue
         text = ids.without_issued(x.text).strip()
         if not text:
-            raise RenderError(f"the named exception {x.text!r} has no words left once its source ids are taken out")
+            # nothing but issued ids: left out (the validator's must_fix on the whole job names it), never a crash
+            continue
         exceptions.append(text)
     exceptions = tuple(exceptions)
     scope = ScopeJob(header=header, front_end=front, blocks=tuple(base), add_alternates=tuple(adds),

@@ -65,7 +65,7 @@ def _two_saves(job_folder, tmp_path, monkeypatch, first_decision, wording="Dampe
     return out, cache, key, damper, second, _reach(job_folder, out, cache, "done")
 
 
-def test_f2_a_delete_whose_line_came_back_reworded_is_a_should_fix_check_card_on_the_system(
+def test_f2_a_delete_whose_line_came_back_reworded_is_a_check_card_on_the_system(
         job_folder, tmp_path, monkeypatch):
     out, cache, key, damper, second, third = _two_saves(job_folder, tmp_path, monkeypatch,
                                                          lambda d: {"action": "delete"})
@@ -73,7 +73,7 @@ def test_f2_a_delete_whose_line_came_back_reworded_is_a_should_fix_check_card_on
     assert [d["name"] for d in _dampers(third, key)] == ["Damper, motor driven"]
     cards = [f for f in third.findings if f.rule == "decision not honored"]
     assert [(f.severity, f.device_id, f.what) for f in cards] == [
-        ("should_fix", None, f"check this system: an earlier delete of {damper['name']} may have come back re-worded")]
+        ("check", None, f"check this system: an earlier delete of {damper['name']} may have come back re-worded")]
     assert "may have come back re-worded" in third.review.read_text(encoding="utf-8")
 
 
@@ -203,7 +203,7 @@ def test_f6_a_run_without_a_history_says_so_in_one_line(job_folder, tmp_path, mo
                 return seen
             assert answer_all(cache)
         raise AssertionError(result)
-    assert len(notes()) == 1                                    # the first save: no history yet
+    assert notes() == []                                        # the first save: no history yet, and no note
     assert notes() == []                                        # the history is there now
     (out / review.DECISIONS_HISTORY).unlink()
     assert len(notes()) == 1                                    # the history deleted alone: said, not silent

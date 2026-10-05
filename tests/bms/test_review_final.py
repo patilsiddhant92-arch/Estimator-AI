@@ -150,8 +150,6 @@ def test_the_three_run_lifecycle_keeps_job_page_proposal_run_state_and_status_in
 
 # ---- (2) a delete next to a family-count change --------------------------------------------------------------------
 
-@pytest.mark.xfail(strict=True, reason="REVIEW-FINAL F1: the count rewrite runs after the device decisions and is "
-                                       "not followed by them, so it can write a deleted line back")
 def test_a_delete_saved_with_a_family_count_change_stays_deleted(job_folder, tmp_path, monkeypatch):
     """Failing input: after a finished first run, one save holds a change of the VAV family count (4 -> 5) and a
     delete of the sensor line. run._estimate applies both to the written job (the sensor is gone), then, since the
@@ -176,8 +174,6 @@ def test_a_delete_saved_with_a_family_count_change_stays_deleted(job_folder, tmp
 
 # ---- (2b) an estimator's change that prints an issued id ------------------------------------------------------------
 
-@pytest.mark.xfail(strict=True, reason="REVIEW-FINAL F7: a page change is applied without the intake's id check; the "
-                                       "validator's must_fix sends it to the revise, which undoes it")
 def test_a_change_whose_new_name_prints_an_issued_id_is_reported_as_such_not_as_undone(job_folder, tmp_path,
                                                                                     monkeypatch):
     """Failing input: after a finished first run the estimator renames the sensor to "Room Temperature Sensor <id>",
@@ -201,8 +197,6 @@ def test_a_change_whose_new_name_prints_an_issued_id_is_reported_as_such_not_as_
 
 # ---- (3) the "check this system" card's severity -------------------------------------------------------------------
 
-@pytest.mark.xfail(strict=True, reason="REVIEW-FINAL F2: the check card's severity 'should_fix' is no Severity "
-                                       "of the model (must_fix | check)")
 def test_the_check_this_system_finding_is_a_model_finding():
     """Failing input: run._check_this_system(an earlier delete) builds Finding(..., severity="should_fix"). The
     model's Severity is "must_fix" | "check" (model.SEVERITIES, the interfaces doc section 2.1), so the finding does not
