@@ -480,6 +480,64 @@ def test_a_device_delete_stays_honored_because_the_writer_is_not_asked(job_folde
     assert system["devices"] == []
 
 
+def _reworded_damper_run(job_folder, tmp_path, monkeypatch):
+    """A run to done where QC's must_fix makes the revise re-word the damper line, as the review page then shows it.
+    Returns (out, cache, system key, the damper as shown on the page)."""
+    import dataclasses
+
+    from bms import ai, run
+    from bms.model import Finding
+
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    out, cache = tmp_path / "out", tmp_path / "cache"
+    assert _reach(job_folder, out, cache, "write").stage == "write"
+    requests = sorted((cache / "judge-chat" / "requests").glob("*.json"))
+    key = json.loads(requests[0].read_text(encoding="utf-8"))["plan_key"]
+    _plant(cache, {key: ("Controller", "Start Stop", "Damper Actuator")})
+    real_validate = run.validate
+    monkeypatch.setattr(run, "validate", lambda job, playbook: [*real_validate(job, playbook), Finding(
+        "Every line cites this job", key, None, "must_fix", "invented must_fix", "invented fix")])
+
+    def reword(system, findings, evidence, playbook, transport, **kw):   # stands for the cached revise answer
+        return dataclasses.replace(system, devices=tuple(
+            dataclasses.replace(d, name="Damper Actuator, motorized") if d.name == "Damper Actuator" else d
+            for d in system.devices))
+    monkeypatch.setattr(ai, "revise_system", reword)
+    first = _reach(job_folder, out, cache, "done")
+    assert first.status == "done"
+    shown = next(s for s in json.loads(first.job_file.read_text(encoding="utf-8"))["systems"] if s["key"] == key)
+    return out, cache, key, next(d for d in shown["devices"] if d["name"] == "Damper Actuator, motorized")
+
+
+def test_a_delete_of_a_line_the_revise_reworded_removes_that_line(job_folder, tmp_path, monkeypatch):
+    """The estimator deletes the line as the review page showed it, after the revise re-worded it. The next run
+    applies the delete to the revised job too, so the line is gone and nothing is reported."""
+    out, cache, key, damper = _reworded_damper_run(job_folder, tmp_path, monkeypatch)
+    (out / "decisions.json").write_text(json.dumps([{
+        "system_key": key, "action": "delete", "device_id": damper["id"], "was": damper,
+        "reason": "invented"}]), encoding="utf-8")
+    again = _reach(job_folder, out, cache, "done")
+    assert again.status == "done"
+    final = next(s for s in json.loads(again.job_file.read_text(encoding="utf-8"))["systems"] if s["key"] == key)
+    assert [d["name"] for d in final["devices"]] == ["Controller", "Start Stop"]
+    assert not [f for f in again.findings if f.rule == "decision not honored"]
+
+
+def test_a_decision_on_a_line_no_run_has_shows_on_the_review_page(job_folder, tmp_path, monkeypatch):
+    """A saved change names a line that neither the write nor the revise has (the answers changed since the page
+    was made). The run cannot apply it, and the review page says so."""
+    out, cache, key, damper = _reworded_damper_run(job_folder, tmp_path, monkeypatch)
+    stale = dict(damper, name="Damper Actuator, as an older run wrote it")
+    (out / "decisions.json").write_text(json.dumps([{
+        "system_key": key, "action": "change", "device_id": damper["id"], "was": stale,
+        "device": dict(stale, name="Damper Actuator, edited"), "reason": "invented"}]), encoding="utf-8")
+    again = _reach(job_folder, out, cache, "done")
+    assert again.status == "done"
+    assert [f.what for f in again.findings if f.rule == "decision not honored"] == [
+        f"decision could not be applied: change {damper['id']}"]
+    assert "decision could not be applied" in again.review.read_text(encoding="utf-8")
+
+
 def test_a_qc_must_fix_the_revise_left_as_it_was_stays_open():
     import dataclasses
 
@@ -492,6 +550,7 @@ def test_a_qc_must_fix_the_revise_left_as_it_was_stays_open():
                                                                *ef.devices[1:])))
     on = lambda device=None, key="EF": Finding("Every line cites this job", key, device, "must_fix", "w", "f")
     assert _untouched(on("EF.d2"), job, changed) and not _untouched(on("EF.d1"), job, changed)
+    assert not _untouched(on(None), job, changed) and _untouched(on(None, "RTU"), job, changed)
     assert _untouched(on(None, ""), job, changed)
 
 

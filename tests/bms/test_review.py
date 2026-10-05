@@ -378,3 +378,30 @@ def test_apply_decisions_with_stale_nonmatching_was_does_not_delete_reused_id(jo
 def test_a_decision_that_names_nothing_on_the_job_is_not_a_finding(job):
     assert review.unhonored_decisions(job, [Decision("EF", "delete", device_id="EF.zz"),
                                             Decision("NOPE", "delete")], job) == []
+
+
+# ---- a decision that could not be applied (CORRECT-018b) -----------------------------------------------------------
+
+
+def test_a_snapshot_that_matches_no_line_is_reported_as_not_applied(job, tmp_path):
+    """The page saved the line as the estimator saw it. When no line of this run's job has that content, the
+    decision cannot be applied, and the review page says so instead of skipping it in silence."""
+    ef = job.system("EF")
+    gone = dataclasses.replace(ef.devices[0], name="A line this run never wrote")
+    decision = Decision("EF", "change", device_id="EF.d1", was=gone,
+                        device=dataclasses.replace(gone, name="Edited by the estimator"))
+    assert review.apply_decisions(job, [decision]) == job
+    findings = review.unhonored_decisions(job, [decision], job)
+    assert [(f.rule, f.severity, f.what) for f in findings] == [
+        ("decision not honored", "must_fix", "decision could not be applied: change EF.d1")]
+    assert "decision could not be applied: change EF.d1" in _page(job, findings, tmp_path)
+
+
+def test_a_delete_that_could_not_be_applied_points_at_the_line_still_on_the_job(job):
+    """The line the estimator deleted is still in the final job under another id: the card lands on it."""
+    ef = job.system("EF")
+    reworded = dataclasses.replace(ef.devices[2], name="Damper actuator, reworded")
+    decision = Decision("EF", "delete", device_id="EF.d1", was=reworded)
+    final = job.with_system(dataclasses.replace(ef, devices=(*ef.devices[:2], dataclasses.replace(reworded, id="EF.d7"))))
+    findings = review.unhonored_decisions(job, [decision], final)
+    assert [(f.what, f.device_id) for f in findings] == [("decision could not be applied: delete EF.d1", "EF.d7")]

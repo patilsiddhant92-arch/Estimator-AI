@@ -64,7 +64,6 @@ def test_probe_a_stale_snapshot_never_falls_back_to_the_reused_id(job):
 # ---- attacks --------------------------------------------------------------------------------------------------------
 
 
-@pytest.mark.xfail(strict=True, reason="REVIEW-018b F1: a delete whose snapshot matches nothing is dropped in silence")
 def test_attack_a_delete_whose_snapshot_no_longer_matches_is_reported(job):
     """The page shows the revised job; the next run applies decisions to the first write. When the revise
     re-worded the line the estimator deleted, the delete cannot be applied. It must not vanish in silence:
@@ -77,7 +76,6 @@ def test_attack_a_delete_whose_snapshot_no_longer_matches_is_reported(job):
     assert review.unhonored_decisions(job, [decision], final), "a lost delete must show on the review page"
 
 
-@pytest.mark.xfail(strict=True, reason="REVIEW-018b F2: with `was` set, a change counts as honored once the old line is gone")
 def test_attack_a_change_with_a_snapshot_is_not_honored_when_the_line_is_dropped(job):
     """A change is honored only while the changed line is in the final job. With `was` set (every decision
     the page now saves) the check only asks whether the old line is gone, so dropping the line passes."""

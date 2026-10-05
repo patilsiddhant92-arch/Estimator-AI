@@ -42,7 +42,6 @@ def test_probe_an_accepted_quantity_flag_sticks_through_a_whole_rerun(job_folder
     assert not [f for f in again.findings if f.rule == "decision not honored"]
 
 
-@pytest.mark.xfail(strict=True, reason="REVIEW-018b F1: a delete of a line the revise re-worded is lost in silence")
 def test_attack_a_delete_of_a_line_the_revise_reworded_is_not_lost_in_silence(job_folder, tmp_path, monkeypatch):
     """The page shows the final job, after the revise re-worded the damper line. The estimator deletes it there.
     The next run must either remove that line or say on the review page that the decision was not honored."""
