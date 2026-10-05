@@ -339,6 +339,8 @@ def _stop_reason(name: str, attempts: int, reason: str, counter: Path | None = N
     if chat:
         where = (" The next run asks this question again by itself; only an answer saved after the one last refused "
                  "is read, and it starts a new count.")
+        if counter is not None:
+            where += f" The refusals are counted in {counter}."
     else:
         where = f" To ask this question again, delete {counter}." if counter is not None else ""
     return (f"Stopped: the request {name} was refused {attempts} times. {reason}.{where}"
