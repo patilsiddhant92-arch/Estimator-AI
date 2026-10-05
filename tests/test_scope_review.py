@@ -221,7 +221,7 @@ def test_more_than_sixty_sentences_are_counted_not_listed():
 
 
 def test_a_responsibility_matrix_names_the_sheet():
-    page = PageRecord(DRAWINGS, 1, "text", "SCOPE DESCRIPTION QTS\nBMS CONTRACTOR RESPONSIBILITY MATRIX\nNOTES", 0)
+    page = PageRecord(DRAWINGS, 1, "text", "SCOPE DESCRIPTION OWNERCO\nBMS CONTRACTOR RESPONSIBILITY MATRIX\nNOTES", 0)
     sheets = [Sheet(DRAWINGS, 1, "IC00-00", "CONTROLS LEGEND", "Controls", ())]
     overview = build_overview([page], sheets, ())
     [row] = [f for f in overview.who_does_what if f.item == MATRIX_ROW]

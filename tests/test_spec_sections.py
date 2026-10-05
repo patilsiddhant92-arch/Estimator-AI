@@ -70,7 +70,7 @@ def test_a_cross_reference_opens_nothing():
 
 def test_a_running_header_at_the_top_of_every_page():
     # 26-0356: the capitalised heading is the ninth line, below the running header.
-    top = "Mott Haven Houses\nCommunity Center Upgrades\nRFQ No. 511469\nBid Documents\n09/10/2025\n"
+    top = "Example Houses\nCommunity Center Upgrades\nRFQ No. 000000\nBid Documents\n09/10/2025\n"
     pages = _pages("rfq.pdf",
                    top + "Page 1 of 42\nSection 23 09 00\nInstrumentation and Controls for HVAC\n"
                          "SECTION 23 09 00\nINSTRUMENTATION AND CONTROLS FOR HVAC\nPART 1",
@@ -82,9 +82,9 @@ def test_a_running_header_at_the_top_of_every_page():
 def test_number_page_and_title_on_one_line():
     # 26-0344: "230900-4" and the title share the page's first lines.
     pages = _pages("hvac.pdf",
-                   "80 Broad Street Conversion\nPennoni Associates, Inc.\n230900-4        Instrumentation and Control of HVAC\n"
+                   "1 Invented Street Conversion\nExample Associates, Inc.\n230900-4        Instrumentation and Control of HVAC\n"
                    "50% CD\nF. Samples for Verification",
-                   "80 Broad Street Conversion\nPennoni Associates, Inc.\n230900-5        Instrumentation and Control of HVAC\n"
+                   "1 Invented Street Conversion\nExample Associates, Inc.\n230900-5        Instrumentation and Control of HVAC\n"
                    "2.2 CONTROL SYSTEM")
     assert index_sections(pages) == [SpecSection("23 09 00", "Instrumentation and Control of HVAC", "hvac.pdf", 1, 2)]
 

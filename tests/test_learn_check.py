@@ -56,10 +56,10 @@ def test_a_blank_drawing_page_is_a_miss():
 
 
 def test_finding_a_job_folder_by_its_number(tmp_path):
-    (tmp_path / "26-0352, Tishman Speyer, 45 Rockefeller").mkdir()
-    nested = tmp_path / "26-0436, Equinix" / "2. Takeoffs" / "1. Base Takeoff" / "26-0437"
+    (tmp_path / "26-0352, Harbor Point, 1 Invented Street").mkdir()
+    nested = tmp_path / "26-0436, Example Client" / "2. Takeoffs" / "1. Base Takeoff" / "26-0437"
     nested.mkdir(parents=True)
-    assert learn_check.find_job(tmp_path, "26-0352") == tmp_path / "26-0352, Tishman Speyer, 45 Rockefeller"
+    assert learn_check.find_job(tmp_path, "26-0352") == tmp_path / "26-0352, Harbor Point, 1 Invented Street"
     assert learn_check.find_job(tmp_path, "26-0437") == nested
 
 

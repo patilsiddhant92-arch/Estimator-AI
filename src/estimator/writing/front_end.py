@@ -408,13 +408,13 @@ def _engineer(catalogue, settings: dict) -> str | None:
 def _label_engineer(catalogue, settings: dict) -> str | None:
     """The text beside the title block's ENGINEER / MEP ENGINEER / CONSULTING ENGINEER label — the
     firm's own name, whatever it is, even one with no "engineer/consulting/associates" word of its
-    own ("GILLAN & HARTMANN, Inc."). A real title block is a grid of several labels and values
+    own ("ALDER & BRISK, Inc."). A real title block is a grid of several labels and values
     ("ENGINEER" and "DATE" side by side, each with its own value below it), so the value is read from
     the same column as the label — the nearest text below it, close to its own left edge — never
     whatever merely comes next in reading order (that could be another column's label or value
     entirely, "ISSUE FOR BID" under a neighbouring "DATE"). Of what's in that column, a name that
     looks like a firm's (an "&", or a corporate suffix) is preferred to one that reads as a person's
-    (a name with a professional-license line, "MICHAEL S. GILLAN, PE")."""
+    (a name with a professional-license line, "PAT Q. ALDER, PE")."""
     label = re.compile(settings["engineer_label"], re.I)
     skip = {w.upper() for w in settings.get("engineer_label_skip", ())}
     hint = re.compile(settings["engineer_label_company_hint"], re.I)

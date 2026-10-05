@@ -10,7 +10,7 @@
 - every manufacturer named, with who AME asks for a price
 - what was searched for and not found
 
-**Why:** The user liked the "Specs Overview" sheet the old tool (Grok) made, for example `D:\Estimation Assistant\Jobs\26-0363, Radical Media 6th Floor\04_Deliverable\26-0363_Specs_Overview.xlsx` (read-only). They want the same here, and will add to it as the app nears final.
+**Why:** The user liked the "Specs Overview" sheet the old tool (Grok) made, for example `D:\Estimation Assistant\Jobs\26-0363, Example Client 6th Floor\04_Deliverable\26-0363_Specs_Overview.xlsx` (read-only). They want the same here, and will add to it as the app nears final.
 
 **How it differs from Grok's version (binding):**
 - **Nothing is guessed.** Grok wrote rows like "likely BACnet … CONFIRM" and "Belimo typical if not specified". Here each row either quotes the job word for word with where it was found, or says "Not found — ask the engineer". This follows design §9.1: recall is deterministic, and judgement comes later from the AI step.
@@ -205,19 +205,19 @@ This is the user's own quote-source list, copied from the old tool's `ame_vendor
   "about": "Who AME asks for a price, by manufacturer. The estimator's own list. Edit here, never in code.",
   "email_draft": "Could you please provide the pricing for the {maker} - {category}?\n\nPlease include unit pricing, lead time, and any applicable factory controls / BACnet notes.\n\nThank you.",
   "vendors": [
-    {"vendor": "Mechanical Technologies", "products": "VFDs, Airflow Stations, Gas Detection", "makers": ["ABB", "Ruskin", "MSA"], "contact": "Jamie Scott jscott@mthvac.com; Larry Scholl lscholl@mthvac.com"},
-    {"vendor": "AWACP", "products": "Airflow Stations and Gas Detection", "makers": [], "products_match": ["Airflow", "Gas detection"], "contact": "Joel Adelantar joeladelantar@awacp.com (732) 689-0387"},
-    {"vendor": "Broudy Precision", "products": "General Controls", "makers": ["Honeywell", "JCI", "Johnson Controls", "Belimo", "ACI", "Vaisala"], "contact": "jchandler@broudyprecision.com; tsanroman@broudyprecision.com"},
-    {"vendor": "Universal Supply Group", "products": "General Controls", "makers": ["Honeywell"], "contact": "Rory Fitzsimons rfitzsimons@usginc.com"},
-    {"vendor": "Building Controls & Solutions", "products": "General Controls", "makers": ["Honeywell"], "contact": "AJ Hudak AJ.Hudak@building-controls.com"},
-    {"vendor": "Accuspec", "products": "Air Valves, Flow Meters", "makers": ["Accutrol", "Onicon"], "contact": "Bill Theel btheel@accuspecinc.com; Sam Hall shall@accuspecinc.com"},
-    {"vendor": "JT Lynne", "products": "Control Valves", "makers": ["Bray"], "contact": "Steve Valahovic steve.valahovic@jtlynnefe.com"},
-    {"vendor": "Control Associates", "products": "Control Valves, DP", "makers": ["Keystone", "Fisher", "Rosemount"], "contact": "Chris Sneath csneath@control-associates.com"},
-    {"vendor": "Technical Air", "products": "Airflow Stations", "makers": ["Ebtron"], "contact": "Dave Painter dpainter@technicalair.com"},
-    {"vendor": "Pro Tech Solutions", "products": "DP / Pressure, Meters", "makers": ["Rosemount", "Dynasonic"], "contact": "Steve Pedraza spedraza@control-associates.com"},
-    {"vendor": "Technical Devices, Inc", "products": "Flow Meters", "makers": ["Flexim"], "contact": "Dave Painter dpainter@technicalair.com"},
-    {"vendor": "Engineered Air Solutions", "products": "Gas Detection", "makers": ["Macurco"], "contact": "B Sullivan bsullivan@engineeredairsolutions.com; Kevin Fitzpatrick kfitzpatrick@engineeredairsolutions.com; jthaker@engineeredairsolutions.com"},
-    {"vendor": "NY Thermal Systems", "products": "Gas Detection", "makers": ["Toxalert"], "contact": "johnc@nythermalsystems.com"}
+    {"vendor": "Mechanical Technologies", "products": "VFDs, Airflow Stations, Gas Detection", "makers": ["ABB", "Ruskin", "MSA"], "contact": "Pat Example1 pat1@example.com"},
+    {"vendor": "AWACP", "products": "Airflow Stations and Gas Detection", "makers": [], "products_match": ["Airflow", "Gas detection"], "contact": "Pat Example2 pat2@example.com"},
+    {"vendor": "Broudy Precision", "products": "General Controls", "makers": ["Honeywell", "JCI", "Johnson Controls", "Belimo", "ACI", "Vaisala"], "contact": "Pat Example3 pat3@example.com"},
+    {"vendor": "Universal Supply Group", "products": "General Controls", "makers": ["Honeywell"], "contact": "Pat Example4 pat4@example.com"},
+    {"vendor": "Building Controls & Solutions", "products": "General Controls", "makers": ["Honeywell"], "contact": "Pat Example5 pat5@example.com"},
+    {"vendor": "Accuspec", "products": "Air Valves, Flow Meters", "makers": ["Accutrol", "Onicon"], "contact": "Pat Example6 pat6@example.com"},
+    {"vendor": "JT Lynne", "products": "Control Valves", "makers": ["Bray"], "contact": "Pat Example7 pat7@example.com"},
+    {"vendor": "Control Associates", "products": "Control Valves, DP", "makers": ["Keystone", "Fisher", "Rosemount"], "contact": "Pat Example8 pat8@example.com"},
+    {"vendor": "Technical Air", "products": "Airflow Stations", "makers": ["Ebtron"], "contact": "Pat Example9 pat9@example.com"},
+    {"vendor": "Pro Tech Solutions", "products": "DP / Pressure, Meters", "makers": ["Rosemount", "Dynasonic"], "contact": "Pat Example10 pat10@example.com"},
+    {"vendor": "Technical Devices, Inc", "products": "Flow Meters", "makers": ["Flexim"], "contact": "Pat Example11 pat11@example.com"},
+    {"vendor": "Engineered Air Solutions", "products": "Gas Detection", "makers": ["Macurco"], "contact": "Pat Example12 pat12@example.com"},
+    {"vendor": "NY Thermal Systems", "products": "Gas Detection", "makers": ["Toxalert"], "contact": "Pat Example13 pat13@example.com"}
   ]
 }
 ```
@@ -259,7 +259,7 @@ class MakerRow:
     quote: str
     terms: str                  # "Basis of design" / "Or approved equal" / "No substitutions" / "" — from the quoted sentence
     ame_quotes: bool
-    vendors: tuple[str, ...]    # "Broudy Precision — jchandler@…; tsanroman@…", one per matching vendor
+    vendors: tuple[str, ...]    # "Broudy Precision — name@…; name@…", one per matching vendor
     email_draft: str            # the template filled in, only when ame_quotes; else ""
 
 @dataclass(frozen=True)
@@ -294,7 +294,7 @@ Each maker gets one row, at the strongest place first. A place is a unique (docu
 4. "Carrier Sense Multiple Access" on a controls page gives no Carrier row. "CARRIER 48TC ROOFTOP UNIT" on a Mechanical sheet gives a Carrier row.
 5. "New York, NY 10001" gives no York row. "YORK YCAL CHILLER" gives one.
 6. "UNIT PRICE" gives no Price row. "PRICE SDV VAV BOX" gives one.
-7. "Actuators shall be Belimo or approved equal." in a controls section gives a Belimo row with `ame_quotes=True` and terms "Or approved equal". The vendors include "Broudy Precision — jchandler@broudyprecision.com; tsanroman@broudyprecision.com". The email draft starts "Could you please provide the pricing for the Belimo - Actuators and dampers?".
+7. "Actuators shall be Belimo or approved equal." in a controls section gives a Belimo row with `ame_quotes=True` and terms "Or approved equal". The vendors include "Broudy Precision — pat3@example.com". The email draft starts "Could you please provide the pricing for the Belimo - Actuators and dampers?".
 8. "Airflow stations shall be Ebtron." gives an Ebtron row whose vendors include Technical Air and AWACP (products match "Airflow").
 9. "Trane" on a Mechanical sheet gives `ame_quotes=False`, no vendors and an empty draft.
 10. The same maker on a Mechanical spec page (p.5) and a Controls spec page (p.40). Its places list the Controls spec first. `short_place` gives "Specs.pdf · 23 09 23 · page 40  (+1 other)".

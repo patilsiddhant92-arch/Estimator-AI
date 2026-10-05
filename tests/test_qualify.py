@@ -683,7 +683,7 @@ def test_26_0334_shaped_capable_of_interfacing_with_an_existing_carrier_system_i
     # 26-0334: "shall be capable of interfacing with" an existing Carrier energy-management
     # system is an integration capability, not a requirement that the new system be Carrier.
     pages = _pages("A. The BAS shall be built on the Tridium Niagara N4 Framework.\n"
-                   "B. The ATC system shall be capable of interfacing with the existing Morris "
+                   "B. The ATC system shall be capable of interfacing with the existing Example "
                    "County energy management system, which is an iVu CCN (Carrier Comfort "
                    "Network) Plus system. Integration is not required as part of this project.")
     bid = check_bid(pages, [CONTROLS])

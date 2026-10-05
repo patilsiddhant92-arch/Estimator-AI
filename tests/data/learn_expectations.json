@@ -79,7 +79,7 @@
       "typed_at_least": 0.7,
       "controls_sections": false,
       "unreadable_at_most": 1,
-      "note": "Its own project manual has no controls section — the controls spec lives in the nested 26-0437 folder, catalogued as its own job. Checked by hand. Read as Open: the controls appendix (Marked_NY10-1 IFP - 13 CONTROLS - Appendix.pdf) calls for Allen-Bradley PLCs and owner-furnished DDC, and none of the lines AME bids is named — the US team decides, not a Schneider medium-voltage switchgear note elsewhere in the set.",
+      "note": "Its own project manual has no controls section — the controls spec lives in the nested 26-0437 folder, catalogued as its own job. Checked by hand. Read as Open: the controls appendix (Marked_XX10-1 IFP - 13 CONTROLS - Appendix.pdf) calls for Allen-Bradley PLCs and owner-furnished DDC, and none of the lines AME bids is named — the US team decides, not a Schneider medium-voltage switchgear note elsewhere in the set.",
       "blank_sheets_at_most": 1,
       "blank_note": "Project Manual page 154 is an empty form page on a large sheet — truly blank (checked by the reading-gaps round, 2026-09-25)."
     },

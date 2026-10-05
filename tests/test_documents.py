@@ -39,7 +39,7 @@ def _by_name(folder):
 
 def test_job_name_is_the_number():
     from pathlib import Path
-    assert job_name(Path("D:/x/26-0352, Tishman Speyer, 45 Rockefeller")) == "26-0352"
+    assert job_name(Path("D:/x/26-0352, Harbor Point, 1 Invented Street")) == "26-0352"
     assert job_name(Path("D:/x/26-0246")) == "26-0246"
 
 

@@ -14,7 +14,7 @@ def test_sheet_number_shapes(text):
     assert SHEET_NUMBER.fullmatch(text)
 
 
-@pytest.mark.parametrize("text", ["275 HARTZ WAY", "2026", "PROJECT", "A", "SCALE: 1/8\"=1'-0\"", "15970",
+@pytest.mark.parametrize("text", ["1 INVENTED WAY", "2026", "PROJECT", "A", "SCALE: 1/8\"=1'-0\"", "15970",
                                   "ISSUED FOR CONSTRUCTION", "03/31/2026"])
 def test_not_sheet_numbers(text):
     assert not SHEET_NUMBER.fullmatch(text)
@@ -63,7 +63,7 @@ def test_the_title_under_its_label_not_the_permit_number_beside_it():
 
 def test_a_label_split_over_two_lines():
     # 26-0352: "DRAWING" and "TITLE" are two small lines, the title beside them.
-    spans = [_span("TISHMAN SPEYER", 18.8, 0.874, 0.788), _span("DRAWING", 9.4, 0.832, 0.842),
+    spans = [_span("HARBOR POINT", 18.8, 0.874, 0.788), _span("DRAWING", 9.4, 0.832, 0.842),
              _span("TITLE", 9.4, 0.832, 0.849), _span("MECHANICAL 21ST FLOOR PLAN", 16.9, 0.857, 0.857, w=0.09),
              _span("SEAL & SIGNATURE", 9.4, 0.832, 0.886), _span("M-100.00", 25.1, 0.926, 0.930, h=0.014)]
     assert read_title_block(spans) == TitleBlock("M-100.00", "MECHANICAL 21ST FLOOR PLAN")
@@ -79,7 +79,7 @@ def test_a_title_as_large_as_the_sheet_number():
 
 def test_an_address_just_smaller_than_the_title_is_left_out():
     # 26-0436's controls sheets: the firm's address is 13.1 pt, the title 15.6 pt.
-    spans = [_span("CONTROLS AND DESIGN", 13.1, 0.913, 0.853), _span("275 HARTZ WAY", 13.1, 0.922, 0.860),
+    spans = [_span("CONTROLS AND DESIGN", 13.1, 0.913, 0.853), _span("1 INVENTED WAY", 13.1, 0.922, 0.860),
              _span("SECOND FLOOR RAS", 15.6, 0.914, 0.885), _span("INSTRUMENT LOCATION", 15.6, 0.910, 0.894),
              _span("IC015", 36.7, 0.922, 0.972, h=0.02)]
     assert read_title_block(spans) == TitleBlock("IC015", "SECOND FLOOR RAS INSTRUMENT LOCATION")
@@ -100,7 +100,7 @@ def test_stamps_and_disclaimers_are_not_titles():
 
 
 def test_no_number_and_no_title():
-    spans = [_span("275 HARTZ WAY", 15.7, 0.90, 0.90), _span("REVISIONS", 10, 0.90, 0.80)]
+    spans = [_span("1 INVENTED WAY", 15.7, 0.90, 0.90), _span("REVISIONS", 10, 0.90, 0.80)]
     assert read_title_block(spans) == TitleBlock(None, None)
 
 

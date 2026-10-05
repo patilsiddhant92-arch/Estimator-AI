@@ -8,7 +8,7 @@ from estimator.writing.templates import load_templates
 from estimator.writing.whole_job import WRITE_PROMPT, PlannedSystem, WrittenLine, WrittenScope, checklist_text
 
 DOSSIER = """1. Job
-[S1] Somerville HS New Gym. Controls: new BACnet system.
+[S1] Example HS New Gym. Controls: new BACnet system.
 
 2. Sequence of operation
 [S2] A. Rooftop units RTU-1 thru 3 shall run on the BMS schedule.
@@ -355,11 +355,11 @@ def test_an_answer_without_a_facts_list_is_unusable(tmp_path):
 
 
 def test_in_chat_mode_a_pass_waits_as_a_request_of_its_own_kind(tmp_path):
-    judge = Judge(tmp_path / "cache", mode="chat", job="26-9999 Somerville")
-    assert judge.ask_pass("the schedules pass", "SYSTEM", "Job: 26-9999 Somerville\nPROMPT", {"type": "object"}) is None
+    judge = Judge(tmp_path / "cache", mode="chat", job="26-9999 Example")
+    assert judge.ask_pass("the schedules pass", "SYSTEM", "Job: 26-9999 Example\nPROMPT", {"type": "object"}) is None
     assert judge.waiting == 1
     request = json.loads(next(judge.requests_dir.glob("*.json")).read_text(encoding="utf-8"))
-    assert request["kind"] == READ_PASS and request["system"] == "the schedules pass" and request["job"] == "26-9999 Somerville"
+    assert request["kind"] == READ_PASS and request["system"] == "the schedules pass" and request["job"] == "26-9999 Example"
 
 
 # --- writing from the ledger entry ------------------------------------------------------------------------
