@@ -15,16 +15,15 @@ from __future__ import annotations
 
 import datetime as dt
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from estimator.scope import Alternate, Block, Item, Run
 from estimator.scope import FrontEnd as ScopeFrontEnd
 from estimator.scope import Header as ScopeHeader
 from estimator.scope import Job as ScopeJob
-from bms.citations import ID_GROUP as _ID_GROUP
-from bms.citations import ONE_ID as _ONE_ID
 from estimator.writing.write import tag_list
 
+from bms.citations import SHEET, SourceIds, clarification_text, squash as _squash, strip_label
 from bms.model import CLARIFICATION_KINDS, Clarification, Count, Device, FrontEnd, Job, System
 from bms.playbook import DEFAULT_ORDER, Playbook, Shape
 
@@ -69,8 +68,8 @@ def render(job: Job, playbook: Playbook) -> ProposalDraft:
       position in `line_order`, then their order in `System.devices`), the slot's wording form; owner brackets
       from `wording.owner_brackets[device.furnished_by]` (none for AME); "Qty (##)" forms when `Count.value` is
       None; a sub-line slot's device one level in under its parent's line; the block's one "*" clarification in its kind's form,
-      as a `note` Item (the label its text already carries is not printed twice, source ids never print, the
-      text is never cut); the block's Counts with `others` get one quantity note (`others_note`) naming the
+      as a `note` Item (the label its text already carries is not printed twice, the text is never cut or
+      rewritten; an issued source id left in a stale text is taken out, token only, as in every client text); the block's Counts with `others` get one quantity note (`others_note`) naming the
       other counts by sheet number, never a file name.
     - A damper family linked under a fan (a system with other, non-damper families) prints no header of its own;
       each other family prints its own header, its count the highest the documents give.
@@ -93,14 +92,15 @@ def render(job: Job, playbook: Playbook) -> ProposalDraft:
     except ValueError as error:
         raise RenderError(f"the job header cannot be printed: {error}") from error
     lines: list[RenderedLine] = []
-    front = _front_end(job.front_end, playbook, lines)
+    ids = SourceIds.of_job(job)
+    front = _front_end(job.front_end, playbook, lines, ids)
     base: list[Block] = []
     adds: list[Alternate] = []
     deducts: list[Alternate] = []
     after: dict[str, list[RenderedLine]] = {"add": [], "deduct": []}      # print order: base, add alternates, deducts
     for system in sorted(job.systems, key=lambda s: block_order(s, playbook)):      # stable: the plan's order kept
         printed: list[RenderedLine] = []
-        blocks = _system_blocks(system, playbook, printed)
+        blocks = _system_blocks(system, playbook, printed, ids)
         if system.alternate == "add" and blocks:
             adds.append(Alternate(blocks=blocks))
         elif system.alternate == "deduct" and blocks:
@@ -109,7 +109,15 @@ def render(job: Job, playbook: Playbook) -> ProposalDraft:
             base.extend(blocks)
         (lines if system.alternate == "base" else after[system.alternate]).extend(printed)
     lines += after["add"] + after["deduct"]
-    exceptions = tuple(x.text for x in job.exceptions if x.text.strip())
+    exceptions = []
+    for x in job.exceptions:
+        if not x.text.strip():
+            continue
+        text = ids.without_issued(x.text).strip()
+        if not text:
+            raise RenderError(f"the named exception {x.text!r} has no words left once its source ids are taken out")
+        exceptions.append(text)
+    exceptions = tuple(exceptions)
     scope = ScopeJob(header=header, front_end=front, blocks=tuple(base), add_alternates=tuple(adds),
                      deduct_alternates=tuple(deducts), named_exceptions=exceptions)
     return ProposalDraft(scope=scope, lines=tuple(lines))
@@ -120,10 +128,6 @@ def render(job: Job, playbook: Playbook) -> ProposalDraft:
 class _Blank(dict):
     def __missing__(self, key):
         return ""
-
-
-def _squash(text: str) -> str:
-    return re.sub(r"\s+", " ", text).strip()
 
 
 def _fill(form: str, **values: str) -> str:
@@ -186,9 +190,10 @@ def _owner(device: Device, playbook: Playbook) -> str:
     return "" if device.furnished_by == "AME" else playbook.wording.owner_brackets.get(device.furnished_by, "")
 
 
-def _reason(assumption, refs: "_Refs") -> str:
-    what = _trim(_no_ids(_strip_labels(assumption.what), refs))
-    why = _trim(_no_ids(assumption.why, refs))
+def _reason(assumption, ids: SourceIds) -> str:
+    """"<what>, because <why>": the label off first, then the safety net (`SourceIds.without_issued`)."""
+    what = _trim(strip_label("assumed", ids.without_issued(strip_label("assumed", assumption.what))))
+    why = _trim(ids.without_issued(assumption.why))
     if not _trim(assumption.what) or not _squash(assumption.why):
         raise RenderError(f"an assumption needs both what and why (got what={assumption.what!r}, "
                           f"why={assumption.why!r})")
@@ -196,11 +201,8 @@ def _reason(assumption, refs: "_Refs") -> str:
     return f"{what}, {lead}{why}" if why else what
 
 
-# ---- places: a sheet number or a section, never a file name --------------------------------------------------
+# ---- places (a count note's, built by code) and the source-id safety net (bms.citations decides both) ----------
 
-_SHEET = re.compile(r"\b[A-Z]{1,2}-?\d{1,3}(?:\.\d{1,3})?[A-Z]?\b")
-_FILE_PART = re.compile(r"\.(?:pdf|docx?|xlsx?|dwg|txt)\b|\bpage\s+\d+\b", re.IGNORECASE)
-_NOT_A_DOCUMENT = ("equipment counts",)          # the dossier's own label for a combined count, not a document
 MAX_COUNT_CLAUSES = 5                            # the printed count's clause and at most four others
 # what a count's quote says it counted: (pattern on the quote, lower case; its number when it gives one, the label)
 _COUNT_LABELS = (
@@ -213,103 +215,17 @@ _COUNT_LABELS = (
 )
 
 
-def _place(where: str) -> str:
-    """Where a source is, as the client reads it: the first sheet number in it ("M-112.00"); else the schedule,
-    section or document name with the file name and its page left out; else "" (no place)."""
-    text = _squash(re.sub(r"\([^)]*\)", " ", where or ""))
-    found = _SHEET.search(text)
-    if found:
-        return found.group(0)
-    if text.lower().startswith(_NOT_A_DOCUMENT):
-        return ""
-    for part in re.split(r"[,;]", text):
-        part = _squash(part)
-        if part and not _FILE_PART.search(part):
-            return part
-    return ""
-
-
-# ---- source ids: never printed ---------------------------------------------------------------------------------
-
-_DANGLING = re.compile(r"\s*\b(?:because|per|in|on|by|from|of|and|see|the)\s*(?=[,;:.)]|$)", re.IGNORECASE)
-
-
-class _Refs:
-    """The refs a text's source ids are looked up in: the device's own first, then the rest of its block's."""
-
-    def __init__(self, *groups) -> None:
-        self.groups = [tuple(g) for g in groups if g]
-
-    def place(self, source_id: str) -> str:
-        for group in self.groups:
-            for ref in group:
-                if ref.source_id == source_id and _place(ref.where):
-                    return _place(ref.where)
-        return ""
-
-    def first(self, *refs) -> "_Refs":
-        return _Refs(refs, *self.groups)
-
-
-def _no_ids(text: str, refs: _Refs) -> str:
-    """The text with every source id ("S141", "S394 note 1", "S243 to S250") replaced by the sheet or section of
-    its ref, or dropped (with the words around it tidied) when no ref names it."""
-    if not _ONE_ID.search(text or ""):
-        return text
-
-    def swap(match: re.Match) -> str:
-        places = list(dict.fromkeys(p for p in (refs.place(i) for i in _ONE_ID.findall(match.group(0))) if p))
-        return " and ".join(places)
-
-    out = _ID_GROUP.sub(swap, text)
-    out = re.sub(r"\(\s*(?:(?:,|;|and)\s*)*\)", " ", out)          # an emptied bracket
-    out = re.sub(r"\(\s+", "(", out)
-    out = re.sub(r"\s+([,;:.)])", r"\1", out)
-    while True:
-        tidy = _DANGLING.sub("", out)
-        tidy = re.sub(r"([,;:])\s*(?=[,;:.)]|$)", "", tidy)          # a separator left with nothing after it
-        if tidy == out:
-            break
-        out = tidy
-    return _squash(out).lstrip(",;: ")
-
-
-# ---- the clarification labels -----------------------------------------------------------------------------------
-
-_LABEL = re.compile(r"^\s*(?:\*+|confirm\b\s*:?|assumed\s*:)\s*", re.IGNORECASE)
-_PER = re.compile(r"^\s*(?:\*+|quantity\s+per\b|as\s+per\b|per\b)\s*", re.IGNORECASE)
-_TRADE = re.compile(r"\b(plumbing|electrical|mechanical|architectural|fire protection|civil|structural)\b",
-                    re.IGNORECASE)
-
-
-def _strip_labels(text: str) -> str:
-    """The text without the leading label(s) it already carries ("*", "Confirm", "Assumed:"): the form adds its own."""
-    text = text or ""
-    while True:
-        stripped = _LABEL.sub("", text, count=1)
-        if stripped == text:
-            return text
-        text = stripped
-
-
-def _per_drawings_text(text: str) -> str:
-    """What a per-drawings clarification puts in its form: the trade its text names ("plumbing"), else the text
-    without its own "Quantity per" and "drawings"."""
-    trade = _TRADE.search(text or "")
-    if trade:
-        return trade.group(1).lower()
-    text = _strip_labels(text)
-    while True:
-        stripped = _PER.sub("", text, count=1)
-        if stripped == text:
-            break
-        text = stripped
-    return re.sub(r"\s*\bdrawings?\b\s*$", "", _trim(text), flags=re.IGNORECASE)
-
-
-def _clarification_text(kind: str, text: str, refs: _Refs) -> str:
-    text = _no_ids(text, refs)
-    return _trim(_per_drawings_text(text) if kind == "per_drawings" else _strip_labels(text))
+def _named(devices, ids: SourceIds) -> list[Device]:
+    """The devices with an issued id left in a stale name taken out, token only (`SourceIds.without_issued`, the
+    safety net every client text goes through; the validator reports it as must_fix before render)."""
+    out = []
+    for device in devices:
+        name = ids.without_issued(device.name)
+        if not name.strip():
+            raise RenderError(f"device {device.id}: the name {device.name!r} has no words left once its source ids "
+                              "are taken out")
+        out.append(device if name == device.name else replace(device, name=name))
+    return out
 
 
 # ---- counts ----------------------------------------------------------------------------------------------------
@@ -320,19 +236,12 @@ def _header_count(count: Count, playbook: Playbook) -> str:
     return words["unknown_count"] if n is None else words["count"].format(n=n)
 
 
-def _sheet(where: str) -> str:
-    text = _squash(re.sub(r"\([^)]*\)", " ", where or ""))
-    if text.lower().startswith(_NOT_A_DOCUMENT):
-        return ""
-    found = _SHEET.search(text)
-    return found.group(0) if found else ""
-
-
-def _count_label(value: int, ref) -> str:
+def _count_label(value: int, ref, ids: SourceIds) -> str:
     """Where a count is, as a person says it: the sheet number its ref names ("M-100.00"); else what its quote
     counted ("plan placements", "schedule rows", "the schedule", "the riser", "the sheet pictures"), the part of a
-    counts line that gives this value; else a schedule or section name; else "" (the clause is left out)."""
-    sheet = _sheet(ref.where)
+    counts line that gives this value; else a schedule or section name; else "" (the clause is left out). A source
+    id is never a place (`SourceIds.place`)."""
+    sheet = ids.sheet(ref.where)
     if sheet:
         return sheet
     quote = (ref.quote or "").lower()
@@ -350,10 +259,10 @@ def _count_label(value: int, ref) -> str:
         return labels[0]
     if found:
         return ""
-    return _place(ref.where)
+    return ids.place(ref.where)
 
 
-def _count_part(count: Count) -> str:
+def _count_part(count: Count, ids: SourceIds) -> str:
     """One count's part of the quantity note: "(N) per <label>; M per <label>; K and J per <label>": the printed
     (highest) count first, then each other count with its label, highest first, equal values from one label
     folded, at most MAX_COUNT_CLAUSES clauses; a count with no label is left out (never "per the documents");
@@ -363,11 +272,11 @@ def _count_part(count: Count) -> str:
         return ""
     entries = [(count.value, r) for r in count.sources] if count.value is not None else []
     entries += [(o.value, o.ref) for o in count.others]
-    heads = [label for label in (_count_label(v, r) for v, r in entries if v == n) if label]
-    head = next((label for label in heads if _SHEET.fullmatch(label)), heads[0] if heads else "")
+    heads = [label for label in (_count_label(v, r, ids) for v, r in entries if v == n) if label]
+    head = next((label for label in heads if SHEET.fullmatch(label)), heads[0] if heads else "")
     folded: dict[str, list[int]] = {}
     for value, ref in entries:
-        label = _count_label(value, ref) if value != n else ""
+        label = _count_label(value, ref, ids) if value != n else ""
         if label:
             values = folded.setdefault(label, [])
             if value not in values:
@@ -380,9 +289,9 @@ def _count_part(count: Count) -> str:
     return f"({n}) per {head}; {others}" if head else f"({n}); {others}"
 
 
-def _count_note(counts: list[Count], playbook: Playbook) -> str:
+def _count_note(counts: list[Count], playbook: Playbook, ids: SourceIds) -> str:
     """The block's one quantity note naming every other count in the documents ("" when there is none)."""
-    parts = list(dict.fromkeys(p for p in (_count_part(c) for c in counts) if p))
+    parts = list(dict.fromkeys(p for p in (_count_part(c, ids) for c in counts) if p))
     if not parts:
         return ""
     return _fill(playbook.wording.quantity["others_note"], counts="; ".join(parts))
@@ -500,26 +409,25 @@ def _device_lines(devices, shape: Shape | None, system: System | None, playbook:
 # ---- the "*" clarifications --------------------------------------------------------------------------------------
 
 def _notes(clarifications: tuple[Clarification, ...], devices, counts: list[Count],
-           playbook: Playbook, extra_refs=()) -> list[str]:
+           playbook: Playbook, ids: SourceIds) -> list[str]:
     """One "*" line per kind, after the lines: confirm, assumed (every assumption with its why), per drawings, the
     note line; then the one quantity note naming every other count. A text's own leading label is not printed
-    twice, its source ids never print, and it is never cut."""
-    block_refs = tuple(r for d in devices for r in d.refs) + tuple(extra_refs)
-    refs = _Refs(block_refs)
+    twice, an issued source id left in a stale text never prints (the token alone is taken out: no sentence is
+    rewritten), and a text is never cut."""
     texts: dict[str, list[str]] = {kind: [] for kind in CLARIFICATION_KINDS}
     for c in clarifications:
-        text = _clarification_text(c.kind, c.text, refs)
+        text = _trim(clarification_text(c.kind, c.text, ids))
         if text:
             texts[c.kind].append(text)
     for device in devices:
         if device.assumption is not None:
-            texts["assumed"].append(_reason(device.assumption, refs.first(*device.refs)))
+            texts["assumed"].append(_reason(device.assumption, ids))
     out = []
     for kind in _AFTER_LINES:
         unique = list(dict.fromkeys(texts[kind]))
         if unique:
             out.append(_fill(playbook.wording.clarifications[kind], text="; ".join(unique)))
-    note = _count_note(counts, playbook)
+    note = _count_note(counts, playbook, ids)
     if note:
         out.append(note)
     return out
@@ -582,7 +490,8 @@ def block_order(system: System, playbook: Playbook) -> int:
     return order
 
 
-def _system_blocks(system: System, playbook: Playbook, out: list[RenderedLine]) -> tuple[Block, ...]:
+def _system_blocks(system: System, playbook: Playbook, out: list[RenderedLine],
+                   ids: SourceIds) -> tuple[Block, ...]:
     """One block, or one header per family stacked over the shared lines (the lines sit under the last header,
     the tech hours on the first). A system with no lines prints nothing: it is a note for the Evidence Package."""
     if not system.devices:
@@ -599,11 +508,10 @@ def _system_blocks(system: System, playbook: Playbook, out: list[RenderedLine]) 
         headers = [_header_text(form, f.name, f.tags, f.count, playbook) for f in families]
     reference = {n for n in (_printed(f.count) for f in families) if n is not None}
     pending = not families or any(_printed(f.count) is None for f in families)     # "Qty (##)": nothing is priced
-    printed = _device_lines(system.devices, shape, system, playbook, reference)
+    printed = _device_lines(_named(system.devices, ids), shape, system, playbook, reference)
     items = _items(printed, pending)
     notes = _notes(system.clarifications, system.devices,
-                   [f.count for f in system.families] + [d.quantity for d in system.devices], playbook,
-                   system.sequence_refs)
+                   [f.count for f in system.families] + [d.quantity for d in system.devices], playbook, ids)
     items += [Item(kind="note", runs=(Run(text=n),)) for n in notes]
     out += [RenderedLine(system.key, None, "header", h, None, None) for h in headers]
     out += _traced(system.key, printed, notes)
@@ -625,12 +533,13 @@ def _traced(key: str, printed: list[_Printed], notes: list[str]) -> list[Rendere
 
 # ---- the front end ---------------------------------------------------------------------------------------------
 
-def _front_end(front: FrontEnd | None, playbook: Playbook, out: list[RenderedLine]) -> ScopeFrontEnd:
+def _front_end(front: FrontEnd | None, playbook: Playbook, out: list[RenderedLine],
+               ids: SourceIds) -> ScopeFrontEnd:
     if front is None:
         return ScopeFrontEnd(mode="new-system")
-    printed = _device_lines(front.devices, None, None, playbook, {1})
+    printed = _device_lines(_named(front.devices, ids), None, None, playbook, {1})
     items = _items(printed, False)
-    notes = _notes(front.clarifications, front.devices, [d.quantity for d in front.devices], playbook)
+    notes = _notes(front.clarifications, front.devices, [d.quantity for d in front.devices], playbook, ids)
     items += [Item(kind="note", runs=(Run(text=n),)) for n in notes]
     out += _traced("", printed, notes)
     try:

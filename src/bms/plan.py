@@ -24,6 +24,7 @@ from estimator.ledger.facts import Fact, Ledger
 from estimator.writing.dossier import Dossier, sections_in
 
 from bms import ai_evidence
+from bms.citations import without_ledger_brackets
 from bms.model import Count, Family, FrontEnd, Job, Ref, ScopeException, Served, System
 from bms.plan_groups import family_of_tag, members, part_count, parts, split_apart
 from bms.plan_read import FamilyFacts, Reader, naming, names_in, squash, tag_words
@@ -820,7 +821,9 @@ def _exceptions(planner: _Planner, systems: list[System], drafts: list[_Draft]) 
     for fact in planner.ledger.of_kind("note"):
         if squash(fact.subject).casefold() != "exception":
             continue
-        text = squash(fact.value)
+        text = without_ledger_brackets(fact.value)      # the ledger's "[S14]" form; any other id is validate's
+        if not text:
+            continue
         key = next((s.key for s, d in zip(systems, drafts) if names_in(d.names(), text)), "")
         out.append(ScopeException(system_key=key, text=text, refs=(planner.reader.fact_ref(fact),)))
     return tuple(out)

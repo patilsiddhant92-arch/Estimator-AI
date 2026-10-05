@@ -267,9 +267,9 @@ SIGNATURES = {
     plan.plan_job: ["ledger", "catalogue", "dossier", "playbook"],
     validate.validate: ["job", "playbook"],
     render.render: ["job", "playbook"],
-    ai.write_system: ["system", "evidence", "playbook", "transport"],
+    ai.write_system: ["system", "evidence", "playbook", "transport", "tags", "ids"],   # tags, ids: optional, kw-only
     ai.qc_job: ["job", "evidence_index", "playbook", "transport"],
-    ai.revise_system: ["system", "findings", "evidence", "playbook", "transport"],
+    ai.revise_system: ["system", "findings", "evidence", "playbook", "transport", "tags", "ids"],   # as write_system
     ai.evidence_for: ["system", "dossier"],
     ai.evidence_index: ["dossier"],
     counts.count_tags: ["image_path", "tag_pattern", "transport"],      # transport: optional, keyword-only
@@ -296,6 +296,14 @@ def test_signature(function):
     if function in RETURNS:
         assert signature.return_annotation == RETURNS[function]
     assert len(inspect.getdoc(function) or "") > 80          # the contract is stated
+
+
+def test_the_writers_take_tags_and_ids_keyword_only_with_an_empty_default():
+    for function in (ai.write_system, ai.revise_system):
+        for name in ("ids", "tags"):
+            parameter = inspect.signature(function).parameters.get(name)
+            assert parameter is not None, (function, name)
+            assert parameter.kind is parameter.KEYWORD_ONLY and parameter.default == (), (function, name)
 
 
 def test_estimate_defaults_to_chat():

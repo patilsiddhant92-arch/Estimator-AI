@@ -53,7 +53,7 @@ from estimator.writing.judge import DEFAULT_MODEL, KEY_VARIABLE, MODEL_VARIABLE,
 from bms import ai_evidence
 from bms.model import Device, Finding, Job, ModelError, Ref, System, json_schema, schema_errors
 from bms.playbook import Playbook, Shape
-from bms.render import _DANGLING, _TRADE, _place, _squash     # the renderer's own id and place helpers
+from bms.citations import SourceIds, label_off, system_tags
 
 WRITE_SYSTEM = "write_system"       # kind of both the write and the revise request
 QC_JOB = "qc_job"
@@ -740,9 +740,11 @@ def _all_refs(system: System) -> list[Ref]:
 
 def _check_system(answer, skeleton: System, shape: Shape | None, known: frozenset[str],
                   keep: Sequence[Device] = (), originals: Sequence[Device] = (),
-                  changes: list[str] | None = None) -> tuple[System | None, list[str]]:
+                  changes: list[str] | None = None, tags: Sequence[str] = (),
+                  ids: Sequence[str] = ()) -> tuple[System | None, list[str]]:
     """A System answer made usable, or the problems that stop it: the skeleton's fields win; untouched devices
-    (`keep`) are put back as they were; client texts are cleaned (`_normalise`, each change added to `changes`);
+    (`keep`) are put back as they were; labels come off the client texts (`_normalise`, each change added to
+    `changes`) and a client text that prints a source id is refused;
     every device cites the evidence; slots fit the shape; a known count is 1 or more; at most one clarification;
     every assumption says what and why; device ids unique and of this system."""
     if not isinstance(answer, dict):
@@ -753,9 +755,8 @@ def _check_system(answer, skeleton: System, shape: Shape | None, known: frozense
     errors = schema_errors(answer, json_schema(System))
     if errors:
         return None, [f"it breaks the schema at {e.removeprefix('$.')}" for e in errors]
-    problems: list[str] = []
     kept_ids = {d.id for d in keep}
-    _normalise(answer, skeleton, kept_ids, changes if changes is not None else [])
+    problems = _normalise(answer, skeleton, kept_ids, changes if changes is not None else [], known, tags, ids)
     for n, device in enumerate(answer["devices"]):
         value = device["quantity"]["value"]
         if device.get("id") not in kept_ids and value is not None and value <= 0:
@@ -817,124 +818,75 @@ _PLAYBOOK_WORD = re.compile(r"\bplaybook\b|\bfinding\s+\d+\b", re.I)
 
 
 def _text_problems(text: str) -> list[str]:
-    """What stops a text the client or the estimator reads and the intake cannot clean: a Playbook rule named in
-    it (labels and source ids are cleaned by `_normalise`, never refused)."""
+    """What stops a text the client or the estimator reads: a Playbook rule named in it (labels are cleaned by
+    `_normalise`, never refused; source ids are refused there)."""
     if _PLAYBOOK_WORD.search(str(text or "")):
         return ["names the Playbook or one of its rules: say the house practice in plain words, or name the "
                 "document in a few plain words"]
     return []
 
 
-# ---- the intake: cosmetic slips in client text cleaned, not refused -----------------------------------------------
-
-_ONE_SOURCE = r"\b[SQIFC]\d{1,4}[a-z]?\b(?:\s+(?:note|paragraph)\s+\d+)?"
-_SOURCE_RUN = re.compile(rf"{_ONE_SOURCE}(?:\s*(?:,|and|to|through|thru|-|–)\s*{_ONE_SOURCE})*")
-_SOURCE_ID = re.compile(r"\b([SQIFC]\d{1,4}[a-z]?)\b")
-_BRACKETED = re.compile(rf"\[\s*({_ONE_SOURCE})\s*\]")
-_LEAD_LABEL = re.compile(r"^\s*(?:\*+|confirm\s+(?:quantities|quantity|ownership)\b|confirm\b|assumed\b|assumption\b"
-                         r"|quantity\s+per\b|note\s*:)\s*:?\s*", re.I)
-_LEAD_PER = re.compile(r"^\s*(?:as\s+)?per\b\s*:?\s*", re.I)
-
-
-def _strip_lead(text: str) -> str:
-    """The text without the label(s) it starts with ("*", "Confirm quantities", "Assumed:", "Quantity per")."""
-    while True:
-        stripped = _LEAD_LABEL.sub("", text, count=1)
-        if stripped == text:
-            return text.strip()
-        text = stripped
-
-
-def _discipline(text: str) -> str:
-    """A per-drawings clarification's text: the discipline word only ("plumbing"), else the text without its
-    "Quantity per" and "drawings"."""
-    trade = _TRADE.search(text)
-    if trade:
-        return trade.group(1).lower()
-    text = _LEAD_PER.sub("", _strip_lead(text), count=1)
-    return re.sub(r"\s*\bdrawings?\b\s*$", "", text, flags=re.I).strip(" .:;,")
-
-
-_NOT_A_PLACE = re.compile(r"^ledger\b|\.(?:png|jpe?g)\b", re.I)      # a ledger fact or a picture file: no document
-
-
-def _place_of(source_id: str, groups: Sequence[Sequence[dict]]) -> str:
-    """Where the first ref naming `source_id` is, as the renderer prints it ("M-101"); "" when none names a
-    document."""
-    for group in groups:
-        for ref in group:
-            place = _place(ref.get("where", ""))
-            if str(ref.get("source_id", "")).strip("[] ") == source_id and place and not _NOT_A_PLACE.search(place):
-                return place
-    return ""
-
-
-def _without_ids(text: str, groups: Sequence[Sequence[dict]]) -> str:
-    """The text with every source id ("S141", "[Q2]", "S6 and S7") put as the place of its ref, as the renderer
-    does, or taken out (and the words around it tidied) when no ref names a place for it."""
-    if not _SOURCE_ID.search(text):
-        return text
-    out = _BRACKETED.sub(r"\1", text)
-
-    def swap(match: re.Match) -> str:
-        places = (_place_of(i, groups) for i in _SOURCE_ID.findall(match.group(0)))
-        return " and ".join(dict.fromkeys(p for p in places if p))
-
-    out = _SOURCE_RUN.sub(swap, out)
-    out = re.sub(r"[(\[]\s*(?:(?:,|;|and)\s*)*[)\]]", " ", out)        # an emptied bracket
-    out = re.sub(r"\(\s+", "(", out)
-    out = re.sub(r"\s+([,;:.)])", r"\1", out)
-    while True:
-        tidy = _DANGLING.sub("", out)
-        tidy = re.sub(r"([,;:])\s*(?=[,;:.)]|$)", "", tidy)          # a separator left with nothing after it
-        if tidy == out:
-            break
-        out = tidy
-    return _squash(out).lstrip(",;: ")
-
+# ---- the intake: labels come off; a source id in client text is refused, never rewritten (bms.citations) ---------
 
 def _device_refs(device: dict) -> list[dict]:
     quantity = device.get("quantity") or {}
     return [*device["refs"], *quantity.get("sources", []), *(o["ref"] for o in quantity.get("others", []))]
 
 
-def _normalise(answer: dict, skeleton: System, kept_ids: set[str], changes: list[str]) -> None:
-    """Clean the client texts of `answer` in place, each change added to `changes`: a leading label taken off an
-    assumption or a clarification (a per-drawings clarification keeps its discipline word only; one left empty is
-    dropped) and every source id put in words (`_without_ids`)."""
+def _normalise(answer: dict, skeleton: System, kept_ids: set[str], changes: list[str],
+               known: frozenset[str] = frozenset(), tags: Sequence[str] = (),
+               job_ids: Sequence[str] = ()) -> list[str]:
+    """Take the leading label of its own kind off each assumption and clarification of `answer`, in place, each
+    change added to `changes` (a per-drawings clarification keeps its discipline word only; one left empty is
+    dropped). The label comes off first; nothing else in a text is changed. Then every client text (device name,
+    assumption what and why, clarification text, no_scope_reason) is scanned for source ids
+    (`bms.citations.SourceIds`, the renderer's and the validator's decision too). The problems returned refuse the
+    answer, one for each text that prints an issued id anywhere (I: `job_ids`, the evidence's ids `known` and every
+    ref the skeleton and the answer carry) or an unissued id-shaped token in a citation. T, never refused, is `tags`
+    (the run passes every tag of the job) and this system's own tags."""
     block = [*(r.to_dict() for r in ai_evidence.system_refs(skeleton))]
     for device in answer["devices"]:
         block += _device_refs(device)
+    ids = SourceIds.of([*job_ids, *known, *(r.get("source_id", "") for r in block)], [*tags, *system_tags(skeleton)])
+    problems: list[str] = []
 
-    def clean(where: str, text: str, groups, label: bool = True) -> str:
-        new = _without_ids(_strip_lead(text) if label else text.strip(), groups)
+    def check(where: str, text) -> None:
+        reason = ids.refusal(str(text or ""))
+        if reason:
+            problems.append(f"{where} {reason}")
+
+    def labelled(where: str, kind: str, text: str) -> str:
+        new = label_off(kind, text)
         if new != text.strip():
             changes.append(f"{where}: {text!r} written as {new!r}")
         return new
 
-    for device in answer["devices"]:
-        assumption = device.get("assumption")
-        if assumption is None or device.get("id") in kept_ids:
+    for n, device in enumerate(answer["devices"]):
+        if device.get("id") in kept_ids:
             continue
-        groups = (_device_refs(device), block)
+        label = f"device {device.get('id') or n + 1}"
+        check(f"{label}'s name", device.get("name"))
+        assumption = device.get("assumption")
+        if assumption is None:
+            continue
         for part in ("what", "why"):
             if str(assumption[part]).strip():
-                assumption[part] = clean(f"device {device.get('id')} assumption {part}", assumption[part], groups)
+                assumption[part] = labelled(f"{label} assumption {part}", "assumed", assumption[part])
+                check(f"{label}'s assumption {part}", assumption[part])
     kept = []
     for clarification in answer["clarifications"]:
-        text, where = clarification["text"], f"clarification ({clarification['kind']})"
-        new = _without_ids(_strip_lead(text), (block,))
-        if clarification["kind"] == "per_drawings":
-            new = _discipline(new)
+        text, kind = clarification["text"], clarification["kind"]
+        where = f"clarification ({kind})"
+        new = labelled(where, kind, text)
         if not new and str(text).strip():
             changes.append(f"{where} {text!r} dropped: nothing left after its label")
             continue
-        if new != text.strip():
-            changes.append(f"{where}: {text!r} written as {new!r}")
+        check(f"its {kind} clarification", new)
         kept.append(dict(clarification, text=new))
     answer["clarifications"] = kept
-    if str(answer.get("no_scope_reason") or "").strip():
-        answer["no_scope_reason"] = clean("no_scope_reason", answer["no_scope_reason"], (block,), label=False)
+    if not answer["devices"] and str(answer.get("no_scope_reason") or "").strip():    # else it is dropped
+        check("its no_scope_reason", answer["no_scope_reason"])
+    return problems
 
 
 def _log_intake(transport, name: str, changes: Sequence[str]) -> None:
@@ -981,7 +933,8 @@ def _put_back(devices, keep: Sequence[Device], originals: Sequence[Device]):
     return out
 
 
-def write_system(system: System, evidence: str, playbook: Playbook, transport: Transport) -> System:
+def write_system(system: System, evidence: str, playbook: Playbook, transport: Transport, *,
+                 tags: Sequence[str] = (), ids: Sequence[str] = ()) -> System:
     """The system with `devices`, `clarifications` and `tech_hours` filled from `evidence`.
 
     Contract: one WRITE_SYSTEM request (extra step "write", plan_key system.key) whose schema is
@@ -993,29 +946,34 @@ def write_system(system: System, evidence: str, playbook: Playbook, transport: T
     Also: the pictures the evidence names are attached; a ref to an id the evidence does not carry is dropped when
     the device has another, and a device with none, a slot outside the shape, a count of 0 or below, more than one
     clarification or an assumption without its what or why refuses the answer (the chat asks again with the reason;
-    the API is asked once more). Cosmetic slips are cleaned on intake, never refused: a leading label ("Confirm",
-    "Assumed:", "Quantity per") comes off an assumption or a clarification (a per-drawings clarification keeps its
-    discipline word, "plumbing"; one left empty is dropped) and a source id in client text becomes the place of its
-    ref, or is taken out; each change goes to the run's `intake.json` beside the cache. Duct heaters are written in one place: the duct heater block's writer is told the units it serves
+    the API is asked once more). A leading label ("Confirm", "Assumed:", "Quantity per") is cleaned on intake, never
+    refused: it comes off an assumption or a clarification (a per-drawings clarification keeps its discipline word,
+    "plumbing"; one left empty is dropped); each change goes to the run's `intake.json` beside the cache. A source id
+    in client text is never rewritten: a text that prints an issued id (`ids`, every source id of the job, which the
+    run passes, plus the evidence's ids), or an unissued id-shaped token in a citation, refuses the answer with the
+    token named. `tags` is every tag of the job (`citations.job_tags`, which the run passes): a tag shaped like an
+    id is never refused. Duct heaters are written in one place: the duct heater block's writer is told the units it serves
     and must write all its heaters (an empty heater block is refused); a served unit's writer is told the heater
     block writes its heaters (a duct heater line there is refused)."""
     shape = _shape(system, playbook)
     images, listing = _pictures(evidence)
     known = ai_evidence.cited_ids(evidence) | _ref_ids(ai_evidence.system_refs(system))
     return _ask_system(transport, system.name, playbook, "write_system", _write_prompt(system, shape, evidence),
-                       {"step": "write", "plan_key": system.key, "images": listing}, images, system, shape, known)
+                       {"step": "write", "plan_key": system.key, "images": listing}, images, system, shape, known,
+                       tags=tags, ids=ids)
 
 
 def _ask_system(transport, name: str, playbook: Playbook, step: str, prompt: str, extra: dict,
                 images: Sequence[Path], system: System, shape: Shape | None, known: frozenset[str],
-                keep: Sequence[Device] = (), originals: Sequence[Device] = ()) -> System:
+                keep: Sequence[Device] = (), originals: Sequence[Device] = (), tags: Sequence[str] = (),
+                ids: Sequence[str] = ()) -> System:
     """One WRITE_SYSTEM question checked by `_check_system`; what the intake cleaned in the used answer goes to
     the transport's intake log."""
     changes: list[str] = []
 
     def check(answer):
         changes.clear()                     # only the used answer's changes are logged
-        return _check_system(answer, system, shape, known, keep, originals, changes)
+        return _check_system(answer, system, shape, known, keep, originals, changes, tags, ids)
 
     written = _ask_checked(transport, WRITE_SYSTEM, name, playbook.rules_text, _instructions(step), prompt,
                            json_schema(System), extra, images, check)
@@ -1024,7 +982,7 @@ def _ask_system(transport, name: str, playbook: Playbook, step: str, prompt: str
 
 
 def revise_system(system: System, findings: Sequence[Finding], evidence: str, playbook: Playbook,
-                  transport: Transport) -> System:
+                  transport: Transport, *, tags: Sequence[str] = (), ids: Sequence[str] = ()) -> System:
     """The system revised for its `must_fix` findings only (the others are ignored), one round: one WRITE_SYSTEM
     request with extra step "revise"; same schema, checks and kept skeleton fields as `write_system`. With no
     must_fix finding for this system it returns `system` unchanged without asking. Raises NoAnswer.
@@ -1043,7 +1001,7 @@ def revise_system(system: System, findings: Sequence[Finding], evidence: str, pl
     return _ask_system(transport, f"{system.name} (revise)", playbook, "revise_system",
                        _revise_prompt(system, mine, shape, evidence),
                        {"step": "revise", "plan_key": system.key, "images": listing}, images, system, shape, known,
-                       keep, system.devices)
+                       keep, system.devices, tags, ids)
 
 
 # ---- QC -------------------------------------------------------------------------------------------------------------

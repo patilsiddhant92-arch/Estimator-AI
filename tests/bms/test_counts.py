@@ -42,6 +42,22 @@ def test_a_count_disagreement_flags_the_devices_the_writer_creates():
     assert counts.flag_written_devices(quiet) is quiet
 
 
+def test_a_written_device_is_flagged_by_the_source_id_it_cites_not_the_whole_citation():
+    """M2: a writer that brackets the id or trims the quote still cites the disputed count."""
+    job = Job.from_dict(json.loads(SAMPLE_JOB.read_text(encoding="utf-8")))
+    system = next(s for s in job.systems if s.families and s.devices)
+    family = dataclasses.replace(system.families[0], count=Count(
+        3, (Ref("C3", "EF-1 EF-2 EF-3 invented", "M-001, Invented.pdf page 1"),),
+        (OtherCount(2, Ref("S4", "two invented fans", "M-101, Invented.pdf page 2")),)))
+    bracketed = dataclasses.replace(system.devices[0], flag="none",
+                                    quantity=Count(3, (Ref("[C3]", "EF-1 EF-2", "M-001"),)))
+    trimmed = dataclasses.replace(system.devices[-1], flag="none",
+                                  quantity=Count(2, (Ref(" S4 ", "two", "M-101, Invented.pdf page 2"),)))
+    other = dataclasses.replace(system.devices[1], flag="none", quantity=Count(3, (Ref("C33", "x", "y"),)))
+    written = dataclasses.replace(system, devices=(bracketed, other, trimmed), families=(family,))
+    assert [d.flag for d in counts.flag_written_devices(written).devices] == ["quantity", "none", "quantity"]
+
+
 FIXTURES = Path(__file__).resolve().parent / "fixtures"
 SAMPLE_JOB = FIXTURES / "sample_job.json"
 

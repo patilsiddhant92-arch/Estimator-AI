@@ -11,7 +11,7 @@ from __future__ import annotations
 import re
 from typing import Callable, Iterator
 
-from bms.citations import SOURCE_ID as _SOURCE_ID
+from bms.citations import SourceIds
 from bms.model import PARTIES, Count, Device, Finding, Job, System
 from bms.playbook import Playbook, Shape
 
@@ -307,18 +307,35 @@ def _left_out(system, shape, job, playbook) -> Iterator[Hit]:
            "Write its lines from the evidence, or make it a named exception with its reason.")
 
 
+def _id_hits(device_id, field: str, text: str, ids: SourceIds) -> Iterator[Hit]:
+    """A client text checked with the shared detector (`SourceIds.scan`): an issued id in it is must_fix (the
+    renderer takes the token out, so the sentence would print broken; the revise fixes it); an id-shaped token that
+    is neither issued nor a tag nor a sheet number is a check (it prints as written)."""
+    found = ids.scan(text)
+    issued = list(dict.fromkeys(f.token for f in found if f.kind == "issued"))
+    if issued:
+        yield (device_id, "must_fix", f"an id is in the client text of {field} ({', '.join(issued)})",
+               "Name the document in words (\"the mechanical schedule\", \"sheet M-101\"); cite it as a Ref, never "
+               "print an id.")
+    other = list(dict.fromkeys(f.token for f in found if f.kind in ("cited", "loose")))
+    if other:
+        yield (device_id, "check", f"{field} names {', '.join(other)}, which is no source id of this job and no tag; "
+               "it prints as written", "Say what it is (a tag the schedule names), or take it out.")
+
+
 def _ids(system, shape, job, playbook) -> Iterator[Hit]:
+    """Id-shaped tokens in wording that prints (clarifications, assumptions, device names, the reason a block has
+    no lines): an issued id is must_fix, an unissued one that is no tag a check (`bms.citations`)."""
+    ids = SourceIds.of_job(job)
     for c in system.clarifications:
-        found = _SOURCE_ID.findall(c.text)
-        if found:
-            yield (None, "check", f"The {c.kind} clarification names source ids ({', '.join(found)})",
-                   "Name the sheet or section instead; source ids never print.")
+        yield from _id_hits(None, f"the {c.kind} clarification", c.text, ids)
     for d in system.devices:
+        yield from _id_hits(d.id, f"the name of {d.name}", d.name, ids)
         a = d.assumption
-        found = _SOURCE_ID.findall(f"{a.what} {a.why}") if a is not None else []
-        if found:
-            yield (d.id, "check", f"The assumption on {d.name} names source ids ({', '.join(found)})",
-                   "Name the sheet or section instead; source ids never print.")
+        if a is not None:
+            yield from _id_hits(d.id, f"the assumption on {d.name}", f"{a.what} {a.why}", ids)
+    if not system.devices and system.no_scope_reason:
+        yield from _id_hits(None, "the reason it has no lines", system.no_scope_reason, ids)
 
 
 def _long_note(system, shape, job, playbook) -> Iterator[Hit]:
@@ -421,5 +438,11 @@ def validate(job: Job, playbook: Playbook) -> list[Finding]:
             if len(owners[d.id]) > 1 and d.id not in seen:
                 add(index, system.key, order, "once", duplicate(system.key, d))
             seen.add(d.id)
+    ids = SourceIds.of_job(job)                   # a named exception prints too
+    planned = {s.key for s in job.systems}
+    for exception in job.exceptions:
+        key = exception.system_key if exception.system_key in planned else ""     # no block: the whole job's
+        for hit in _id_hits(None, "the named exception", exception.text, ids):
+            add(len(job.systems), key, {}, "ids", hit)
     found.sort(key=lambda item: item[0])
     return [f for _, f in found]

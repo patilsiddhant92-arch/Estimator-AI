@@ -218,9 +218,12 @@ class ApiTransport:   __init__(cache_dir: Path, model: str | None = None, client
 WRITE_SYSTEM = "write_system"; QC_JOB = "qc_job"; STEPS = ("write", "revise"); CHAT_MODEL = "claude (chat)"
 evidence_for(system: System, dossier: Dossier) -> str
 evidence_index(dossier: Dossier) -> dict[str, str]
-write_system(system: System, evidence: str, playbook: Playbook, transport: Transport) -> System
+write_system(system: System, evidence: str, playbook: Playbook, transport: Transport, *, tags: Sequence[str] = (), ids: Sequence[str] = ()) -> System
 qc_job(job: Job, evidence_index: Mapping[str, str], playbook: Playbook, transport: Transport) -> list[Finding]
-revise_system(system: System, findings: Sequence[Finding], evidence: str, playbook: Playbook, transport) -> System
+revise_system(system: System, findings: Sequence[Finding], evidence: str, playbook: Playbook, transport, *, tags: Sequence[str] = (), ids: Sequence[str] = ()) -> System
+# tags (optional): every tag of the job (bms.citations.job_tags); the run passes it so the intake never refuses a tag shaped like a source id
+# ids (optional): every source id of the job (bms.citations.job_ids); the run passes it so the intake refuses a client text that prints any of them
+# (with the evidence's own ids). A source id in client text is detected and refused, never rewritten.
 ```
 Chat hand-off (unchanged from the old Judge so `tools/run_job.py` and the `/run-job` skill drive it):
 request `<cache>/judge-chat/requests/<key>.json` with fields `key`, `kind`, `system` (the system name, or "QC"),

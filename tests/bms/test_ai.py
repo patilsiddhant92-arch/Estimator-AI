@@ -406,9 +406,9 @@ def _written(job, raw, dossier, playbook, change):
 
 @pytest.mark.parametrize("kind, text, cleaned", [
     ("confirm", "Confirm: the fan count", "the fan count"),
-    ("confirm", "CONFIRM QUANTITIES the fans and dampers", "the fans and dampers"),
-    ("confirm", "Confirm ownership: who wires the dampers", "who wires the dampers"),
-    ("confirm", "** Confirm quantity: the dampers", "the dampers"),
+    ("confirm", "CONFIRM QUANTITIES the fans and dampers", "QUANTITIES the fans and dampers"),     # content kept
+    ("confirm", "Confirm ownership: who wires the dampers", "ownership: who wires the dampers"),
+    ("confirm", "** Confirm quantity: the dampers", "quantity: the dampers"),
     ("assumed", "Assumed: one damper per fan", "one damper per fan"),
     ("assumed", "Assumption one damper per fan", "one damper per fan"),
     ("note", "Confirmation of the fan count is by the owner", "Confirmation of the fan count is by the owner"),
@@ -437,42 +437,52 @@ def test_a_label_in_an_assumption_is_stripped(job, raw, dossier, playbook):
     assert written.devices[0].assumption.why == "the schedule lists three"
 
 
-def test_a_source_id_in_client_text_becomes_its_place(job, raw, dossier, playbook):
+def _refused(system, dossier, playbook, answer, **kw) -> str:
+    """The reason the intake refuses `answer` (the writer is asked again with it)."""
+    with pytest.raises(ai.NoAnswer) as refused:
+        ai.write_system(system, ai.evidence_for(system, dossier), playbook, FakeTransport(answer), **kw)
+    return refused.value.reason
+
+
+def test_a_source_id_in_client_text_is_refused_not_rewritten(job, raw, dossier, playbook):
     def change(a):
         a["devices"][2]["assumption"] = {"what": "one damper per fan", "why": "as shown on [S7]"}
         a["clarifications"] = [{"kind": "confirm", "text": "the fan count on S6 and the sequence in Q2"}]
-    written = _written(job, raw, dossier, playbook, change)
-    assert written.devices[2].assumption.why == "as shown on M-101"
-    assert written.clarifications[0].text == "the fan count on M-001 and the sequence in 23 09 93"
+    reason = _refused(skeleton(job.system("EF")), dossier, playbook, _bad(raw, change))
+    assert "assumption why prints the source id S7" in reason
+    assert "confirm clarification prints the source ids S6, Q2" in reason
+    assert "name the document in words; cite it as a Ref, never print an id" in reason
 
 
-@pytest.mark.parametrize("why, cleaned", [
-    ("per S141 and Q2", "per 23 09 93"),
-    ("the ledger fact F17", "the ledger fact"),
-    ("the picture I9 shows it", "the picture shows it"),
-    ("the schedule, see C4", "the schedule"),
-    ("the schedule (S999)", "the schedule"),
+@pytest.mark.parametrize("why, named", [
+    ("per S141 and Q2", "S141, Q2"),
+    ("the ledger fact F17", "F17"),
+    ("the picture I9 shows it", "I9"),
+    ("the schedule, see C4", "C4"),
+    ("the schedule (S999)", "S999"),
 ])
-def test_a_source_id_without_a_ref_is_removed_tidily(job, raw, dossier, playbook, why, cleaned):
-    written = _written(job, raw, dossier, playbook, lambda a: a["devices"][0].update(
-        assumption={"what": "one per fan", "why": why}))
-    assert written.devices[0].assumption.why == cleaned
+def test_a_source_id_without_a_place_is_refused(job, raw, dossier, playbook, why, named):
+    # the run issued these ids (refs that name no document)
+    system = _with(skeleton(job.system("EF")), *(Ref(i, "x", "ledger fact") for i in ("S141", "F17", "I9", "C4",
+                                                                                         "S999")))
+    answer = _bad(raw, lambda a: a["devices"][0].update(assumption={"what": "one per fan", "why": why}))
+    assert f"prints the source id{'s' if ',' in named else ''} {named}:" in _refused(system, dossier, playbook, answer)
 
 
-def test_a_ledger_fact_id_is_removed_not_put_as_ledger_fact(job, raw, dossier, playbook):
+def test_a_ledger_fact_id_is_refused(job, raw, dossier, playbook):
     def change(a):
         a["devices"][0]["refs"].append({"source_id": "F17", "quote": "x", "where": "ledger fact"})
         a["devices"][0]["assumption"] = {"what": "one per fan", "why": "the fans are on F17"}
     system = dataclasses.replace(skeleton(job.system("EF")), sequence_refs=skeleton(job.system("EF")).sequence_refs
                                  + (Ref("F17", "x", "ledger fact"),))
-    written = ai.write_system(system, ai.evidence_for(system, dossier), playbook, FakeTransport(_bad(raw, change)))
-    assert written.devices[0].assumption.why == "the fans are"
+    assert "prints the source id F17" in _refused(system, dossier, playbook, _bad(raw, change))
 
 
-def test_a_source_id_in_the_no_scope_reason_is_removed(job, raw, dossier, playbook):
-    written = _written(job, raw, dossier, playbook, lambda a: a.update(
-        devices=[], clarifications=[], tech_hours=None, no_scope_reason="The fans run on their own controls (S999)."))
-    assert written.no_scope_reason == "The fans run on their own controls."
+def test_a_source_id_in_the_no_scope_reason_is_refused(job, raw, dossier, playbook):
+    system = _with(skeleton(job.system("EF")), Ref("S999", "x", "ledger fact"))
+    answer = _bad(raw, lambda a: a.update(devices=[], clarifications=[], tech_hours=None,
+                                          no_scope_reason="The fans run on their own controls (S999)."))
+    assert "no_scope_reason prints the source id S999" in _refused(system, dossier, playbook, answer)
 
 
 def test_an_unknown_quantity_is_kept(job, raw, dossier, playbook):
@@ -515,9 +525,164 @@ def test_a_clean_answer_logs_nothing(job, raw, dossier, playbook, tmp_path):
 def test_the_writer_prompts_no_longer_threaten_refusal_for_labels():
     folder = ROOT / "src" / "bms" / "prompts"
     for name in ("write_system.md", "revise_system.md"):
-        for line in (folder / name).read_text(encoding="utf-8").splitlines():
-            if "label" in line.lower():
-                assert "refus" not in line.lower(), (name, line)
+        label_lines = [line for line in (folder / name).read_text(encoding="utf-8").splitlines()
+                       if "label" in line.lower()]
+        assert label_lines, name                                   # the label rule is still stated
+        for line in label_lines:
+            assert "refus" not in line.lower(), (name, line)
+            assert '"Confirm"' in line and '"Assumed:"' in line, (name, line)
+    write = (folder / "write_system.md").read_text(encoding="utf-8")
+    # the intake keeps a per-drawings text's discipline word only, and the writer is told so
+    assert ('Never start the text with a label ("Confirm", "Assumed:", "Note:", "Quantity"): the kind is the label '
+            'and the renderer prints it. For per_drawings the text is the discipline word only ("plumbing", '
+            '"electrical").') in write
+
+
+# ---- the shared cleanup: only ids this run issued are source ids; each kind strips its own label ----------------
+
+def _with(system: System, *refs: Ref, tags: tuple[str, ...] | None = None) -> System:
+    """The skeleton with more refs issued (as sequence refs) and, when given, more tags on its first family."""
+    families = system.families
+    if tags is not None:
+        families = (dataclasses.replace(families[0], tags=families[0].tags + tags),) + families[1:]
+    return dataclasses.replace(system, sequence_refs=system.sequence_refs + refs, families=families)
+
+
+def test_a_confirm_clarification_keeps_its_content_words(job, raw, dossier, playbook):
+    """I3: only the bare label word (and its colon) comes off; 'ownership' and 'quantity' are content."""
+    from bms.render import render
+    house = load_playbook(ROOT / "playbook")
+    for kind, text, cleaned, printed in [
+        ("confirm", "Confirm ownership of the duct smoke detectors with the electrical contractor.",
+         "ownership of the duct smoke detectors with the electrical contractor.",
+         "*Confirm ownership of the duct smoke detectors with the electrical contractor"),
+        ("confirm", "Confirm quantity: 4 invented dampers", "quantity: 4 invented dampers",
+         "*Confirm quantity: 4 invented dampers"),
+        ("confirm", "*Confirm: quantities of the invented dampers", "quantities of the invented dampers",
+         "*Confirm quantities of the invented dampers"),
+        ("note", "Confirm with the owner the invented fan count", "Confirm with the owner the invented fan count",
+         "**Confirm with the owner the invented fan count"),
+        ("note", "Assumption of the owner: invented fans", "Assumption of the owner: invented fans",
+         "**Assumption of the owner: invented fans"),
+    ]:
+        written = _written(job, raw, dossier, playbook,
+                           lambda a: a.update(clarifications=[{"kind": kind, "text": text}]))
+        assert written.clarifications[0].text == cleaned, text
+        out = render(dataclasses.replace(job, systems=(written,)), house)
+        assert [l.text for l in out.lines if l.kind == "note"][0] == printed, text
+
+
+def test_an_id_whose_where_names_no_place_is_refused(job, raw, dossier, playbook):
+    """I4: 'Ledger fact F17' and 'Picture I3, file M-201.png' name no document; the id is refused, never printed."""
+    system = _with(skeleton(job.system("EF")), Ref("F17", "x", "Ledger fact F17"),
+                   Ref("I3", "x", "Picture I3, file M-201.png"))
+
+    def change(a):
+        a["devices"][0]["assumption"] = {"what": "one per fan", "why": "as stated in F17"}
+        a["clarifications"] = [{"kind": "confirm", "text": "the actuator shown on I3"}]
+    reason = _refused(system, dossier, playbook, _bad(raw, change))
+    assert "prints the source id F17" in reason and "prints the source id I3" in reason
+
+
+def test_tags_and_sheet_numbers_shaped_like_ids_survive_the_intake(job, raw, dossier, playbook):
+    """I5: F1, F2 are not issued ids and C101 (unissued) reads as a sheet number."""
+    system = skeleton(job.system("EF"))
+    text = "Fans F1 and F2 serve the kitchen; see civil sheet C101."
+    written = ai.write_system(system, ai.evidence_for(system, dossier), playbook, FakeTransport(
+        _bad(raw, lambda a: a.update(clarifications=[{"kind": "note", "text": text}]))))
+    assert written.clarifications[0].text == text
+
+
+def test_an_issued_id_after_a_sheet_word_is_refused(job, raw, dossier, playbook):
+    """Review 3 C1: an issued id is refused anywhere, after a sheet word too."""
+    system = _with(skeleton(job.system("EF")), Ref("C101", "x", "ledger fact"))
+    answer = _bad(raw, lambda a: a.update(clarifications=[{"kind": "note",
+                                                             "text": "Fans serve the kitchen; see civil sheet C101."}]))
+    assert "prints the source id C101" in _refused(system, dossier, playbook, answer)
+
+
+def test_a_family_tag_shaped_like_an_id_survives_the_intake_even_when_issued(job, raw, dossier, playbook):
+    tags = ("F1", "C2", "I3", "Q4", "S5")
+    system = _with(skeleton(job.system("EF")), *(Ref(t, "x", "ledger fact") for t in tags), tags=tags)
+    text = "the controls for units F1, C2, I3, Q4 and S5"
+    written = ai.write_system(system, ai.evidence_for(system, dossier), playbook, FakeTransport(
+        _bad(raw, lambda a: a.update(clarifications=[{"kind": "confirm", "text": text}]))))
+    assert written.clarifications[0].text == text
+
+
+# ---- a source id in client text: refused, never rewritten ----------------------------------------------------------
+
+def test_an_unissued_id_in_a_citation_is_refused_and_a_loose_one_kept(job, raw, dossier, playbook):
+    """C1: S998 was never issued; after a cue word it is a citation, refused. Outside any citation ("Fan C2 serves
+    the lab") an unissued token is accepted as written."""
+    def change(a):
+        a["devices"][0]["assumption"] = {"what": "one per fan", "why": "the sequence, see S998"}
+        a["devices"][1]["assumption"] = {"what": "one per fan", "why": "Fan C2 serves the lab"}
+    system = skeleton(job.system("EF"))
+    reason = _refused(system, dossier, playbook, _bad(raw, change))
+    assert "assumption why prints the source id S998" in reason and "C2" not in reason
+    written = ai.write_system(system, ai.evidence_for(system, dossier), playbook, FakeTransport(_bad(
+        raw, lambda a: a["devices"][1].update(assumption={"what": "one per fan", "why": "Fan C2 serves the lab"}))))
+    assert written.devices[1].assumption.why == "Fan C2 serves the lab"
+
+
+@pytest.mark.parametrize("why, named", [
+    ("per S141 and Q2", "S141, Q2"),         # the issued Q2 (and S141 after a cue word)
+    ("the schedule, see C4", "C4"),          # after a cue word
+    ("the schedule (S999)", "S999"),         # in a bracket group
+    ("the schedule [S998, S999]", "S998, S999"),
+])
+def test_an_unissued_id_in_any_citation_is_refused_with_nothing_else_issued(job, raw, dossier, playbook, why,
+                                                                              named):
+    answer = _bad(raw, lambda a: a["devices"][0].update(assumption={"what": "one per fan", "why": why}))
+    reason = _refused(skeleton(job.system("EF")), dossier, playbook, answer)
+    assert f"prints the source id{'s' if ',' in named else ''} {named}:" in reason
+
+
+@pytest.mark.parametrize("text", ["the fans run (see C2 in the lab)", "the fans run (C2 in the lab)",
+                                  "the fans run, see C2 in the lab"])
+@pytest.mark.parametrize("tags", [(), ("C2",)], ids=["C2-no-tag", "C2-a-tag"])
+def test_an_id_in_a_bracket_or_after_a_cue_word_at_intake(job, raw, dossier, playbook, text, tags):
+    """The chosen behaviour for "(see C2 in the lab)": C2 no tag is a citation, refused; C2 a tag of the job is
+    accepted as written."""
+    system = skeleton(job.system("EF"))
+    answer = _bad(raw, lambda a: a.update(clarifications=[{"kind": "note", "text": text}]))
+    if not tags:
+        assert "prints the source id C2" in _refused(system, dossier, playbook, answer)
+        return
+    written = ai.write_system(system, ai.evidence_for(system, dossier), playbook, FakeTransport(answer), tags=tags)
+    assert written.clarifications[0].text == text
+
+
+def test_a_device_name_that_is_only_an_id_is_refused_with_a_plain_reason(job, raw, dossier, playbook):
+    """m-4: no empty "Furnish and Install" line; the writer is asked again, told why."""
+    system = _with(skeleton(job.system("EF")), Ref("F1", "x", "ledger fact"))
+    answer = _bad(raw, lambda a: a["devices"][0].update(name="F1"))
+    assert "name prints the source id F1" in _refused(system, dossier, playbook, answer)
+
+
+def test_the_intake_protects_the_job_wide_tags_it_is_given(job, raw, dossier, playbook):
+    """I2: C2 is issued in this system's evidence but is a fan tag of another system: the run passes every tag."""
+    system = _with(skeleton(job.system("EF")), Ref("C2", "x", "ledger fact"))
+    answer = _bad(raw, lambda a: a.update(clarifications=[{"kind": "note", "text": "Fan C2 serves the lab"}]))
+    written = ai.write_system(system, ai.evidence_for(system, dossier), playbook, FakeTransport(answer),
+                              tags=("EF-1", "C2"))
+    assert written.clarifications[0].text == "Fan C2 serves the lab"
+
+
+def test_the_intake_refuses_an_id_in_a_device_name_and_cleans_label_residue(job, raw, dossier, playbook):
+    """I4: a device name with a source id is refused. M1: no punctuation is left after a label; 'Assumption-based'
+    is a word, not a label."""
+    named = _bad(raw, lambda a: a["devices"][0].update(name="Control Valve per Q2"))
+    assert "name prints the source id Q2" in _refused(skeleton(job.system("EF")), dossier, playbook, named)
+
+    def change(a):
+        a["devices"][0]["assumption"] = {"what": "Assumption-based count", "why": "Assumed - two valves"}
+        a["clarifications"] = [{"kind": "confirm", "text": "**Confirm**: ownership of valves"}]
+    written = _written(job, raw, dossier, playbook, change)
+    assert written.devices[0].assumption.what == "Assumption-based count"
+    assert written.devices[0].assumption.why == "two valves"
+    assert written.clarifications[0].text == "ownership of valves"
 
 
 def test_a_block_with_nothing_to_scope_keeps_its_reason(job, raw, dossier, playbook):

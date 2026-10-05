@@ -45,8 +45,13 @@ You write the system's devices (its scope lines, in print order), its clarificat
 
 - assumption is null unless something was assumed. Then what: what you took; why: what in the documents, or the house practice, led to it. Never an assumption without its why.
 - Together what and why are one short sentence, at most about 25 words: what is assumed, then why.
-- Client text (assumption what and why, clarification text, no_scope_reason) never names a Playbook rule, a rule heading, a finding id or a source id. Name the document in a few plain words instead ("the mechanical schedule", "the sequence of operations", "the controls specification", "sheet M-101.00"); say a house practice in plain words, never by a rule name. No "S141", "Q7", "I2" or "F17" in any text: source ids belong only in refs.
+- Client text (assumption what and why, clarification text, no_scope_reason) never names a Playbook rule, a rule heading, a finding id or a source id. Name the document in a few plain words instead ("the mechanical schedule", "the sequence of operations", "the controls specification", "sheet M-101.00"); say a house practice in plain words, never by a rule name.
 - Never start what or why with a label ("Assumed:", "Assumption:", "Confirm", "Note:"): the renderer adds the label.
+
+## Source ids never print
+
+- Source ids ("S141", "Q7", "I2", "F17") belong only in refs. No text you write prints one: not a device name, an assumption's what or why, a clarification or a no_scope_reason. Name the document in a few plain words and cite it as a Ref. Wrong: valves per S141. Right: valves per the mechanical schedule.
+- An answer with a source id in any of those texts is refused and asked again, with the id named. A tag the documents give (a fan "F1") is not a source id.
 
 ## One clarification per block
 
