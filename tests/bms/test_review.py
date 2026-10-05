@@ -11,7 +11,7 @@ from pathlib import Path
 import pytest
 
 from bms import review
-from bms.model import Count, Decision, Finding, Job, ModelError, OtherCount, Ref
+from bms.model import Count, Decision, Family, Finding, Job, ModelError, OtherCount, Ref
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures"
 
@@ -73,6 +73,39 @@ def test_a_device_with_a_finding_and_a_flag_gets_one_card(job):
     assert cards[0].finding_rule == "Every line cites this job"
     assert any(review._FLAG_WORDS[device.flag] == note for note in cards[0].notes)
     assert any("What to do" in note for note in cards[0].notes)
+
+
+def test_a_device_card_keeps_each_finding_description(job):
+    findings = [_find("EF", "EF.d1", what="First finding"),
+                _find("EF", "EF.d1", what="Second finding")]
+    cards = [q for q in review._questions(job, findings) if q.device_id == "EF.d1"]
+
+    assert len(cards) == 1
+    assert cards[0].title == "First finding"
+    assert any("Second finding" in note for note in cards[0].notes)
+
+
+def test_a_flag_merged_into_a_finding_card_is_not_called_a_finding(job):
+    questions = review._questions(job, [_find("RTU", "RTU.d4", "check", "missing citation")])
+    cards = [q for q in questions if q.device_id == "RTU.d4"]
+    assert len(cards) == 1
+    assert not any(note.startswith("Finding:") for note in cards[0].notes)
+
+
+def test_the_same_finding_twice_gives_one_note(job):
+    findings = [_find("EF", "EF.d1", what="First"), _find("EF", "EF.d1", what="Second"),
+                _find("EF", "EF.d1", what="Second")]
+    card = next(q for q in review._questions(job, findings) if q.device_id == "EF.d1")
+    assert sum("Second" in note for note in card.notes) == 1
+
+
+def test_the_most_severe_finding_leads_a_merged_card(job):
+    findings = [Finding("Rule one", "EF", "EF.d1", "check", "First", "Look"),
+                Finding("Rule two", "EF", "EF.d1", "must_fix", "Second", "Fix it")]
+    card = next(q for q in review._questions(job, findings) if q.device_id == "EF.d1")
+    assert card.rank == review.RANK_MUST_FIX
+    assert (card.title, card.finding_rule) == ("Second", "Rule two")
+    assert any("First" in note for note in card.notes)
 
 
 def test_flagged_devices_and_counts_with_others_and_assumptions_are_questions(job):
@@ -234,6 +267,90 @@ def test_accept_a_family_clears_quantity_flags_and_leaves_other_flags(job):
     assert flags[0] == "none" and flags[1] == "assumed"
     assert result.system("EF").families == job2.system("EF").families
     assert review.apply_decisions(job2, [Decision("EF", "accept", family_name="No such family")]) == job2
+
+
+def test_accepting_one_family_keeps_other_familys_quantity_flag(job):
+    system = job.system("EF")
+    family = Family("Exhaust Fan", ("EF-1",), Count(1, (Ref("S1", "EF-1", "invented"),)))
+    other_family = Family("Supply Fan", ("SF-1",), Count(1, (Ref("S2", "SF-1", "invented"),)))
+    devices = (
+        dataclasses.replace(system.devices[0], flag="quantity", quantity=Count(1, (Ref("S1", "EF-1", "invented"),))),
+        dataclasses.replace(system.devices[1], flag="quantity", quantity=Count(1, (Ref("S2", "SF-1", "invented"),))),
+    )
+    job2 = job.with_system(dataclasses.replace(system, families=(family, other_family), devices=devices))
+
+    result = review.apply_decisions(job2, [Decision("EF", "accept", family_name="Exhaust Fan")])
+
+    assert result.system("EF").devices[0].flag == "none"
+    assert result.system("EF").devices[1].flag == "quantity"
+
+
+def test_accepting_a_family_keeps_the_flag_of_a_device_counted_from_another_family(job):
+    """A device tied to a family by tag text in its quotes is not counted from it: only shared sources tie them."""
+    system = job.system("EF")
+    damper = Family("Motorized Damper", ("MD-1", "MD-2"), Count(2, (Ref("S7", "MD-1 interlocked with EF-1", "x"),),
+                                                              (OtherCount(1, Ref("S8", "MD-2", "y")),)))
+    devices = tuple(dataclasses.replace(d, flag="quantity") if d.id == "EF.d3" else d for d in system.devices)
+    job2 = job.with_system(dataclasses.replace(system, families=(*system.families, damper), devices=devices))
+
+    result = review.apply_decisions(job2, [Decision("EF", "accept", family_name="Exhaust Fan")])
+
+    assert next(d for d in result.system("EF").devices if d.id == "EF.d3").flag == "quantity"
+
+
+def test_accepting_the_only_family_keeps_an_unknown_device_count_flagged(job):
+    assert job.system("CUH").devices[0].flag == "quantity" and job.system("CUH").devices[0].quantity.value is None
+    result = review.apply_decisions(job, [Decision("CUH", "accept", family_name="Cabinet Unit Heater")])
+    assert result.system("CUH").devices[0].flag == "quantity"
+
+
+def test_a_device_with_an_unknown_count_keeps_its_flag_even_when_it_cites_the_family(job):
+    system = job.system("EF")
+    devices = (dataclasses.replace(system.devices[0], flag="quantity",
+                                   quantity=Count(None, system.devices[0].quantity.sources)),) + system.devices[1:]
+    job2 = job.with_system(dataclasses.replace(system, devices=devices))
+    result = review.apply_decisions(job2, [Decision("EF", "accept", family_name="Exhaust Fan")])
+    assert result.system("EF").devices[0].flag == "quantity"
+
+
+def test_a_family_accept_that_keeps_an_unknown_count_flagged_is_still_honored(job):
+    """The flag Accept leaves on a device with an unknown count is not the last write undoing the decision."""
+    system = job.system("EF")
+    family = dataclasses.replace(system.families[0], count=dataclasses.replace(
+        system.families[0].count, others=(OtherCount(2, Ref("S12", "EF-1 EF-2", "invented")),)))
+    devices = (dataclasses.replace(system.devices[0], flag="quantity",
+                                   quantity=Count(None, system.devices[0].quantity.sources)),) + system.devices[1:]
+    before = job.with_system(dataclasses.replace(system, families=(family,), devices=devices))
+    decision = Decision("EF", "accept", family_name="Exhaust Fan")
+    after = review.apply_decisions(before, [decision])
+    assert after.system("EF").devices[0].flag == "quantity"
+    assert review.unhonored_decisions(before, [decision], after) == []
+
+
+def test_accepting_a_family_clears_a_device_flagged_from_its_sources(job):
+    """The run flags by shared source (counts.flag_written_devices); Accept clears by the same rule."""
+    from bms import counts
+    system = job.system("VRF")
+    picture = system.families[2].count.sources[0]
+    assert system.families[2].name == "Branch Selector" and system.families[2].count.others
+    devices = (dataclasses.replace(system.devices[0], flag="none", quantity=Count(2, (picture,))),) + system.devices[1:]
+    flagged = counts.flag_written_devices(dataclasses.replace(system, devices=devices))
+    assert flagged.devices[0].flag == "quantity"
+    job2 = job.with_system(flagged)
+
+    result = review.apply_decisions(job2, [Decision("VRF", "accept", family_name="Branch Selector")])
+
+    assert result.system("VRF").devices[0].flag == "none"
+    assert result.system("VRF").devices[1].flag == "quantity"          # flagged, but cites no Branch Selector source
+
+
+def test_review_and_the_run_tie_a_device_to_a_family_with_one_helper(job):
+    from bms import counts
+    family = job.system("EF").families[0]
+    cites = dataclasses.replace(job.system("EF").devices[0], quantity=Count(3, (Ref("[S6]", "EF-1", "z"),)))
+    mentions = job.system("EF").devices[2]                             # quotes say "EF-1", sources S7/S8
+    assert counts.counted_from(cites, family) and not counts.counted_from(mentions, family)
+    assert review.counted_from is counts.counted_from
 
 
 def test_change_a_family_count(job):

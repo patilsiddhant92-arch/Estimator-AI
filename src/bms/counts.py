@@ -26,7 +26,7 @@ from bms.citations import plain_id
 from bms.counts_proof import PROOFS_FOLDER, draw_proof, load_manifest, save_manifest
 from bms.counts_text import (canonical, family_pattern, fits, located_boxes, natural, prefix_owners, searcher)
 from bms.counts_vision import COUNT_KIND, TILE, ask_sheet
-from bms.model import Count, OtherCount, Ref, System
+from bms.model import Count, Device, Family, OtherCount, Ref, System
 
 if TYPE_CHECKING:
     from estimator.catalogue.job import Catalogue
@@ -125,26 +125,37 @@ def cross_check(job: "Job", catalogue: "Catalogue", cache: Path, *, transport=No
         return job
 
 
+def family_sources(family: Family) -> set[str]:
+    """The source ids (plain, "[C3]" is "C3") of a family's count: the sources of the printed count and of every
+    disagreeing count. Empty ids are left out."""
+    sources = {plain_id(r.source_id) for r in family.count.sources}
+    sources.update(plain_id(other.ref.source_id) for other in family.count.others)
+    sources.discard("")
+    return sources
+
+
+def counted_from(device: Device, family: Family) -> bool:
+    """Whether a device's quantity was counted from a family: it cites one of the family's count sources (or one
+    of its disagreeing counts) by source id. Tag text in a quote does not tie a device to a family ("MD-1
+    interlocked with EF-1" is not an Exhaust Fan count). The one rule the run's flagging and the review page's
+    family Accept both use. Pure."""
+    return bool(family_sources(family) & {plain_id(r.source_id) for r in device.quantity.sources})
+
+
 def flag_written_devices(system: System) -> System:
     """Flag devices the writer just created when a family's counts disagree.
 
     `cross_check` flags devices that already exist and were counted from the family's sources. A planned system
     has no devices yet, so the run calls this after `write_system`. A family with no `others` changes nothing.
-    A device whose quantity cites one of that family's sources, or one of the disagreeing counts, gets flag
-    "quantity" unless it is already flagged. Sources match by source id ("[C3]" is "C3"), not by the whole
-    citation: a trimmed quote still cites the count. Pure."""
-    disputed: set[str] = set()
-    for family in system.families:
-        if not family.count.others:
-            continue
-        disputed.update(plain_id(r.source_id) for r in family.count.sources)
-        disputed.update(plain_id(other.ref.source_id) for other in family.count.others)
-    disputed.discard("")
+    A device counted from such a family (`counted_from`: its quantity cites one of that family's sources, or one
+    of the disagreeing counts) gets flag "quantity" unless it is already flagged. Sources match by source id
+    ("[C3]" is "C3"), not by the whole citation: a trimmed quote still cites the count. Pure."""
+    disputed = [family for family in system.families if family.count.others and family_sources(family)]
     if not disputed:
         return system
     devices = tuple(
         dataclasses.replace(device, flag="quantity")
-        if device.flag == "none" and disputed & {plain_id(r.source_id) for r in device.quantity.sources} else device
+        if device.flag == "none" and any(counted_from(device, family) for family in disputed) else device
         for device in system.devices)
     return system if devices == system.devices else dataclasses.replace(system, devices=devices)
 

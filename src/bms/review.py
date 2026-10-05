@@ -20,7 +20,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
-from bms.citations import plain_id
+from bms.counts import counted_from
 from bms.model import PARTIES, VERBS, Count, Decision, Device, Finding, Job, ModelError, Ref, System
 
 REVIEW_PAGE = "Review.html"
@@ -101,8 +101,18 @@ def _questions(job: Job, findings: Sequence[Finding]) -> list[_Question]:
         if key is not None and key in by_device:
             current = by_device[key]
             notes = tuple(note for note in kw.get("notes") or () if note not in current.notes)
+            rank = kw.get("rank", current.rank)
+            if kw.get("finding_rule") and current.finding_rule is not None:
+                # a second finding on the line: the most severe leads the card (title and rule, the rule a saved
+                # decision keeps); the other's description stays on the card as a note, once
+                title = kw.get("title")
+                if rank < current.rank:
+                    title, current.title = current.title, title or current.title
+                    current.finding_rule = kw["finding_rule"]
+                if title and title != current.title and f"Finding: {title}" not in current.notes + notes:
+                    notes = (f"Finding: {title}",) + notes
             current.notes = current.notes + notes
-            current.rank = min(current.rank, kw.get("rank", current.rank))
+            current.rank = min(current.rank, rank)
             if current.finding_rule is None and kw.get("finding_rule"):
                 current.finding_rule = kw["finding_rule"]
             if current.device is None and kw.get("device") is not None:
@@ -684,7 +694,8 @@ def _apply_to_devices(devices: tuple[Device, ...], device_id: str, decision: Dec
 
 def apply_decisions(job: Job, decisions: Sequence[Decision]) -> Job:
     """The job with the decisions applied, in order: accept clears the device's flag, or, for a family, the
-    quantity flags on that system's devices; delete removes the device (or the system, when no device or family is
+    quantity flags of the devices counted from that family (shared sources, `counts.counted_from`) whose own count
+    is known; delete removes the device (or the system, when no device or family is
     named); change replaces the device (same id) or the family's Count. A decision naming a system or device the
     job no longer has is skipped. Pure. System key "" names the front end's devices.
 
@@ -724,7 +735,8 @@ def _apply_one(job: Job, d: Decision, seen: int | None = None) -> Job:
         if not any(f.name == d.family_name for f in system.families):
             return job
         if d.action == "accept":
-            devices = tuple(dataclasses.replace(dev, flag="none") if dev.flag == "quantity" else dev
+            family = next(f for f in system.families if f.name == d.family_name)
+            devices = tuple(dataclasses.replace(dev, flag="none") if _accept_clears(dev, family) else dev
                             for dev in system.devices)
             return job.with_system(dataclasses.replace(system, devices=devices))
         if d.action != "change" or d.count is None:
@@ -735,6 +747,13 @@ def _apply_one(job: Job, d: Decision, seen: int | None = None) -> Job:
     if d.action == "delete":
         return dataclasses.replace(job, systems=tuple(s for s in job.systems if s.key != d.system_key))
     return job
+
+
+def _accept_clears(device: Device, family: Family) -> bool:
+    """Whether accepting a family's count clears this device's quantity flag: the device was counted from that
+    family (shared sources, `counts.counted_from`, the rule the run flags by) and has a count of its own. A device
+    whose own count is unknown keeps its flag: accepting the family does not say how many of it there are."""
+    return device.flag == "quantity" and device.quantity.value is not None and counted_from(device, family)
 
 
 def unhonored_decisions(before: Job, decisions: Sequence[Decision], after: Job, *,
@@ -875,14 +894,9 @@ def _family_holds(before: Job, decision: Decision, after: Job, expected: Job) ->
         if system is not None:
             family = next((f for f in system.families if f.name == decision.family_name), None)
             if family is not None and family.count.others:
-                family_sources = {plain_id(r.source_id) for r in family.count.sources} | {
-                    plain_id(o.ref.source_id) for o in family.count.others
-                }
-                family_sources.discard("")
                 for dev in system.devices:
-                    if {plain_id(r.source_id) for r in dev.quantity.sources} & family_sources:
-                        if dev.flag != "none":
-                            return False
+                    if _accept_clears(dev, family):
+                        return False
     return True
 
 
@@ -915,16 +929,8 @@ def accept_families(job: Job | None, decision: Decision) -> frozenset[str] | Non
     system = next((s for s in job.systems if s.key == decision.system_key), None)
     if system is None:
         return None
-    device_sources = {plain_id(r.source_id) for r in line.quantity.sources}
-    names = frozenset(family.name for family in system.families if device_sources & _family_sources(family))
+    names = frozenset(family.name for family in system.families if counted_from(line, family))
     return names or None
-
-
-def _family_sources(family: Family) -> set[str]:
-    sources = {plain_id(r.source_id) for r in family.count.sources} | {
-        plain_id(o.ref.source_id) for o in family.count.others}
-    sources.discard("")
-    return sources
 
 
 def _count_changed_between(before: Job, after: Job, key: str, family: str | frozenset[str] | None) -> bool:
@@ -948,13 +954,8 @@ def _family_of_device(job: Job, key: str, device: Device | None) -> Family | Non
         return None
     for system in job.systems:
         if system.key == key:
-            device_sources = {plain_id(r.source_id) for r in device.quantity.sources}
             for family in system.families:
-                family_sources = {plain_id(r.source_id) for r in family.count.sources} | {
-                    plain_id(o.ref.source_id) for o in family.count.others
-                }
-                family_sources.discard("")
-                if device_sources & family_sources:
+                if counted_from(device, family):
                     return family
     return None
 
