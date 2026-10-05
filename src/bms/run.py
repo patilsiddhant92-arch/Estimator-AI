@@ -53,9 +53,9 @@ from bms.model import Decision, Finding, Header, Job, ModelError
 from bms.plan import plan_job
 from bms.playbook import load_playbook
 from bms.render import render
-from bms.review import (DECISIONS_FILE, DECISIONS_HISTORY, SavedDecision, _matches_nothing, accept_family,
-                        apply_decisions, load_decisions, load_history, merge_decisions, review_page, save_history,
-                        system_digest, unhonored_decisions)
+from bms.review import (DECISIONS_FILE, DECISIONS_HISTORY, SavedDecision, _matches_nothing, accept_families,
+                        apply_decisions, copies_seen, held_back, load_decisions, load_history, merge_decisions,
+                        review_page, save_history, system_digest, unhonored_decisions)
 from bms.validate import validate
 
 Mode = Literal["chat", "api"]
@@ -86,17 +86,19 @@ def _changed_system_keys(before: Job, after: Job) -> tuple[str, ...]:
                  if system.key in kept and system != after.system(system.key))
 
 
-def _counts_changed(decisions, key: str, family: str | None = None) -> bool:
-    """True when a decision changes the count of family `family` of system `key` (of any family, for None)."""
+def _counts_changed(decisions, key: str, families: frozenset[str] | None = None) -> bool:
+    """True when a decision changes the count of any family in `families` of system `key` (of any family, for
+    None)."""
     return any(d.system_key == key and d.family_name is not None and d.action == "change" and d.count is not None
-               and (family is None or d.family_name == family) for d in decisions)
+               and (families is None or d.family_name in families) for d in decisions)
 
 
 def _standing_accepts(entries: list[SavedDecision], key: str, job: Job | None = None) -> list[Decision]:
     """The accepts on system `key` that a count change does not overrule: those saved in a later round than every
-    count change of the accepted line's own family (the estimator saw the new count when accepting); a count
-    change of another family of the system leaves the accept standing. When the line's family is not known (no
-    `job`, or the line cites no family's count), a count change of any family of the system counts. An accept
+    count change of every family the accepted line's quantity cites (the estimator saw the new count when
+    accepting); a count change of a family the line does not cite leaves the accept standing. When the line's
+    families are not known (no `job`, or the line cites no family's count), a count change of any family of the
+    system counts. An accept
     from the same save as such a count change, or an older one, is dropped: the rewrite for the count flags the
     system again."""
     standing = []
@@ -104,8 +106,8 @@ def _standing_accepts(entries: list[SavedDecision], key: str, job: Job | None = 
         d = entry.decision
         if d.system_key != key or d.action != "accept":
             continue
-        family = accept_family(job, d)
-        last = max((e.round for e in entries if _counts_changed([e.decision], key, family)), default=0)
+        families = accept_families(job, d)
+        last = max((e.round for e in entries if _counts_changed([e.decision], key, families)), default=0)
         if entry.round > last:
             standing.append(d)
     return standing
@@ -123,7 +125,7 @@ def _revised(system, findings, evidence, playbook, transport, job=None, decision
     if not decisions:
         return flagged
     accepted = [d for d in decisions if d.action == "accept" and d.system_key == system.key
-                and not _counts_changed(decisions, system.key, accept_family(job, d))]
+                and not _counts_changed(decisions, system.key, accept_families(job, d))]
     if not accepted:
         return flagged
     if job is not None:
@@ -159,6 +161,18 @@ def _check_this_system(decision: Decision) -> Finding:
                    f"check this system: an earlier delete of {line} may have come back re-worded",
                    "This system was written again after your delete. Check that the line you deleted is not back "
                    "under other words; delete it again if it is.")
+
+
+def _save_history(out: Path, history: list[SavedDecision], job_file: Path) -> RunResult | None:
+    """Save the decisions history; when it cannot be saved (another program has it open), the run stops with a
+    plain message naming the file, never a traceback."""
+    try:
+        save_history(out, history)
+    except (ModelError, OSError) as error:
+        text = str(error) if isinstance(error, ModelError) else (
+            f"{DECISIONS_HISTORY} could not be saved ({error}). Close the program that has it open and run again.")
+        return RunResult("waiting", "decisions", waiting=0, job_file=job_file, messages=(_stopped(text),))
+    return None
 
 
 def _stopped(reason: str) -> str:
@@ -275,11 +289,14 @@ def estimate(job_folder: Path, out: Path, cache: Path, mode: Mode = "chat") -> R
         notes = (f"Decisions: no {DECISIONS_HISTORY} was found, so the decisions start from {DECISIONS_FILE} "
                  "alone; if an earlier history was deleted, the decisions of earlier saves are not applied.",)
     if history:
-        save_history(out, history)
+        stop = _save_history(out, history, job_file)
+        if stop is not None:
+            return stop
     decisions = [entry.decision for entry in history]
     latest = max((entry.round for entry in history), default=0)
     decided_from = job
-    job = apply_decisions(job, decisions)
+    copies = copies_seen(history)       # a twin's delete never takes the only copy (bms.review.apply_decisions)
+    job = apply_decisions(job, decisions, copies=copies)
     for key in _changed_system_keys(decided_from, job):
         system = job.system(key)
         if not _families_changed(decided_from, key, job):
@@ -332,11 +349,13 @@ def estimate(job_folder: Path, out: Path, cache: Path, mode: Mode = "chat") -> R
             and (d.action != "accept" or d in _standing_accepts(history, d.system_key, decided_from))]
     early = [d for d in decisions if not _matches_nothing(decided_from, d)]
     revised_job = job
-    job = apply_decisions(job, late)
+    job = apply_decisions(job, late, copies=copies)
 
     def took_effect(decision: Decision) -> bool:
-        return not _matches_nothing(decided_from, decision) or (
-            decision in late and not _matches_nothing(revised_job, decision))
+        if not _matches_nothing(decided_from, decision):
+            return not held_back(decided_from, decision, copies)
+        return (decision in late and not _matches_nothing(revised_job, decision)
+                and not held_back(revised_job, decision, copies))
 
     # a delete from an earlier save that took effect on some run and whose line is now in no job did its work: it
     # makes no card while its system is as the last finished run left it. When the system changed since (it was
@@ -349,19 +368,23 @@ def estimate(job_folder: Path, out: Path, cache: Path, mode: Mode = "chat") -> R
     checked_late = [d for d in late if not any(d == entry.decision for entry in quiet)]
     rechecks = [_check_this_system(entry.decision) for entry in quiet
                 if entry.settled != system_digest(job, entry.decision.system_key)]
-    history = [dataclasses.replace(
-        entry, took_effect=entry.took_effect or took_effect(entry.decision),
-        settled=entry.settled if pending else system_digest(job, entry.decision.system_key)) for entry in history]
+    # `took_effect` is saved now; `settled` (the system as this run leaves it) only once every output is written
+    # (step 6): a run that stops or crashes before the end keeps the old digest, so the check card is not lost
+    history = [dataclasses.replace(entry, took_effect=entry.took_effect or took_effect(entry.decision))
+               for entry in history]
     if history:
-        save_history(out, history)
+        stop = _save_history(out, history, job_file)
+        if stop is not None:
+            save(job)
+            return dataclasses.replace(stop, messages=(*notes, *stop.messages))
     save(job)
     if pending:
         return RunResult("waiting", "revise", waiting=transport.waiting, job_file=job_file,
                          messages=(*notes, *pending))
     findings = validate(job, playbook)
     open_qc = [f for f in qc if f.severity != "must_fix" or _untouched(f, written, job)]
-    all_findings = tuple([*findings, *open_qc, *unhonored_decisions(decided_from, early, job),
-                          *unhonored_decisions(revised_job, checked_late, job), *rechecks])
+    all_findings = tuple([*findings, *open_qc, *unhonored_decisions(decided_from, early, job, copies=copies),
+                          *unhonored_decisions(revised_job, checked_late, job, copies=copies), *rechecks])
 
     # 6. the review page, the render and the three documents
     publish_proofs(job, cache, out)
@@ -375,5 +398,11 @@ def estimate(job_folder: Path, out: Path, cache: Path, mode: Mode = "chat") -> R
     proposal, sheet = _build(draft.scope, PROPOSAL_TEMPLATE, WORKUP_TEMPLATE, PriceBook.load(PRICE_BOOK, ALIASES), out)
     print(f"Wrote {proposal}")
     print(f"Wrote {sheet}")
+    if history:
+        settled = [dataclasses.replace(entry, settled=system_digest(job, entry.decision.system_key))
+                   for entry in history]
+        stop = _save_history(out, settled, job_file)
+        if stop is not None:
+            return dataclasses.replace(stop, messages=(*notes, *stop.messages))
     return RunResult("done", "done", job_file=job_file, findings=all_findings, review=review, proposal=proposal,
                      price_sheet=sheet, evidence=evidence_file, messages=notes)

@@ -462,12 +462,15 @@ class SavedDecision:
     effect on some run (it matched a line and was applied). `saved` is the decision as decisions.json had it when
     the run rebased it onto an earlier change (`merge_decisions`); None when `decision` is that decision.
     `settled` is a digest of the decision's system in the final job of the last run that reached the end
-    (`system_digest`); None before such a run. A different digest now: the system was asked again since."""
+    (`system_digest`); None before such a run. A different digest now: the system was asked again since.
+    `copies` is, for a device delete, how many lines with the deleted content the written job had when the
+    decision first came in (what the estimator saw); None when not known."""
     decision: Decision
     round: int
     took_effect: bool = False
     saved: Decision | None = None
     settled: str | None = None
+    copies: int | None = None
 
     @property
     def as_saved(self) -> Decision:
@@ -479,6 +482,8 @@ class SavedDecision:
             data["saved"] = self.saved.to_dict()
         if self.settled is not None:
             data["settled"] = self.settled
+        if self.copies is not None:
+            data["copies"] = self.copies
         return data
 
 
@@ -506,7 +511,7 @@ def load_history(out_dir: Path) -> list[SavedDecision]:
         return [SavedDecision(Decision.from_dict(entry["decision"]), int(entry["round"]),
                               bool(entry.get("took_effect", False)),
                               Decision.from_dict(entry["saved"]) if entry.get("saved") is not None else None,
-                              _settled(entry.get("settled")))
+                              _settled(entry.get("settled")), _copies(entry.get("copies")))
                 for entry in data]
     except (json.JSONDecodeError, UnicodeDecodeError, ModelError, KeyError, TypeError, ValueError) as error:
         raise ModelError(f"{DECISIONS_HISTORY}: cannot be read ({error}). This file keeps the decisions of every "
@@ -516,6 +521,17 @@ def load_history(out_dir: Path) -> list[SavedDecision]:
                          "(answer them again on the review page).") from None
 
 
+def _copies(value: object) -> int | None:
+    if value is None or (isinstance(value, int) and not isinstance(value, bool) and value > 0):
+        return value
+    raise ModelError(f"copies: expected a whole number above 0, got {value!r}")
+
+
+def copies_seen(history: Sequence[SavedDecision]) -> dict[Decision, int]:
+    """For `apply_decisions` and `unhonored_decisions`: how many copies of its line each delete saw."""
+    return {entry.decision: entry.copies for entry in history if entry.copies is not None}
+
+
 def _settled(value: object) -> str | None:
     if value is None or isinstance(value, str):
         return value
@@ -523,11 +539,22 @@ def _settled(value: object) -> str | None:
 
 
 def save_history(out_dir: Path, entries: Sequence[SavedDecision]) -> Path:
-    """Written whole or not at all: to a temporary file in the same folder first, then swapped into place."""
+    """Written whole or not at all: to a temporary file in the same folder first, then swapped into place. When the
+    file cannot be written or swapped (on Windows, another program has it open), the temporary file is removed and
+    `bms.model.ModelError` names the file in plain words; the old history stays as it was."""
     path = Path(out_dir) / DECISIONS_HISTORY
     tmp = path.with_name(path.name + ".tmp")
-    tmp.write_text(json.dumps([e.to_dict() for e in entries], indent=2), encoding="utf-8")
-    os.replace(tmp, path)
+    try:
+        tmp.write_text(json.dumps([e.to_dict() for e in entries], indent=2), encoding="utf-8")
+        os.replace(tmp, path)
+    except OSError as error:
+        try:
+            tmp.unlink(missing_ok=True)
+        except OSError:
+            pass
+        raise ModelError(f"{DECISIONS_HISTORY} could not be saved in {path.parent} ({error.strerror or error}). "
+                         "Another program may have it open: close that program (a viewer, an editor, a sync "
+                         "client) and run again. The history is as the last run left it.") from None
     return path
 
 
@@ -578,13 +605,21 @@ def merge_decisions(history: Sequence[SavedDecision], saved: Sequence[Decision],
     for d in saved:
         base = _changed_into(carried, d)
         if base is None:
-            new.append(SavedDecision(d, latest + 1))
+            new.append(SavedDecision(d, latest + 1, copies=_seen(job, d)))
             continue
         carried.remove(base)
         old = base.decision
         rebased = dataclasses.replace(d, device_id=old.device_id, was=old.was)
-        new.append(SavedDecision(rebased, latest + 1, saved=d))
+        new.append(SavedDecision(rebased, latest + 1, saved=d, copies=_seen(job, rebased)))
     return [*carried, *new]
+
+
+def _seen(job: Job | None, d: Decision) -> int | None:
+    """How many lines of `job` have the content a device delete names; None when not known (no job, not a device
+    delete, or no line has it: the page showed a line the written job does not have)."""
+    if job is None or d.action != "delete" or d.device_id is None or d.was is None:
+        return None
+    return _how_many(_devices(job, d.system_key), d.was) or None
 
 
 def _changed_into(history: Sequence[SavedDecision], d: Decision) -> SavedDecision | None:
@@ -596,7 +631,34 @@ def _changed_into(history: Sequence[SavedDecision], d: Decision) -> SavedDecisio
                  and _same_device((h.decision.device,), d.was)), None)
 
 
-def _apply_to_devices(devices: tuple[Device, ...], device_id: str, decision: Decision) -> tuple[Device, ...]:
+def _held_back(devices: tuple[Device, ...] | None, decision: Decision, seen: int | None) -> bool:
+    """True for a device delete that must not be applied by content: no line has both its id and its content, some
+    lines have the content, and their number is not the number the estimator saw (`seen`). When that number is
+    not known (a direct call, a history from before it was kept, a line the page showed only after the revise), it
+    is held back when one copy is left and no line has its id at all (the system lost a line: likely the twin);
+    a line under another id that is there is taken as renumbered. Deleting one of two twins must never take the
+    only copy once a later write writes the line once."""
+    if decision.action != "delete" or decision.device_id is None or decision.was is None or devices is None:
+        return False
+    if any(dev.id == decision.device_id and _same_device((dev,), decision.was) for dev in devices):
+        return False
+    now = _how_many(devices, decision.was)
+    if now == 0:
+        return False
+    if seen is not None:
+        return now != seen
+    return now < 2 and not any(dev.id == decision.device_id for dev in devices)
+
+
+def held_back(job: Job, decision: Decision, copies: dict[Decision, int] | None = None) -> bool:
+    """True when `apply_decisions` leaves the device delete `decision` unapplied on `job` (`_held_back`)."""
+    return _held_back(_devices(job, decision.system_key), decision, (copies or {}).get(decision))
+
+
+def _apply_to_devices(devices: tuple[Device, ...], device_id: str, decision: Decision,
+                      seen: int | None = None) -> tuple[Device, ...]:
+    if _held_back(devices, decision, seen):
+        return devices
     target_id: str | None = device_id
     if decision.was is not None:
         exact = next((dev for dev in devices if dev.id == device_id and _same_device((dev,), decision.was)), None)
@@ -620,17 +682,22 @@ def _apply_to_devices(devices: tuple[Device, ...], device_id: str, decision: Dec
     return tuple(out)
 
 
-def apply_decisions(job: Job, decisions: Sequence[Decision]) -> Job:
+def apply_decisions(job: Job, decisions: Sequence[Decision], *, copies: dict[Decision, int] | None = None) -> Job:
     """The job with the decisions applied, in order: accept clears the device's flag, or, for a family, the
     quantity flags on that system's devices; delete removes the device (or the system, when no device or family is
     named); change replaces the device (same id) or the family's Count. A decision naming a system or device the
-    job no longer has is skipped. Pure. System key "" names the front end's devices."""
+    job no longer has is skipped. Pure. System key "" names the front end's devices.
+
+    A device delete whose id no longer holds its line is applied to a line with the same content only when as many
+    copies of it are left as the estimator saw (`copies`, from `copies_seen`; when not known, see `_held_back`):
+    else it is not applied, and `unhonored_decisions` gives it a "could not be applied" card."""
+    copies = copies or {}
     for decision in decisions:
-        job = _apply_one(job, decision)
+        job = _apply_one(job, decision, copies.get(decision))
     return job
 
 
-def _apply_one(job: Job, d: Decision) -> Job:
+def _apply_one(job: Job, d: Decision, seen: int | None = None) -> Job:
     if d.system_key == "":
         front = job.front_end
         if front is None or d.device_id is None:
@@ -638,7 +705,8 @@ def _apply_one(job: Job, d: Decision) -> Job:
         if d.was is None and not any(x.id == d.device_id for x in front.devices):
             return job
         return dataclasses.replace(
-            job, front_end=dataclasses.replace(front, devices=_apply_to_devices(front.devices, d.device_id, d)))
+            job, front_end=dataclasses.replace(front, devices=_apply_to_devices(front.devices, d.device_id, d,
+                                                                               seen)))
     if not any(s.key == d.system_key for s in job.systems):
         return job
     system: System = job.system(d.system_key)
@@ -646,7 +714,7 @@ def _apply_one(job: Job, d: Decision) -> Job:
         if d.was is None and not any(x.id == d.device_id for x in system.devices):
             return job
         return job.with_system(dataclasses.replace(
-            system, devices=_apply_to_devices(system.devices, d.device_id, d)))
+            system, devices=_apply_to_devices(system.devices, d.device_id, d, seen)))
     if d.family_name is not None:
         if not any(f.name == d.family_name for f in system.families):
             return job
@@ -664,7 +732,8 @@ def _apply_one(job: Job, d: Decision) -> Job:
     return job
 
 
-def unhonored_decisions(before: Job, decisions: Sequence[Decision], after: Job) -> list[Finding]:
+def unhonored_decisions(before: Job, decisions: Sequence[Decision], after: Job, *,
+                        copies: dict[Decision, int] | None = None) -> list[Finding]:
     """A must_fix for each saved decision the final job does not still show.
 
     `before` is the job the decisions were applied to, `after` the job after the last write. The job the decisions
@@ -677,10 +746,12 @@ def unhonored_decisions(before: Job, decisions: Sequence[Decision], after: Job) 
     A device decision that carries the line as the page showed it (`was`) but matches no line of `before` could not
     be applied: it is a must_fix "decision could not be applied" (same rule name), on the line in `after` that still
     has that content when there is one, else on the system (no device). A decision without `was` that named
-    nothing the earlier job had is skipped, as `apply_decisions` skips it."""
-    expected = apply_decisions(before, decisions)
+    nothing the earlier job had is skipped, as `apply_decisions` skips it. A delete `apply_decisions` holds back
+    (`copies`: the number of copies of the line differs from what the estimator saw) could not be applied either."""
+    copies = copies or {}
+    expected = apply_decisions(before, decisions, copies=copies)
     return [finding for decision in decisions
-            if (finding := _unhonored(before, decision, after, expected)) is not None]
+            if (finding := _unhonored(before, decision, after, expected, copies.get(decision))) is not None]
 
 
 def _matches_nothing(job: Job, decision: Decision) -> bool:
@@ -696,12 +767,21 @@ _GONE_DELETE = ("The line you deleted is not in this run's job as you saw it. It
                 "Check this system.")
 _GONE_OTHER = ("The line you decided on is not in this run's job, so your decision was not applied. "
                "Find the line on this page and decide again.")
+_TWIN_DELETE = ("When you deleted this line, the job had a different number of copies of it than this run has, so "
+                "the delete was not applied (it could take the only copy). Check how many copies this system needs "
+                "and delete again if one is too many.")
 
 
-def _unhonored(before: Job, decision: Decision, after: Job, expected: Job | None = None) -> Finding | None:
+def _unhonored(before: Job, decision: Decision, after: Job, expected: Job | None = None,
+               seen: int | None = None) -> Finding | None:
     if expected is None:
-        expected = apply_decisions(before, [decision])
+        expected = apply_decisions(before, [decision], copies={decision: seen} if seen is not None else None)
     subject = decision.device_id or decision.family_name or decision.system_key or "the front end"
+    if _held_back(_devices(before, decision.system_key), decision, seen):
+        still = next((dev for dev in _devices(after, decision.system_key) or () if _same_device((dev,), decision.was)),
+                     None)
+        return Finding("decision not honored", decision.system_key, still.id if still else None,
+                       "must_fix", f"decision could not be applied: {decision.action} {subject}", _TWIN_DELETE)
     if _matches_nothing(before, decision):
         still = next((dev for dev in _devices(after, decision.system_key) or () if _same_device((dev,), decision.was)),
                      None)
@@ -769,7 +849,7 @@ def _device_holds(before: Job, decision: Decision, after: Job, expected: Job) ->
         return False
     if decision.action == "accept":
         counts_changed = _count_changed_between(before, after, decision.system_key,
-                                                accept_family(before, decision))
+                                                accept_families(before, decision))
         if not counts_changed and _how_many(later, target, unflagged=True) < _how_many(want, target, unflagged=True):
             return False
     return True
@@ -815,9 +895,38 @@ def accept_family(job: Job | None, decision: Decision) -> str | None:
     return family.name if family is not None else None
 
 
-def _count_changed_between(before: Job, after: Job, key: str, family: str | None) -> bool:
-    """True when the count of family `family` of system `key` (any family of it, for None) differs between the
-    two jobs."""
+def accept_families(job: Job | None, decision: Decision) -> frozenset[str] | None:
+    """Every family an accept (or any decision) is about: the family it names, else every family whose count the
+    line's quantity cites (a line may cite two). None when no family is known; then a count change of any family
+    of the system counts. A count change of any of these families overrules the accept."""
+    if decision.family_name is not None:
+        return frozenset((decision.family_name,))
+    if job is None or decision.device_id is None or decision.system_key == "":
+        return None
+    line = decision.was or next((d for d in _devices(job, decision.system_key) or ()
+                                 if d.id == decision.device_id), None)
+    if line is None:
+        return None
+    system = next((s for s in job.systems if s.key == decision.system_key), None)
+    if system is None:
+        return None
+    device_sources = {plain_id(r.source_id) for r in line.quantity.sources}
+    names = frozenset(family.name for family in system.families if device_sources & _family_sources(family))
+    return names or None
+
+
+def _family_sources(family: Family) -> set[str]:
+    sources = {plain_id(r.source_id) for r in family.count.sources} | {
+        plain_id(o.ref.source_id) for o in family.count.others}
+    sources.discard("")
+    return sources
+
+
+def _count_changed_between(before: Job, after: Job, key: str, family: str | frozenset[str] | None) -> bool:
+    """True when the count of family `family` (or of any family in a set of names) of system `key` (any family of
+    it, for None) differs between the two jobs."""
+    if isinstance(family, str):
+        family = frozenset((family,))
     if key == "":
         return False
     old = next((s for s in before.systems if s.key == key), None)
@@ -826,7 +935,7 @@ def _count_changed_between(before: Job, after: Job, key: str, family: str | None
         return False
     counts = {f.name: f.count for f in new.families}
     return any(counts.get(f.name, f.count) != f.count for f in old.families
-               if family is None or f.name == family)
+               if family is None or f.name in family)
 
 
 def _family_of_device(job: Job, key: str, device: Device | None) -> Family | None:

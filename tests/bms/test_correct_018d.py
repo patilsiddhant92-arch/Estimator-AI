@@ -168,7 +168,7 @@ def test_f6_a_torn_write_of_the_history_leaves_the_earlier_history_readable(job,
         real(self, text[: len(text) // 2], *args, **kwargs)
         raise OSError("disk full (invented)")
     monkeypatch.setattr(Path, "write_text", torn)
-    with pytest.raises(OSError):
+    with pytest.raises(ModelError):             # CORRECT-018f F4: the failed save stops in words
         review.save_history(tmp_path, [*first, review.SavedDecision(Decision("EF", "accept", device_id="EF.d2"), 2)])
     monkeypatch.setattr(Path, "write_text", real)
     assert review.load_history(tmp_path) == first

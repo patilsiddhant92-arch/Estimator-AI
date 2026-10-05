@@ -96,7 +96,6 @@ def _dampers(system: dict) -> list[dict]:
     return [d for d in system["devices"] if d["name"].startswith("Damper")]
 
 
-@pytest.mark.xfail(strict=True, reason="REVIEW-018e F1: settled is saved before the review page is written")
 def test_attack_a_run_that_crashes_after_the_history_save_does_not_lose_the_check_card(job_folder, tmp_path,
                                                                                        monkeypatch):
     """Failing input: round 1 deletes the damper (run 2 honors it); round 2 accepts the controller and the revise
@@ -142,7 +141,6 @@ def two_counts(job) -> Job:
     return job.with_system(dataclasses.replace(vrf, devices=(d1, *rest)))
 
 
-@pytest.mark.xfail(strict=True, reason="REVIEW-018e F2: accept_family takes the first cited family only")
 def test_attack_an_accept_of_a_line_citing_two_families_falls_when_either_count_changes(two_counts):
     """Failing input: VRF.d1's quantity cites S9 (Indoor Unit) and S10 (Condensing Unit). One save accepts d1's
     quantity flag and changes the Condensing Unit count to 2. `accept_family` names only Indoor Unit (the first
@@ -197,7 +195,6 @@ def test_guard_twins_renumbered_by_the_writer_keep_both_answers_and_one_copy(job
     assert _copies(review.apply_decisions(renumbered, [h.decision for h in history]), "EF", x) == 1
 
 
-@pytest.mark.xfail(strict=True, reason="REVIEW-018e F3: a twin's delete takes the only copy once the twin is gone")
 def test_attack_the_delete_of_one_twin_does_not_take_the_only_copy_when_the_writer_drops_the_twin(job):
     """Failing input: the writer wrote EF.d1 twice (EF.d1, EF.d9); the estimator deleted EF.d9, meaning "one of
     these is enough". A later write (a Playbook edit, new evidence) writes the line once. The delete finds no
@@ -215,7 +212,6 @@ def test_attack_the_delete_of_one_twin_does_not_take_the_only_copy_when_the_writ
 # ---- (d) the atomic history save on Windows ----------------------------------------------------------------------------
 
 @pytest.mark.skipif(os.name != "nt", reason="Windows file sharing")
-@pytest.mark.xfail(strict=True, reason="REVIEW-018e F4: os.replace onto an open history raises PermissionError")
 def test_attack_a_history_held_open_by_another_program_is_still_saved_or_stops_in_words(job, tmp_path):
     """Failing input: decisions history.json is open in another program (a viewer, a sync or virus scanner holding
     it) while the run saves it. Python's open() on Windows does not share delete, so os.replace raises a raw
@@ -238,6 +234,7 @@ def test_attack_a_history_held_open_by_another_program_is_still_saved_or_stops_i
 @pytest.mark.skipif(os.name != "nt", reason="Windows file sharing")
 def test_guard_a_failed_swap_leaves_the_old_history_readable(job, tmp_path):
     """Whatever the swap does, the history the next run reads is the old one, never the half-written .tmp."""
+    from bms.model import ModelError
     d1 = job.system("EF").devices[0]
     first = [review.SavedDecision(Decision("EF", "delete", device_id=d1.id, was=d1), 1, took_effect=True)]
     review.save_history(tmp_path, first)
@@ -245,6 +242,6 @@ def test_guard_a_failed_swap_leaves_the_old_history_readable(job, tmp_path):
     with open(tmp_path / review.DECISIONS_HISTORY, encoding="utf-8"):
         try:
             review.save_history(tmp_path, second)
-        except OSError:
+        except (OSError, ModelError):           # CORRECT-018f F4: a failed swap is a ModelError naming the file
             pass
     assert review.load_history(tmp_path) in (first, second)
