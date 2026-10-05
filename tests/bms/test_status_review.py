@@ -264,3 +264,28 @@ def test_status_on_a_waiting_folder_creates_and_changes_nothing(tmp_path, capsys
     assert code == 2 and _snapshot(tmp_path) == before
     code, _ = _code(tmp_path / "no such folder", cache, capsys)
     assert code == 1 and not (tmp_path / "no such folder").exists() and _snapshot(tmp_path) == before
+
+
+# ---- review additions: the state write's own failures ------------------------------------------------------------
+
+def test_a_read_only_out_folder_never_blocks_the_state_write(tmp_path, monkeypatch):
+    """The temporary file itself cannot be written (a read-only folder): no exception, nothing left behind."""
+    real = Path.write_text
+
+    def read_only(self, *a, **k):
+        if self.name.endswith(".tmp"):
+            raise PermissionError(13, "Access is denied", str(self))
+        return real(self, *a, **k)
+
+    monkeypatch.setattr(Path, "write_text", read_only)
+    run._save_run_state(tmp_path, run.RunResult("done", "done"))
+    assert list(tmp_path.iterdir()) == []
+
+
+@pytest.mark.xfail(strict=True, reason="REVIEW-STATUS F4: a message with a lone surrogate (JSON '\ud800' in an "
+                                       "answer decodes to one) makes the state write raise UnicodeEncodeError, which "
+                                       "is not an OSError: estimate raises after a run that ended normally, and the "
+                                       ".tmp is left")
+def test_a_message_that_cannot_be_encoded_never_blocks_the_result(tmp_path):
+    run._save_run_state(tmp_path, run.RunResult("waiting", "qc", messages=("Stopped: invented \ud800",)))
+    assert not list(tmp_path.glob("*.tmp"))
