@@ -76,10 +76,14 @@ def _changed_system_keys(before: Job, after: Job) -> tuple[str, ...]:
                  if system.key in kept and system != after.system(system.key))
 
 
-def _revised(system, findings, evidence, playbook, transport, job):
+def _revised(system, findings, evidence, playbook, transport, job=None):
     """Revise, then flag quantity disagreements again. The revise answer does not keep those flags."""
-    return flag_written_devices(ai.revise_system(system, findings, evidence, playbook, transport,
-                                                 tags=job_tags(job), ids=job_ids(job)))
+    if job is None:
+        revised = ai.revise_system(system, findings, evidence, playbook, transport)
+    else:
+        revised = ai.revise_system(system, findings, evidence, playbook, transport,
+                                    tags=job_tags(job), ids=job_ids(job))
+    return flag_written_devices(revised)
 
 
 def _families_changed(before: Job, key: str, after: Job) -> bool:

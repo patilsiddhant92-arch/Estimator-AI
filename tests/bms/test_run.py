@@ -194,25 +194,28 @@ def test_every_writer_is_given_the_tags_of_the_whole_job(job_folder, tmp_path, m
 
 
 def test_the_decision_rewrite_is_given_the_tags_of_the_whole_job(job_folder, tmp_path, monkeypatch):
-    """I2: the writer asked again for a system an estimator's decision changed gets every tag of the job too."""
+    """A family-count change asks the writer again, and that ask gets every tag of the job. A device edit does not."""
     from bms import ai, citations, run
     from bms.model import Job
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     out, cache = tmp_path / "out", tmp_path / "cache"
-    assert _reach(job_folder, out, cache, "write").stage == "write"
-    requests = sorted((cache / "judge-chat" / "requests").glob("*.json"))
-    changed = json.loads(requests[0].read_text(encoding="utf-8"))["plan_key"]
+    reached = _reach(job_folder, out, cache, "write")
+    assert reached.stage == "write"
+    saved = json.loads(reached.job_file.read_text(encoding="utf-8"))
+    system = next(item for item in saved["systems"] if item.get("families"))
+    changed, family = system["key"], system["families"][0]["name"]
     (out / "decisions.json").write_text(json.dumps([{
-        "system_key": changed, "action": "delete", "device_id": f"{changed}.d1", "reason": "invented",
+        "system_key": changed, "action": "change", "family_name": family,
+        "count": {"value": 99, "sources": [], "others": []}, "reason": "invented",
     }]), encoding="utf-8")
     assert answer_all(cache)
-    real, seen = ai.write_system, []
+    real, seen = ai.rewrite_for_count, []
 
     def spy(system, evidence, playbook, transport, **kw):
-        if "The estimator's decisions" in evidence:
+        if "The estimator's count decisions" in evidence:
             seen.append(kw.get("tags"))
         return real(system, evidence, playbook, transport, **kw)
-    monkeypatch.setattr(run.ai, "write_system", spy)
+    monkeypatch.setattr(run.ai, "rewrite_for_count", spy)
     result = estimate(job_folder, out, cache, "chat")
     job = Job.from_json(result.job_file.read_text(encoding="utf-8"))
     assert seen and all(tags == tuple(citations.job_tags(job)) and tags for tags in seen), seen
@@ -273,17 +276,20 @@ def test_the_decision_rewrite_and_the_revise_are_given_the_source_ids_of_the_who
     from bms.model import Finding, Job
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     out, cache = tmp_path / "out", tmp_path / "cache"
-    assert _reach(job_folder, out, cache, "write").stage == "write"
-    requests = sorted((cache / "judge-chat" / "requests").glob("*.json"))
-    changed = json.loads(requests[0].read_text(encoding="utf-8"))["plan_key"]
+    reached = _reach(job_folder, out, cache, "write")
+    assert reached.stage == "write"
+    saved = json.loads(reached.job_file.read_text(encoding="utf-8"))
+    system = next(item for item in saved["systems"] if item.get("families"))
+    changed, family = system["key"], system["families"][0]["name"]
     (out / "decisions.json").write_text(json.dumps([{
-        "system_key": changed, "action": "delete", "device_id": f"{changed}.d1", "reason": "invented",
+        "system_key": changed, "action": "change", "family_name": family,
+        "count": {"value": 99, "sources": [], "others": []}, "reason": "invented",
     }]), encoding="utf-8")
     assert answer_all(cache)
-    real, rewritten, revised = ai.write_system, [], []
+    real, rewritten, revised = ai.rewrite_for_count, [], []
 
     def spy(system, evidence, playbook, transport, **kw):
-        if "The estimator's decisions" in evidence:
+        if "The estimator's count decisions" in evidence:
             rewritten.append(kw.get("ids"))
         return real(system, evidence, playbook, transport, **kw)
 
@@ -294,7 +300,7 @@ def test_the_decision_rewrite_and_the_revise_are_given_the_source_ids_of_the_who
     def must_fix(job, playbook):
         return [Finding("Every line cites this job", s.key, None, "must_fix", "invented", "invented")
                 for s in job.systems[:1]]
-    monkeypatch.setattr(run.ai, "write_system", spy)
+    monkeypatch.setattr(run.ai, "rewrite_for_count", spy)
     monkeypatch.setattr(run.ai, "revise_system", revise_spy)
     monkeypatch.setattr(run, "validate", must_fix)
     result = _reach(job_folder, out, cache, "never")
