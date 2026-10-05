@@ -15,7 +15,9 @@ plain message naming the request. Decisions saved from the review page are appli
 writer is asked again only for the systems those decisions changed. The decision is not applied a second time
 after that ask: the writer numbers devices from d1, so a second "delete d1" would remove the next device. After
 the last write, a saved decision that the final job does not still show is a must_fix "decision not honored" on
-the review page. A malformed decisions.json stops the run with a plain message. Every output goes under `out`
+the review page. The page shows the job after the revise, so a device decision whose saved line matches nothing
+the writer wrote (the revise re-worded it) is applied to the revised job instead; one that matches neither is a
+must_fix "decision could not be applied" on the review page, never skipped in silence. A malformed decisions.json stops the run with a plain message. Every output goes under `out`
 (NDA: never the repo). Prints "Wrote <path>" per file, as the old app does (tools/run_job.py reads those lines).
 """
 from __future__ import annotations
@@ -45,7 +47,7 @@ from bms.model import Decision, Finding, Header, Job, ModelError
 from bms.plan import plan_job
 from bms.playbook import load_playbook
 from bms.render import render
-from bms.review import apply_decisions, load_decisions, review_page, unhonored_decisions
+from bms.review import _matches_nothing, apply_decisions, load_decisions, review_page, unhonored_decisions
 from bms.validate import validate
 
 Mode = Literal["chat", "api"]
@@ -242,12 +244,19 @@ def estimate(job_folder: Path, out: Path, cache: Path, mode: Mode = "chat") -> R
         except ai.NoAnswer as missing:
             pending.append(_stopped(missing.reason) if str(missing.reason).startswith("Stopped:")
                            else f"{system.name}: {missing.reason}")
+    # a device decision made on the page's (revised) wording that matched nothing the writer wrote is applied to
+    # the revised job; one decision is never applied twice
+    late = [d for d in decisions if _matches_nothing(decided_from, d)]
+    early = [d for d in decisions if not _matches_nothing(decided_from, d)]
+    revised_job = job
+    job = apply_decisions(job, late)
     save(job)
     if pending:
         return RunResult("waiting", "revise", waiting=transport.waiting, job_file=job_file, messages=tuple(pending))
     findings = validate(job, playbook)
     open_qc = [f for f in qc if f.severity != "must_fix" or _untouched(f, written, job)]
-    all_findings = tuple([*findings, *open_qc, *unhonored_decisions(decided_from, decisions, job)])
+    all_findings = tuple([*findings, *open_qc, *unhonored_decisions(decided_from, early, job),
+                          *unhonored_decisions(revised_job, late, job)])
 
     # 6. the review page, the render and the three documents
     publish_proofs(job, cache, out)

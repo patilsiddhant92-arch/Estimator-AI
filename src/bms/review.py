@@ -521,16 +521,35 @@ def unhonored_decisions(before: Job, decisions: Sequence[Decision], after: Job) 
 
     `before` is the job the decision was applied to, `after` the job after the last write. The writer numbers
     devices again (`d1`, `d2`, …), so a device is recognized by its content, not by the id it wore. A delete is
-    honored when that device is gone, even if a different device now has its old id. A decision that named nothing
-    the earlier job had is skipped, as `apply_decisions` skips it. An accept sticks unless family counts changed
-    or the line has been re-flagged."""
+    honored when that device is gone, even if a different device now has its old id. A change is honored while its
+    new line is in the final job. An accept sticks unless family counts changed or the line has been re-flagged.
+    A device decision that carries the line as the page showed it (`was`) but matches no line of `before` could not
+    be applied: it is a must_fix "decision could not be applied" (same rule name), on the line in `after` that still
+    has that content when there is one. A decision without `was` that named nothing the earlier job had is skipped,
+    as `apply_decisions` skips it."""
     return [finding for decision in decisions
             if (finding := _unhonored(before, decision, after)) is not None]
 
 
+def _matches_nothing(job: Job, decision: Decision) -> bool:
+    """True for a device decision whose `was` snapshot matches no line of `job`'s system (or front end), so
+    `apply_decisions` cannot apply it to `job`. False when the system is not on the job at all."""
+    if decision.device_id is None or decision.was is None:
+        return False
+    devices = _devices(job, decision.system_key)
+    return devices is not None and not _same_device(devices, decision.was)
+
+
 def _unhonored(before: Job, decision: Decision, after: Job) -> Finding | None:
+    subject = decision.device_id or decision.family_name or decision.system_key or "the front end"
+    if _matches_nothing(before, decision):
+        still = next((dev for dev in _devices(after, decision.system_key) or () if _same_device((dev,), decision.was)),
+                     None)
+        return Finding("decision not honored", decision.system_key, still.id if still else decision.device_id,
+                       "must_fix", f"decision could not be applied: {decision.action} {subject}",
+                       "The line you decided on is not in this run's job, so your decision was not applied. "
+                       "Find the line on this page and decide again.")
     if not _decision_holds(before, decision, after):
-        subject = decision.device_id or decision.family_name or decision.system_key or "the front end"
         device_id = decision.device_id
         if decision.device_id is not None or decision.was is not None:
             earlier = _devices(before, decision.system_key) or ()
@@ -572,8 +591,12 @@ def _device_holds(before: Job, decision: Decision, after: Job) -> bool:
         return True
     applied = _apply_one(before, decision)
     applied_devices = _devices(applied, decision.system_key) or ()
-    kept = next((device for device in applied_devices
-                 if (device.id == decision.device_id if decision.was is None else _same_device((device,), decision.was))), None)
+    if decision.was is None:
+        kept = next((device for device in applied_devices if device.id == decision.device_id), None)
+    elif decision.action == "change" and decision.device is not None:
+        kept = next((device for device in applied_devices if _same_device((device,), decision.device)), None)
+    else:
+        kept = next((device for device in applied_devices if _same_device((device,), decision.was)), None)
     later = _devices(after, decision.system_key)
     if later is None:
         return kept is None
