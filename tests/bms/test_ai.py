@@ -746,9 +746,15 @@ def test_write_system_through_the_chat_rejects_and_asks_again(job, raw, dossier,
     assert len(written.devices) == 3 and not request_file.exists()
 
 
+_LAST_STAMP = [0]
+
+
 def _stamp(path: Path, seconds: int) -> None:
-    """Put the file's mtime `seconds` ahead of the clock, past any request written during this test."""
-    mtime = time.time_ns() + seconds * 1_000_000_000
+    """Put the file's mtime `seconds` ahead of the clock, past any request written during this test.
+
+    Never earlier than the last stamp, so a slow machine cannot make a later answer older than an earlier one."""
+    mtime = max(time.time_ns() + seconds * 1_000_000_000, _LAST_STAMP[0] + 1_000_000_000)
+    _LAST_STAMP[0] = mtime
     os.utime(path, ns=(mtime, mtime))
 
 
