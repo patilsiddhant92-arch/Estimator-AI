@@ -14,7 +14,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from bms.citations import ONE_ID
-from bms.playbook import DEFAULT_ROOT, PlaybookError, _load_rules, _load_shapes, _load_wording
+from bms.playbook import DEFAULT_ROOT, PlaybookError, load_rules, load_shapes, load_wording
 from bms.validate import RULE
 
 PROMPTS = Path(__file__).resolve().parent / "prompts"
@@ -225,7 +225,7 @@ def _lint_rules(path: Path) -> tuple[list[LintProblem], set[str] | None]:
     close()
     if not topics:
         refuse(None, "no topic (## heading)")
-    return (refused or _loader_problem(path, _load_rules)) + problems, names
+    return (refused or _loader_problem(path, load_rules)) + problems, names
 
 
 # ---- shapes.json -------------------------------------------------------------------------------------------------
@@ -279,7 +279,7 @@ def _lint_shapes(path: Path) -> list[LintProblem]:
                 problem(f"shape {name!r}: under parent {parent!r} not in line_order")
             elif line_order.index(parent) >= line_order.index(slot):
                 problem(f"shape {name!r}: under parent {parent!r} must come before {slot!r} in line_order")
-    return problems or _loader_problem(path, _load_shapes)     # the loader's verdict only when it adds something
+    return problems or _loader_problem(path, load_shapes)     # the loader's verdict only when it adds something
 
 
 # ---- wording.json ------------------------------------------------------------------------------------------------
@@ -287,4 +287,4 @@ def _lint_shapes(path: Path) -> list[LintProblem]:
 def _lint_wording(path: Path) -> list[LintProblem]:
     """wording.json is judged by the loader alone (its words); the linter adds only the file and JSON checks."""
     data, problems = _json(path)
-    return problems if data is None else _loader_problem(path, _load_wording)
+    return problems if data is None else _loader_problem(path, load_wording)

@@ -370,9 +370,10 @@ def _read(path: Path) -> str:
 
 
 def _json(path: Path) -> dict:
+    text = _read(path)
     try:
-        data = json.loads(_read(path))
-    except ValueError as error:
+        data = json.loads(text)
+    except (json.JSONDecodeError, ValueError) as error:
         raise PlaybookError(f"{path.name}: not valid JSON ({error})") from None
     if not isinstance(data, dict):
         raise PlaybookError(f"{path.name}: must be a JSON object")
