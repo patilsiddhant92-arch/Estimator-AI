@@ -111,8 +111,8 @@ def test_a_state_that_cannot_be_written_never_blocks_the_result(job_folder, tmp_
 
 
 def test_a_crash_in_render_raises_as_before_and_status_is_not_done(job_folder, tmp_path, monkeypatch, capsys):
-    """After a finished run, a re-run that crashes while rendering: the same exception reaches the caller, no new
-    state is written, and status (old state, old review page) does not say done."""
+    """After a finished run, a re-run that crashes while rendering: the same exception reaches the caller, no ending
+    state but "running" is written, and status (old review page) does not say done."""
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     out, cache = tmp_path / "out", tmp_path / "cache"
     assert _reach(job_folder, out, cache, "done").status == "done"
@@ -128,7 +128,7 @@ def test_a_crash_in_render_raises_as_before_and_status_is_not_done(job_folder, t
     monkeypatch.setattr(run, "render", crash)
     with pytest.raises(Boom):
         run.estimate(job_folder, out, cache, "chat")
-    assert (out / RUN_STATE).stat().st_mtime_ns == old
+    assert (out / RUN_STATE).stat().st_mtime_ns != old and _state(out)["status"] == "running"   # STATUS-FIX F1
     code, text = _code(out, cache, capsys)
     assert code == 1 and "Stage: done" not in text and "not finished" in text
 
@@ -158,11 +158,9 @@ def test_a_model_error_from_the_pipeline_still_raises(job_folder, tmp_path, monk
     monkeypatch.setattr(run, "plan_job", bad)
     with pytest.raises(ModelError, match="invented bad plan"):
         run.estimate(job_folder, out, cache, "chat")
-    assert (out / RUN_STATE).stat().st_mtime_ns == old
+    assert (out / RUN_STATE).stat().st_mtime_ns != old and _state(out)["status"] == "running"   # STATUS-FIX F1
 
 
-@pytest.mark.xfail(strict=True, reason="REVIEW-STATUS F1: a run that crashes before it saves the ledger leaves the "
-                                       "last run's 'done' state newer than every ledger and job, so status says done")
 def test_a_crash_before_the_ledger_is_saved_is_not_done(job_folder, tmp_path, monkeypatch, capsys):
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     out, cache = tmp_path / "out", tmp_path / "cache"
@@ -232,8 +230,6 @@ def test_a_state_newer_than_a_ledger_of_another_quote_without_its_outputs_is_not
     assert code == 1 and "Stage: done." not in text
 
 
-@pytest.mark.xfail(strict=True, reason="REVIEW-STATUS F2: the saved job is the newest Job.json of any quote, so a "
-                                       "new job still reading is shown the old job's systems as written")
 def test_a_new_job_still_reading_is_not_shown_the_old_jobs_systems(tmp_path, capsys):
     out, cache = tmp_path / "out", tmp_path / "cache"
     at = _finished(out, cache)
@@ -282,10 +278,6 @@ def test_a_read_only_out_folder_never_blocks_the_state_write(tmp_path, monkeypat
     assert list(tmp_path.iterdir()) == []
 
 
-@pytest.mark.xfail(strict=True, reason="REVIEW-STATUS F4: a message with a lone surrogate (JSON '\ud800' in an "
-                                       "answer decodes to one) makes the state write raise UnicodeEncodeError, which "
-                                       "is not an OSError: estimate raises after a run that ended normally, and the "
-                                       ".tmp is left")
 def test_a_message_that_cannot_be_encoded_never_blocks_the_result(tmp_path):
     run._save_run_state(tmp_path, run.RunResult("waiting", "qc", messages=("Stopped: invented \ud800",)))
     assert not list(tmp_path.glob("*.tmp"))

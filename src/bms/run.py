@@ -23,9 +23,11 @@ a later save never undoes an earlier one in silence. An earlier delete that took
 any more makes no card while its system is as the last finished run left it; when the system changed since (it
 was asked again), it is a should_fix "check this system" card, since the line may have come back re-worded. An
 earlier change or accept that matches nothing keeps its "could not be applied" card. A malformed decisions.json
-stops the run with a plain message. The run's very last act is a small `run state.json` in `out` (how it ended:
-status, stage, how many requests wait, its plain messages), written whole or not at all; `python -m bms status`
-trusts it only while no ledger or job is newer, and a run that crashes leaves none. Every output goes under `out`
+stops the run with a plain message. The run's first and very last acts are a small `run state.json` in `out`:
+first "running" (rewritten with the quote and the job name once they are known), last how it ended (status, stage,
+how many requests wait, its plain messages, the quote and the job). Each is written whole or not at all, and one
+that cannot be written never stops the run. A run that crashes leaves "running", which `python -m bms status`
+reports as not finished; it trusts an ending only while no ledger or job is newer. Every output goes under `out`
 (NDA: never the repo). Prints "Wrote <path>" per file, as the old app does (tools/run_job.py reads those lines).
 """
 from __future__ import annotations
@@ -204,37 +206,51 @@ def _untouched(finding: Finding, before: Job, after: Job) -> bool:
     return device is not None and device == {d.id: d for d in old.devices}.get(finding.device_id)
 
 
-def _save_run_state(out: Path, result: RunResult) -> None:
-    """How the run ended, for `python -m bms status`: written whole (a temporary name, then swapped in) as the run's
-    last act. One that cannot be written only leaves status saying the run has not finished."""
-    state = {"version": 1, "status": result.status, "stage": result.stage, "waiting": result.waiting,
-             "messages": [str(m) for m in result.messages]}
+def _write_run_state(out: Path, state: dict) -> None:
+    """`out/run state.json`, written whole (a temporary name, then swapped in), in plain ASCII so no text can fail to
+    encode. One that cannot be written is let go (the temporary file is removed): it never stops the run, and status
+    then reads an older state, which never makes the run look finished."""
     path = out / RUN_STATE
     tmp = path.with_name(path.name + ".tmp")
     try:
-        tmp.write_text(json.dumps(state, ensure_ascii=False, indent=1), encoding="utf-8")
+        tmp.write_text(json.dumps(state, ensure_ascii=True, indent=1), encoding="ascii")
         os.replace(tmp, path)
-    except OSError:
+    except (OSError, ValueError):        # UnicodeError is a ValueError
         try:
             tmp.unlink(missing_ok=True)
         except OSError:
             pass
 
 
+def _save_running(out: Path, quote: str = "", job: str = "") -> None:
+    """The run has started and not ended: written first, and again once the quote and the job name are known."""
+    _write_run_state(out, {"version": 1, "status": "running", "quote": quote, "job": job})
+
+
+def _save_run_state(out: Path, result: RunResult, quote: str = "", job: str = "") -> None:
+    """How the run ended, for `python -m bms status`, as the run's last act; with the quote (as in the ledger's file
+    name) and the job name, so status never takes another job's ending for this one."""
+    _write_run_state(out, {"version": 1, "status": result.status, "stage": result.stage, "waiting": result.waiting,
+                           "messages": [str(m) for m in result.messages], "quote": quote, "job": job})
+
+
 def estimate(job_folder: Path, out: Path, cache: Path, mode: Mode = "chat") -> RunResult:
     """Run the rebuilt estimate on one job folder. `cache` is where reading is kept and where the chat requests go
-    (`cache/judge-chat`); `mode` "chat" or "api" for every AI question (the reading passes too). However the run
-    ends (done, waiting or stopped), its last act is `out/run state.json`."""
+    (`cache/judge-chat`); `mode` "chat" or "api" for every AI question (the reading passes too). Its first act is a
+    "running" `out/run state.json`; however the run ends (done, waiting or stopped), its last act replaces it with
+    how it ended. An exception reaches the caller unchanged and leaves "running"."""
     if mode not in MODES:
         raise ValueError(f"the mode must be chat or api, not {mode!r}")
     job_folder, out, cache = Path(job_folder), Path(out), Path(cache)
     out.mkdir(parents=True, exist_ok=True)
-    result = _estimate(job_folder, out, cache, mode)
-    _save_run_state(out, result)
+    _save_running(out)
+    known: dict[str, str] = {}               # the quote and the job name, once _estimate knows them
+    result = _estimate(job_folder, out, cache, mode, known)
+    _save_run_state(out, result, known.get("quote", ""), known.get("job", ""))
     return result
 
 
-def _estimate(job_folder: Path, out: Path, cache: Path, mode: Mode) -> RunResult:
+def _estimate(job_folder: Path, out: Path, cache: Path, mode: Mode, known: dict[str, str]) -> RunResult:
 
     # 1. read: catalogue, reading, dossier, the ledger's staged passes (old app, unchanged)
     catalogue = catalogue_job(job_folder, cache, _workers())
@@ -242,6 +258,8 @@ def _estimate(job_folder: Path, out: Path, cache: Path, mode: Mode) -> RunResult
     old_header, _ = job_header(catalogue, reading, dt.date.today())
     quote = _safe_filename(old_header.quote_number)
     dossier = build_dossier(catalogue, reading, cache)
+    known.update(quote=quote, job=str(dossier.job_name or ""))
+    _save_running(out, known["quote"], known["job"])
     judge = Judge(cache, mode=mode, job=dossier.job_name)
     judge.retire_requests(dossier.sources)
     ledger_file = out / f"{quote} Ledger.json"

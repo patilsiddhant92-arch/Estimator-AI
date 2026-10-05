@@ -1,15 +1,18 @@
 """Plain-words status of a run, read only from the files the run already wrote.
 
-No AI, no network, and nothing is written. The files are the ledger, the saved job, the run state the run writes
-last (`run state.json`), the chat requests and their answers, the refusal counters, the intake log, the review
+No AI, no network, and nothing is written. The files are the ledger, the saved job (the one of the ledger's quote),
+the run state the run writes first and last (`run state.json`), the chat requests and their answers, the refusal counters, the intake log, the review
 page, and the proposal and price sheet.
 
 The run is "done" only when the review page, the proposal and the price sheet are all at least as new as the
 newest ledger and job, and the last run said it was done in its run state (a run from before the run state was
 written: the outputs alone decide). A review page left by an earlier run never makes a run that is reading again,
-stopped, or waiting on decisions look finished. A run state older than the ledger or the job is not trusted: a run
-saved them after the last one ended, so a run may still be going or it ended with an error. A run stopped after
-the most refusals leaves no request; its run state keeps the run's own words, which name the request.
+stopped, or waiting on decisions look finished. A run writes "running" first and replaces it with how it ended
+last, so a "running" state, of any age, means the run is still going or did not reach the end (it ended with an
+error). A run state older than the ledger or the job is not trusted: a run saved them after the last one ended. A
+run state that names another quote or job than the newest ledger's is another job's, and is not trusted either. A
+run stopped after the most refusals leaves no request; its run state keeps the run's own words, which name the
+request.
 
 Only requests whose job is the ledger's job are this run's (the requests folder keeps other jobs' requests). Every
 file is read whole in one go and closed (the estimate may be writing them at that moment); one that cannot be read,
@@ -25,7 +28,7 @@ from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
 
-RUN_STATE = "run state.json"        # out/: how the last run ended; bms.run.estimate writes it as its last act
+RUN_STATE = "run state.json"        # out/: "running", then how the last run ended; written by bms.run.estimate
 REVIEW_PAGE = "Review.html"
 _ORDER = ("read", "count", "write", "decisions", "qc", "revise", "done")
 _KIND_STAGE = {"read_pass": "read", "read_schedule": "read", "count_tags": "count", "write_system": "write",
@@ -204,12 +207,18 @@ def check(out: Path, cache: Path) -> Status:
     waiting = [r for r in mine if not r.answered]
     newest_saved = max((stamp for path in (*ledgers, *jobs) if (stamp := _mtime(path)) is not None), default=None)
 
-    state: dict = {}                # trusted only when no ledger or job was saved after it
-    state_time = _mtime(state_file) if state_file.is_file() else None
-    if state_time is not None and (newest_saved is None or state_time >= newest_saved):
-        state = _dict(state_file)[0]
     quote = (ledgers[0].name[:-len(" Ledger.json")] if ledgers
              else jobs[0].name[:-len(" Job.json")] if jobs else "")
+    job_file = (out / f"{quote} Job.json" if (out / f"{quote} Job.json").is_file() else None) if ledgers else (
+        jobs[0] if jobs else None)
+    state_time = _mtime(state_file) if state_file.is_file() else None     # before the read: never newer than it
+    state: dict = _dict(state_file)[0] if state_time is not None else {}
+    if (_text(state.get("quote")) and quote and _text(state.get("quote")) != quote) or (
+            _text(state.get("job")) and job_name and _text(state.get("job")) != job_name):
+        state = {}                  # another job's run state
+    running = _text(state.get("status")) == "running"        # the run never ended: of any age
+    if not running and not (state_time is not None and (newest_saved is None or state_time >= newest_saved)):
+        state = {}                  # an ending is trusted only when no ledger or job was saved after it
     stamps = [_mtime(path) for path in (page, out / f"{quote} Proposal.docx", out / f"{quote} Price Sheet.xlsx")]
     outputs_current = bool(quote) and newest_saved is not None and all(
         stamp is not None and stamp >= newest_saved for stamp in stamps)
@@ -222,13 +231,20 @@ def check(out: Path, cache: Path) -> Status:
     request_stage = max((r.stage for r in mine if r.stage in _ORDER), key=_ORDER.index, default="")
 
     lines: list[str] = []
-    if status == "done" and outputs_current and not mine:
+    if running:
+        code = 1
+        lines.append("Stage: not known. The run has not finished: the last run did not reach the end. It may still "
+                     "be going, or it ended with an error; run estimate again to see where it stands.")
+    elif status == "done" and outputs_current and not mine:
         code = 0
         lines.append(_DONE)
     elif mine or (status == "waiting" and asked > 0):
         code = 2
         stage = stage or request_stage or "not known"
-        if waiting or not mine:
+        if not mine:
+            lines.append(f"Stage: {stage}. The run said it waits for {asked} answer(s), but no request was found in "
+                         "that cache folder (is --cache the one the run used?).")
+        elif waiting:
             more = len(mine) - len(waiting)
             lines.append(f"Stage: {stage}. The run is waiting for {len(waiting)} answer(s)."
                          + (f" {more} more have an answer; run estimate again once all are in." if more else ""))
@@ -258,7 +274,7 @@ def check(out: Path, cache: Path) -> Status:
                      "or the job, and no full set of outputs is newer than them. A run may still be going, or it "
                      "ended with an error; run estimate again to see where it stands.")
 
-    lines += _systems(jobs[0] if jobs else None)
+    lines += _systems(job_file)
     if mine:
         by_kind: dict[str, list[str]] = defaultdict(list)
         answered: dict[str, list[str]] = defaultdict(list)
