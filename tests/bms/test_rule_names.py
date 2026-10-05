@@ -4,7 +4,6 @@ can be reached, and every shape slot without a {verb} is a sub-line or house tex
 All jobs here are invented; the Playbook is the repo's own (`playbook/`)."""
 from __future__ import annotations
 
-import re
 from pathlib import Path
 
 import pytest
@@ -43,10 +42,8 @@ def test_every_validator_rule_name_is_a_repo_playbook_rule():
 
 def test_every_rule_name_the_ai_prompts_quote_is_a_repo_playbook_rule():
     """A quoted phrase in a prompt that starts with a capital and has a space is a rule citation."""
-    quoted = set()
-    for prompt in (ROOT / "src" / "bms" / "prompts").glob("*.md"):
-        quoted |= {q for q in re.findall(r'"([^"\n]+)"', prompt.read_text(encoding="utf-8"))
-                   if q[:1].isupper() and " " in q}
+    from bms.playbook_lint import prompt_rule_names     # the one reading, shared with the Playbook linter
+    quoted = prompt_rule_names(ROOT / "src" / "bms" / "prompts")
     assert quoted and sorted(q for q in quoted if q not in PLAYBOOK.rules) == []
 
 

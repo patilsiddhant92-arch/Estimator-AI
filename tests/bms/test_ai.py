@@ -11,6 +11,7 @@ from pathlib import Path
 
 import pytest
 
+from estimator.reading.schedules import Schedule, ScheduleRow
 from estimator.writing.dossier import Dossier, DossierImage
 from estimator.writing.judge import _key
 
@@ -91,6 +92,34 @@ def test_evidence_for_a_fan_system_gives_its_passages_with_their_ids(job, dossie
     assert "    Columns: TAG | CFM" in text                                         # a schedule keeps its columns
     assert not ids & {"S17", "S20", "S23", "S25", "S9", "S2", "S37", "S14", "S1"}  # other systems' passages
     assert text == ai.evidence_for(skeleton(job.system("EF")), dossier)           # deterministic
+
+
+def test_an_invented_schedule_is_a_table_of_columns_and_this_systems_rows(job, dossier):
+    """When the reading's schedule objects are in hand, the evidence shows that table (its columns and the rows
+    for this system's tags) instead of the flat dossier lines, and each row keeps its source id."""
+    rows = (
+        ScheduleRow("EF-1", {"TAG": "EF-1", "CFM": "500", "VOLTS": "115"}, None, None),
+        ScheduleRow("EF-2", {"TAG": "EF-2", "CFM": "400", "VOLTS": "208"}, None, None),
+        ScheduleRow("EF-3", {"TAG": "EF-3", "CFM": "300", "VOLTS": "460"}, None, None),
+        ScheduleRow("RTU-1", {"TAG": "RTU-1", "CFM": "2000", "VOLTS": "480"}, None, None),
+    )
+    schedule = Schedule("Drawings.pdf", 1, "M-001", "EXHAUST FAN SCHEDULE", ("TAG", "CFM", "VOLTS"), rows, False,
+                        ("Fans furnished with backdraft dampers.",), ())
+    text_with_image = dossier.text.replace(
+        "[S27] EXHAUST FAN SCHEDULE — M-001, Drawings.pdf page 1 (3 rows)\n    Columns: TAG | CFM",
+        "[S27] EXHAUST FAN SCHEDULE — M-001, Drawings.pdf page 1 (3 rows)\n    See image I7.\n    Columns: TAG | CFM",
+    )
+    held = dataclasses.replace(dossier, text=text_with_image, schedules=(schedule,))
+    text = ai.evidence_for(skeleton(job.system("EF")), held)
+    assert "    | TAG | CFM | VOLTS |" in text
+    assert "    | --- | --- | --- |" in text
+    assert "[S28] | EF-1 | 500 | 115 |" in text
+    assert "[S29] | EF-2 | 400 | 208 |" in text
+    assert "[S30] | EF-3 | 300 | 460 |" in text
+    assert "[S27]" in text and "[S40]" in text and "Fans furnished with backdraft dampers." in text
+    assert "See image I7." in text
+    assert "Columns: TAG | CFM" not in text
+    assert "RTU-1" not in text and "2000" not in text and "[S25]" not in text
 
 
 def test_evidence_for_a_vrf_group_names_its_picture_and_its_range(job, dossier):

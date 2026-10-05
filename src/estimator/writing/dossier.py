@@ -95,6 +95,7 @@ class Dossier:
                                     #                   "riser", "distinct_tags"}
     stats: dict[str, int]           # characters per section, page counts, image count
     sections: dict = field(default_factory=dict)   # "Q7" -> (the sequence heading, the source ids under it)
+    schedules: tuple = ()       # estimator.reading.schedules.Schedule, when the reading is still in hand
 
 
 # ---- small helpers ------------------------------------------------------------------------------
@@ -1127,4 +1128,5 @@ def build_dossier(catalogue, reading, cache_dir: Path | None) -> Dossier:
                  sequence_over_limit=int(sequence_chars > SEQUENCE_LIMIT), families=len(families))
     sections = {q: (heading, tuple(sids)) for q, (heading, sids) in ids.sections.items()}
     return Dossier(catalogue.job.name, text, tuple(all_images), dict(ids.where), tuple(reading.totals),
-                   device_totals, _counts_dict(families), stats, sections)
+                   device_totals, _counts_dict(families), stats, sections,
+                   tuple(getattr(reading, "schedules", ()) or ()))
