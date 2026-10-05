@@ -251,9 +251,7 @@ def estimate(job_folder: Path, out: Path, cache: Path, mode: Mode = "chat") -> R
             continue
         try:
             rewritten = flag_written_devices(ai.rewrite_for_count(
-                system, f"{evidence[key]}
-
-{_count_note(decisions, key)}", playbook, transport,
+                system, f"{evidence[key]}\n\n{_count_note(decisions, key)}", playbook, transport,
                 tags=job_tags(job), ids=issued(job), sheets=sheets))
             standing = _standing_accepts(history, key)          # accepted after the estimator saw the new count
             if standing:
