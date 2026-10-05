@@ -37,8 +37,6 @@ def _disputed_ef(job: Job, first_flag: str) -> Job:
 # ---- finding F1: a family Accept is "not honored" whenever a counted line keeps a flag Accept never clears ---------
 
 
-@pytest.mark.xfail(strict=True, reason="REVIEW-019b F1: _family_holds counts an 'assumed' or 'ownership' flag "
-                                       "as the last write undoing a family Accept, which clears only 'quantity'")
 @pytest.mark.parametrize("flag", ["assumed", "ownership"])
 def test_a_family_accept_is_honored_when_a_counted_line_keeps_a_flag_accept_does_not_clear(job, flag):
     before = _disputed_ef(job, flag)
@@ -59,7 +57,6 @@ def test_a_family_accept_whose_quantity_flag_came_back_is_still_not_honored(job)
     assert [f.what for f in found] == ["decision not honored: accept Exhaust Fan"]
 
 
-@pytest.mark.xfail(strict=True, reason="REVIEW-019b F1, through the real run: a false must_fix on every run")
 def test_a_family_accept_with_an_assumed_counted_line_gives_no_must_fix_through_the_run(tmp_path, monkeypatch):
     from test_run import JOB, _answer, _reach, _schedule_sheet, PLAN, SEQUENCE  # noqa: F401
     from pdfs import make_pdf

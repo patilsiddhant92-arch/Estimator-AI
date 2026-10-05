@@ -895,7 +895,7 @@ def _family_holds(before: Job, decision: Decision, after: Job, expected: Job) ->
             family = next((f for f in system.families if f.name == decision.family_name), None)
             if family is not None and family.count.others:
                 for dev in system.devices:
-                    if counted_from(dev, family) and dev.quantity.value is not None and dev.flag != "none":
+                    if _accept_clears(dev, family):
                         return False
     return True
 
