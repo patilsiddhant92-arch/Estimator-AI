@@ -122,18 +122,54 @@ def fits(pattern: str, text: str) -> bool:
         return False
 
 
-def located_boxes(page: pymupdf.Page, pattern: str, scale: float) -> list[tuple[str, tuple[int, int, int, int]]]:
-    """Every placed occurrence of the pattern's tags in the page's text layer: (the tag, its box (x, y, width,
-    height) in pixels of the whole-sheet picture as the sheet is viewed, `scale` pixels per point). A tag inside a
-    line of more than NOTE_WORDS words is a note naming it, not a placed tag, and is left out."""
+MIN_TEXT_CHARS = 50
+
+
+def has_text_layer(page: pymupdf.Page) -> bool:
+    """Whether the page has a usable vector text layer (fewer characters indicates a raster/scanned sheet)."""
+    text = page.get_text().strip()
+    return len(text) >= MIN_TEXT_CHARS
+
+
+def image_tokens(width: int, height: int) -> int:
+    """Estimated image tokens for an image of given pixel dimensions (width * height / 750)."""
+    return max(1, (width * height) // 750)
+
+
+def token_savings(sheet_size: tuple[int, int], crop_boxes: Sequence[tuple[int, int, int, int]]) -> dict:
+    """Calculate the image token savings of sending micro-crops vs full sheet tiles."""
+    from bms.counts_vision import tile_grid
+    grid = tile_grid(sheet_size[0], sheet_size[1])
+    full_tokens = sum(image_tokens(w, h) for _, _, w, h in grid)
+    crop_tokens = sum(image_tokens(w, h) for _, _, w, h in crop_boxes)
+    saved = max(0, full_tokens - crop_tokens)
+    pct = round((saved / full_tokens) * 100, 2) if full_tokens > 0 else 0.0
+    return {
+        "full_sheet_tokens": full_tokens,
+        "micro_crop_tokens": crop_tokens,
+        "tokens_saved": saved,
+        "savings_pct": pct,
+    }
+
+
+def _extract_page_tags(page: pymupdf.Page, pattern: str, scale: float
+                       ) -> tuple[list[tuple[str, tuple[int, int, int, int]]],
+                                  list[tuple[str, tuple[int, int, int, int], str]]]:
+    """Extract both single-line and stacked-line tags, partitioned into confident and ambiguous."""
     find = searcher(pattern)
     matrix = page.rotation_matrix
-    found: list[tuple[str, tuple[int, int, int, int]]] = []
+    confident: list[tuple[str, tuple[int, int, int, int]]] = []
+    ambiguous: list[tuple[str, tuple[int, int, int, int], str]] = []
+    seen_keys: set[tuple[str, tuple[int, int, int, int]]] = set()
+
     for block in page.get_text("rawdict").get("blocks", ()):
-        for line in block.get("lines", ()):
+        lines = block.get("lines", ())
+        line_data = []
+        for line in lines:
             text, boxes = _line_chars(line)
             if not text.strip() or len(text.split()) > NOTE_WORDS:
                 continue
+            line_data.append((line, text, boxes))
             for match in find.finditer(text):
                 chars = [b for b in boxes[match.start():match.end()] if b is not None]
                 if not chars:
@@ -145,8 +181,68 @@ def located_boxes(page: pymupdf.Page, pattern: str, scale: float) -> list[tuple[
                 rect.normalize()
                 x0, y0 = int(rect.x0 * scale), int(rect.y0 * scale)
                 x1, y1 = int(rect.x1 * scale + 0.999), int(rect.y1 * scale + 0.999)
-                found.append((canonical(match.group(0)), (x0, y0, max(1, x1 - x0), max(1, y1 - y0))))
-    return found
+                box = (x0, y0, max(1, x1 - x0), max(1, y1 - y0))
+                tag = canonical(match.group(0))
+                key = (tag, box)
+                if key in seen_keys:
+                    continue
+                seen_keys.add(key)
+
+                m_start, m_end = match.start(), match.end()
+                is_surrounded = (
+                    (m_start > 0 and text[m_start - 1] not in " \t") or
+                    (m_end < len(text) and text[m_end] not in " \t")
+                )
+                if is_surrounded:
+                    ambiguous.append((tag, box, "surrounded by punctuation or text"))
+                elif len(text.split()) >= 3:
+                    ambiguous.append((tag, box, "multi-word line near note threshold"))
+                else:
+                    confident.append((tag, box))
+
+        # Check stacked lines within this block (e.g. VAV on line 1, 1 on line 2)
+        for i in range(len(line_data) - 1):
+            _l1, t1, b1 = line_data[i]
+            _l2, t2, b2 = line_data[i + 1]
+            s1, s2 = t1.strip(), t2.strip()
+            for cand in (f"{s1}-{s2}", f"{s1}{s2}"):
+                match = find.search(cand)
+                if match:
+                    chars1 = [b for b in b1 if b is not None]
+                    chars2 = [b for b in b2 if b is not None]
+                    if not chars1 or not chars2:
+                        continue
+                    rect = pymupdf.Rect(chars1[0])
+                    for b in chars1[1:] + chars2:
+                        rect |= b
+                    rect = rect * matrix
+                    rect.normalize()
+                    x0, y0 = int(rect.x0 * scale), int(rect.y0 * scale)
+                    x1, y1 = int(rect.x1 * scale + 0.999), int(rect.y1 * scale + 0.999)
+                    box = (x0, y0, max(1, x1 - x0), max(1, y1 - y0))
+                    tag = canonical(match.group(0))
+                    key = (tag, box)
+                    if key not in seen_keys:
+                        seen_keys.add(key)
+                        ambiguous.append((tag, box, "stacked lines in block"))
+                    break
+
+    return confident, ambiguous
+
+
+def located_boxes(page: pymupdf.Page, pattern: str, scale: float) -> list[tuple[str, tuple[int, int, int, int]]]:
+    """Every placed occurrence of the pattern's tags in the page's text layer: (the tag, its box (x, y, width,
+    height) in pixels of the whole-sheet picture as the sheet is viewed, `scale` pixels per point). A tag inside a
+    line of more than NOTE_WORDS words is a note naming it, not a placed tag, and is left out."""
+    confident, ambiguous = _extract_page_tags(page, pattern, scale)
+    return confident + [(t, b) for t, b, _ in ambiguous]
+
+
+def classify_located_boxes(page: pymupdf.Page, pattern: str, scale: float
+                            ) -> tuple[list[tuple[str, tuple[int, int, int, int]]],
+                                       list[tuple[str, tuple[int, int, int, int], str]]]:
+    """Classify placed tags from the page text layer into confident and ambiguous (with reason)."""
+    return _extract_page_tags(page, pattern, scale)
 
 
 def _line_chars(line: dict) -> tuple[str, list[pymupdf.Rect | None]]:

@@ -26,7 +26,8 @@ VAV_ROWS = [["VAV BOX SCHEDULE", "", "", "", ""],
             ["TAG", "SERVES", "MAX CFM", "HW GPM", "MANUFACTURER"],
             ["VAV-1", "ROOM 101", "600", "1.5", "INVENTED CO"],
             ["VAV-2", "ROOM 102", "700", "1.5", "INVENTED CO"],
-            ["VAV-3", "ROOM 103", "500", "1.0", "INVENTED CO"]]
+            ["VAV-3", "ROOM 103", "500", "1.0", "INVENTED CO"],
+            ["VAV-4", "ROOM 104", "500", "1.0", "INVENTED CO"]]
 
 
 def _schedule_sheet() -> Page:

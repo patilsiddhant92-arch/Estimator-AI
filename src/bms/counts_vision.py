@@ -86,6 +86,10 @@ SCHEMA = {
                             "additionalProperties": False,
                         },
                     },
+                    "untagged_symbols": {
+                        "type": "integer",
+                        "description": "Count of untagged symbols matching this equipment type.",
+                    },
                 },
                 "required": ["pattern", "tiles_examined", "tags"],
                 "additionalProperties": False,
@@ -129,17 +133,56 @@ def cut_tiles(picture: Path) -> tuple[tuple[int, int], list[tuple[tuple[int, int
     return size, tiles
 
 
-def prompt(picture: Path, size: tuple[int, int], rects: list[tuple[int, int, int, int]], patterns: list[str]) -> str:
-    lines = [f"Sheet picture {picture.name} ({size[0]} x {size[1]} pixels), sent as {len(rects)} overlapping "
-             f"tile(s), one picture each, in this order (each tile's place on the whole sheet):"]
-    lines += [f"Tile {n}: x {x}, y {y}, {w} x {h} pixels." for n, (x, y, w, h) in enumerate(rects, start=1)]
+def cut_micro_crops(picture: Path, boxes: Sequence[tuple[int, int, int, int]],
+                    margin: int = 80, min_size: int = 200, max_size: int = 400
+                    ) -> list[tuple[tuple[int, int, int, int], Path]]:
+    """Cut small micro-crop images around each ambiguous box on the sheet picture.
+    Returns list of ((crop_x, crop_y, crop_w, crop_h), path_to_saved_crop_png)."""
+    folder = picture.parent / "count-crops"
+    folder.mkdir(parents=True, exist_ok=True)
+    crops = []
+    with Image.open(picture) as image:
+        image.load()
+        img_w, img_h = image.size
+        for idx, (bx, by, bw, bh) in enumerate(boxes, start=1):
+            cx, cy = bx + bw // 2, by + bh // 2
+            target_w = min(max_size, max(min_size, bw + 2 * margin))
+            target_h = min(max_size, max(min_size, bh + 2 * margin))
+            x0 = max(0, min(cx - target_w // 2, img_w - target_w))
+            y0 = max(0, min(cy - target_h // 2, img_h - target_h))
+            w = min(target_w, img_w - x0)
+            h = min(target_h, img_h - y0)
+            crop_rect = (x0, y0, w, h)
+            crop_path = folder / f"{picture.stem}-crop-{x0}-{y0}-{w}-{h}.png"
+            if not (crop_path.exists() and crop_path.stat().st_size > 0):
+                tmp = crop_path.with_suffix(".tmp.png")
+                image.crop((x0, y0, x0 + w, y0 + h)).save(tmp)
+                tmp.replace(crop_path)
+            crops.append((crop_rect, crop_path))
+    return crops
+
+
+def prompt(picture: Path, size: tuple[int, int], rects: list[tuple[int, int, int, int]],
+           patterns: list[str], is_crops: bool = False,
+           symbols_expected: dict[str, int] | None = None) -> str:
+    kind = "micro-crop picture" if is_crops else "overlapping tile"
+    lines = [f"Sheet picture {picture.name} ({size[0]} x {size[1]} pixels), sent as {len(rects)} {kind}(s), "
+             f"one picture each, in this order (each image's place on the whole sheet):"]
+    prefix = "Micro-crop" if is_crops else "Tile"
+    lines += [f"{prefix} {n}: x {x}, y {y}, {w} x {h} pixels." for n, (x, y, w, h) in enumerate(rects, start=1)]
     lines.append("Count the tags fully matching each of these Python regular expressions (one entry per pattern in "
                  "the answer, in this order):")
     lines += [f"Pattern {n}: {pattern}" for n, pattern in enumerate(patterns, start=1)]
-    lines.append("For each tag give its text, how many places show it, and a box per place: the tile number and the "
-                 "box in that tile's pixels.")
+    if symbols_expected:
+        lines.append("For equipment where the schedule specifies a count, also count any matching symbols appearing on the drawing without an explicit tag:")
+        for pat, exp_cnt in symbols_expected.items():
+            lines.append(f"  Pattern {pat}: expect approximately {exp_cnt} untagged symbol(s).")
+    item = "crop" if is_crops else "tile"
+    items = "micro-crops" if is_crops else "tiles"
+    lines.append(f"For each tag give its text, how many places show it, and a box per place: the image number and the "
+                 f"box in that {item}'s pixels.")
     every = ", ".join(str(n) for n in range(1, len(rects) + 1))
-    lines.append(f"Open and examine all {len(rects)} tiles (tile {every}), each at full size, for every pattern; "
+    lines.append(f"Open and examine all {len(rects)} {items} ({item} {every}), each at full size, for every pattern; "
                  f"each pattern's tiles_examined must list every one of them ({every}), or the answer is refused "
                  "and asked again.")
     return "\n".join(lines)
@@ -197,9 +240,11 @@ def answered(answer: dict, patterns: list[str]) -> set[str]:
     return {p for p in patterns if _loose(p) in listed}
 
 
-def ask_sheet(transport, picture: Path, patterns: list[str], name: str = ""
+def ask_sheet(transport, picture: Path, patterns: list[str], name: str = "",
+              crops: list[tuple[tuple[int, int, int, int], Path]] | None = None,
+              symbols_expected: dict[str, int] | None = None
               ) -> tuple[list[tuple[str, tuple[int, int, int, int]]], set[str]] | None:
-    """The sheet's one count question: every tile of the picture as its own image, every pattern asked together;
+    """The sheet's one count question: every tile or micro-crop of the picture as its own image, every pattern asked together;
     (the found tags (of every pattern) in the whole picture's pixels, the patterns the answer has an entry for), or
     None when there is no usable answer (waiting for the chat, a transport failure, an answer that breaks the
     schema, an answer whose tiles_examined leaves out a tile). A pattern the answer leaves out is not counted: it is
@@ -213,7 +258,14 @@ def ask_sheet(transport, picture: Path, patterns: list[str], name: str = ""
         return [], set()
     for pattern in patterns:
         re.compile(pattern)
-    size, tiles = cut_tiles(picture)
+    if crops is not None:
+        with Image.open(picture) as img:
+            size = img.size
+        tiles = crops
+        is_crops = True
+    else:
+        size, tiles = cut_tiles(picture)
+        is_crops = False
     rects = [rect for rect, _ in tiles]
 
     def check(answer):
@@ -225,11 +277,19 @@ def ask_sheet(transport, picture: Path, patterns: list[str], name: str = ""
         found = read_answer(answer, rects)
         return (None, ["the answer breaks the schema"]) if found is None else ((found, answered(answer, patterns)), [])
 
+    prompt_text = prompt(picture, size, rects, patterns, is_crops=is_crops, symbols_expected=symbols_expected)
+    extra = {
+        "step": "count", "picture": str(picture), "tiles": [list(r) for r in rects],
+        "patterns": patterns,
+    }
+    if is_crops:
+        extra["is_crops"] = True
+    if symbols_expected:
+        extra["symbols_expected"] = symbols_expected
+
     try:
         return _ask_checked(transport, COUNT_KIND, name or f"Count tags {picture.stem}", INSTRUCTIONS, STEP,
-                            prompt(picture, size, rects, patterns), SCHEMA,
-                            {"step": "count", "picture": str(picture), "tiles": [list(r) for r in rects],
-                             "patterns": patterns},
+                            prompt_text, SCHEMA, extra,
                             tuple(path for _, path in tiles), check)
     except NoAnswer:
         return None
