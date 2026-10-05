@@ -416,6 +416,47 @@ def test_deleting_the_damper_keeps_the_start_stop_when_the_writer_would_renumber
     assert names.count("Damper Actuator") == 0 and len(names) == len(set(names))
 
 
+def test_an_accepted_quantity_flag_stays_cleared_on_the_rerun(job_folder, tmp_path, monkeypatch):
+    """An estimator accepts a quantity flag. On re-running, the device flag remains 'none'."""
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    out, cache = tmp_path / "out", tmp_path / "cache"
+    assert _reach(job_folder, out, cache, "write").stage == "write"
+    requests = sorted((cache / "judge-chat" / "requests").glob("*.json"))
+    changed = json.loads(requests[0].read_text(encoding="utf-8"))["plan_key"]
+    _plant(cache, {changed: ("Controller", "Start Stop")})
+    (out / "decisions.json").write_text(json.dumps([{
+        "system_key": changed, "action": "accept", "device_id": f"{changed}.d1", "reason": "invented",
+    }]), encoding="utf-8")
+    result = estimate(job_folder, out, cache, "chat")
+    saved = json.loads(result.job_file.read_text(encoding="utf-8"))
+    system = next(item for item in saved["systems"] if item["key"] == changed)
+    assert system["devices"][0]["flag"] == "none"
+
+
+def test_a_delete_made_on_a_revised_page_removes_the_line_shown_on_the_page(job_folder, tmp_path, monkeypatch):
+    """The review page showed the Damper as d2 with was snapshot.
+    Deleting it removes the Damper from the first-write job even though Damper was d3 there."""
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    out, cache = tmp_path / "out", tmp_path / "cache"
+    assert _reach(job_folder, out, cache, "write").stage == "write"
+    requests = sorted((cache / "judge-chat" / "requests").glob("*.json"))
+    changed = json.loads(requests[0].read_text(encoding="utf-8"))["plan_key"]
+    _plant(cache, {changed: ("Controller", "Start Stop", "Damper Actuator")})
+    answer_path = Path(json.loads(requests[0].read_text(encoding="utf-8"))["answer_file"])
+    planted = json.loads(answer_path.read_text(encoding="utf-8"))
+    damper = next(d for d in planted["devices"] if d["name"] == "Damper Actuator")
+    damper_was = dict(damper)
+    damper_was["id"] = f"{changed}.d2"  # as shown on the revised review page
+    (out / "decisions.json").write_text(json.dumps([{
+        "system_key": changed, "action": "delete", "device_id": f"{changed}.d2", "was": damper_was, "reason": "invented",
+    }]), encoding="utf-8")
+    result = estimate(job_folder, out, cache, "chat")
+    saved = json.loads(result.job_file.read_text(encoding="utf-8"))
+    system = next(item for item in saved["systems"] if item["key"] == changed)
+    names = [device["name"] for device in system["devices"]]
+    assert names == ["Controller", "Start Stop"]
+
+
 def test_a_device_delete_stays_honored_because_the_writer_is_not_asked(job_folder, tmp_path, monkeypatch):
     """The deleted line does not come back, and the review page does not call the decision unhonored."""
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)

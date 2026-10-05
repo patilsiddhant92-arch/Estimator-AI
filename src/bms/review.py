@@ -1,4 +1,4 @@
-﻿"""The review page and the estimator's decisions (workstream 7, design §4.7).
+"""The review page and the estimator's decisions (workstream 7, design §4.7).
 
 `review_page` writes one self-contained `Review.html`; the estimator answers the open questions in a browser, which
 cannot write files, so the page downloads `decisions.json` and the estimator saves it into the out folder.
@@ -15,6 +15,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
+from bms.citations import plain_id
 from bms.model import PARTIES, VERBS, Count, Decision, Device, Finding, Job, ModelError, Ref, System
 
 REVIEW_PAGE = "Review.html"
@@ -248,7 +249,7 @@ function buildDecision(q, state) {
   if (!state || !state.action) return null;
   var d = {system_key: q.system_key, action: state.action, device_id: q.device_id || null,
            family_name: q.family_name || null, device: null, count: null, finding_rule: q.finding_rule || null,
-           reason: ""};
+           reason: "", was: (q.level === "device" && q.device) ? JSON.parse(JSON.stringify(q.device)) : null};
   if (state.action === "change") {
     var parsed = parseNumber(state.text);
     d.reason = String(state.text || "").trim();
@@ -448,9 +449,14 @@ def load_decisions(out_dir: Path) -> list[Decision]:
 
 
 def _apply_to_devices(devices: tuple[Device, ...], device_id: str, decision: Decision) -> tuple[Device, ...]:
+    target_id = device_id
+    if decision.was is not None:
+        matched = next((dev for dev in devices if _same_device((dev,), decision.was)), None)
+        if matched is not None:
+            target_id = matched.id
     out: list[Device] = []
     for device in devices:
-        if device.id != device_id:
+        if device.id != target_id:
             out.append(device)
         elif decision.action == "accept":
             out.append(dataclasses.replace(device, flag="none"))
@@ -509,8 +515,8 @@ def unhonored_decisions(before: Job, decisions: Sequence[Decision], after: Job) 
     `before` is the job the decision was applied to, `after` the job after the last write. The writer numbers
     devices again (`d1`, `d2`, …), so a device is recognized by its content, not by the id it wore. A delete is
     honored when that device is gone, even if a different device now has its old id. A decision that named nothing
-    the earlier job had is skipped, as `apply_decisions` skips it. A flag is not part of the check: the count
-    pass may set one again after the estimator accepted the line."""
+    the earlier job had is skipped, as `apply_decisions` skips it. An accept sticks unless family counts changed
+    or the line has been re-flagged."""
     return [finding for decision in decisions
             if (finding := _unhonored(before, decision, after)) is not None]
 
@@ -518,7 +524,16 @@ def unhonored_decisions(before: Job, decisions: Sequence[Decision], after: Job) 
 def _unhonored(before: Job, decision: Decision, after: Job) -> Finding | None:
     if not _decision_holds(before, decision, after):
         subject = decision.device_id or decision.family_name or decision.system_key or "the front end"
-        return Finding("decision not honored", decision.system_key, decision.device_id, "must_fix",
+        device_id = decision.device_id
+        if decision.device_id is not None or decision.was is not None:
+            earlier = _devices(before, decision.system_key) or ()
+            target = decision.was or next((device for device in earlier if device.id == decision.device_id), None)
+            later = _devices(after, decision.system_key) or ()
+            if target is not None:
+                reappeared = next((dev for dev in later if _same_device((dev,), target)), None)
+                if reappeared is not None:
+                    device_id = reappeared.id
+        return Finding("decision not honored", decision.system_key, device_id, "must_fix",
                        f"decision not honored: {decision.action} {subject}",
                        "The estimator's decision stands. The last write undid it.")
     return None
@@ -540,19 +555,27 @@ def _device_holds(before: Job, decision: Decision, after: Job) -> bool:
     earlier = _devices(before, decision.system_key)
     if earlier is None:
         return True
-    target = next((device for device in earlier if device.id == decision.device_id), None)
+    target = decision.was or next((device for device in earlier if device.id == decision.device_id), None)
     if target is None:
         return True
     applied = _apply_one(before, decision)
     applied_devices = _devices(applied, decision.system_key) or ()
-    kept = next((device for device in applied_devices if device.id == decision.device_id), None)
+    kept = next((device for device in applied_devices
+                 if (device.id == decision.device_id if decision.was is None else _same_device((device,), decision.was))), None)
     later = _devices(after, decision.system_key)
     if later is None:
         return kept is None
     if kept is None:
         return not _same_device(later, target)
-    if not _same_device(later, kept):
+    matching_later = next((dev for dev in later if _same_device((dev,), kept)), None)
+    if matching_later is None:
         return False
+    if decision.action == "accept":
+        before_family = _family_of_device(before, decision.system_key, target)
+        after_family = _family_of_device(after, decision.system_key, matching_later)
+        counts_changed = (before_family is not None and after_family is not None and before_family.count != after_family.count)
+        if not counts_changed and matching_later.flag != "none":
+            return False
     return _same_device((target,), kept) or not _same_device(later, target)
 
 
@@ -563,7 +586,38 @@ def _family_holds(before: Job, decision: Decision, after: Job) -> bool:
     applied = _apply_one(before, decision)
     want = _family(applied, decision.system_key, decision.family_name)
     got = _family(after, decision.system_key, decision.family_name)
-    return want is not None and got is not None and got.count == want.count
+    if want is None or got is None or got.count != want.count:
+        return False
+    if decision.action == "accept":
+        system = after.system(decision.system_key) if any(s.key == decision.system_key for s in after.systems) else None
+        if system is not None:
+            family = next((f for f in system.families if f.name == decision.family_name), None)
+            if family is not None and family.count.others:
+                family_sources = {plain_id(r.source_id) for r in family.count.sources} | {
+                    plain_id(o.ref.source_id) for o in family.count.others
+                }
+                family_sources.discard("")
+                for dev in system.devices:
+                    if {plain_id(r.source_id) for r in dev.quantity.sources} & family_sources:
+                        if dev.flag != "none":
+                            return False
+    return True
+
+
+def _family_of_device(job: Job, key: str, device: Device | None) -> Family | None:
+    if device is None or key == "":
+        return None
+    for system in job.systems:
+        if system.key == key:
+            device_sources = {plain_id(r.source_id) for r in device.quantity.sources}
+            for family in system.families:
+                family_sources = {plain_id(r.source_id) for r in family.count.sources} | {
+                    plain_id(o.ref.source_id) for o in family.count.others
+                }
+                family_sources.discard("")
+                if device_sources & family_sources:
+                    return family
+    return None
 
 
 def _devices(job: Job, key: str) -> tuple[Device, ...] | None:

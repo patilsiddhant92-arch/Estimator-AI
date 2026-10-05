@@ -92,7 +92,7 @@ Finding:        rule: str, system_key: str, device_id: str | None, severity: Sev
                   rule = a Playbook rule name (### heading); system_key "" for the front end / whole job.
 Decision:       system_key: str, action: DecisionAction, device_id: str | None = None, family_name: str | None = None,
                 device: Device | None = None, count: Count | None = None, finding_rule: str | None = None,
-                reason: str = ""
+                reason: str = "", was: Device | None = None
 ```
 
 `MODEL_CLASSES` lists them all.

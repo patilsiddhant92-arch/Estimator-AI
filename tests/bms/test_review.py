@@ -1,4 +1,4 @@
-﻿"""Workstream 7: the review page, the decisions and applying them. Invented data only."""
+"""Workstream 7: the review page, the decisions and applying them. Invented data only."""
 from __future__ import annotations
 
 import dataclasses
@@ -283,6 +283,7 @@ def test_a_deleted_line_that_comes_back_under_a_new_id_is_not_honored(job, tmp_p
     findings = review.unhonored_decisions(job, [Decision("EF", "delete", device_id=deleted.id)], after)
     assert [f.severity for f in findings] == ["must_fix"]
     assert findings[0].what == f"decision not honored: delete {deleted.id}"
+    assert findings[0].device_id == "EF.d9"
     assert "decision not honored" in _page(after, findings, tmp_path)
 
 
@@ -321,13 +322,34 @@ def test_an_accepted_device_holds_when_the_line_stays_and_not_when_it_is_dropped
     kept = next(device for device in system.devices if device.id == "RTU.d4")
     decision = Decision("RTU", "accept", device_id="RTU.d4")
     renumbered = job.with_system(dataclasses.replace(system, devices=tuple(
-        dataclasses.replace(device, id="RTU.d9", flag="quantity") if device.id == "RTU.d4" else device
+        dataclasses.replace(device, id="RTU.d9", flag="none") if device.id == "RTU.d4" else device
         for device in system.devices)))
     assert review.unhonored_decisions(job, [decision], renumbered) == []
     dropped = job.with_system(dataclasses.replace(
         system, devices=tuple(device for device in system.devices if device.id != "RTU.d4")))
     assert review.unhonored_decisions(job, [decision], dropped)[0].what == "decision not honored: accept RTU.d4"
     assert kept.name
+
+
+def test_an_accept_whose_flag_came_back_is_not_honored(job):
+    system = job.system("RTU")
+    decision = Decision("RTU", "accept", device_id="RTU.d4")
+    reflagged = job.with_system(dataclasses.replace(system, devices=tuple(
+        dataclasses.replace(device, id="RTU.d9", flag="quantity") if device.id == "RTU.d4" else device
+        for device in system.devices)))
+    findings = review.unhonored_decisions(job, [decision], reflagged)
+    assert findings and findings[0].what == "decision not honored: accept RTU.d4"
+    assert findings[0].severity == "must_fix"
+
+
+def test_apply_decisions_with_was_deletes_matching_device_when_ids_differ(job):
+    system = job.system("EF")
+    target = system.devices[2]
+    # Decision was made on revised page where target had id EF.d1
+    decision = Decision("EF", "delete", device_id="EF.d1", was=target)
+    applied = review.apply_decisions(job, [decision])
+    assert not any(d.name == target.name for d in applied.system("EF").devices)
+    assert len(applied.system("EF").devices) == len(system.devices) - 1
 
 
 def test_a_decision_that_names_nothing_on_the_job_is_not_a_finding(job):

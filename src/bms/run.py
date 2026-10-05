@@ -76,14 +76,20 @@ def _changed_system_keys(before: Job, after: Job) -> tuple[str, ...]:
                  if system.key in kept and system != after.system(system.key))
 
 
-def _revised(system, findings, evidence, playbook, transport, job=None):
-    """Revise, then flag quantity disagreements again. The revise answer does not keep those flags."""
+def _revised(system, findings, evidence, playbook, transport, job=None, decisions=None):
+    """Revise, then flag quantity disagreements again. Devices accepted by the estimator stay accepted."""
     if job is None:
         revised = ai.revise_system(system, findings, evidence, playbook, transport)
     else:
         revised = ai.revise_system(system, findings, evidence, playbook, transport,
                                     tags=job_tags(job), ids=job_ids(job))
-    return flag_written_devices(revised)
+    flagged = flag_written_devices(revised)
+    if not decisions:
+        return flagged
+    accepted = [d for d in decisions if d.action == "accept" and (d.system_key == system.key or d.system_key == "")]
+    if not accepted:
+        return flagged
+    return apply_decisions(Job((flagged,)), accepted).systems[0]
 
 
 def _families_changed(before: Job, key: str, after: Job) -> bool:
@@ -199,7 +205,6 @@ def estimate(job_folder: Path, out: Path, cache: Path, mode: Mode = "chat") -> R
     for key in _changed_system_keys(decided_from, job):
         system = job.system(key)
         if not _families_changed(decided_from, key, job):
-            job = job.with_system(flag_written_devices(system))
             continue
         try:
             job = job.with_system(flag_written_devices(ai.rewrite_for_count(
@@ -229,7 +234,7 @@ def estimate(job_folder: Path, out: Path, cache: Path, mode: Mode = "chat") -> R
         system = job.system(key)
         try:
             job = job.with_system(_revised(system, [f for f in must_fix if f.system_key == key],
-                                            evidence[key], playbook, transport, job))
+                                            evidence[key], playbook, transport, job, decisions=decisions))
         except ai.NoAnswer as missing:
             pending.append(_stopped(missing.reason) if str(missing.reason).startswith("Stopped:")
                            else f"{system.name}: {missing.reason}")
