@@ -595,14 +595,18 @@ def test_tags_and_sheet_numbers_shaped_like_ids_survive_the_intake(job, raw, dos
     assert written.clarifications[0].text == text
 
 
-def test_an_issued_id_after_a_sheet_word_is_a_sheet_number_kept_as_written(job, raw, dossier, playbook):
-    """The estimator's ruling of 2026-10-05 (it replaces review 3 C1's "issued wins"): S ids number every dossier
-    line, so a real sheet "C101" or "S12" collides with an issued id; after a sheet word it is the sheet."""
+def test_an_issued_id_after_a_sheet_word_is_a_sheet_number_only_when_the_job_knows_the_sheet(job, raw, dossier,
+                                                                                              playbook):
+    """S ids number every dossier line, so a real sheet "C101" or "S12" collides with an issued id. The estimator's
+    ruling of 2026-10-05 let the sheet word win; the lead's ruling on L-D (lead/final-c) keeps it a sheet only when
+    it is a known sheet of the job (K, which the run passes as `sheets`), else it is refused like any issued id."""
     system = _with(skeleton(job.system("EF")), Ref("C101", "x", "ledger fact"))
     text = "Fans serve the kitchen; see civil sheet C101."
-    written = ai.write_system(system, ai.evidence_for(system, dossier), playbook, FakeTransport(
-        _bad(raw, lambda a: a.update(clarifications=[{"kind": "note", "text": text}]))))
+    answer = _bad(raw, lambda a: a.update(clarifications=[{"kind": "note", "text": text}]))
+    written = ai.write_system(system, ai.evidence_for(system, dossier), playbook, FakeTransport(answer),
+                              sheets=("C101",))
     assert written.clarifications[0].text == text
+    assert "prints the source id C101" in _refused(system, dossier, playbook, answer)
 
 
 def test_a_family_tag_shaped_like_an_id_survives_the_intake_even_when_issued(job, raw, dossier, playbook):

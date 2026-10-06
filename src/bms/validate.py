@@ -11,6 +11,7 @@ from __future__ import annotations
 import re
 from typing import Callable, Iterator
 
+from bms import citations
 from bms.citations import SourceIds
 from bms.model import PARTIES, Count, Device, Finding, Job, System
 from bms.playbook import Playbook, Shape
@@ -341,6 +342,16 @@ def _id_hits(device_id, field: str, text: str, ids: SourceIds) -> Iterator[Hit]:
                "it prints as written", "Say what it is (a tag the schedule names), or take it out.")
 
 
+def _where_hits(device, ids: SourceIds) -> Iterator[Hit]:
+    """A where on a writer's device ref that names an issued id after a sheet word ("Sheet S141, Mechanical.pdf
+    page 3", S141 no known sheet): its place would print the id, so the renderer leaves it out; must_fix (L-D)."""
+    named = list(dict.fromkeys(t for r in citations.device_refs(device) for t in ids.where_issued(r.where)))
+    if named:
+        yield (device.id, "must_fix", f"a ref of {device.name} names the source id{'s' if len(named) > 1 else ''} "
+               f"{', '.join(named)} as its sheet ({', '.join(named)} is no sheet of this job)",
+               "Give the sheet number printed on the drawing (\"M-101\"), never a source id.")
+
+
 def _ids(system, shape, job, playbook) -> Iterator[Hit]:
     """Id-shaped tokens in wording that prints (clarifications, assumptions, device names, the reason a block has
     no lines): an issued id is must_fix, an unissued one joined to it a check (`bms.citations`, `_id_hits`)."""
@@ -349,6 +360,8 @@ def _ids(system, shape, job, playbook) -> Iterator[Hit]:
         yield from _id_hits(None, f"the {c.kind} clarification", c.text, ids)
     for d in system.devices:
         yield from _id_hits(d.id, f"the name of {d.name}", d.name, ids)
+        if system.key:                    # a writer's device; the front end's refs are the planner's (K)
+            yield from _where_hits(d, ids)
         a = d.assumption
         if a is not None:
             yield from _id_hits(d.id, f"the assumption on {d.name}", f"{a.what} {a.why}", ids)

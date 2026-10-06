@@ -9,10 +9,12 @@ ASCII), zero-width characters taken out. The text itself is never rewritten by d
 `SourceIds.scan` sorts the id-shaped tokens of a text that are not tags (T, every tag of the job, a range "F1-F4"
 covering F1 to F4) into four kinds (the estimator's ruling of 2026-10-05):
 
-- sheet: a sheet number, issued or not, kept as written and never reported: a token right after a sheet word
-  ("sheet S12", "sheets C101 and S13", "(sheet C101)"), or one the planner's wheres name as a sheet (K,
-  `job_sheets`: the where "S101, Structural.pdf page 3" on a sequence ref makes S101 a sheet of the job). A where on
-  a writer's device ref is the writer's and makes no sheet; the run passes the whole plan's K to every intake.
+- sheet: a sheet number kept as written and never reported: one the planner's wheres name as a sheet (K,
+  `job_sheets`: the where "S101, Structural.pdf page 3" on a sequence ref makes S101 a sheet of the job), or an
+  unissued token right after a sheet word ("sheet C2", "sheets C101 and C102", "(sheet C101)"). A where on a
+  writer's device ref is the writer's and makes no sheet; the run passes the whole plan's K to every intake. A sheet
+  word never makes an issued id a sheet (the lead's ruling on L-D, lead/final-c): "sheet S141" with S141 issued and
+  not in K is issued, in client text and in a where the writer typed alike.
 - issued: any other id the job issued (I, every `Ref.source_id`; at intake also the evidence's ids). The intake
   refuses the text; the validator reports must_fix; the renderer's safety net takes out exactly that token.
 - cited: an unissued token joined by and / or / , / to / through / thru / a dash / a slash to an issued id, along
@@ -86,6 +88,11 @@ def system_refs(system) -> list:
 
 def _device_refs(device) -> list:
     return [*device.refs, *device.quantity.sources, *(o.ref for o in device.quantity.others)]
+
+
+def device_refs(device) -> list:
+    """Every Ref a Device carries: its refs, its quantity's sources and its other counts' refs."""
+    return _device_refs(device)
 
 
 def system_tags(system) -> list[str]:
@@ -247,10 +254,12 @@ class SourceIds:
                 continue
             joined = bool(found) and start - found[-1][2] <= _WINDOW and bool(_JOIN.fullmatch(copy[found[-1][2]:start]))
             listed = bool(_SHEET_BEFORE.search(copy[max(0, start - _WINDOW):start])) or (joined and listed)
-            if listed or _key(token) in self.sheets:
+            if _key(token) in self.sheets:
                 kind = "sheet"
             elif self.is_id(token):
-                kind = "issued"
+                kind = "issued"              # a sheet word before it changes nothing (L-D)
+            elif listed:
+                kind = "sheet"
             else:
                 kind = "loose"
             found.append([token, start, end, kind, joined])
@@ -296,15 +305,27 @@ class SourceIds:
 
     def _sheet_ok(self, text: str, found: re.Match) -> bool:
         """A sheet number found in a where: printable unless it is id-shaped and the ledger does not know it as a
-        sheet. An id-shaped token is a sheet when a sheet word comes before it ("Sheet C501") or the planner's
-        wheres name it as a sheet (K), issued or not; else only when it is no issued id and stands first with a file
-        part after it ("C101, Controls.pdf page 2")."""
+        sheet. An id-shaped token is a sheet when the planner's wheres name it as a sheet (K); else only when it is
+        no issued id and reads as a sheet: a sheet word comes before it ("Sheet C501") or it stands first with a file
+        part after it ("C101, Controls.pdf page 2"). A sheet word never makes an issued id printable (L-D)."""
         token = found.group(0)
         if not ONE_ID.fullmatch(token):
             return True
-        if _key(token) in self.sheets or _SHEET_BEFORE.search(text[max(0, found.start() - _WINDOW):found.start()]):
+        if _key(token) in self.sheets:
             return True
         return _key(token) not in self.ids and _sheet_form(text, found)
+
+    def where_issued(self, where: str) -> list[str]:
+        """The issued ids (not in K) that `where` names after a sheet word ("Sheet S141, Mechanical.pdf page 3"),
+        as written, in order: the where reads them as its sheet, but no issued id prints as a place (`place` leaves
+        them out). The intake refuses a writer's where naming one; the validator reports it must_fix."""
+        text = squash(re.sub(r"\([^)]*\)", " ", where or ""))
+        if _NOT_A_PLACE.search(text) or text.lower().startswith(_NOT_A_DOCUMENT):
+            return []
+        return list(dict.fromkeys(
+            f.group(0) for f in SHEET.finditer(text)
+            if ONE_ID.fullmatch(f.group(0)) and _key(f.group(0)) in self.ids and _key(f.group(0)) not in self.sheets
+            and _SHEET_BEFORE.search(text[max(0, f.start() - _WINDOW):f.start()])))
 
     def sheet(self, where: str) -> str:
         """The first printable sheet number in `where` (`_sheet_ok`); "" for a ledger fact or a picture file."""

@@ -119,6 +119,8 @@ def test_a_sheet_only_a_writers_device_ref_names_is_refused_must_fix_and_cut_ali
     assert _intake(j, text, device_refs=(Ref("Q2", "q", where),)) is None              # its own device ref too
     found, printed = _downstream(j, text)
     assert "must_fix" in found and not _prints(printed, token), (found, printed)
-    # the writer's way out, which the prompts give: the sheet word
-    assert _intake(j, f"Points per sheet {token}") == f"Points per sheet {token}"
-    assert _downstream(j, f"Points per sheet {token}") == ([], f"*Points per sheet {token}")
+    # the lead's ruling on L-D (lead/final-c): a sheet word is no way out for an issued id any more; it is refused,
+    # must_fix and cut alike. It prints only once a planner's where names it as a sheet (K).
+    assert _intake(j, f"Points per sheet {token}") is None
+    found, printed = _downstream(j, f"Points per sheet {token}")
+    assert "must_fix" in found and not _prints(printed, token), (found, printed)
