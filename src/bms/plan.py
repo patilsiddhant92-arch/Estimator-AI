@@ -13,7 +13,10 @@ the contract and not needed. The behaviours are those the estimator approved in 
 - a motorized damper linked to a fan (a link fact, or its schedule row naming the fan's tag) moves under that fan;
   dampers no fan claims stay a damper system;
 - families of one name (not a general kind alone) are one block; a code the dossier gives no kind joins the family
-  it is a tag of; a family with only a general kind for a name is asked what it is;
+  it is a tag of; a family with only a general kind for a name is asked what it is, and gives up the tags of other
+  families the ledger names by their own kind;
+- condensate pumps carrying the tag numbers of one split block's units are planned in that block (their float
+  switch tie-in); a condensate pump block never takes the split shape;
 - the printed count is the highest; every other count is kept with its source; unknown is None (Qty (##));
 - unscheduled and sequence-only families, parts with no count, unmatched sequence sections and the ledger's own
   questions become plain-words questions.
@@ -49,7 +52,7 @@ _DUCT_HEATER_WORDS = re.compile(r"\b(?:electric\s+)?duct\s+heaters?\b|\bedh\b", 
 _VRF_WORDS = re.compile(r"\bvrf\b|\bvrv\b|variable\s+refrigerant", re.I)
 _BRANCH_WORDS = re.compile(r"\bbranch\b|\bbc\s+controller\b", re.I)
 _INDOOR_WORDS = re.compile(r"\bindoor\b|\bfan\s+coil\b|\bwall\s*mount|\bcassette\b|\bductless\b|\bair\s+handler\b", re.I)
-_CONDENSING_WORDS = re.compile(r"\bcondens|\boutdoor\s+unit\b|\bheat\s+pump\s+unit\b", re.I)
+_CONDENSING_WORDS = re.compile(r"\bcondens(?!ate)|\boutdoor\s+unit\b|\bheat\s+pump\s+unit\b", re.I)
 _INDOOR_PREFIXES = frozenset({"AC", "IDU", "WAC", "IU", "CAC", "SS", "FCU", "DFCU"})
 _CONDENSING_PREFIXES = frozenset({"CU", "ACCU", "ODU", "OU", "HPCU"})
 _BRANCH_PREFIXES = frozenset({"BS", "BC", "BSB"})
@@ -313,6 +316,47 @@ class _Planner:
         draft.families = [_Fam(family.name, left, count, family)]
         return draft
 
+    # -- step 1b: a block named only by a general kind keeps no tag another family owns
+
+    def general_kind_tags(self, drafts: list[_Draft]) -> None:
+        """A single block whose ledger name is only a general kind ("Pump") gives up each tag of another prefix
+        whose own family the ledger names by a kind of its own ("SPX-1" of a Sump Pump family): that family's block
+        holds it, so no tag is in two blocks. The count drops by the tags given up only when it is one per tag;
+        else it is kept (never undershoot). A question names the tags and where they are."""
+        for draft in drafts:
+            if draft.kind != "single" or len(draft.families) != 1:
+                continue
+            fam = draft.families[0]
+            source = fam.source
+            if source is None or squash(source.name).casefold() not in _GENERIC_KINDS:
+                continue
+            moved: dict[str, list[str]] = {}
+            for tag in fam.tags:
+                owner = family_of_tag(self.reader, tag)
+                if owner is None or owner.prefix.casefold() == source.prefix.casefold():
+                    continue
+                kind = squash(owner.name).casefold()
+                if kind in _GENERIC_KINDS or kind == NO_KIND or tag.upper() not in {t.upper() for t in owner.tags}:
+                    continue
+                moved.setdefault(owner.name, []).append(tag)
+            if not moved:
+                continue
+            gone = {t for tags in moved.values() for t in tags}
+            left = tuple(t for t in fam.tags if t not in gone)
+            count = fam.count
+            if count.value is not None and count.value == len(fam.tags):
+                count = Count(len(left), count.sources, count.others)
+                said = f"its count is {len(left)}, one per tag left"
+            else:
+                said = (f"its count of {count.value} is kept as the documents give it; confirm it does not include "
+                        "them" if count.value is not None else "its count is not known")
+            fam.tags, fam.count = left, count
+            where = "; ".join(f"{', '.join(tags)} in the {name} block" for name, tags in moved.items())
+            self.questions.append(
+                f"{draft.name} ({source.prefix}) has only the general name “{source.name}”, and its list also gives "
+                f"tags of other families the documents name by their own kind: {where}. They are planned there "
+                f"only, not twice; {said}.")
+
     # -- step 2: split units
 
     def gather_splits(self, drafts: list[_Draft]) -> list[_Draft]:
@@ -340,6 +384,43 @@ class _Planner:
                                 alternate=alternate, exception=exception)
                 out[out.index(block[0])] = merged
                 out = [d for d in out if d not in block[1:]]
+        return self._condensate_pumps(out, prefixes)
+
+    def _condensate_pumps(self, drafts: list[_Draft], prefixes: frozenset[str]) -> list[_Draft]:
+        """Condensate pumps whose tags carry the numbers of one split block's units (CP-21 with AC-21 and ACCU-21)
+        are planned in that block, never as a block of their own: the house rule writes their float switch tie-in
+        in the split / VRF block, furnished by the mechanical contractor (ame_practice.txt, VRF SYSTEMS and
+        OWNERSHIP ANSWERS (3)). Pumps that share only some numbers, or numbers of two blocks, stay apart and are
+        asked. Each move is asked to be confirmed."""
+        splits = [d for d in drafts if d.kind == "split" or (d.kind == "single" and _lead(d.key) in prefixes)]
+        out = list(drafts)
+        for pump in [d for d in drafts if d.kind == "single" and _lead(d.key) not in prefixes and _is_condensate(d)]:
+            mine = _family_suffixes(pump.families)
+            if not mine:
+                continue
+            sharing = [d for d in splits if d.alternate == pump.alternate and mine & _family_suffixes(d.families)]
+            if not sharing:
+                continue
+            label = f"{pump.name} ({tag_words(pump.tags())})"
+            whole = len(sharing) == 1 and mine <= _family_suffixes(sharing[0].families) and \
+                len(mine) == len(pump.tags())
+            if not whole:
+                self.questions.append(
+                    f"{label} share some tag numbers with the split units of {', '.join(d.name for d in sharing)}, "
+                    "but not all of them with one block, so they are planned as a block of their own. Are they the "
+                    "condensate pumps of those split units? If so, their float switch tie-in (Furnished by "
+                    "Mechanical Contractor) belongs in the split block.")
+                continue
+            block = sharing[0]
+            block.families += pump.families
+            block.prefixes += [p for p in pump.prefixes if p not in block.prefixes]
+            block.matches += [m for m in pump.matches if m not in block.matches]
+            out.remove(pump)
+            self.questions.append(
+                f"{label} carry the tag numbers of the split units of {block.name}, so they are planned in that "
+                "block for the condensate pump float switch tie-in (Furnished by Mechanical Contractor), as the "
+                "house rule for split and VRF systems writes it. Confirm each pump serves the split unit with its "
+                "number.")
         return out
 
     def _split_blocks(self, loose: list[_Draft], drafts: list[_Draft]) -> dict[str, list[_Draft]]:
@@ -598,6 +679,8 @@ class _Planner:
             shape = self._shape_by_kind("global")
         else:
             shape = self.playbook.shape_for(draft.name, draft.prefixes)
+            if shape is not None and shape is self.split_shape() and _is_condensate(draft):
+                shape = None                            # a pump block's name may say "split ac"; it is no split unit
         families = draft.families
         if vrf or draft.kind == "split":
             families = [self._role_named(f, draft, shape, vrf) for f in families]
@@ -617,7 +700,9 @@ class _Planner:
         source = fam.source
         prefix = _lead(source.prefix) if source is not None else ""
         name = fam.name
-        says_vrf = _VRF_WORDS.search(f"{words} {name}") or _BRANCH_WORDS.search(f"{words} {name}")
+        if _CONDENSATE.search(name):
+            return ""                                   # a condensate pump is no indoor, outdoor or branch unit
+        says_vrf =_VRF_WORDS.search(f"{words} {name}") or _BRANCH_WORDS.search(f"{words} {name}")
         if re.search(r"branch\s+(?:selector|controller|box)|\bbc\s+controller\b|\bselector\s+box", name, re.I) \
                 or prefix in _BRANCH_PREFIXES or (prefix == "HRU" and says_vrf):
             return "branch"
@@ -793,8 +878,7 @@ class _Planner:
         return out
 
 
-_GENERIC_KINDS = frozenset({"fan", "fans", "equipment", "unit", "units", "pump", "pumps", "heater", "heaters",
-                            "damper", "dampers", "device", "devices", "motor", "motors", "system", "systems"})
+_GENERIC_KINDS = ai_evidence.GENERAL_KINDS
 _ENUMERATOR = re.compile(r"^\s*(?:[A-Za-z]|\d+(?:\.\d+)*|[ivxIVX]+)[.)]\s+")
 _JOINT = re.compile(r"\s+(?:and|with|for|&|including)\s+|[,:;(/]", re.I)
 _LEVEL = re.compile(r"\b(?:level|floor|lvl)\s+\w+\b|\b(?:typ\.?|typical)\b", re.I)
@@ -870,6 +954,26 @@ def _group_name(reader: Reader, group: Fact) -> str:
     """The group's own words; when it has none, its members' prefixes ("BS / AC"); never empty."""
     return (squash(group.subject) or " / ".join(dict.fromkeys(f.prefix for f, _ in members(reader, group)))
             or squash(group.value) or "Group")
+
+
+_CONDENSATE = re.compile(r"\bcondensate\s+pumps?\b", re.I)
+
+
+def _is_condensate(draft: _Draft) -> bool:
+    """A block of condensate pumps: its name or its family's ledger name says so."""
+    names = [draft.name, *(f.name for f in draft.families), *(f.source.name for f in draft.families if f.source)]
+    return any(_CONDENSATE.search(squash(n)) for n in names)
+
+
+def _family_suffixes(families) -> set[str]:
+    """The families' tags without their family's prefix: CP-21 of CP gives "21"."""
+    out = set()
+    for fam in families:
+        prefix = (fam.source.prefix if fam.source is not None else "").upper()
+        for tag in fam.tags:
+            if prefix and tag.upper().startswith(prefix + "-"):
+                out.add(tag.upper()[len(prefix) + 1:])
+    return out
 
 
 def _suffixes(draft: _Draft) -> set[str]:
@@ -1002,6 +1106,7 @@ def plan_job(ledger: Ledger, catalogue: Catalogue, dossier: Dossier, playbook: P
     planner = _Planner(ledger, dossier, playbook)
     own = [squash(f.value) for f in ledger.of_kind("note") if squash(f.subject).casefold() == "question"]
     drafts = planner.drafts()
+    planner.general_kind_tags(drafts)
     drafts = planner.gather_splits(drafts)
     drafts = planner.gather_heaters(drafts)
     drafts = planner.link_dampers(drafts)
