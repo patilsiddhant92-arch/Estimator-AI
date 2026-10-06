@@ -92,7 +92,8 @@ def test_intake_validator_and_render_agree_on_a_source_sheet(kind, probe, token,
     assert _verdicts(kind, probe, token, source, planner, tag) == verdict
 
 
-def test_the_probe_table_is_large_and_mixed():
+def test_guard_probe_table_shape():
+    """GUARD: checks only the table itself (its size and mix), no behaviour; it passes on rebuild too."""
     assert len(PROBES) >= 30
     assert sum(1 for p in PROBES if not p[7]) >= 10          # rows that fail on rebuild 36b6d5c
     assert {p[0] for p in PROBES} == {"text", "where"}
