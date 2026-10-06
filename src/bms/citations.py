@@ -59,10 +59,13 @@ MAX_RANGE = 500                                   # a tag range wider than this 
 TRADE = re.compile(r"\b(plumbing|electrical|mechanical|architectural|fire protection|civil|structural)\b",
                    re.IGNORECASE)
 REFUSAL = "name the document in words; cite it as a Ref, never print an id"
-# the advice for a where that names an issued id as its sheet: the evidence's own where is never refused (no producer
-# of an evidence where puts a sheet word before the number); "give the sheet number" would repeat an honest input
+# the advice for a where that names an issued id (`SourceIds.where_issued`): "give the sheet number" would repeat an
+# honest input. An evidence where can itself lead with a sheet number that is also an issued id and no known sheet
+# (K holds the planner's wheres only), so copying it is refused too; the way out is its document and page, which
+# loses nothing: that id never prints as a place
 WHERE_ADVICE = ("copy the where exactly as the evidence gives it (the place the evidence gives for that source), with "
-                "no sheet word added; never a source id")
+                "no sheet word added; never a source id; if the evidence's own where names that id, give only its "
+                "document and page")
 
 
 def squash(text: str) -> str:
@@ -328,18 +331,17 @@ class SourceIds:
         return not self.is_id(token) and _sheet_form(text, found)
 
     def where_issued(self, where: str) -> list[str]:
-        """The issued ids (not in K) that `where` names after a sheet word ("Sheet S141, Mechanical.pdf page 3",
-        "sheet s141", "Sheet: S141", "Sheet No. S2010"; `SHEET`, `_SHEET_BEFORE`),
-        as written, in order: the where reads them as its sheet, but no issued id prints as a place (`place` leaves
-        them out). The intake refuses a writer's where naming one; the validator reports it must_fix. Read on the
-        detection copy (`_where_text`), so a full-width or zero-width id is found as `scan` finds it."""
+        """The issued ids (not in K, no tag) that `where` names anywhere, after a sheet word or not ("Sheet S141,
+        Mechanical.pdf page 3", "S141, Mechanical.pdf page 3", "Mechanical schedule, S141", "Sheet C101 and S141"),
+        as written, in order: exactly the tokens `scan` reads as issued, so exactly the ones the renderer's safety net
+        cuts. No issued id prints as a place (`place` leaves it out, and with it the place), so the intake refuses a
+        writer's where naming one and the validator reports it must_fix (FINAL-F, the lead's ruling). A ledger fact,
+        a picture file or the equipment counts is no place and is never refused. Read on the detection copy
+        (`_where_text`), so a full-width or zero-width id is found. One pass (`scan`)."""
         text = _where_text(where)
         if _NOT_A_PLACE.search(text) or text.lower().startswith(_NOT_A_DOCUMENT):
             return []
-        return list(dict.fromkeys(
-            f.group(0) for f in SHEET.finditer(text)
-            if ONE_ID.fullmatch(f.group(0)) and self.is_id(f.group(0))      # a tag or a K sheet is no issued id
-            and _SHEET_BEFORE.search(text[max(0, f.start() - _WINDOW):f.start()])))
+        return list(dict.fromkeys(f.token for f in self.scan(text) if f.kind == "issued"))
 
     def sheet(self, where: str) -> str:
         """The first printable sheet number in `where` (`_sheet_ok`), as the detection copy reads it

@@ -343,12 +343,13 @@ def _id_hits(device_id, field: str, text: str, ids: SourceIds) -> Iterator[Hit]:
 
 
 def _where_hits(device, ids: SourceIds) -> Iterator[Hit]:
-    """A where on a writer's device ref that names an issued id after a sheet word ("Sheet S141, Mechanical.pdf
-    page 3", S141 no known sheet): its place would print the id, so the renderer leaves it out; must_fix (L-D)."""
+    """A where on a writer's device ref that names an issued id, after a sheet word or not ("Sheet S141,
+    Mechanical.pdf page 3", "S141, Mechanical.pdf page 3", S141 no known sheet; `SourceIds.where_issued`): the
+    renderer leaves the id out and with it the place, so the count note loses it; must_fix (L-D, FINAL-F)."""
     named = list(dict.fromkeys(t for r in citations.device_refs(device) for t in ids.where_issued(r.where)))
     if named:
         yield (device.id, "must_fix", f"a ref of {device.name} names the source id{'s' if len(named) > 1 else ''} "
-               f"{', '.join(named)} as its sheet ({', '.join(named)} is no sheet of this job)",
+               f"{', '.join(named)} as its place ({', '.join(named)} is no sheet of this job)",
                WHERE_ADVICE[0].upper() + WHERE_ADVICE[1:] + ".")
 
 
