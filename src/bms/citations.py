@@ -149,7 +149,10 @@ def _sheet_form(text: str, found: re.Match) -> bool:
 
 
 def _where_text(where) -> str:
-    return squash(re.sub(r"\([^)]*\)", " ", str(where or "")))
+    """The copy of a where that every where check reads (`ref_sheets`, `where_issued`, `sheet`, `place`): the
+    detection copy `scan` reads client text on (NFKC per character, zero-width characters out), then its bracketed
+    parts out and its whitespace collapsed. A place is printed from this copy, so it prints as detection read it."""
+    return squash(re.sub(r"\([^)]*\)", " ", _for_detection(str(where or ""))[0]))
 
 
 def ref_sheets(refs) -> frozenset[str]:
@@ -318,8 +321,9 @@ class SourceIds:
     def where_issued(self, where: str) -> list[str]:
         """The issued ids (not in K) that `where` names after a sheet word ("Sheet S141, Mechanical.pdf page 3"),
         as written, in order: the where reads them as its sheet, but no issued id prints as a place (`place` leaves
-        them out). The intake refuses a writer's where naming one; the validator reports it must_fix."""
-        text = squash(re.sub(r"\([^)]*\)", " ", where or ""))
+        them out). The intake refuses a writer's where naming one; the validator reports it must_fix. Read on the
+        detection copy (`_where_text`), so a full-width or zero-width id is found as `scan` finds it."""
+        text = _where_text(where)
         if _NOT_A_PLACE.search(text) or text.lower().startswith(_NOT_A_DOCUMENT):
             return []
         return list(dict.fromkeys(
@@ -328,8 +332,9 @@ class SourceIds:
             and _SHEET_BEFORE.search(text[max(0, f.start() - _WINDOW):f.start()])))
 
     def sheet(self, where: str) -> str:
-        """The first printable sheet number in `where` (`_sheet_ok`); "" for a ledger fact or a picture file."""
-        text = squash(re.sub(r"\([^)]*\)", " ", where or ""))
+        """The first printable sheet number in `where` (`_sheet_ok`), as the detection copy reads it
+        (`_where_text`); "" for a ledger fact or a picture file."""
+        text = _where_text(where)
         if _NOT_A_PLACE.search(text) or text.lower().startswith(_NOT_A_DOCUMENT):
             return ""
         return next((f.group(0) for f in SHEET.finditer(text) if self._sheet_ok(text, f)), "")
@@ -338,11 +343,11 @@ class SourceIds:
         """Where a source is, as the client reads it: the first printable sheet number in it ("M-112.00", "C101");
         else the schedule, section or document name with the file name and its page left out; else "" (no place).
         A ledger fact, a picture file, an issued id, or a part holding an id-shaped token that is not a known sheet
-        is no place."""
+        is no place. Every part is read on the detection copy (`_where_text`)."""
         found = self.sheet(where)
         if found:
             return found
-        text = squash(re.sub(r"\([^)]*\)", " ", where or ""))
+        text = _where_text(where)
         if _NOT_A_PLACE.search(text) or text.lower().startswith(_NOT_A_DOCUMENT):
             return ""
         for part in re.split(r"[,;]", text):

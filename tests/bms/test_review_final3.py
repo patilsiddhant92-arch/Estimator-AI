@@ -148,8 +148,6 @@ def test_intake_validator_and_render_agree_on_each_probe(kind, probe, token, she
     assert _verdicts(kind, probe, token, sheets, tag) == verdict
 
 
-@pytest.mark.xfail(strict=True, reason="REVIEW-FINAL3 F1 (Medium): a writer's where with a full-width or "
-                   "zero-width issued id is accepted, silent, and its place prints the id in the count note")
 @pytest.mark.parametrize("where", ["Sheet Ｓ141, Mechanical.pdf page 3", "Ｓ141, Mechanical.pdf page 3",
                                    "Sheet S​141, Mechanical.pdf page 3"])
 def test_f1_a_disguised_issued_id_in_a_writers_where_never_prints(where):
