@@ -317,11 +317,13 @@ def _count_part(count: Count, ids: SourceIds, causes: str = "") -> str:
 
 
 def _count_note(counts: list[Count], playbook: Playbook, ids: SourceIds) -> str:
-    """The block's one quantity note naming every other count in the documents ("" when there is none)."""
+    """The block's one quantity note naming every other count in the documents ("" when there is none). It goes
+    through the safety net every other client text goes through (`SourceIds.without_issued`): an issued id that
+    reached a place is taken out, token only."""
     parts = list(dict.fromkeys(p for p in (_count_part(c, ids, _count_causes(c, playbook)) for c in counts) if p))
     if not parts:
         return ""
-    return _fill(playbook.wording.quantity["others_note"], counts="; ".join(parts))
+    return ids.without_issued(_fill(playbook.wording.quantity["others_note"], counts="; ".join(parts)))
 
 
 # ---- one line --------------------------------------------------------------------------------------------------

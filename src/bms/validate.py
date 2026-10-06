@@ -12,7 +12,7 @@ import re
 from typing import Callable, Iterator
 
 from bms import citations
-from bms.citations import SourceIds
+from bms.citations import WHERE_ADVICE, SourceIds
 from bms.model import PARTIES, Count, Device, Finding, Job, System
 from bms.playbook import Playbook, Shape
 
@@ -349,7 +349,7 @@ def _where_hits(device, ids: SourceIds) -> Iterator[Hit]:
     if named:
         yield (device.id, "must_fix", f"a ref of {device.name} names the source id{'s' if len(named) > 1 else ''} "
                f"{', '.join(named)} as its sheet ({', '.join(named)} is no sheet of this job)",
-               "Give the sheet number printed on the drawing (\"M-101\"), never a source id.")
+               WHERE_ADVICE[0].upper() + WHERE_ADVICE[1:] + ".")
 
 
 def _ids(system, shape, job, playbook) -> Iterator[Hit]:

@@ -53,7 +53,7 @@ from estimator.writing.judge import DEFAULT_MODEL, KEY_VARIABLE, MODEL_VARIABLE,
 from bms import ai_evidence
 from bms.model import Device, Finding, Job, ModelError, Ref, System, json_schema, schema_errors
 from bms.playbook import Playbook, Shape
-from bms.citations import SourceIds, label_off, plan_refs, ref_sheets, system_tags
+from bms.citations import WHERE_ADVICE, SourceIds, label_off, plan_refs, ref_sheets, system_tags
 
 WRITE_SYSTEM = "write_system"       # kind of both the write and the revise request
 QC_JOB = "qc_job"
@@ -1007,7 +1007,7 @@ def _normalise(answer: dict, skeleton: System, kept_ids: set[str], changes: list
             if named:
                 problems.append(f"{label}'s ref {ref.get('source_id')} has the where {ref.get('where')!r}, which "
                                 f"names the source id{'s' if len(named) > 1 else ''} {', '.join(named)} as its sheet: "
-                                "give the sheet number printed on the drawing, never a source id")
+                                f"{WHERE_ADVICE}")
         assumption = device.get("assumption")
         if assumption is None:
             continue

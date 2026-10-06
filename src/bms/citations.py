@@ -38,12 +38,16 @@ _TOKEN = re.compile(r"(?<![^\W_])(?<![0-9]\.)[SQIFC][0-9]{1,4}[A-Za-z]?(?![^\W_]
 # the ledger's own bracket form of an id ("[S41]"), which the planner takes out of its texts
 LEDGER_BRACKET = re.compile(r"\[[SQIFC]\d{1,4}[a-z]?\]", re.IGNORECASE)
 
-SHEET = re.compile(r"\b[A-Z]{1,2}-?\d{1,3}(?:\.\d{1,3})?[A-Z]?\b")
+# a sheet number in a where: an upper-case sheet ("M-101", "M-112.00", "C501A"), or an id-shaped token as `_TOKEN`
+# reads one (any case, 1 to 4 digits: "s141", "S2010"), so the where checks find every id the scanner finds
+SHEET = re.compile(r"\b(?:[A-Z]{1,2}-?\d{1,3}(?:\.\d{1,3})?[A-Z]?|(?i:[SQIFC]\d{1,4}[A-Z]?)(?!\.\d))\b")
 _FILE_PART = re.compile(r"\.(?:pdf|docx?|xlsx?|dwg|txt|png|jpe?g)\b|\bpage\s+\d+\b", re.IGNORECASE)
 _NOT_A_DOCUMENT = ("equipment counts",)          # the dossier's own label for a combined count, not a document
 _NOT_A_PLACE = re.compile(r"^\s*ledger\b|\.(?:png|jpe?g)\b", re.IGNORECASE)   # a ledger fact or a picture file
-# "sheet C101", "sheets C101 and C102", "dwg C3"; not "drawing", which the writer uses for a picture id ("drawing I12")
-_SHEET_BEFORE = re.compile(r"(?<![^\W_])(?:sheets?|dwgs?\.?)\s*$", re.IGNORECASE)
+# "sheet C101", "sheets C101 and C102", "dwg C3", "Sheet: C101", "Sheet No. C101", "Dwg No. C3"; not "drawing", which
+# the writer uses for a picture id ("drawing I12"), and not a bare "No."
+_SHEET_BEFORE = re.compile(r"(?<![^\W_])(?:sheets?|dwgs?\.?)(?:\s*(?:no|nos|number)\b\.?)?\s*[:#]?\s*$",
+                           re.IGNORECASE)
 _JOIN = re.compile(r"\s*(?:,|and|or|to|through|thru|[-–—/‐‑])\s*", re.IGNORECASE)
 _WINDOW = 32                                      # how far back a sheet word is looked for
 _ZERO_WIDTH = frozenset("​‌‍⁠﻿­")
@@ -55,6 +59,10 @@ MAX_RANGE = 500                                   # a tag range wider than this 
 TRADE = re.compile(r"\b(plumbing|electrical|mechanical|architectural|fire protection|civil|structural)\b",
                    re.IGNORECASE)
 REFUSAL = "name the document in words; cite it as a Ref, never print an id"
+# the advice for a where that names an issued id as its sheet: the evidence's own where is never refused (no producer
+# of an evidence where puts a sheet word before the number); "give the sheet number" would repeat an honest input
+WHERE_ADVICE = ("copy the where exactly as the evidence gives it (the place the evidence gives for that source), with "
+                "no sheet word added; never a source id")
 
 
 def squash(text: str) -> str:
@@ -149,7 +157,10 @@ def _sheet_form(text: str, found: re.Match) -> bool:
 
 
 def _where_text(where) -> str:
-    return squash(re.sub(r"\([^)]*\)", " ", str(where or "")))
+    """The copy of a where that every where check reads (`ref_sheets`, `where_issued`, `sheet`, `place`): the
+    detection copy `scan` reads client text on (NFKC per character, zero-width characters out), then its bracketed
+    parts out and its whitespace collapsed. A place is printed from this copy, so it prints as detection read it."""
+    return squash(re.sub(r"\([^)]*\)", " ", _for_detection(str(where or ""))[0]))
 
 
 def ref_sheets(refs) -> frozenset[str]:
@@ -307,29 +318,33 @@ class SourceIds:
         """A sheet number found in a where: printable unless it is id-shaped and the ledger does not know it as a
         sheet. An id-shaped token is a sheet when the planner's wheres name it as a sheet (K); else only when it is
         no issued id and reads as a sheet: a sheet word comes before it ("Sheet C501") or it stands first with a file
-        part after it ("C101, Controls.pdf page 2"). A sheet word never makes an issued id printable (L-D)."""
+        part after it ("C101, Controls.pdf page 2"). A sheet word never makes an issued id printable (L-D). A tag of
+        the job is no issued id here, as in `scan`: "Sheet C101" prints when C101 is a real tag."""
         token = found.group(0)
         if not ONE_ID.fullmatch(token):
             return True
         if _key(token) in self.sheets:
             return True
-        return _key(token) not in self.ids and _sheet_form(text, found)
+        return not self.is_id(token) and _sheet_form(text, found)
 
     def where_issued(self, where: str) -> list[str]:
-        """The issued ids (not in K) that `where` names after a sheet word ("Sheet S141, Mechanical.pdf page 3"),
+        """The issued ids (not in K) that `where` names after a sheet word ("Sheet S141, Mechanical.pdf page 3",
+        "sheet s141", "Sheet: S141", "Sheet No. S2010"; `SHEET`, `_SHEET_BEFORE`),
         as written, in order: the where reads them as its sheet, but no issued id prints as a place (`place` leaves
-        them out). The intake refuses a writer's where naming one; the validator reports it must_fix."""
-        text = squash(re.sub(r"\([^)]*\)", " ", where or ""))
+        them out). The intake refuses a writer's where naming one; the validator reports it must_fix. Read on the
+        detection copy (`_where_text`), so a full-width or zero-width id is found as `scan` finds it."""
+        text = _where_text(where)
         if _NOT_A_PLACE.search(text) or text.lower().startswith(_NOT_A_DOCUMENT):
             return []
         return list(dict.fromkeys(
             f.group(0) for f in SHEET.finditer(text)
-            if ONE_ID.fullmatch(f.group(0)) and _key(f.group(0)) in self.ids and _key(f.group(0)) not in self.sheets
+            if ONE_ID.fullmatch(f.group(0)) and self.is_id(f.group(0))      # a tag or a K sheet is no issued id
             and _SHEET_BEFORE.search(text[max(0, f.start() - _WINDOW):f.start()])))
 
     def sheet(self, where: str) -> str:
-        """The first printable sheet number in `where` (`_sheet_ok`); "" for a ledger fact or a picture file."""
-        text = squash(re.sub(r"\([^)]*\)", " ", where or ""))
+        """The first printable sheet number in `where` (`_sheet_ok`), as the detection copy reads it
+        (`_where_text`); "" for a ledger fact or a picture file."""
+        text = _where_text(where)
         if _NOT_A_PLACE.search(text) or text.lower().startswith(_NOT_A_DOCUMENT):
             return ""
         return next((f.group(0) for f in SHEET.finditer(text) if self._sheet_ok(text, f)), "")
@@ -338,11 +353,11 @@ class SourceIds:
         """Where a source is, as the client reads it: the first printable sheet number in it ("M-112.00", "C101");
         else the schedule, section or document name with the file name and its page left out; else "" (no place).
         A ledger fact, a picture file, an issued id, or a part holding an id-shaped token that is not a known sheet
-        is no place."""
+        is no place. Every part is read on the detection copy (`_where_text`)."""
         found = self.sheet(where)
         if found:
             return found
-        text = squash(re.sub(r"\([^)]*\)", " ", where or ""))
+        text = _where_text(where)
         if _NOT_A_PLACE.search(text) or text.lower().startswith(_NOT_A_DOCUMENT):
             return ""
         for part in re.split(r"[,;]", text):
