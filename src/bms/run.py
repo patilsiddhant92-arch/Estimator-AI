@@ -55,7 +55,7 @@ from estimator.writing.front_end import job_header
 from estimator.writing.judge import Judge
 
 from bms import ai, ai_evidence
-from bms.citations import device_refs, job_ids, job_sheets, job_tags
+from bms.citations import device_refs, job_ids, job_sheets, job_tags, source_sheets
 from bms.counts import cross_check, flag_written_devices, publish_proofs
 from bms.evidence import write_evidence
 from bms.model import Decision, Finding, Header, Job, ModelError
@@ -345,7 +345,10 @@ def _estimate(job_folder: Path, out: Path, cache: Path, mode: Mode, known: dict)
     job = plan_job(ledger, catalogue, dossier, playbook)
     job = dataclasses.replace(job, header=Header(
         quote_number=old_header.quote_number, reference=old_header.reference, mep_engineer=old_header.mep_engineer,
-        based_on=tuple(old_header.based_on), date=old_header.date.isoformat(), to=old_header.to))
+        based_on=tuple(old_header.based_on), date=old_header.date.isoformat(), to=old_header.to),
+        # the sheets the ledger's sources name, once: part of K (`job_sheets`) for every writer, the validator and
+        # the renderer alike, so a writer's exact copy of its evidence's where is never refused
+        source_sheets=source_sheets(ledger.sources, getattr(dossier, "sources", None) or {}))
     transport = (ai.ChatTransport(cache, job=dossier.job_name) if mode == "chat" else ai.ApiTransport(cache))
     asked = transport.waiting
     job = cross_check(job, catalogue, cache, transport=transport)

@@ -57,9 +57,7 @@ MINIMAL_WORDING = {
     },
     "header": {"count": "{n}", "unknown_count": "##", "tags_joiner": ", "},
     "quantity": {"line": " (Qty. {n} Total)", "unknown": " (Qty. ##)", "others_note": "*Qty. {counts}."},
-    "count_causes": {"form": "({causes})", "joiner": ", ", "same_plan": "a floor drawn on two plan sheets counted once",
-                     "typical": "likely a typical unit at each place",
-                     "shown_again": "likely one unit's tag shown on several plans",
+    "count_causes": {"form": "({causes})", "joiner": ", ", "typical": "likely a typical unit at each place",
                      "labelled_twice": "likely one unit labelled more than once on a sheet"}
 }
 

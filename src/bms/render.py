@@ -21,7 +21,7 @@ from estimator.scope import Alternate, Block, Item, Run
 from estimator.scope import FrontEnd as ScopeFrontEnd
 from estimator.scope import Header as ScopeHeader
 from estimator.scope import Job as ScopeJob
-from estimator.reading.inventory import COUNT_CAUSE_WORDS, COUNT_CAUSES_LEAD, SAME_PLAN
+from estimator.reading.inventory import COUNT_CAUSE_WORDS, COUNT_CAUSES_LEAD
 from estimator.writing.write import tag_list
 
 from bms.citations import SHEET, SourceIds, clarification_text, squash as _squash, strip_label
@@ -265,21 +265,18 @@ def _count_label(value: int, ref, ids: SourceIds) -> str:
 
 
 PLACEMENTS_LABEL = "plan placements"
-_SAME_PLAN_ON_LINE = re.compile(rf"plan placements \d+ \([^)]*\b{re.escape(SAME_PLAN)}\b")
 
 
 def _count_causes(count: Count, playbook: Playbook) -> str:
     """The likely causes of a high plan count, in the Playbook's client words (`wording.count_causes`), as the
-    equipment counts line's head names them in a quote of this count: a floor drawn on two plan sheets ("same plan
-    as" inside the placements clause), then each cause after COUNT_CAUSES_LEAD. "" when no quote names one. Only
-    the cause's kind is read; its tags, sheets and the estimator's hints never print."""
+    equipment counts line's head names them in a quote of this count: each cause after COUNT_CAUSES_LEAD. "" when
+    no quote names one. Only the cause's kind is read; its tags, sheets and the estimator's hints never print."""
     words = playbook.wording.count_causes
     if not words:
         return ""
     quotes = [r.quote or "" for r in count.sources] + [o.ref.quote or "" for o in count.others]
-    keys = ["same_plan"] if any(_SAME_PLAN_ON_LINE.search(q) for q in quotes) else []
     named = [q.split(COUNT_CAUSES_LEAD, 1)[1] for q in quotes if COUNT_CAUSES_LEAD in q]
-    keys += [key for key, marker in COUNT_CAUSE_WORDS.items() if any(marker in tail for tail in named)]
+    keys = [key for key, marker in COUNT_CAUSE_WORDS.items() if any(marker in tail for tail in named)]
     if not keys:
         return ""
     return _fill(words["form"], causes=words["joiner"].join(words[key] for key in keys))

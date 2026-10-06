@@ -9,8 +9,9 @@ ASCII), zero-width characters taken out. The text itself is never rewritten by d
 `SourceIds.scan` sorts the id-shaped tokens of a text that are not tags (T, every tag of the job, a range "F1-F4"
 covering F1 to F4) into four kinds (the estimator's ruling of 2026-10-05):
 
-- sheet: a sheet number kept as written and never reported: one the planner's wheres name as a sheet (K,
-  `job_sheets`: the where "S101, Structural.pdf page 3" on a sequence ref makes S101 a sheet of the job), or an
+- sheet: a sheet number kept as written and never reported: one the planner's wheres or a ledger source's where
+  name as a sheet (K, `job_sheets`: the where "S101, Structural.pdf page 3" on a sequence ref or on a source of the
+  ledger makes S101 a sheet of the job; the ledger's are carried on `Job.source_sheets`), or an
   unissued token right after a sheet word ("sheet C2", "sheets C101 and C102", "(sheet C101)"). A where on a
   writer's device ref is the writer's and makes no sheet; the run passes the whole plan's K to every intake. A sheet
   word never makes an issued id a sheet (the lead's ruling on L-D, lead/final-c): "sheet S141" with S141 issued and
@@ -60,9 +61,9 @@ TRADE = re.compile(r"\b(plumbing|electrical|mechanical|architectural|fire protec
                    re.IGNORECASE)
 REFUSAL = "name the document in words; cite it as a Ref, never print an id"
 # the advice for a where that names an issued id (`SourceIds.where_issued`): "give the sheet number" would repeat an
-# honest input. An evidence where can itself lead with a sheet number that is also an issued id and no known sheet
-# (K holds the planner's wheres only), so copying it is refused too; the way out is its document and page, which
-# loses nothing: that id never prints as a place
+# honest input. An evidence where that leads with a sheet number is a known sheet (K holds every ledger source's
+# sheets, FINAL-H), so its exact copy passes; the way out for any other where naming an issued id is its document and
+# page, which loses nothing: that id never prints as a place
 WHERE_ADVICE = ("copy the where exactly as the evidence gives it (the place the evidence gives for that source), with "
                 "no sheet word added; never a source id; if the evidence's own where names that id, give only its "
                 "document and page")
@@ -135,12 +136,24 @@ def plan_refs(system) -> list:
 
 def job_sheets(job) -> frozenset[str]:
     """K of the whole job: the sheet numbers the planner's wheres name (`ref_sheets` of every system's
-    `plan_refs`, the front end's devices and the exceptions, which the planner makes). A where on a writer's
-    device ref never counts: a writer could type any id there."""
+    `plan_refs`, the front end's devices and the exceptions, which the planner makes) and every sheet number a
+    ledger source's where names (`Job.source_sheets`, set once by the run from `source_sheets`), so a writer
+    copying its evidence's where exactly is never refused. A where on a writer's device ref never counts: a writer
+    could type any id there."""
     refs = [r for s in job.systems for r in plan_refs(s)]
     if job.front_end is not None:
         refs += [r for d in job.front_end.devices for r in _device_refs(d)]
-    return ref_sheets(refs + [r for x in job.exceptions for r in x.refs])
+    planner = ref_sheets(refs + [r for x in job.exceptions for r in x.refs])
+    return planner | frozenset(_key(k) for k in getattr(job, "source_sheets", ()) if _key(k))
+
+
+def source_sheets(*sources: dict[str, str]) -> tuple[str, ...]:
+    """The id-shaped sheet numbers the wheres of the ledger's (and the dossier's) sources name in sheet form
+    (source id -> where, as `Ledger.sources` gives them), read as `ref_sheets` reads a planner's where (a where
+    naming its own source id is not trusted, a ledger fact, a picture and the equipment counts name none): upper
+    case, sorted, for `Job.source_sheets`."""
+    return tuple(sorted(ref_sheets([{"source_id": sid, "where": where} for found in sources
+                                    for sid, where in (found or {}).items()])))
 
 
 def job_refs(job) -> list:
@@ -231,7 +244,7 @@ class SourceIds:
     """The one decision: which id-shaped tokens in a text are sheets, issued ids, citations or loose tokens."""
     ids: frozenset[str] = frozenset()       # I, upper case
     tags: frozenset[str] = frozenset()      # T's id-shaped tokens, upper case
-    sheets: frozenset[str] = frozenset()    # K, the planner's id-shaped sheet numbers (`job_sheets`), upper case
+    sheets: frozenset[str] = frozenset()    # K, the job's id-shaped sheet numbers (`job_sheets`), upper case
 
     @classmethod
     def of(cls, ids: Iterable[str] = (), tags: Iterable[str] = (), sheets: Iterable[str] = ()) -> "SourceIds":
@@ -240,7 +253,7 @@ class SourceIds:
 
     @classmethod
     def of_job(cls, job) -> "SourceIds":
-        """T, I and K of the job (`job_tags`, `job_ids`, `job_sheets`: the planner's wheres only)."""
+        """T, I and K of the job (`job_tags`, `job_ids`, `job_sheets`: the planner's and the ledger sources' wheres)."""
         return cls.of(job_ids(job), job_tags(job), job_sheets(job))
 
     def is_tag(self, token: str) -> bool:

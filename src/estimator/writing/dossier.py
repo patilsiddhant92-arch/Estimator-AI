@@ -857,6 +857,7 @@ def _counts(catalogue, reading, counted: frozenset, multipliers: dict) -> dict[s
                 family.by_sheet.append((label, n, floors))
     placed: Counter = Counter()                       # (prefix, tag) -> every place on every sheet, floors applied
     each_place: dict[str, set] = defaultdict(set)     # prefix -> its tags that count at every place
+    once: dict[str, list] = defaultdict(list)         # prefix -> [(tag, plan sheets, floors)]: counted once, 2+ sheets
     for (prefix, tag), found in places.items():
         placed[(prefix, tag)] = sum(n * floors for _key, n, floors in found)
         # the labels as drawn, floors not applied: a typical sheet's floors multiply a unit, never make it a type
@@ -865,15 +866,39 @@ def _counts(catalogue, reading, counted: frozenset, multipliers: dict) -> dict[s
             each_place[prefix].add(tag)
             families[prefix].placements += placed[(prefix, tag)]
         else:
-            families[prefix].placements += max(floors for *_n, floors in found)      # one unit (per typical floor)
+            floors = max(floors for *_n, floors in found)
+            families[prefix].placements += floors                                  # one unit (per typical floor)
+            on = len({key for key, *_ in found})
+            if on >= 2:
+                once[prefix].append((tag, on, floors))
     for prefix, family in families.items():
         family.notes, family.causes = _placement_causes(prefix, family, seen_on, printed, placed, each_place[prefix])
         labelled = sum(n * floors for _label, n, floors in family.by_sheet)
         if labelled > family.placements:
             family.notes.append(f"the labels on the plan sheets add up to {labelled}; each unit's tag is counted once "
                                 "however many sheets show it or how often one sheet labels it")
+        family.notes += _once_notes(once[prefix])
         family.notes += _doubt_notes(prefix, doubts, places, labels, each_place[prefix])
     return families
+
+
+def _once_notes(once: list) -> list[str]:
+    """The reading note for each numbered tag counted once (a unit's, `counted_per_place` false) that is drawn on 2
+    or more plan sheets (lead ruling, FINAL-H): a numbered type used once on each floor's plan cannot be told from
+    one unit shown on several sheets, so it would be undercounted; the estimator checks the schedule's quantity
+    (which wins when higher: the higher count). The most sheets first, at most CAUSE_EXAMPLES tags named. A hint for
+    the estimator and the writers only: never in a client cause's words (no COUNT_CAUSE_WORDS)."""
+    ranked = sorted(once, key=lambda item: (-item[1], _natural(item[0])))
+    notes = []
+    for tag, sheets, floors in ranked[:CAUSE_EXAMPLES]:
+        counted = ("counted as one unit" if floors <= 1 else
+                   f"counted as one unit on each of the {floors} floors its typical sheet stands for")
+        notes.append(f"{tag} appears on {sheets} plan sheets: {counted}; if it is a type used on each floor, check the "
+                     "schedule's quantity")
+    if len(ranked) > CAUSE_EXAMPLES:
+        notes.append(f"{len(ranked) - CAUSE_EXAMPLES} more tags so: each counted as one unit, however many plan "
+                     "sheets show it")
+    return notes
 
 
 def _doubt_notes(prefix: str, doubts: list, places: dict, labels: dict, each_place: set) -> list[str]:

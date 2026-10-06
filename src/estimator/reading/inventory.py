@@ -34,12 +34,10 @@ TYPE_ON_ONE_SHEET = 4  # ... when one sheet alone holds this many (floors counte
 # other count; the renderer reads these words back to print the Playbook's client wording for each cause
 # (wording.json "count_causes"). Keep them free of the count labels' words (riser, schedule, picture).
 COUNT_CAUSES_LEAD = "placements above the other counts, likely:"
+# ("same plan as" and "one unit's tag on several plans" are retired, FINAL-H: no sheet is merged and a unit's tag
+# counts once since FINAL-G, so neither can be said)
 COUNT_CAUSE_WORDS = {"typical": "a typical unit at each place",
-                     "shown_again": "one unit's tag on several plans",
                      "labelled_twice": "one unit labelled more than once"}
-# Retired (FINAL-G): no plan sheet is ever counted as "the same plan as" another, so these words are never printed
-# any more; the name stays for the renderer, which reads them back (its "same_plan" cause can no longer fire).
-SAME_PLAN = "same plan as"
 _DECIMAL_TYPE = re.compile(r"^[A-Z]+-\d+\.\d+$")   # AC-3.0, HRU-4.0: a size, not a unit number
 _TYPE_FORM = re.compile(r"-[A-Z]{1,2}$", re.I)     # CUH-A, EBB-B: a type's tag, no unit number in it
 

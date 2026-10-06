@@ -68,7 +68,7 @@ class Shape:
 
 # wording.json "count_causes": the quantity note's form for the likely causes of a high plan count ({causes}), the
 # joiner between causes, and each cause's client words (bms.render reads the cause from the counts line's head)
-COUNT_CAUSE_KEYS = ("form", "joiner", "same_plan", "typical", "shown_again", "labelled_twice")
+COUNT_CAUSE_KEYS = ("form", "joiner", "typical", "labelled_twice")
 
 
 @dataclass(frozen=True)

@@ -142,13 +142,13 @@ def test_the_note_never_carries_the_estimators_hints(tmp_path):
 
 def test_the_cause_goes_with_the_placements_clause_even_when_another_count_prints():
     head = ("EF (Exhaust Fan): schedule rows 1; QUANTITY column total —; distinct tags 1; plan placements 3 "
-            "(M-101 1; M-102 1; M-106 1); riser 5; placements above the other counts, likely: one unit's tag on "
-            "several plans")
+            "(M-101 1; M-102 1; M-106 1); riser 5; placements above the other counts, likely: one unit labelled "
+            "more than once")
     count = Count(5, (Ref("S5", "riser 5", "equipment counts for EF"),),
                   (OtherCount(3, Ref("S5", "plan placements 3", "equipment counts for EF")),
                    OtherCount(1, Ref("S5", head, "equipment counts for EF"))))
-    assert _note(count) == ["*Qty. (5) per the riser; 3 per plan placements (likely one unit's tag shown on several "
-                            "plans); 1 per schedule rows."]
+    assert _note(count) == ["*Qty. (5) per the riser; 3 per plan placements (likely one unit labelled more than once "
+                            "on a sheet); 1 per schedule rows."]
 
 
 def test_no_cause_prints_when_no_counts_line_names_one():
@@ -171,7 +171,7 @@ def test_the_counts_line_head_names_the_cause_for_the_ledger(tmp_path):
 
 def test_the_playbook_gives_every_cause_its_client_words():
     causes = load_playbook(ROOT / "playbook").wording.count_causes
-    assert set(causes) == {"form", "joiner", "same_plan", "typical", "shown_again", "labelled_twice"}
+    assert set(causes) == {"form", "joiner", "typical", "labelled_twice"}         # FINAL-H: the retired two removed
     assert "{causes}" in causes["form"]
 
 
