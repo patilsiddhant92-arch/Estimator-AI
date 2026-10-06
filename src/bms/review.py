@@ -20,7 +20,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
-from bms.counts import counted_from
+from bms.counts import counted_from, disputed_families
 from bms.model import PARTIES, VERBS, Count, Decision, Device, Family, Finding, Job, ModelError, Ref, System
 
 REVIEW_PAGE = "Review.html"
@@ -107,9 +107,16 @@ def _questions(job: Job, findings: Sequence[Finding]) -> list[_Question]:
                 # decision keeps); the other's description stays on the card as a note, once
                 title = kw.get("title")
                 if rank < current.rank:
-                    title, current.title = current.title, title or current.title
+                    # the new lead's own notes ("What to do") come first; the old lead's title goes just above the
+                    # notes it brought, so each fix stays next to its own finding (REVIEW-019b F2)
+                    old_title, current.title = current.title, title or current.title
                     current.finding_rule = kw["finding_rule"]
-                if title and title != current.title and f"Finding: {title}" not in current.notes + notes:
+                    lead = tuple(kw.get("notes") or ())
+                    old = tuple(n for n in current.notes if n not in lead and n != f"Finding: {current.title}")
+                    head = (f"Finding: {old_title}",) if old_title and old_title != current.title else ()
+                    current.notes = tuple(dict.fromkeys(lead + head + old))
+                    notes = ()
+                elif title and title != current.title and f"Finding: {title}" not in current.notes + notes:
                     notes = (f"Finding: {title}",) + notes
             current.notes = current.notes + notes
             current.rank = min(current.rank, rank)
@@ -708,9 +715,19 @@ def apply_decisions(job: Job, decisions: Sequence[Decision]) -> Job:
 def apply_seen(job: Job, decisions: Sequence[Decision], copies: dict[Decision, int] | None) -> Job:
     """`apply_decisions` with the number of copies of its line each delete saw (`copies_seen` of the history)."""
     copies = copies or {}
+    accepted = _accepted_families(decisions)
     for decision in decisions:
-        job = _apply_one(job, decision, copies.get(decision))
+        job = _apply_one(job, decision, copies.get(decision), accepted)
     return job
+
+
+def _accepted_families(decisions: Sequence[Decision]) -> dict[str, frozenset[str]]:
+    """The family names each system's family Accepts in `decisions` name, by system key."""
+    found: dict[str, set[str]] = {}
+    for d in decisions:
+        if d.action == "accept" and d.device_id is None and d.family_name is not None:
+            found.setdefault(d.system_key, set()).add(d.family_name)
+    return {key: frozenset(names) for key, names in found.items()}
 
 
 def keep_deleted(decided: Job, system: System, deletes: Sequence[Decision]) -> System:
@@ -729,7 +746,8 @@ def keep_deleted(decided: Job, system: System, deletes: Sequence[Decision]) -> S
     return system if len(devices) == len(system.devices) else dataclasses.replace(system, devices=tuple(devices))
 
 
-def _apply_one(job: Job, d: Decision, seen: int | None = None) -> Job:
+def _apply_one(job: Job, d: Decision, seen: int | None = None,
+               accepted: dict[str, frozenset[str]] | None = None) -> Job:
     if d.system_key == "":
         front = job.front_end
         if front is None or d.device_id is None:
@@ -752,8 +770,9 @@ def _apply_one(job: Job, d: Decision, seen: int | None = None) -> Job:
             return job
         if d.action == "accept":
             family = next(f for f in system.families if f.name == d.family_name)
-            devices = tuple(dataclasses.replace(dev, flag="none") if _accept_clears(dev, family) else dev
-                            for dev in system.devices)
+            names = (accepted or {}).get(d.system_key, frozenset()) | {d.family_name}
+            devices = tuple(dataclasses.replace(dev, flag="none") if _accept_clears(dev, family, system, names)
+                            else dev for dev in system.devices)
             return job.with_system(dataclasses.replace(system, devices=devices))
         if d.action != "change" or d.count is None:
             return job
@@ -765,11 +784,20 @@ def _apply_one(job: Job, d: Decision, seen: int | None = None) -> Job:
     return job
 
 
-def _accept_clears(device: Device, family: Family) -> bool:
+def _accept_clears(device: Device, family: Family, system: System | None = None,
+                   accepted: frozenset[str] = frozenset()) -> bool:
     """Whether accepting a family's count clears this device's quantity flag: the device was counted from that
     family (shared sources, `counts.counted_from`, the rule the run flags by) and has a count of its own. A device
-    whose own count is unknown keeps its flag: accepting the family does not say how many of it there are."""
-    return device.flag == "quantity" and device.quantity.value is not None and counted_from(device, family)
+    whose own count is unknown keeps its flag: accepting the family does not say how many of it there are.
+    With its `system`, a device also counted from another disputed family of it (`counts.disputed_families`) keeps
+    its flag until that family is accepted as well (its name in `accepted`): one family's Accept does not settle
+    the other family's count (the estimator's ruling, REVIEW-019b F3)."""
+    if not (device.flag == "quantity" and device.quantity.value is not None and counted_from(device, family)):
+        return False
+    if system is None:
+        return True
+    return all(other.name in accepted for other in disputed_families(system)
+               if other.name != family.name and counted_from(device, other))
 
 
 def unhonored_decisions(before: Job, decisions: Sequence[Decision], after: Job, *,
@@ -790,8 +818,9 @@ def unhonored_decisions(before: Job, decisions: Sequence[Decision], after: Job, 
     (`copies`: the number of copies of the line differs from what the estimator saw) could not be applied either."""
     copies = copies or {}
     expected = apply_seen(before, decisions, copies)
+    accepted = _accepted_families(decisions)
     return [finding for decision in decisions
-            if (finding := _unhonored(before, decision, after, expected, copies.get(decision))) is not None]
+            if (finding := _unhonored(before, decision, after, expected, copies.get(decision), accepted)) is not None]
 
 
 def _matches_nothing(job: Job, decision: Decision) -> bool:
@@ -813,7 +842,9 @@ _TWIN_DELETE = ("When you deleted this line, the job had a different number of c
 
 
 def _unhonored(before: Job, decision: Decision, after: Job, expected: Job | None = None,
-               seen: int | None = None) -> Finding | None:
+               seen: int | None = None, accepted: dict[str, frozenset[str]] | None = None) -> Finding | None:
+    if accepted is None:
+        accepted = _accepted_families([decision])
     if expected is None:
         expected = apply_seen(before, [decision], {decision: seen} if seen is not None else None)
     subject = decision.device_id or decision.family_name or decision.system_key or "the front end"
@@ -828,7 +859,7 @@ def _unhonored(before: Job, decision: Decision, after: Job, expected: Job | None
         fix = _GONE_DELETE if decision.action == "delete" and still is None else _GONE_OTHER
         return Finding("decision not honored", decision.system_key, still.id if still else None,
                        "must_fix", f"decision could not be applied: {decision.action} {subject}", fix)
-    if not _decision_holds(before, decision, after, expected):
+    if not _decision_holds(before, decision, after, expected, accepted.get(decision.system_key, frozenset())):
         device_id = decision.device_id
         target = _target(before, decision)
         if target is not None:
@@ -843,11 +874,12 @@ def _unhonored(before: Job, decision: Decision, after: Job, expected: Job | None
     return None
 
 
-def _decision_holds(before: Job, decision: Decision, after: Job, expected: Job) -> bool:
+def _decision_holds(before: Job, decision: Decision, after: Job, expected: Job,
+                    accepted: frozenset[str] = frozenset()) -> bool:
     if decision.device_id is not None:
         return _device_holds(before, decision, after, expected)
     if decision.family_name is not None:
-        return _family_holds(before, decision, after, expected)
+        return _family_holds(before, decision, after, expected, accepted)
     if decision.system_key == "" or not any(s.key == decision.system_key for s in before.systems):
         return True
     gone = decision.action == "delete"
@@ -895,7 +927,8 @@ def _device_holds(before: Job, decision: Decision, after: Job, expected: Job) ->
     return True
 
 
-def _family_holds(before: Job, decision: Decision, after: Job, expected: Job) -> bool:
+def _family_holds(before: Job, decision: Decision, after: Job, expected: Job,
+                  accepted: frozenset[str] = frozenset()) -> bool:
     earlier = _family(before, decision.system_key, decision.family_name)
     if earlier is None:
         return True
@@ -911,7 +944,7 @@ def _family_holds(before: Job, decision: Decision, after: Job, expected: Job) ->
             family = next((f for f in system.families if f.name == decision.family_name), None)
             if family is not None and family.count.others:
                 for dev in system.devices:
-                    if _accept_clears(dev, family):
+                    if _accept_clears(dev, family, system, accepted | {family.name}):
                         return False
     return True
 
