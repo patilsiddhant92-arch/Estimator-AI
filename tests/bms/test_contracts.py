@@ -267,9 +267,11 @@ SIGNATURES = {
     plan.plan_job: ["ledger", "catalogue", "dossier", "playbook"],
     validate.validate: ["job", "playbook"],
     render.render: ["job", "playbook"],
-    ai.write_system: ["system", "evidence", "playbook", "transport", "tags", "ids", "sheets"],   # optional, kw-only
+    ai.write_system: ["system", "evidence", "playbook", "transport", "tags", "ids", "sheets",
+                      "source_sheets"],   # optional, kw-only (source_sheets: FINAL-J)
     ai.qc_job: ["job", "evidence_index", "playbook", "transport"],
-    ai.revise_system: ["system", "findings", "evidence", "playbook", "transport", "tags", "ids", "sheets"],   # as write_system
+    ai.revise_system: ["system", "findings", "evidence", "playbook", "transport", "tags", "ids", "sheets",
+                       "source_sheets"],   # as write_system
     ai.evidence_for: ["system", "dossier"],
     ai.evidence_index: ["dossier"],
     counts.count_tags: ["image_path", "tag_pattern", "transport"],      # transport: optional, keyword-only
@@ -300,7 +302,7 @@ def test_signature(function):
 
 def test_the_writers_take_tags_ids_and_sheets_keyword_only_with_an_empty_default():
     for function in (ai.write_system, ai.revise_system, ai.rewrite_for_count):     # the count rewrite too (R-1)
-        for name in ("ids", "tags", "sheets"):
+        for name in ("ids", "tags", "sheets", "source_sheets"):
             parameter = inspect.signature(function).parameters.get(name)
             assert parameter is not None, (function, name)
             assert parameter.kind is parameter.KEYWORD_ONLY and parameter.default == (), (function, name)

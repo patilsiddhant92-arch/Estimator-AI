@@ -320,7 +320,9 @@ def _count_note(counts: list[Count], playbook: Playbook, ids: SourceIds) -> str:
     parts = list(dict.fromkeys(p for p in (_count_part(c, ids, _count_causes(c, playbook)) for c in counts) if p))
     if not parts:
         return ""
-    return ids.without_issued(_fill(playbook.wording.quantity["others_note"], counts="; ".join(parts)))
+    # made of places the where checks gave (`SourceIds.sheet`, `place`), so it is read as a where is: a source sheet
+    # a where names stays, as the validator's where check keeps it (FINAL-J)
+    return ids.without_issued(_fill(playbook.wording.quantity["others_note"], counts="; ".join(parts)), place=True)
 
 
 # ---- one line --------------------------------------------------------------------------------------------------
