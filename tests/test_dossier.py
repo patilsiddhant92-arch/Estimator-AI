@@ -424,7 +424,7 @@ def test_the_controls_spec_highlights_keep_the_headings_that_price_the_job(tmp_p
     assert "Provide one operator workstation" in spec
     assert "Drawings and general provisions" not in spec
     assert spec.index("OPERATOR WORKSTATION") < spec.index("WARRANTY")    # the front end first
-    assert "23 09 93 SEQUENCE OF OPERATIONS, Specs.pdf: given in full above" in spec
+    assert "above" not in spec                    # section 8 is read alone: it points at nothing
     ids = _ids_in(spec)
     assert all("23 09 23 DIRECT DIGITAL CONTROL §" in d.sources[i] for i in ids)
 
@@ -507,3 +507,73 @@ def test_sheet_pictures_render_whole_sheets_once(tmp_path):
     assert again[0].path == images[0].path
     missing, flags = sheet_pictures(catalogue, tmp_path / "cache", [("H.pdf", 9)], "plan sheet")
     assert missing == [] and len(flags) == 1
+
+
+# --- the spec pass reads sections 1 and 8 only: section 8 never points at text above -------------------
+
+DDC = "Specs/230923.pdf"
+DDC_ADDENDUM = "Addendum/230923 Adden 1.pdf"
+DDC_POINTS = "POINTS LIST\nAHU-1 supply fan status and discharge air temperature.\n"
+
+
+def _job_with_a_controls_spec_printed_whole_above():
+    """The controls spec section carries a points list, so section 3 prints its pages whole."""
+    catalogue, reading = _job()
+    catalogue.job.documents += (_doc(DDC, "specs", 2),)
+    catalogue.pages += (_page(DDC, 1, CONTROLS_SPEC), _page(DDC, 2, DDC_POINTS))
+    catalogue.sections += (SpecSection("23 09 23", "DIRECT DIGITAL CONTROL", DDC, 1, 2),)
+    reading.backbone += (_backbone(POINTS, "23 09 23 DIRECT DIGITAL CONTROL (230923.pdf, pages 1–2)", DDC, 1, 2),)
+    return catalogue, reading
+
+
+def _spec_pass_text(catalogue, reading, tmp_path):
+    from estimator.ledger.passes import documents, pass_named
+    d = build_dossier(catalogue, reading, tmp_path)
+    return d, documents(pass_named("spec"), d, catalogue)
+
+
+def test_the_spec_pass_gets_the_highlights_of_a_controls_spec_printed_whole_above(tmp_path):
+    catalogue, reading = _job_with_a_controls_spec_printed_whole_above()
+    d, text = _spec_pass_text(catalogue, reading, tmp_path)
+    assert "warrant the system for two years" in d.text.split("== 3. POINTS LISTS ==")[1].split("== 4.")[0]
+    spec = text.split("== 8. CONTROLS SPEC HIGHLIGHTS ==")[1]
+    assert "warrant the system for two years" in spec
+    assert "Provide one operator workstation" in spec
+    assert "above" not in text.split("== 8.")[1]
+    ids = _ids_in(spec)
+    assert ids and all("23 09 23 DIRECT DIGITAL CONTROL §" in d.sources[i] for i in ids)
+
+
+def test_the_spec_pass_gets_the_highlights_of_the_addendum_copy_without_a_pointer(tmp_path):
+    catalogue, reading = _job_with_a_controls_spec_printed_whole_above()
+    catalogue.job.documents += (_doc(DDC_ADDENDUM, "specs", 2, revision="Addendum"),)
+    catalogue.pages += (_page(DDC_ADDENDUM, 1, CONTROLS_SPEC.replace("two years", "three years")),
+                        _page(DDC_ADDENDUM, 2, DDC_POINTS))
+    catalogue.sections += (SpecSection("23 09 23", "DIRECT DIGITAL CONTROL", DDC_ADDENDUM, 1, 2),)
+    reading.backbone += (_backbone(POINTS, "23 09 23 DIRECT DIGITAL CONTROL (230923 Adden 1.pdf, pages 1–2)",
+                                   DDC_ADDENDUM, 1, 2),)
+    _, text = _spec_pass_text(catalogue, reading, tmp_path)
+    spec = text.split("== 8. CONTROLS SPEC HIGHLIGHTS ==")[1]
+    assert "warrant the system for three years" in spec
+    assert "two years" not in spec                       # the replaced copy is named, not quoted
+    assert "replaced by a later copy" in spec
+    assert "above" not in spec
+
+
+def test_the_highlights_of_a_section_printed_above_keep_the_cap_and_say_what_was_cut(tmp_path, monkeypatch):
+    monkeypatch.setattr(dossier_module, "SPEC_LIMIT", 120)
+    catalogue, reading = _job_with_a_controls_spec_printed_whole_above()
+    _, text = _spec_pass_text(catalogue, reading, tmp_path)
+    spec = text.split("== 8. CONTROLS SPEC HIGHLIGHTS ==")[1]
+    assert "Cut at 120 characters. Left out:" in spec
+    assert "1.14 WARRANTY" in spec.split("Left out:")[1]
+    assert "above" not in spec
+
+
+def test_a_controls_spec_with_no_highlight_article_says_so_without_a_pointer(tmp_path):
+    catalogue, reading = _job()
+    _, text = _spec_pass_text(catalogue, reading, tmp_path)
+    spec = text.split("== 8. CONTROLS SPEC HIGHLIGHTS ==")[1]
+    assert "above" not in spec
+    assert "No controls spec section found" not in spec
+    assert "23 09 93 SEQUENCE OF OPERATIONS, Specs.pdf" in spec
