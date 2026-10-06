@@ -55,7 +55,7 @@ from estimator.writing.front_end import job_header
 from estimator.writing.judge import Judge
 
 from bms import ai, ai_evidence
-from bms.citations import job_ids, job_sheets, job_tags
+from bms.citations import device_refs, job_ids, job_sheets, job_tags
 from bms.counts import cross_check, flag_written_devices, publish_proofs
 from bms.evidence import write_evidence
 from bms.model import Decision, Finding, Header, Job, ModelError
@@ -180,7 +180,9 @@ def _ids_in_changes(job: Job, decisions) -> list[tuple[Decision, str, tuple[str,
     validator and the renderer use, `SourceIds.of_job`): (the change, the line's id in `job`, the issued tokens). A
     page change does not go through the writer's intake, so this is where it is checked. The page sets the name (and
     the quantity and the verb and parties, which are no free text); decisions.json can be edited by hand, so the
-    assumption's what and why are checked too, as the validator checks them. A Decision carries no clarification."""
+    assumption's what and why are checked too, as the validator checks them, and so is the where of each of its refs
+    on a writer's system (`SourceIds.where_issued`, the validator's `_where_hits`; the front end's refs are the
+    planner's). A Decision carries no clarification."""
     ids = SourceIds.of_job(job)
     found = []
     for decision in decisions:
@@ -188,7 +190,10 @@ def _ids_in_changes(job: Job, decisions) -> list[tuple[Decision, str, tuple[str,
             continue
         device = decision.device
         texts = [device.name, *((device.assumption.what, device.assumption.why) if device.assumption else ())]
-        tokens = tuple(dict.fromkeys(f.token for text in texts for f in ids.scan(text) if f.kind == "issued"))
+        tokens = [f.token for text in texts for f in ids.scan(text) if f.kind == "issued"]
+        if decision.system_key:
+            tokens += [t for ref in device_refs(device) for t in ids.where_issued(ref.where)]
+        tokens = tuple(dict.fromkeys(tokens))
         if not tokens:
             continue
         if decision.system_key == "":

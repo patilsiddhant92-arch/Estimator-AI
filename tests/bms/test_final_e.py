@@ -8,7 +8,10 @@ import pytest
 from bms.citations import SourceIds, ref_sheets
 from bms.model import Ref
 
-from test_review_final3 import _job, _prints, _verdicts, _with_other_count
+from bms import run
+from bms.validate import RULE, validate
+
+from test_review_final3 import SAMPLE, _base, _changed, _job, _prints, _verdicts, _with_other_count
 
 FULL_S = "Ｓ"            # a full-width S
 ZW = "​"                # a zero-width space
@@ -42,3 +45,16 @@ def test_the_count_note_goes_through_the_safety_net(monkeypatch):
     real = SourceIds.sheet
     monkeypatch.setattr(SourceIds, "sheet", lambda self, where: "S141" if "M401" in where else real(self, where))
     assert not _prints(job, "S141")
+
+
+# ---- F2: a hand-edited Change's where ----------------------------------------------------------------------------
+
+def test_a_hand_edited_change_whose_device_ref_where_names_a_disguised_issued_id_gets_the_card():
+    base = _base()
+    device = base.system("EF").devices[0]
+    refs = device.refs + (Ref("Q2", "q", f"Sheet {FULL_S}6, Mechanical.pdf page 3"),)
+    job, decision = _changed(base, refs=refs)
+    assert [f.severity for f in validate(job, SAMPLE) if f.rule == RULE["ids"] and f.device_id == "EF.d1"] \
+        == ["must_fix"]
+    assert [(device_id, tokens) for _, device_id, tokens in run._ids_in_changes(job, [decision])] \
+        == [("EF.d1", ("S6",))]

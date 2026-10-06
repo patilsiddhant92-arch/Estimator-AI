@@ -215,9 +215,6 @@ def test_a_hand_edited_change_with_an_id_in_any_client_field_gets_the_card_and_m
     assert must_fix and all(f.device_id == "EF.d1" for f in must_fix)
 
 
-@pytest.mark.xfail(strict=True, reason="REVIEW-FINAL3 F2 (Low): a hand-edited Change whose other count's where "
-                   "names an issued id after a sheet word is must_fix on that line but gets no card, so the revise "
-                   "is asked to rewrite the estimator's line")
 def test_f2_a_hand_edited_change_whose_where_names_an_issued_id_gets_the_card():
     quantity = Count(2, (Ref("S6", "q", "M-001, Drawings.pdf page 1"),),
                      (OtherCount(1, Ref("Q2", "q", "Sheet S6, Mechanical.pdf page 3")),))
