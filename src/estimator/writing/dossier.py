@@ -859,8 +859,9 @@ def _counts(catalogue, reading, counted: frozenset, multipliers: dict) -> dict[s
     each_place: dict[str, set] = defaultdict(set)     # prefix -> its tags that count at every place
     for (prefix, tag), found in places.items():
         placed[(prefix, tag)] = sum(n * floors for _key, n, floors in found)
-        most = max(n * floors for _key, n, floors in found)
-        if counted_per_place(tag, placed[(prefix, tag)], most, code=tag in code_patterns):
+        # the labels as drawn, floors not applied: a typical sheet's floors multiply a unit, never make it a type
+        drawn, most = sum(n for _key, n, _f in found), max(n for _key, n, _f in found)
+        if counted_per_place(tag, drawn, most, code=tag in code_patterns):
             each_place[prefix].add(tag)
             families[prefix].placements += placed[(prefix, tag)]
         else:

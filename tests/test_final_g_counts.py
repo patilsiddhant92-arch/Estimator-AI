@@ -81,6 +81,20 @@ def test_a_numbered_tag_placed_at_many_places_counts_every_place(tmp_path):
     assert "M-101 and M-201 may show one plan" in line
 
 
+def test_a_unit_tag_on_a_typical_floor_drawn_twice_counts_once_per_floor(tmp_path):
+    """A typical floor plan standing for 10 floors is drawn twice (ductwork and piping), each with VAV-1 to 3: 30
+    boxes (3 on each of 10 floors), never 60. The floors multiply a unit's tag; they never make it a type."""
+    from types import SimpleNamespace
+    text = "VAV-1\nVAV-2\nVAV-3"
+    pages = [_page(DWG, 1, text), _page(DWG, 2, text)]
+    sheets = [_sheet(1, "M-102", "TYPICAL FLOOR DUCTWORK PLAN"), _sheet(2, "M-202", "TYPICAL FLOOR PIPING PLAN")]
+    floors = tuple(range(2, 12))
+    reading = _reading()
+    reading.typicals = (SimpleNamespace(sheet="M-102", floors=floors), SimpleNamespace(sheet="M-202", floors=floors))
+    d = build_dossier(_catalogue(pages, sheets, ["VAV-1", "VAV-2", "VAV-3"]), reading, tmp_path)
+    assert d.counts["VAV"]["plan_placements"] == 30
+
+
 def test_plan_areas_never_groups_sheets_and_the_doubts_name_the_hint():
     """plan_areas is retired: every sheet is its own area (nothing is ever merged). plan_area_doubts names the
     pairs that may show one plan: one readable floor and part, one document with one title, or repeated unit tags;

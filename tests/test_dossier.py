@@ -239,9 +239,10 @@ def test_the_counts_hold_schedule_rows_distinct_tags_and_plan_placements(tmp_pat
     d = build_dossier(catalogue, reading, tmp_path)
     assert d.counts["AHU"] == {"schedule_rows": 1, "quantity_column": None, "plan_placements": 1, "riser": None,
                                "distinct_tags": 1}
-    # EF-2 is existing on the schedule, but still placed on the plan: EF-1 twice, EF-2 once.
+    # EF-2 is existing on the schedule, but still placed on the plan: EF-1 twice, EF-2 once. FINAL-G: a unit's
+    # tag twice on one sheet is one unit, so 2 (was 3).
     assert d.counts["EF"]["schedule_rows"] == 1
-    assert d.counts["EF"]["plan_placements"] == 3
+    assert d.counts["EF"]["plan_placements"] == 2
     assert d.counts["EF"]["distinct_tags"] == 2
     assert "EF (Exhaust Fan): schedule rows 1;" in d.text
     assert "Tags: EF-1, 2." in d.text
@@ -278,7 +279,8 @@ def test_the_floor_multiplier_applies_to_placements_and_devices(tmp_path):
     reading = _reading(devices=devices, typicals=typicals)
     assert floor_multipliers(catalogue, reading) == {(DWG, "M-113"): 3, (DWG, "M-110"): 7}
     d = build_dossier(catalogue, reading, tmp_path)
-    assert d.counts["VAV"]["plan_placements"] == 2 * 3 + 1 * 7
+    # FINAL-G: VAV-1 twice on M-113 is one unit on each of its 3 floors (was 2 * 3)
+    assert d.counts["VAV"]["plan_placements"] == 1 * 3 + 1 * 7
     assert d.device_totals == {"T": 3 * 3 + 1 * 7}
     assert "M-113 2 × 3 = 6" in d.text
     assert "M-110 1 × 7 = 7" in d.text
@@ -290,7 +292,7 @@ def test_a_riser_count_is_kept_separately(tmp_path):
     catalogue.sheets += (_sheet(4, "M-501", "AIR RISER DIAGRAM", types=("Air riser",)),)
     d = build_dossier(catalogue, reading, tmp_path)
     assert d.counts["EF"]["riser"] == 2
-    assert d.counts["EF"]["plan_placements"] == 3               # the riser is not a plan
+    assert d.counts["EF"]["plan_placements"] == 2               # the riser is not a plan (EF-1 twice: one unit)
 
 
 def test_a_tag_in_every_title_block_is_not_a_unit(tmp_path):

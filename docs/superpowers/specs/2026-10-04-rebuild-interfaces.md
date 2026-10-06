@@ -229,8 +229,8 @@ Plan counting (`estimator.writing.dossier`, the equipment counts line), lead rul
 undercount by construction; no plan sheet is ever merged with another): a unit's tag (a unit number in it: VAV-101,
 EF-3, ACCU-109) counts once over all the family's plan sheets, however many sheets show it or times one sheet labels
 it (times the most floors of a typical sheet it is on). A tag counted at every place (`counted_per_place`: a type's
-tag `is_type_tag`, EBB-A, CUH-A, AC-3.0; a schedule's type code; a numbered tag at TYPE_PLACED places with
-TYPE_ON_ONE_SHEET on one sheet) is the sum of its places over every sheet, floors applied: where one plan is drawn
+tag `is_type_tag`, EBB-A, CUH-A, AC-3.0; a schedule's type code; a numbered tag drawn at TYPE_PLACED places
+with TYPE_ON_ONE_SHEET on one sheet, labels as drawn, a typical sheet's floors not applied) is the sum of its places over every sheet, floors applied: where one plan is drawn
 twice that is an overcount, kept (the higher count). `plan_areas` is retired (each sheet its own area).
 `plan_area_doubts(plans)` gives the pairs that MAY show one plan, a hint only (the same readable floor and parts;
 one document with the same title text, its sheet number aside; or repeated unit tags with titles not naming two

@@ -53,9 +53,10 @@ def is_type_tag(tag: str) -> bool:
 def counted_per_place(tag: str, places: int, most_on_one_sheet: int, code: bool = False) -> bool:
     """Whether a tag's plan placements count every place it is drawn (summed over the sheets, never merged) rather
     than once for the unit (lead ruling, FINAL-G): a type's tag (`is_type_tag`), a schedule's type code (`code`),
-    and a numbered tag placed as a type is (the type-tag rule below: TYPE_PLACED places, floors counted, and
-    TYPE_ON_ONE_SHEET of them on one sheet), so a numbered type is never cut to one. `places` and
-    `most_on_one_sheet` have the floors applied."""
+    and a numbered tag drawn as a type is (TYPE_PLACED labels over the sheets and TYPE_ON_ONE_SHEET of them on one
+    sheet), so a numbered type is never cut to one. `places` and `most_on_one_sheet` are the labels as drawn, the
+    floors of a typical sheet NOT applied: those floors multiply a unit's tag, they never make it a type (a unit on
+    a typical floor drawn twice would otherwise be summed, doubled)."""
     return (code or is_type_tag(tag)
             or (places >= TYPE_PLACED and most_on_one_sheet >= TYPE_ON_ONE_SHEET))
 _A_TYPE = "A type, not one unit"
