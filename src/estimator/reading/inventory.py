@@ -147,21 +147,33 @@ def _one_copy_per_sheet(schedules: list[Schedule], flags: list[str] | None = Non
 @dataclass(frozen=True)
 class Placements:
     """Where one tag is labelled: a line of a sheet's text that is the tag alone ("GCF-A"), never a note that
-    names it ("TO EUH-1"). Plan sheets of the trades that carry controls scope, each sheet counted once."""
+    names it ("TO EUH-1"). Plan sheets of the trades that carry controls scope, each sheet counted once; the
+    sheets of one plan area (`plan_areas`: a floor drawn on a ductwork plan and on its piping and controls plan)
+    count the labels of the one sheet that shows the most, never their sum."""
     on_plans: dict[str, int]                 # plan sheet → labels on it
     floors: dict[str, int]                   # plan sheet → the floors it stands for (1 when not typical)
     on_risers: dict[str, int] = field(default_factory=dict)   # riser diagram → labels on it, a cross-check
+    same_as: dict[str, str] = field(default_factory=dict)     # plan sheet → the earlier sheet showing its plan area
+
+    def _first(self, sheet: str) -> str:
+        return self.same_as.get(sheet, sheet)
 
     @property
     def total(self) -> int:
-        return sum(n * self.floors.get(sheet, 1) for sheet, n in self.on_plans.items())
+        best: dict[str, int] = {}
+        for sheet, n in self.on_plans.items():
+            area = self._first(sheet)
+            best[area] = max(best.get(area, 0), n * self.floors.get(sheet, 1))
+        return sum(best.values())
 
     @property
     def most_on_one_sheet(self) -> int:
         return max((n * self.floors.get(sheet, 1) for sheet, n in self.on_plans.items()), default=0)
 
     def plans_text(self) -> str:
+        """ "M-101 4, M-113 1 × 10 floors, M-201 4 same plan as M-101": each sheet, a repeat of a plan area named so."""
         return ", ".join(f"{sheet} {n}" + (f" × {self.floors[sheet]} floors" if self.floors.get(sheet, 1) > 1 else "")
+                         + (f" {SAME_PLAN} {self._first(sheet)}" if self._first(sheet) != sheet else "")
                          for sheet, n in self.on_plans.items())
 
     def risers_text(self) -> str:
@@ -267,6 +279,7 @@ def placements(catalogue, tags: Iterable[str], typicals: Sequence = (),
     if pages is None:
         pages = governing_pages(catalogue, (), [t.sheet for t in typicals])
     sheets = {(s.document, s.page): s for s in catalogue.sheets}
+    plan_sheets: dict[str, object] = {}                       # place → its plan sheet, in page order
     on_plans: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))
     on_risers: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))
     for record in catalogue.pages:
@@ -279,6 +292,8 @@ def placements(catalogue, tags: Iterable[str], typicals: Sequence = (),
             continue
         place = sheet.number or f"{_name(record.document)} p.{record.page}"
         bucket = on_risers if riser else on_plans
+        if not riser:
+            plan_sheets.setdefault(place, sheet)
         lines = record.text.splitlines()
         skip = False
         for n, line in enumerate(lines):
@@ -291,9 +306,33 @@ def placements(catalogue, tags: Iterable[str], typicals: Sequence = (),
                 skip = tag is not None
             if tag is not None:
                 bucket[tag][place] += 1
-    return {tag: Placements(dict(on_plans.get(tag, {})), {s: floors.get(s, 1) for s in on_plans.get(tag, {})},
-                            dict(on_risers.get(tag, {})))
-            for tag in set(on_plans) | set(on_risers)}
+    # The plan areas, as the dossier's counts work them out: a floor drawn twice shows its tags twice.
+    labelled: dict[str, set] = defaultdict(set)
+    for tag, places in on_plans.items():
+        for place in places:
+            labelled[place].add(tag)
+    areas = plan_areas([(sheet, labelled[place]) for place, sheet in plan_sheets.items()])
+    first: dict[int, str] = {}
+    same_as: dict[str, str] = {}
+    for place, sheet in plan_sheets.items():
+        area = areas[(sheet.document, sheet.page)]
+        first.setdefault(area, place)
+        if first[area] != place:
+            same_as[place] = first[area]
+
+    def placed(tag: str) -> Placements:
+        mine = dict(on_plans.get(tag, {}))
+        # a sheet repeats the first sheet of its area that shows this tag (another sheet of the area may not)
+        firsts: dict[str, str] = {}
+        repeats: dict[str, str] = {}
+        for place in mine:
+            area = same_as.get(place, place)
+            firsts.setdefault(area, place)
+            if firsts[area] != place:
+                repeats[place] = firsts[area]
+        return Placements(mine, {s: floors.get(s, 1) for s in mine}, dict(on_risers.get(tag, {})), repeats)
+
+    return {tag: placed(tag) for tag in set(on_plans) | set(on_risers)}
 
 
 def _count_in(cell: str | None) -> int | None:
