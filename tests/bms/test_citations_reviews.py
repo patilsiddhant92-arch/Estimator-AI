@@ -9,12 +9,12 @@ from __future__ import annotations
 
 import json
 import re
-import time
 from dataclasses import replace
 from pathlib import Path
 
 import pytest
 
+from timing import grows_linearly
 from bms import ai, citations
 from bms.model import (Assumption, Clarification, Count, Device, Family, Job, OtherCount, Ref, ScopeException,
                        System)
@@ -135,6 +135,14 @@ REFUSED = [
     ("r3 M2", "clarification", "note", "S141-EF-1 fan", S141, TAGS, ("S141",)),
     ("r3 M3", "clarification", "note", "I3 and see Q4A and", ("I3", "Q4A"), TAGS, ("I3", "Q4A")),
     ("r3 M3", "clarification", "note", "because of I3.", ("I3",), TAGS, ("I3",)),
+    # the lead's ruling on L-D (lead/final-c): a sheet word no longer makes an issued id a sheet number. These six
+    # were accepted after the estimator's ruling of 2026-10-05 (r3 C1); no where here names them as sheets (K empty).
+    ("L-D ruling", "clarification", "note", "see sheet S141", S141, TAGS, ("S141",)),
+    ("L-D ruling", "clarification", "note", "sheet S141.", S141, TAGS, ("S141",)),
+    ("L-D ruling", "clarification", "note", "dwg S141", S141, TAGS, ("S141",)),
+    ("L-D ruling", "clarification", "note", "sheets S962a, F10", ("S962a",), TAGS, ("S962a",)),
+    ("L-D ruling", "clarification", "note", "Fans per sheet I3.", ("I3",), TAGS, ("I3",)),
+    ("L-D ruling", "clarification", "note", "sheets C101 and I3", ("I3",), TAGS, ("I3",)),
 ]
 
 
@@ -167,8 +175,11 @@ ACCEPTED = [
     ("r2 m-2", "clarification", "confirm", "Confirm—ownership of valves", S141, TAGS, "ownership of valves"),
     ("r3 C1", "clarification", "note", "sheet C101 shows the fans", S141, TAGS, "sheet C101 shows the fans"),
     ("r3 C2", "clarification", "note", "3 per S141ft", S141, TAGS, "3 per S141ft"),       # no whole token: policy
-    # the estimator's ruling of 2026-10-05: an unissued lookalike in brackets or after a cue word, and an issued id
-    # after a sheet word (a sheet number), are accepted as written. These were refused before the ruling.
+    # the estimator's ruling of 2026-10-05: an unissued lookalike in brackets or after a cue word is accepted as
+    # written. These were refused before the ruling. (An issued id after a sheet word was too, until the lead's
+    # ruling on L-D: those cases are in REFUSED now.) An unissued number after a sheet word still is.
+    ("L-D ruling", "clarification", "note", "see sheet S999 and sheets C101, C102", S141, TAGS,
+     "see sheet S999 and sheets C101, C102"),
     ("r1 C1 ruling", "what", "", "two valves per S999", S141, TAGS, "two valves per S999"),
     ("r1 I3 ruling", "clarification", "note", "Per S141A.", S141, TAGS, "Per S141A."),
     ("r2 I-4 ruling", "clarification", "note", "Two valves (see S999).", S141, TAGS, "Two valves (see S999)."),
@@ -177,12 +188,6 @@ ACCEPTED = [
     ("r2 I-4 ruling", "clarification", "note", "Two valves [see S999]", S141, TAGS, "Two valves [see S999]"),
     ("r2 I-5 ruling", "clarification", "note", "Fans stay on, valves per S999.", S141, TAGS, "Fans stay on, valves per S999."),
     ("r2 I-5 ruling", "clarification", "note", "Fans per S999 stay on.", S141, TAGS, "Fans per S999 stay on."),
-    ("r3 C1 ruling", "clarification", "note", "see sheet S141", S141, TAGS, "see sheet S141"),
-    ("r3 C1 ruling", "clarification", "note", "sheet S141.", S141, TAGS, "sheet S141."),
-    ("r3 C1 ruling", "clarification", "note", "dwg S141", S141, TAGS, "dwg S141"),
-    ("r3 C1 ruling", "clarification", "note", "sheets S962a, F10", ("S962a",), TAGS, "sheets S962a, F10"),
-    ("r3 C1 ruling", "clarification", "note", "Fans per sheet I3.", ("I3",), TAGS, "Fans per sheet I3."),
-    ("r3 C1 ruling", "clarification", "note", "sheets C101 and I3", ("I3",), TAGS, "sheets C101 and I3"),
     ("r3 I2 ruling", "clarification", "note", "Damper [S999; M-101] closes.", S141, TAGS, "Damper [S999; M-101] closes."),
     ("r3 I3 ruling", "clarification", "note", "P-14 or AHU-5/I512 4 per F9032 %", S141, TAGS, "P-14 or AHU-5/I512 4 per F9032 %"),
     ("r3 I4 ruling", "clarification", "note", "(relay RTU9 RTU9-I740a,I29)", S141, TAGS, "(relay RTU9 RTU9-I740a,I29)"),
@@ -326,11 +331,17 @@ def test_a_stray_id_is_refused_at_intake_and_a_stale_one_is_must_fix_then_taken_
 def test_the_review_long_texts_are_detected_in_linear_time():
     """r1 M3, r3 M1."""
     ids = _detector(("S141", "I3"))
-    for text in ("Valves per S141. " * 8000, "per S141 " + "and the " * 3000 + ".", "S141" + " " * 40_000 + "x",
-                 "(I3) " * 16000, "([" * 8000 + "I3" + "])" * 8000):
-        start = time.perf_counter()
+    shapes = (lambda n: "Valves per S141. " * n, lambda n: "per S141 " + "and the " * n + ".",
+              lambda n: "S141" + " " * (10 * n) + "x", lambda n: "(I3) " * n, lambda n: "([" * n + "I3" + "])" * n)
+    for shape in shapes:
+        text = shape(4000)
         assert ids.refusal(text) and "S141" not in ids.without_issued(text).replace("I3", "")
-        assert time.perf_counter() - start < 1.0
+
+        def work(n, shape=shape):
+            text = shape(n)
+            ids.refusal(text)
+            ids.without_issued(text)
+        assert grows_linearly(work, 2000), shape(3)       # growth, not a wall-clock limit (it flaked under load)
 
 
 # ---- the estimator's ruling of 2026-10-05 (the secondary review of the cleanup, H1, H2, M1 to M4) ----------------
@@ -345,13 +356,17 @@ def _vrf(job, **changes) -> Job:
     return replace(job, systems=tuple(replace(s, **changes) if s.key == "VRF" else s for s in job.systems))
 
 
-def test_an_issued_id_after_a_sheet_word_is_a_sheet_number_kept_as_written():
-    """H1: S ids number every dossier line, so a sheet S12 collides with the issued S12; the sheet word wins."""
-    ids = citations.SourceIds.of(["S12", "S13", "S101", "I3"], TAGS)
-    for text in ("Branch selector count per sheet S12 and S13", "see sheet S101", "sheets C101 and I3",
-                 "Damper actuators per sheet S101 and S12."):
-        assert [f.kind for f in ids.scan(text)] == ["sheet"] * len(ids.scan(text)), text
-        assert ids.refusal(text) == "" and ids.without_issued(text) == text, text
+def test_an_issued_id_after_a_sheet_word_is_a_sheet_number_only_when_the_job_knows_the_sheet():
+    """H1: S ids number every dossier line, so a sheet S12 collides with the issued S12. The sheet word used to win;
+    under the lead's ruling on L-D (lead/final-c) only a known sheet (K, the planner's wheres) does."""
+    texts = ("Branch selector count per sheet S12 and S13", "see sheet S101", "sheets C101 and I3",
+             "Damper actuators per sheet S101 and S12.")
+    known = citations.SourceIds.of(["S12", "S13", "S101", "I3"], TAGS, ["S12", "S13", "S101", "I3"])
+    unknown = citations.SourceIds.of(["S12", "S13", "S101", "I3"], TAGS)
+    for text in texts:
+        assert [f.kind for f in known.scan(text)] == ["sheet"] * len(known.scan(text)), text
+        assert known.refusal(text) == "" and known.without_issued(text) == text, text
+        assert unknown.refusal(text) != "" and unknown.without_issued(text) != text, text
 
 
 def test_a_sheet_number_the_jobs_refs_name_is_kept_even_when_issued_and_without_a_sheet_word():
@@ -366,8 +381,11 @@ def test_a_sheet_number_the_jobs_refs_name_is_kept_even_when_issued_and_without_
 
 
 def test_a_sheet_number_equal_to_an_issued_id_prints_in_the_proposal(job, pb):
-    """H1 on the invented fixture: S12 and S13 are issued; "per sheet S12 and S13" prints whole."""
-    j = _vrf(job, clarifications=(Clarification("confirm", "Branch selector count per sheet S12 and S13"),))
+    """H1 on the invented fixture: S12 and S13 are issued; "per sheet S12 and S13" prints whole once the planner's
+    wheres name them as sheets (K; the lead's ruling on L-D: a sheet word alone no longer does)."""
+    j = _vrf(job, sequence_refs=job.system("VRF").sequence_refs + (Ref("Q1", "q", "Sheet S12, Invented.pdf page 5"),
+                                                                    Ref("Q1", "q", "Sheet S13, Invented.pdf page 6")))
+    j = _vrf(j, clarifications=(Clarification("confirm", "Branch selector count per sheet S12 and S13"),))
     lines = [l.text for l in render(j, SAMPLE).lines if l.system_key == "VRF"]
     assert any("per sheet S12 and S13" in line for line in lines), lines
     assert not [f for f in validate(j, SAMPLE) if f.rule == RULE["ids"]]

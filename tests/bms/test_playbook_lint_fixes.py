@@ -311,11 +311,17 @@ def test_a_fence_closes_only_with_its_own_marker(tmp_path):
 
 
 def test_many_unclosed_fences_lint_in_linear_time(tmp_path):
-    import time
-    root = _with_rules(tmp_path, _one_rule("Plain.\n" + "~~~x\n" * 20000))
-    start = time.perf_counter()
-    lint_playbook(root)
-    assert time.perf_counter() - start < 5
+    from timing import grows_linearly
+    roots: dict[int, object] = {}
+
+    def lint(n):                      # the playbook folder is made once per size; only the lint is timed
+        lint_playbook(roots[n])
+
+    def work(n):
+        if n not in roots:
+            roots[n] = _with_rules(tmp_path / str(n), _one_rule("Plain.\n" + "~~~x\n" * n))
+        lint(n)
+    assert grows_linearly(work, 2000)  # growth, not a wall-clock limit (it flaked under load)
 
 
 @pytest.mark.parametrize("arrow", ["➔", "➡", "⬅", "⮕"])

@@ -398,15 +398,19 @@ def test_no_punctuation_is_left_after_a_label(job, kind, text, printed):
 ], ids=["20000-words", "5000-ids", "5000-bracketed-ids", "40000-spaces", "8000-deep-brackets"])
 def test_the_detector_and_the_safety_net_are_linear_on_a_long_text(text):
     """M3: a runaway answer never stalls a run."""
-    import time
+    from timing import grows_linearly
 
     from bms.citations import SourceIds
     ids = SourceIds.of(["S141", "I3"], ())
-    start = time.perf_counter()
     out = ids.without_issued(text)
     ids.refusal(text)
-    assert time.perf_counter() - start < 1.0
     assert "S141" not in out and "I3" not in out
+
+    def work(n):                            # growth, not a wall-clock limit (it flaked under load): n characters
+        sample = (text * (2 + n // len(text)))[:n]
+        ids.without_issued(sample)
+        ids.refusal(sample)
+    assert grows_linearly(work, len(text) // 4)
 
 
 @pytest.mark.parametrize("text", ["the fans run (see C2 in the lab).", "the fans run (C2 in the lab).",

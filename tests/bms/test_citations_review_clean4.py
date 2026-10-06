@@ -85,10 +85,7 @@ def _prints(printed: str, token: str) -> bool:
     "Count per Q999 keynote",                            # unissued Q after a cue word
     "Per S141A the valve is two-way",                    # S141A is not the issued S141
     "Spare points per F9032 list",                       # four-digit unissued fact lookalike
-    "Branch selector count per sheet S12 and S13",       # issued ids that are sheet numbers
-    "Damper actuators per sheet S141 and S142.",
-    "Sheets C101, S141 and C102 show the dampers",       # an issued id inside a sheet list
-    "Dwg S141 shows two dampers",
+    "Sheets C101 and C102 show the dampers",             # unissued numbers after a sheet word
 ])
 def test_a_text_the_ruling_accepts_is_accepted_by_intake_unreported_and_printed_whole(job, text):
     assert _intake(text) == text
@@ -107,6 +104,12 @@ def test_a_text_the_ruling_accepts_is_accepted_by_intake_unreported_and_printed_
     ("Valves per S​141", "S141"),                   # zero-width inside the id
     ("Valves per Ｓ１４１", "S141"),     # full-width id
     ("Per S13 and sheet S12 the count is two", "S13"),
+    # the lead's ruling on L-D (lead/final-c): a sheet word no longer makes an issued id a sheet number; these four
+    # were accepted as sheet numbers before. No where of this job names them as sheets (K is empty).
+    ("Branch selector count per sheet S12 and S13", "S12"),
+    ("Damper actuators per sheet S141 and S142.", "S141"),
+    ("Sheets C101, S141 and C102 show the dampers", "S141"),
+    ("Dwg S141 shows two dampers", "S141"),
 ])
 def test_a_text_with_an_issued_id_is_refused_must_fix_and_never_prints_the_id(job, text, issued):
     assert _intake(text) is None

@@ -11,13 +11,13 @@ from __future__ import annotations
 
 import json
 import re
-import time
 import unicodedata
 from dataclasses import replace
 from pathlib import Path
 
 import pytest
 
+from timing import grows_linearly
 from bms import ai, citations
 from bms.model import Clarification, Count, Device, Job, Ref
 from bms.playbook import load_playbook
@@ -101,10 +101,8 @@ def test_a_tag_part_after_a_separator_protects_its_plain_form(tag, protected):
 
 def test_reading_the_tag_forms_is_linear_in_the_length_of_the_tags():
     for piece in ("S-1_", "S-", "_S", "S-1-", "AHU_S12"):
-        tag = piece * (200_000 // len(piece))
-        start = time.perf_counter()
-        citations.tag_tokens([tag])
-        assert time.perf_counter() - start < 5, piece
+        # growth, not a wall-clock limit (it flaked under load)
+        assert grows_linearly(lambda n, piece=piece: citations.tag_tokens([piece * (n // len(piece))]), 20_000), piece
 
 
 # ---- the narrower K: a sheet only a writer's device ref names -------------------------------------------------------
@@ -121,6 +119,8 @@ def test_a_sheet_only_a_writers_device_ref_names_is_refused_must_fix_and_cut_ali
     assert _intake(j, text, device_refs=(Ref("Q2", "q", where),)) is None              # its own device ref too
     found, printed = _downstream(j, text)
     assert "must_fix" in found and not _prints(printed, token), (found, printed)
-    # the writer's way out, which the prompts give: the sheet word
-    assert _intake(j, f"Points per sheet {token}") == f"Points per sheet {token}"
-    assert _downstream(j, f"Points per sheet {token}") == ([], f"*Points per sheet {token}")
+    # the lead's ruling on L-D (lead/final-c): a sheet word is no way out for an issued id any more; it is refused,
+    # must_fix and cut alike. It prints only once a planner's where names it as a sheet (K).
+    assert _intake(j, f"Points per sheet {token}") is None
+    found, printed = _downstream(j, f"Points per sheet {token}")
+    assert "must_fix" in found and not _prints(printed, token), (found, printed)

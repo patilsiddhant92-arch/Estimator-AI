@@ -176,15 +176,19 @@ def _check_this_system(decision: Decision) -> Finding:
 
 
 def _ids_in_changes(job: Job, decisions) -> list[tuple[Decision, str, tuple[str, ...]]]:
-    """The estimator's changed lines of `job` whose new name prints an issued source id (the detector the validator
-    and the renderer use, `SourceIds.of_job`): (the change, the line's id in `job`, the issued tokens). A page change
-    does not go through the writer's intake, so this is where it is checked."""
+    """The estimator's changed lines of `job` whose client text prints an issued source id (the detector the
+    validator and the renderer use, `SourceIds.of_job`): (the change, the line's id in `job`, the issued tokens). A
+    page change does not go through the writer's intake, so this is where it is checked. The page sets the name (and
+    the quantity and the verb and parties, which are no free text); decisions.json can be edited by hand, so the
+    assumption's what and why are checked too, as the validator checks them. A Decision carries no clarification."""
     ids = SourceIds.of_job(job)
     found = []
     for decision in decisions:
         if decision.action != "change" or decision.device is None or decision.device_id is None:
             continue
-        tokens = tuple(dict.fromkeys(f.token for f in ids.scan(decision.device.name) if f.kind == "issued"))
+        device = decision.device
+        texts = [device.name, *((device.assumption.what, device.assumption.why) if device.assumption else ())]
+        tokens = tuple(dict.fromkeys(f.token for text in texts for f in ids.scan(text) if f.kind == "issued"))
         if not tokens:
             continue
         if decision.system_key == "":
@@ -396,6 +400,12 @@ def _estimate(job_folder: Path, out: Path, cache: Path, mode: Mode, known: dict)
     if saved and not (out / DECISIONS_HISTORY).is_file() and known.get("decisions", 0) > 0:
         notes = (f"Decisions: no {DECISIONS_HISTORY} was found, so the decisions start from {DECISIONS_FILE} "
                  "alone; if an earlier history was deleted, the decisions of earlier saves are not applied.",)
+    # decisions.json deleted to start over: the history still holds every earlier save and is still applied
+    if earlier and not (out / DECISIONS_FILE).is_file():
+        n = len(earlier)
+        notes = (f"Decisions: no {DECISIONS_FILE} was found, but the {n} decision{'s' if n != 1 else ''} kept in "
+                 f"{DECISIONS_HISTORY} {'are' if n != 1 else 'is'} still applied; to start over, delete both "
+                 f"{DECISIONS_FILE} and {DECISIONS_HISTORY}.",)
     if history:
         stop = _save_history(out, history, job_file)
         if stop is not None:

@@ -976,7 +976,9 @@ def _normalise(answer: dict, skeleton: System, kept_ids: set[str], changes: list
     skeleton and the answer carry) or an unissued token joined to one. Never refused: T, `tags` (the run passes
     every tag of the job) and this system's own tags; a sheet number (after a sheet word, or one the planner's
     wheres name, K: `sheets`, the whole plan's that the run passes, and the skeleton's own; never a where on a
-    device ref, which the writer types); any other unissued lookalike ("(F1, F2)", "see C101")."""
+    device ref, which the writer types); any other unissued lookalike ("(F1, F2)", "see C101"). A sheet word never
+    makes an issued id a sheet (L-D): "sheet S141" is refused unless S141 is in K, and so is a where on a device ref
+    that names an issued id after a sheet word ("Sheet S141, Mechanical.pdf page 3"), whose place would print."""
     block = [*(r.to_dict() for r in ai_evidence.system_refs(skeleton))]
     for device in answer["devices"]:
         block += _device_refs(device)
@@ -1000,6 +1002,12 @@ def _normalise(answer: dict, skeleton: System, kept_ids: set[str], changes: list
             continue
         label = f"device {device.get('id') or n + 1}"
         check(f"{label}'s name", device.get("name"))
+        for ref in _device_refs(device):                 # a where the writer typed: its place prints (L-D)
+            named = ids.where_issued(str(ref.get("where") or ""))
+            if named:
+                problems.append(f"{label}'s ref {ref.get('source_id')} has the where {ref.get('where')!r}, which "
+                                f"names the source id{'s' if len(named) > 1 else ''} {', '.join(named)} as its sheet: "
+                                "give the sheet number printed on the drawing, never a source id")
         assumption = device.get("assumption")
         if assumption is None:
             continue
