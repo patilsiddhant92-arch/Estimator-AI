@@ -28,8 +28,8 @@ import pymupdf
 from estimator.catalogue.job import CONTROLS_DISCIPLINES
 from estimator.catalogue.overview import FOUND, RULED_OUT, STANDARD_CLARIFICATION, STANDARD_EXCLUSION
 from estimator.catalogue.tags import Equipment, find_tags, tag_location, tag_prefix
-from estimator.reading.inventory import (COUNT_CAUSE_WORDS, COUNT_CAUSES_LEAD, SAME_PLAN, TYPE_ON_ONE_SHEET,
-                                        TYPE_PLACED, plan_area_doubts, plan_areas)
+from estimator.reading.inventory import (COUNT_CAUSE_WORDS, COUNT_CAUSES_LEAD, TYPE_ON_ONE_SHEET, TYPE_PLACED,
+                                        counted_per_place, plan_area_doubts, plan_areas)
 from estimator.reading.revisions import governing_pages
 from estimator.reading.schedules import header_key, vocabulary
 from estimator.reading.sequences import POINTS, SEQUENCE
@@ -753,8 +753,8 @@ class _Family:
     quantity: int | None = None         # the QUANTITY column's total, when the schedule has one
     scheduled: set = field(default_factory=set)
     on_plans: set = field(default_factory=set)
-    placements: int = 0                 # on the controls plan sheets, floors applied, each plan once
-    by_sheet: list = field(default_factory=list)    # (sheet, count on its first page, floors, same plan as or "")
+    placements: int = 0                 # on the controls plan sheets, floors applied: a unit once, a type every place
+    by_sheet: list = field(default_factory=list)    # (sheet, count on its first page, floors)
     riser: int = 0
     notes: list = field(default_factory=list)       # why the placements are likely above the other counts
     causes: list = field(default_factory=list)      # those causes' keys (COUNT_CAUSE_WORDS), for the line's head
@@ -824,17 +824,16 @@ def _counts(catalogue, reading, counted: frozenset, multipliers: dict) -> dict[s
         for code, pattern in code_patterns.items():
             tally[code] = len(pattern.findall(record.text)) - on_page.get(key, Counter())[code]
         tallies[key] = Counter({tag: n for tag, n in tally.items() if n > 0})
-    # A floor drawn twice (a ductwork plan and its piping and controls plan) shows its tags twice: over the sheets
-    # of one plan area each tag counts the places of the one drawing that shows it most, never the sum.
-    # Sheets are one plan only when the evidence is clear (lead ruling, FINAL-D); sheets that may be one plan but
-    # are not proven so are counted apart (the higher count) and the counts line names them.
+    # Lead ruling (FINAL-G): no two plan sheets are ever merged as one plan, so no title form can lose a unit. A
+    # unit's tag (VAV-101) is one unit however many sheets show it and however often one sheet labels it: it counts
+    # once (times the floors of a typical sheet it is on). A type's tag (EBB-A, a type code, a numbered tag placed as
+    # a type is) counts at every place on every sheet, summed: a floor drawn twice may so count twice, the higher
+    # count, and the counts line names the sheets that may show one plan (`plan_area_doubts`, a hint only).
     plans = [(sheet, tallies[key]) for sheet, key, _r, is_plan, *_ in read if is_plan]
-    areas = plan_areas(plans)
-    doubts = plan_area_doubts(plans, areas)
+    doubts = plan_area_doubts(plans, plan_areas(plans))
     labels = {key: sheet.number or f"{_name(sheet.document)} p.{sheet.page}" for sheet, key, *_ in read}
-    best: dict[tuple[str, int, str], int] = {}        # (prefix, area, tag) -> places, floors applied
-    first_in: dict[tuple[str, int], str] = {}         # (prefix, area) -> the first sheet showing the family there
-    seen_on: dict[tuple[str, str], dict[int, str]] = defaultdict(dict)    # (prefix, tag) -> area -> first sheet
+    places: dict[tuple[str, str], list] = defaultdict(list)            # (prefix, tag) -> [(sheet, places, floors)]
+    seen_on: dict[tuple[str, str], dict[str, str]] = defaultdict(dict)    # (prefix, tag) -> the sheets showing it
     printed: dict[tuple[str, str], tuple[str, int]] = {}                  # (prefix, tag) -> most places on a sheet
     for sheet, key, record, is_plan, is_riser, edge in read:
         label = sheet.number or f"{_name(sheet.document)} p.{sheet.page}"
@@ -846,9 +845,8 @@ def _counts(catalogue, reading, counted: frozenset, multipliers: dict) -> dict[s
             if is_plan:
                 if tag not in code_patterns:
                     families[prefix].on_plans.add(tag)
-                area = areas[key]
-                best[(prefix, area, tag)] = max(best.get((prefix, area, tag), 0), n * floors)
-                seen_on[(prefix, tag)].setdefault(area, label)
+                places[(prefix, tag)].append((key, n, floors))
+                seen_on[(prefix, tag)].setdefault(label, label)
                 if n > printed.get((prefix, tag), ("", 1, 0))[1]:
                     printed[(prefix, tag)] = (label, n, n * floors)
         for prefix, n in by_family.items():
@@ -856,54 +854,62 @@ def _counts(catalogue, reading, counted: frozenset, multipliers: dict) -> dict[s
             if is_riser:
                 family.riser += n
             if is_plan:
-                first = first_in.setdefault((prefix, areas[key]), label)
-                family.by_sheet.append((label, n, floors, first if first != label else ""))
-    placed: Counter = Counter()                       # (prefix, tag) -> its places over the plan areas
-    for (prefix, _area, tag), n in best.items():
-        families[prefix].placements += n
-        placed[(prefix, tag)] += n
+                family.by_sheet.append((label, n, floors))
+    placed: Counter = Counter()                       # (prefix, tag) -> every place on every sheet, floors applied
+    each_place: dict[str, set] = defaultdict(set)     # prefix -> its tags that count at every place
+    for (prefix, tag), found in places.items():
+        placed[(prefix, tag)] = sum(n * floors for _key, n, floors in found)
+        # the labels as drawn, floors not applied: a typical sheet's floors multiply a unit, never make it a type
+        drawn, most = sum(n for _key, n, _f in found), max(n for _key, n, _f in found)
+        if counted_per_place(tag, drawn, most, code=tag in code_patterns):
+            each_place[prefix].add(tag)
+            families[prefix].placements += placed[(prefix, tag)]
+        else:
+            families[prefix].placements += max(floors for *_n, floors in found)      # one unit (per typical floor)
     for prefix, family in families.items():
-        family.notes, family.causes = _placement_causes(prefix, family, seen_on, printed, placed)
-        family.notes += _doubt_notes(prefix, doubts, tallies, labels, code_patterns)
+        family.notes, family.causes = _placement_causes(prefix, family, seen_on, printed, placed, each_place[prefix])
+        labelled = sum(n * floors for _label, n, floors in family.by_sheet)
+        if labelled > family.placements:
+            family.notes.append(f"the labels on the plan sheets add up to {labelled}; each unit's tag is counted once "
+                                "however many sheets show it or how often one sheet labels it")
+        family.notes += _doubt_notes(prefix, doubts, places, labels, each_place[prefix])
     return families
 
 
-def _doubt_notes(prefix: str, doubts: list, tallies: dict, labels: dict, codes: dict) -> list[str]:
-    """The reading note for each pair of plan sheets that may show one plan but are not proven so (`plan_area_doubts`)
-    and both carry this family: both are counted, the higher count. Never in a client cause's words."""
-    def mine(key) -> bool:
-        return any((tag if tag in codes else _prefix(tag)) == prefix for tag in tallies[key])
-    return [f"{labels[a]} and {labels[b]} may show one plan (they repeat each other's tags) but their titles do not "
-            "prove it, so both are counted, the higher count: check whether one is the other drawn again"
-            for a, b in doubts if mine(a) and mine(b)]
+def _doubt_notes(prefix: str, doubts: list, places: dict, labels: dict, each_place: set) -> list[str]:
+    """The reading note for each pair of plan sheets that may show one plan (`plan_area_doubts`, a hint) where both
+    show one tag of this family counted at every place (a type's): both are counted, the higher count. A unit's tag
+    counts once whatever the sheets, so it needs no note. Never in a client cause's words."""
+    on = [{key for key, *_ in places.get((prefix, tag), ())} for tag in each_place]
+    return [f"{labels[a]} and {labels[b]} may show one plan; both are counted, the higher count: check whether one "
+            "is the other drawn again" for a, b in doubts if any(a in keys and b in keys for keys in on)]
 
 
 # ---- why the plan placements are above the other counts ------------------------------------------------
 # (`plan_areas`, which sheets show one plan, is in estimator.reading.inventory: the type-tag check uses it too.)
 
 CAUSE_EXAMPLES = 3       # tags named for each likely cause of too many placements
-_TYPE_FORM = re.compile(r"-[A-Z]{1,2}$", re.I)    # a type's tag (CUH-A, EBB-B): no unit number in it
 
 
-def _placement_causes(prefix: str, family: _Family, seen_on: dict, printed: dict, placed: Counter
-                      ) -> tuple[list[str], list[str]]:
-    """Why the plan placements are likely above every other count of the family (the higher count still wins): a
+def _placement_causes(prefix: str, family: _Family, seen_on: dict, printed: dict, placed: Counter,
+                      each_place: set = frozenset()) -> tuple[list[str], list[str]]:
+    """Why the plan placements are likely above every other count of the family (the higher count still wins). Only
+    tags counted at every place (`each_place`: a type's) can push them up, since a unit's tag counts once: a
     typical type tag placed at many places (the inventory's rule: TYPE_PLACED places, TYPE_ON_ONE_SHEET of them on
-    one sheet), a unit's tag on several different plans, a unit's tag printed more than once on one sheet. Gives
+    one sheet), a type's tag on several different plans, a type's tag printed more than once on one sheet. Gives
     the reading note (tags and sheets, for the estimator and the writers) and the causes' keys (COUNT_CAUSE_WORDS,
     in that order, for the counts line's head); ([], []) when the placements are not above the other counts."""
     others = max(family.rows, family.quantity or 0, len(family.scheduled | family.on_plans))
     if family.placements <= others:
         return [], []
-    mine = sorted((tag for p, tag in seen_on if p == prefix), key=_natural)
+    mine = sorted((tag for p, tag in seen_on if p == prefix and tag in each_place), key=_natural)
     typical = [tag for tag in mine if (prefix, tag) in printed and placed[(prefix, tag)] >= TYPE_PLACED
                and printed[(prefix, tag)][2] >= TYPE_ON_ONE_SHEET]
-    # a type's tag on the plans of several different areas (sheets plan_areas keeps apart) is most likely a typical
-    # unit on each plan, never "one unit's tag shown again" (FINAL-D F5)
-    each_plan = [tag for tag in mine if tag not in typical and _TYPE_FORM.search(tag)
-                 and len(seen_on[(prefix, tag)]) > 1]
+    # a type's tag on the plans of several different sheets is most likely a typical unit on each plan, never "one
+    # unit's tag shown again" (FINAL-D F5)
+    each_plan = [tag for tag in mine if tag not in typical and len(seen_on[(prefix, tag)]) > 1]
+    # (a unit's tag on several plans, "shown again", counts once now (FINAL-G), so it is never a cause any more)
     units = [tag for tag in mine if tag not in typical and tag not in each_plan]
-    again = [(tag, list(seen_on[(prefix, tag)].values())) for tag in units if len(seen_on[(prefix, tag)]) > 1]
     twice = [(tag, *printed[(prefix, tag)][:2]) for tag in units if (prefix, tag) in printed]
     causes, kinds = [], []
     if typical:
@@ -920,13 +926,6 @@ def _placement_causes(prefix: str, family: _Family, seen_on: dict, printed: dict
         more = f"; {len(each_plan) - CAUSE_EXAMPLES} more tags so" if len(each_plan) > CAUSE_EXAMPLES else ""
         causes.append(f"{named}{more}, a type's tag — likely a typical unit on each plan: check the schedule's "
                       "quantity")
-    if again:
-        kinds.append("shown_again")
-        named = "; ".join(f"{tag} on {len(sheets)} different plans ({', '.join(sheets)})"
-                          for tag, sheets in again[:CAUSE_EXAMPLES])
-        more = f"; {len(again) - CAUSE_EXAMPLES} more tags so" if len(again) > CAUSE_EXAMPLES else ""
-        causes.append(f"{named}{more} — likely the same unit's tag shown again (a duct, riser or leader label), "
-                      "not another unit")
     if twice:
         kinds.append("labelled_twice")
         named = "; ".join(f"{tag} {n} times on {sheet}" for tag, sheet, n in twice[:CAUSE_EXAMPLES])
@@ -953,12 +952,10 @@ def _family_order(reading, families: dict[str, _Family]) -> list[str]:
 
 
 def _by_sheet(entries: list) -> str:
-    parts = []
-    for sheet, n, floors, *rest in entries:
-        same_as = rest[0] if rest else ""          # a plan sheet showing the plan another sheet listed shows
-        part = f"{sheet} {n} × {floors} = {n * floors}" if floors > 1 else f"{sheet} {n}"
-        parts.append(f"{part} {SAME_PLAN} {same_as}" if same_as else part)
-    return "; ".join(parts)
+    """Each plan sheet with the family's tags on it ("M-101 9; M-113 1 × 10 = 10"); never "same plan as" (FINAL-G:
+    no sheet is merged with another)."""
+    return "; ".join(f"{sheet} {n} × {floors} = {n * floors}" if floors > 1 else f"{sheet} {n}"
+                     for sheet, n, floors in entries)
 
 
 def _counts_section(reading, families: dict[str, _Family], ids: _Ids) -> list[str]:

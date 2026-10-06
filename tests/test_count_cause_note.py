@@ -1,7 +1,8 @@
 """The quantity note names the likely cause of a high plan count in plain words (FINAL-A, task 1).
 
 The dossier's counts line names why the plan placements are above every other count (a typical unit at each
-place, one unit's tag on several plans, one unit labelled more than once) and which sheets show the same plan. The
+place, a type's tag labelled more than once). FINAL-G: a unit's tag counts once however many sheets show it, so
+"one unit's tag on several plans" and "a floor drawn on two plan sheets counted once" are never a cause any more. The
 cause reaches the ledger's count fact (the head of the line) and the client's "*Qty." note prints it in the
 Playbook's words (`wording.json` "count_causes"), never the estimator's hints (tags, sheets, "check ..."). Invented
 fixtures only."""
@@ -77,24 +78,25 @@ def _sheets_and_schedule(*plans):
     return pages, sheets, len(plans) + 1
 
 
-def test_a_tag_on_several_floors_plans_prints_the_likely_cause_in_plain_words(tmp_path):
+def test_a_unit_tag_on_several_floors_plans_is_one_unit_and_needs_no_note(tmp_path):
     pages, sheets, at = _sheets_and_schedule(("M-101", "HVAC FIRST FLOOR PLAN", "EF-1"),
                                              ("M-102", "HVAC SECOND FLOOR PLAN", "EF-1"),
                                              ("M-106", "HVAC ROOF PLAN", "EF-1"))
     pages.append(_page(at, "EF SCHEDULE\nEF-1"))
     sheets.append(_sheet(at, "M-601", "SCHEDULES", types=("Schedules",)))
     count = _family_count(_catalogue(pages, sheets, ["EF-1"]), _reading("EF SCHEDULE", ["EF-1"], at), "EF", tmp_path)
-    assert _note(count) == ["*Qty. (3) per plan placements (likely one unit's tag shown on several plans); "
-                            "1 per schedule rows."]
+    assert count.highest() == 1                              # FINAL-G: was 3 with "shown on several plans"
+    assert _note(count) == []
 
 
-def test_a_tag_printed_twice_on_one_sheet_prints_one_unit_labelled_more_than_once(tmp_path):
-    pages, sheets, at = _sheets_and_schedule(("M-106", "HVAC ROOF PLAN", "ACCU-1\nACCU-1\nACCU-2\nACCU-2"))
-    pages.append(_page(at, "ACCU SCHEDULE\nACCU-1\nACCU-2"))
+def test_a_type_tag_printed_twice_on_one_sheet_prints_one_unit_labelled_more_than_once(tmp_path):
+    """FINAL-G: a unit's tag twice on a sheet (ACCU-1) is one unit now; a type's tag twice (EBB-B) keeps the cause."""
+    pages, sheets, at = _sheets_and_schedule(("M-106", "HVAC ROOF PLAN", "EBB-B\nEBB-B\nEBB-C\nEBB-C"))
+    pages.append(_page(at, "EBB SCHEDULE\nEBB-B\nEBB-C"))
     sheets.append(_sheet(at, "M-601", "SCHEDULES", types=("Schedules",)))
-    count = _family_count(_catalogue(pages, sheets, ["ACCU-1", "ACCU-2"]),
-                          _reading("ACCU SCHEDULE", ["ACCU-1", "ACCU-2"], at), "ACCU", tmp_path)
-    assert _note(count, "Condensing Unit", ("ACCU-1", "ACCU-2")) == [
+    count = _family_count(_catalogue(pages, sheets, ["EBB-B", "EBB-C"]),
+                          _reading("EBB SCHEDULE", ["EBB-B", "EBB-C"], at), "EBB", tmp_path)
+    assert _note(count, "Baseboard Heater", ("EBB-B", "EBB-C")) == [
         "*Qty. (4) per plan placements (likely one unit labelled more than once on a sheet); 2 per schedule rows."]
 
 
@@ -109,9 +111,10 @@ def test_a_typical_type_tag_prints_a_typical_unit_at_each_place(tmp_path):
         "*Qty. (12) per plan placements (likely a typical unit at each place); 1 per schedule rows."]
 
 
-def test_a_floor_drawn_twice_is_named_beside_the_other_cause(tmp_path):
-    """EF-1 on two floors, each floor drawn on a ductwork plan and a controls plan: 2 placements (each floor once)
-    against 1 schedule row; the note says both why."""
+def test_a_floor_drawn_twice_is_never_named_as_a_cause(tmp_path):
+    """EF-1 on two floors, each floor drawn on a ductwork plan and a controls plan. FINAL-G: each fan's tag counts
+    once (3, the schedule's rows), so no note prints and "a floor drawn on two plan sheets counted once" is never
+    claimed (was "(4) per plan placements (a floor drawn on two plan sheets counted once, ...)")."""
     pages, sheets, at = _sheets_and_schedule(("M-101", "HVAC DUCTWORK FIRST FLOOR PLAN", "EF-1\nEF-2\nEF-3"),
                                              ("M-201", "HVAC PIPING AND CONTROLS FIRST FLOOR PLAN", "EF-1\nEF-2\nEF-3"),
                                              ("M-102", "HVAC DUCTWORK SECOND FLOOR PLAN", "EF-1"),
@@ -120,9 +123,8 @@ def test_a_floor_drawn_twice_is_named_beside_the_other_cause(tmp_path):
     sheets.append(_sheet(at, "M-601", "SCHEDULES", types=("Schedules",)))
     tags = ["EF-1", "EF-2", "EF-3"]
     count = _family_count(_catalogue(pages, sheets, tags), _reading("EF SCHEDULE", tags, at), "EF", tmp_path)
-    assert _note(count, tags=tuple(tags)) == [
-        "*Qty. (4) per plan placements (a floor drawn on two plan sheets counted once, likely one unit's tag shown "
-        "on several plans); 3 per schedule rows."]
+    assert count.highest() == 3
+    assert _note(count, tags=tuple(tags)) == []
 
 
 def test_the_note_never_carries_the_estimators_hints(tmp_path):
@@ -156,13 +158,13 @@ def test_no_cause_prints_when_no_counts_line_names_one():
 
 
 def test_the_counts_line_head_names_the_cause_for_the_ledger(tmp_path):
-    pages, sheets, at = _sheets_and_schedule(("M-106", "HVAC ROOF PLAN", "ACCU-1\nACCU-1"))
-    pages.append(_page(at, "ACCU SCHEDULE\nACCU-1"))
+    pages, sheets, at = _sheets_and_schedule(("M-106", "HVAC ROOF PLAN", "EBB-B\nEBB-B"))
+    pages.append(_page(at, "EBB SCHEDULE\nEBB-B"))
     sheets.append(_sheet(at, "M-601", "SCHEDULES", types=("Schedules",)))
-    d = build_dossier(_catalogue(pages, sheets, ["ACCU-1"]), _reading("ACCU SCHEDULE", ["ACCU-1"], at), tmp_path)
-    fact = seed(d).find("count", "ACCU")
+    d = build_dossier(_catalogue(pages, sheets, ["EBB-B"]), _reading("EBB SCHEDULE", ["EBB-B"], at), tmp_path)
+    fact = seed(d).find("count", "EBB")
     assert fact.quote.endswith("; placements above the other counts, likely: one unit labelled more than once")
-    assert "Reading notes" in next(line for line in d.text.splitlines() if "] ACCU (" in line)
+    assert "Reading notes" in next(line for line in d.text.splitlines() if "] EBB (" in line)
 
 
 # ---- the Playbook slot ----------------------------------------------------------------------------------------

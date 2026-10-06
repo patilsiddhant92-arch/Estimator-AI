@@ -222,12 +222,18 @@ class _Planner:
         """A code with no kind of its own that is a tag of another family ("GI-4" of GI) is a part of that family:
         it joins the block holding the family, with its own count, under the family's name, and is asked. A code
         that is already one of the family's own tags (P-1 of P-1, P-2) is not added again; the question says so.
-        When the family's count was read from the code's own count, the question says the count includes it."""
+        When the family's count was read from the code's own count, the question says so in either case."""
         head = f"{family.prefix} is on a schedule with no kind of equipment given for it; "
+        own = set(family.count.sources)
+        taken = owner.count.value is not None and bool(own & set(owner.count.sources))
         if family.prefix.upper() in {t.upper() for t in owner.tags}:
+            # when the owner's count is the code's own count, say so: the owner could be that count and more
+            # (REVIEW-FINAL4 F5)
+            source = (f" The {owner.prefix} count ({owner.count.value}) is taken from {family.prefix}'s own count, "
+                      f"so check that it counts every {owner.name} unit, not only {family.prefix}." if taken else "")
             self.questions.append(
                 f"{head}it is one of the {owner.name} ({owner.prefix}) tags, so it is counted with the "
-                f"{owner.name} units, not again. Confirm it is one of them.")
+                f"{owner.name} units, not again.{source} Confirm it is one of them.")
             return
         draft = self._holding(drafts, owner)
         if draft is None:
@@ -236,8 +242,7 @@ class _Planner:
             draft.families.append(_Fam(family.name, family.tags or (family.prefix,), family.count, family))
             draft.prefixes.append(family.prefix)
             draft.matches += [m for m in self.reader.matches(family.prefix) if m not in draft.matches]
-        own = set(family.count.sources)
-        if owner.count.value is not None and own and own & set(owner.count.sources):
+        if taken:
             said = (f"The {owner.prefix} count ({owner.count.value}) is taken from {family.prefix}'s own count, so it "
                     f"already includes {family.prefix}. Confirm {family.prefix} is one of them and that the "
                     f"{owner.prefix} count is right.")
@@ -460,11 +465,13 @@ class _Planner:
             near = next((n for n in names if mine & set().union(*map(_suffixes, by_section[n]))), names[0])
             by_section[near].append(draft)
         # an indoor unit and its outdoor unit are one block (house rule "VRF and split as one block"): two sections
-        # are one block only when every unit of the smaller pairs by tag suffix with a unit of another prefix in the
-        # other (AC-109 with ACCU-109) and none pairs inside its own section; the join is asked. Sections sharing
-        # some numbers but not so (both numbering from 1) stay apart and are asked (FINAL-D F2).
+        # are one block only when every unit of the smaller pairs by tag suffix with a unit of the other role in the
+        # other (indoor AC-109 with outdoor ACCU-109, the roles read from the ledger's kind names) and none pairs
+        # inside its own section; the join is asked. Sections sharing some numbers but not so (both numbering from
+        # 1, or both indoor units only) stay apart and are asked (FINAL-D F2, REVIEW-FINAL4 F3).
         joined: list[list[str]] = [[n] for n in names]
-        units = lambda names_: {(_lead(d.key), s) for n in names_ for d in by_section[n] for s in _suffixes(d)}  # noqa: E731
+        units = lambda names_: {(_split_role(d), s)  # noqa: E731
+                                for n in names_ for d in by_section[n] for s in _suffixes(d)}
         merging = True
         while merging:
             merging = False
@@ -1013,8 +1020,11 @@ def _is_condensate(draft: _Draft) -> bool:
 
 
 _CONDENSATE_SOURCE = re.compile(
-    r"\b(?:air[- ]handl\w*|fan[- ]coil|heat[- ]pump|rooftop|roof[- ]top|dedicated outdoor|unit ventilator|cooling|"
-    r"energy recovery|heat recovery|makeup air|make-up air|air condition\w*)\b", re.I)
+    # equipment whose cooling coil drains condensate; never "cooling" alone (a cooling tower makes none,
+    # REVIEW-FINAL4 F4)
+    r"\b(?:air[- ]handl\w*|fan[- ]coil|heat[- ]pump|rooftop|roof[- ]top|dedicated outdoor|unit ventilator|"
+    r"energy recovery|heat recovery|makeup air|make-up air|air condition\w*|indoor unit|cooling coil|"
+    r"computer room)\b", re.I)
 _CONDENSATE_PREFIXES = frozenset({"AHU", "FCU", "FC", "HP", "WSHP", "RTU", "DOAS", "DOA", "UV", "ERV", "HRU", "MAU",
                                   "CRAC", "CRAH"})
 
@@ -1038,9 +1048,26 @@ def _family_suffixes(families) -> set[str]:
     return out
 
 
+_OUTDOOR = re.compile(r"\b(?:outdoor|condensing|condenser)\b", re.I)
+_OUTDOOR_PREFIXES = frozenset({"ACCU", "CU", "ODU", "OU"})
+
+
+def _split_role(draft: _Draft) -> str:
+    """A split unit's role, from the kind names the ledger gives its families: "outdoor" when one says Outdoor or
+    Condensing (an outdoor or condensing unit), or when the names say neither and its prefix is an outdoor unit's
+    (ACCU, CU, ODU, OU); else "indoor" (an indoor unit, an air conditioning unit)."""
+    names = [draft.name, *(f.name for f in draft.families), *(f.source.name for f in draft.families if f.source)]
+    if any(_OUTDOOR.search(squash(n)) for n in names):
+        return "outdoor"
+    if any(re.search(r"\bindoor\b", squash(n), re.I) for n in names):
+        return "indoor"
+    return "outdoor" if _lead(draft.key) in _OUTDOOR_PREFIXES else "indoor"
+
+
 def _pair_up(a: set[tuple[str, str]], b: set[tuple[str, str]]) -> bool:
-    """Two sections' units ((prefix, tag suffix) each) are one split system: every unit of the smaller one has a
-    partner of another prefix with its suffix in the other, and none has one in its own section."""
+    """Two sections' units ((role, tag suffix) each, `_split_role`) are one split system: every unit of the smaller
+    one has a partner of the other role (an indoor unit's outdoor unit) with its suffix in the other, and none has
+    one in its own section."""
     small, other = (a, b) if len(a) <= len(b) else (b, a)
     if not small:
         return False
