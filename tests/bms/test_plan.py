@@ -681,6 +681,44 @@ def test_a_damper_moved_under_a_fan_brings_its_sequence_with_it():
     assert job.questions == ()
 
 
+_DAMPER_SCHEDULE = "\n".join([
+    "== 4. SCHEDULES ==",
+    "[S6] MOTORIZED DAMPER SCHEDULE — M-501, Drawings.pdf page 6 (4 rows)",
+    "    Columns: TAG | SERVES | ACTUATOR",
+    "[S7] MD-1 | SPF-1 | 24V AC",
+    "[S8] MD-2 | — | 24V AC",
+    "[S9] MD-3 | EF-1 | 24V AC",
+    "[S10] MD-4 | SPF-1, EF-1 | 24V AC",
+])
+
+
+def _damper_dossier() -> Dossier:
+    sources = {"S7": "MOTORIZED DAMPER SCHEDULE row MD-1, M-501, Drawings.pdf page 6",
+               "S9": "MOTORIZED DAMPER SCHEDULE row MD-3, M-501, Drawings.pdf page 6"}
+    return Dossier(job_name="Invented Job", text=_DAMPER_SCHEDULE, images=(), sources=sources, families=(),
+                   device_totals={}, counts={}, stats={})
+
+
+def test_a_damper_schedule_row_naming_a_fans_tag_moves_the_damper_under_that_fan():
+    ledger = _ledger()
+    _family(ledger, "MD", "Motorized Damper", "MD-1 thru 4", 4, source="S2")
+    _family(ledger, "SPF", "Stair Pressurization Fan", "SPF-1", 1)
+    _family(ledger, "EF", "Exhaust Fan", "EF-1", 1)
+    _family(ledger, "AC", "Air Conditioning Unit", "AC-1", 1)            # "AC" in the actuator column is no tag
+    ledger.add("link", "MD-3", "EF-1", "S2", "MD-3 at EF-1", "plans", SETTLED)   # a ledger link wins over the row
+    job = plan_job(ledger, None, _damper_dossier(), PLAYBOOK)
+    systems = _by_key(job)
+    spf = systems["SPF"]
+    assert [f.name for f in spf.families] == ["Stair Pressurization Fan", "Motorized Damper"]
+    assert spf.families[1].tags == ("MD-1",)
+    assert spf.families[1].count == Count(1, (Ref("S7", "MD-1 | SPF-1 | 24V AC", _damper_dossier().sources["S7"]),))
+    ef = systems["EF"]
+    assert ef.families[1].tags == ("MD-3",) and [r.source_id for r in ef.families[1].count.sources] == ["S2"]
+    assert len(systems["AC"].families) == 1
+    # MD-2 serves nothing and MD-4 names two systems: both stay in the damper block
+    assert systems["MD"].families[0].tags == ("MD-2", "MD-4") and systems["MD"].families[0].count.value == 2
+
+
 def test_the_leftover_damper_count_cites_only_the_familys_count():
     ledger = _ledger()
     _family(ledger, "MD", "Motorized Damper", "MD-1 thru 3", 3, source="S2")

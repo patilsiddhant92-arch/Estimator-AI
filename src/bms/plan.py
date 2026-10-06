@@ -407,12 +407,16 @@ class _Planner:
         """A motorized damper linked to a fan (or any other system) moves under it: that system takes a damper
         family whose count is its links, each link a source. The damper family, alone or in a group, keeps only
         the dampers no system claims; when every damper is claimed it is gone. The dampers no fan claims stay a
-        damper system citing the sheets that show them, and a question says the total."""
+        damper system citing the sheets that show them, and a question says the total.
+
+        A damper's link is a ledger link fact, or, for a damper tag no link fact names, its row of a schedule in the
+        dossier whose other cells name the tag of exactly one other system (the row is the link's source)."""
         damper_keys = {d.key.upper() for d in drafts if d.kind == "single" and d.key.upper() in DAMPER_PREFIXES}
         grouped = {f.source.prefix.upper() for d in drafts if d.kind != "single" for f in d.families
                    if f.source is not None and f.source.prefix.upper() in DAMPER_PREFIXES}
         claims: dict[int, dict[str, list[Fact]]] = {}      # target draft -> damper prefix -> links
         links_of: dict[str, list[Fact]] = {}               # damper prefix -> links
+        found: list[tuple[Fact, _Draft]] = []
         for link in self.ledger.of_kind("link"):
             subject = squash(link.subject)
             if not self.is_damper(subject):
@@ -420,8 +424,12 @@ class _Planner:
             value = squash(link.value)
             target = next((d for d in drafts if d.key.upper() not in damper_keys
                            and names_in([n for n in d.names() if n.upper() not in DAMPER_PREFIXES], value)), None)
-            if target is None:
-                continue
+            if target is not None:
+                found.append((link, target))
+        linked = {squash(link.subject).upper() for link, _ in found}
+        found += self._schedule_links(drafts, damper_keys | grouped, linked)
+        for link, target in found:
+            subject = squash(link.subject)
             prefix = _lead(subject)
             if prefix not in damper_keys and prefix not in grouped:
                 prefix = next(iter(sorted(damper_keys)), "") or next(iter(sorted(grouped)), "") or prefix
@@ -452,6 +460,35 @@ class _Planner:
         tags = tuple(dict.fromkeys(squash(l.subject) for l in links if _TAG.match(squash(l.subject))))
         return _Fam(name, tags, Count(len(links), tuple(dict.fromkeys(self.reader.fact_ref(l) for l in links))),
                     family, moved=True)
+
+    def _schedule_links(self, drafts: list[_Draft], damper_prefixes: set[str],
+                        linked: set[str]) -> list[tuple[Fact, _Draft]]:
+        """The dossier's schedule rows that tie a damper to its system: a row whose first cell is a damper tag of
+        the plan (one no link fact already places) and whose other cells name a tag of exactly one other system.
+        Each becomes a link (the row's source id, its words as the quote). Only whole tags count: a prefix or key
+        in a cell ("24V AC") names nothing."""
+        text = str(getattr(self.dossier, "text", "") or "")
+        if not text or not damper_prefixes:
+            return []
+        others = [d for d in drafts if d.key.upper() not in damper_prefixes]
+        out: list[tuple[Fact, _Draft]] = []
+        for entry in ai_evidence.parse(text):
+            if entry.part != ai_evidence.SCHEDULES or not entry.sid:
+                continue
+            body = entry.body.split("\n", 1)[0]
+            if "|" not in body:
+                continue
+            first, rest = (squash(c) for c in body.split("|", 1))
+            tag = squash(re.sub(r"\(EXISTING\)", "", first, flags=re.I))
+            if not _TAG.match(tag) or _lead(tag) not in damper_prefixes or not self.is_damper(tag) \
+                    or tag.upper() in linked:
+                continue
+            named = [d for d in others if any(naming(t).search(rest) for t in d.tags())]
+            if len(named) != 1:
+                continue
+            linked.add(tag.upper())
+            out.append((Fact(f"{entry.sid}:link", "link", tag, rest, entry.sid, squash(body), "schedules"), named[0]))
+        return out
 
     def _less_dampers(self, families: list[_Fam], links_of: dict[str, list[Fact]]) -> list[_Fam]:
         kept = []
