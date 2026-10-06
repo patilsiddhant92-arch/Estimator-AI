@@ -154,9 +154,6 @@ def test_f1_a_disguised_issued_id_in_a_writers_where_never_prints(where):
     assert _verdicts("where", where, "S141")[2] == "cut"
 
 
-@pytest.mark.xfail(strict=True, reason="REVIEW-FINAL3 F3 (Low): an issued id the where reads as its sheet in a "
-                   "form where_issued misses (lower-case id, 'Sheet:', 'Sheet No.', four digits) is accepted and "
-                   "silent while the renderer drops the place")
 @pytest.mark.parametrize("where, token", [("sheet s141, Mechanical.pdf page 3", "s141"),
                                           ("Sheet: S141, Mechanical.pdf page 3", "S141"),
                                           ("Sheet No. S141, Mechanical.pdf page 3", "S141"),

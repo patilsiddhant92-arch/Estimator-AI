@@ -58,3 +58,31 @@ def test_a_hand_edited_change_whose_device_ref_where_names_a_disguised_issued_id
         == ["must_fix"]
     assert [(device_id, tokens) for _, device_id, tokens in run._ids_in_changes(job, [decision])] \
         == [("EF.d1", ("S6",))]
+
+
+# ---- F3: one sheet pattern, one set of sheet words ---------------------------------------------------------------
+
+REFUSED = ("refused", "must_fix", "cut")
+ACCEPTED = ("accepted", "none", "prints")
+
+
+@pytest.mark.parametrize("probe, token, sheets, verdict", [
+    ("Dwg No. S141, Mechanical.pdf page 3", "S141", (), REFUSED),
+    ("Sheets: S141, Mechanical.pdf page 3", "S141", (), REFUSED),
+    ("Sheet # S141, Mechanical.pdf page 3", "S141", (), REFUSED),
+    ("Sheet S2010, Structural.pdf page 4", "S2010", ("S2010",), ACCEPTED),       # a known four-digit sheet prints
+    ("sheet s141, Mechanical.pdf page 3", "s141", ("s141",), ACCEPTED),          # a known lower-case sheet prints
+])
+def test_intake_validator_and_render_agree_on_the_wider_sheet_forms(probe, token, sheets, verdict):
+    assert _verdicts("where", probe, token, sheets) == verdict
+
+
+def test_the_planner_names_sheets_in_every_sheet_form_and_a_decimal_is_no_id():
+    refs = [Ref("Q2", "q", "Sheet S2010, Structural.pdf page 4"), Ref("Q3", "q", "sheet c101, Civil.pdf page 1"),
+            Ref("Q4", "q", "Sheet No. F12, Fire.pdf page 2"), Ref("Q5", "q", "Sheet: Q7, Plumbing.pdf page 2"),
+            Ref("Q6", "q", "Sheet S14.5, Structural.pdf page 5")]
+    assert ref_sheets(refs) == frozenset({"S2010", "C101", "F12", "Q7"})
+    assert SourceIds.of(["S14"]).where_issued("Sheet S14.5, Structural.pdf page 5") == []
+    assert SourceIds.of(["S14"]).sheet("Sheet S14.5, Structural.pdf page 5") == "S14.5"
+    found = SourceIds.of(["S141"]).scan("Valves per Sheet No. C2.")
+    assert [(f.token, f.kind) for f in found] == [("C2", "sheet")]

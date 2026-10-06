@@ -38,12 +38,16 @@ _TOKEN = re.compile(r"(?<![^\W_])(?<![0-9]\.)[SQIFC][0-9]{1,4}[A-Za-z]?(?![^\W_]
 # the ledger's own bracket form of an id ("[S41]"), which the planner takes out of its texts
 LEDGER_BRACKET = re.compile(r"\[[SQIFC]\d{1,4}[a-z]?\]", re.IGNORECASE)
 
-SHEET = re.compile(r"\b[A-Z]{1,2}-?\d{1,3}(?:\.\d{1,3})?[A-Z]?\b")
+# a sheet number in a where: an upper-case sheet ("M-101", "M-112.00", "C501A"), or an id-shaped token as `_TOKEN`
+# reads one (any case, 1 to 4 digits: "s141", "S2010"), so the where checks find every id the scanner finds
+SHEET = re.compile(r"\b(?:[A-Z]{1,2}-?\d{1,3}(?:\.\d{1,3})?[A-Z]?|(?i:[SQIFC]\d{1,4}[A-Z]?)(?!\.\d))\b")
 _FILE_PART = re.compile(r"\.(?:pdf|docx?|xlsx?|dwg|txt|png|jpe?g)\b|\bpage\s+\d+\b", re.IGNORECASE)
 _NOT_A_DOCUMENT = ("equipment counts",)          # the dossier's own label for a combined count, not a document
 _NOT_A_PLACE = re.compile(r"^\s*ledger\b|\.(?:png|jpe?g)\b", re.IGNORECASE)   # a ledger fact or a picture file
-# "sheet C101", "sheets C101 and C102", "dwg C3"; not "drawing", which the writer uses for a picture id ("drawing I12")
-_SHEET_BEFORE = re.compile(r"(?<![^\W_])(?:sheets?|dwgs?\.?)\s*$", re.IGNORECASE)
+# "sheet C101", "sheets C101 and C102", "dwg C3", "Sheet: C101", "Sheet No. C101", "Dwg No. C3"; not "drawing", which
+# the writer uses for a picture id ("drawing I12"), and not a bare "No."
+_SHEET_BEFORE = re.compile(r"(?<![^\W_])(?:sheets?|dwgs?\.?)(?:\s*(?:no|nos|number)\b\.?)?\s*[:#]?\s*$",
+                           re.IGNORECASE)
 _JOIN = re.compile(r"\s*(?:,|and|or|to|through|thru|[-–—/‐‑])\s*", re.IGNORECASE)
 _WINDOW = 32                                      # how far back a sheet word is looked for
 _ZERO_WIDTH = frozenset("​‌‍⁠﻿­")
@@ -319,7 +323,8 @@ class SourceIds:
         return _key(token) not in self.ids and _sheet_form(text, found)
 
     def where_issued(self, where: str) -> list[str]:
-        """The issued ids (not in K) that `where` names after a sheet word ("Sheet S141, Mechanical.pdf page 3"),
+        """The issued ids (not in K) that `where` names after a sheet word ("Sheet S141, Mechanical.pdf page 3",
+        "sheet s141", "Sheet: S141", "Sheet No. S2010"; `SHEET`, `_SHEET_BEFORE`),
         as written, in order: the where reads them as its sheet, but no issued id prints as a place (`place` leaves
         them out). The intake refuses a writer's where naming one; the validator reports it must_fix. Read on the
         detection copy (`_where_text`), so a full-width or zero-width id is found as `scan` finds it."""
