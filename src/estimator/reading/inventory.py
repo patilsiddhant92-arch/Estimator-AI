@@ -30,6 +30,14 @@ READ_BY_EYE = "read by eye from a picture of the schedule — check the count"
 TYPE_PLACED = 3        # labels on the plans (floors counted) that make a scheduled tag a type ...
 TYPE_ON_ONE_SHEET = 4  # ... when one sheet alone holds this many (floors counted): a unit's tag can sit by its
                        # symbol and by its thermostat too (26-0478's UH-1, three times on H101)
+# The dossier's counts line names, in the head the ledger quotes, why a family's plan placements are above every
+# other count; the renderer reads these words back to print the Playbook's client wording for each cause
+# (wording.json "count_causes"). Keep them free of the count labels' words (riser, schedule, picture).
+COUNT_CAUSES_LEAD = "placements above the other counts, likely:"
+COUNT_CAUSE_WORDS = {"typical": "a typical unit at each place",
+                     "shown_again": "one unit's tag on several plans",
+                     "labelled_twice": "one unit labelled more than once"}
+SAME_PLAN = "same plan as"         # a plan sheet showing the plan another sheet of the line shows (counted once)
 _DECIMAL_TYPE = re.compile(r"^[A-Z]+-\d+\.\d+$")   # AC-3.0, HRU-4.0: a size, not a unit number
 _A_TYPE = "A type, not one unit"
 _RISER = re.compile(r"\bRISERS?\b", re.I)
@@ -162,6 +170,85 @@ class Placements:
 
 def _label_key(text: str) -> str:
     return re.sub(r"[\s\-‐‑–—#]", "", _LABEL_NOISE.sub("", text.strip())).upper()
+
+
+# ---- the plan areas: the sheets that show one plan (the dossier's counts and the type-tag check) -------
+
+_ORDINALS = {word: n for n, word in enumerate(
+    ("FIRST", "SECOND", "THIRD", "FOURTH", "FIFTH", "SIXTH", "SEVENTH", "EIGHTH", "NINTH", "TENTH", "ELEVENTH",
+     "TWELFTH"), start=1)}
+_FLOOR_NAMED = re.compile(
+    r"\b(?:(?P<ordinal>" + "|".join(_ORDINALS) + r"|\d{1,3}(?:ST|ND|RD|TH))\s+FLOOR"
+    r"|(?:LEVEL|FLOOR)\s+(?P<number>[A-Z]?\d{1,3}[A-Z]?)"
+    r"|(?P<named>SUB-?CELLAR|CELLAR|BASEMENT|GROUND\s+FLOOR|LOWER\s+LEVEL|MEZZANINE|PENTHOUSE|ROOF|ATTIC))\b", re.I)
+_PLAN_PART = re.compile(r"\b(?:AREA|PART|ZONE|WING|SECTOR|BUILDING|BLDG|PHASE)\s*[A-Z0-9]{1,3}\b"
+                        r"|\b(?:NORTH|SOUTH|EAST|WEST)\b", re.I)
+_ENLARGED = re.compile(r"\b(?:ENLARGED|PARTIAL)\b", re.I)
+AREA_OVERLAP = 0.6       # share of the smaller sheet's tags another sheet must repeat to be the same plan
+AREA_SHARED = 3          # and at least this many tags: two tags in common prove nothing
+
+
+def _area_key(title: str | None) -> tuple | None:
+    """The floor (and the part of it) a plan's title names: "HVAC PIPING AND CONTROLS FIRST FLOOR PLAN" and
+    "HVAC 1ST FLOOR PLAN" are both floor 1. None when the title names no floor, or names an enlarged or partial
+    plan (one that repeats part of a floor and joins it only by its tags)."""
+    title = (title or "").upper()
+    if _ENLARGED.search(title):
+        return None
+    floors = []
+    for m in _FLOOR_NAMED.finditer(title):
+        if m.group("ordinal"):
+            word = m.group("ordinal")
+            floors.append(str(_ORDINALS.get(word) or int(re.match(r"\d+", word).group(0))))
+        elif m.group("number"):
+            floors.append(m.group("number").lstrip("0") or "0")
+        else:
+            floors.append(re.sub(r"\W+", " ", m.group("named")))
+    if not floors:
+        return None
+    parts = sorted(re.sub(r"\s+", " ", m.group(0)) for m in _PLAN_PART.finditer(title))
+    return tuple(floors), tuple(parts)
+
+
+def _same_tags(a: set, b: set) -> bool:
+    shared = len(a & b)
+    return shared >= AREA_SHARED and shared >= AREA_OVERLAP * min(len(a), len(b))
+
+
+def plan_areas(plans) -> dict[tuple[str, int], int]:
+    """Which plan sheets show the same plan area: (document, page) -> an area number, given (sheet, the tags on
+    it) for each plan sheet. Two sheets are one area when their titles name the same floor (and part) and they are
+    in one document or repeat each other's tags; a sheet whose title names no floor (an enlarged plan) joins the
+    area whose tags it repeats most. Different floors are never one area. Pure."""
+    areas: list[tuple[tuple | None, set, set]] = []       # (key, documents, tags so far)
+    found: dict[tuple[str, int], int] = {}
+    loose = []
+    for sheet, tags in plans:
+        key = _area_key(sheet.title)
+        if key is None:
+            loose.append((sheet, set(tags)))
+            continue
+        for number, (area_key, documents, area_tags) in enumerate(areas):
+            if area_key == key and (sheet.document in documents or _same_tags(area_tags, tags)):
+                break
+        else:
+            number = len(areas)
+            areas.append((key, set(), set()))
+        areas[number][1].add(sheet.document)
+        areas[number][2].update(tags)
+        found[(sheet.document, sheet.page)] = number
+    for sheet, tags in loose:
+        matches = [(len(area_tags & tags), number) for number, (_k, _d, area_tags) in enumerate(areas)
+                   if _same_tags(area_tags, tags)]
+        if matches:
+            number = max(matches, key=lambda m: (m[0], -m[1]))[1]
+        else:
+            number = len(areas)
+            areas.append((None, set(), set()))
+        areas[number][1].add(sheet.document)
+        areas[number][2].update(tags)
+        found[(sheet.document, sheet.page)] = number
+    return found
 
 
 def placements(catalogue, tags: Iterable[str], typicals: Sequence = (),
