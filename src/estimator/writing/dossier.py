@@ -1004,6 +1004,8 @@ def _plan_sheet_text(catalogue, texts: dict, ids: _Ids, printed: _Printed) -> li
 # ---- section 8: the controls spec highlights -------------------------------------------------------------
 
 def _spec_section(catalogue, printed: _Printed, texts: dict, ids: _Ids) -> list[str]:
+    """The highlights of every controls spec section, even one sections 2 and 3 printed whole: the spec pass
+    reads sections 1 and 8 only, so nothing here may point at text given above."""
     documents = {d.relative: d for d in catalogue.job.documents}
     sections = [s for s in catalogue.sections if s.controls]
     labels = defaultdict(list)
@@ -1015,11 +1017,7 @@ def _spec_section(catalogue, printed: _Printed, texts: dict, ids: _Ids) -> list[
         span = (s.document, s.first_page, s.last_page)
         label = f"{s.number} {s.title}".strip()
         if span in printed.replaced:
-            lines.append(f"({label}, {_name(s.document)}: replaced by a later copy, given above)")
-            continue
-        if span in printed.sections or any(
-                (s.document, p) in printed.pages for p in range(s.first_page, s.last_page + 1)):
-            lines.append(f"({label}, {_name(s.document)}: given in full above)")
+            lines.append(f"({label}, {_name(s.document)}: replaced by a later copy)")
             continue
         copies = labels[(s.number, s.title)]
         if not _later(documents.get(s.document)) and any(_later(documents.get(c.document)) for c in copies):
@@ -1027,6 +1025,7 @@ def _spec_section(catalogue, printed: _Printed, texts: dict, ids: _Ids) -> list[
             continue
         current: list[tuple[int, str]] | None = None
         title = ""
+        found = len(articles)
         for page, paragraph in _page_paragraphs(texts, s.document, s.first_page, s.last_page):
             m = _ARTICLE.match(paragraph)
             if m and not m.group(2).rstrip().endswith((".", ";", ",")):
@@ -1040,6 +1039,9 @@ def _spec_section(catalogue, printed: _Printed, texts: dict, ids: _Ids) -> list[
                 continue
             if current is not None:
                 current.append((page, paragraph))
+        if len(articles) == found:
+            lines.append(f"({label}, {_name(s.document)}: no article on the "
+                         f"{', '.join(name for name, _ in SPEC_HEADINGS[:-1])} or {SPEC_HEADINGS[-1][0]})")
     articles.sort(key=lambda a: (a[0], a[1]))
     used = 0
     cut: list[str] = []
