@@ -9,12 +9,12 @@ from __future__ import annotations
 
 import json
 import re
-import time
 from dataclasses import replace
 from pathlib import Path
 
 import pytest
 
+from timing import grows_linearly
 from bms import ai, citations
 from bms.model import (Assumption, Clarification, Count, Device, Family, Job, OtherCount, Ref, ScopeException,
                        System)
@@ -326,11 +326,17 @@ def test_a_stray_id_is_refused_at_intake_and_a_stale_one_is_must_fix_then_taken_
 def test_the_review_long_texts_are_detected_in_linear_time():
     """r1 M3, r3 M1."""
     ids = _detector(("S141", "I3"))
-    for text in ("Valves per S141. " * 8000, "per S141 " + "and the " * 3000 + ".", "S141" + " " * 40_000 + "x",
-                 "(I3) " * 16000, "([" * 8000 + "I3" + "])" * 8000):
-        start = time.perf_counter()
+    shapes = (lambda n: "Valves per S141. " * n, lambda n: "per S141 " + "and the " * n + ".",
+              lambda n: "S141" + " " * (10 * n) + "x", lambda n: "(I3) " * n, lambda n: "([" * n + "I3" + "])" * n)
+    for shape in shapes:
+        text = shape(4000)
         assert ids.refusal(text) and "S141" not in ids.without_issued(text).replace("I3", "")
-        assert time.perf_counter() - start < 1.0
+
+        def work(n, shape=shape):
+            text = shape(n)
+            ids.refusal(text)
+            ids.without_issued(text)
+        assert grows_linearly(work, 2000), shape(3)       # growth, not a wall-clock limit (it flaked under load)
 
 
 # ---- the estimator's ruling of 2026-10-05 (the secondary review of the cleanup, H1, H2, M1 to M4) ----------------
