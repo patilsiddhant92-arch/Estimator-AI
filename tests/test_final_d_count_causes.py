@@ -1,0 +1,31 @@
+"""FINAL-D F5: the likely cause of a high plan count is a true one. "One unit's tag shown on several plans" is said
+only of a unit's tag (a number in it); a type's tag (CUH-A) once on each of two different floors is most likely a
+typical unit on each plan: the estimator checks the schedule's quantity, and the client reads "a typical unit at
+each place". "A floor drawn on two plan sheets" is said only of sheets plan_areas merged. Invented fixtures only."""
+from estimator.writing.dossier import build_dossier
+from test_count_cause_note import _catalogue, _family_count, _note, _page, _reading, _sheet
+from test_dossier_plan_areas import _line
+
+
+def _two_floors(tag_text):
+    pages = [_page(1, tag_text + "\nVAV-1"), _page(2, tag_text + "\nVAV-2"), _page(3, "SCHEDULE\nCUH-A\nEF-1")]
+    sheets = [_sheet(1, "M-101", "HVAC FIRST FLOOR PLAN"), _sheet(2, "M-102", "HVAC SECOND FLOOR PLAN"),
+              _sheet(3, "M-601", "SCHEDULES", types=("Schedules",))]
+    return _catalogue(pages, sheets, ["CUH-A", "EF-1", "VAV-1", "VAV-2"]), _reading("SCHEDULE", ["CUH-A", "EF-1"], 3)
+
+
+def test_a_type_tag_once_on_each_of_two_floors_is_a_typical_unit_on_each_plan(tmp_path):
+    catalogue, reading = _two_floors("CUH-A")
+    line = _line("CUH", build_dossier(catalogue, reading, tmp_path))
+    assert "plan placements 2" in line
+    assert "likely: a typical unit at each place" in line
+    assert "shown again" not in line and "one unit's tag on several plans" not in line
+    assert "check the schedule's quantity" in line
+    (note,) = _note(_family_count(catalogue, reading, "CUH", tmp_path), "Cabinet Unit Heater", ("CUH-A",))
+    assert "(2) per plan placements (likely a typical unit at each place)" in note
+    assert "drawn on two plan sheets" not in note
+    # a unit's tag (a number in it) once on each of two floors is still likely one unit's tag shown again
+    catalogue, reading = _two_floors("EF-1")
+    line = _line("EF", build_dossier(catalogue, reading, tmp_path))
+    assert "likely: one unit's tag on several plans" in line
+    assert "typical unit" not in line

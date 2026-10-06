@@ -882,6 +882,7 @@ def _doubt_notes(prefix: str, doubts: list, tallies: dict, labels: dict, codes: 
 # (`plan_areas`, which sheets show one plan, is in estimator.reading.inventory: the type-tag check uses it too.)
 
 CAUSE_EXAMPLES = 3       # tags named for each likely cause of too many placements
+_TYPE_FORM = re.compile(r"-[A-Z]{1,2}$", re.I)    # a type's tag (CUH-A, EBB-B): no unit number in it
 
 
 def _placement_causes(prefix: str, family: _Family, seen_on: dict, printed: dict, placed: Counter
@@ -897,7 +898,11 @@ def _placement_causes(prefix: str, family: _Family, seen_on: dict, printed: dict
     mine = sorted((tag for p, tag in seen_on if p == prefix), key=_natural)
     typical = [tag for tag in mine if (prefix, tag) in printed and placed[(prefix, tag)] >= TYPE_PLACED
                and printed[(prefix, tag)][2] >= TYPE_ON_ONE_SHEET]
-    units = [tag for tag in mine if tag not in typical]
+    # a type's tag on the plans of several different areas (sheets plan_areas keeps apart) is most likely a typical
+    # unit on each plan, never "one unit's tag shown again" (FINAL-D F5)
+    each_plan = [tag for tag in mine if tag not in typical and _TYPE_FORM.search(tag)
+                 and len(seen_on[(prefix, tag)]) > 1]
+    units = [tag for tag in mine if tag not in typical and tag not in each_plan]
     again = [(tag, list(seen_on[(prefix, tag)].values())) for tag in units if len(seen_on[(prefix, tag)]) > 1]
     twice = [(tag, *printed[(prefix, tag)][:2]) for tag in units if (prefix, tag) in printed]
     causes, kinds = [], []
@@ -907,6 +912,14 @@ def _placement_causes(prefix: str, family: _Family, seen_on: dict, printed: dict
                           f"{printed[(prefix, tag)][0]}" for tag in typical[:CAUSE_EXAMPLES])
         more = f"; {len(typical) - CAUSE_EXAMPLES} more tags so" if len(typical) > CAUSE_EXAMPLES else ""
         causes.append(f"{named}{more} — likely a typical unit placed at each place: check the schedule's quantity")
+    if each_plan:
+        if "typical" not in kinds:
+            kinds.append("typical")
+        named = "; ".join(f"{tag} on {len(seen_on[(prefix, tag)])} different plans "
+                          f"({', '.join(seen_on[(prefix, tag)].values())})" for tag in each_plan[:CAUSE_EXAMPLES])
+        more = f"; {len(each_plan) - CAUSE_EXAMPLES} more tags so" if len(each_plan) > CAUSE_EXAMPLES else ""
+        causes.append(f"{named}{more}, a type's tag — likely a typical unit on each plan: check the schedule's "
+                      "quantity")
     if again:
         kinds.append("shown_again")
         named = "; ".join(f"{tag} on {len(sheets)} different plans ({', '.join(sheets)})"

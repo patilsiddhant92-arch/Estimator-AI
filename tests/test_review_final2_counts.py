@@ -81,8 +81,6 @@ def test_the_same_floor_named_two_ways_in_one_document_is_still_one_plan(tmp_pat
     assert d.counts["VAV"]["plan_placements"] == 6
 
 
-@pytest.mark.xfail(strict=True, reason="REVIEW-FINAL2 F5: a type tag placed once on each of two floors (two real "
-                   "units) is told to the client as likely one unit's tag shown again")
 def test_a_type_tag_once_on_each_of_two_floors_is_not_called_one_unit_shown_again(tmp_path):
     catalogue, reading = _job([("M-101", "HVAC FIRST FLOOR PLAN", "CUH-A\nVAV-1"),
                                ("M-102", "HVAC SECOND FLOOR PLAN", "CUH-A\nVAV-2")], ["CUH-A"])
