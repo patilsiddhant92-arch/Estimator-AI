@@ -426,6 +426,16 @@ class _Planner:
                     "Mechanical Contractor) belongs in the split block.")
                 continue
             block = sharing[0]
+            # numbers alone are weak evidence: other equipment carrying the pumps' numbers is named as the other
+            # possibility (FINAL-D F6)
+            others = [d for d in drafts if d is not pump and d not in splits and not _is_condensate(d)
+                      and mine & _family_suffixes(d.families)]
+            if others:
+                alternative = (f"They could instead be the pumps of the "
+                               f"{' or the '.join(f'{d.name} ({tag_words(d.tags())})' for d in others)}, which "
+                               "carry the same numbers; if so, they belong in that block instead.")
+            else:
+                alternative = "If they serve other equipment, they belong with that equipment instead."
             block.families += pump.families
             block.prefixes += [p for p in pump.prefixes if p not in block.prefixes]
             block.matches += [m for m in pump.matches if m not in block.matches]
@@ -434,7 +444,7 @@ class _Planner:
                 f"{label} carry the tag numbers of the split units of {block.name}, so they are planned in that "
                 "block for the condensate pump float switch tie-in (Furnished by Mechanical Contractor), as the "
                 "house rule for split and VRF systems writes it. Confirm each pump serves the split unit with its "
-                "number.")
+                f"number. {alternative}")
         return out
 
     def _split_blocks(self, loose: list[_Draft], drafts: list[_Draft]) -> dict[str, list[_Draft]]:
