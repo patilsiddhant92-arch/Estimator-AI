@@ -8,8 +8,12 @@ the contract and not needed. The behaviours are those the estimator approved in 
 - a group whose families each match their own sequence section is not one plant: its families stand alone;
 - a VRF group is one system with indoor, condensing and branch-selector families;
 - split units no group took are one Split System per sequence section and per same alternate and exception;
+  sections whose units share a tag suffix (an indoor unit and its outdoor unit) are one block;
 - duct heaters are one system that also carries the sequence of the units they serve;
-- a motorized damper linked to a fan moves under that fan; dampers no fan claims stay a damper system;
+- a motorized damper linked to a fan (a link fact, or its schedule row naming the fan's tag) moves under that fan;
+  dampers no fan claims stay a damper system;
+- families of one name (not a general kind alone) are one block; a code the dossier gives no kind joins the family
+  it is a tag of; a family with only a general kind for a name is asked what it is;
 - the printed count is the highest; every other count is kept with its source; unknown is None (Qty (##));
 - unscheduled and sequence-only families, parts with no count, unmatched sequence sections and the ledger's own
   questions become plain-words questions.
@@ -27,7 +31,7 @@ from bms import ai_evidence
 from bms.citations import without_ledger_brackets
 from bms.model import Count, Family, FrontEnd, Job, Ref, ScopeException, Served, System
 from bms.plan_groups import family_of_tag, members, part_count, parts, split_apart
-from bms.plan_read import FamilyFacts, Reader, naming, names_in, squash, tag_words
+from bms.plan_read import NO_KIND, FamilyFacts, Reader, naming, names_in, squash, tag_words
 from bms.playbook import Playbook, Shape
 
 GLOBAL_POINTS = "Global Points"
@@ -186,9 +190,20 @@ class _Planner:
         claims_of = parts(reader, kept)
         drafts: list[_Draft] = []
         placed: set[str] = set()
+        no_kind: list[tuple[FamilyFacts, FamilyFacts]] = []
         for fact in reader.family_facts():
             family = reader.family(fact)
             claims = claims_of.get(family.prefix.casefold(), [])
+            if not claims and squash(family.name).casefold() == NO_KIND:
+                owner = family_of_tag(reader, family.prefix)
+                if owner is not None:
+                    no_kind.append((reader.rename(family, owner.name), owner))
+                    continue
+                family = reader.rename(family, family.prefix)
+                self.questions.append(
+                    f"{family.prefix} is on a schedule with no kind of equipment given for it, and no family of the "
+                    f"documents has it as a tag; it is planned as its own block named {family.prefix}. What is it, "
+                    "and is it in the BMS scope?")
             for group, _ in claims:
                 if group.id not in placed:
                     placed.add(group.id)
@@ -196,7 +211,24 @@ class _Planner:
             rest = self._rest(family, claims)
             if rest is not None:
                 drafts.append(rest)
+        for family, owner in no_kind:
+            self._join_owner(drafts, family, owner)
         return drafts
+
+    def _join_owner(self, drafts: list[_Draft], family: FamilyFacts, owner: FamilyFacts) -> None:
+        """A code with no kind of its own that is a tag of another family ("GI-4" of GI) is a part of that family:
+        it joins the block holding the family, with its own count, under the family's name, and is asked."""
+        draft = self._holding(drafts, owner)
+        if draft is None:
+            drafts.append(self._single(family))
+        else:
+            draft.families.append(_Fam(family.name, family.tags or (family.prefix,), family.count, family))
+            draft.prefixes.append(family.prefix)
+            draft.matches += [m for m in self.reader.matches(family.prefix) if m not in draft.matches]
+        self.questions.append(
+            f"{family.prefix} is on a schedule with no kind of equipment given for it; its code is a tag of "
+            f"{owner.name} ({owner.prefix}), so it is planned with the {owner.name} units. Confirm it is one, and "
+            f"that its count is not already in the {owner.prefix} count.")
 
     def specific_name(self, family: FamilyFacts) -> str:
         """The family's name; for a generic kind ("Fan", "Unit", "Equipment") the best specific words the ledger
@@ -322,7 +354,26 @@ class _Planner:
             mine = _suffixes(draft)
             near = next((n for n in names if mine & set().union(*map(_suffixes, by_section[n]))), names[0])
             by_section[near].append(draft)
-        return {f"{SPLIT_SYSTEM} — {n}": sorted(block, key=drafts.index) for n, block in by_section.items()}
+        # an indoor unit and its outdoor unit are one block (house rule "VRF and split as one block"): sections whose
+        # units share a tag suffix (AC-109 and ACCU-109) are one block, whichever section each matched
+        joined: list[list[str]] = [[n] for n in names]
+        suffixes = lambda names_: set().union(*(_suffixes(d) for n in names_ for d in by_section[n]))  # noqa: E731
+        merging = True
+        while merging:
+            merging = False
+            for a in range(len(joined)):
+                for b in range(a + 1, len(joined)):
+                    if suffixes(joined[a]) & suffixes(joined[b]):
+                        joined[a] += joined.pop(b)
+                        merging = True
+                        break
+                if merging:
+                    break
+        if len(joined) == 1:
+            return {SPLIT_SYSTEM: sorted(loose, key=drafts.index)}
+        return {f"{SPLIT_SYSTEM} — {' / '.join(group)}": sorted((d for n in group for d in by_section[n]),
+                                                                  key=drafts.index)
+                for group in joined}
 
     # -- step 3: duct heaters in one place
 
@@ -407,12 +458,16 @@ class _Planner:
         """A motorized damper linked to a fan (or any other system) moves under it: that system takes a damper
         family whose count is its links, each link a source. The damper family, alone or in a group, keeps only
         the dampers no system claims; when every damper is claimed it is gone. The dampers no fan claims stay a
-        damper system citing the sheets that show them, and a question says the total."""
+        damper system citing the sheets that show them, and a question says the total.
+
+        A damper's link is a ledger link fact, or, for a damper tag no link fact names, its row of a schedule in the
+        dossier whose other cells name the tag of exactly one other system (the row is the link's source)."""
         damper_keys = {d.key.upper() for d in drafts if d.kind == "single" and d.key.upper() in DAMPER_PREFIXES}
         grouped = {f.source.prefix.upper() for d in drafts if d.kind != "single" for f in d.families
                    if f.source is not None and f.source.prefix.upper() in DAMPER_PREFIXES}
         claims: dict[int, dict[str, list[Fact]]] = {}      # target draft -> damper prefix -> links
         links_of: dict[str, list[Fact]] = {}               # damper prefix -> links
+        found: list[tuple[Fact, _Draft]] = []
         for link in self.ledger.of_kind("link"):
             subject = squash(link.subject)
             if not self.is_damper(subject):
@@ -420,8 +475,12 @@ class _Planner:
             value = squash(link.value)
             target = next((d for d in drafts if d.key.upper() not in damper_keys
                            and names_in([n for n in d.names() if n.upper() not in DAMPER_PREFIXES], value)), None)
-            if target is None:
-                continue
+            if target is not None:
+                found.append((link, target))
+        linked = {squash(link.subject).upper() for link, _ in found}
+        found += self._schedule_links(drafts, damper_keys | grouped, linked)
+        for link, target in found:
+            subject = squash(link.subject)
             prefix = _lead(subject)
             if prefix not in damper_keys and prefix not in grouped:
                 prefix = next(iter(sorted(damper_keys)), "") or next(iter(sorted(grouped)), "") or prefix
@@ -452,6 +511,35 @@ class _Planner:
         tags = tuple(dict.fromkeys(squash(l.subject) for l in links if _TAG.match(squash(l.subject))))
         return _Fam(name, tags, Count(len(links), tuple(dict.fromkeys(self.reader.fact_ref(l) for l in links))),
                     family, moved=True)
+
+    def _schedule_links(self, drafts: list[_Draft], damper_prefixes: set[str],
+                        linked: set[str]) -> list[tuple[Fact, _Draft]]:
+        """The dossier's schedule rows that tie a damper to its system: a row whose first cell is a damper tag of
+        the plan (one no link fact already places) and whose other cells name a tag of exactly one other system.
+        Each becomes a link (the row's source id, its words as the quote). Only whole tags count: a prefix or key
+        in a cell ("24V AC") names nothing."""
+        text = str(getattr(self.dossier, "text", "") or "")
+        if not text or not damper_prefixes:
+            return []
+        others = [d for d in drafts if d.key.upper() not in damper_prefixes]
+        out: list[tuple[Fact, _Draft]] = []
+        for entry in ai_evidence.parse(text):
+            if entry.part != ai_evidence.SCHEDULES or not entry.sid:
+                continue
+            body = entry.body.split("\n", 1)[0]
+            if "|" not in body:
+                continue
+            first, rest = (squash(c) for c in body.split("|", 1))
+            tag = squash(re.sub(r"\(EXISTING\)", "", first, flags=re.I))
+            if not _TAG.match(tag) or _lead(tag) not in damper_prefixes or not self.is_damper(tag) \
+                    or tag.upper() in linked:
+                continue
+            named = [d for d in others if any(naming(t).search(rest) for t in d.tags())]
+            if len(named) != 1:
+                continue
+            linked.add(tag.upper())
+            out.append((Fact(f"{entry.sid}:link", "link", tag, rest, entry.sid, squash(body), "schedules"), named[0]))
+        return out
 
     def _less_dampers(self, families: list[_Fam], links_of: dict[str, list[Fact]]) -> list[_Fam]:
         kept = []
@@ -669,6 +757,40 @@ class _Planner:
                 elif source.sequence_only and fam.count.value is None:
                     self.questions.append(f"{label} is named in the sequence of operation but no drawing or schedule "
                                           f"shows it; how many are there? The {system.name} block reads Qty (##).")
+            if draft.kind == "single" and squash(draft.name).casefold() in _GENERIC_KINDS and draft.tags():
+                self.questions.append(
+                    f"{system.name} ({tag_words(draft.tags())}) has only the general name “{system.name}”: the "
+                    "documents give no kind for it, so its block may gather other equipment of that kind. What are "
+                    "these units, and are they in the BMS scope?")
+
+    # -- families of one name are one block
+
+    def merge_named(self, drafts: list[_Draft]) -> list[_Draft]:
+        """Two or more families of one name (any case, plural or singular, punctuation aside) with the same alternate
+        and the same exception are one block: the first one's key and name, each family kept with its own tags and
+        count, their sequences together; a question asks to confirm. A general kind alone ("Fan", "Pump") is never
+        a reason to merge."""
+        out = list(drafts)
+        singles = [d for d in drafts if d.kind == "single"]
+        by_name: dict[tuple[str, str, str], list[_Draft]] = {}
+        for draft in singles:
+            name = _same_name(draft.name)
+            if name and name not in _GENERIC_KINDS:
+                by_name.setdefault((name, draft.alternate, draft.exception), []).append(draft)
+        for block in by_name.values():
+            if len(block) < 2:
+                continue
+            first = block[0]
+            for other in block[1:]:
+                first.families += other.families
+                first.prefixes += [p for p in other.prefixes if p not in first.prefixes]
+                first.matches += [m for m in other.matches if m not in first.matches]
+                first.extra_refs += [r for r in other.extra_refs if r not in first.extra_refs]
+            out = [d for d in out if d not in block[1:]]
+            self.questions.append(
+                f"{', '.join(d.key for d in block)} carry the same name, “{first.name}”, so they are planned as one "
+                f"{first.name} block; confirm they are the same kind of equipment.")
+        return out
 
 
 _GENERIC_KINDS = frozenset({"fan", "fans", "equipment", "unit", "units", "pump", "pumps", "heater", "heaters",
@@ -680,6 +802,14 @@ _SPECIFIC_WORDS = 6
 _ACRONYMS = frozenset({"IT", "VRF", "ERV", "RTU", "HPAC", "DDC", "BMS", "VFD", "CO", "NO", "FSD", "MUAF", "DXF", "UH",
                        "EUH", "EDH", "AHU", "VAV"})
 _PLURAL_KINDS = frozenset({"fans", "pumps", "units", "dampers", "devices", "coils", "valves"})
+
+
+def _same_name(name: str) -> str:
+    """A name as two families of one name compare it: lower case, words only, the last word singular."""
+    words = re.findall(r"[a-z0-9]+", squash(name).casefold())
+    if words:
+        words[-1] = _singular(words[-1])
+    return " ".join(words)
 
 
 def _singular(word: str) -> str:
@@ -876,6 +1006,7 @@ def plan_job(ledger: Ledger, catalogue: Catalogue, dossier: Dossier, playbook: P
     drafts = planner.gather_heaters(drafts)
     drafts = planner.link_dampers(drafts)
     planner.place_seen(drafts)
+    drafts = planner.merge_named(drafts)
     planner.heater_sequences(drafts)
     drafts += planner.global_points(drafts)
     keys: set[str] = set()

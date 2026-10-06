@@ -3,7 +3,7 @@ notes that name a system. Pure functions over the old app's Ledger and Dossier; 
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from estimator.ledger.facts import ADDED, Fact, Ledger, where_short
 
@@ -47,6 +47,10 @@ def tag_words(tags) -> str:
 
 
 # ---- short names --------------------------------------------------------------------------------------------
+
+# The kind the dossier's equipment counts give a prefix it knows no kind for (estimator.writing.dossier): the code
+# was read off a schedule row, but nothing says what equipment it is.
+NO_KIND = "type code on a schedule"
 
 _PLAN_ONLY_LEAD = re.compile(r"^seen on [^:,]*?,?\s*not scheduled\s*(?::|[-–—])\s*", re.I)
 _PLAN_ONLY_WORDS = 8
@@ -230,6 +234,12 @@ class Reader:
         found = FamilyFacts(fact, prefix, short_name(fact.value, prefix), tags, count, plan_only, sequence_only)
         self._families[prefix.casefold()] = found
         return found
+
+    def rename(self, family: FamilyFacts, name: str) -> FamilyFacts:
+        """The family under another name, kept so every later read of it gives that name."""
+        renamed = replace(family, name=name)
+        self._families[family.prefix.casefold()] = renamed
+        return renamed
 
     def seen_tags(self) -> list[tuple[str, Ref]]:
         """The tags the ledger records as seen on the drawings but on no family's tag list: the values (and the
