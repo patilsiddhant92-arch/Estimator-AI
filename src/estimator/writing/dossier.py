@@ -28,7 +28,8 @@ import pymupdf
 from estimator.catalogue.job import CONTROLS_DISCIPLINES
 from estimator.catalogue.overview import FOUND, RULED_OUT, STANDARD_CLARIFICATION, STANDARD_EXCLUSION
 from estimator.catalogue.tags import Equipment, find_tags, tag_location, tag_prefix
-from estimator.reading.inventory import TYPE_ON_ONE_SHEET, TYPE_PLACED
+from estimator.reading.inventory import (COUNT_CAUSE_WORDS, COUNT_CAUSES_LEAD, SAME_PLAN, TYPE_ON_ONE_SHEET,
+                                        TYPE_PLACED, plan_areas)
 from estimator.reading.revisions import governing_pages
 from estimator.reading.schedules import header_key, vocabulary
 from estimator.reading.sequences import POINTS, SEQUENCE
@@ -756,6 +757,7 @@ class _Family:
     by_sheet: list = field(default_factory=list)    # (sheet, count on its first page, floors, same plan as or "")
     riser: int = 0
     notes: list = field(default_factory=list)       # why the placements are likely above the other counts
+    causes: list = field(default_factory=list)      # those causes' keys (COUNT_CAUSE_WORDS), for the line's head
 
 
 def _counts(catalogue, reading, counted: frozenset, multipliers: dict) -> dict[str, _Family]:
@@ -856,126 +858,56 @@ def _counts(catalogue, reading, counted: frozenset, multipliers: dict) -> dict[s
         families[prefix].placements += n
         placed[(prefix, tag)] += n
     for prefix, family in families.items():
-        family.notes = _placement_causes(prefix, family, seen_on, printed, placed)
+        family.notes, family.causes = _placement_causes(prefix, family, seen_on, printed, placed)
     return families
 
 
-# ---- the plan areas: the sheets that show one plan -----------------------------------------------------
-
-_ORDINALS = {word: n for n, word in enumerate(
-    ("FIRST", "SECOND", "THIRD", "FOURTH", "FIFTH", "SIXTH", "SEVENTH", "EIGHTH", "NINTH", "TENTH", "ELEVENTH",
-     "TWELFTH"), start=1)}
-_FLOOR_NAMED = re.compile(
-    r"\b(?:(?P<ordinal>" + "|".join(_ORDINALS) + r"|\d{1,3}(?:ST|ND|RD|TH))\s+FLOOR"
-    r"|(?:LEVEL|FLOOR)\s+(?P<number>[A-Z]?\d{1,3}[A-Z]?)"
-    r"|(?P<named>SUB-?CELLAR|CELLAR|BASEMENT|GROUND\s+FLOOR|LOWER\s+LEVEL|MEZZANINE|PENTHOUSE|ROOF|ATTIC))\b", re.I)
-_PLAN_PART = re.compile(r"\b(?:AREA|PART|ZONE|WING|SECTOR|BUILDING|BLDG|PHASE)\s*[A-Z0-9]{1,3}\b"
-                        r"|\b(?:NORTH|SOUTH|EAST|WEST)\b", re.I)
-_ENLARGED = re.compile(r"\b(?:ENLARGED|PARTIAL)\b", re.I)
-AREA_OVERLAP = 0.6       # share of the smaller sheet's tags another sheet must repeat to be the same plan
-AREA_SHARED = 3          # and at least this many tags: two tags in common prove nothing
-
-
-def _area_key(title: str | None) -> tuple | None:
-    """The floor (and the part of it) a plan's title names: "HVAC PIPING AND CONTROLS FIRST FLOOR PLAN" and
-    "HVAC 1ST FLOOR PLAN" are both floor 1. None when the title names no floor, or names an enlarged or partial
-    plan (one that repeats part of a floor and joins it only by its tags)."""
-    title = (title or "").upper()
-    if _ENLARGED.search(title):
-        return None
-    floors = []
-    for m in _FLOOR_NAMED.finditer(title):
-        if m.group("ordinal"):
-            word = m.group("ordinal")
-            floors.append(str(_ORDINALS.get(word) or int(re.match(r"\d+", word).group(0))))
-        elif m.group("number"):
-            floors.append(m.group("number").lstrip("0") or "0")
-        else:
-            floors.append(re.sub(r"\W+", " ", m.group("named")))
-    if not floors:
-        return None
-    parts = sorted(re.sub(r"\s+", " ", m.group(0)) for m in _PLAN_PART.finditer(title))
-    return tuple(floors), tuple(parts)
-
-
-def _same_tags(a: set, b: set) -> bool:
-    shared = len(a & b)
-    return shared >= AREA_SHARED and shared >= AREA_OVERLAP * min(len(a), len(b))
-
-
-def plan_areas(plans) -> dict[tuple[str, int], int]:
-    """Which plan sheets show the same plan area: (document, page) -> an area number, given (sheet, the tags on
-    it) for each plan sheet. Two sheets are one area when their titles name the same floor (and part) and they are
-    in one document or repeat each other's tags; a sheet whose title names no floor (an enlarged plan) joins the
-    area whose tags it repeats most. Different floors are never one area. Pure."""
-    areas: list[tuple[tuple | None, set, set]] = []       # (key, documents, tags so far)
-    found: dict[tuple[str, int], int] = {}
-    loose = []
-    for sheet, tags in plans:
-        key = _area_key(sheet.title)
-        if key is None:
-            loose.append((sheet, set(tags)))
-            continue
-        for number, (area_key, documents, area_tags) in enumerate(areas):
-            if area_key == key and (sheet.document in documents or _same_tags(area_tags, tags)):
-                break
-        else:
-            number = len(areas)
-            areas.append((key, set(), set()))
-        areas[number][1].add(sheet.document)
-        areas[number][2].update(tags)
-        found[(sheet.document, sheet.page)] = number
-    for sheet, tags in loose:
-        matches = [(len(area_tags & tags), number) for number, (_k, _d, area_tags) in enumerate(areas)
-                   if _same_tags(area_tags, tags)]
-        if matches:
-            number = max(matches, key=lambda m: (m[0], -m[1]))[1]
-        else:
-            number = len(areas)
-            areas.append((None, set(), set()))
-        areas[number][1].add(sheet.document)
-        areas[number][2].update(tags)
-        found[(sheet.document, sheet.page)] = number
-    return found
-
+# ---- why the plan placements are above the other counts ------------------------------------------------
+# (`plan_areas`, which sheets show one plan, is in estimator.reading.inventory: the type-tag check uses it too.)
 
 CAUSE_EXAMPLES = 3       # tags named for each likely cause of too many placements
 
 
-def _placement_causes(prefix: str, family: _Family, seen_on: dict, printed: dict, placed: Counter) -> list[str]:
+def _placement_causes(prefix: str, family: _Family, seen_on: dict, printed: dict, placed: Counter
+                      ) -> tuple[list[str], list[str]]:
     """Why the plan placements are likely above every other count of the family (the higher count still wins): a
     typical type tag placed at many places (the inventory's rule: TYPE_PLACED places, TYPE_ON_ONE_SHEET of them on
-    one sheet), a unit's tag on several different plans, a unit's tag printed more than once on one sheet. [] when
-    the placements are not above the other counts."""
+    one sheet), a unit's tag on several different plans, a unit's tag printed more than once on one sheet. Gives
+    the reading note (tags and sheets, for the estimator and the writers) and the causes' keys (COUNT_CAUSE_WORDS,
+    in that order, for the counts line's head); ([], []) when the placements are not above the other counts."""
     others = max(family.rows, family.quantity or 0, len(family.scheduled | family.on_plans))
     if family.placements <= others:
-        return []
+        return [], []
     mine = sorted((tag for p, tag in seen_on if p == prefix), key=_natural)
     typical = [tag for tag in mine if (prefix, tag) in printed and placed[(prefix, tag)] >= TYPE_PLACED
                and printed[(prefix, tag)][2] >= TYPE_ON_ONE_SHEET]
     units = [tag for tag in mine if tag not in typical]
     again = [(tag, list(seen_on[(prefix, tag)].values())) for tag in units if len(seen_on[(prefix, tag)]) > 1]
     twice = [(tag, *printed[(prefix, tag)][:2]) for tag in units if (prefix, tag) in printed]
-    causes = []
+    causes, kinds = [], []
     if typical:
+        kinds.append("typical")
         named = "; ".join(f"{tag} {placed[(prefix, tag)]} places, {printed[(prefix, tag)][1]} on "
                           f"{printed[(prefix, tag)][0]}" for tag in typical[:CAUSE_EXAMPLES])
         more = f"; {len(typical) - CAUSE_EXAMPLES} more tags so" if len(typical) > CAUSE_EXAMPLES else ""
         causes.append(f"{named}{more} — likely a typical unit placed at each place: check the schedule's quantity")
     if again:
+        kinds.append("shown_again")
         named = "; ".join(f"{tag} on {len(sheets)} different plans ({', '.join(sheets)})"
                           for tag, sheets in again[:CAUSE_EXAMPLES])
         more = f"; {len(again) - CAUSE_EXAMPLES} more tags so" if len(again) > CAUSE_EXAMPLES else ""
         causes.append(f"{named}{more} — likely the same unit's tag shown again (a duct, riser or leader label), "
                       "not another unit")
     if twice:
+        kinds.append("labelled_twice")
         named = "; ".join(f"{tag} {n} times on {sheet}" for tag, sheet, n in twice[:CAUSE_EXAMPLES])
         more = f"; {len(twice) - CAUSE_EXAMPLES} more tags so" if len(twice) > CAUSE_EXAMPLES else ""
         causes.append(f"{named}{more} — likely one unit labelled more than once (a tag beside a leader or a note), "
                       "unless it is a typical unit placed at each of those places")
     if not causes:
-        return []
-    return [f"the {family.placements} placements on the plans are above the other counts: {'; and '.join(causes)}"]
+        return [], []
+    return ([f"the {family.placements} placements on the plans are above the other counts: {'; and '.join(causes)}"],
+            kinds)
 
 
 def _counts_dict(families: dict[str, _Family]) -> dict[str, dict]:
@@ -996,7 +928,7 @@ def _by_sheet(entries: list) -> str:
     for sheet, n, floors, *rest in entries:
         same_as = rest[0] if rest else ""          # a plan sheet showing the plan another sheet listed shows
         part = f"{sheet} {n} × {floors} = {n * floors}" if floors > 1 else f"{sheet} {n}"
-        parts.append(f"{part} same plan as {same_as}" if same_as else part)
+        parts.append(f"{part} {SAME_PLAN} {same_as}" if same_as else part)
     return "; ".join(parts)
 
 
@@ -1014,7 +946,8 @@ def _counts_section(reading, families: dict[str, _Family], ids: _Ids) -> list[st
                 f"QUANTITY column total {f.quantity if f.quantity is not None else '—'}; "
                 f"distinct tags {len(tags)}; plan placements {f.placements}"
                 f"{' (' + _by_sheet(f.by_sheet) + ')' if f.by_sheet else ''}; "
-                f"riser {f.riser or '—'}.")
+                f"riser {f.riser or '—'}"
+                f"{'; ' + COUNT_CAUSES_LEAD + ' ' + ', '.join(COUNT_CAUSE_WORDS[k] for k in f.causes) if f.causes else ''}.")
         if tags:
             text += f" Tags: {tag_list(tags)}."
         places = Counter(place for tag in tags if (place := tag_location(tag)))
@@ -1109,40 +1042,100 @@ def _plan_sheet_notes(catalogue, reading, ids: _Ids, given: set) -> list[str]:
     return lines
 
 
-def _plan_sheet_text(catalogue, texts: dict, ids: _Ids, printed: _Printed) -> list[str]:
-    """7c: each mechanical, controls and plumbing sheet's own text, squashed and cut at PLAN_TEXT_LIMIT
-    characters. The note reader only catches blocks under a heading ("KEY NOTES"); keyed notes written
-    beside the drawing (a damper actuator, a leak chime) are only here. One id per sheet; a sheet number
-    seen in several documents is given once, an addendum's copy first; pages given above are skipped."""
+PLAN_TEXT_HEAD = ("--- 7c PLAN SHEET TEXT ---",
+                  "(Each mechanical, controls and plumbing sheet's own text, as printed, for notes written beside the "
+                  f"drawing; cut at {PLAN_TEXT_LIMIT:,} characters a sheet.)")
+
+
+@dataclass
+class _SheetText:
+    """What 7c has given so far: the sheet keys given, the characters used, whether the total cap stopped it."""
+    keys: set = field(default_factory=set)
+    used: int = 0
+    stopped: bool = False
+
+
+def _choose_sheets(catalogue, keep) -> dict[str, object]:
+    """The plan-note sheets `keep(sheet)` takes, one per sheet number (an addendum's copy first)."""
     kinds = {d.relative: d.kind for d in getattr(catalogue.job, "documents", ()) or ()}
     chosen: dict[str, object] = {}
     for sheet in getattr(catalogue, "sheets", ()) or ():
-        if sheet.discipline not in PLAN_NOTE_DISCIPLINES or (sheet.document, sheet.page) in printed.pages:
+        if sheet.discipline not in PLAN_NOTE_DISCIPLINES or not keep(sheet):
             continue
         key = sheet.number or f"{sheet.document}#{sheet.page}"
         held = chosen.get(key)
         if held is None or (kinds.get(sheet.document) == "addendum" and kinds.get(held.document) != "addendum"):
             chosen[key] = sheet
-    if not chosen:
-        return []
-    lines = ["--- 7c PLAN SHEET TEXT ---",
-             "(Each mechanical, controls and plumbing sheet's own text, as printed, for notes written beside the "
-             f"drawing; cut at {PLAN_TEXT_LIMIT:,} characters a sheet.)"]
-    used = 0
-    for n, sheet in enumerate(chosen.values()):
+    return chosen
+
+
+def _sheet_text_lines(chosen: dict, texts: dict, ids: _Ids, given: _SheetText, what: str) -> list[str]:
+    """One line per chosen sheet: "[S] <place> <title>: <its text>", cut at PLAN_TEXT_LIMIT, within the
+    PLAN_TEXT_TOTAL that `given` counts across 7c."""
+    lines: list[str] = []
+    for n, (key, sheet) in enumerate(chosen.items()):
         text = _collapse_repeats(_squash(texts.get((sheet.document, sheet.page))))
         if not text:
             continue
-        if used + min(len(text), PLAN_TEXT_LIMIT) > PLAN_TEXT_TOTAL:
-            lines.append(f"(Stopped at {PLAN_TEXT_TOTAL:,} characters: {_plural(len(chosen) - n, 'more sheet')} "
+        if given.stopped or given.used + min(len(text), PLAN_TEXT_LIMIT) > PLAN_TEXT_TOTAL:
+            lines.append(f"(Stopped at {PLAN_TEXT_TOTAL:,} characters: {_plural(len(chosen) - n, what)} "
                          "not given.)")
+            given.stopped = True
             break
         cut = text[:PLAN_TEXT_LIMIT] + (" …" if len(text) > PLAN_TEXT_LIMIT else "")
         where = _place(sheet.number, sheet.document, sheet.page)
         sid = ids.new(f"{where} (sheet text)")
         lines.append(f"[{sid}] {where} {sheet.title or ''}: {cut}".replace("  ", " "))
-        used += len(cut)
+        given.keys.add(key)
+        given.used += len(cut)
     return lines
+
+
+def _plan_sheet_text(catalogue, texts: dict, ids: _Ids, printed: _Printed,
+                     given: _SheetText | None = None) -> list[str]:
+    """7c: each mechanical, controls and plumbing sheet's own text, squashed and cut at PLAN_TEXT_LIMIT
+    characters. The note reader only catches blocks under a heading ("KEY NOTES"); keyed notes written
+    beside the drawing (a damper actuator, a leak chime) are only here. One id per sheet; a sheet number
+    seen in several documents is given once, an addendum's copy first; pages given above are skipped here
+    (`_printed_sheet_text` adds the ones a 7c pass would otherwise miss)."""
+    given = given if given is not None else _SheetText()
+    chosen = _choose_sheets(catalogue, lambda s: (s.document, s.page) not in printed.pages)
+    if not chosen:
+        return []
+    return [*PLAN_TEXT_HEAD, *_sheet_text_lines(chosen, texts, ids, given, "more sheet")]
+
+
+def _sheet_text_readers(sheet, types_by_number: dict) -> list:
+    """The reading passes that read this sheet's 7c line (by its sheet number's types, as `passes.documents`
+    picks them)."""
+    from estimator.ledger.passes import PASSES          # the passes read the dossier; imported here, not above
+    types = set(types_by_number.get(sheet.number, ()))
+    return [p for p in PASSES
+            if sheet.number and set(p.sheet_types) & types and not set(p.not_sheet_types) & types]
+
+
+def _printed_sheet_text(catalogue, texts: dict, ids: _Ids, printed_by: dict, given: _SheetText) -> list[str]:
+    """The 7c lines of the sheets whose pages sections 2 or 3 printed (`printed_by`: page -> section number) that a
+    reading pass reads from 7c without reading the section that printed them. The details, risers, network and
+    plans passes read no section 2 or 3, so a drawing sheet that is a sequence sheet and also a control diagram or
+    a riser gets its own text here, never a pointer to text those passes do not receive. A sheet each of whose 7c
+    passes reads the section that printed it, or that no pass reads from 7c, is not repeated. Built after section
+    8, so no earlier source id moves; a sheet number 7c already gave is not given twice."""
+    types_by_number: dict[str, tuple] = {}
+    for sheet in getattr(catalogue, "sheets", ()) or ():
+        if sheet.number:
+            types_by_number.setdefault(sheet.number, tuple(sheet.types or ()))
+
+    def missed(sheet) -> bool:
+        section = printed_by.get((sheet.document, sheet.page))
+        if section is None:
+            return False
+        return any(section not in p.sections for p in _sheet_text_readers(sheet, types_by_number))
+
+    chosen = {k: s for k, s in _choose_sheets(catalogue, missed).items() if k not in given.keys}
+    if not chosen:
+        return []
+    return _sheet_text_lines(chosen, texts, ids, given, "more sheet printed in sections 2 and 3")
 
 
 # ---- section 8: the controls spec highlights -------------------------------------------------------------
@@ -1230,7 +1223,9 @@ def build_dossier(catalogue, reading, cache_dir: Path | None) -> Dossier:
     body["job"] = _job_section(catalogue, reading, ids)
     printed = _Printed()
     body["sequence"], sequence_pages = _backbone_section(catalogue, reading, SEQUENCE, ids, printed, texts)
+    printed_by = {page: 2 for page in printed.pages}         # which section printed each page
     body["points"], points_pages = _backbone_section(catalogue, reading, POINTS, ids, printed, texts)
+    printed_by.update({page: 3 for page in printed.pages if page not in printed_by})
 
     images, why, image_flags = _schedule_images(catalogue, reading, counted, cache_dir)
     all_images = [img for key in images for img in images[key]]
@@ -1243,8 +1238,13 @@ def build_dossier(catalogue, reading, cache_dir: Path | None) -> Dossier:
     body["counts"] = _counts_section(reading, families, ids)
     device_totals, by_label, names = _device_totals(catalogue, reading, multipliers)
     body["devices"] = _devices_section(device_totals, by_label, names, ids)
-    body["notes"] = _notes_section(catalogue, reading, ids) + _plan_sheet_text(catalogue, texts, ids, printed)
+    sheet_text = _SheetText()
+    body["notes"] = _notes_section(catalogue, reading, ids) + _plan_sheet_text(catalogue, texts, ids, printed,
+                                                                               sheet_text)
     body["spec"] = _spec_section(catalogue, printed, texts, ids)
+    more = _printed_sheet_text(catalogue, texts, ids, printed_by, sheet_text)      # its ids come after section 8's
+    if more:
+        body["notes"] += ([] if PLAN_TEXT_HEAD[0] in body["notes"] else list(PLAN_TEXT_HEAD)) + more
 
     empty = {"sequence": "(No sequence of operation found in the documents.)",
              "points": "(No points list found in the documents.)",

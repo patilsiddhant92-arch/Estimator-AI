@@ -4,7 +4,8 @@
   a Finding names). Loaded whole as the cached instructions of every AI step (`Playbook.rules_text`).
 - `shapes.json` — one shape per system type: header form, family names, line order, slot kinds, wording per slot,
   tech-hour rule. Shape only, never content.
-- `wording.json` — verbs, owner brackets, integration trio, clarification forms, header and quantity forms.
+- `wording.json` — verbs, owner brackets, integration trio, clarification forms, header and quantity forms, and the
+  client words for the likely causes of a high plan count (`count_causes`).
 
 `load_playbook(root)` reads and checks all three; a malformed file raises `PlaybookError` naming the file and the
 problem. The format of each file is documented in its own "$format" object (rules.md: its top comment).
@@ -65,6 +66,11 @@ class Shape:
         return tuple(s for s in self.line_order if self.slot_kinds[s] == kind)
 
 
+# wording.json "count_causes": the quantity note's form for the likely causes of a high plan count ({causes}), the
+# joiner between causes, and each cause's client words (bms.render reads the cause from the counts line's head)
+COUNT_CAUSE_KEYS = ("form", "joiner", "same_plan", "typical", "shown_again", "labelled_twice")
+
+
 @dataclass(frozen=True)
 class Wording:
     verbs: tuple[str, ...]
@@ -75,6 +81,7 @@ class Wording:
     header: dict[str, str]                          # count, unknown_count, tags_joiner
     quantity: dict[str, str]                        # line, unknown, others_note
     draft: tuple[str, ...] = ()
+    count_causes: dict[str, str] = field(default_factory=dict)   # form, joiner and each cause's client words
 
 
 @dataclass(frozen=True)
@@ -323,7 +330,7 @@ def load_wording(path: Path) -> Wording:
     data = _json(path)
     if not isinstance(data.get("$format"), dict):
         raise PlaybookError(f"{path.name}: the \"$format\" object is missing")
-    for key in ("verbs", "owner_brackets", "integration_trio", "clarifications", "header", "quantity"):
+    for key in ("verbs", "owner_brackets", "integration_trio", "clarifications", "header", "quantity", "count_causes"):
         if key not in data:
             raise PlaybookError(f"{path.name}: {key} is missing")
     verbs = _strings(data["verbs"], "verbs", path)
@@ -350,8 +357,13 @@ def load_wording(path: Path) -> Wording:
     quantity = _text_map(data["quantity"], "quantity", path)
     if set(quantity) != {"line", "unknown", "others_note"}:
         raise PlaybookError(f"{path.name}: quantity must have exactly line, unknown and others_note")
+    causes = _text_map(data["count_causes"], "count_causes", path)
+    if set(causes) != set(COUNT_CAUSE_KEYS):
+        raise PlaybookError(f"{path.name}: count_causes must have exactly {', '.join(COUNT_CAUSE_KEYS)}")
+    if "{causes}" not in causes["form"] or not all(causes[k].strip() for k in COUNT_CAUSE_KEYS if k != "joiner"):
+        raise PlaybookError(f"{path.name}: count_causes: the form must hold {{causes}} and every cause needs its words")
     draft = _strings(data.get("$draft", []), "$draft", path)
-    return Wording(verbs, brackets, lines, tuple(depths), forms, header, quantity, draft)
+    return Wording(verbs, brackets, lines, tuple(depths), forms, header, quantity, draft, causes)
 
 
 _load_wording = load_wording

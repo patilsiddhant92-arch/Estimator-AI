@@ -6,6 +6,7 @@
     "integration_trio": "lines: the three lines, in order ({what} names the equipment, or is left out for plain factory controls); depths: the depth of each line (1 or 2).",
     "clarifications": "Per clarification kind (confirm, assumed, per_drawings, note): the form of the block's one \"*\" line. Placeholders: {text} the clarification's text. Every form starts with \"*\".",
     "header": "count: the {n} form of a known count; unknown_count: what {n} prints when the count is unknown; tags_joiner: between tags.",
+    "count_causes": "The quantity note's words for why the plan placements are above the other counts, when the equipment counts line names it (bms.render). form: printed after the \"plan placements\" clause ({causes}: the causes, joined by joiner); same_plan: a floor drawn on two plan sheets (the line says \"same plan as\"), counted once; typical: a typical unit placed at each place; shown_again: one unit's tag shown on several plans; labelled_twice: one unit labelled more than once on a sheet. Client words only: never a tag, a sheet or an estimator's hint (\"check ...\").",
     "quantity": "line: the {qty} form on a line whose quantity differs from the block's ({n} the count); unknown: the {qty} form when it is unknown; others_note: the clarification text naming every other count ({value} printed, {others} the others as \"N per where\" joined by \"; \")."
   },
   "$draft": ["owner_brackets.Electrical Contractor", "owner_brackets.Owner", "clarifications", "quantity"],
@@ -41,5 +42,13 @@
     "line": " (Qty. {n})",
     "unknown": " (Qty. ##)",
     "others_note": "*Qty. {counts}."
+  },
+  "count_causes": {
+    "form": "({causes})",
+    "joiner": ", ",
+    "same_plan": "a floor drawn on two plan sheets counted once",
+    "typical": "likely a typical unit at each place",
+    "shown_again": "likely one unit's tag shown on several plans",
+    "labelled_twice": "likely one unit labelled more than once on a sheet"
   }
 }

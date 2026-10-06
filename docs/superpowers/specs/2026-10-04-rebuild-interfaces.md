@@ -154,7 +154,9 @@ No default lines anywhere: a shape says how a line prints, never that a line exi
 `owner_brackets` (every party but AME → `" (Furnished by …)"`, with its leading space); `integration_trio`
 (`lines`: 3 forms with `{what}`, `depths`: 3 of 1 or 2); `clarifications` (each kind → a form starting `*` with
 `{text}`); `header` (`count`, `unknown_count`, `tags_joiner`); `quantity` (`line` with `{n}`, `unknown`,
-`others_note` with `{value}` and `{others}`).
+`others_note` with `{counts}`); `count_causes` (`form` with `{causes}`, `joiner`, and the client words of each
+likely cause of a high plan count: `same_plan`, `typical`, `shown_again`, `labelled_twice`; `bms.playbook.
+COUNT_CAUSE_KEYS`).
 
 ### 3.4 Loader
 
@@ -171,8 +173,8 @@ Shape:    name, prefixes, kind_words, header, family_names, line_order, slot_kin
           tech_hours: TechHours; .slots_of_kind(kind) -> tuple[str]
 TechHours: per, hours: float | None, when: tuple[(tuple[slot], hours)]
 Wording:  verbs, owner_brackets: dict, integration_trio: tuple[str] (3), integration_depths: tuple[int],
-          clarifications: dict, header: dict, quantity: dict, draft: tuple[str]
-Constants: TECH_HOUR_BASES, SLOT_KINDS, DEFAULT_ROOT
+          clarifications: dict, header: dict, quantity: dict, draft: tuple[str], count_causes: dict
+Constants: TECH_HOUR_BASES, SLOT_KINDS, DEFAULT_ROOT, COUNT_CAUSE_KEYS
 ```
 
 ## 4. The old-app types consumed and produced (imported, never edited)
@@ -181,7 +183,8 @@ Constants: TECH_HOUR_BASES, SLOT_KINDS, DEFAULT_ROOT
 |---|---|---|
 | `Catalogue` (job, pages, sheets, sections, bid, tags, flags, overview); `catalogue_job(root, cache_dir, workers, documents=None)` | `estimator.catalogue.job` | run, plan, counts |
 | `JobReading`; `read_job(catalogue, page_opener=None, cache_dir=None, judge=None)` | `estimator.reading.job` | run |
-| `Dossier` (job_name, text, images: tuple[DossierImage], sources: dict id→where, families, device_totals, counts, stats, sections); `build_dossier(catalogue, reading, cache_dir)`; `sheet_pictures(catalogue, cache_dir, keys, what)` | `estimator.writing.dossier` | run, plan, ai, counts |
+| `Dossier` (job_name, text, images: tuple[DossierImage], sources: dict id→where, families, device_totals, counts, stats, sections); `build_dossier(catalogue, reading, cache_dir)`; `sheet_pictures(catalogue, cache_dir, keys, what)`; `plan_areas` (re-exported from `estimator.reading.inventory`) | `estimator.writing.dossier` | run, plan, ai, counts |
+| `plan_areas(plans: [(sheet, tags)]) -> {(document, page): area}`; `placements(catalogue, tags, typicals=(), pages=None) -> {tag: Placements}`; `COUNT_CAUSES_LEAD`, `COUNT_CAUSE_WORDS`, `SAME_PLAN` | `estimator.reading.inventory` | dossier, render |
 | `Ledger` (sources, facts: dict[id, Fact], understanding, complete, stopped_at, job_name, refused; `of_kind`, `about`, `find`, `printed_count`, `to_dict`/`from_dict`/`load`); `Fact` (id, kind, subject, value, source_id, quote, stage, state, contradictions); `Contradiction`; `KINDS`; `where_short` | `estimator.ledger.facts` | plan |
 | `read_job(judge, dossier, catalogue, save_to=None, limit=None, pictures=True, picture_cap=24) -> Ledger` (imported as `read_ledger`; the brief's "read_ledger") | `estimator.ledger.run` | run |
 | `ledger_plan`, `count_note`, `place_words` (the old planner, for reference / reuse) | `estimator.ledger.to_plan` | plan (may import) |
@@ -214,6 +217,22 @@ place; exceptions and questions filled; front_end set; header left None. Pure, n
 `RenderedLine(system_key: str, device_id: str | None, kind: "header"|"line"|"note", text: str, verb: str | None,
 quantity: int | None)`. Pure; all wording from the Playbook; `job.header` required; add/deduct systems to the
 alternates; exceptions to `named_exceptions`; a shapeless system in the form "{verb} {device}{owner}{qty}".
+The quantity note (`others_note`) names each other count by its label ("(70) per plan placements; 11 per schedule
+rows"). When a quote of the count is an equipment counts line that names why the placements are high, the
+"plan placements" label is followed by `count_causes.form` with each cause's client words, in this order:
+`same_plan` ("same plan as" inside the line's placements clause), then `typical`, `shown_again`,
+`labelled_twice` (the words of `COUNT_CAUSE_WORDS` after `COUNT_CAUSES_LEAD`). Only the cause's kind is read: its
+tags, sheets and the estimator's hints never print.
+
+Plan counting (`estimator.writing.dossier`, the equipment counts line): `plan_areas` groups the plan sheets that
+show one plan area (titles naming the same floor and part, in one document or repeating each other's tags; a sheet
+naming no floor joins the area whose tags it repeats most; different floors never). Within an area a tag counts the
+places on the one sheet that shows it most (floors applied); areas add up; a repeat sheet is listed as "M-201 9
+same plan as M-101". When the placements are still above every other count, the line's head (the part the
+ledger's count fact quotes) ends "; placements above the other counts, likely: <causes>" and its "Reading notes"
+give the tags and sheets. The inventory's type-tag check (`placements`, "labelled N times on the plans") uses the
+same areas. Section 7c also gives the text of a sheet sections 2 or 3 printed when a pass that reads it from 7c
+(details, risers, network, plans) does not read that section; those lines take ids after section 8's.
 
 ### Workstream 5 — `bms.ai`
 ```
@@ -326,10 +345,16 @@ writer wrote) applied to the revised job → history saved (`took_effect`) → `
 not be applied" and "check this system" findings → `publish_proofs` → `review_page` → `render` → `write_evidence`
 → `_build` (proposal and price sheet) → history saved (`settled`). The run's first act writes `out/run state.json`
 as "running" (again once the quote and job name are known); its last act replaces it with how the run ended
-(status, stage, waiting, messages, quote, job). Prints `Wrote <path>` for every file.
+(`version`, `status`, `stage`, `waiting`, `messages`, `quote`, `job`, and `decisions`: how many decisions the
+decisions history held when a run last saved it, 0 when none was saved yet, so a later run can tell a lost history
+from a first save; the "running" state carries `version`, `status`, `quote`, `job` and `decisions`). Prints
+`Wrote <path>` for every file.
 `RunResult(status: "waiting"|"done", stage, waiting=0, job_file=None, findings=(), review=None, proposal=None,
 price_sheet=None, evidence=None, messages=())`. `stage` is `read`, `count`, `write`, `decisions`, `qc`, `revise`
-or `done`. `decisions` is a bad decisions file: the run stops in words and waits for no request.
+or `done`. `decisions` is a bad decisions file (or a history that cannot be saved): the run stops in words and
+waits for no request. `render` appears only in the run state: a proposal that cannot be printed
+(`bms.render.RenderError`) ends the run as stopped (status "waiting", nothing waiting, a "Stopped:" message) and
+the error reaches the caller.
 `python -m bms estimate` exits 0 when done, 2 when requests are waiting, and 1 when it stops with nothing to answer
 (a refusal limit, or the `decisions` stage).
 Two commands are called "status" and they mean different things. `tools/run_job.py status JOB --out OUT` *runs the

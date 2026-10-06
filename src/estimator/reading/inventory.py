@@ -30,6 +30,14 @@ READ_BY_EYE = "read by eye from a picture of the schedule — check the count"
 TYPE_PLACED = 3        # labels on the plans (floors counted) that make a scheduled tag a type ...
 TYPE_ON_ONE_SHEET = 4  # ... when one sheet alone holds this many (floors counted): a unit's tag can sit by its
                        # symbol and by its thermostat too (26-0478's UH-1, three times on H101)
+# The dossier's counts line names, in the head the ledger quotes, why a family's plan placements are above every
+# other count; the renderer reads these words back to print the Playbook's client wording for each cause
+# (wording.json "count_causes"). Keep them free of the count labels' words (riser, schedule, picture).
+COUNT_CAUSES_LEAD = "placements above the other counts, likely:"
+COUNT_CAUSE_WORDS = {"typical": "a typical unit at each place",
+                     "shown_again": "one unit's tag on several plans",
+                     "labelled_twice": "one unit labelled more than once"}
+SAME_PLAN = "same plan as"         # a plan sheet showing the plan another sheet of the line shows (counted once)
 _DECIMAL_TYPE = re.compile(r"^[A-Z]+-\d+\.\d+$")   # AC-3.0, HRU-4.0: a size, not a unit number
 _A_TYPE = "A type, not one unit"
 _RISER = re.compile(r"\bRISERS?\b", re.I)
@@ -139,21 +147,33 @@ def _one_copy_per_sheet(schedules: list[Schedule], flags: list[str] | None = Non
 @dataclass(frozen=True)
 class Placements:
     """Where one tag is labelled: a line of a sheet's text that is the tag alone ("GCF-A"), never a note that
-    names it ("TO EUH-1"). Plan sheets of the trades that carry controls scope, each sheet counted once."""
+    names it ("TO EUH-1"). Plan sheets of the trades that carry controls scope, each sheet counted once; the
+    sheets of one plan area (`plan_areas`: a floor drawn on a ductwork plan and on its piping and controls plan)
+    count the labels of the one sheet that shows the most, never their sum."""
     on_plans: dict[str, int]                 # plan sheet → labels on it
     floors: dict[str, int]                   # plan sheet → the floors it stands for (1 when not typical)
     on_risers: dict[str, int] = field(default_factory=dict)   # riser diagram → labels on it, a cross-check
+    same_as: dict[str, str] = field(default_factory=dict)     # plan sheet → the earlier sheet showing its plan area
+
+    def _first(self, sheet: str) -> str:
+        return self.same_as.get(sheet, sheet)
 
     @property
     def total(self) -> int:
-        return sum(n * self.floors.get(sheet, 1) for sheet, n in self.on_plans.items())
+        best: dict[str, int] = {}
+        for sheet, n in self.on_plans.items():
+            area = self._first(sheet)
+            best[area] = max(best.get(area, 0), n * self.floors.get(sheet, 1))
+        return sum(best.values())
 
     @property
     def most_on_one_sheet(self) -> int:
         return max((n * self.floors.get(sheet, 1) for sheet, n in self.on_plans.items()), default=0)
 
     def plans_text(self) -> str:
+        """ "M-101 4, M-113 1 × 10 floors, M-201 4 same plan as M-101": each sheet, a repeat of a plan area named so."""
         return ", ".join(f"{sheet} {n}" + (f" × {self.floors[sheet]} floors" if self.floors.get(sheet, 1) > 1 else "")
+                         + (f" {SAME_PLAN} {self._first(sheet)}" if self._first(sheet) != sheet else "")
                          for sheet, n in self.on_plans.items())
 
     def risers_text(self) -> str:
@@ -162,6 +182,85 @@ class Placements:
 
 def _label_key(text: str) -> str:
     return re.sub(r"[\s\-‐‑–—#]", "", _LABEL_NOISE.sub("", text.strip())).upper()
+
+
+# ---- the plan areas: the sheets that show one plan (the dossier's counts and the type-tag check) -------
+
+_ORDINALS = {word: n for n, word in enumerate(
+    ("FIRST", "SECOND", "THIRD", "FOURTH", "FIFTH", "SIXTH", "SEVENTH", "EIGHTH", "NINTH", "TENTH", "ELEVENTH",
+     "TWELFTH"), start=1)}
+_FLOOR_NAMED = re.compile(
+    r"\b(?:(?P<ordinal>" + "|".join(_ORDINALS) + r"|\d{1,3}(?:ST|ND|RD|TH))\s+FLOOR"
+    r"|(?:LEVEL|FLOOR)\s+(?P<number>[A-Z]?\d{1,3}[A-Z]?)"
+    r"|(?P<named>SUB-?CELLAR|CELLAR|BASEMENT|GROUND\s+FLOOR|LOWER\s+LEVEL|MEZZANINE|PENTHOUSE|ROOF|ATTIC))\b", re.I)
+_PLAN_PART = re.compile(r"\b(?:AREA|PART|ZONE|WING|SECTOR|BUILDING|BLDG|PHASE)\s*[A-Z0-9]{1,3}\b"
+                        r"|\b(?:NORTH|SOUTH|EAST|WEST)\b", re.I)
+_ENLARGED = re.compile(r"\b(?:ENLARGED|PARTIAL)\b", re.I)
+AREA_OVERLAP = 0.6       # share of the smaller sheet's tags another sheet must repeat to be the same plan
+AREA_SHARED = 3          # and at least this many tags: two tags in common prove nothing
+
+
+def _area_key(title: str | None) -> tuple | None:
+    """The floor (and the part of it) a plan's title names: "HVAC PIPING AND CONTROLS FIRST FLOOR PLAN" and
+    "HVAC 1ST FLOOR PLAN" are both floor 1. None when the title names no floor, or names an enlarged or partial
+    plan (one that repeats part of a floor and joins it only by its tags)."""
+    title = (title or "").upper()
+    if _ENLARGED.search(title):
+        return None
+    floors = []
+    for m in _FLOOR_NAMED.finditer(title):
+        if m.group("ordinal"):
+            word = m.group("ordinal")
+            floors.append(str(_ORDINALS.get(word) or int(re.match(r"\d+", word).group(0))))
+        elif m.group("number"):
+            floors.append(m.group("number").lstrip("0") or "0")
+        else:
+            floors.append(re.sub(r"\W+", " ", m.group("named")))
+    if not floors:
+        return None
+    parts = sorted(re.sub(r"\s+", " ", m.group(0)) for m in _PLAN_PART.finditer(title))
+    return tuple(floors), tuple(parts)
+
+
+def _same_tags(a: set, b: set) -> bool:
+    shared = len(a & b)
+    return shared >= AREA_SHARED and shared >= AREA_OVERLAP * min(len(a), len(b))
+
+
+def plan_areas(plans) -> dict[tuple[str, int], int]:
+    """Which plan sheets show the same plan area: (document, page) -> an area number, given (sheet, the tags on
+    it) for each plan sheet. Two sheets are one area when their titles name the same floor (and part) and they are
+    in one document or repeat each other's tags; a sheet whose title names no floor (an enlarged plan) joins the
+    area whose tags it repeats most. Different floors are never one area. Pure."""
+    areas: list[tuple[tuple | None, set, set]] = []       # (key, documents, tags so far)
+    found: dict[tuple[str, int], int] = {}
+    loose = []
+    for sheet, tags in plans:
+        key = _area_key(sheet.title)
+        if key is None:
+            loose.append((sheet, set(tags)))
+            continue
+        for number, (area_key, documents, area_tags) in enumerate(areas):
+            if area_key == key and (sheet.document in documents or _same_tags(area_tags, tags)):
+                break
+        else:
+            number = len(areas)
+            areas.append((key, set(), set()))
+        areas[number][1].add(sheet.document)
+        areas[number][2].update(tags)
+        found[(sheet.document, sheet.page)] = number
+    for sheet, tags in loose:
+        matches = [(len(area_tags & tags), number) for number, (_k, _d, area_tags) in enumerate(areas)
+                   if _same_tags(area_tags, tags)]
+        if matches:
+            number = max(matches, key=lambda m: (m[0], -m[1]))[1]
+        else:
+            number = len(areas)
+            areas.append((None, set(), set()))
+        areas[number][1].add(sheet.document)
+        areas[number][2].update(tags)
+        found[(sheet.document, sheet.page)] = number
+    return found
 
 
 def placements(catalogue, tags: Iterable[str], typicals: Sequence = (),
@@ -180,6 +279,7 @@ def placements(catalogue, tags: Iterable[str], typicals: Sequence = (),
     if pages is None:
         pages = governing_pages(catalogue, (), [t.sheet for t in typicals])
     sheets = {(s.document, s.page): s for s in catalogue.sheets}
+    plan_sheets: dict[str, object] = {}                       # place → its plan sheet, in page order
     on_plans: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))
     on_risers: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))
     for record in catalogue.pages:
@@ -192,6 +292,8 @@ def placements(catalogue, tags: Iterable[str], typicals: Sequence = (),
             continue
         place = sheet.number or f"{_name(record.document)} p.{record.page}"
         bucket = on_risers if riser else on_plans
+        if not riser:
+            plan_sheets.setdefault(place, sheet)
         lines = record.text.splitlines()
         skip = False
         for n, line in enumerate(lines):
@@ -204,9 +306,33 @@ def placements(catalogue, tags: Iterable[str], typicals: Sequence = (),
                 skip = tag is not None
             if tag is not None:
                 bucket[tag][place] += 1
-    return {tag: Placements(dict(on_plans.get(tag, {})), {s: floors.get(s, 1) for s in on_plans.get(tag, {})},
-                            dict(on_risers.get(tag, {})))
-            for tag in set(on_plans) | set(on_risers)}
+    # The plan areas, as the dossier's counts work them out: a floor drawn twice shows its tags twice.
+    labelled: dict[str, set] = defaultdict(set)
+    for tag, places in on_plans.items():
+        for place in places:
+            labelled[place].add(tag)
+    areas = plan_areas([(sheet, labelled[place]) for place, sheet in plan_sheets.items()])
+    first: dict[int, str] = {}
+    same_as: dict[str, str] = {}
+    for place, sheet in plan_sheets.items():
+        area = areas[(sheet.document, sheet.page)]
+        first.setdefault(area, place)
+        if first[area] != place:
+            same_as[place] = first[area]
+
+    def placed(tag: str) -> Placements:
+        mine = dict(on_plans.get(tag, {}))
+        # a sheet repeats the first sheet of its area that shows this tag (another sheet of the area may not)
+        firsts: dict[str, str] = {}
+        repeats: dict[str, str] = {}
+        for place in mine:
+            area = same_as.get(place, place)
+            firsts.setdefault(area, place)
+            if firsts[area] != place:
+                repeats[place] = firsts[area]
+        return Placements(mine, {s: floors.get(s, 1) for s in mine}, dict(on_risers.get(tag, {})), repeats)
+
+    return {tag: placed(tag) for tag in set(on_plans) | set(on_risers)}
 
 
 def _count_in(cell: str | None) -> int | None:
