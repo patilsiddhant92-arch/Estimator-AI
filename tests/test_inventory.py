@@ -282,14 +282,18 @@ def test_a_type_row_is_counted_from_its_placements_on_the_plans_times_the_floors
     assert (got["GCF-A"].category, got["GCF-A"].quantity) == ("CONFIRMED", 4)
     assert "labelled 4 times" in got["GCF-A"].reason
     # EUH-1: 1 on M-100 ("TO EUH-1" is a note, not a label), 2 on M-101, 1 on M-113 x 10; an electrical plan's
-    # labels are that trade's own.
-    assert got["EUH-1"].quantity == 13
-    # RTU-1 is labelled once per plan: one unit.
+    # labels are that trade's own. FINAL-I (lead ruling): the type rule reads the labels as drawn (4, at most 2 on
+    # one sheet), so a unit's tag, once on each plan and on each of M-113's 10 floors: 12 (FINAL-G 13, the floors
+    # made it a type and M-101's two labels counted twice).
+    assert (got["EUH-1"].category, got["EUH-1"].quantity) == ("CONFIRMED", 12)
+    assert not got["EUH-1"].reason.startswith("A type") and "counted 12 times on the plans" in got["EUH-1"].reason
+    # RTU-1 is labelled once on one plan ("RTU-1 ABOVE" is a note): one unit.
     assert (got["RTU-1"].category, got["RTU-1"].quantity) == ("CONFIRMED", 1)
-    # AHU-1 is labelled four times, but three at most on one sheet (by its symbol and its thermostats): one unit.
-    assert (got["AHU-1"].category, got["AHU-1"].quantity) == ("CONFIRMED", 1)
+    # AHU-1 is labelled four times, three at most on one sheet (by its symbol and its thermostats): a unit's tag,
+    # once on each of the CELLAR and LEVEL 01 plans, which add up (FINAL-I, when in doubt sum: was 1).
+    assert (got["AHU-1"].category, got["AHU-1"].quantity) == ("CONFIRMED", 2)
     scheduled = {t.prefix: t.scheduled for t in totals}
-    assert scheduled == {"AC": 12, "GCF": 4, "EUH": 13, "RTU": 1, "AHU": 1}
+    assert scheduled == {"AC": 12, "GCF": 4, "EUH": 12, "RTU": 1, "AHU": 2}
 
 
 def test_a_schedules_quantity_column_gives_a_types_count():

@@ -1,9 +1,10 @@
 """FINAL-H (2) and (3). Invented fixtures only.
 
-(2) A numbered unit's tag counts once however many plan sheets show it (FINAL-G), so a numbered TYPE used once per
-    floor cannot be told apart and would be 1: the counts line's reading notes (the estimator's and the writers'
-    hint, never the client's note) say so for each such tag on 2 or more plan sheets. Nothing lowers a count: a
-    schedule's QUANTITY column above the plan placements still prints, the higher count, flagged.
+(2) FINAL-I (lead ruling) replaces FINAL-G's "a numbered unit's tag counts once over the set", which made a
+    numbered TYPE used once per floor 1: plans that are not one plan group add up, so EBB-1 on ten floors' plans is
+    10, and the counts line's reading notes (the estimator's and the writers' hint, never the client's note) name
+    each numbered tag counted on 2 or more plans, since it may be one unit shown again. Nothing lowers a count: a
+    schedule's QUANTITY column still prints when it is the higher count.
 (3) The retired count causes ("same plan as", "shown again") are gone from the renderer, the inventory's words and
     the Playbook's count_causes slot; the loader takes exactly the remaining keys."""
 import json
@@ -22,8 +23,8 @@ from estimator.writing.dossier import build_dossier
 from test_count_cause_note import DWG, ROOT, SAMPLE_PLAYBOOK, _catalogue, _family_count, _note, _page, _sheet
 
 FLOORS = range(1, 11)
-NOTE = ("EBB-1 appears on 10 plan sheets: counted as one unit; if it is a type used on each floor, check the "
-        "schedule's quantity")
+NOTE = ("EBB-1 is on 10 plans (M-101, M-102, M-103 …), counted on each, 10: likely a type used on each plan; if it "
+        "is one unit shown on several plans, it is 1: check the schedule's quantity")
 
 
 def _floors(text="EBB-1"):
@@ -48,68 +49,74 @@ def _line(prefix, d):
 
 # ---- (2) the reading note ----------------------------------------------------------------------------------------
 
-def test_a_numbered_tag_on_ten_plan_sheets_is_one_unit_with_a_reading_note(tmp_path):
+def test_a_numbered_tag_on_ten_plan_sheets_counts_on_each_with_a_reading_note(tmp_path):
     pages, sheets = _floors()
     catalogue = _catalogue(pages, sheets, ["EBB-1"])
     d = build_dossier(catalogue, _reading(), tmp_path)
-    assert d.counts["EBB"]["plan_placements"] == 1
+    assert d.counts["EBB"]["plan_placements"] == 10          # FINAL-I: ten plans add up (FINAL-G 1)
     line = _line("EBB", d)
     assert NOTE in line and line.index("Reading notes:") < line.index(NOTE)
     # the estimator's hint never reaches the client's note
     count = _family_count(catalogue, _reading(), "EBB", tmp_path / "again")
     for text in _note(count, "Electric Baseboard", ("EBB-1",)):
-        assert "appears" not in text and "check" not in text and "EBB-1" not in text
+        assert "counted on each" not in text and "check" not in text and "EBB-1" not in text
     # controls: a numbered tag on one plan sheet, and a type's tag (counted at every place), get no such note
     one = build_dossier(_catalogue([_page(1, "EF-1\nEF-2")], [_sheet(1, "M-101", "HVAC ROOF PLAN")],
                                    ["EF-1", "EF-2"]), _reading(), tmp_path / "one")
-    assert "appears on" not in _line("EF", one)
+    assert "counted on each" not in _line("EF", one)
     pages, sheets = _floors("EBB-A")
     typed = build_dossier(_catalogue(pages, sheets, ["EBB-A"]), _reading(), tmp_path / "typed")
     assert typed.counts["EBB"]["plan_placements"] == 10
-    assert "appears on" not in _line("EBB", typed)
+    assert "counted on each" not in _line("EBB", typed)
 
 
 def test_the_notes_name_at_most_three_tags(tmp_path):
+    """FINAL-I: two floors' plans repeating five boxes add up (10), and at most three tags are named. A ductwork and
+    a piping plan of one floor are one plan group instead (5), named once, with no tag counted on each."""
     tags = [f"VAV-{n}" for n in range(1, 6)]
     text = "\n".join(tags)
     pages = [_page(1, text), _page(2, text)]
-    sheets = [_sheet(1, "M-101", "HVAC DUCTWORK FIRST FLOOR PLAN"), _sheet(2, "M-201", "HVAC PIPING FIRST FLOOR PLAN")]
+    sheets = [_sheet(1, "M-101", "HVAC FIRST FLOOR PLAN"), _sheet(2, "M-102", "HVAC SECOND FLOOR PLAN")]
     d = build_dossier(_catalogue(pages, sheets, tags), _reading(), tmp_path)
     line = _line("VAV", d)
-    assert d.counts["VAV"]["plan_placements"] == 5
+    assert d.counts["VAV"]["plan_placements"] == 10
     for tag in tags[:3]:
-        assert f"{tag} appears on 2 plan sheets: counted as one unit" in line
-    assert "VAV-4 appears" not in line and "2 more tags so" in line
+        assert f"{tag} is on 2 plans (M-101, M-102), counted on each, 2" in line
+    assert "VAV-4 is on" not in line and "2 more tags so" in line
+    sheets = [_sheet(1, "M-101", "HVAC DUCTWORK FIRST FLOOR PLAN"), _sheet(2, "M-201", "HVAC PIPING FIRST FLOOR PLAN")]
+    d = build_dossier(_catalogue(pages, sheets, tags), _reading(), tmp_path / "group")
+    line = _line("VAV", d)
+    assert d.counts["VAV"]["plan_placements"] == 5
+    assert "M-101 and M-201 counted as one plan" in line and "counted on each" not in line
 
 
 def test_a_tag_on_a_typical_sheet_says_it_counts_once_per_floor(tmp_path):
-    """A unit's tag on a typical sheet (5 floors) and on an enlarged plan counts 5 (once per floor), so the note
-    says that instead of "one unit"."""
+    """A unit's tag on a typical sheet (5 floors) and on an enlarged plan: FINAL-I, two plan groups (the titles
+    differ) that add up, 5 + 1 (FINAL-G 5), and the note names both plans."""
     pages = [_page(1, "VAV-1"), _page(2, "VAV-1")]
     sheets = [_sheet(1, "M-102", "TYPICAL FLOOR PLAN"), _sheet(2, "M-501", "ENLARGED PLAN")]
     reading = _reading()
     reading.typicals = (SimpleNamespace(sheet="M-102", floors=tuple(range(2, 7))),)
     d = build_dossier(_catalogue(pages, sheets, ["VAV-1"]), reading, tmp_path)
-    assert d.counts["VAV"]["plan_placements"] == 5
+    assert d.counts["VAV"]["plan_placements"] == 6
     line = _line("VAV", d)
-    assert ("VAV-1 appears on 2 plan sheets: counted as one unit on each of the 5 floors its typical sheet stands "
-            "for") in line
+    assert "VAV-1 is on 2 plans (M-102, M-501), counted on each, 6" in line
 
 
 def test_nothing_lowers_a_count_the_schedules_quantity_wins(tmp_path):
-    """EBB-1 once on each of 10 floor plans (one placement) and a QUANTITY of 10 on its schedule row: the family's
-    count is 10, the higher count, with the plan placements kept as the other count; the note is there too."""
+    """EBB-1 once on each of 10 floor plans and a QUANTITY of 12 on its schedule row: the family's count is 12, the
+    higher count, with the plan placements (10, FINAL-I; FINAL-G 1) kept as the other count; the note is there too."""
     pages, sheets = _floors()
     pages.append(_page(11, "EBB SCHEDULE\nEBB-1"))
     sheets.append(_sheet(11, "M-601", "SCHEDULES", types=("Schedules",)))
     catalogue = _catalogue(pages, sheets, ["EBB-1"])
-    reading = _reading([_quantity_schedule("EBB-1", 10, 11)])
+    reading = _reading([_quantity_schedule("EBB-1", 12, 11)])
     d = build_dossier(catalogue, reading, tmp_path)
-    assert d.counts["EBB"]["plan_placements"] == 1 and d.counts["EBB"]["quantity_column"] == 10
+    assert d.counts["EBB"]["plan_placements"] == 10 and d.counts["EBB"]["quantity_column"] == 12
     assert NOTE in _line("EBB", d)
     count = _family_count(catalogue, reading, "EBB", tmp_path / "again")
-    assert count.value == 10 and count.highest() == 10
-    assert 1 in {o.value for o in count.others}                  # the plan placements, kept as the other count
+    assert count.value == 12 and count.highest() == 12
+    assert 10 in {o.value for o in count.others}                  # the plan placements, kept as the other count
 
 
 # ---- (3) the retired count causes --------------------------------------------------------------------------------

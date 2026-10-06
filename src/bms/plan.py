@@ -1021,10 +1021,11 @@ def _is_condensate(draft: _Draft) -> bool:
 
 _CONDENSATE_SOURCE = re.compile(
     # equipment whose cooling coil drains condensate; never "cooling" alone (a cooling tower makes none,
-    # REVIEW-FINAL4 F4)
-    r"\b(?:air[- ]handl\w*|fan[- ]coil|heat[- ]pump|rooftop|roof[- ]top|dedicated outdoor|unit ventilator|"
-    r"energy recovery|heat recovery|makeup air|make-up air|air condition\w*|indoor unit|cooling coil|"
-    r"computer room)\b", re.I)
+    # REVIEW-FINAL4 F4); never "rooftop" or "heat recovery" alone (a rooftop exhaust fan and a heat recovery chiller
+    # make none, REVIEW-FINAL5 F6)
+    r"\b(?:air[- ]handl\w*|fan[- ]coil|heat[- ]pump|roof[- ]?top (?:unit|air)\w*|dedicated outdoor|"
+    r"unit ventilator|(?:energy|heat) recovery (?:unit|ventilator)\w*|makeup air|make-up air|air condition\w*|"
+    r"indoor unit|cooling coil|dehumidif\w*|computer room)\b", re.I)
 _CONDENSATE_PREFIXES = frozenset({"AHU", "FCU", "FC", "HP", "WSHP", "RTU", "DOAS", "DOA", "UV", "ERV", "HRU", "MAU",
                                   "CRAC", "CRAH"})
 
@@ -1048,18 +1049,26 @@ def _family_suffixes(families) -> set[str]:
     return out
 
 
-_OUTDOOR = re.compile(r"\b(?:outdoor|condensing|condenser)\b", re.I)
+# A split unit's role is read from the kind's own head noun (REVIEW-FINAL5 F5): "outdoor air" and "outside air" are
+# taken out first, and so is what follows "with", "for" or "serving" ("Indoor Unit with Outdoor Air Kit" is indoor).
+_OUTSIDE_AIR = re.compile(r"\b(?:outdoor|outside)[\s-]+air\b", re.I)
+_MODIFIER = re.compile(r"\s(?:with|w/|c/w|for|serving|including)(?:\s|$).*$", re.I)
+_OUTDOOR = re.compile(r"\b(?:outdoor\s+unit|condensing\s+unit|condenser)s?\b", re.I)
 _OUTDOOR_PREFIXES = frozenset({"ACCU", "CU", "ODU", "OU"})
 
 
 def _split_role(draft: _Draft) -> str:
-    """A split unit's role, from the kind names the ledger gives its families: "outdoor" when one says Outdoor or
-    Condensing (an outdoor or condensing unit), or when the names say neither and its prefix is an outdoor unit's
-    (ACCU, CU, ODU, OU); else "indoor" (an indoor unit, an air conditioning unit)."""
+    """A split unit's role, from the kind names the ledger gives its families, read as the kind's own head noun
+    ("outdoor air" and anything after "with" taken out): "outdoor" when one names an Outdoor Unit, a Condensing Unit
+    or a Condenser (or says Outdoor and not Indoor), or when the names say neither and its prefix is an outdoor
+    unit's (ACCU, CU, ODU, OU); else "indoor" (an indoor unit, an air conditioning unit)."""
     names = [draft.name, *(f.name for f in draft.families), *(f.source.name for f in draft.families if f.source)]
-    if any(_OUTDOOR.search(squash(n)) for n in names):
+    heads = [_MODIFIER.sub("", _OUTSIDE_AIR.sub(" ", squash(n))) for n in names]
+    indoor = [bool(re.search(r"\bindoor\b", head, re.I)) for head in heads]
+    if any(_OUTDOOR.search(head) or (re.search(r"\boutdoor\b", head, re.I) and not inside)
+           for head, inside in zip(heads, indoor)):
         return "outdoor"
-    if any(re.search(r"\bindoor\b", squash(n), re.I) for n in names):
+    if any(indoor):
         return "indoor"
     return "outdoor" if _lead(draft.key) in _OUTDOOR_PREFIXES else "indoor"
 
