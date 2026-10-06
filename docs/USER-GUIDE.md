@@ -97,9 +97,12 @@ The main ones:
 - The Master Template sets only the shape of a block, never what is in it.
 - Every line says who furnishes, installs and wires.
 - The higher count prints, flagged, with every count named. An unknown count prints as "Qty (##)".
-- A floor drawn on two plan sheets (a ductwork plan and its piping and controls plan) is counted once. When the
-  plans still show more than the schedule, the quantity note says the likely cause in plain words, for example
-  "*Qty. (3) per plan placements (likely one unit's tag shown on several plans); 1 per schedule rows." Those words
+- On the plans, a unit's tag (VAV-101, EF-3) is one unit however many plan sheets show it, so a floor drawn on two
+  plan sheets (a ductwork plan and its piping and controls plan) never doubles the units. A type's tag (EBB-A) is
+  counted at every place on every sheet, never merged: if one floor is drawn twice that is the higher count, and
+  the counts line names the two sheets that may show one plan. When the plans still show more than the schedule,
+  the quantity note says the likely cause in plain words, for example
+  "*Qty. (12) per plan placements (likely a typical unit at each place); 1 per schedule rows." Those words
   are in `playbook/wording.json` (`count_causes`). The tags and sheets behind a cause go to the writers'
   evidence, never into the client's note.
 - One "*" clarification per block. Every assumption says what and why.

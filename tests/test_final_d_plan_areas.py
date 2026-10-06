@@ -1,23 +1,27 @@
-"""FINAL-D F1: plan sheets are one plan only when the evidence is clear (lead ruling: an undercount is far worse
-than an overcount, so the higher count wins when it cannot be told). Two sheets are one plan when their titles
-name the same readable floor (in words or figures) and the same part, and they are in one document or repeat each
-other's unit tags; a sheet whose title names no readable floor joins only a sheet of the same document with the
-same title text. Sheets that may show one plan but are not proven so are counted apart and the counts line says
-so. Invented fixtures only."""
+"""FINAL-D F1, rule changed by FINAL-G: plan sheets are never merged as one plan any more (lead ruling after
+REVIEW-FINAL4: deciding one plan from titles and tags cannot be made safe; an unread title form was a silent
+undercount). A unit's tag counts once whatever the sheets; a type's tag counts at every place on every sheet. Which
+sheets MAY show one plan (`plan_area_doubts`) is only a hint the counts line names: the same readable floor (in
+words or figures) and part, one document with one title, or repeated unit tags; never two floors or parts the titles
+name apart. These tests were plan_areas merge tests; each now pins the same title readings as the hint, and
+plan_areas keeps every sheet apart. Invented fixtures only."""
 from collections import Counter
 
+from estimator.reading.inventory import plan_area_doubts
 from estimator.writing.dossier import build_dossier, plan_areas
 from test_dossier_plan_areas import CTL, DWG, _catalogue, _doc, _line, _page, _reading, _sheet
 
 UNITS = {"VAV-1", "VAV-2", "VAV-3"}
 
 
-def _areas(*titles, tags=UNITS, documents=None):
+def _maybe_one_plan(*titles, tags=UNITS, documents=None):
     documents = documents or [DWG] * len(titles)
     sheets = [_sheet(n, f"M-{100 + n}", title, document)
               for n, (title, document) in enumerate(zip(titles, documents), start=1)]
-    found = plan_areas([(sheet, tags) for sheet in sheets])
-    return [found[(s.document, s.page)] for s in sheets]
+    plans = [(sheet, tags) for sheet in sheets]
+    found = plan_areas(plans)
+    assert len(set(found.values())) == len(sheets)                     # never merged (FINAL-G)
+    return bool(plan_area_doubts(plans, found))                         # the hint: may they show one plan?
 
 
 ONE_FLOOR = [
@@ -34,11 +38,10 @@ ONE_FLOOR = [
 ]
 
 
-def test_one_floor_named_in_words_or_figures_is_one_plan():
-    """The titles alone say so (no tags repeated): one document, one floor, one part."""
+def test_one_floor_named_in_words_or_figures_may_be_one_plan():
+    """The titles alone hint it (no tags repeated): one floor, one part."""
     for one, other in ONE_FLOOR:
-        a, b = _areas(one, other, tags=set())
-        assert a == b, (one, other)
+        assert _maybe_one_plan(one, other, tags=set()), (one, other)
 
 
 DIFFERENT = [
@@ -64,39 +67,43 @@ DIFFERENT = [
 ]
 
 
-def test_two_different_floors_or_parts_are_never_one_plan():
-    """Even when both sheets repeat the same tags (a typical floor of a dorm or a tower)."""
+# a title naming several floors reads as no one floor: repeating unit tags, it may show one of them again
+SEVERAL = {("FIRST AND SECOND FLOOR PLAN", "SECOND FLOOR PLAN"), ("LEVELS 2 THRU 5 PLAN", "LEVEL 2 PLAN")}
+
+
+def test_two_different_floors_or_parts_are_never_named_as_one_plan():
+    """Even when both sheets repeat the same unit tags (a typical floor of a dorm or a tower)."""
     for one, other in DIFFERENT:
-        a, b = _areas(one, other)
-        assert a != b, (one, other)
+        assert _maybe_one_plan(one, other) == ((one, other) in SEVERAL), (one, other)
 
 
-def test_sheets_naming_no_floor_are_one_plan_only_with_the_same_title_in_one_document():
-    assert len(set(_areas("MECHANICAL PLAN - DORM WING", "MECHANICAL PLAN - CLASSROOM WING"))) == 2
-    assert len(set(_areas("ENLARGED MECHANICAL ROOM PLAN", "HVAC FIRST FLOOR PLAN"))) == 2
-    a, b = _areas("MECHANICAL PLAN", "MECHANICAL  PLAN")                   # one title, one document: one plan
-    assert a == b
-    assert len(set(_areas("MECHANICAL PLAN", "MECHANICAL PLAN", documents=[DWG, CTL]))) == 2
-    assert len(set(_areas("MECHANICAL PLAN", "MECHANICAL PLAN", tags=set()))) == 2   # no tags repeated
+def test_sheets_naming_no_floor_may_be_one_plan_on_one_title_or_repeated_unit_tags():
+    assert not _maybe_one_plan("MECHANICAL PLAN - DORM WING", "MECHANICAL PLAN - CLASSROOM WING")   # parts apart
+    assert _maybe_one_plan("ENLARGED MECHANICAL ROOM PLAN", "HVAC FIRST FLOOR PLAN")   # repeats the floor's units
+    assert not _maybe_one_plan("ENLARGED MECHANICAL ROOM PLAN", "HVAC FIRST FLOOR PLAN", tags=set())
+    assert _maybe_one_plan("MECHANICAL PLAN", "MECHANICAL  PLAN", tags=set())          # one title, one document
+    assert _maybe_one_plan("MECHANICAL PLAN", "MECHANICAL PLAN", documents=[DWG, CTL])  # repeated unit tags
+    assert not _maybe_one_plan("MECHANICAL PLAN", "MECHANICAL PLAN", tags=set(), documents=[DWG, CTL])
 
 
 def test_a_title_holding_its_own_sheet_number_compares_without_it():
     sheets = [_sheet(1, "M-301", "M-301 MECHANICAL PLAN"), _sheet(2, "M-302", "M-302 MECHANICAL PLAN")]
-    found = plan_areas([(s, UNITS) for s in sheets])
-    assert found[(DWG, 1)] == found[(DWG, 2)]
-    sheets[1] = _sheet(2, "M-302", "M-302 PIPING PLAN")                     # another title: not proven one plan
-    found = plan_areas([(s, UNITS) for s in sheets])
-    assert found[(DWG, 1)] != found[(DWG, 2)]
+    assert plan_area_doubts([(s, set()) for s in sheets]) == [((DWG, 1), (DWG, 2))]
+    sheets[1] = _sheet(2, "M-302", "M-302 PIPING PLAN")                     # another title, no tags: no hint
+    assert plan_area_doubts([(s, set()) for s in sheets]) == []
 
 
-def test_an_enlarged_plan_repeating_a_floors_tags_is_counted_apart_and_the_line_says_so(tmp_path):
-    """Cannot tell: the enlarged plan names no floor, so it is not proven to be the first floor drawn again; both
-    are counted (the higher count) and the counts line names the two sheets for the estimator."""
-    pages = [_page(DWG, 1, "VAV-1\nVAV-2\nVAV-3\nVAV-4"), _page(DWG, 2, "VAV-1\nVAV-2\nVAV-3")]
+def test_an_enlarged_plan_repeating_a_floors_tags_counts_each_box_once_and_names_the_types_sheets(tmp_path):
+    """The enlarged plan names no floor and repeats the first floor's boxes and heaters. FINAL-G: each box counts
+    once (4, was 4 + 3); the heaters' type tag counts every place (2 + 2) and its line names the two sheets."""
+    pages = [_page(DWG, 1, "VAV-1\nVAV-2\nVAV-3\nVAV-4\nEBB-A\nEBB-A"),
+             _page(DWG, 2, "VAV-1\nVAV-2\nVAV-3\nEBB-A\nEBB-A")]
     sheets = [_sheet(1, "M-101", "HVAC FIRST FLOOR PLAN"), _sheet(2, "M-301", "ENLARGED MECHANICAL ROOM PLAN")]
-    d = build_dossier(_catalogue(pages, sheets, [f"VAV-{n}" for n in range(1, 5)]), _reading(), tmp_path)
-    assert d.counts["VAV"]["plan_placements"] == 4 + 3
-    line = _line("VAV", d)
+    d = build_dossier(_catalogue(pages, sheets, [f"VAV-{n}" for n in range(1, 5)] + ["EBB-A"]), _reading(), tmp_path)
+    assert d.counts["VAV"]["plan_placements"] == 4
+    assert "may show one plan" not in _line("VAV", d)
+    assert d.counts["EBB"]["plan_placements"] == 4
+    line = _line("EBB", d)
     assert "same plan as" not in line
     assert "M-101 and M-301 may show one plan" in line and "both are counted" in line
     # the flag never holds a client cause's words (bms.render reads them after the line's head)
@@ -108,7 +115,7 @@ def test_an_enlarged_plan_repeating_a_floors_tags_is_counted_apart_and_the_line_
     pages = [_page(DWG, 1, "VAV-1\nVAV-2\nVAV-3"), _page(DWG, 2, "VAV-1\nVAV-2\nVAV-3")]
     sheets = [_sheet(1, "M-101", "HVAC FIRST FLOOR PLAN"), _sheet(2, "M-102", "HVAC SECOND FLOOR PLAN")]
     d = build_dossier(_catalogue(pages, sheets, sorted(UNITS)), _reading(), tmp_path)
-    assert d.counts["VAV"]["plan_placements"] == 6
+    assert d.counts["VAV"]["plan_placements"] == 3                     # FINAL-G: each box once (was 6)
     assert "may show one plan" not in _line("VAV", d)
 
 
@@ -123,9 +130,10 @@ def test_the_same_floor_in_two_documents_on_typical_type_tags_alone_is_counted_a
     d = build_dossier(_catalogue(pages, sheets, ["EBB-A", "EBB-B", "EBB-C"], documents), _reading(), tmp_path)
     assert d.counts["EBB"]["plan_placements"] == 14
     assert "M-101 and C-101 may show one plan" in _line("EBB", d)
-    # plan_areas itself: tag -> places; unit tags (once on each sheet) still prove one plan
+    # plan_areas itself never merges them now (FINAL-G), on type tags or on unit tags; the hint names them
     sheets = [_sheet(1, "M-101", "HVAC FIRST FLOOR PLAN"), _sheet(1, "C-101", "CONTROLS FIRST FLOOR PLAN", CTL)]
-    found = plan_areas([(s, Counter({"EBB-A": 4, "EBB-B": 2, "EBB-C": 2})) for s in sheets])
-    assert found[(DWG, 1)] != found[(CTL, 1)]
-    found = plan_areas([(s, Counter({"VAV-1": 1, "VAV-2": 1, "VAV-3": 1, "EBB-A": 4})) for s in sheets])
-    assert found[(DWG, 1)] == found[(CTL, 1)]
+    for tags in (Counter({"EBB-A": 4, "EBB-B": 2, "EBB-C": 2}), Counter({"VAV-1": 1, "VAV-2": 1, "VAV-3": 1})):
+        plans = [(s, tags) for s in sheets]
+        found = plan_areas(plans)
+        assert found[(DWG, 1)] != found[(CTL, 1)]
+        assert plan_area_doubts(plans, found) == [((DWG, 1), (CTL, 1))]

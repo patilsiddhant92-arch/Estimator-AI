@@ -4,8 +4,6 @@ A strict xfail is a finding: it asserts the right behaviour and fails on a3e1b1f
 """
 from __future__ import annotations
 
-import pytest
-
 from test_plan import SETTLED, _family, _ledger, _plan
 
 
@@ -13,7 +11,6 @@ def _match(ledger, section, prefix, sid):
     ledger.add("sequence_match", section, prefix, sid, section, "sequence", SETTLED)
 
 
-@pytest.mark.xfail(strict=True, reason="REVIEW-FINAL4 F3: _pair_up checks another prefix, not indoor with outdoor")
 def test_two_indoor_only_split_sections_numbered_from_one_stay_two_blocks():
     """NORTH SPLITS holds indoor units AC-1, AC-2; SOUTH SPLITS holds indoor units SS-1, SS-2. No outdoor unit
     anywhere: nothing pairs as an indoor unit with its outdoor unit, so these are two systems."""
@@ -27,7 +24,6 @@ def test_two_indoor_only_split_sections_numbered_from_one_stay_two_blocks():
     assert not any("each indoor unit with the outdoor unit of its number" in q for q in job.questions)
 
 
-@pytest.mark.xfail(strict=True, reason="REVIEW-FINAL4 F4: 'cooling' matches Cooling Tower as a condensate maker")
 def test_the_condensate_pump_question_never_names_a_cooling_tower():
     ledger = _ledger()
     _family(ledger, "CT", "Cooling Tower", "CT-1, CT-2", 2)

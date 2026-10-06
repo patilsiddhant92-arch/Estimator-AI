@@ -1,10 +1,10 @@
-"""The plan placements of a family count each physical placement once (COUNT-DOUBLING).
+"""The plan placements of a family count each physical placement once (COUNT-DOUBLING, rule changed by FINAL-G).
 
 A floor drawn twice — a ductwork plan and its piping and controls plan of the same floor — shows the same tags
-twice: a tag on both sheets is one placement. A tag that repeats at different places on one sheet (a typical type
-tag) is counted per place, and different floors add up. Where the plan placements are still above every other count
-(a tag on the plans of several floors, a tag printed twice on one sheet), the count stays the higher and the counts
-line names the likely cause. Invented fixtures only."""
+twice. FINAL-G (lead ruling): a unit's tag (VAV-1) is one unit however many sheets show it, so it counts once with no
+reading of titles; a type's tag (EBB-A) counts at every place on every sheet, never merged, so a floor drawn twice
+may count it twice (the higher count) and the counts line names the two sheets as maybe one plan. Different floors
+add up. Invented fixtures only."""
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -13,6 +13,7 @@ from estimator.catalogue.overview import SpecOverview
 from estimator.catalogue.register import PageRecord
 from estimator.catalogue.sheet_types import Sheet
 from estimator.catalogue.tags import TagEntry
+from estimator.reading.inventory import plan_area_doubts
 from estimator.reading.schedules import Schedule, ScheduleRow
 from estimator.writing.dossier import build_dossier, plan_areas
 
@@ -82,17 +83,19 @@ def test_a_floor_drawn_on_a_ductwork_plan_and_its_controls_plan_counts_each_box_
     # every sheet the family is on is still listed (the evidence picks devices by these sheet numbers) ...
     for number in ("M-101", "M-102", "M-201", "M-202"):
         assert f"{number} 3" in line
-    # ... and the line says which sheets show the same plan, counted once
-    assert "M-201 3 same plan as M-101" in line
-    assert "M-202 3 same plan as M-102" in line
+    # ... never as "the same plan" (FINAL-G: each box counts once, no sheet is merged), and a unit-only family
+    # needs no "may show one plan" note
+    assert "same plan as" not in line
+    assert "may show one plan" not in line
 
 
-def test_the_sheets_showing_one_plan_are_grouped_by_the_floor_their_titles_name(tmp_path):
+def test_the_sheets_that_may_show_one_plan_are_named_by_the_floor_their_titles_name(tmp_path):
+    """FINAL-G: plan_areas never groups sheets any more; the floor the titles name is only the hint."""
     catalogue, _ = _overlay_job()
-    areas = plan_areas([(s, set(BOXES[:3] if s.page in (1, 3) else BOXES[3:])) for s in catalogue.sheets[:4]])
-    assert areas[(DWG, 3)] == areas[(DWG, 1)]
-    assert areas[(DWG, 4)] == areas[(DWG, 2)]
-    assert areas[(DWG, 1)] != areas[(DWG, 2)]
+    plans = [(s, set(BOXES[:3] if s.page in (1, 3) else BOXES[3:])) for s in catalogue.sheets[:4]]
+    areas = plan_areas(plans)
+    assert len(set(areas.values())) == 4
+    assert plan_area_doubts(plans, areas) == [((DWG, 1), (DWG, 3)), ((DWG, 2), (DWG, 4))]
 
 
 def test_a_typical_type_tag_counts_per_place_and_floors_add_up(tmp_path):
@@ -109,7 +112,9 @@ def test_a_typical_type_tag_counts_per_place_and_floors_add_up(tmp_path):
     assert "same plan as" not in _line("EBB", d)
 
 
-def test_a_typical_type_tag_on_a_floor_drawn_twice_counts_the_places_of_one_drawing(tmp_path):
+def test_a_typical_type_tag_on_a_floor_drawn_twice_counts_every_place_and_names_the_two_sheets(tmp_path):
+    """FINAL-G: was 4 (the places of one drawing); a type's tag is never merged, so 8, the higher count, with the
+    two sheets named as maybe one plan."""
     pages = [_page(DWG, 1, "\n".join(["EBB-A"] * 4)), _page(DWG, 2, "\n".join(["EBB-A"] * 4)),
              _page(DWG, 3, "EBB SCHEDULE\nEBB-A")]
     sheets = [_sheet(1, "M-101", "HVAC FIRST FLOOR PLAN"),
@@ -117,29 +122,29 @@ def test_a_typical_type_tag_on_a_floor_drawn_twice_counts_the_places_of_one_draw
               _sheet(3, "M-601", "SCHEDULES", types=("Schedules",))]
     catalogue = _catalogue(pages, sheets, ["EBB-A"])
     d = build_dossier(catalogue, _reading([_schedule("EBB SCHEDULE", ["EBB-A"], 3)]), tmp_path)
-    assert d.counts["EBB"]["plan_placements"] == 4
+    assert d.counts["EBB"]["plan_placements"] == 8
+    assert "M-101 and M-201 may show one plan; both are counted, the higher count" in _line("EBB", d)
 
 
-def test_a_plan_whose_title_names_no_floor_is_counted_apart_from_the_floor_it_repeats(tmp_path):
-    """An enlarged plan with no floor in its title that shows three of the first floor's boxes is not proven to be
-    that floor's plan again (FINAL-D lead ruling: the higher count wins when it cannot be told): it is counted apart
-    and the line names the two sheets; one sharing only two tags is not even named."""
+def test_a_plan_whose_title_names_no_floor_counts_each_box_once(tmp_path):
+    """An enlarged plan with no floor in its title that shows three of the first floor's boxes: FINAL-G counts each
+    box once (6 boxes, was 11 counted apart) whatever the titles say, so no "may show one plan" note is needed."""
     pages = [_page(DWG, 1, "VAV-1\nVAV-2\nVAV-3\nVAV-4"), _page(DWG, 2, "VAV-1\nVAV-2\nVAV-3"),
              _page(DWG, 3, "VAV-5\nVAV-6"), _page(DWG, 4, "VAV-5\nVAV-6")]
     sheets = [_sheet(1, "M-101", "HVAC FIRST FLOOR PLAN"), _sheet(2, "M-301", "ENLARGED MECHANICAL ROOM PLAN"),
               _sheet(3, "M-102", "HVAC SECOND FLOOR PLAN"), _sheet(4, "M-302", "ENLARGED PLAN SHEET 2")]
     catalogue = _catalogue(pages, sheets, [f"VAV-{n}" for n in range(1, 7)])
     d = build_dossier(catalogue, _reading(), tmp_path)
-    assert d.counts["VAV"]["plan_placements"] == 4 + 3 + 2 + 2
+    assert d.counts["VAV"]["plan_placements"] == 6
     line = _line("VAV", d)
     assert "same plan as" not in line
-    assert "M-101 and M-301 may show one plan" in line
-    assert "M-302 may show" not in line and "and M-302 may" not in line
+    assert "may show one plan" not in line
 
 
-def test_the_same_floor_in_another_document_is_one_plan_only_when_it_shows_the_same_tags(tmp_path):
-    """Two documents each with a first floor plan: the controls set repeating the boxes of the mechanical set is
-    the same floor; a second set with other tags (another building) is not, and its type tags add up."""
+def test_the_same_floor_in_another_document_counts_each_box_once_and_every_type_place(tmp_path):
+    """Two documents each with a first floor plan, and a third set (another building). FINAL-G: each box counts
+    once (6); the type tags add up over every sheet (2 + 2 + 3, was 2 + 3 with the first two merged), and the
+    mechanical and controls sheets are named as maybe one plan."""
     documents = [_doc(DWG, 1), _doc(CTL, 1), _doc(OTHER, 1)]
     pages = [_page(DWG, 1, "VAV-1\nVAV-2\nVAV-3\nEBB-A\nEBB-A"), _page(CTL, 1, "VAV-1\nVAV-2\nVAV-3\nEBB-A\nEBB-A"),
              _page(OTHER, 1, "VAV-7\nVAV-8\nVAV-9\nEBB-A\nEBB-A\nEBB-A")]
@@ -148,31 +153,33 @@ def test_the_same_floor_in_another_document_is_one_plan_only_when_it_shows_the_s
     tags = ["VAV-1", "VAV-2", "VAV-3", "VAV-7", "VAV-8", "VAV-9", "EBB-A"]
     d = build_dossier(_catalogue(pages, sheets, tags, documents), _reading(), tmp_path)
     assert d.counts["VAV"]["plan_placements"] == 6
-    assert d.counts["EBB"]["plan_placements"] == 2 + 3
+    assert d.counts["EBB"]["plan_placements"] == 2 + 2 + 3
+    assert "M-101 and C-101 may show one plan" in _line("EBB", d)
 
 
-def test_a_tag_on_the_plans_of_several_floors_stays_the_higher_and_names_the_likely_cause(tmp_path):
-    """EF-1 is one fan on the schedule but its tag is on three floors' plans (a duct or riser label): the
-    placements stay 3 (higher count wins, flagged later) and the line says why they are likely too many."""
+def test_a_unit_tag_on_the_plans_of_several_floors_is_one_unit(tmp_path):
+    """EF-1 is one fan on the schedule and its tag is on three floors' plans (a duct or riser label). FINAL-G: a
+    unit's tag is one unit, so 1 (was 3 with the cause "shown again" named); nothing is left to explain."""
     pages = [_page(DWG, 1, "EF-1"), _page(DWG, 2, "EF-1"), _page(DWG, 3, "EF-1"), _page(DWG, 4, "EF SCHEDULE\nEF-1")]
     sheets = [_sheet(1, "M-101", "HVAC FIRST FLOOR PLAN"), _sheet(2, "M-102", "HVAC SECOND FLOOR PLAN"),
               _sheet(3, "M-106", "HVAC ROOF PLAN"), _sheet(4, "M-601", "SCHEDULES", types=("Schedules",))]
     d = build_dossier(_catalogue(pages, sheets, ["EF-1"]), _reading([_schedule("EF SCHEDULE", ["EF-1"], 4)]), tmp_path)
-    assert d.counts["EF"]["plan_placements"] == 3
+    assert d.counts["EF"]["plan_placements"] == 1
     line = _line("EF", d)
-    assert "Reading notes:" in line
-    assert "EF-1 on 3 different plans (M-101, M-102, M-106)" in line
-    assert "likely the same unit's tag shown again" in line
+    assert "M-101 1; M-102 1; M-106 1" in line                # every sheet still listed
+    assert "likely" not in line
 
 
-def test_a_tag_printed_twice_on_one_sheet_stays_the_higher_and_names_the_likely_cause(tmp_path):
-    pages = [_page(DWG, 1, "ACCU-1\nACCU-1\nACCU-2\nACCU-2"), _page(DWG, 2, "ACCU SCHEDULE\nACCU-1\nACCU-2")]
+def test_a_type_tag_printed_twice_on_one_sheet_stays_the_higher_and_names_the_likely_cause(tmp_path):
+    """FINAL-G: a unit's tag twice on one sheet (ACCU-1) is one unit now; a type's tag twice (EBB-B, below the
+    typical rule) counts both places and the cause is named."""
+    pages = [_page(DWG, 1, "EBB-B\nEBB-B\nEBB-C\nEBB-C"), _page(DWG, 2, "EBB SCHEDULE\nEBB-B\nEBB-C")]
     sheets = [_sheet(1, "M-106", "HVAC ROOF PLAN"), _sheet(2, "M-601", "SCHEDULES", types=("Schedules",))]
-    d = build_dossier(_catalogue(pages, sheets, ["ACCU-1", "ACCU-2"]),
-                      _reading([_schedule("ACCU SCHEDULE", ["ACCU-1", "ACCU-2"], 2)]), tmp_path)
-    assert d.counts["ACCU"]["plan_placements"] == 4
-    line = _line("ACCU", d)
-    assert "ACCU-1 2 times on M-106" in line
+    d = build_dossier(_catalogue(pages, sheets, ["EBB-B", "EBB-C"]),
+                      _reading([_schedule("EBB SCHEDULE", ["EBB-B", "EBB-C"], 2)]), tmp_path)
+    assert d.counts["EBB"]["plan_placements"] == 4
+    line = _line("EBB", d)
+    assert "EBB-B 2 times on M-106" in line
     assert "likely one unit labelled more than once" in line
 
 
@@ -193,15 +200,17 @@ def test_the_highest_number_on_the_counts_line_of_a_floor_drawn_twice_is_the_sch
 
 
 def test_a_floor_is_named_the_same_in_words_or_figures_and_its_parts_are_apart():
+    """FINAL-G: the floor and parts the titles name are only the hint of `plan_area_doubts`; plan_areas never
+    groups."""
     sheet = lambda page, title: _sheet(page, f"M-{page}", title)
     tags = {"VAV-1", "VAV-2", "VAV-3"}
-    areas = plan_areas([(sheet(1, "HVAC FIRST FLOOR PLAN"), tags), (sheet(2, "CONTROLS 1ST FLOOR PLAN"), tags),
-                        (sheet(3, "FIRST FLOOR PLAN - AREA A"), tags), (sheet(4, "FIRST FLOOR PLAN - AREA B"), tags),
-                        (sheet(5, "LEVEL 2 PLAN"), tags), (sheet(6, "SECOND FLOOR PLAN"), tags)])
-    assert areas[(DWG, 1)] == areas[(DWG, 2)]
-    assert len({areas[(DWG, 1)], areas[(DWG, 3)], areas[(DWG, 4)]}) == 3
-    assert areas[(DWG, 5)] == areas[(DWG, 6)]
-    assert areas[(DWG, 5)] != areas[(DWG, 1)]
+    plans = [(sheet(1, "HVAC FIRST FLOOR PLAN"), tags), (sheet(2, "CONTROLS 1ST FLOOR PLAN"), tags),
+             (sheet(3, "FIRST FLOOR PLAN - AREA A"), tags), (sheet(4, "FIRST FLOOR PLAN - AREA B"), tags),
+             (sheet(5, "LEVEL 2 PLAN"), tags), (sheet(6, "SECOND FLOOR PLAN"), tags)]
+    assert len(set(plan_areas(plans).values())) == 6
+    doubts = plan_area_doubts(plans)
+    assert ((DWG, 1), (DWG, 2)) in doubts and ((DWG, 5), (DWG, 6)) in doubts
+    assert not {((DWG, 1), (DWG, 3)), ((DWG, 1), (DWG, 4)), ((DWG, 3), (DWG, 4)), ((DWG, 1), (DWG, 5))} & set(doubts)
 
 
 def test_a_typical_type_tag_placed_many_times_is_named_a_typical_unit_not_a_repeated_label(tmp_path):

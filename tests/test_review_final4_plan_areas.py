@@ -45,13 +45,11 @@ TWO_AREAS_ONE_DOCUMENT = [
 ]
 
 
-@pytest.mark.xfail(strict=True, reason="REVIEW-FINAL4 F1: one document plus one floor key merges with no tag test")
 @pytest.mark.parametrize("titles", TWO_AREAS_ONE_DOCUMENT)
 def test_two_areas_of_one_document_on_typical_tags_are_never_one_plan(titles):
     assert _apart(*titles, TYPICAL_COUNTS), titles
 
 
-@pytest.mark.xfail(strict=True, reason="REVIEW-FINAL4 F1: BASEMENT 1 and BASEMENT 2 are merged, 8 heaters lost")
 def test_the_dossier_adds_up_the_heaters_of_two_basements(tmp_path):
     pages = [_page(DWG, 1, TYPICAL), _page(DWG, 2, TYPICAL)]
     sheets = [_sheet(1, "M-101", "BASEMENT 1 MECHANICAL PLAN"), _sheet(2, "M-102", "BASEMENT 2 MECHANICAL PLAN")]
@@ -60,7 +58,6 @@ def test_the_dossier_adds_up_the_heaters_of_two_basements(tmp_path):
     assert "same plan as" not in _line("EBB", d)
 
 
-@pytest.mark.xfail(strict=True, reason="REVIEW-FINAL4 F1: the inventory merges BASEMENT 1 and 2 as well")
 def test_the_inventory_adds_up_a_type_tag_on_two_basements():
     pages = [_page(DWG, 1, TYPICAL), _page(DWG, 2, TYPICAL)]
     sheets = [_sheet(1, "M-101", "BASEMENT 1 MECHANICAL PLAN"), _sheet(2, "M-102", "BASEMENT 2 MECHANICAL PLAN")]
@@ -68,7 +65,6 @@ def test_the_inventory_adds_up_a_type_tag_on_two_basements():
     assert found["EBB-A"].total == 8
 
 
-@pytest.mark.xfail(strict=True, reason="REVIEW-FINAL4 F2: types placed once on each sheet prove 'one plan'")
 def test_two_buildings_first_floors_with_single_placed_types_add_up(tmp_path):
     """One document per building, each with a FIRST FLOOR PLAN of the same typical floor. EBB-C, EBB-D and CUH-A
     are each placed once on each sheet: they are types (no unit number), not proof of one plan."""
@@ -80,7 +76,6 @@ def test_two_buildings_first_floors_with_single_placed_types_add_up(tmp_path):
     assert d.counts["EBB"]["plan_placements"] == 16
 
 
-@pytest.mark.xfail(strict=True, reason="REVIEW-FINAL4 F2: the no-floor branch also takes single-placed types")
 def test_two_sheets_of_one_title_naming_no_floor_on_single_placed_types_are_not_one_plan():
     tags = Counter({"EBB-A": 4, "EBB-B": 2, "EBB-C": 1, "EBB-D": 1, "CUH-A": 1})
     sheets = [_sheet(1, "M-101", "BUILDING A MECHANICAL PLAN"), _sheet(2, "M-102", "BUILDING A MECHANICAL PLAN")]

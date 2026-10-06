@@ -1,7 +1,8 @@
 """FINAL-D F5: the likely cause of a high plan count is a true one. "One unit's tag shown on several plans" is said
 only of a unit's tag (a number in it); a type's tag (CUH-A) once on each of two different floors is most likely a
 typical unit on each plan: the estimator checks the schedule's quantity, and the client reads "a typical unit at
-each place". "A floor drawn on two plan sheets" is said only of sheets plan_areas merged. Invented fixtures only."""
+each place". "A floor drawn on two plan sheets" is never said (FINAL-G: no sheets are merged), and a unit's tag on
+two floors' plans is one unit now, with no cause to name. Invented fixtures only."""
 from estimator.writing.dossier import build_dossier
 from test_count_cause_note import _catalogue, _family_count, _note, _page, _reading, _sheet
 from test_dossier_plan_areas import _line
@@ -24,8 +25,8 @@ def test_a_type_tag_once_on_each_of_two_floors_is_a_typical_unit_on_each_plan(tm
     (note,) = _note(_family_count(catalogue, reading, "CUH", tmp_path), "Cabinet Unit Heater", ("CUH-A",))
     assert "(2) per plan placements (likely a typical unit at each place)" in note
     assert "drawn on two plan sheets" not in note
-    # a unit's tag (a number in it) once on each of two floors is still likely one unit's tag shown again
+    # a unit's tag (a number in it) once on each of two floors: FINAL-G counts it once (was 2, "shown again")
     catalogue, reading = _two_floors("EF-1")
     line = _line("EF", build_dossier(catalogue, reading, tmp_path))
-    assert "likely: one unit's tag on several plans" in line
-    assert "typical unit" not in line
+    assert "plan placements 1 (" in line
+    assert "likely" not in line and "typical unit" not in line

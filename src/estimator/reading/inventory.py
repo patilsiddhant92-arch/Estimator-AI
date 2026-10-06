@@ -37,8 +37,27 @@ COUNT_CAUSES_LEAD = "placements above the other counts, likely:"
 COUNT_CAUSE_WORDS = {"typical": "a typical unit at each place",
                      "shown_again": "one unit's tag on several plans",
                      "labelled_twice": "one unit labelled more than once"}
-SAME_PLAN = "same plan as"         # a plan sheet showing the plan another sheet of the line shows (counted once)
+# Retired (FINAL-G): no plan sheet is ever counted as "the same plan as" another, so these words are never printed
+# any more; the name stays for the renderer, which reads them back (its "same_plan" cause can no longer fire).
+SAME_PLAN = "same plan as"
 _DECIMAL_TYPE = re.compile(r"^[A-Z]+-\d+\.\d+$")   # AC-3.0, HRU-4.0: a size, not a unit number
+_TYPE_FORM = re.compile(r"-[A-Z]{1,2}$", re.I)     # CUH-A, EBB-B: a type's tag, no unit number in it
+
+
+def is_type_tag(tag: str) -> bool:
+    """A tag that names a kind used at many places, not one unit: a letter suffix with no unit number (EBB-A,
+    CUH-A) or a decimal size (AC-3.0). Every other tag (VAV-101, EF-3, ACCU-109) names one unit."""
+    return bool(_TYPE_FORM.search(tag) or _DECIMAL_TYPE.match(tag.upper()))
+
+
+def counted_per_place(tag: str, places: int, most_on_one_sheet: int, code: bool = False) -> bool:
+    """Whether a tag's plan placements count every place it is drawn (summed over the sheets, never merged) rather
+    than once for the unit (lead ruling, FINAL-G): a type's tag (`is_type_tag`), a schedule's type code (`code`),
+    and a numbered tag placed as a type is (the type-tag rule below: TYPE_PLACED places, floors counted, and
+    TYPE_ON_ONE_SHEET of them on one sheet), so a numbered type is never cut to one. `places` and
+    `most_on_one_sheet` have the floors applied."""
+    return (code or is_type_tag(tag)
+            or (places >= TYPE_PLACED and most_on_one_sheet >= TYPE_ON_ONE_SHEET))
 _A_TYPE = "A type, not one unit"
 _RISER = re.compile(r"\bRISERS?\b", re.I)
 _LABEL_NOISE = re.compile(r"^\((?:N|NEW)\)\s*|\s*\(?\s*TYP(?:ICAL)?\.?\s*\)?$", re.I)
@@ -147,33 +166,25 @@ def _one_copy_per_sheet(schedules: list[Schedule], flags: list[str] | None = Non
 @dataclass(frozen=True)
 class Placements:
     """Where one tag is labelled: a line of a sheet's text that is the tag alone ("GCF-A"), never a note that
-    names it ("TO EUH-1"). Plan sheets of the trades that carry controls scope, each sheet counted once; the
-    sheets of one plan area (`plan_areas`: a floor drawn on a ductwork plan and on its piping and controls plan)
-    count the labels of the one sheet that shows the most, never their sum."""
+    names it ("TO EUH-1"). Plan sheets of the trades that carry controls scope, each sheet counted once. The total
+    is every label summed over the sheets, floors applied, and never merged (FINAL-G): it is read only to decide
+    whether a scheduled tag is a type and, when it is, to count it, and a type counts at every place it is drawn. A
+    floor drawn on two plan sheets may so count twice; that is the higher count, never a silent undercount."""
     on_plans: dict[str, int]                 # plan sheet → labels on it
     floors: dict[str, int]                   # plan sheet → the floors it stands for (1 when not typical)
     on_risers: dict[str, int] = field(default_factory=dict)   # riser diagram → labels on it, a cross-check
-    same_as: dict[str, str] = field(default_factory=dict)     # plan sheet → the earlier sheet showing its plan area
-
-    def _first(self, sheet: str) -> str:
-        return self.same_as.get(sheet, sheet)
 
     @property
     def total(self) -> int:
-        best: dict[str, int] = {}
-        for sheet, n in self.on_plans.items():
-            area = self._first(sheet)
-            best[area] = max(best.get(area, 0), n * self.floors.get(sheet, 1))
-        return sum(best.values())
+        return sum(n * self.floors.get(sheet, 1) for sheet, n in self.on_plans.items())
 
     @property
     def most_on_one_sheet(self) -> int:
         return max((n * self.floors.get(sheet, 1) for sheet, n in self.on_plans.items()), default=0)
 
     def plans_text(self) -> str:
-        """ "M-101 4, M-113 1 × 10 floors, M-201 4 same plan as M-101": each sheet, a repeat of a plan area named so."""
+        """ "M-101 4, M-113 1 × 10 floors, M-201 4": each sheet and its labels."""
         return ", ".join(f"{sheet} {n}" + (f" × {self.floors[sheet]} floors" if self.floors.get(sheet, 1) > 1 else "")
-                         + (f" {SAME_PLAN} {self._first(sheet)}" if self._first(sheet) != sheet else "")
                          for sheet, n in self.on_plans.items())
 
     def risers_text(self) -> str:
@@ -184,10 +195,12 @@ def _label_key(text: str) -> str:
     return re.sub(r"[\s\-‐‑–—#]", "", _LABEL_NOISE.sub("", text.strip())).upper()
 
 
-# ---- the plan areas: the sheets that show one plan (the dossier's counts and the type-tag check) -------
-# Lead ruling (FINAL-D): an undercount is far worse than an overcount, so two sheets are one plan only when the
-# evidence is clear; when it cannot be told they are counted apart (the higher count) and `plan_area_doubts` names
-# them for the counts line.
+# ---- the plan areas: a hint only, never a count (the dossier's counts line) ------------------------------
+# Lead ruling (FINAL-G, after REVIEW-FINAL2 and REVIEW-FINAL4): deciding from titles and tags that two plan sheets
+# show one plan cannot be made safe; every unread title form became a silent undercount. So no sheet is ever merged
+# with another: a unit's tag counts once however many sheets show it, a type's tag counts at every place on every
+# sheet (the higher count). Which sheets MAY show one plan is read only to name them in the counts line's reading
+# notes (`plan_area_doubts`); it never lowers a count.
 
 _ORDINALS = {word: n for n, word in enumerate(
     ("FIRST", "SECOND", "THIRD", "FOURTH", "FIFTH", "SIXTH", "SEVENTH", "EIGHTH", "NINTH", "TENTH", "ELEVENTH",
@@ -218,7 +231,7 @@ _PART = re.compile(
 _NOT_A_PART = frozenset({"PLAN", "PLANS", "AND", "THE", "OF", "HVAC", "MECHANICAL", "PIPING", "DUCTWORK", "DUCT",
                          "CONTROLS", "CONTROL", "PLUMBING", "ELECTRICAL", "BAS", "BMS", "DDC", "TEMPERATURE"})
 _ENLARGED = re.compile(r"\b(?:ENLARGED|PARTIAL)\b", re.I)
-AREA_OVERLAP = 0.6       # share of the smaller sheet's tags another sheet must repeat to be the same plan
+AREA_OVERLAP = 0.6       # share of the smaller sheet's unit tags another sheet must repeat to hint one plan
 AREA_SHARED = 3          # and at least this many tags: two tags in common prove nothing
 
 
@@ -280,12 +293,12 @@ def _area_key(title: str | None) -> tuple | None:
     return tuple(floors), _parts(rest_text)
 
 
-def _evidence(tags) -> set:
-    """The tags that can prove two sheets show one plan: each tag once on the sheet when the counts are given (a
-    tag at several places is a typical type tag, on every floor alike), else every tag."""
-    if hasattr(tags, "items"):
-        return {tag for tag, n in tags.items() if n == 1}
-    return set(tags)
+def _unit_tags(tags) -> set:
+    """The tags that hint two sheets show one plan: unit tags (a unit number in them), each at fewer places on the
+    sheet than a type is (a tag at many places is a typical one, on every floor alike), when the counts are given.
+    A type's tag never hints it, however few its places (REVIEW-FINAL4 F2)."""
+    counts = tags if hasattr(tags, "items") else dict.fromkeys(tags, 1)
+    return {tag for tag, n in counts.items() if not is_type_tag(tag) and n < TYPE_ON_ONE_SHEET}
 
 
 def _plain_title(sheet) -> str:
@@ -302,44 +315,44 @@ def _same_tags(a: set, b: set) -> bool:
 
 
 def plan_areas(plans) -> dict[tuple[str, int], int]:
-    """Which plan sheets show the same plan area: (document, page) -> an area number, given (sheet, the tags on
-    it) for each plan sheet (a set, or tag -> places on the sheet). Two sheets are one area only when the evidence
-    is clear: their titles name the same readable floor and the same parts (TOWER 1, DORM WING, NORTH, LOWER ROOF)
-    and they are in one document or repeat each other's unit tags (a tag once on each; a tag at several places
-    proves nothing); or neither title names a floor and they are in one document with the same title text and
-    repeat each other's unit tags. Anything else is two areas (the higher count). Pure."""
-    areas: list[tuple[tuple | None, str, set, set]] = []      # (key, plain title, documents, unit tags so far)
+    """Retired (FINAL-G): every plan sheet is its own area, (document, page) -> its own number, given (sheet, the
+    tags on it) for each plan sheet. No sheet is ever merged with another; which sheets may show one plan is only a
+    hint (`plan_area_doubts`). Kept so callers keep one signature. Pure."""
     found: dict[tuple[str, int], int] = {}
-    for sheet, tags in plans:
-        key, title, evidence = _area_key(sheet.title), _plain_title(sheet), _evidence(tags)
-        for number, (area_key, area_title, documents, area_tags) in enumerate(areas):
-            if key is not None and area_key == key and (sheet.document in documents
-                                                        or _same_tags(area_tags, evidence)):
-                break
-            if (key is None and area_key is None and title and area_title == title and sheet.document in documents
-                    and _same_tags(area_tags, evidence)):
-                break
-        else:
-            number = len(areas)
-            areas.append((key, title, set(), set()))
-        areas[number][2].add(sheet.document)
-        areas[number][3].update(evidence)
-        found[(sheet.document, sheet.page)] = number
+    for sheet, _tags in plans:
+        found.setdefault((sheet.document, sheet.page), len(found))
     return found
 
 
-def plan_area_doubts(plans, areas: dict[tuple[str, int], int]) -> list[tuple[tuple[str, int], tuple[str, int]]]:
-    """The pairs of plan sheets `plan_areas` keeps apart that may still show one plan: they repeat each other's
-    tags and their titles do not name two different floors or parts (one names no floor, or both name the same
-    one). Counted apart, the higher count; the counts line names them so the estimator can check. Pure."""
-    sheets = [(sheet, set(tags), _area_key(sheet.title)) for sheet, tags in plans]
+def _named_apart(a, b) -> bool:
+    """Both titles name parts (TOWER 1, DORM WING, NORTH) and not the same ones."""
+    a_parts, b_parts = _parts((a.title or "").upper()), _parts((b.title or "").upper())
+    return bool(a_parts) and bool(b_parts) and a_parts != b_parts
+
+
+def plan_area_doubts(plans, areas: dict[tuple[str, int], int] | None = None
+                     ) -> list[tuple[tuple[str, int], tuple[str, int]]]:
+    """The pairs of plan sheets that MAY show one plan, a hint for the counts line's reading notes (both are
+    counted, the higher count): their titles name the same readable floor and parts; or they are in one document
+    with the same title text (its sheet number taken out); or they repeat each other's unit tags (`_unit_tags`)
+    and their titles do not name two different floors. Never a pair whose titles name two different floors, or no
+    floor and two different parts. `areas` is kept for the signature; every sheet is its own area now. Given
+    (sheet, tags) per plan sheet. Pure."""
+    sheets = [(sheet, _unit_tags(tags), _area_key(sheet.title), _plain_title(sheet)) for sheet, tags in plans]
     doubts = []
-    for i, (a, a_tags, a_key) in enumerate(sheets):
-        for b, b_tags, b_key in sheets[i + 1:]:
+    for i, (a, a_units, a_key, a_title) in enumerate(sheets):
+        for b, b_units, b_key, b_title in sheets[i + 1:]:
             ka, kb = (a.document, a.page), (b.document, b.page)
-            if areas.get(ka) == areas.get(kb) or not _same_tags(a_tags, b_tags):
+            if ka == kb:
                 continue
-            if a_key is None or b_key is None or a_key == b_key:
+            if a_key is not None and b_key is not None:
+                maybe = a_key == b_key
+            elif a_key is None and b_key is None and _named_apart(a, b):
+                maybe = False                       # no floor, but two parts named apart (DORM WING, CLASSROOM WING)
+            else:
+                maybe = ((a.document == b.document and bool(a_title) and a_title == b_title)
+                         or _same_tags(a_units, b_units))
+            if maybe:
                 doubts.append((ka, kb))
     return doubts
 
@@ -360,7 +373,6 @@ def placements(catalogue, tags: Iterable[str], typicals: Sequence = (),
     if pages is None:
         pages = governing_pages(catalogue, (), [t.sheet for t in typicals])
     sheets = {(s.document, s.page): s for s in catalogue.sheets}
-    plan_sheets: dict[str, object] = {}                       # place → its plan sheet, in page order
     on_plans: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))
     on_risers: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))
     for record in catalogue.pages:
@@ -373,8 +385,6 @@ def placements(catalogue, tags: Iterable[str], typicals: Sequence = (),
             continue
         place = sheet.number or f"{_name(record.document)} p.{record.page}"
         bucket = on_risers if riser else on_plans
-        if not riser:
-            plan_sheets.setdefault(place, sheet)
         lines = record.text.splitlines()
         skip = False
         for n, line in enumerate(lines):
@@ -387,32 +397,11 @@ def placements(catalogue, tags: Iterable[str], typicals: Sequence = (),
                 skip = tag is not None
             if tag is not None:
                 bucket[tag][place] += 1
-    # The plan areas, as the dossier's counts work them out: a floor drawn twice shows its tags twice.
-    labelled: dict[str, set] = defaultdict(set)
-    for tag, places in on_plans.items():
-        for place in places:
-            labelled[place].add(tag)
-    areas = plan_areas([(sheet, {tag: on_plans[tag][place] for tag in labelled[place]})
-                        for place, sheet in plan_sheets.items()])
-    first: dict[int, str] = {}
-    same_as: dict[str, str] = {}
-    for place, sheet in plan_sheets.items():
-        area = areas[(sheet.document, sheet.page)]
-        first.setdefault(area, place)
-        if first[area] != place:
-            same_as[place] = first[area]
+    # every sheet's labels count (FINAL-G): no two plan sheets are ever merged as one plan
 
     def placed(tag: str) -> Placements:
         mine = dict(on_plans.get(tag, {}))
-        # a sheet repeats the first sheet of its area that shows this tag (another sheet of the area may not)
-        firsts: dict[str, str] = {}
-        repeats: dict[str, str] = {}
-        for place in mine:
-            area = same_as.get(place, place)
-            firsts.setdefault(area, place)
-            if firsts[area] != place:
-                repeats[place] = firsts[area]
-        return Placements(mine, {s: floors.get(s, 1) for s in mine}, dict(on_risers.get(tag, {})), repeats)
+        return Placements(mine, {s: floors.get(s, 1) for s in mine}, dict(on_risers.get(tag, {})))
 
     return {tag: placed(tag) for tag in set(on_plans) | set(on_risers)}
 
