@@ -89,18 +89,6 @@ def test_a_title_holding_its_own_sheet_number_compares_without_it():
     assert found[(DWG, 1)] != found[(DWG, 2)]
 
 
-def test_the_same_floor_in_two_documents_is_not_one_plan_on_typical_type_tags_alone():
-    """Two documents each with a first floor plan showing the same type tags, each at several places: those tags
-    prove nothing (a typical unit is at each place on every floor of every building), so the plans add up."""
-    sheets = [_sheet(1, "M-101", "HVAC FIRST FLOOR PLAN"), _sheet(1, "C-101", "CONTROLS FIRST FLOOR PLAN", CTL)]
-    types = Counter({"EBB-A": 4, "EBB-B": 2, "EBB-C": 2})
-    found = plan_areas([(s, types) for s in sheets])
-    assert found[(DWG, 1)] != found[(CTL, 1)]
-    units = Counter({"VAV-1": 1, "VAV-2": 1, "VAV-3": 1, "EBB-A": 4})
-    found = plan_areas([(s, units) for s in sheets])
-    assert found[(DWG, 1)] == found[(CTL, 1)]
-
-
 def test_an_enlarged_plan_repeating_a_floors_tags_is_counted_apart_and_the_line_says_so(tmp_path):
     """Cannot tell: the enlarged plan names no floor, so it is not proven to be the first floor drawn again; both
     are counted (the higher count) and the counts line names the two sheets for the estimator."""
@@ -124,8 +112,10 @@ def test_an_enlarged_plan_repeating_a_floors_tags_is_counted_apart_and_the_line_
     assert "may show one plan" not in _line("VAV", d)
 
 
-def test_a_different_document_is_not_needed_for_the_cannot_tell_flag(tmp_path):
-    """The same floor in two documents whose only shared tags are type tags is counted apart, and flagged."""
+def test_the_same_floor_in_two_documents_on_typical_type_tags_alone_is_counted_apart_and_flagged(tmp_path):
+    """Two documents each with a first floor plan showing the same type tags, each at several places: those tags
+    prove nothing (a typical unit is at each place on every floor of every building), so the plans add up, and the
+    line names them as maybe one plan."""
     documents = [_doc(DWG, 1), _doc(CTL, 1)]
     text = "EBB-A\nEBB-A\nEBB-A\nEBB-B\nEBB-B\nEBB-C\nEBB-C"
     pages = [_page(DWG, 1, text), _page(CTL, 1, text)]
@@ -133,3 +123,9 @@ def test_a_different_document_is_not_needed_for_the_cannot_tell_flag(tmp_path):
     d = build_dossier(_catalogue(pages, sheets, ["EBB-A", "EBB-B", "EBB-C"], documents), _reading(), tmp_path)
     assert d.counts["EBB"]["plan_placements"] == 14
     assert "M-101 and C-101 may show one plan" in _line("EBB", d)
+    # plan_areas itself: tag -> places; unit tags (once on each sheet) still prove one plan
+    sheets = [_sheet(1, "M-101", "HVAC FIRST FLOOR PLAN"), _sheet(1, "C-101", "CONTROLS FIRST FLOOR PLAN", CTL)]
+    found = plan_areas([(s, Counter({"EBB-A": 4, "EBB-B": 2, "EBB-C": 2})) for s in sheets])
+    assert found[(DWG, 1)] != found[(CTL, 1)]
+    found = plan_areas([(s, Counter({"VAV-1": 1, "VAV-2": 1, "VAV-3": 1, "EBB-A": 4})) for s in sheets])
+    assert found[(DWG, 1)] == found[(CTL, 1)]
