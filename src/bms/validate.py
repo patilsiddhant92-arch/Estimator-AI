@@ -140,11 +140,28 @@ def _packaged(system, shape, job, playbook) -> Iterator[Hit]:
                    "Delete the line, or if it ships loose, have the unit manufacturer furnish it.")
     if shape is None:
         return
+    drive = _has_drive(system, shape)
     for slot in shape.slots_of_kind("integration"):
+        if _is_drive_slot(slot) and not drive:
+            continue
         n = sum(1 for d in system.devices if d.slot == slot)
         if n != 1:
             yield (None, "must_fix", f"The '{slot}' integration line is {'missing' if n == 0 else f'there {n} times'}",
                    "The integration lines appear exactly once in a packaged-control block.")
+
+
+def _is_drive_slot(slot: str) -> bool:
+    """A slot of the shape's VFD (drive) integration group: the Playbook's shapes name them vfd_comm_wiring,
+    vfd_map_points and vfd_rep_assist (rules.md "Integration lines last": the VFD group comes first "when both
+    apply")."""
+    return slot.startswith("vfd_")
+
+
+def _has_drive(system: System, shape: Shape) -> bool:
+    """The block has a drive: a line in a slot of the shape that names a VFD (a VFD point such as vfd_control or
+    supply_fan_vfd, or a line of the VFD integration group). Fields only: a drive the evidence names but no line
+    carries is for the writer and the QC pass to catch, not this check."""
+    return any("vfd" in d.slot.lower() for d in system.devices if d.slot in shape.slot_kinds)
 
 
 def _loose(system, shape, job, playbook) -> Iterator[Hit]:

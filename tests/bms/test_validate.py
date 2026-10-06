@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from bms.model import Assumption, Clarification, Count, Device, Family, Job, OtherCount, Ref
+from bms.model import Assumption, Clarification, Count, Device, Family, Job, OtherCount, Ref, System
 from bms.playbook import load_playbook
 from bms.validate import RULE, validate
 
@@ -68,6 +68,52 @@ def test_a_packaged_point_furnished_is_must_fix(job):
     shape2 = dc.replace(shape, slot_kinds={**shape.slot_kinds, "map_points": "point"})
     pb2 = dc.replace(PB, shapes={**PB.shapes, "Rooftop Unit": shape2})
     assert ("Packaged units", "RTU", "RTU.d2", "must_fix") in rules(validate(job, pb2))
+
+
+# The repo shapes give every packaged shape a drive group (the integration slots vfd_comm_wiring, vfd_map_points,
+# vfd_rep_assist) before its factory controls group; the sample Rooftop Unit gets the same here.
+_VFD_GROUP = ("vfd_comm_wiring", "vfd_map_points", "vfd_rep_assist")
+
+
+def _pb_with_drive_group():
+    shape = PB.shapes["Rooftop Unit"]
+    order = ("vfd_control", "shipped_loose", *_VFD_GROUP, "comm_wiring", "map_points", "rep_assist")
+    kinds = {**shape.slot_kinds, "vfd_control": "point", **{s: "integration" for s in _VFD_GROUP}}
+    shape2 = dc.replace(shape, line_order=order, slot_kinds=kinds,
+                        under={**shape.under, "vfd_rep_assist": "vfd_map_points"})
+    return dc.replace(PB, shapes={**PB.shapes, "Rooftop Unit": shape2})
+
+
+def _vfd_line(slot, n):
+    return Device(f"RTU.v{n}", slot, "Invented VFD line", "Wire", "AME", "AME", "AME", Count(1), (REF,))
+
+
+def test_the_vfd_integration_lines_are_required_only_on_a_packaged_unit_with_a_drive(job):
+    pb = _pb_with_drive_group()
+    # no drive in the block: the factory controls group alone is complete
+    assert rules(validate(job, pb), "Packaged units") == []
+    # a VFD line in the block: the whole drive group is required
+    j = edit(job, "RTU", devices=(_vfd_line("vfd_control", 1),) + job.system("RTU").devices)
+    got = [f for f in validate(j, pb) if f.rule == "Packaged units"]
+    assert {f.what for f in got} == {f"The '{s}' integration line is missing" for s in _VFD_GROUP}
+    assert {f.severity for f in got} == {"must_fix"}
+    # a part of the drive group: the rest of it is required
+    j = edit(job, "RTU", devices=job.system("RTU").devices + (_vfd_line("vfd_comm_wiring", 1),))
+    got = [f.what for f in validate(j, pb) if f.rule == "Packaged units"]
+    assert sorted(got) == [f"The '{s}' integration line is missing" for s in ("vfd_map_points", "vfd_rep_assist")]
+    # the factory controls group is still required whether or not there is a drive
+    j = edit(job, "RTU", devices=tuple(d for d in job.system("RTU").devices if d.slot != "map_points"))
+    assert [f.what for f in validate(j, pb) if f.rule == "Packaged units"] == [
+        "The 'map_points' integration line is missing"]
+
+
+def test_a_packaged_cabinet_heater_of_the_repo_playbook_with_no_drive_is_clean():
+    repo = load_playbook()
+    lines = tuple(Device(f"CUH.d{n}", slot, "Invented line", "Furnish", "AME", "AME", "AME", Count(2), (REF,))
+                  for n, slot in enumerate(("comm_wiring", "map_points", "rep_assist"), 1))
+    system = System("CUH", "Cabinet Unit Heater", "EUH / CUH / UH", "packaged",
+                    (Family("Cabinet Unit Heater", ("CUH-1", "CUH-2"), Count(2, (REF,))),), devices=lines)
+    assert [f.what for f in validate(Job("Invented", (system,)), repo) if f.rule == "Packaged units"] == []
 
 
 def test_shipped_loose_must_be_install_and_wire(job):
