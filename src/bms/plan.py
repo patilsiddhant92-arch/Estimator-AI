@@ -220,7 +220,15 @@ class _Planner:
 
     def _join_owner(self, drafts: list[_Draft], family: FamilyFacts, owner: FamilyFacts) -> None:
         """A code with no kind of its own that is a tag of another family ("GI-4" of GI) is a part of that family:
-        it joins the block holding the family, with its own count, under the family's name, and is asked."""
+        it joins the block holding the family, with its own count, under the family's name, and is asked. A code
+        that is already one of the family's own tags (P-1 of P-1, P-2) is not added again; the question says so.
+        When the family's count was read from the code's own count, the question says the count includes it."""
+        head = f"{family.prefix} is on a schedule with no kind of equipment given for it; "
+        if family.prefix.upper() in {t.upper() for t in owner.tags}:
+            self.questions.append(
+                f"{head}it is one of the {owner.name} ({owner.prefix}) tags, so it is counted with the "
+                f"{owner.name} units, not again. Confirm it is one of them.")
+            return
         draft = self._holding(drafts, owner)
         if draft is None:
             drafts.append(self._single(family))
@@ -228,10 +236,16 @@ class _Planner:
             draft.families.append(_Fam(family.name, family.tags or (family.prefix,), family.count, family))
             draft.prefixes.append(family.prefix)
             draft.matches += [m for m in self.reader.matches(family.prefix) if m not in draft.matches]
+        own = set(family.count.sources)
+        if owner.count.value is not None and own and own & set(owner.count.sources):
+            said = (f"The {owner.prefix} count ({owner.count.value}) is taken from {family.prefix}'s own count, so it "
+                    f"already includes {family.prefix}. Confirm {family.prefix} is one of them and that the "
+                    f"{owner.prefix} count is right.")
+        else:
+            said = f"Confirm it is one, and that its count is not already in the {owner.prefix} count."
         self.questions.append(
-            f"{family.prefix} is on a schedule with no kind of equipment given for it; its code is a tag of "
-            f"{owner.name} ({owner.prefix}), so it is planned with the {owner.name} units. Confirm it is one, and "
-            f"that its count is not already in the {owner.prefix} count.")
+            f"{head}its code is a tag of {owner.name} ({owner.prefix}), so it is planned with the {owner.name} "
+            f"units. {said}")
 
     def specific_name(self, family: FamilyFacts) -> str:
         """The family's name; for a generic kind ("Fan", "Unit", "Equipment") the best specific words the ledger
@@ -412,6 +426,16 @@ class _Planner:
                     "Mechanical Contractor) belongs in the split block.")
                 continue
             block = sharing[0]
+            # numbers alone are weak evidence: other equipment carrying the pumps' numbers is named as the other
+            # possibility (FINAL-D F6)
+            others = [d for d in drafts if d is not pump and d not in splits and not _is_condensate(d)
+                      and _makes_condensate(d) and mine & _family_suffixes(d.families)]
+            if others:
+                alternative = (f"They could instead be the pumps of the "
+                               f"{' or the '.join(f'{d.name} ({tag_words(d.tags())})' for d in others)}, which "
+                               "carry the same numbers; if so, they belong in that block instead.")
+            else:
+                alternative = "If they serve other equipment, they belong with that equipment instead."
             block.families += pump.families
             block.prefixes += [p for p in pump.prefixes if p not in block.prefixes]
             block.matches += [m for m in pump.matches if m not in block.matches]
@@ -420,7 +444,7 @@ class _Planner:
                 f"{label} carry the tag numbers of the split units of {block.name}, so they are planned in that "
                 "block for the condensate pump float switch tie-in (Furnished by Mechanical Contractor), as the "
                 "house rule for split and VRF systems writes it. Confirm each pump serves the split unit with its "
-                "number.")
+                f"number. {alternative}")
         return out
 
     def _split_blocks(self, loose: list[_Draft], drafts: list[_Draft]) -> dict[str, list[_Draft]]:
@@ -435,21 +459,36 @@ class _Planner:
             mine = _suffixes(draft)
             near = next((n for n in names if mine & set().union(*map(_suffixes, by_section[n]))), names[0])
             by_section[near].append(draft)
-        # an indoor unit and its outdoor unit are one block (house rule "VRF and split as one block"): sections whose
-        # units share a tag suffix (AC-109 and ACCU-109) are one block, whichever section each matched
+        # an indoor unit and its outdoor unit are one block (house rule "VRF and split as one block"): two sections
+        # are one block only when every unit of the smaller pairs by tag suffix with a unit of another prefix in the
+        # other (AC-109 with ACCU-109) and none pairs inside its own section; the join is asked. Sections sharing
+        # some numbers but not so (both numbering from 1) stay apart and are asked (FINAL-D F2).
         joined: list[list[str]] = [[n] for n in names]
-        suffixes = lambda names_: set().union(*(_suffixes(d) for n in names_ for d in by_section[n]))  # noqa: E731
+        units = lambda names_: {(_lead(d.key), s) for n in names_ for d in by_section[n] for s in _suffixes(d)}  # noqa: E731
         merging = True
         while merging:
             merging = False
             for a in range(len(joined)):
                 for b in range(a + 1, len(joined)):
-                    if suffixes(joined[a]) & suffixes(joined[b]):
+                    if _pair_up(units(joined[a]), units(joined[b])):
+                        self.questions.append(
+                            f"The split units of {' and '.join(joined[a] + joined[b])} pair up by tag number (each "
+                            "indoor unit with the outdoor unit of its number), so they are planned as one Split "
+                            "System block carrying each section's sequence. Confirm they are one system.")
                         joined[a] += joined.pop(b)
                         merging = True
                         break
                 if merging:
                     break
+        for a in range(len(joined)):
+            for b in range(a + 1, len(joined)):
+                shared = {s for _, s in units(joined[a])} & {s for _, s in units(joined[b])}
+                if shared:
+                    self.questions.append(
+                        f"The split units of {' and '.join(joined[a])} and of {' and '.join(joined[b])} share tag "
+                        f"numbers ({', '.join(sorted(shared, key=_natural_key))}), but they do not pair up as one "
+                        "indoor unit and its outdoor unit each, so they are planned as two Split System blocks, one "
+                        "for each sequence. Are any of them one split system?")
         if len(joined) == 1:
             return {SPLIT_SYSTEM: sorted(loose, key=drafts.index)}
         return {f"{SPLIT_SYSTEM} — {' / '.join(group)}": sorted((d for n in group for d in by_section[n]),
@@ -806,8 +845,8 @@ class _Planner:
             missing = [t for t in family.tags if t.upper() not in present and not naming(t).search(asked)]
             if family.tags and not missing:
                 continue
-            if not family.tags and family.prefix.casefold() in sources:
-                continue
+            if not family.tags and (family.prefix.casefold() in sources or family.prefix.upper() in present):
+                continue             # its code is a block's family, or a tag a block holds (P-1 of P: F4)
             what = ", ".join(missing) if missing else family.prefix
             self.questions.append(f"{family.name} ({what}) is in the documents but in no block of this plan; "
                                   "which system is it in?")
@@ -854,7 +893,8 @@ class _Planner:
         """Two or more families of one name (any case, plural or singular, punctuation aside) with the same alternate
         and the same exception are one block: the first one's key and name, each family kept with its own tags and
         count, their sequences together; a question asks to confirm. A general kind alone ("Fan", "Pump") is never
-        a reason to merge."""
+        a reason to merge, nor are families matched to different sequence sections: the documents keep those apart,
+        so each stays its own block and a question asks to confirm (FINAL-D F3)."""
         out = list(drafts)
         singles = [d for d in drafts if d.kind == "single"]
         by_name: dict[tuple[str, str, str], list[_Draft]] = {}
@@ -864,6 +904,13 @@ class _Planner:
                 by_name.setdefault((name, draft.alternate, draft.exception), []).append(draft)
         for block in by_name.values():
             if len(block) < 2:
+                continue
+            sections = {frozenset(squash(m.subject) for m in d.matches) for d in block if d.matches}
+            if len(sections) > 1:
+                self.questions.append(
+                    f"{', '.join(d.key for d in block)} carry the same name, “{block[0].name}”, but each matches its "
+                    "own sequence section, so they are planned as separate blocks; confirm they are separate "
+                    "systems.")
                 continue
             first = block[0]
             for other in block[1:]:
@@ -965,6 +1012,21 @@ def _is_condensate(draft: _Draft) -> bool:
     return any(_CONDENSATE.search(squash(n)) for n in names)
 
 
+_CONDENSATE_SOURCE = re.compile(
+    r"\b(?:air[- ]handl\w*|fan[- ]coil|heat[- ]pump|rooftop|roof[- ]top|dedicated outdoor|unit ventilator|cooling|"
+    r"energy recovery|heat recovery|makeup air|make-up air|air condition\w*)\b", re.I)
+_CONDENSATE_PREFIXES = frozenset({"AHU", "FCU", "FC", "HP", "WSHP", "RTU", "DOAS", "DOA", "UV", "ERV", "HRU", "MAU",
+                                  "CRAC", "CRAH"})
+
+
+def _makes_condensate(draft: _Draft) -> bool:
+    """Equipment that makes condensate (an air handling unit, a fan coil, a heat pump, a rooftop unit ...): the only
+    other equipment a condensate pump is named as maybe serving."""
+    names = [draft.name, *(f.name for f in draft.families), *(f.source.name for f in draft.families if f.source)]
+    prefixes = {p.upper() for p in draft.prefixes} | {_lead(draft.key)}
+    return bool(prefixes & _CONDENSATE_PREFIXES) or any(_CONDENSATE_SOURCE.search(squash(n)) for n in names)
+
+
 def _family_suffixes(families) -> set[str]:
     """The families' tags without their family's prefix: CP-21 of CP gives "21"."""
     out = set()
@@ -974,6 +1036,20 @@ def _family_suffixes(families) -> set[str]:
             if prefix and tag.upper().startswith(prefix + "-"):
                 out.add(tag.upper()[len(prefix) + 1:])
     return out
+
+
+def _pair_up(a: set[tuple[str, str]], b: set[tuple[str, str]]) -> bool:
+    """Two sections' units ((prefix, tag suffix) each) are one split system: every unit of the smaller one has a
+    partner of another prefix with its suffix in the other, and none has one in its own section."""
+    small, other = (a, b) if len(a) <= len(b) else (b, a)
+    if not small:
+        return False
+    return all(not any(s == s2 and p2 != p for p2, s2 in small) and any(s == s2 and p2 != p for p2, s2 in other)
+               for p, s in small)
+
+
+def _natural_key(text: str) -> list:
+    return [int(part) if part.isdigit() else part for part in re.split(r"(\d+)", text)]
 
 
 def _suffixes(draft: _Draft) -> set[str]:
