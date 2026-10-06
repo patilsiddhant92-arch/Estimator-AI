@@ -97,10 +97,14 @@ The main ones:
 - The Master Template sets only the shape of a block, never what is in it.
 - Every line says who furnishes, installs and wires.
 - The higher count prints, flagged, with every count named. An unknown count prints as "Qty (##)".
-- On the plans, a unit's tag (VAV-101, EF-3) is one unit however many plan sheets show it, so a floor drawn on two
-  plan sheets (a ductwork plan and its piping and controls plan) never doubles the units. A type's tag (EBB-A) is
-  counted at every place on every sheet, never merged: if one floor is drawn twice that is the higher count, and
-  the counts line names the two sheets that may show one plan. When the plans still show more than the schedule,
+- On the plans, when in doubt the sheets add up: an overcount is named for you, an undercount would be invisible.
+  Two plan sheets count as one plan only when they are in one document, their titles say the same floor in the
+  same words (the trade words aside: "HVAC DUCTWORK FIRST FLOOR PLAN" and "HVAC PIPING FIRST FLOOR PLAN") and they
+  repeat at least three of each other's units. Then a unit's tag (VAV-101) counts once and a type's tag (EBB-A) the
+  most of one sheet, and the counts line says "M-101 and M-201 counted as one plan ...; check". Every other sheet
+  adds up, so EBB-1 on ten floors' plans is 10, and the counts line names it in case it is one unit shown again,
+  and names sheets that may show one plan. A typical plan counts once per floor it stands for, each floor once.
+  The Evidence Package's inventory counts with the same rule. When the plans still show more than the schedule,
   the quantity note says the likely cause in plain words, for example
   "*Qty. (12) per plan placements (likely a typical unit at each place); 1 per schedule rows." Those words
   are in `playbook/wording.json` (`count_causes`). The tags and sheets behind a cause go to the writers'

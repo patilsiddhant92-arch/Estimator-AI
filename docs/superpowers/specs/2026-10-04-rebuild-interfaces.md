@@ -190,7 +190,7 @@ Constants: TECH_HOUR_BASES, SLOT_KINDS, DEFAULT_ROOT, COUNT_CAUSE_KEYS
 | `Catalogue` (job, pages, sheets, sections, bid, tags, flags, overview); `catalogue_job(root, cache_dir, workers, documents=None)` | `estimator.catalogue.job` | run, plan, counts |
 | `JobReading`; `read_job(catalogue, page_opener=None, cache_dir=None, judge=None)` | `estimator.reading.job` | run |
 | `Dossier` (job_name, text, images: tuple[DossierImage], sources: dict id→where, families, device_totals, counts, stats, sections); `build_dossier(catalogue, reading, cache_dir)`; `sheet_pictures(catalogue, cache_dir, keys, what)`; `plan_areas` (re-exported from `estimator.reading.inventory`) | `estimator.writing.dossier` | run, plan, ai, counts |
-| `plan_areas(plans: [(sheet, tags)]) -> {(document, page): area}` (retired, FINAL-G: every sheet its own area); `plan_area_doubts(plans, areas=None) -> [((document, page), (document, page))]` (a hint only); `is_type_tag(tag)`, `counted_per_place(tag, places, most_on_one_sheet, code=False)`; `placements(catalogue, tags, typicals=(), pages=None) -> {tag: Placements}`; `COUNT_CAUSES_LEAD`, `COUNT_CAUSE_WORDS` (`typical`, `labelled_twice`; `SAME_PLAN` removed, FINAL-H) | `estimator.reading.inventory` | dossier, render |
+| `plan_areas(plans: [(sheet, tags)]) -> {(document, page): area}` (retired, FINAL-G: every sheet its own area); `plan_area_doubts(plans, areas=None) -> [((document, page), (document, page))]` (a hint only); `is_type_tag(tag)`, `counted_per_place(tag, places, most_on_one_sheet, code=False)`; `plan_groups(plans, codes=()) -> {(document, page): group}`, `plan_count(found, groups, per_place) -> int`, `plan_floors(catalogue, typicals=()) -> {(document, number): floors}`, `counting_pages(catalogue, governing) -> pages`, `sheet_labels(sheets) -> {(document, page): label}` (FINAL-I, the one counting rule); `placements(catalogue, tags, typicals=(), pages=None) -> {tag: Placements}`; `COUNT_CAUSES_LEAD`, `COUNT_CAUSE_WORDS` (`typical`, `labelled_twice`; `SAME_PLAN` removed, FINAL-H) | `estimator.reading.inventory` | dossier, render |
 | `Ledger` (sources, facts: dict[id, Fact], understanding, complete, stopped_at, job_name, refused; `of_kind`, `about`, `find`, `printed_count`, `to_dict`/`from_dict`/`load`); `Fact` (id, kind, subject, value, source_id, quote, stage, state, contradictions); `Contradiction`; `KINDS`; `where_short` | `estimator.ledger.facts` | plan |
 | `read_job(judge, dossier, catalogue, save_to=None, limit=None, pictures=True, picture_cap=24) -> Ledger` (imported as `read_ledger`; the brief's "read_ledger") | `estimator.ledger.run` | run |
 | `ledger_plan`, `count_note`, `place_words` (the old planner, for reference / reuse) | `estimator.ledger.to_plan` | plan (may import) |
@@ -230,23 +230,35 @@ rows"). When a quote of the count is an equipment counts line that names why the
 as" and "shown again" causes could not fire since FINAL-G and were removed in FINAL-H). Only the cause's kind is read: its
 tags, sheets and the estimator's hints never print.
 
-Plan counting (`estimator.writing.dossier`, the equipment counts line), lead ruling FINAL-G (it cannot
-undercount by construction; no plan sheet is ever merged with another): a unit's tag (a unit number in it: VAV-101,
-EF-3, ACCU-109) counts once over all the family's plan sheets, however many sheets show it or times one sheet labels
-it (times the most floors of a typical sheet it is on). A tag counted at every place (`counted_per_place`: a type's
-tag `is_type_tag`, EBB-A, CUH-A, AC-3.0; a schedule's type code; a numbered tag drawn at TYPE_PLACED places
-with TYPE_ON_ONE_SHEET on one sheet, labels as drawn, a typical sheet's floors not applied) is the sum of its places over every sheet, floors applied: where one plan is drawn
-twice that is an overcount, kept (the higher count). `plan_areas` is retired (each sheet its own area).
-`plan_area_doubts(plans)` gives the pairs that MAY show one plan, a hint only (the same readable floor and parts;
-one document with the same title text, its sheet number aside; or repeated unit tags with titles not naming two
-different floors); the line's "Reading notes" name them for a family whose type tag is on both ("M-101 and M-201
-may show one plan; both are counted, the higher count ..."). Every sheet is listed with its labels ("M-101 9;
-M-201 9"), never "same plan as"; when those labels add up to more than the placements, a reading note says each
-unit's tag is counted once. A numbered tag counted once and drawn on 2 or more plan sheets gets its own reading note
-(FINAL-H; at most three tags named, the most sheets first): "EBB-1 appears on 10 plan sheets: counted as one unit;
-if it is a type used on each floor, check the schedule's quantity" (on a typical sheet: "counted as one unit on each
-of the N floors its typical sheet stands for"); a hint only, never a client cause, and a schedule's QUANTITY column
-above the placements still wins (the higher count). When the placements are still above every other count, the line's head (the part the
+Plan counting, lead ruling FINAL-I (the final rule; conservative: when in doubt the sheets are SUMMED, since an
+overcount is named for the estimator and an undercount is invisible). One rule serves the dossier's equipment counts
+line and `inventory.placements` / `_as_type` (the Evidence Package), so the two always agree: `plan_groups`,
+`plan_count`, `plan_floors`, `counting_pages`, `sheet_labels` in `estimator.reading.inventory`.
+- Sheets are keyed by (document, page), never by sheet number. A plan sheet whose number is in another document of
+  the same issue with exactly the same text (not an addendum, a duplicate file or a marked-up copy, `repeats`) is
+  counted too (two identical buildings, REVIEW-FINAL5 F7); a number counted from two documents is printed with its
+  document's name ("M-101 (Second Building.pdf)").
+- Plan sheets are one plan group only when ALL hold: the same document; the same title words as a multiset once the
+  sheet number and the trade and plan words (PLAN, DUCTWORK, DUCT, PIPING, PIPE, CONTROLS, CONTROL, HVAC, MECHANICAL,
+  MECH, PLUMBING, AND, punctuation) are taken out, with a floor word left (FLOOR, LEVEL, an ordinal, a number,
+  BASEMENT, ROOF, TYPICAL ...); and at least AREA_SHARED (3) unit tags repeated, AREA_OVERLAP (0.6) of the smaller
+  sheet's (a type's tag is never evidence). BASEMENT 1 / 2, BLDG. A / B, SUITE 3 / 4, TOWERS 1 AND 2 / 3 AND 4,
+  1000 / 2000 never group.
+- In a group a unit's tag counts once, and a tag counted at every place (`counted_per_place`: a type's tag
+  `is_type_tag`, EBB-A, CUH-A, AC-3.0; a schedule's type code; a numbered tag drawn at TYPE_PLACED places with
+  TYPE_ON_ONE_SHEET on one sheet, labels as drawn) the most labels of one sheet of the group; each times the floors
+  the group's sheets stand for, every floor once (typical floors 2-5 and 2-5 are 4 floors; 2-5 and 6-10 are 9).
+  The groups, and every sheet in no group, are summed.
+- The line's "Reading notes" (the estimator's and the writers' hints, never a client cause): each group of 2+
+  sheets ("M-101 and M-201 counted as one plan: same floor title, same units; check"); each pair that MAY show one
+  plan but is not a group (`plan_area_doubts`: "M-101 and C-101 may show one plan; both are counted, the higher
+  count ..."); each numbered tag counted on 2+ plans, at most three ("EBB-1 is on 10 plans (M-101, M-102, M-103 …),
+  counted on each, 10: likely a type used on each plan; if it is one unit shown on several plans, it is 1 ..."); each
+  unit's tag labelled 2 or 3 times on one sheet ("FCU-1 3 times on M-101, counted as one unit: if it is a typical
+  unit placed at each of those places, check the schedule's quantity"); and, when every sheet's labels add up to more
+  than the placements, that sum. Every sheet is listed with its labels ("M-101 9; M-201 9"), never "same plan as". A
+  schedule's QUANTITY column above the placements still wins (the higher count). The inventory counts a scheduled
+  unit's tag the plans count more than once as that many units ("counted N times on the plans ... check the count"). When the placements are still above every other count, the line's head (the part the
 ledger's count fact quotes) ends "; placements above the other counts, likely: <causes>" (a typical unit at each
 place; one unit labelled more than once, said only of tags counted at every place) and its "Reading notes" give the
 tags and sheets. The inventory's type-tag check (`placements`, "labelled N times on the plans") sums every sheet's

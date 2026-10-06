@@ -18,18 +18,19 @@ from test_dossier_plan_areas import CTL, DWG, OTHER, _catalogue, _doc, _line, _p
 BOXES = [f"VAV-{n}" for n in range(1, 6)]
 
 
-def test_a_unit_tag_on_two_sheets_whose_titles_cannot_be_read_counts_once(tmp_path):
-    """A ductwork plan and its controls plan of one area whose titles name no floor the reader knows: before, the
-    two sheets were counted apart and every box twice (10); a box's tag is one box."""
+def test_a_unit_tag_on_two_sheets_of_two_documents_adds_up_and_is_named(tmp_path):
+    """A ductwork plan and its controls plan of one area, in two documents. FINAL-I (lead ruling, the final counting
+    rule): sheets of two documents are never one plan group, so the groups add up, 10 (FINAL-G counted each box once,
+    5, which lost numbered types placed once per floor); the higher count is named as maybe one plan."""
     text = "\n".join(BOXES)
     pages = [_page(DWG, 1, text), _page(CTL, 1, text)]
     sheets = [_sheet(1, "M-101", "DUCTWORK PLAN - SUITE 3"), _sheet(1, "C-101", "CONTROLS PLAN - SUITE 3", CTL)]
     d = build_dossier(_catalogue(pages, sheets, BOXES, [_doc(DWG, 1), _doc(CTL, 1)]), _reading(), tmp_path)
-    assert d.counts["VAV"]["plan_placements"] == 5
+    assert d.counts["VAV"]["plan_placements"] == 10
     line = _line("VAV", d)
     assert "same plan as" not in line
     assert "M-101 5" in line and "C-101 5" in line            # every sheet still listed for the evidence
-    assert "the labels on the plan sheets add up to 10; each unit's tag is counted once" in line
+    assert "M-101 and C-101 may show one plan; both are counted, the higher count" in line
 
 
 def test_a_unit_tag_printed_twice_on_one_sheet_is_one_unit(tmp_path):
@@ -41,29 +42,32 @@ def test_a_unit_tag_printed_twice_on_one_sheet_is_one_unit(tmp_path):
     assert "likely" not in _line("ACCU", d)                  # nothing above the other counts left to explain
 
 
-def test_a_unit_tag_on_the_plans_of_three_floors_is_one_unit(tmp_path):
+def test_a_unit_tag_on_the_plans_of_three_floors_counts_on_each_and_is_named(tmp_path):
+    """FINAL-I (lead ruling): three floors' plans are three plan groups and add up, 3 (FINAL-G gave 1, which lost a
+    numbered type used once per floor); the reading note names EF-1 and says it may be one unit."""
     pages = [_page(DWG, 1, "EF-1"), _page(DWG, 2, "EF-1"), _page(DWG, 3, "EF-1")]
     sheets = [_sheet(1, "M-101", "HVAC FIRST FLOOR PLAN"), _sheet(2, "M-102", "HVAC SECOND FLOOR PLAN"),
               _sheet(3, "M-106", "HVAC ROOF PLAN")]
     d = build_dossier(_catalogue(pages, sheets, ["EF-1"]), _reading(), tmp_path)
-    assert d.counts["EF"]["plan_placements"] == 1
+    assert d.counts["EF"]["plan_placements"] == 3
+    assert "EF-1 is on 3 plans (M-101, M-102, M-106), counted on each, 3" in _line("EF", d)
 
 
 def test_type_tags_on_a_floor_drawn_twice_add_up_and_the_line_names_the_two_sheets(tmp_path):
-    """EBB types on the first floor's ductwork plan and on its controls plan, one document: before, merged (8); now
-    summed (16), the higher count, and the line says the two sheets may show one plan. The VAV boxes on both sheets
-    are counted once each and their line needs no such note."""
+    """EBB types on the first floor's ductwork plan and on its controls plan, one document. FINAL-I (lead ruling):
+    the same floor title and three unit tags repeated make one plan group, so a type counts the most labels of one
+    sheet, 8 (FINAL-G summed, 16), and each box once; the line names the group for a check."""
     text = "EBB-A\nEBB-A\nEBB-A\nEBB-A\nEBB-B\nEBB-B\nEBB-C\nEBB-D\nVAV-1\nVAV-2\nVAV-3"
     pages = [_page(DWG, 1, text), _page(DWG, 2, text)]
     sheets = [_sheet(1, "M-101", "HVAC DUCTWORK FIRST FLOOR PLAN"),
               _sheet(2, "M-201", "HVAC PIPING AND CONTROLS FIRST FLOOR PLAN")]
     tags = ["EBB-A", "EBB-B", "EBB-C", "EBB-D", "VAV-1", "VAV-2", "VAV-3"]
     d = build_dossier(_catalogue(pages, sheets, tags), _reading(), tmp_path)
-    assert d.counts["EBB"]["plan_placements"] == 16
+    assert d.counts["EBB"]["plan_placements"] == 8
     assert d.counts["VAV"]["plan_placements"] == 3
     line = _line("EBB", d)
-    assert "same plan as" not in line
-    assert "M-101 and M-201 may show one plan; both are counted, the higher count" in line
+    assert "same plan as" not in line and "may show one plan" not in line
+    assert "M-101 and M-201 counted as one plan: same floor title, same units; check" in line
     assert "may show one plan" not in _line("VAV", d)
 
 

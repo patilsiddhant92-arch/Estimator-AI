@@ -94,14 +94,15 @@ def test_a_title_holding_its_own_sheet_number_compares_without_it():
 
 
 def test_an_enlarged_plan_repeating_a_floors_tags_counts_each_box_once_and_names_the_types_sheets(tmp_path):
-    """The enlarged plan names no floor and repeats the first floor's boxes and heaters. FINAL-G: each box counts
-    once (4, was 4 + 3); the heaters' type tag counts every place (2 + 2) and its line names the two sheets."""
+    """The enlarged plan names no floor and repeats the first floor's boxes and heaters. FINAL-I (lead ruling): its
+    title is not the floor plan's, so the two are two plan groups and add up: the boxes 4 + 3 (FINAL-G 4), the
+    heaters' type tag 2 + 2; both lines name the two sheets as maybe one plan."""
     pages = [_page(DWG, 1, "VAV-1\nVAV-2\nVAV-3\nVAV-4\nEBB-A\nEBB-A"),
              _page(DWG, 2, "VAV-1\nVAV-2\nVAV-3\nEBB-A\nEBB-A")]
     sheets = [_sheet(1, "M-101", "HVAC FIRST FLOOR PLAN"), _sheet(2, "M-301", "ENLARGED MECHANICAL ROOM PLAN")]
     d = build_dossier(_catalogue(pages, sheets, [f"VAV-{n}" for n in range(1, 5)] + ["EBB-A"]), _reading(), tmp_path)
-    assert d.counts["VAV"]["plan_placements"] == 4
-    assert "may show one plan" not in _line("VAV", d)
+    assert d.counts["VAV"]["plan_placements"] == 7
+    assert "M-101 and M-301 may show one plan" in _line("VAV", d)
     assert d.counts["EBB"]["plan_placements"] == 4
     line = _line("EBB", d)
     assert "same plan as" not in line
@@ -115,8 +116,9 @@ def test_an_enlarged_plan_repeating_a_floors_tags_counts_each_box_once_and_names
     pages = [_page(DWG, 1, "VAV-1\nVAV-2\nVAV-3"), _page(DWG, 2, "VAV-1\nVAV-2\nVAV-3")]
     sheets = [_sheet(1, "M-101", "HVAC FIRST FLOOR PLAN"), _sheet(2, "M-102", "HVAC SECOND FLOOR PLAN")]
     d = build_dossier(_catalogue(pages, sheets, sorted(UNITS)), _reading(), tmp_path)
-    assert d.counts["VAV"]["plan_placements"] == 3                     # FINAL-G: each box once (was 6)
+    assert d.counts["VAV"]["plan_placements"] == 6     # FINAL-I: two floors' plans add up (FINAL-G 3), named
     assert "may show one plan" not in _line("VAV", d)
+    assert "VAV-1 is on 2 plans (M-101, M-102), counted on each, 2" in _line("VAV", d)
 
 
 def test_the_same_floor_in_two_documents_on_typical_type_tags_alone_is_counted_apart_and_flagged(tmp_path):
