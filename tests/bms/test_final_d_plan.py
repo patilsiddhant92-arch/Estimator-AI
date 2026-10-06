@@ -114,9 +114,11 @@ def test_condensate_pumps_joined_on_numbers_name_the_air_handling_units_they_may
     _family(ledger, "AC", "Air Conditioning Unit", "AC-1, AC-2, AC-3", 3)
     _family(ledger, "ACCU", "Air Cooled Condensing Unit", "ACCU-1, ACCU-2, ACCU-3", 3)
     _family(ledger, "CP", "Condensate Pump", "CP-1, CP-2", 2)
+    _family(ledger, "EF", "Exhaust Fan", "EF-1, EF-2", 2)                 # same numbers, makes no condensate
     job = _plan(ledger)
     (asked,) = [q for q in job.questions if "CP-1" in q]
     assert "Confirm" in asked
+    assert "Exhaust Fan" not in asked
     assert "Air Handling Unit (AHU-1, 2)" in asked and "carry the same numbers" in asked
     assert "they belong in that block instead" in asked
     # with no other equipment of those numbers, the question still names the other possibility

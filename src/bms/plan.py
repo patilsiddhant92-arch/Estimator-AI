@@ -429,7 +429,7 @@ class _Planner:
             # numbers alone are weak evidence: other equipment carrying the pumps' numbers is named as the other
             # possibility (FINAL-D F6)
             others = [d for d in drafts if d is not pump and d not in splits and not _is_condensate(d)
-                      and mine & _family_suffixes(d.families)]
+                      and _makes_condensate(d) and mine & _family_suffixes(d.families)]
             if others:
                 alternative = (f"They could instead be the pumps of the "
                                f"{' or the '.join(f'{d.name} ({tag_words(d.tags())})' for d in others)}, which "
@@ -1010,6 +1010,21 @@ def _is_condensate(draft: _Draft) -> bool:
     """A block of condensate pumps: its name or its family's ledger name says so."""
     names = [draft.name, *(f.name for f in draft.families), *(f.source.name for f in draft.families if f.source)]
     return any(_CONDENSATE.search(squash(n)) for n in names)
+
+
+_CONDENSATE_SOURCE = re.compile(
+    r"\b(?:air[- ]handl\w*|fan[- ]coil|heat[- ]pump|rooftop|roof[- ]top|dedicated outdoor|unit ventilator|cooling|"
+    r"energy recovery|heat recovery|makeup air|make-up air|air condition\w*)\b", re.I)
+_CONDENSATE_PREFIXES = frozenset({"AHU", "FCU", "FC", "HP", "WSHP", "RTU", "DOAS", "DOA", "UV", "ERV", "HRU", "MAU",
+                                  "CRAC", "CRAH"})
+
+
+def _makes_condensate(draft: _Draft) -> bool:
+    """Equipment that makes condensate (an air handling unit, a fan coil, a heat pump, a rooftop unit ...): the only
+    other equipment a condensate pump is named as maybe serving."""
+    names = [draft.name, *(f.name for f in draft.families), *(f.source.name for f in draft.families if f.source)]
+    prefixes = {p.upper() for p in draft.prefixes} | {_lead(draft.key)}
+    return bool(prefixes & _CONDENSATE_PREFIXES) or any(_CONDENSATE_SOURCE.search(squash(n)) for n in names)
 
 
 def _family_suffixes(families) -> set[str]:
