@@ -34,7 +34,7 @@ A run takes about 25 to 45 minutes of working time. Work is shared out to AI age
 | Ledger.json | The facts the app read from the documents, each with where it was found |
 | count-proofs (folder) | The sheet pictures the counts were made from; the review page shows them |
 | decisions history.json | Every set of decisions you have saved, kept by the app (see "Your part") |
-| run state.json | How the last run ended; `status` reads it |
+| run state.json | How the last run ended (the stage it reached, its messages, and how many saved decisions the history held); `status` reads it |
 
 ## Your part
 
@@ -72,7 +72,8 @@ anything and writes nothing, so it is safe to use while a run is going. It ends 
 
 - 0: the run is done.
 - 2: questions are waiting for answers.
-- 1: the run stopped, has not finished, or there is no run in that folder.
+- 1: the run stopped, has not finished, or there is no run in that folder. A proposal that could not be printed
+  stops the run at the stage "render", with the reason in words.
 
 This is not the same as `tools/run_job.py status`, which runs the job (it is what `/run-job` uses).
 
@@ -96,6 +97,11 @@ The main ones:
 - The Master Template sets only the shape of a block, never what is in it.
 - Every line says who furnishes, installs and wires.
 - The higher count prints, flagged, with every count named. An unknown count prints as "Qty (##)".
+- A floor drawn on two plan sheets (a ductwork plan and its piping and controls plan) is counted once. When the
+  plans still show more than the schedule, the quantity note says the likely cause in plain words, for example
+  "*Qty. (3) per plan placements (likely one unit's tag shown on several plans); 1 per schedule rows." Those words
+  are in `playbook/wording.json` (`count_causes`). The tags and sheets behind a cause go to the writers'
+  evidence, never into the client's note.
 - One "*" clarification per block. Every assumption says what and why.
 
 ## Older app
