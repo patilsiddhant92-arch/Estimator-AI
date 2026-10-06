@@ -1000,3 +1000,97 @@ def test_schedule_rows_of_types_make_a_groups_part_unknown_when_the_plans_place_
     vrf, rest = _plan(ledger).systems
     assert vrf.families[0].tags == ("UHX-1",) and vrf.families[0].count.value is None
     assert rest.families[0].tags == ("UHX-2",) and rest.families[0].count.value == 31
+
+
+# ---- planner fixes: the dossier's no-kind name, families of one name, a generic kind, split pairs -------------------
+
+def test_the_no_kind_name_is_the_dossiers_own_fallback():
+    from bms.plan_read import NO_KIND
+    dossier_py = Path(__file__).resolve().parents[2] / "src" / "estimator" / "writing" / "dossier.py"
+    assert f'"{NO_KIND}"' in dossier_py.read_text(encoding="utf-8")
+
+
+def test_a_code_with_no_kind_that_is_a_tag_of_a_family_joins_that_familys_block_and_is_asked():
+    from bms.plan_read import NO_KIND
+    ledger = _ledger()
+    _family(ledger, "GI", "Grease Interceptor", "GI-1 thru 3", 3)
+    ledger.add("family", "GI-4", NO_KIND, "S1", f"GI-4 ({NO_KIND}): schedule rows 1", "seed")
+    ledger.add("count", "GI-4", 2, "S1", f"GI-4 ({NO_KIND}): schedule rows 1", "seed", SETTLED)
+    job = _plan(ledger)
+    (gi,) = job.systems
+    assert gi.key == "GI" and NO_KIND not in gi.name
+    assert [(f.name, f.tags) for f in gi.families] == [("Grease Interceptor", ("GI-1", "GI-2", "GI-3")),
+                                                       ("Grease Interceptor", ("GI-4",))]
+    assert gi.families[1].count.value == 2
+    asked = [q for q in job.questions if "GI-4" in q]
+    assert len(asked) == 1 and "Grease Interceptor (GI)" in asked[0] and "no kind" in asked[0]
+
+
+def test_a_code_with_no_kind_and_no_family_keeps_a_block_named_by_its_code_and_is_asked():
+    from bms.plan_read import NO_KIND
+    ledger = _ledger()
+    ledger.add("family", "ZQ", NO_KIND, "S1", f"ZQ ({NO_KIND}): schedule rows 1", "seed")
+    ledger.add("count", "ZQ", 1, "S1", f"ZQ ({NO_KIND}): schedule rows 1", "seed", SETTLED)
+    job = _plan(ledger)
+    (zq,) = job.systems
+    assert zq.name == "ZQ" and [f.name for f in zq.families] == ["ZQ"]
+    assert len([q for q in job.questions if "ZQ" in q]) == 1
+
+
+def test_two_families_of_one_name_are_one_block_keeping_each_familys_tags_and_count():
+    ledger = _ledger()
+    _family(ledger, "TEF", "Toilet Exhaust Fan", "TEF-1", 1)
+    _family(ledger, "EF", "Exhaust Fan", "EF-1", 1)
+    _family(ledger, "TX", "Toilet Exhaust Fans", "TX-1, TX-2", 2)
+    ledger.add("sequence_match", "EXHAUST FANS", "TX", "Q1", "EXHAUST FANS", "sequence", SETTLED)
+    job = _plan(ledger)
+    assert [s.key for s in job.systems] == ["TEF", "EF"]
+    tef = job.systems[0]
+    assert tef.name == "Toilet Exhaust Fan"
+    assert [(f.tags, f.count.value) for f in tef.families] == [(("TEF-1",), 1), (("TX-1", "TX-2"), 2)]
+    assert [r.source_id for r in tef.sequence_refs] == ["Q1"]
+    assert any("TEF" in q and "TX" in q and "same name" in q for q in job.questions)
+    # families of one generic kind, or of different alternates, stay apart
+    ledger = _ledger()
+    _family(ledger, "ZF", "Fan", "ZF-1", 1)
+    _family(ledger, "YF", "Fan", "YF-1", 1)
+    _family(ledger, "TEF", "Toilet Exhaust Fan", "TEF-1", 1)
+    _family(ledger, "TX", "Toilet Exhaust Fan", "TX-1", 1)
+    ledger.add("note", "alternate", "add: TX", "S4", "TX as an add", "spec", SETTLED)
+    assert [s.key for s in _plan(ledger).systems] == ["ZF", "YF", "TEF", "TX"]
+
+
+def test_a_family_with_only_a_generic_kind_name_is_asked_what_it_is():
+    ledger = _ledger()
+    _family(ledger, "P", "Pump", "P-1, P-1F, P-2", 3)
+    _family(ledger, "EF", "Exhaust Fan", "EF-1", 1)
+    job = _plan(ledger)
+    assert [s.key for s in job.systems] == ["P", "EF"]
+    asked = [q for q in job.questions if "P-1" in q]
+    assert len(asked) == 1 and "only the general name" in asked[0]
+    assert not any("EF-1" in q for q in job.questions)
+
+
+def test_an_indoor_unit_and_its_outdoor_unit_in_two_sequence_sections_are_one_split_block():
+    ledger = _ledger()
+    _family(ledger, "AC", "Air Conditioning Unit", "AC-109, AC-117", 2)
+    _family(ledger, "ACCU", "Air Cooled Condensing Unit", "ACCU-109, ACCU-117", 2)
+    _family(ledger, "SS", "Indoor Unit", "SS-EAST-1", 1)
+    _family(ledger, "CU", "Condensing Unit", "CU-EAST-1", 1)
+    ledger.add("sequence_match", "NORTH SPLITS", "AC", "Q3", "NORTH SPLITS", "sequence", SETTLED)
+    ledger.add("sequence_match", "SOUTH SPLITS", "ACCU", "Q4", "SOUTH SPLITS", "sequence", SETTLED)
+    ledger.add("sequence_match", "ROOFTOP UNITS", "SS", "Q5", "ROOFTOP UNITS", "sequence", SETTLED)
+    ledger.add("sequence_match", "ROOFTOP UNITS", "CU", "Q5", "ROOFTOP UNITS", "sequence", SETTLED)
+    pair, east = _plan(ledger).systems
+    assert pair.key == "Split System — NORTH SPLITS / SOUTH SPLITS"
+    assert [f.tags for f in pair.families] == [("AC-109", "AC-117"), ("ACCU-109", "ACCU-117")]
+    assert [r.source_id for r in pair.sequence_refs] == ["Q3", "Q4"]
+    assert east.key == "Split System — ROOFTOP UNITS" and [f.tags[0] for f in east.families] == ["SS-EAST-1",
+                                                                                                    "CU-EAST-1"]
+    ledger = _ledger()                       # the pair alone: the one block is the plain Split System
+    _family(ledger, "AC", "Air Conditioning Unit", "AC-109", 1)
+    _family(ledger, "ACCU", "Air Cooled Condensing Unit", "ACCU-109", 1)
+    ledger.add("sequence_match", "NORTH SPLITS", "AC", "Q3", "NORTH SPLITS", "sequence", SETTLED)
+    ledger.add("sequence_match", "SOUTH SPLITS", "ACCU", "Q4", "SOUTH SPLITS", "sequence", SETTLED)
+    (split,) = _plan(ledger).systems
+    assert split.key == "Split System" and len(split.families) == 2
