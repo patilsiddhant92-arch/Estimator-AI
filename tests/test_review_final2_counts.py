@@ -40,8 +40,6 @@ TWO_DIFFERENT_FLOORS = [
 ]
 
 
-@pytest.mark.xfail(strict=True, reason="REVIEW-FINAL2 F1: two different plan areas showing the same typical type "
-                   "tags are merged as one plan, so half the heaters are dropped")
 @pytest.mark.parametrize("titles", TWO_DIFFERENT_FLOORS)
 def test_two_different_areas_with_the_same_typical_tags_add_up(titles, tmp_path):
     catalogue, reading = _job([("M-101", titles[0], FLOOR), ("M-102", titles[1], FLOOR)], TYPES)
@@ -49,8 +47,6 @@ def test_two_different_areas_with_the_same_typical_tags_add_up(titles, tmp_path)
     assert d.counts["EBB"]["plan_placements"] == 16          # 8 heaters on each of two different areas
 
 
-@pytest.mark.xfail(strict=True, reason="REVIEW-FINAL2 F1: the client note says a floor was drawn twice when two "
-                   "different floors were merged")
 def test_the_note_never_claims_a_floor_drawn_twice_for_two_different_floors(tmp_path):
     catalogue, reading = _job([("M-101", "LEVEL ONE MECHANICAL PLAN", FLOOR),
                                ("M-102", "LEVEL TWO MECHANICAL PLAN", FLOOR)], TYPES)
@@ -67,8 +63,6 @@ def _inventory_job(places, tags):
                      BidCheck("Qualifies", "", (), (), ()), tuple(entries), ())
 
 
-@pytest.mark.xfail(strict=True, reason="REVIEW-FINAL2 F1: the inventory's type-tag check merges two towers' first "
-                   "floors (same floor words, same document, no tag test) and halves the type's quantity")
 def test_the_inventory_adds_up_a_type_tag_on_two_towers_first_floors():
     four = "\n".join(["EBB-A"] * 4)
     catalogue = _inventory_job([("M-601", "MECHANICAL SCHEDULES", ("Schedules",), "SCHEDULES"),

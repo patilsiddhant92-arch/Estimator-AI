@@ -184,7 +184,7 @@ Constants: TECH_HOUR_BASES, SLOT_KINDS, DEFAULT_ROOT, COUNT_CAUSE_KEYS
 | `Catalogue` (job, pages, sheets, sections, bid, tags, flags, overview); `catalogue_job(root, cache_dir, workers, documents=None)` | `estimator.catalogue.job` | run, plan, counts |
 | `JobReading`; `read_job(catalogue, page_opener=None, cache_dir=None, judge=None)` | `estimator.reading.job` | run |
 | `Dossier` (job_name, text, images: tuple[DossierImage], sources: dict id→where, families, device_totals, counts, stats, sections); `build_dossier(catalogue, reading, cache_dir)`; `sheet_pictures(catalogue, cache_dir, keys, what)`; `plan_areas` (re-exported from `estimator.reading.inventory`) | `estimator.writing.dossier` | run, plan, ai, counts |
-| `plan_areas(plans: [(sheet, tags)]) -> {(document, page): area}`; `placements(catalogue, tags, typicals=(), pages=None) -> {tag: Placements}`; `COUNT_CAUSES_LEAD`, `COUNT_CAUSE_WORDS`, `SAME_PLAN` | `estimator.reading.inventory` | dossier, render |
+| `plan_areas(plans: [(sheet, tags)]) -> {(document, page): area}` (tags a set, or tag -> places on the sheet); `plan_area_doubts(plans, areas) -> [((document, page), (document, page))]`; `placements(catalogue, tags, typicals=(), pages=None) -> {tag: Placements}`; `COUNT_CAUSES_LEAD`, `COUNT_CAUSE_WORDS`, `SAME_PLAN` | `estimator.reading.inventory` | dossier, render |
 | `Ledger` (sources, facts: dict[id, Fact], understanding, complete, stopped_at, job_name, refused; `of_kind`, `about`, `find`, `printed_count`, `to_dict`/`from_dict`/`load`); `Fact` (id, kind, subject, value, source_id, quote, stage, state, contradictions); `Contradiction`; `KINDS`; `where_short` | `estimator.ledger.facts` | plan |
 | `read_job(judge, dossier, catalogue, save_to=None, limit=None, pictures=True, picture_cap=24) -> Ledger` (imported as `read_ledger`; the brief's "read_ledger") | `estimator.ledger.run` | run |
 | `ledger_plan`, `count_note`, `place_words` (the old planner, for reference / reuse) | `estimator.ledger.to_plan` | plan (may import) |
@@ -225,8 +225,15 @@ rows"). When a quote of the count is an equipment counts line that names why the
 tags, sheets and the estimator's hints never print.
 
 Plan counting (`estimator.writing.dossier`, the equipment counts line): `plan_areas` groups the plan sheets that
-show one plan area (titles naming the same floor and part, in one document or repeating each other's tags; a sheet
-naming no floor joins the area whose tags it repeats most; different floors never). Within an area a tag counts the
+show one plan area, only when the evidence is clear (lead ruling FINAL-D: an undercount is far worse than an
+overcount). Two sheets are one area when their titles name the same readable floor ("LEVEL ONE", "1ST FLR",
+"FIRST FLOOR", "L1", "GROUND", "ROOF") and the same parts (TOWER 1, UNIT 1A, DORM WING, NORTH, LOWER ROOF, 1 OF 2),
+and they are in one document or repeat each other's unit tags (a tag once on each sheet; a tag at several places
+proves nothing); two sheets naming no one floor (none, several, or an enlarged plan) are one area only in one
+document with the same title text (its sheet number aside) and repeated unit tags. Anything else is two areas, the
+higher count; `plan_area_doubts(plans, areas)` gives the pairs kept apart that may still be one plan (repeated tags,
+titles not naming two different floors), and the line's "Reading notes" name them ("M-101 and M-301 may show one
+plan ... both are counted"). Within an area a tag counts the
 places on the one sheet that shows it most (floors applied); areas add up; a repeat sheet is listed as "M-201 9
 same plan as M-101". When the placements are still above every other count, the line's head (the part the
 ledger's count fact quotes) ends "; placements above the other counts, likely: <causes>" and its "Reading notes"

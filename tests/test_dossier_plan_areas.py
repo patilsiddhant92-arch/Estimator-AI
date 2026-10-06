@@ -120,17 +120,21 @@ def test_a_typical_type_tag_on_a_floor_drawn_twice_counts_the_places_of_one_draw
     assert d.counts["EBB"]["plan_placements"] == 4
 
 
-def test_a_plan_whose_title_names_no_floor_joins_the_floor_it_repeats(tmp_path):
-    """An enlarged plan with no floor in its title that shows three of the first floor's boxes is that floor's plan
-    again; one sharing only two tags is left as a plan of its own."""
+def test_a_plan_whose_title_names_no_floor_is_counted_apart_from_the_floor_it_repeats(tmp_path):
+    """An enlarged plan with no floor in its title that shows three of the first floor's boxes is not proven to be
+    that floor's plan again (FINAL-D lead ruling: the higher count wins when it cannot be told): it is counted apart
+    and the line names the two sheets; one sharing only two tags is not even named."""
     pages = [_page(DWG, 1, "VAV-1\nVAV-2\nVAV-3\nVAV-4"), _page(DWG, 2, "VAV-1\nVAV-2\nVAV-3"),
              _page(DWG, 3, "VAV-5\nVAV-6"), _page(DWG, 4, "VAV-5\nVAV-6")]
     sheets = [_sheet(1, "M-101", "HVAC FIRST FLOOR PLAN"), _sheet(2, "M-301", "ENLARGED MECHANICAL ROOM PLAN"),
               _sheet(3, "M-102", "HVAC SECOND FLOOR PLAN"), _sheet(4, "M-302", "ENLARGED PLAN SHEET 2")]
     catalogue = _catalogue(pages, sheets, [f"VAV-{n}" for n in range(1, 7)])
     d = build_dossier(catalogue, _reading(), tmp_path)
-    assert d.counts["VAV"]["plan_placements"] == 4 + 2 + 2
-    assert "M-301 3 same plan as M-101" in _line("VAV", d)
+    assert d.counts["VAV"]["plan_placements"] == 4 + 3 + 2 + 2
+    line = _line("VAV", d)
+    assert "same plan as" not in line
+    assert "M-101 and M-301 may show one plan" in line
+    assert "M-302 may show" not in line and "and M-302 may" not in line
 
 
 def test_the_same_floor_in_another_document_is_one_plan_only_when_it_shows_the_same_tags(tmp_path):

@@ -29,7 +29,7 @@ from estimator.catalogue.job import CONTROLS_DISCIPLINES
 from estimator.catalogue.overview import FOUND, RULED_OUT, STANDARD_CLARIFICATION, STANDARD_EXCLUSION
 from estimator.catalogue.tags import Equipment, find_tags, tag_location, tag_prefix
 from estimator.reading.inventory import (COUNT_CAUSE_WORDS, COUNT_CAUSES_LEAD, SAME_PLAN, TYPE_ON_ONE_SHEET,
-                                        TYPE_PLACED, plan_areas)
+                                        TYPE_PLACED, plan_area_doubts, plan_areas)
 from estimator.reading.revisions import governing_pages
 from estimator.reading.schedules import header_key, vocabulary
 from estimator.reading.sequences import POINTS, SEQUENCE
@@ -826,7 +826,12 @@ def _counts(catalogue, reading, counted: frozenset, multipliers: dict) -> dict[s
         tallies[key] = Counter({tag: n for tag, n in tally.items() if n > 0})
     # A floor drawn twice (a ductwork plan and its piping and controls plan) shows its tags twice: over the sheets
     # of one plan area each tag counts the places of the one drawing that shows it most, never the sum.
-    areas = plan_areas([(sheet, set(tallies[key])) for sheet, key, _r, is_plan, *_ in read if is_plan])
+    # Sheets are one plan only when the evidence is clear (lead ruling, FINAL-D); sheets that may be one plan but
+    # are not proven so are counted apart (the higher count) and the counts line names them.
+    plans = [(sheet, tallies[key]) for sheet, key, _r, is_plan, *_ in read if is_plan]
+    areas = plan_areas(plans)
+    doubts = plan_area_doubts(plans, areas)
+    labels = {key: sheet.number or f"{_name(sheet.document)} p.{sheet.page}" for sheet, key, *_ in read}
     best: dict[tuple[str, int, str], int] = {}        # (prefix, area, tag) -> places, floors applied
     first_in: dict[tuple[str, int], str] = {}         # (prefix, area) -> the first sheet showing the family there
     seen_on: dict[tuple[str, str], dict[int, str]] = defaultdict(dict)    # (prefix, tag) -> area -> first sheet
@@ -859,7 +864,18 @@ def _counts(catalogue, reading, counted: frozenset, multipliers: dict) -> dict[s
         placed[(prefix, tag)] += n
     for prefix, family in families.items():
         family.notes, family.causes = _placement_causes(prefix, family, seen_on, printed, placed)
+        family.notes += _doubt_notes(prefix, doubts, tallies, labels, code_patterns)
     return families
+
+
+def _doubt_notes(prefix: str, doubts: list, tallies: dict, labels: dict, codes: dict) -> list[str]:
+    """The reading note for each pair of plan sheets that may show one plan but are not proven so (`plan_area_doubts`)
+    and both carry this family: both are counted, the higher count. Never in a client cause's words."""
+    def mine(key) -> bool:
+        return any((tag if tag in codes else _prefix(tag)) == prefix for tag in tallies[key])
+    return [f"{labels[a]} and {labels[b]} may show one plan (they repeat each other's tags) but their titles do not "
+            "prove it, so both are counted, the higher count: check whether one is the other drawn again"
+            for a, b in doubts if mine(a) and mine(b)]
 
 
 # ---- why the plan placements are above the other counts ------------------------------------------------

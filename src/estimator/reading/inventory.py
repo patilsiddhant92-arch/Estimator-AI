@@ -185,41 +185,110 @@ def _label_key(text: str) -> str:
 
 
 # ---- the plan areas: the sheets that show one plan (the dossier's counts and the type-tag check) -------
+# Lead ruling (FINAL-D): an undercount is far worse than an overcount, so two sheets are one plan only when the
+# evidence is clear; when it cannot be told they are counted apart (the higher count) and `plan_area_doubts` names
+# them for the counts line.
 
 _ORDINALS = {word: n for n, word in enumerate(
     ("FIRST", "SECOND", "THIRD", "FOURTH", "FIFTH", "SIXTH", "SEVENTH", "EIGHTH", "NINTH", "TENTH", "ELEVENTH",
      "TWELFTH"), start=1)}
+_NUMBER_WORDS = {word: n for n, word in enumerate(
+    ("ONE", "TWO", "THREE", "FOUR", "FIVE", "SIX", "SEVEN", "EIGHT", "NINE", "TEN", "ELEVEN", "TWELVE"), start=1)}
+_ORDINAL = "|".join(_ORDINALS) + r"|\d{1,3}(?:ST|ND|RD|TH)"
+_NUMBER = "|".join(_NUMBER_WORDS)
+_FLOOR_WORD = r"(?:FLOOR|FLR|LEVEL|LVL)"
 _FLOOR_NAMED = re.compile(
-    r"\b(?:(?P<ordinal>" + "|".join(_ORDINALS) + r"|\d{1,3}(?:ST|ND|RD|TH))\s+FLOOR"
-    r"|(?:LEVEL|FLOOR)\s+(?P<number>[A-Z]?\d{1,3}[A-Z]?)"
-    r"|(?P<named>SUB-?CELLAR|CELLAR|BASEMENT|GROUND\s+FLOOR|LOWER\s+LEVEL|MEZZANINE|PENTHOUSE|ROOF|ATTIC))\b", re.I)
-_PLAN_PART = re.compile(r"\b(?:AREA|PART|ZONE|WING|SECTOR|BUILDING|BLDG|PHASE)\s*[A-Z0-9]{1,3}\b"
-                        r"|\b(?:NORTH|SOUTH|EAST|WEST)\b", re.I)
+    rf"\b(?:(?P<ordinal>{_ORDINAL})\s+{_FLOOR_WORD}\b"
+    rf"|{_FLOOR_WORD}\s*(?P<number>(?:{_NUMBER})\b|[A-Z]?\d{{1,3}}[A-Z]?\b)"
+    r"|L-?(?P<short>\d{1,2})\b"
+    r"|(?P<named>SUB-?CELLAR|CELLAR|BASEMENT|GROUND(?:\s+(?:FLOOR|FLR|LEVEL|LVL))?|(?:LOWER|UPPER)\s+LEVEL"
+    r"|MEZZANINE|PENTHOUSE|ROOF|ATTIC)\b)", re.I)
+# a title naming several floors ("FIRST AND SECOND FLOOR PLAN", "LEVELS 2 THRU 5"): no one floor can be read
+_FLOOR_LIST = re.compile(rf"\b(?:FLOORS|LEVELS|FLRS|LVLS)\b|\b(?:{_ORDINAL})\b", re.I)
+_FLOOR_LIST_TAIL = re.compile(rf"^\s*(?:,|&|\+|/|-|–|AND|THRU|THROUGH|TO)\s*(?:\d|(?:{_NUMBER}|{_ORDINAL})\b)", re.I)
+# the parts of a floor that must match: TOWER 1, UNIT 1A, AREA B, DORM WING, NORTH, the LOWER ROOF, 1 OF 2
+_PART_WORD = r"(?:TOWER|UNIT|WING|BUILDING|BLDG|AREA|PART|ZONE|SECTOR|PHASE|BLOCK|POD|SHEET|ANNEX)"
+_PART = re.compile(
+    rf"\b(?P<word>{_PART_WORD})\s*[-#]?\s*(?P<id>(?:{_NUMBER})\b|[A-Z]?\d{{1,3}}[A-Z]?\b|[A-Z]{{1,2}}\b)"
+    r"|\b(?P<before>[A-Z][A-Z0-9]*)\s+(?P<named>WING|TOWER|BUILDING|BLDG|ANNEX|HALL|PAVILION)\b"
+    r"|\b(?P<alone>NORTH(?:EAST|WEST)?|SOUTH(?:EAST|WEST)?|EAST|WEST|LOWER|UPPER|ANNEX|ADDITION)\b"
+    r"|\b(?P<roof>HIGH|LOW)(?=\s+ROOF\b)"
+    r"|\b(?P<of>\d{1,2}\s+OF\s+\d{1,2})\b", re.I)
+_NOT_A_PART = frozenset({"PLAN", "PLANS", "AND", "THE", "OF", "HVAC", "MECHANICAL", "PIPING", "DUCTWORK"})
 _ENLARGED = re.compile(r"\b(?:ENLARGED|PARTIAL)\b", re.I)
 AREA_OVERLAP = 0.6       # share of the smaller sheet's tags another sheet must repeat to be the same plan
 AREA_SHARED = 3          # and at least this many tags: two tags in common prove nothing
 
 
+def _number(word: str) -> str:
+    word = word.upper()
+    return str(_NUMBER_WORDS.get(word) or _ORDINALS.get(word) or word.lstrip("0") or "0")
+
+
+def _floor(m: re.Match) -> str:
+    if m.group("ordinal"):
+        word = m.group("ordinal").upper()
+        return str(_ORDINALS.get(word) or int(re.match(r"\d+", word).group(0)))
+    if m.group("number"):
+        return _number(m.group("number"))
+    if m.group("short"):
+        return _number(m.group("short"))
+    named = re.sub(r"\W+", " ", m.group("named").upper())
+    return "GROUND" if named.startswith("GROUND") else named
+
+
+def _parts(text: str) -> tuple[str, ...]:
+    parts = set()
+    for m in _PART.finditer(text):
+        if m.group("word"):
+            ident = m.group("id").upper()
+            if ident in _NOT_A_PART:
+                continue
+            parts.add(f"{m.group('word').upper()} {_number(ident) if ident in _NUMBER_WORDS else ident}")
+        elif m.group("named"):
+            before = m.group("before").upper()
+            parts.add(m.group("named").upper() if before in _NOT_A_PART else f"{before} {m.group('named').upper()}")
+        else:
+            parts.add(re.sub(r"\s+", " ", m.group(0).upper()))
+    return tuple(sorted(parts))
+
+
 def _area_key(title: str | None) -> tuple | None:
-    """The floor (and the part of it) a plan's title names: "HVAC PIPING AND CONTROLS FIRST FLOOR PLAN" and
-    "HVAC 1ST FLOOR PLAN" are both floor 1. None when the title names no floor, or names an enlarged or partial
-    plan (one that repeats part of a floor and joins it only by its tags)."""
+    """The floor (and the parts of it) a plan's title names: "HVAC PIPING AND CONTROLS FIRST FLOOR PLAN",
+    "HVAC 1ST FLR PLAN" and "LEVEL ONE PLAN" are all floor 1; "FIRST FLOOR PLAN - TOWER 2" is floor 1 of TOWER 2.
+    None when no one floor can be read: the title names none, names several ("FIRST AND SECOND FLOOR PLAN"), or
+    names an enlarged or partial plan (one that repeats part of a floor)."""
     title = (title or "").upper()
     if _ENLARGED.search(title):
         return None
-    floors = []
+    floors, rest, end = [], [], 0
     for m in _FLOOR_NAMED.finditer(title):
-        if m.group("ordinal"):
-            word = m.group("ordinal")
-            floors.append(str(_ORDINALS.get(word) or int(re.match(r"\d+", word).group(0))))
-        elif m.group("number"):
-            floors.append(m.group("number").lstrip("0") or "0")
-        else:
-            floors.append(re.sub(r"\W+", " ", m.group("named")))
-    if not floors:
+        if _FLOOR_LIST_TAIL.match(title[m.end():]):
+            return None
+        floors.append(_floor(m))
+        rest.append(title[end:m.start()] + (" ROOF" if m.group("named") == "ROOF" else ""))   # HIGH ROOF a part
+        end = m.end()
+    rest.append(title[end:])
+    rest_text = " ".join(rest)
+    if not floors or _FLOOR_LIST.search(rest_text):
         return None
-    parts = sorted(re.sub(r"\s+", " ", m.group(0)) for m in _PLAN_PART.finditer(title))
-    return tuple(floors), tuple(parts)
+    return tuple(floors), _parts(rest_text)
+
+
+def _evidence(tags) -> set:
+    """The tags that can prove two sheets show one plan: each tag once on the sheet when the counts are given (a
+    tag at several places is a typical type tag, on every floor alike), else every tag."""
+    if hasattr(tags, "items"):
+        return {tag for tag, n in tags.items() if n == 1}
+    return set(tags)
+
+
+def _plain_title(sheet) -> str:
+    """The title's words, its own sheet number taken out ("M-301 MECHANICAL PLAN" is "MECHANICAL PLAN")."""
+    title = (sheet.title or "").upper()
+    if sheet.number:
+        title = title.replace(sheet.number.upper(), " ")
+    return " ".join(re.findall(r"[A-Z0-9]+", title))
 
 
 def _same_tags(a: set, b: set) -> bool:
@@ -229,38 +298,45 @@ def _same_tags(a: set, b: set) -> bool:
 
 def plan_areas(plans) -> dict[tuple[str, int], int]:
     """Which plan sheets show the same plan area: (document, page) -> an area number, given (sheet, the tags on
-    it) for each plan sheet. Two sheets are one area when their titles name the same floor (and part) and they are
-    in one document or repeat each other's tags; a sheet whose title names no floor (an enlarged plan) joins the
-    area whose tags it repeats most. Different floors are never one area. Pure."""
-    areas: list[tuple[tuple | None, set, set]] = []       # (key, documents, tags so far)
+    it) for each plan sheet (a set, or tag -> places on the sheet). Two sheets are one area only when the evidence
+    is clear: their titles name the same readable floor and the same parts (TOWER 1, DORM WING, NORTH, LOWER ROOF)
+    and they are in one document or repeat each other's unit tags (a tag once on each; a tag at several places
+    proves nothing); or neither title names a floor and they are in one document with the same title text and
+    repeat each other's unit tags. Anything else is two areas (the higher count). Pure."""
+    areas: list[tuple[tuple | None, str, set, set]] = []      # (key, plain title, documents, unit tags so far)
     found: dict[tuple[str, int], int] = {}
-    loose = []
     for sheet, tags in plans:
-        key = _area_key(sheet.title)
-        if key is None:
-            loose.append((sheet, set(tags)))
-            continue
-        for number, (area_key, documents, area_tags) in enumerate(areas):
-            if area_key == key and (sheet.document in documents or _same_tags(area_tags, tags)):
+        key, title, evidence = _area_key(sheet.title), _plain_title(sheet), _evidence(tags)
+        for number, (area_key, area_title, documents, area_tags) in enumerate(areas):
+            if key is not None and area_key == key and (sheet.document in documents
+                                                        or _same_tags(area_tags, evidence)):
+                break
+            if (key is None and area_key is None and title and area_title == title and sheet.document in documents
+                    and _same_tags(area_tags, evidence)):
                 break
         else:
             number = len(areas)
-            areas.append((key, set(), set()))
-        areas[number][1].add(sheet.document)
-        areas[number][2].update(tags)
-        found[(sheet.document, sheet.page)] = number
-    for sheet, tags in loose:
-        matches = [(len(area_tags & tags), number) for number, (_k, _d, area_tags) in enumerate(areas)
-                   if _same_tags(area_tags, tags)]
-        if matches:
-            number = max(matches, key=lambda m: (m[0], -m[1]))[1]
-        else:
-            number = len(areas)
-            areas.append((None, set(), set()))
-        areas[number][1].add(sheet.document)
-        areas[number][2].update(tags)
+            areas.append((key, title, set(), set()))
+        areas[number][2].add(sheet.document)
+        areas[number][3].update(evidence)
         found[(sheet.document, sheet.page)] = number
     return found
+
+
+def plan_area_doubts(plans, areas: dict[tuple[str, int], int]) -> list[tuple[tuple[str, int], tuple[str, int]]]:
+    """The pairs of plan sheets `plan_areas` keeps apart that may still show one plan: they repeat each other's
+    tags and their titles do not name two different floors or parts (one names no floor, or both name the same
+    one). Counted apart, the higher count; the counts line names them so the estimator can check. Pure."""
+    sheets = [(sheet, set(tags), _area_key(sheet.title)) for sheet, tags in plans]
+    doubts = []
+    for i, (a, a_tags, a_key) in enumerate(sheets):
+        for b, b_tags, b_key in sheets[i + 1:]:
+            ka, kb = (a.document, a.page), (b.document, b.page)
+            if areas.get(ka) == areas.get(kb) or not _same_tags(a_tags, b_tags):
+                continue
+            if a_key is None or b_key is None or a_key == b_key:
+                doubts.append((ka, kb))
+    return doubts
 
 
 def placements(catalogue, tags: Iterable[str], typicals: Sequence = (),
@@ -311,7 +387,8 @@ def placements(catalogue, tags: Iterable[str], typicals: Sequence = (),
     for tag, places in on_plans.items():
         for place in places:
             labelled[place].add(tag)
-    areas = plan_areas([(sheet, labelled[place]) for place, sheet in plan_sheets.items()])
+    areas = plan_areas([(sheet, {tag: on_plans[tag][place] for tag in labelled[place]})
+                        for place, sheet in plan_sheets.items()])
     first: dict[int, str] = {}
     same_as: dict[str, str] = {}
     for place, sheet in plan_sheets.items():
