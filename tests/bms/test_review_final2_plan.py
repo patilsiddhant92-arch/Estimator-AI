@@ -31,8 +31,6 @@ def test_two_split_sections_numbered_from_one_stay_two_blocks():
     assert all(len({r.source_id for r in s.sequence_refs}) == 1 for s in job.systems)
 
 
-@pytest.mark.xfail(strict=True, reason="REVIEW-FINAL2 F3: two families of one name that each match their own "
-                   "sequence section are merged into one block carrying both sequences")
 def test_two_families_of_one_name_in_their_own_sequence_sections_stay_apart():
     ledger = _ledger()
     _family(ledger, "EF", "Exhaust Fan", "EF-1", 1)

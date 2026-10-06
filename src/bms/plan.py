@@ -869,7 +869,8 @@ class _Planner:
         """Two or more families of one name (any case, plural or singular, punctuation aside) with the same alternate
         and the same exception are one block: the first one's key and name, each family kept with its own tags and
         count, their sequences together; a question asks to confirm. A general kind alone ("Fan", "Pump") is never
-        a reason to merge."""
+        a reason to merge, nor are families matched to different sequence sections: the documents keep those apart,
+        so each stays its own block and a question asks to confirm (FINAL-D F3)."""
         out = list(drafts)
         singles = [d for d in drafts if d.kind == "single"]
         by_name: dict[tuple[str, str, str], list[_Draft]] = {}
@@ -879,6 +880,13 @@ class _Planner:
                 by_name.setdefault((name, draft.alternate, draft.exception), []).append(draft)
         for block in by_name.values():
             if len(block) < 2:
+                continue
+            sections = {frozenset(squash(m.subject) for m in d.matches) for d in block if d.matches}
+            if len(sections) > 1:
+                self.questions.append(
+                    f"{', '.join(d.key for d in block)} carry the same name, “{block[0].name}”, but each matches its "
+                    "own sequence section, so they are planned as separate blocks; confirm they are separate "
+                    "systems.")
                 continue
             first = block[0]
             for other in block[1:]:

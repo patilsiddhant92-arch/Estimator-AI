@@ -50,3 +50,27 @@ def test_an_indoor_section_and_its_outdoor_section_join_and_the_join_is_asked():
     assert [r.source_id for r in split.sequence_refs] == ["Q3", "Q4"]
     asked = [q for q in job.questions if "NORTH SPLITS" in q and "SOUTH SPLITS" in q]
     assert len(asked) == 1 and "pair up by tag number" in asked[0] and "Confirm" in asked[0]
+
+
+# ---- F3: families of one name matched to different sequence sections stay apart --------------------------------
+
+def test_families_of_one_name_in_different_sequence_sections_stay_apart_and_are_asked():
+    ledger = _ledger()
+    _family(ledger, "EF", "Exhaust Fan", "EF-1", 1)
+    _family(ledger, "KEF", "Exhaust Fan", "KEF-1", 1)
+    _family(ledger, "XF", "Exhaust Fans", "XF-1", 1)                      # matched to no section
+    _match(ledger, "EXHAUST FANS", "EF", "Q1")
+    _match(ledger, "KITCHEN EXHAUST", "KEF", "Q2")
+    job = _plan(ledger)
+    assert [s.key for s in job.systems] == ["EF", "KEF", "XF"]
+    asked = [q for q in job.questions if "EF" in q and "KEF" in q]
+    assert len(asked) == 1 and "its own sequence section" in asked[0] and "separate" in asked[0]
+    assert not any("so they are planned as one" in q for q in job.questions)
+    # one matched and one not: still one block, asked as before
+    ledger = _ledger()
+    _family(ledger, "EF", "Exhaust Fan", "EF-1", 1)
+    _family(ledger, "KEF", "Exhaust Fan", "KEF-1", 1)
+    _match(ledger, "EXHAUST FANS", "EF", "Q1")
+    job = _plan(ledger)
+    assert [s.key for s in job.systems] == ["EF"]
+    assert any("same name" in q for q in job.questions)
