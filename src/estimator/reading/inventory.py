@@ -210,11 +210,13 @@ _FLOOR_LIST_TAIL = re.compile(rf"^\s*(?:,|&|\+|/|-|–|AND|THRU|THROUGH|TO)\s*(?
 _PART_WORD = r"(?:TOWER|UNIT|WING|BUILDING|BLDG|AREA|PART|ZONE|SECTOR|PHASE|BLOCK|POD|SHEET|ANNEX)"
 _PART = re.compile(
     rf"\b(?P<word>{_PART_WORD})\s*[-#]?\s*(?P<id>(?:{_NUMBER})\b|[A-Z]?\d{{1,3}}[A-Z]?\b|[A-Z]{{1,2}}\b)"
-    r"|\b(?P<before>[A-Z][A-Z0-9]*)\s+(?P<named>WING|TOWER|BUILDING|BLDG|ANNEX|HALL|PAVILION)\b"
+    rf"|\b(?P<before>[A-Z][A-Z0-9]*)\s+(?P<named>WING|TOWER|BUILDING|BLDG|ANNEX|HALL|PAVILION)\b"
+    rf"(?:\s*[-#]?\s*(?P<named_id>(?:{_NUMBER})\b|[A-Z]?\d{{1,3}}[A-Z]?\b|[A-Z]{{1,2}}\b))?"
     r"|\b(?P<alone>NORTH(?:EAST|WEST)?|SOUTH(?:EAST|WEST)?|EAST|WEST|LOWER|UPPER|ANNEX|ADDITION)\b"
     r"|\b(?P<roof>HIGH|LOW)(?=\s+ROOF\b)"
     r"|\b(?P<of>\d{1,2}\s+OF\s+\d{1,2})\b", re.I)
-_NOT_A_PART = frozenset({"PLAN", "PLANS", "AND", "THE", "OF", "HVAC", "MECHANICAL", "PIPING", "DUCTWORK"})
+_NOT_A_PART = frozenset({"PLAN", "PLANS", "AND", "THE", "OF", "HVAC", "MECHANICAL", "PIPING", "DUCTWORK", "DUCT",
+                         "CONTROLS", "CONTROL", "PLUMBING", "ELECTRICAL", "BAS", "BMS", "DDC", "TEMPERATURE"})
 _ENLARGED = re.compile(r"\b(?:ENLARGED|PARTIAL)\b", re.I)
 AREA_OVERLAP = 0.6       # share of the smaller sheet's tags another sheet must repeat to be the same plan
 AREA_SHARED = 3          # and at least this many tags: two tags in common prove nothing
@@ -247,7 +249,10 @@ def _parts(text: str) -> tuple[str, ...]:
             parts.add(f"{m.group('word').upper()} {_number(ident) if ident in _NUMBER_WORDS else ident}")
         elif m.group("named"):
             before = m.group("before").upper()
-            parts.add(m.group("named").upper() if before in _NOT_A_PART else f"{before} {m.group('named').upper()}")
+            ident = (m.group("named_id") or "").upper()
+            ident = "" if ident in _NOT_A_PART else _number(ident) if ident in _NUMBER_WORDS else ident
+            words = [w for w in (before if before not in _NOT_A_PART else "", m.group("named").upper(), ident) if w]
+            parts.add(" ".join(words))
         else:
             parts.add(re.sub(r"\s+", " ", m.group(0).upper()))
     return tuple(sorted(parts))
