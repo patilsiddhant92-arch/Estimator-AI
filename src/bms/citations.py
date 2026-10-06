@@ -59,6 +59,10 @@ MAX_RANGE = 500                                   # a tag range wider than this 
 TRADE = re.compile(r"\b(plumbing|electrical|mechanical|architectural|fire protection|civil|structural)\b",
                    re.IGNORECASE)
 REFUSAL = "name the document in words; cite it as a Ref, never print an id"
+# the advice for a where that names an issued id as its sheet: the evidence's own where is never refused (no producer
+# of an evidence where puts a sheet word before the number); "give the sheet number" would repeat an honest input
+WHERE_ADVICE = ("copy the where exactly as the evidence gives it (the place the evidence gives for that source), with "
+                "no sheet word added; never a source id")
 
 
 def squash(text: str) -> str:

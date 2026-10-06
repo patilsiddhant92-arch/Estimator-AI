@@ -8,7 +8,8 @@ import pytest
 from bms.citations import SourceIds, ref_sheets
 from bms.model import Ref
 
-from bms import run
+from bms import ai, run
+from bms.citations import job_ids, job_sheets, job_tags
 from bms.validate import RULE, validate
 
 from test_review_final3 import SAMPLE, _base, _changed, _job, _prints, _verdicts, _with_other_count
@@ -86,3 +87,17 @@ def test_the_planner_names_sheets_in_every_sheet_form_and_a_decimal_is_no_id():
     assert SourceIds.of(["S14"]).sheet("Sheet S14.5, Structural.pdf page 5") == "S14.5"
     found = SourceIds.of(["S141"]).scan("Valves per Sheet No. C2.")
     assert [(f.token, f.kind) for f in found] == [("C2", "sheet")]
+
+
+# ---- F4: the where refusal's advice ------------------------------------------------------------------------------
+
+def test_the_intake_and_the_validator_both_say_to_copy_the_where_as_the_evidence_gives_it():
+    job = _with_other_count(_job(), "Sheet S201, Structural.pdf page 4")
+    system = job.system("EF")
+    written, problems = ai._check_system(system.to_dict(), system, None, frozenset(job_ids(job)), (), (), [],
+                                         job_tags(job), job_ids(job), tuple(job_sheets(job)))
+    said = " ".join(p for p in problems if "S201" in p)
+    assert written is None and "copy the where exactly as the evidence gives it" in said
+    assert "with no sheet word added" in said and "give the sheet number" not in said
+    fixes = [f.fix for f in validate(job, SAMPLE) if f.rule == RULE["ids"] and f.device_id == "EF.d1"]
+    assert len(fixes) == 1 and fixes[0].startswith("Copy the where exactly as the evidence gives it")

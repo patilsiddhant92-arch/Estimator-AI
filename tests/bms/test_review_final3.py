@@ -162,9 +162,6 @@ def test_f3_every_sheet_form_of_an_issued_id_in_a_where_is_refused(where, token)
     assert _verdicts("where", where, token) == REFUSED
 
 
-@pytest.mark.xfail(strict=True, reason="REVIEW-FINAL3 F4 (Low): an honest where whose real sheet number is also an "
-                   "issued id (not in K) is refused with advice that repeats the same input; the message never says "
-                   "to give the where as the evidence gives it")
 def test_f4_the_where_refusal_points_to_a_form_the_intake_accepts():
     job = _with_other_count(_job(), "Sheet S201, Structural.pdf page 4")     # S201 a real structural sheet
     system = job.system("EF")
