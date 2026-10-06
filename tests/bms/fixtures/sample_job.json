@@ -314,5 +314,6 @@
   "exceptions": [
     {"system_key": "FA", "text": "Fire alarm system by others", "refs": [{"source_id": "S14", "quote": "fire alarm by division 28", "where": "E-001, Drawings.pdf page 5"}]}
   ],
-  "questions": ["Is the existing lobby fan to be kept?"]
+  "questions": ["Is the existing lobby fan to be kept?"],
+  "source_sheets": []
 }

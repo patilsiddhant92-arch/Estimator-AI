@@ -24,7 +24,7 @@ dependency without the controller (`jsonschema` and `yaml` are not installed —
 | `src/bms/validate.py` | `validate` | workstream 3 |
 | `src/bms/render.py` | `render`, `ProposalDraft`, `RenderedLine` | workstream 4 |
 | `src/bms/ai.py` | `write_system`, `rewrite_for_count`, `qc_job`, `revise_system`, `evidence_for`, `evidence_index`, transports | workstream 5 |
-| `src/bms/citations.py` | source ids in client text: `SourceIds` (`scan`, `refusal`, `without_issued`), `job_tags`, `job_ids`, `job_sheets`, `tag_tokens`, `plan_refs`, `ref_sheets`, the clarification labels | controller |
+| `src/bms/citations.py` | source ids in client text: `SourceIds` (`scan`, `refusal`, `without_issued`), `job_tags`, `job_ids`, `job_sheets`, `source_sheets`, `tag_tokens`, `plan_refs`, `ref_sheets`, the clarification labels | controller |
 | `src/bms/counts.py` | `count_tags`, `cross_check`, `CountResult`, `Box`, `flag_written_devices`, `publish_proofs` | workstream 6 |
 | `src/bms/review.py` | `review_page`, `load_decisions`, `apply_decisions`; the decisions history: `SavedDecision`, `load_history`, `save_history`, `merge_decisions(history, saved, *, job=None)`, `apply_seen`, `copies_seen`, `held_back`, `unhonored_decisions`, `system_digest`, `accept_families`; `DECISIONS_FILE`, `DECISIONS_HISTORY` | workstream 7 |
 | `tools/measure.py` | `measure`, `MeasureResult`, `LineMatch` | workstream 7 |
@@ -90,7 +90,10 @@ FrontEnd:       mode: FrontEndMode, existing_system_name: str | None = None, dev
 Header:         quote_number: str, reference: str, mep_engineer: str, based_on: tuple[str], date: str (ISO),
                 to: str = "All Bidders"                                     # mirrors estimator.scope.Header
 Job:            name: str, systems: tuple[System] = (), front_end: FrontEnd | None = None,
-                exceptions: tuple[ScopeException] = (), questions: tuple[str] = (), header: Header | None = None
+                exceptions: tuple[ScopeException] = (), questions: tuple[str] = (), header: Header | None = None,
+                source_sheets: tuple[str] = ()
+                  source_sheets: the id-shaped sheet numbers the ledger's sources' wheres name (upper case, sorted;
+                  set once by the run, `bms.citations.source_sheets`); part of K (`job_sheets`). () on an old Job.json.
                   job.system(key) -> System (KeyError); job.with_system(system) -> Job (replaced by key).
 Finding:        rule: str, system_key: str, device_id: str | None, severity: Severity, what: str, fix: str
                   rule = a Playbook rule name (### heading); system_key "" for the front end / whole job.
@@ -155,8 +158,8 @@ No default lines anywhere: a shape says how a line prints, never that a line exi
 (`lines`: 3 forms with `{what}`, `depths`: 3 of 1 or 2); `clarifications` (each kind → a form starting `*` with
 `{text}`); `header` (`count`, `unknown_count`, `tags_joiner`); `quantity` (`line` with `{n}`, `unknown`,
 `others_note` with `{counts}`); `count_causes` (`form` with `{causes}`, `joiner`, and the client words of each
-likely cause of a high plan count: `same_plan`, `typical`, `shown_again`, `labelled_twice`; `bms.playbook.
-COUNT_CAUSE_KEYS`).
+likely cause of a high plan count: `typical`, `labelled_twice`; `bms.playbook.COUNT_CAUSE_KEYS`; the retired
+`same_plan` and `shown_again` were removed in FINAL-H and a file still giving them is refused).
 
 ### 3.4 Loader
 
@@ -184,7 +187,7 @@ Constants: TECH_HOUR_BASES, SLOT_KINDS, DEFAULT_ROOT, COUNT_CAUSE_KEYS
 | `Catalogue` (job, pages, sheets, sections, bid, tags, flags, overview); `catalogue_job(root, cache_dir, workers, documents=None)` | `estimator.catalogue.job` | run, plan, counts |
 | `JobReading`; `read_job(catalogue, page_opener=None, cache_dir=None, judge=None)` | `estimator.reading.job` | run |
 | `Dossier` (job_name, text, images: tuple[DossierImage], sources: dict id→where, families, device_totals, counts, stats, sections); `build_dossier(catalogue, reading, cache_dir)`; `sheet_pictures(catalogue, cache_dir, keys, what)`; `plan_areas` (re-exported from `estimator.reading.inventory`) | `estimator.writing.dossier` | run, plan, ai, counts |
-| `plan_areas(plans: [(sheet, tags)]) -> {(document, page): area}` (retired, FINAL-G: every sheet its own area); `plan_area_doubts(plans, areas=None) -> [((document, page), (document, page))]` (a hint only); `is_type_tag(tag)`, `counted_per_place(tag, places, most_on_one_sheet, code=False)`; `placements(catalogue, tags, typicals=(), pages=None) -> {tag: Placements}`; `COUNT_CAUSES_LEAD`, `COUNT_CAUSE_WORDS`, `SAME_PLAN` (retired: never printed) | `estimator.reading.inventory` | dossier, render |
+| `plan_areas(plans: [(sheet, tags)]) -> {(document, page): area}` (retired, FINAL-G: every sheet its own area); `plan_area_doubts(plans, areas=None) -> [((document, page), (document, page))]` (a hint only); `is_type_tag(tag)`, `counted_per_place(tag, places, most_on_one_sheet, code=False)`; `placements(catalogue, tags, typicals=(), pages=None) -> {tag: Placements}`; `COUNT_CAUSES_LEAD`, `COUNT_CAUSE_WORDS` (`typical`, `labelled_twice`; `SAME_PLAN` removed, FINAL-H) | `estimator.reading.inventory` | dossier, render |
 | `Ledger` (sources, facts: dict[id, Fact], understanding, complete, stopped_at, job_name, refused; `of_kind`, `about`, `find`, `printed_count`, `to_dict`/`from_dict`/`load`); `Fact` (id, kind, subject, value, source_id, quote, stage, state, contradictions); `Contradiction`; `KINDS`; `where_short` | `estimator.ledger.facts` | plan |
 | `read_job(judge, dossier, catalogue, save_to=None, limit=None, pictures=True, picture_cap=24) -> Ledger` (imported as `read_ledger`; the brief's "read_ledger") | `estimator.ledger.run` | run |
 | `ledger_plan`, `count_note`, `place_words` (the old planner, for reference / reuse) | `estimator.ledger.to_plan` | plan (may import) |
@@ -220,9 +223,8 @@ alternates; exceptions to `named_exceptions`; a shapeless system in the form "{v
 The quantity note (`others_note`) names each other count by its label ("(70) per plan placements; 11 per schedule
 rows"). When a quote of the count is an equipment counts line that names why the placements are high, the
 "plan placements" label is followed by `count_causes.form` with each cause's client words, in this order:
-`same_plan` ("same plan as" inside the line's placements clause; never printed since FINAL-G, so it no longer
-fires), then `typical`, `shown_again` (a unit's tag counts once since FINAL-G, so the dossier no longer names it),
-`labelled_twice` (the words of `COUNT_CAUSE_WORDS` after `COUNT_CAUSES_LEAD`). Only the cause's kind is read: its
+`typical`, `labelled_twice` (the words of `COUNT_CAUSE_WORDS` after `COUNT_CAUSES_LEAD`; the retired "same plan
+as" and "shown again" causes could not fire since FINAL-G and were removed in FINAL-H). Only the cause's kind is read: its
 tags, sheets and the estimator's hints never print.
 
 Plan counting (`estimator.writing.dossier`, the equipment counts line), lead ruling FINAL-G (it cannot
@@ -237,7 +239,11 @@ one document with the same title text, its sheet number aside; or repeated unit 
 different floors); the line's "Reading notes" name them for a family whose type tag is on both ("M-101 and M-201
 may show one plan; both are counted, the higher count ..."). Every sheet is listed with its labels ("M-101 9;
 M-201 9"), never "same plan as"; when those labels add up to more than the placements, a reading note says each
-unit's tag is counted once. When the placements are still above every other count, the line's head (the part the
+unit's tag is counted once. A numbered tag counted once and drawn on 2 or more plan sheets gets its own reading note
+(FINAL-H; at most three tags named, the most sheets first): "EBB-1 appears on 10 plan sheets: counted as one unit;
+if it is a type used on each floor, check the schedule's quantity" (on a typical sheet: "counted as one unit on each
+of the N floors its typical sheet stands for"); a hint only, never a client cause, and a schedule's QUANTITY column
+above the placements still wins (the higher count). When the placements are still above every other count, the line's head (the part the
 ledger's count fact quotes) ends "; placements above the other counts, likely: <causes>" (a typical unit at each
 place; one unit labelled more than once, said only of tags counted at every place) and its "Reading notes" give the
 tags and sheets. The inventory's type-tag check (`placements`, "labelled N times on the plans") sums every sheet's
@@ -262,7 +268,7 @@ rewrite_for_count(system: System, evidence: str, playbook: Playbook, transport: 
 # rewrite_for_count: asked only when an estimator's decision changed a family count; the devices already written are named in the prompt by their words and kept (by content and id); a device decision never comes here
 # tags (optional): every tag of the job (bms.citations.job_tags). A tag protects only the form it is written in (bms.citations.tag_tokens): "F1", "C2", "AHU-S1" (as S1) and a range "F1-F4" protect those tokens; "S-1", "EF-S-1" and "F-1 thru F-4" protect nothing, since their plain forms are issued ids of the job
 # ids (optional): I, the source ids the intake refuses in client text; the run passes one set to every writer, the count rewrite and the revise: every id of the job (bms.citations.job_ids) plus every id each system's evidence cites. A tag (in its written form) and a sheet number in K are never refused. A source id in client text is detected and refused, never rewritten
-# sheets (optional): K, the whole plan's sheet numbers (bms.citations.job_sheets: the wheres of the planner's refs, never a writer's device refs); the run works it out per call from the job it writes into (a decision can take planner refs out) and passes it to every writer, the count rewrite and the revise, so intake, validator and render agree on a sheet another system's where names
+# sheets (optional): K, the whole plan's sheet numbers (bms.citations.job_sheets: the wheres of the planner's refs and the job's source_sheets, the ledger sources' wheres, never a writer's device refs); the run works it out per call from the job it writes into (a decision can take planner refs out) and passes it to every writer, the count rewrite and the revise, so intake, validator and render agree on a sheet another system's where names
 ```
 Chat hand-off (unchanged from the old Judge so `tools/run_job.py` and the `/run-job` skill drive it):
 request `<cache>/judge-chat/requests/<key>.json` with fields `key`, `kind`, `system` (the system name, or "QC"),

@@ -1095,8 +1095,8 @@ def write_system(system: System, evidence: str, playbook: Playbook, transport: T
     in client text is never rewritten: a text that prints an issued id (`ids`, every source id of the job, which the
     run passes, plus the evidence's ids), or an unissued id-shaped token in a citation, refuses the answer with the
     token named. `tags` is every tag of the job (`citations.job_tags`, which the run passes): a tag shaped like an
-    id is never refused. `sheets` is the whole plan's sheet numbers (`citations.job_sheets`, the planner's wheres,
-    which the run passes): one is never refused, as the validator and the renderer keep it. Duct heaters are written in one place: the duct heater block's writer is told the units it serves
+    id is never refused. `sheets` is the whole plan's sheet numbers (`citations.job_sheets`, the planner's wheres and
+    the ledger sources' sheets, which the run passes): one is never refused, as the validator and the renderer keep it. Duct heaters are written in one place: the duct heater block's writer is told the units it serves
     and must write all its heaters (an empty heater block is refused); a served unit's writer is told the heater
     block writes its heaters (a duct heater line there is refused)."""
     shape = _shape(system, playbook)

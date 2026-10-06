@@ -216,6 +216,10 @@ class Job(_Model):
     exceptions: tuple[ScopeException, ...] = ()
     questions: tuple[str, ...] = ()
     header: Header | None = None
+    # the id-shaped sheet numbers the ledger's sources' wheres name ("S101, Structural.pdf page 3" gives S101), upper
+    # case, sorted; the run sets them once (`bms.citations.source_sheets`) and `citations.job_sheets` adds them to K,
+    # so the intake, the validator and the renderer read one K. () on a Job saved before the field.
+    source_sheets: tuple[str, ...] = ()
 
     def system(self, key: str) -> System:
         for system in self.systems:
