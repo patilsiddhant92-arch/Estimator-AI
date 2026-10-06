@@ -16,8 +16,6 @@ NO_KIND = "type code on a schedule"
 REF = Ref("S9", "invented quote", "invented place")
 
 
-@pytest.mark.xfail(strict=True, reason="REVIEW-FINAL2 F2: two split systems in two sequence sections are joined into "
-                   "one block because both number their units from 1")
 def test_two_split_sections_numbered_from_one_stay_two_blocks():
     ledger = _ledger()
     _family(ledger, "AC", "Ductless Split Indoor Unit", "AC-1, AC-2", 2)

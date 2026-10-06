@@ -435,21 +435,36 @@ class _Planner:
             mine = _suffixes(draft)
             near = next((n for n in names if mine & set().union(*map(_suffixes, by_section[n]))), names[0])
             by_section[near].append(draft)
-        # an indoor unit and its outdoor unit are one block (house rule "VRF and split as one block"): sections whose
-        # units share a tag suffix (AC-109 and ACCU-109) are one block, whichever section each matched
+        # an indoor unit and its outdoor unit are one block (house rule "VRF and split as one block"): two sections
+        # are one block only when every unit of the smaller pairs by tag suffix with a unit of another prefix in the
+        # other (AC-109 with ACCU-109) and none pairs inside its own section; the join is asked. Sections sharing
+        # some numbers but not so (both numbering from 1) stay apart and are asked (FINAL-D F2).
         joined: list[list[str]] = [[n] for n in names]
-        suffixes = lambda names_: set().union(*(_suffixes(d) for n in names_ for d in by_section[n]))  # noqa: E731
+        units = lambda names_: {(_lead(d.key), s) for n in names_ for d in by_section[n] for s in _suffixes(d)}  # noqa: E731
         merging = True
         while merging:
             merging = False
             for a in range(len(joined)):
                 for b in range(a + 1, len(joined)):
-                    if suffixes(joined[a]) & suffixes(joined[b]):
+                    if _pair_up(units(joined[a]), units(joined[b])):
+                        self.questions.append(
+                            f"The split units of {' and '.join(joined[a] + joined[b])} pair up by tag number (each "
+                            "indoor unit with the outdoor unit of its number), so they are planned as one Split "
+                            "System block carrying each section's sequence. Confirm they are one system.")
                         joined[a] += joined.pop(b)
                         merging = True
                         break
                 if merging:
                     break
+        for a in range(len(joined)):
+            for b in range(a + 1, len(joined)):
+                shared = {s for _, s in units(joined[a])} & {s for _, s in units(joined[b])}
+                if shared:
+                    self.questions.append(
+                        f"The split units of {' and '.join(joined[a])} and of {' and '.join(joined[b])} share tag "
+                        f"numbers ({', '.join(sorted(shared, key=_natural_key))}), but they do not pair up as one "
+                        "indoor unit and its outdoor unit each, so they are planned as two Split System blocks, one "
+                        "for each sequence. Are any of them one split system?")
         if len(joined) == 1:
             return {SPLIT_SYSTEM: sorted(loose, key=drafts.index)}
         return {f"{SPLIT_SYSTEM} — {' / '.join(group)}": sorted((d for n in group for d in by_section[n]),
@@ -974,6 +989,20 @@ def _family_suffixes(families) -> set[str]:
             if prefix and tag.upper().startswith(prefix + "-"):
                 out.add(tag.upper()[len(prefix) + 1:])
     return out
+
+
+def _pair_up(a: set[tuple[str, str]], b: set[tuple[str, str]]) -> bool:
+    """Two sections' units ((prefix, tag suffix) each) are one split system: every unit of the smaller one has a
+    partner of another prefix with its suffix in the other, and none has one in its own section."""
+    small, other = (a, b) if len(a) <= len(b) else (b, a)
+    if not small:
+        return False
+    return all(not any(s == s2 and p2 != p for p2, s2 in small) and any(s == s2 and p2 != p for p2, s2 in other)
+               for p, s in small)
+
+
+def _natural_key(text: str) -> list:
+    return [int(part) if part.isdigit() else part for part in re.split(r"(\d+)", text)]
 
 
 def _suffixes(draft: _Draft) -> set[str]:
