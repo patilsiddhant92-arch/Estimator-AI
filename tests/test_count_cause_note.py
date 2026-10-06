@@ -133,6 +133,7 @@ def test_the_note_never_carries_the_estimators_hints(tmp_path):
     count = _family_count(_catalogue(pages, sheets, ["EBB-A"]), _reading("EBB SCHEDULE", ["EBB-A"], at), "EBB",
                           tmp_path)
     [note] = _note(count, "Baseboard Heater", ("EBB-A",))
+    assert "(likely a typical unit at each place)" in note          # the cause prints, in the client's words ...
     for hint in ("check", "EBB-A", "M-201", "M-202", "places,", "Reading notes", "schedule's quantity"):
         assert hint not in note
 
