@@ -32,6 +32,10 @@ _DEVICE_SHEETS = re.compile(r"—\s*(.+)$")
 _PICTURE_ID = re.compile(r"\bI\d+\b")
 _INTEGRATION_WORDS = re.compile(r"integrat|gateway|bacnet|modbus|lonworks|interface|protocol", re.I)
 _SCHEDULE_NOTE = ("Note:", "Unit controls by:")
+# A name that is only a general kind of equipment says nothing about which units: "Pump" names every sump, booster
+# and circulation pump of the job. The planner asks about such a family (bms.plan) and reads this set too.
+GENERAL_KINDS = frozenset({"fan", "fans", "equipment", "unit", "units", "pump", "pumps", "heater", "heaters",
+                           "damper", "dampers", "device", "devices", "motor", "motors", "system", "systems"})
 
 
 @dataclass
@@ -173,6 +177,9 @@ def _about(system: System) -> _About:
         for tag in family.tags:
             tags |= tags_in(tag) or {plain_tag(tag)}
     names = [system.name, *(f.name for f in system.families)]
+    if tags:
+        # a bare general kind ("Pump") is no name phrase for a system with tags: its tags say which units it is
+        names = [n for n in names if " ".join(re.findall(r"[a-z0-9]+", (n or "").lower())) not in GENERAL_KINDS]
     phrases = tuple(p for p in dict.fromkeys(_phrase(n) for n in names if n) if p is not None)
     cited = tuple(dict.fromkeys(r.source_id.strip().strip("[]") for r in system_refs(system)))
     return _About(frozenset(tags), frozenset(p for p in map(_prefix, tags) if p), phrases, cited)

@@ -1,5 +1,5 @@
 """REVIEW-019b: review-of-record tests for lead/task-019b (counts.counted_from, the family Accept, the I8 card
-merge). Invented data only. A strict xfail is an open finding of the review: it passes once the finding is fixed."""
+merge). Invented data only. Its strict xfails (F2-F4) were fixed on lead/final-b."""
 from __future__ import annotations
 
 import dataclasses
@@ -132,8 +132,6 @@ def test_a_family_accept_leaves_a_lines_own_count_disagreement_on_the_page(job):
     assert any(q.device_id == "EF.d1" for q in review._questions(after, []))
 
 
-@pytest.mark.xfail(strict=True, reason="REVIEW-019b F3 (low): a line counted from two disputed families is "
-                                       "cleared by the Accept of either one")
 def test_a_line_counted_from_two_disputed_families_keeps_its_flag_until_both_are_accepted(job):
     system = job.system("EF")
     fans = Family("Exhaust Fan", ("EF-1",), Count(1, (Ref("S1", "EF-1", "x"),), (OtherCount(2, Ref("C1", "q", "y")),)))
@@ -148,8 +146,6 @@ def test_a_line_counted_from_two_disputed_families_keeps_its_flag_until_both_are
     assert one.system("EF").devices[0].flag == "quantity"
 
 
-@pytest.mark.xfail(strict=True, reason="REVIEW-019b F4 (low): cross_check ties a line to the family by the whole "
-                                       "citation, flag_written_devices by source id (counted_from)")
 def test_cross_check_flags_the_lines_flag_written_devices_would_flag(tmp_path):
     from test_counts import _plan, _sample_job
     _, catalogue = _plan(tmp_path)
@@ -184,8 +180,6 @@ def test_three_findings_on_one_line_give_one_card_led_by_the_must_fix_with_each_
     assert not any("A must fix" in n for n in card.notes)            # the lead is never repeated as a note
 
 
-@pytest.mark.xfail(strict=True, reason="REVIEW-019b F2 (low, the author's concern 3): when a must_fix takes the lead "
-                                       "the check's 'What to do' stays the first note, so it reads as the lead's fix")
 def test_the_leading_findings_fix_is_the_first_note(job):
     findings = [Finding("Rule A", "EF", "EF.d1", "check", "A check", "Fix A"),
                 Finding("Rule B", "EF", "EF.d1", "must_fix", "A must fix", "Fix B")]
