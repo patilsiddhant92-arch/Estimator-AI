@@ -24,7 +24,7 @@ dependency without the controller (`jsonschema` and `yaml` are not installed —
 | `src/bms/validate.py` | `validate` | workstream 3 |
 | `src/bms/render.py` | `render`, `ProposalDraft`, `RenderedLine` | workstream 4 |
 | `src/bms/ai.py` | `write_system`, `rewrite_for_count`, `qc_job`, `revise_system`, `evidence_for`, `evidence_index`, transports | workstream 5 |
-| `src/bms/citations.py` | source ids in client text: `SourceIds` (`scan`, `refusal`, `without_issued`), `job_tags`, `job_ids`, `job_sheets`, `source_sheets`, `tag_tokens`, `plan_refs`, `ref_sheets`, the clarification labels | controller |
+| `src/bms/citations.py` | source ids in client text: `SourceIds` (`scan`, `refusal`, `without_issued`; `source_sheets`, FINAL-J), `job_tags`, `job_ids`, `job_sheets`, `source_sheets`, `tag_tokens`, `plan_refs`, `ref_sheets`, the clarification labels | controller |
 | `src/bms/counts.py` | `count_tags`, `cross_check`, `CountResult`, `Box`, `flag_written_devices`, `publish_proofs` | workstream 6 |
 | `src/bms/review.py` | `review_page`, `load_decisions`, `apply_decisions`; the decisions history: `SavedDecision`, `load_history`, `save_history`, `merge_decisions(history, saved, *, job=None)`, `apply_seen`, `copies_seen`, `held_back`, `unhonored_decisions`, `system_digest`, `accept_families`; `DECISIONS_FILE`, `DECISIONS_HISTORY` | workstream 7 |
 | `tools/measure.py` | `measure`, `MeasureResult`, `LineMatch` | workstream 7 |
@@ -93,7 +93,10 @@ Job:            name: str, systems: tuple[System] = (), front_end: FrontEnd | No
                 exceptions: tuple[ScopeException] = (), questions: tuple[str] = (), header: Header | None = None,
                 source_sheets: tuple[str] = ()
                   source_sheets: the id-shaped sheet numbers the ledger's sources' wheres name (upper case, sorted;
-                  set once by the run, `bms.citations.source_sheets`); part of K (`job_sheets`). () on an old Job.json.
+                  set once by the run, `bms.citations.source_sheets`); not part of K (`job_sheets`, the planner's
+                  wheres) since FINAL-J: a known sheet only in a where and right after a sheet word in client text
+                  (`SourceIds.source_sheets`); a bare one that is an issued id stays refused / must_fix / cut. () on an
+                  old Job.json.
                   job.system(key) -> System (KeyError); job.with_system(system) -> Job (replaced by key).
 Finding:        rule: str, system_key: str, device_id: str | None, severity: Severity, what: str, fix: str
                   rule = a Playbook rule name (### heading); system_key "" for the front end / whole job.
@@ -261,14 +264,15 @@ class ApiTransport:   __init__(cache_dir: Path, model: str | None = None, client
 WRITE_SYSTEM = "write_system"; QC_JOB = "qc_job"; STEPS = ("write", "revise"); CHAT_MODEL = "claude (chat)"
 evidence_for(system: System, dossier: Dossier) -> str
 evidence_index(dossier: Dossier) -> dict[str, str]
-write_system(system: System, evidence: str, playbook: Playbook, transport: Transport, *, tags: Sequence[str] = (), ids: Sequence[str] = (), sheets: Sequence[str] = ()) -> System
+write_system(system: System, evidence: str, playbook: Playbook, transport: Transport, *, tags: Sequence[str] = (), ids: Sequence[str] = (), sheets: Sequence[str] = (), source_sheets: Sequence[str] = ()) -> System
 qc_job(job: Job, evidence_index: Mapping[str, str], playbook: Playbook, transport: Transport) -> list[Finding]
-revise_system(system: System, findings: Sequence[Finding], evidence: str, playbook: Playbook, transport, *, tags: Sequence[str] = (), ids: Sequence[str] = (), sheets: Sequence[str] = ()) -> System
-rewrite_for_count(system: System, evidence: str, playbook: Playbook, transport: Transport, *, tags: Sequence[str] = (), ids: Sequence[str] = (), sheets: Sequence[str] = ()) -> System
+revise_system(system: System, findings: Sequence[Finding], evidence: str, playbook: Playbook, transport, *, tags: Sequence[str] = (), ids: Sequence[str] = (), sheets: Sequence[str] = (), source_sheets: Sequence[str] = ()) -> System
+rewrite_for_count(system: System, evidence: str, playbook: Playbook, transport: Transport, *, tags: Sequence[str] = (), ids: Sequence[str] = (), sheets: Sequence[str] = (), source_sheets: Sequence[str] = ()) -> System
 # rewrite_for_count: asked only when an estimator's decision changed a family count; the devices already written are named in the prompt by their words and kept (by content and id); a device decision never comes here
 # tags (optional): every tag of the job (bms.citations.job_tags). A tag protects only the form it is written in (bms.citations.tag_tokens): "F1", "C2", "AHU-S1" (as S1) and a range "F1-F4" protect those tokens; "S-1", "EF-S-1" and "F-1 thru F-4" protect nothing, since their plain forms are issued ids of the job
 # ids (optional): I, the source ids the intake refuses in client text; the run passes one set to every writer, the count rewrite and the revise: every id of the job (bms.citations.job_ids) plus every id each system's evidence cites. A tag (in its written form) and a sheet number in K are never refused. A source id in client text is detected and refused, never rewritten
-# sheets (optional): K, the whole plan's sheet numbers (bms.citations.job_sheets: the wheres of the planner's refs and the job's source_sheets, the ledger sources' wheres, never a writer's device refs); the run works it out per call from the job it writes into (a decision can take planner refs out) and passes it to every writer, the count rewrite and the revise, so intake, validator and render agree on a sheet another system's where names
+# sheets (optional): K, the whole plan's sheet numbers (bms.citations.job_sheets: the wheres of the planner's refs, never a writer's device refs and, since FINAL-J, never the ledger sources' wheres); the run works it out per call from the job it writes into (a decision can take planner refs out) and passes it to every writer, the count rewrite and the revise, so intake, validator and render agree on a sheet another system's where names. A K sheet is a sheet wherever it stands
+# source_sheets (optional, FINAL-J): the job's source sheets (Job.source_sheets, the ledger sources' wheres); the run passes the job's to every writer, the count rewrite and the revise beside K. One is a known sheet in a where (anywhere in it) and in client text right after a sheet word ("per sheet S201", "sheets S201 and S202"); bare in client text ("Valves per S201.") an issued one is refused, as the validator (must_fix) and the renderer (cut) read it: `SourceIds.of(ids, tags, sheets, *, source_sheets=())`, `SourceIds.of_job` reads Job.source_sheets; client text goes through `scan` / `refusal` / `without_issued`, a where through `where_issued` / `sheet` / `place`, the renderer's quantity note (made of places) through `without_issued(text, place=True)`
 ```
 Chat hand-off (unchanged from the old Judge so `tools/run_job.py` and the `/run-job` skill drive it):
 request `<cache>/judge-chat/requests/<key>.json` with fields `key`, `kind`, `system` (the system name, or "QC"),

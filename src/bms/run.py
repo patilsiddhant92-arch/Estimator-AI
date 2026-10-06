@@ -125,14 +125,17 @@ def _standing_accepts(entries: list[SavedDecision], key: str, job: Job | None = 
     return standing
 
 
-def _revised(system, findings, evidence, playbook, transport, job=None, decisions=None, ids=None, sheets=()):
+def _revised(system, findings, evidence, playbook, transport, job=None, decisions=None, ids=None, sheets=(),
+             source_sheets=None):
     """Revise, then flag quantity disagreements again. Devices accepted by the estimator stay accepted, unless a
     decision in `decisions` changes a family count of this system (the new count flags the system again)."""
     if job is None:
         revised = ai.revise_system(system, findings, evidence, playbook, transport)
     else:
         revised = ai.revise_system(system, findings, evidence, playbook, transport, tags=job_tags(job),
-                                    ids=job_ids(job) if ids is None else ids, sheets=sheets)
+                                    ids=job_ids(job) if ids is None else ids, sheets=sheets,
+                                    source_sheets=tuple(job.source_sheets) if source_sheets is None
+                                    else source_sheets)
     flagged = flag_written_devices(revised)
     if not decisions:
         return flagged
@@ -346,8 +349,9 @@ def _estimate(job_folder: Path, out: Path, cache: Path, mode: Mode, known: dict)
     job = dataclasses.replace(job, header=Header(
         quote_number=old_header.quote_number, reference=old_header.reference, mep_engineer=old_header.mep_engineer,
         based_on=tuple(old_header.based_on), date=old_header.date.isoformat(), to=old_header.to),
-        # the sheets the ledger's sources name, once: part of K (`job_sheets`) for every writer, the validator and
-        # the renderer alike, so a writer's exact copy of its evidence's where is never refused
+        # the sheets the ledger's sources name, once: a known sheet in a where and after a sheet word (FINAL-J) for
+        # every writer, the validator and the renderer alike, so a writer's exact copy of its evidence's where is
+        # never refused
         source_sheets=source_sheets(ledger.sources, getattr(dossier, "sources", None) or {}))
     transport = (ai.ChatTransport(cache, job=dossier.job_name) if mode == "chat" else ai.ApiTransport(cache))
     asked = transport.waiting
@@ -380,12 +384,17 @@ def _estimate(job_folder: Path, out: Path, cache: Path, mode: Mode, known: dict)
     def sheets(current: Job) -> tuple[str, ...]:
         return tuple(sorted(job_sheets(current)))
 
+    # the job's source sheets (`Job.source_sheets`, set once above), passed beside K so the intake reads them as the
+    # validator and the renderer do (`SourceIds.of_job`): a sheet in a where and after a sheet word only (FINAL-J)
+    def source(current: Job) -> tuple[str, ...]:
+        return tuple(current.source_sheets)
+
     pending: list[str] = []
     for system in job.systems:
         try:
             job = job.with_system(flag_written_devices(
                 ai.write_system(system, evidence[system.key], playbook, transport, tags=job_tags(job),
-                                ids=issued(job), sheets=sheets(job))))
+                                ids=issued(job), sheets=sheets(job), source_sheets=source(job))))
         except ai.NoAnswer as missing:
             pending.append(_not_answered(system.name, missing))
     save(job)
@@ -434,7 +443,7 @@ def _estimate(job_folder: Path, out: Path, cache: Path, mode: Mode, known: dict)
         try:
             rewritten = flag_written_devices(ai.rewrite_for_count(
                 system, f"{evidence[key]}\n\n{_count_note(decisions, key)}", playbook, transport,
-                tags=job_tags(job), ids=issued(job), sheets=sheets(job)))
+                tags=job_tags(job), ids=issued(job), sheets=sheets(job), source_sheets=source(job)))
             standing = _standing_accepts(history, key, decided_from)    # accepted after it saw the new count
             if standing:
                 rewritten = apply_decisions(job.with_system(rewritten), standing).system(key)
@@ -471,7 +480,7 @@ def _estimate(job_folder: Path, out: Path, cache: Path, mode: Mode, known: dict)
             job = job.with_system(_revised(system, [f for f in must_fix if f.system_key == key],
                                             evidence[key], playbook, transport, job,
                                             decisions=_standing_accepts(history, key, decided_from),
-                                            ids=issued(job), sheets=sheets(job)))
+                                            ids=issued(job), sheets=sheets(job), source_sheets=source(job)))
 
         except ai.NoAnswer as missing:
             pending.append(_not_answered(system.name, missing))

@@ -9,13 +9,20 @@ ASCII), zero-width characters taken out. The text itself is never rewritten by d
 `SourceIds.scan` sorts the id-shaped tokens of a text that are not tags (T, every tag of the job, a range "F1-F4"
 covering F1 to F4) into four kinds (the estimator's ruling of 2026-10-05):
 
-- sheet: a sheet number kept as written and never reported: one the planner's wheres or a ledger source's where
-  name as a sheet (K, `job_sheets`: the where "S101, Structural.pdf page 3" on a sequence ref or on a source of the
-  ledger makes S101 a sheet of the job; the ledger's are carried on `Job.source_sheets`), or an
+- sheet: a sheet number kept as written and never reported: one the planner's wheres name as a sheet (K,
+  `job_sheets`: the where "S101, Structural.pdf page 3" on a sequence ref makes S101 a sheet of the job), anywhere;
+  one a ledger source's where names as a sheet (the job's source sheets, `Job.source_sheets`), only in a where and
+  in client text right after a sheet word ("per sheet S201", "sheets S201 and S202"): a bare "per S201" in client
+  text may be the source id S201 the writer printed, so it stays issued (the lead's ruling, FINAL-J); or an
   unissued token right after a sheet word ("sheet C2", "sheets C101 and C102", "(sheet C101)"). A where on a
-  writer's device ref is the writer's and makes no sheet; the run passes the whole plan's K to every intake. A sheet
-  word never makes an issued id a sheet (the lead's ruling on L-D, lead/final-c): "sheet S141" with S141 issued and
-  not in K is issued, in client text and in a where the writer typed alike.
+  writer's device ref is the writer's and makes no sheet; the run passes the whole plan's K and the job's source
+  sheets to every intake. A sheet word never makes an issued id a sheet unless it is a source sheet (the lead's
+  ruling on L-D, lead/final-c): "sheet S141" with S141 issued, not in K and no source sheet is issued, in client
+  text and in a where the writer typed alike.
+
+Client text is read by `scan`, `refusal` and `without_issued`; a where by `where_issued`, `sheet` and `place` (and
+by `without_issued(..., place=True)`, for a text made of places: the renderer's quantity note). The intake, the
+validator and the renderer call the same methods, so they agree.
 - issued: any other id the job issued (I, every `Ref.source_id`; at intake also the evidence's ids). The intake
   refuses the text; the validator reports must_fix; the renderer's safety net takes out exactly that token.
 - cited: an unissued token joined by and / or / , / to / through / thru / a dash / a slash to an issued id, along
@@ -61,8 +68,8 @@ TRADE = re.compile(r"\b(plumbing|electrical|mechanical|architectural|fire protec
                    re.IGNORECASE)
 REFUSAL = "name the document in words; cite it as a Ref, never print an id"
 # the advice for a where that names an issued id (`SourceIds.where_issued`): "give the sheet number" would repeat an
-# honest input. An evidence where that leads with a sheet number is a known sheet (K holds every ledger source's
-# sheets, FINAL-H), so its exact copy passes; the way out for any other where naming an issued id is its document and
+# honest input. An evidence where that leads with a sheet number names a known sheet in a where (one of the job's
+# source sheets, FINAL-H and FINAL-J), so its exact copy passes; the way out for any other where naming an issued id is its document and
 # page, which loses nothing: that id never prints as a place
 WHERE_ADVICE = ("copy the where exactly as the evidence gives it (the place the evidence gives for that source), with "
                 "no sheet word added; never a source id; if the evidence's own where names that id, give only its "
@@ -136,15 +143,14 @@ def plan_refs(system) -> list:
 
 def job_sheets(job) -> frozenset[str]:
     """K of the whole job: the sheet numbers the planner's wheres name (`ref_sheets` of every system's
-    `plan_refs`, the front end's devices and the exceptions, which the planner makes) and every sheet number a
-    ledger source's where names (`Job.source_sheets`, set once by the run from `source_sheets`), so a writer
-    copying its evidence's where exactly is never refused. A where on a writer's device ref never counts: a writer
-    could type any id there."""
+    `plan_refs`, the front end's devices and the exceptions, which the planner makes). A sheet number a ledger
+    source's where names is not in K: it is one of the job's source sheets (`Job.source_sheets`), a known sheet only
+    in a where and right after a sheet word (FINAL-J, `SourceIds.source_sheets`). A where on a writer's device ref
+    never counts: a writer could type any id there."""
     refs = [r for s in job.systems for r in plan_refs(s)]
     if job.front_end is not None:
         refs += [r for d in job.front_end.devices for r in _device_refs(d)]
-    planner = ref_sheets(refs + [r for x in job.exceptions for r in x.refs])
-    return planner | frozenset(_key(k) for k in getattr(job, "source_sheets", ()) if _key(k))
+    return ref_sheets(refs + [r for x in job.exceptions for r in x.refs])
 
 
 def source_sheets(*sources: dict[str, str]) -> tuple[str, ...]:
@@ -244,28 +250,41 @@ class SourceIds:
     """The one decision: which id-shaped tokens in a text are sheets, issued ids, citations or loose tokens."""
     ids: frozenset[str] = frozenset()       # I, upper case
     tags: frozenset[str] = frozenset()      # T's id-shaped tokens, upper case
-    sheets: frozenset[str] = frozenset()    # K, the job's id-shaped sheet numbers (`job_sheets`), upper case
+    sheets: frozenset[str] = frozenset()    # K, the planner's id-shaped sheet numbers (`job_sheets`), upper case
+    # the job's source sheets (`Job.source_sheets`, the ledger sources' wheres), upper case: a known sheet only in a
+    # where and right after a sheet word in client text (FINAL-J)
+    source_sheets: frozenset[str] = frozenset()
 
     @classmethod
-    def of(cls, ids: Iterable[str] = (), tags: Iterable[str] = (), sheets: Iterable[str] = ()) -> "SourceIds":
+    def of(cls, ids: Iterable[str] = (), tags: Iterable[str] = (), sheets: Iterable[str] = (), *,
+           source_sheets: Iterable[str] = ()) -> "SourceIds":
         return cls(frozenset(_key(i) for i in ids if _key(i)), tag_tokens(tags),
-                   frozenset(_key(k) for k in sheets if _key(k)))
+                   frozenset(_key(k) for k in sheets if _key(k)),
+                   frozenset(_key(k) for k in source_sheets if _key(k)))
 
     @classmethod
     def of_job(cls, job) -> "SourceIds":
-        """T, I and K of the job (`job_tags`, `job_ids`, `job_sheets`: the planner's and the ledger sources' wheres)."""
-        return cls.of(job_ids(job), job_tags(job), job_sheets(job))
+        """T, I, K and the source sheets of the job (`job_tags`, `job_ids`, `job_sheets`: the planner's wheres,
+        `Job.source_sheets`: the ledger sources' wheres)."""
+        return cls.of(job_ids(job), job_tags(job), job_sheets(job),
+                      source_sheets=getattr(job, "source_sheets", ()) or ())
 
     def is_tag(self, token: str) -> bool:
         return _key(token) in self.tags
 
     def is_id(self, token: str) -> bool:
-        """An issued id that is not a tag and not a sheet number the planner's wheres name (K)."""
+        """An issued id that is not a tag and not a sheet number the planner's wheres name (K). A source sheet can
+        be an issued id here: whether it reads as a sheet depends on where it stands (`scan`)."""
         return _key(token) in self.ids and not self.is_tag(token) and _key(token) not in self.sheets
 
     def scan(self, text: str) -> list[Found]:
-        """Every id-shaped token of `text` that is not a tag, in text order, with its kind (module docstring).
-        Linear in the length of the text."""
+        """Every id-shaped token of client text `text` that is not a tag, in text order, with its kind (module
+        docstring): a source sheet is a sheet only right after a sheet word. Linear in the length of the text."""
+        return self._scan(text, where=False)
+
+    def _scan(self, text: str, where: bool) -> list[Found]:
+        """`scan`; with `where`, `text` is a where (or a text made of places), in which a source sheet is a sheet
+        wherever it stands, as a K sheet is."""
         text = text or ""
         copy, origin = _for_detection(text)
         tokens = list(_TOKEN.finditer(copy))
@@ -283,6 +302,8 @@ class SourceIds:
             listed = bool(_SHEET_BEFORE.search(copy[max(0, start - _WINDOW):start])) or (joined and listed)
             if _key(token) in self.sheets:
                 kind = "sheet"
+            elif _key(token) in self.source_sheets and (where or listed):
+                kind = "sheet"               # a source sheet: in a where, or after a sheet word (FINAL-J)
             elif self.is_id(token):
                 kind = "issued"              # a sheet word before it changes nothing (L-D)
             elif listed:
@@ -314,11 +335,12 @@ class SourceIds:
             return ""
         return f"prints the source id{'s' if len(named) > 1 else ''} {', '.join(named)}: {REFUSAL}"
 
-    def without_issued(self, text: str) -> str:
+    def without_issued(self, text: str, *, place: bool = False) -> str:
         """The renderer's safety net: `text` with exactly each issued id token taken out, whitespace collapsed;
-        `text` itself (unchanged) when it has none."""
+        `text` itself (unchanged) when it has none. `place`: `text` is made of places the where checks gave
+        (`sheet`, `place`: the quantity note), so it is read as a where is (a source sheet stays)."""
         text = text or ""
-        cut = [f for f in self.scan(text) if f.kind == "issued"]
+        cut = [f for f in self._scan(text, where=place) if f.kind == "issued"]
         if not cut:
             return text
         pieces, at = [], 0
@@ -332,21 +354,23 @@ class SourceIds:
 
     def _sheet_ok(self, text: str, found: re.Match) -> bool:
         """A sheet number found in a where: printable unless it is id-shaped and the ledger does not know it as a
-        sheet. An id-shaped token is a sheet when the planner's wheres name it as a sheet (K); else only when it is
+        sheet. An id-shaped token is a sheet when the planner's wheres name it as a sheet (K) or it is one of the
+        job's source sheets (in a where, wherever it stands); else only when it is
         no issued id and reads as a sheet: a sheet word comes before it ("Sheet C501") or it stands first with a file
         part after it ("C101, Controls.pdf page 2"). A sheet word never makes an issued id printable (L-D). A tag of
         the job is no issued id here, as in `scan`: "Sheet C101" prints when C101 is a real tag."""
         token = found.group(0)
         if not ONE_ID.fullmatch(token):
             return True
-        if _key(token) in self.sheets:
+        if _key(token) in self.sheets or _key(token) in self.source_sheets:
             return True
         return not self.is_id(token) and _sheet_form(text, found)
 
     def where_issued(self, where: str) -> list[str]:
-        """The issued ids (not in K, no tag) that `where` names anywhere, after a sheet word or not ("Sheet S141,
-        Mechanical.pdf page 3", "S141, Mechanical.pdf page 3", "Mechanical schedule, S141", "Sheet C101 and S141"),
-        as written, in order: exactly the tokens `scan` reads as issued, so exactly the ones the renderer's safety net
+        """The issued ids (not in K, no source sheet, no tag) that `where` names anywhere, after a sheet word or not
+        ("Sheet S141, Mechanical.pdf page 3", "S141, Mechanical.pdf page 3", "Mechanical schedule, S141", "Sheet C101
+        and S141"), as written, in order: exactly the tokens `scan` reads as issued in a where (a source sheet is a
+        sheet there wherever it stands, FINAL-J), so exactly the ones the renderer's safety net
         cuts. No issued id prints as a place (`place` leaves it out, and with it the place), so the intake refuses a
         writer's where naming one and the validator reports it must_fix (FINAL-F, the lead's ruling). A ledger fact,
         a picture file or the equipment counts is no place and is never refused. Read on the detection copy
@@ -354,7 +378,7 @@ class SourceIds:
         text = _where_text(where)
         if _NOT_A_PLACE.search(text) or text.lower().startswith(_NOT_A_DOCUMENT):
             return []
-        return list(dict.fromkeys(f.token for f in self.scan(text) if f.kind == "issued"))
+        return list(dict.fromkeys(f.token for f in self._scan(text, where=True) if f.kind == "issued"))
 
     def sheet(self, where: str) -> str:
         """The first printable sheet number in `where` (`_sheet_ok`), as the detection copy reads it

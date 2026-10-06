@@ -8,7 +8,7 @@ import json
 from dataclasses import replace
 
 from bms import ai, run
-from bms.citations import job_ids, job_sheets, job_tags, source_sheets
+from bms.citations import SourceIds, job_ids, job_sheets, job_tags, source_sheets
 from bms.model import Job, json_schema
 from bms.validate import RULE, validate
 
@@ -24,7 +24,7 @@ def _verdicts(job: Job, kind: str, probe: str, token: str) -> tuple[str, str, st
     job = _with_note(job, probe) if kind == "text" else _with_other_count(job, probe)
     system = job.system("EF")
     written, _ = ai._check_system(system.to_dict(), system, None, frozenset(job_ids(job)), (), (), [],
-                                  job_tags(job), job_ids(job), tuple(job_sheets(job)))
+                                  job_tags(job), job_ids(job), tuple(job_sheets(job)), tuple(job.source_sheets))
     severities = [f.severity for f in validate(job, SAMPLE) if f.rule == RULE["ids"] and f.system_key == "EF"]
     return ("refused" if written is None else "accepted", "must_fix" if "must_fix" in severities else "none",
             "prints" if _prints(job, token) else "cut")
@@ -40,10 +40,13 @@ def test_the_sheets_of_the_ledger_sources_wheres():
     assert source_sheets() == ()
 
 
-def test_job_sheets_hold_the_source_sheets():
+def test_the_job_detector_holds_the_source_sheets():
+    # FINAL-J: the source sheets are no longer in K (`job_sheets`, the planner's wheres); the detector carries them
+    # apart (`SourceIds.source_sheets`), a known sheet in a where and after a sheet word only
     job = replace(_job(), source_sheets=("S201",))
-    assert "S201" in job_sheets(job)
-    assert "S201" not in job_sheets(_job())
+    assert "S201" not in job_sheets(job)
+    assert SourceIds.of_job(job).source_sheets == frozenset({"S201"})
+    assert SourceIds.of_job(_job()).source_sheets == frozenset()
 
 
 def test_an_exact_copy_of_a_sources_where_passes_intake_validate_and_render_alike():
@@ -54,7 +57,7 @@ def test_an_exact_copy_of_a_sources_where_passes_intake_validate_and_render_alik
     assert _verdicts(known, "where", "Sheet S201, Structural.pdf page 3", "S201") == ACCEPTED
     assert _verdicts(known, "where", "S141, Structural.pdf page 3", "S141") == REFUSED
     assert _verdicts(known, "text", "Valves per sheet S141.", "S141") == REFUSED
-    # one K for client text too: a sheet number of the job reads as a sheet wherever it stands
+    # in client text a source sheet reads as a sheet right after a sheet word only (FINAL-J; bare: test_final_j)
     assert _verdicts(known, "text", "Valves per sheet S201.", "S201") == ACCEPTED
     # without the source's sheet the same copy is refused, as before
     assert _verdicts(_job(), "where", "S201, Structural.pdf page 3", "S201") == REFUSED
@@ -91,4 +94,4 @@ def test_the_run_carries_the_ledger_sources_sheets_on_the_job(job_folder, tmp_pa
         raise AssertionError("the run never saved a job")
     saved = Job.from_json(result.job_file.read_text(encoding="utf-8"))
     assert "S201" in saved.source_sheets
-    assert "S201" in job_sheets(saved)
+    assert "S201" in SourceIds.of_job(saved).source_sheets
