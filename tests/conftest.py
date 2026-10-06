@@ -1,5 +1,6 @@
 """Shared test fixtures: where the real templates, price book and test job live."""
 import datetime as dt
+import subprocess
 from pathlib import Path
 
 import docx
@@ -19,6 +20,14 @@ TEST_JOB_DIR = ROOT / "tests" / "data" / "26-0246"
 SENT_PROPOSAL = TEST_JOB_DIR / "sent-proposal.docx"
 SENT_WORKUP = TEST_JOB_DIR / "sent-workup.xlsx"
 TEST_JOB_FILE = TEST_JOB_DIR / "job.json"
+
+
+@pytest.fixture(autouse=True)
+def _children_survive_a_loaded_machine(monkeypatch):
+    """subprocess.run tried again only when a child could not start (exit 3221225794; tests/procs.py)."""
+    from procs import retrying
+    if not getattr(subprocess.run, "retries_resource_errors", False):
+        monkeypatch.setattr(subprocess, "run", retrying(subprocess.run))
 
 
 @pytest.fixture
