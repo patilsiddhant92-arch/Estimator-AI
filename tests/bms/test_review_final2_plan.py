@@ -40,8 +40,6 @@ def test_two_families_of_one_name_in_their_own_sequence_sections_stay_apart():
     assert sorted(s.key for s in _plan(ledger).systems) == ["EF", "KEF"]
 
 
-@pytest.mark.xfail(strict=True, reason="REVIEW-FINAL2 F4: a no-kind code that is already one of its owner's tags "
-                   "joins the block as a second family with the same tag")
 def test_a_no_kind_code_that_is_already_a_tag_of_its_owner_is_not_listed_twice():
     ledger = _ledger()
     _family(ledger, "P", "Circulating Pump", "P-1, P-2", 2)

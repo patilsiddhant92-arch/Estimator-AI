@@ -74,3 +74,33 @@ def test_families_of_one_name_in_different_sequence_sections_stay_apart_and_are_
     job = _plan(ledger)
     assert [s.key for s in job.systems] == ["EF"]
     assert any("same name" in q for q in job.questions)
+
+
+# ---- F4: a no-kind code joins its owner once, and the question says what the code did ------------------------
+
+NO_KIND = "type code on a schedule"
+
+
+def test_a_no_kind_code_already_a_tag_of_its_owner_is_counted_once_and_asked_plainly():
+    ledger = _ledger()
+    _family(ledger, "P", "Circulating Pump", "P-1, P-2", 2)
+    ledger.add("family", "P-1", NO_KIND, "S1", f"P-1 ({NO_KIND}): schedule rows 1", "seed")
+    ledger.add("count", "P-1", 1, "S1", f"P-1 ({NO_KIND}): schedule rows 1", "seed", SETTLED)
+    job = _plan(ledger)
+    (p,) = job.systems
+    assert [f.tags for f in p.families] == [("P-1", "P-2")]
+    (asked,) = [q for q in job.questions if "P-1" in q]
+    assert "one of the Circulating Pump (P) tags" in asked and "not again" in asked and "Confirm" in asked
+    assert "not already in" not in asked
+
+
+def test_a_no_kind_code_whose_count_the_owner_took_says_the_owner_count_includes_it():
+    ledger = _ledger()
+    _family(ledger, "GI", "Grease Interceptor", "GI-1 thru 3", 3)
+    ledger.add("family", "GI-4", NO_KIND, "S1", f"GI-4 ({NO_KIND}): schedule rows 1", "seed")
+    ledger.add("count", "GI-4", 9, "S1", f"GI-4 ({NO_KIND}): schedule rows 1", "seed", SETTLED)
+    job = _plan(ledger)
+    (asked,) = [q for q in job.questions if "GI-4" in q]
+    assert "not already in" not in asked
+    assert "The GI count (9) is taken from GI-4's own count, so it already includes GI-4" in asked
+    assert "Confirm" in asked

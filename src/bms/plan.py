@@ -220,7 +220,15 @@ class _Planner:
 
     def _join_owner(self, drafts: list[_Draft], family: FamilyFacts, owner: FamilyFacts) -> None:
         """A code with no kind of its own that is a tag of another family ("GI-4" of GI) is a part of that family:
-        it joins the block holding the family, with its own count, under the family's name, and is asked."""
+        it joins the block holding the family, with its own count, under the family's name, and is asked. A code
+        that is already one of the family's own tags (P-1 of P-1, P-2) is not added again; the question says so.
+        When the family's count was read from the code's own count, the question says the count includes it."""
+        head = f"{family.prefix} is on a schedule with no kind of equipment given for it; "
+        if family.prefix.upper() in {t.upper() for t in owner.tags}:
+            self.questions.append(
+                f"{head}it is one of the {owner.name} ({owner.prefix}) tags, so it is counted with the "
+                f"{owner.name} units, not again. Confirm it is one of them.")
+            return
         draft = self._holding(drafts, owner)
         if draft is None:
             drafts.append(self._single(family))
@@ -228,10 +236,16 @@ class _Planner:
             draft.families.append(_Fam(family.name, family.tags or (family.prefix,), family.count, family))
             draft.prefixes.append(family.prefix)
             draft.matches += [m for m in self.reader.matches(family.prefix) if m not in draft.matches]
+        own = set(family.count.sources)
+        if owner.count.value is not None and own and own & set(owner.count.sources):
+            said = (f"The {owner.prefix} count ({owner.count.value}) is taken from {family.prefix}'s own count, so it "
+                    f"already includes {family.prefix}. Confirm {family.prefix} is one of them and that the "
+                    f"{owner.prefix} count is right.")
+        else:
+            said = f"Confirm it is one, and that its count is not already in the {owner.prefix} count."
         self.questions.append(
-            f"{family.prefix} is on a schedule with no kind of equipment given for it; its code is a tag of "
-            f"{owner.name} ({owner.prefix}), so it is planned with the {owner.name} units. Confirm it is one, and "
-            f"that its count is not already in the {owner.prefix} count.")
+            f"{head}its code is a tag of {owner.name} ({owner.prefix}), so it is planned with the {owner.name} "
+            f"units. {said}")
 
     def specific_name(self, family: FamilyFacts) -> str:
         """The family's name; for a generic kind ("Fan", "Unit", "Equipment") the best specific words the ledger
@@ -821,8 +835,8 @@ class _Planner:
             missing = [t for t in family.tags if t.upper() not in present and not naming(t).search(asked)]
             if family.tags and not missing:
                 continue
-            if not family.tags and family.prefix.casefold() in sources:
-                continue
+            if not family.tags and (family.prefix.casefold() in sources or family.prefix.upper() in present):
+                continue             # its code is a block's family, or a tag a block holds (P-1 of P: F4)
             what = ", ".join(missing) if missing else family.prefix
             self.questions.append(f"{family.name} ({what}) is in the documents but in no block of this plan; "
                                   "which system is it in?")
