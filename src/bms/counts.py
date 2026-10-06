@@ -142,6 +142,13 @@ def counted_from(device: Device, family: Family) -> bool:
     return bool(family_sources(family) & {plain_id(r.source_id) for r in device.quantity.sources})
 
 
+def disputed_families(system: System) -> list[Family]:
+    """The system's families whose counts disagree (`others`) and that have a source a line can be counted from:
+    the families `flag_written_devices` flags by, and the ones a family Accept must all settle before a line counted
+    from them is cleared. Pure."""
+    return [family for family in system.families if family.count.others and family_sources(family)]
+
+
 def flag_written_devices(system: System) -> System:
     """Flag devices the writer just created when a family's counts disagree.
 
@@ -150,7 +157,7 @@ def flag_written_devices(system: System) -> System:
     A device counted from such a family (`counted_from`: its quantity cites one of that family's sources, or one
     of the disagreeing counts) gets flag "quantity" unless it is already flagged. Sources match by source id
     ("[C3]" is "C3"), not by the whole citation: a trimmed quote still cites the count. Pure."""
-    disputed = [family for family in system.families if family.count.others and family_sources(family)]
+    disputed = disputed_families(system)
     if not disputed:
         return system
     devices = tuple(
@@ -424,9 +431,10 @@ class _Check:
         families = tuple(dataclasses.replace(f, count=count) if f is family else f for f in system.families)
         devices = system.devices
         if disagree:
-            old = set(family.count.sources)
+            # the tie `flag_written_devices` uses (`counted_from`, by source id), on the family as merged
+            merged = dataclasses.replace(family, count=count)
             devices = tuple(dataclasses.replace(d, flag="quantity")
-                            if d.flag == "none" and old & set(d.quantity.sources) else d for d in devices)
+                            if d.flag == "none" and counted_from(d, merged) else d for d in devices)
         return dataclasses.replace(system, families=families, devices=devices), ids
 
     def _merge(self, count: Count, counted) -> tuple[Count, dict[str, str], bool]:
