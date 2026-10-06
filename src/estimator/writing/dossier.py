@@ -1042,40 +1042,100 @@ def _plan_sheet_notes(catalogue, reading, ids: _Ids, given: set) -> list[str]:
     return lines
 
 
-def _plan_sheet_text(catalogue, texts: dict, ids: _Ids, printed: _Printed) -> list[str]:
-    """7c: each mechanical, controls and plumbing sheet's own text, squashed and cut at PLAN_TEXT_LIMIT
-    characters. The note reader only catches blocks under a heading ("KEY NOTES"); keyed notes written
-    beside the drawing (a damper actuator, a leak chime) are only here. One id per sheet; a sheet number
-    seen in several documents is given once, an addendum's copy first; pages given above are skipped."""
+PLAN_TEXT_HEAD = ("--- 7c PLAN SHEET TEXT ---",
+                  "(Each mechanical, controls and plumbing sheet's own text, as printed, for notes written beside the "
+                  f"drawing; cut at {PLAN_TEXT_LIMIT:,} characters a sheet.)")
+
+
+@dataclass
+class _SheetText:
+    """What 7c has given so far: the sheet keys given, the characters used, whether the total cap stopped it."""
+    keys: set = field(default_factory=set)
+    used: int = 0
+    stopped: bool = False
+
+
+def _choose_sheets(catalogue, keep) -> dict[str, object]:
+    """The plan-note sheets `keep(sheet)` takes, one per sheet number (an addendum's copy first)."""
     kinds = {d.relative: d.kind for d in getattr(catalogue.job, "documents", ()) or ()}
     chosen: dict[str, object] = {}
     for sheet in getattr(catalogue, "sheets", ()) or ():
-        if sheet.discipline not in PLAN_NOTE_DISCIPLINES or (sheet.document, sheet.page) in printed.pages:
+        if sheet.discipline not in PLAN_NOTE_DISCIPLINES or not keep(sheet):
             continue
         key = sheet.number or f"{sheet.document}#{sheet.page}"
         held = chosen.get(key)
         if held is None or (kinds.get(sheet.document) == "addendum" and kinds.get(held.document) != "addendum"):
             chosen[key] = sheet
-    if not chosen:
-        return []
-    lines = ["--- 7c PLAN SHEET TEXT ---",
-             "(Each mechanical, controls and plumbing sheet's own text, as printed, for notes written beside the "
-             f"drawing; cut at {PLAN_TEXT_LIMIT:,} characters a sheet.)"]
-    used = 0
-    for n, sheet in enumerate(chosen.values()):
+    return chosen
+
+
+def _sheet_text_lines(chosen: dict, texts: dict, ids: _Ids, given: _SheetText, what: str) -> list[str]:
+    """One line per chosen sheet: "[S] <place> <title>: <its text>", cut at PLAN_TEXT_LIMIT, within the
+    PLAN_TEXT_TOTAL that `given` counts across 7c."""
+    lines: list[str] = []
+    for n, (key, sheet) in enumerate(chosen.items()):
         text = _collapse_repeats(_squash(texts.get((sheet.document, sheet.page))))
         if not text:
             continue
-        if used + min(len(text), PLAN_TEXT_LIMIT) > PLAN_TEXT_TOTAL:
-            lines.append(f"(Stopped at {PLAN_TEXT_TOTAL:,} characters: {_plural(len(chosen) - n, 'more sheet')} "
+        if given.stopped or given.used + min(len(text), PLAN_TEXT_LIMIT) > PLAN_TEXT_TOTAL:
+            lines.append(f"(Stopped at {PLAN_TEXT_TOTAL:,} characters: {_plural(len(chosen) - n, what)} "
                          "not given.)")
+            given.stopped = True
             break
         cut = text[:PLAN_TEXT_LIMIT] + (" …" if len(text) > PLAN_TEXT_LIMIT else "")
         where = _place(sheet.number, sheet.document, sheet.page)
         sid = ids.new(f"{where} (sheet text)")
         lines.append(f"[{sid}] {where} {sheet.title or ''}: {cut}".replace("  ", " "))
-        used += len(cut)
+        given.keys.add(key)
+        given.used += len(cut)
     return lines
+
+
+def _plan_sheet_text(catalogue, texts: dict, ids: _Ids, printed: _Printed,
+                     given: _SheetText | None = None) -> list[str]:
+    """7c: each mechanical, controls and plumbing sheet's own text, squashed and cut at PLAN_TEXT_LIMIT
+    characters. The note reader only catches blocks under a heading ("KEY NOTES"); keyed notes written
+    beside the drawing (a damper actuator, a leak chime) are only here. One id per sheet; a sheet number
+    seen in several documents is given once, an addendum's copy first; pages given above are skipped here
+    (`_printed_sheet_text` adds the ones a 7c pass would otherwise miss)."""
+    given = given if given is not None else _SheetText()
+    chosen = _choose_sheets(catalogue, lambda s: (s.document, s.page) not in printed.pages)
+    if not chosen:
+        return []
+    return [*PLAN_TEXT_HEAD, *_sheet_text_lines(chosen, texts, ids, given, "more sheet")]
+
+
+def _sheet_text_readers(sheet, types_by_number: dict) -> list:
+    """The reading passes that read this sheet's 7c line (by its sheet number's types, as `passes.documents`
+    picks them)."""
+    from estimator.ledger.passes import PASSES          # the passes read the dossier; imported here, not above
+    types = set(types_by_number.get(sheet.number, ()))
+    return [p for p in PASSES
+            if sheet.number and set(p.sheet_types) & types and not set(p.not_sheet_types) & types]
+
+
+def _printed_sheet_text(catalogue, texts: dict, ids: _Ids, printed_by: dict, given: _SheetText) -> list[str]:
+    """The 7c lines of the sheets whose pages sections 2 or 3 printed (`printed_by`: page -> section number) that a
+    reading pass reads from 7c without reading the section that printed them. The details, risers, network and
+    plans passes read no section 2 or 3, so a drawing sheet that is a sequence sheet and also a control diagram or
+    a riser gets its own text here, never a pointer to text those passes do not receive. A sheet each of whose 7c
+    passes reads the section that printed it, or that no pass reads from 7c, is not repeated. Built after section
+    8, so no earlier source id moves; a sheet number 7c already gave is not given twice."""
+    types_by_number: dict[str, tuple] = {}
+    for sheet in getattr(catalogue, "sheets", ()) or ():
+        if sheet.number:
+            types_by_number.setdefault(sheet.number, tuple(sheet.types or ()))
+
+    def missed(sheet) -> bool:
+        section = printed_by.get((sheet.document, sheet.page))
+        if section is None:
+            return False
+        return any(section not in p.sections for p in _sheet_text_readers(sheet, types_by_number))
+
+    chosen = {k: s for k, s in _choose_sheets(catalogue, missed).items() if k not in given.keys}
+    if not chosen:
+        return []
+    return _sheet_text_lines(chosen, texts, ids, given, "more sheet printed in sections 2 and 3")
 
 
 # ---- section 8: the controls spec highlights -------------------------------------------------------------
@@ -1163,7 +1223,9 @@ def build_dossier(catalogue, reading, cache_dir: Path | None) -> Dossier:
     body["job"] = _job_section(catalogue, reading, ids)
     printed = _Printed()
     body["sequence"], sequence_pages = _backbone_section(catalogue, reading, SEQUENCE, ids, printed, texts)
+    printed_by = {page: 2 for page in printed.pages}         # which section printed each page
     body["points"], points_pages = _backbone_section(catalogue, reading, POINTS, ids, printed, texts)
+    printed_by.update({page: 3 for page in printed.pages if page not in printed_by})
 
     images, why, image_flags = _schedule_images(catalogue, reading, counted, cache_dir)
     all_images = [img for key in images for img in images[key]]
@@ -1176,8 +1238,13 @@ def build_dossier(catalogue, reading, cache_dir: Path | None) -> Dossier:
     body["counts"] = _counts_section(reading, families, ids)
     device_totals, by_label, names = _device_totals(catalogue, reading, multipliers)
     body["devices"] = _devices_section(device_totals, by_label, names, ids)
-    body["notes"] = _notes_section(catalogue, reading, ids) + _plan_sheet_text(catalogue, texts, ids, printed)
+    sheet_text = _SheetText()
+    body["notes"] = _notes_section(catalogue, reading, ids) + _plan_sheet_text(catalogue, texts, ids, printed,
+                                                                               sheet_text)
     body["spec"] = _spec_section(catalogue, printed, texts, ids)
+    more = _printed_sheet_text(catalogue, texts, ids, printed_by, sheet_text)      # its ids come after section 8's
+    if more:
+        body["notes"] += ([] if PLAN_TEXT_HEAD[0] in body["notes"] else list(PLAN_TEXT_HEAD)) + more
 
     empty = {"sequence": "(No sequence of operation found in the documents.)",
              "points": "(No points list found in the documents.)",
