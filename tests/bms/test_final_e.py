@@ -101,3 +101,15 @@ def test_the_intake_and_the_validator_both_say_to_copy_the_where_as_the_evidence
     assert "with no sheet word added" in said and "give the sheet number" not in said
     fixes = [f.fix for f in validate(job, SAMPLE) if f.rule == RULE["ids"] and f.device_id == "EF.d1"]
     assert len(fixes) == 1 and fixes[0].startswith("Copy the where exactly as the evidence gives it")
+
+
+# ---- F5: a tag in a where, as in text ----------------------------------------------------------------------------
+
+def test_a_tag_that_is_also_an_issued_id_reads_alike_in_text_and_in_a_where():
+    ids = SourceIds.of(["C101", "S141"], ["C101"])
+    assert ids.where_issued("Sheet C101, Civil.pdf page 1") == []
+    assert ids.sheet("Sheet C101, Civil.pdf page 1") == "C101"
+    assert ids.sheet("Fan C101 schedule, Civil.pdf page 1") == ""       # a tag is still a sheet only in sheet form
+    assert ids.where_issued("Sheet S141, Civil.pdf page 1") == ["S141"]      # an issued id that is no tag still is
+    assert [f.kind for f in ids.scan("Valves per Sheet C101.")] == []    # the text side: a tag, never reported
+    assert _verdicts("where", "Sheet Ｃ101, Civil.pdf page 1", "C101", (), "C101") == ACCEPTED

@@ -318,13 +318,14 @@ class SourceIds:
         """A sheet number found in a where: printable unless it is id-shaped and the ledger does not know it as a
         sheet. An id-shaped token is a sheet when the planner's wheres name it as a sheet (K); else only when it is
         no issued id and reads as a sheet: a sheet word comes before it ("Sheet C501") or it stands first with a file
-        part after it ("C101, Controls.pdf page 2"). A sheet word never makes an issued id printable (L-D)."""
+        part after it ("C101, Controls.pdf page 2"). A sheet word never makes an issued id printable (L-D). A tag of
+        the job is no issued id here, as in `scan`: "Sheet C101" prints when C101 is a real tag."""
         token = found.group(0)
         if not ONE_ID.fullmatch(token):
             return True
         if _key(token) in self.sheets:
             return True
-        return _key(token) not in self.ids and _sheet_form(text, found)
+        return not self.is_id(token) and _sheet_form(text, found)
 
     def where_issued(self, where: str) -> list[str]:
         """The issued ids (not in K) that `where` names after a sheet word ("Sheet S141, Mechanical.pdf page 3",
@@ -337,7 +338,7 @@ class SourceIds:
             return []
         return list(dict.fromkeys(
             f.group(0) for f in SHEET.finditer(text)
-            if ONE_ID.fullmatch(f.group(0)) and _key(f.group(0)) in self.ids and _key(f.group(0)) not in self.sheets
+            if ONE_ID.fullmatch(f.group(0)) and self.is_id(f.group(0))      # a tag or a K sheet is no issued id
             and _SHEET_BEFORE.search(text[max(0, f.start() - _WINDOW):f.start()])))
 
     def sheet(self, where: str) -> str:

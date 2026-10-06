@@ -172,8 +172,6 @@ def test_f4_the_where_refusal_points_to_a_form_the_intake_accepts():
     assert "the place the evidence gives" in said, said
 
 
-@pytest.mark.xfail(strict=True, reason="REVIEW-FINAL3 F5 (Low): a real tag that is also an issued id is accepted "
-                   "after a sheet word in client text but refused in a writer's where")
 def test_f5_a_tag_after_a_sheet_word_is_treated_alike_in_text_and_in_a_where():
     assert _verdicts("text", "Valves per Sheet C101.", "C101", (), "C101") == ACCEPTED
     assert _verdicts("where", "Sheet C101, Civil.pdf page 1", "C101", (), "C101") == ACCEPTED
