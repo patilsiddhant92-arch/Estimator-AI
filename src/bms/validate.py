@@ -15,7 +15,6 @@ from bms import citations
 from bms.citations import WHERE_ADVICE, SourceIds
 from bms.model import PARTIES, Count, Device, Finding, Job, System
 from bms.playbook import Playbook, Shape
-from bms.render import line_form
 
 RULE = {
     "cites": "Every line cites this job",
@@ -296,7 +295,10 @@ def _unknown(system, shape, job, playbook) -> Iterator[Hit]:
     if family is not None:
         yield (None, "check", f"The {family.name} count is unknown and carries no clarification",
                "Add one 'per drawings' or 'confirm' clarification to the block.")
-    # a line whose wording prints its quantity, with the quantity unknown, prints "(Qty. ##)"
+    # a line whose wording prints its quantity, with the quantity unknown, prints "(Qty. ##)". The render module is
+    # imported here, not at the top: `bms status` loads this module through the Playbook lint and must work when
+    # the estimate stack (render, the price sheet) cannot import.
+    from bms.render import line_form
     for d in system.devices:
         if d.quantity.highest() is None and "{qty}" in line_form(d, shape, playbook):
             yield (d.id, "check", f"{d.name}: its quantity is unknown and the block carries no clarification",
