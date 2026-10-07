@@ -177,24 +177,29 @@ def _trim(text: str) -> str:
     return _squash(text).rstrip(" .;")
 
 
-ACRONYMS = {a.lower(): a for a in ("BMS", "VFD", "DDC", "CO", "NO", "ERV", "RTU", "IT", "HPAC", "SCR", "UUKL", "FA",
-                                   "BACnet")}
+ACRONYMS = {a.lower(): a for a in ("BMS", "VFD", "DDC", "ERV", "RTU", "HPAC", "SCR", "UUKL", "BACnet")}
+# NO, IT, CO and FA are left out: they are also ordinary words ("no", "it", "co-located") and print as the source
+# writes them, an upper-case word being kept as it is
 _SMALL_WORDS = {"a", "an", "and", "as", "at", "b", "between", "but", "by", "for", "from", "in", "into", "nor", "of",
                 "on", "or", "per", "the", "thru", "to", "vs", "w", "with", "within"}
 
 
 def _title(text: str) -> str:
-    """A name as house lines read: each lower-case word capitalised (small joining words after the first left
-    alone), the house acronyms in their own spelling (BMS, VFD, CO, BACnet ...); a word already capitalised is kept."""
+    """A name as house lines read: each lower-case word capitalised (small joining words after the first, and the
+    part after a hyphen, left alone), the house acronyms in their own spelling (BMS, VFD, BACnet ...); a word already
+    capitalised is kept, so an acronym that is also a word (NO, IT, CO, FA) prints only as the source writes it."""
+    text = text or ""
+
     def word(match: re.Match) -> str:
         w = match.group(0)
         canon = ACRONYMS.get(w.lower())
         if canon:
             return canon
-        if w.islower() and (match.start() == 0 or w not in _SMALL_WORDS):
+        after_hyphen = match.start() > 0 and text[match.start() - 1] == "-"
+        if w.islower() and not after_hyphen and (match.start() == 0 or w not in _SMALL_WORDS):
             return w[0].upper() + w[1:]
         return w
-    return re.sub(r"[A-Za-z]+(?:'[a-z]+)?", word, text or "")
+    return re.sub(r"[A-Za-z]+(?:'[a-z]+)?", word, text)
 
 
 _NOT_PLURAL = {"points", "series", "status", "controls", "stairs", "chassis"}
