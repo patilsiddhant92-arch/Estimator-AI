@@ -1,12 +1,13 @@
 {
-  "about": "How a drawing sheet's revision table is read from its title block, and which changed lines touch controls (design §9.8). Extend this file, never code. Date patterns are tried in order, ignoring case; 'order' says which group is the month, the day and the year (m, d, y). A month may be written as a number or as a name from 'months'. A two-digit year is 20xx. An issue row is a date and, beside it on the same row, a description with an issue word. Patterns are matched ignoring case.",
+  "about": "How a drawing sheet's revision table is read from its title block, and which changed lines touch controls (design §9.8). Extend this file, never code. Every date pattern is tried, ignoring case, and the date that starts first in the text is read (where two start together, the longer, then the one listed first); 'order' says which group is the month, the day and the year (m, d, y). A month may be written as a number or as a name from 'months'. A two-digit year is 20xx. An issue row is a date and, beside it on the same row, a description with an issue word. Patterns are matched ignoring case.",
   "dates": [
     {"pattern": "(\\d{4})-(\\d{1,2})-(\\d{1,2})", "order": "ymd"},
+    {"pattern": "(\\d{4})/(\\d{1,2})/(\\d{1,2})", "order": "ymd"},
     {"pattern": "(\\d{1,2})/(\\d{1,2})/(\\d{4}|\\d{2})", "order": "mdy"},
     {"pattern": "(\\d{1,2})-(\\d{1,2})-(\\d{4}|\\d{2})", "order": "mdy"},
     {"pattern": "(\\d{1,2})\\.(\\d{1,2})\\.(\\d{4}|\\d{2})", "order": "mdy"},
     {"pattern": "(\\d{2}) (\\d{2}) (\\d{4}|\\d{2})", "order": "mdy"},
-    {"pattern": "(JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)[A-Z]*\\.?\\s+(\\d{1,2}),?\\s+(\\d{4})", "order": "mdy"},
+    {"pattern": "\\b(JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)[A-Z]*\\.?\\s+(\\d{1,2}),?\\s+(\\d{4})", "order": "mdy"},
     {"pattern": "(\\d{1,2})\\s*-?\\s*(JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)[A-Z]*\\s*-?\\s*(\\d{4}|\\d{2})", "order": "dmy"}
   ],
   "months": ["JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"],

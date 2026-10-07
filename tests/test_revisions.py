@@ -303,3 +303,56 @@ def test_the_governing_pages_skip_a_marked_up_copy_and_repeats_inside_one_docume
     catalogue = replace(_catalogue(*pages), tags=tags)
     assert governing_pages(catalogue, (), typicals=["M-110"]) == {
         (BASE, 1), (BASE, 2), (BASE, 3), (BASE, 4), (BASE, 5), (BASE, 6), (BASE, 7)}
+
+
+# ---- RD-10: one sheet however its number is written; RD-7: the first date in the text ----------------
+
+def test_an_addendum_sheet_written_without_the_dash_supersedes_the_base_sheet():
+    from estimator.reading.revisions import governing_pages
+    catalogue = _catalogue((BASE, 1, "M-101", "OLD PLAN TEXT HERE", ()), (ADDENDUM, 1, "M101", "NEW PLAN TEXT HERE", ()),
+                           kinds={ADDENDUM: "addendum"})
+    [s], flags = supersede(catalogue, sheet_versions(catalogue))
+    assert flags == []
+    assert (s.sheet, s.current.document, [v.document for v in s.replaced]) == ("M101", ADDENDUM, [BASE])
+    assert governing_pages(catalogue, [s]) == {(ADDENDUM, 1)}
+
+
+def test_a_sheet_with_a_dot_in_its_number_is_another_sheet():
+    from estimator.reading.revisions import governing_pages
+    catalogue = _catalogue((BASE, 1, "M-101", "OLD PLAN TEXT HERE", ()), (ADDENDUM, 1, "M-1.01", "NEW PLAN TEXT HERE", ()),
+                           kinds={ADDENDUM: "addendum"})
+    supersessions, flags = supersede(catalogue, sheet_versions(catalogue))
+    assert supersessions == [] and flags == []
+    assert governing_pages(catalogue, supersessions) == {(BASE, 1), (ADDENDUM, 1)}
+
+
+@pytest.mark.parametrize("text, expected", [
+    ("ADDENDUM 1 3/4/2025 (REF 2025-10-01)", date(2025, 3, 4)),     # the first date in the text, whatever its form
+    ("SUMMARY 3, 2026", None),                                       # "MAR" inside a word is no month
+    ("2026/01/15", date(2026, 1, 15)),
+])
+def test_the_first_date_in_the_text_is_read(text, expected):
+    assert parse_date(text, Revisions.load(), date(2026, 9, 25)) == expected
+
+
+def test_the_versions_read_two_digit_years_by_the_jobs_own_dates_never_the_wall_clock(monkeypatch):
+    """A two-digit year is read against the newest four-digit-year date of the job's revision tables, so the same job
+    reads the same whatever day it is run."""
+    import datetime as real
+    from estimator.reading import revisions
+
+    def clock(day):
+        class Clock(real.date):
+            @classmethod
+            def today(cls):
+                return day
+        return Clock
+
+    four = _table(("1", "ISSUED FOR BID", "12-01-2026"))
+    two = _table(("2", "ADDENDUM #1", "02/12/27"))
+    catalogue = _catalogue((BASE, 1, "M-201", "PLAN", four), (ADDENDUM, 1, "M-201", "PLAN", two),
+                           kinds={ADDENDUM: "addendum"})
+    for day in (real.date(2025, 6, 1), real.date(2040, 1, 1)):
+        monkeypatch.setattr(revisions, "date", clock(day))
+        assert {v.document: v.latest for v in sheet_versions(catalogue)} == {
+            BASE: real.date(2026, 12, 1), ADDENDUM: real.date(2027, 2, 12)}
