@@ -1339,8 +1339,10 @@ def test_a_stated_count_in_another_form_on_a_sheet_of_the_dossier_counts():
     ledger = _ledger()
     _family(ledger, "CUH", "Cabinet Unit Heater", "CUH-A")
     dossier = Dossier(job_name="Invented Job",
-                      text="[S2] CUH-A (TYP. OF 4)\n[D8] P-101, Drawings.pdf page 4 LEVEL 1: CUH-A 2 PLACES\n",
-                      images=(), sources={"S2": SOURCES["S2"], "D8": "P-101, Drawings.pdf page 4 (sheet text)"},
+                      text=("[S2] CUH-A (TYP. OF 4)\n[D8] P-101, Drawings.pdf page 4 LEVEL 1: CUH-A 2 PLACES\n"
+                            "[D9] P-102, Drawings.pdf page 5 LEVEL 2: CUH-A (450) NOTE 7\n"),   # over STATED_MOST
+                      images=(), sources={"S2": SOURCES["S2"], "D8": "P-101, Drawings.pdf page 4 (sheet text)",
+                                          "D9": "P-102, Drawings.pdf page 5 (sheet text)"},
                       families=(), device_totals={}, counts={}, stats={})
     count = plan_job(ledger, None, dossier, PLAYBOOK).systems[0].families[0].count
     assert count.value >= 4 and count.value == 6

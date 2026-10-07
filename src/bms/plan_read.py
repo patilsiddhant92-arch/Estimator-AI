@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, replace
 
+from estimator.catalogue.tags import STATED_MOST
 from estimator.ledger.facts import Fact, Ledger, where_short
 
 from bms.model import Count, OtherCount, Ref
@@ -45,7 +46,9 @@ def expand(tags) -> list[str]:
 # `_STATED`, ruled FINAL-O: a stated multiplier is a placement count): "CUH-A (TYP. OF 4)", "CUH-A TYP OF 4",
 # "CUH-A (4)", "CUH-A 4 PLACES", "CUH-A x4", "CUH-A×4", and "CUH-Ax4" (a small x only, and only after a known tag:
 # `times_form`). The catalogue's patterns are anchored to the whole rest of a line, so they cannot scan a group
-# fact or a sheet's text; these are the same forms, unanchored. The count is the first group that matched.
+# fact or a sheet's text; these are the same forms, unanchored. The count is the first group that matched. As in the
+# catalogue, a TYP, bracket or PLACES count over STATED_MOST is not read ("CD-1 (200)" is a size or a note, not 200
+# places); "x" and "×" are read at any size, as before.
 TIMES_AFTER = (r"(?:\s*\(\s*TYP(?:ICAL)?\.?\s*OF\s+(\d+)\s*\.?\s*\)"
                r"|\s+TYP(?:ICAL)?\.?\s*OF\s+(\d+)"
                r"|\s*\(\s*(\d+)\s*\)"
@@ -59,10 +62,15 @@ _TAG_STATED = re.compile(rf"(?<![A-Za-z0-9\-])({_A_TAG}){TIMES_AFTER}", re.I)
 _TAG_GLUED = re.compile(rf"(?<![A-Za-z0-9\-])({_A_TAG}){GLUED_TIMES}")
 
 
-def stated_number(match: re.Match, first: int = 1) -> int:
-    """The count a match of TIMES_AFTER (or GLUED_TIMES) read: its first group, from group `first` on, that
-    matched."""
-    return int(next(g for g in match.groups()[first - 1:] if g is not None))
+_CAPPED_FORMS = 4                                            # TIMES_AFTER's first four forms: TYP, bracket, PLACES
+
+
+def stated_number(match: re.Match, first: int = 1) -> int | None:
+    """The count a match of TIMES_AFTER (then GLUED_TIMES) read: its first group, from group `first` on, that
+    matched. None when a TYP, bracket or PLACES count is 0 or over STATED_MOST: not read."""
+    at, said = next((n, g) for n, g in enumerate(match.groups()[first - 1:]) if g is not None)
+    n = int(said)
+    return None if at < _CAPPED_FORMS and not 0 < n <= STATED_MOST else n
 
 
 def times_form(text: str, known=()) -> str:
@@ -71,7 +79,8 @@ def times_form(text: str, known=()) -> str:
     "CUH-Ax4" is split only when CUH-A is one of the `known` tags and "CUH-Ax4" itself is not (a tag such as
     "VAV-2X1" stays whole)."""
     keys = {t.casefold() for t in known}
-    text = _TAG_STATED.sub(lambda m: f"{m.group(1)} ×{stated_number(m, 2)}", text)
+    text = _TAG_STATED.sub(lambda m: m.group(0) if stated_number(m, 2) is None
+                           else f"{m.group(1)} ×{stated_number(m, 2)}", text)
     return _TAG_GLUED.sub(lambda m: f"{m.group(1)} ×{m.group(2)}"
                           if m.group(1).casefold() in keys and m.group(0).casefold() not in keys else m.group(0), text)
 
@@ -253,7 +262,7 @@ class Reader:
             head = _SOURCE_LINE.match(line)
             if not head:
                 continue
-            said = list(pattern.finditer(head.group(2)))
+            said = [m for m in pattern.finditer(head.group(2)) if stated_number(m) is not None]
             if said:
                 quote = " ... ".join(squash(m.group(0)) for m in said)
                 found.append((sum(stated_number(m) for m in said), self.ref(head.group(1), quote)))
