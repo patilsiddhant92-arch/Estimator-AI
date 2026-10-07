@@ -358,3 +358,14 @@ def test_guard_a_reissue_of_a_page_the_base_never_multiplied_carries_no_floors(t
     placed, _dossier, _flags, [s], typicals, _pages = _read_reissued(catalogue, tmp_path)
     assert s.floors == () and typicals == []
     assert sum(p.count for t, p in placed.items() if t.startswith("VAV")) == 4
+
+
+def test_read_job_gives_the_reissue_the_floors_it_replaces(monkeypatch):
+    """The production path (`read_job`) passes the supersessions to the typical sheets."""
+    from estimator.reading import devices
+    from estimator.reading.job import read_job
+    monkeypatch.setattr(devices, "_words", lambda page: [devices._Word("T", 10, 10, 12, 12, False)])
+    _base, catalogue = _typical_reissue()
+    reading = read_job(catalogue, page_opener=lambda document, page: None)
+    assert [len(t.floors) for t in reading.typicals if t.document == ADDENDUM] == [3]
+    assert [(d.document, d.page, d.total) for d in reading.devices] == [(ADDENDUM, 1, 3)]
