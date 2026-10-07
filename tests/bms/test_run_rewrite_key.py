@@ -67,3 +67,16 @@ def test_a_family_accept_after_a_count_change_does_not_ask_the_writer_again(job_
     result = _asks_no_writer(job_folder, out, cache)
     final = next(s for s in _job(result)["systems"] if s["key"] == system["key"])
     assert next(f for f in final["families"] if f["name"] == family["family_name"])["count"]["value"] == 5
+
+
+def test_a_delete_after_a_count_change_does_not_ask_the_writer_again(job_folder, tmp_path, monkeypatch):
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    out, cache = tmp_path / "out", tmp_path / "cache"
+    _family, system = _changed_count(job_folder, out, cache)
+    line = system["devices"][0]
+    card = {"system_key": system["key"], "level": "device", "device_id": line["id"], "family_name": None,
+            "finding_rule": None, "device": line}
+    (out / "decisions.json").write_text(json.dumps([_decision(card, "delete")]), encoding="utf-8")
+    result = _asks_no_writer(job_folder, out, cache)
+    final = next(s for s in _job(result)["systems"] if s["key"] == system["key"])
+    assert [d["name"] for d in final["devices"] if d["name"] == line["name"]] == []

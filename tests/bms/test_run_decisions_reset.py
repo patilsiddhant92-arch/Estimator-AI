@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import json
 
+from bms import run
 from bms.review import DECISIONS_FILE, DECISIONS_HISTORY
 from bms.status import RUN_STATE
 from test_review_final import _cards, _decision, _drive
@@ -34,6 +35,7 @@ def test_deleting_both_decision_files_starts_the_count_over(job_folder, tmp_path
     assert _decisions(out) == 0
 
     _save_accept(out)
-    result = _drive(job_folder, out, cache, [])
-    assert result.messages == ()
+    first = run.estimate(job_folder, out, cache, "chat")     # the run that reads the new save
+    assert not [m for m in first.messages if DECISIONS_HISTORY in m], first.messages
+    _drive(job_folder, out, cache, [])
     assert _decisions(out) == 1
