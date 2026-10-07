@@ -41,6 +41,41 @@ def expand(tags) -> list[str]:
     return expand_tags(tags)
 
 
+# A count stated after a tag, in every form the catalogue reads on a line of its own (`estimator.catalogue.tags`
+# `_STATED`, ruled FINAL-O: a stated multiplier is a placement count): "CUH-A (TYP. OF 4)", "CUH-A TYP OF 4",
+# "CUH-A (4)", "CUH-A 4 PLACES", "CUH-A x4", "CUH-A×4", and "CUH-Ax4" (a small x only, and only after a known tag:
+# `times_form`). The catalogue's patterns are anchored to the whole rest of a line, so they cannot scan a group
+# fact or a sheet's text; these are the same forms, unanchored. The count is the first group that matched.
+TIMES_AFTER = (r"(?:\s*\(\s*TYP(?:ICAL)?\.?\s*OF\s+(\d+)\s*\.?\s*\)"
+               r"|\s+TYP(?:ICAL)?\.?\s*OF\s+(\d+)"
+               r"|\s*\(\s*(\d+)\s*\)"
+               r"|\s+(\d+)\s*(?:PLACES|PLCS?|LOCATIONS)\.?"
+               r"|\s*×\s*(\d+)"
+               r"|\s+x\s*(\d+))"
+               r"(?![A-Za-z0-9]|\.\d)")                     # never the X of "TX1", nor a decimal such as "x4.5"
+GLUED_TIMES = r"(?-i:x)(\d+)(?![A-Za-z0-9]|\.\d)"            # "CUH-Ax4": a small x glued to a tag
+_A_TAG = r"[A-Za-z]{1,6}(?:-[A-Za-z0-9.]+)+"
+_TAG_STATED = re.compile(rf"(?<![A-Za-z0-9\-])({_A_TAG}){TIMES_AFTER}", re.I)
+_TAG_GLUED = re.compile(rf"(?<![A-Za-z0-9\-])({_A_TAG}){GLUED_TIMES}")
+
+
+def stated_number(match: re.Match, first: int = 1) -> int:
+    """The count a match of TIMES_AFTER (or GLUED_TIMES) read: its first group, from group `first` on, that
+    matched."""
+    return int(next(g for g in match.groups()[first - 1:] if g is not None))
+
+
+def times_form(text: str, known=()) -> str:
+    """The text with each count stated after a tag written as "TAG ×N" (TIMES_AFTER), so one reading of "×N" reads
+    every form; a bracket that only states a count goes, so "CUH (CUH-A (4), CUH-B)" lists two tags. A glued
+    "CUH-Ax4" is split only when CUH-A is one of the `known` tags and "CUH-Ax4" itself is not (a tag such as
+    "VAV-2X1" stays whole)."""
+    keys = {t.casefold() for t in known}
+    text = _TAG_STATED.sub(lambda m: f"{m.group(1)} ×{stated_number(m, 2)}", text)
+    return _TAG_GLUED.sub(lambda m: f"{m.group(1)} ×{m.group(2)}"
+                          if m.group(1).casefold() in keys and m.group(0).casefold() not in keys else m.group(0), text)
+
+
 def tag_words(tags) -> str:
     from estimator.writing.write import tag_list
     return tag_list(list(tags))
@@ -205,13 +240,14 @@ class Reader:
         return found
 
     def _tag_times_on_sheets(self, tags: tuple[str, ...]) -> list[tuple[int, Ref]]:
-        """Each "TAG ×N" (or "TAG xN") the dossier's text gives one of the family's tags, with its ref (the
-        source line's id, the words "TAG ×N"). Only tags with a dash are looked for."""
+        """Each count the dossier's text states after one of the family's tags ("TAG ×N", "TAG xN", "TAGxN",
+        "TAG (TYP. OF N)", "TAG (N)", "TAG N PLACES": TIMES_AFTER), with its ref (the source line's id, the words
+        as printed). Only tags with a dash are looked for."""
         wanted = [t for t in tags if "-" in t]
         if not wanted or not self.dossier_text:
             return []
         names = "|".join(re.escape(t) for t in sorted(wanted, key=len, reverse=True))
-        pattern = re.compile(rf"(?<![A-Za-z0-9\-])(?:{names})(?:\s*×|\s+x)\s*(\d+)(?![A-Za-z0-9.])", re.I)
+        pattern = re.compile(rf"(?<![A-Za-z0-9\-])(?:{names})(?:{TIMES_AFTER}|{GLUED_TIMES})", re.I)
         found: list[tuple[int, Ref]] = []
         for line in self.dossier_text.splitlines():
             head = _SOURCE_LINE.match(line)
@@ -220,7 +256,7 @@ class Reader:
             said = list(pattern.finditer(head.group(2)))
             if said:
                 quote = " ... ".join(squash(m.group(0)) for m in said)
-                found.append((sum(int(m.group(1)) for m in said), self.ref(head.group(1), quote)))
+                found.append((sum(stated_number(m) for m in said), self.ref(head.group(1), quote)))
         return found
 
     # families

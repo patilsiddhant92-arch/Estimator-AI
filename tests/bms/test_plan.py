@@ -1279,3 +1279,69 @@ def test_a_shorter_schedule_tag_list_keeps_the_seeds_plan_tags_in_the_plan():
     vav = next(f for s in job.systems for f in s.families if "VAV-1" in f.tags)
     assert vav.count.value is None or vav.count.value >= 12
     assert any("VAV-11" in q and "10" in q for q in job.questions)
+
+
+# ---- a group member's stated count in any form; a later group listing a family whole (PLN-9, PLN-11, PLN-12) -------
+
+def _cuh_group(value: str) -> Job:
+    ledger = _ledger()
+    _family(ledger, "AHU", "Air Handling Unit", "AHU-1", 1)
+    _family(ledger, "CUH", "Cabinet Unit Heater", "CUH-A, CUH-B", 6)
+    ledger.add("group", "AHU-1 Plant", value, "S5", "AHU-1 PLANT riser", "risers", SETTLED)
+    return _plan(ledger)
+
+
+@pytest.mark.parametrize("value", ["AHU, CUH-A (TYP. OF 4)", "AHU, CUH (CUH-A (4))", "AHU, CUH-A 4 PLACES",
+                                   "AHU, CUH-A x4", "AHU, CUH (CUH-Ax4)"])
+def test_group_member_multiplier_forms(value):
+    job = _cuh_group(value)
+    systems = _by_key(job)
+    plant = systems["AHU-1 Plant"]
+    cuh = next(f for f in plant.families if f.name == "Cabinet Unit Heater")
+    assert cuh.tags == ("CUH-A",) and cuh.count.value == 4
+    assert systems["CUH"].families[0].tags == ("CUH-B",)
+    _counts_hold(job)
+
+
+def test_a_nested_bracket_member_listing_every_tag_takes_the_family():
+    plant = _by_key(_cuh_group("AHU, CUH (CUH-A (4), CUH-B)"))
+    assert "CUH" not in plant
+    cuh = next(f for f in plant["AHU-1 Plant"].families if f.name == "Cabinet Unit Heater")
+    assert cuh.tags == ("CUH-A", "CUH-B")
+
+
+def test_a_group_member_naming_no_family_is_asked():
+    job = _cuh_group("AHU, CUH (CUH-A x4), BOILER ROOM KIT")
+    asked = [q for q in job.questions if "BOILER ROOM KIT" in q]
+    assert len(asked) == 1 and "AHU-1 Plant" in asked[0]
+
+
+def test_a_later_group_listing_a_family_whole_takes_the_untaken_tags():
+    ledger = _ledger()
+    _family(ledger, "AHU", "Air Handling Unit", "AHU-1", 1)
+    _family(ledger, "RTU", "Rooftop Unit", "RTU-1", 1)
+    _family(ledger, "EF", "Exhaust Fan", "EF-1 thru 3", 3)
+    ledger.add("group", "AHU-1 Plant", "AHU, EF (EF-1)", "S5", "AHU-1 PLANT riser", "risers", SETTLED)
+    ledger.add("group", "RTU-1 Plant", "RTU, EF", "S5", "RTU-1 PLANT riser", "risers", SETTLED)
+    job = _plan(ledger)
+    _counts_hold(job)
+    systems = _by_key(job)
+    assert "EF" not in systems
+    ahu = next(f for f in systems["AHU-1 Plant"].families if f.name == "Exhaust Fan")
+    rtu = next(f for f in systems["RTU-1 Plant"].families if f.name == "Exhaust Fan")
+    assert ahu.tags == ("EF-1",) and rtu.tags == ("EF-2", "EF-3")
+    assert ahu.count.value + rtu.count.value == 3
+    asked = [q for q in job.questions if "AHU-1 Plant" in q and "RTU-1 Plant" in q and "(EF)" in q]
+    assert asked and "3" in asked[0]
+
+
+def test_a_stated_count_in_another_form_on_a_sheet_of_the_dossier_counts():
+    ledger = _ledger()
+    _family(ledger, "CUH", "Cabinet Unit Heater", "CUH-A")
+    dossier = Dossier(job_name="Invented Job",
+                      text="[S2] CUH-A (TYP. OF 4)\n[D8] P-101, Drawings.pdf page 4 LEVEL 1: CUH-A 2 PLACES\n",
+                      images=(), sources={"S2": SOURCES["S2"], "D8": "P-101, Drawings.pdf page 4 (sheet text)"},
+                      families=(), device_totals={}, counts={}, stats={})
+    count = plan_job(ledger, None, dossier, PLAYBOOK).systems[0].families[0].count
+    assert count.value >= 4 and count.value == 6
+    assert count.sources[0] == Ref("S2", "CUH-A (TYP. OF 4)", "M-101, Drawings.pdf page 2")
