@@ -106,8 +106,10 @@ def test_contradictions_and_confirmations_by_id():
                         {"fact_id": "F99", "value": 3, "source_id": "[S4]", "quote": "three"}],
         confirmations=[ef.id, "F98"]), _known(ledger))
     assert ledger.facts["F1"].state == CONTRADICTED
-    assert ledger.find("count", "EF").state == SETTLED
+    # LDG-3: the plans pass may only add, so its confirmation of EF's count is refused and the count stays added
+    assert ledger.find("count", "EF").state == ADDED
     assert refused == ["a contradiction names F99, which the ledger does not have; left out",
+                       f"the plans pass may not confirm {ef.id}, a count fact; left out",
                        "a confirmation names F98, which the ledger does not have; left out"]
 
 
