@@ -395,3 +395,19 @@ def test_an_id_only_written_in_document_text_is_refused_not_a_crash():
         _known(ledger) | {"M5"})
     assert len(refused) == 2 and all("[M5]" in r for r in refused)
     assert (dict(ledger.facts), dict(ledger.sources)) == before
+
+
+def test_a_tag_list_the_schedules_pass_shortens_keeps_the_seeds_list_beside_it():
+    # LDG-4: the seed's tags are the counts line's (scheduled and on the plans); a shorter schedule list must not
+    # erase VAV-11 and VAV-12 with no record
+    ledger = seed(_dossier())
+    unit = ledger.find("unit", "VAV")
+    assert unit.state == ADDED and unit.value == "VAV-1 thru 12"
+    refused = apply(pass_named("schedules"), ledger, _answer(facts=[
+        {"kind": "unit", "subject": "VAV", "value": "VAV-1 thru 10", "source_id": "[S4]", "quote": "VAV-1 thru VAV-10"}]),
+        _known(ledger))
+    after = ledger.facts[unit.id]
+    assert refused == []
+    assert after.value == "VAV-1 thru 10" and after.stage == "schedules"
+    assert [(c.value, c.source_id, c.stage) for c in after.contradictions] == [("VAV-1 thru 12", unit.source_id, "seed")]
+    assert [f.id for f in ledger.of_kind("unit") if f.subject == "VAV"] == [unit.id]   # no second unit fact

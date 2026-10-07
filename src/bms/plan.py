@@ -932,6 +932,29 @@ class _Planner:
                    if f.source is not None and f.source.prefix == family.prefix and not f.moved]
         return next((d for d in holding if d.kind != "group"), holding[0] if holding else None)
 
+    # -- tags a later pass added to a family's list
+
+    def added_tags(self) -> None:
+        """Each family whose tag list a later pass contradicted with tags the list lacks (the plans show EF-4
+        where the schedule lists EF-1 thru 3) keeps those tags (the Reader joins both lists) and is asked once,
+        naming both numbers: how many the list gives and how many were counted."""
+        for fact in self.reader.family_facts():
+            family = self.reader.family(fact)
+            if not family.added:
+                continue
+            unit = self.reader.ledger.find("unit", family.prefix)
+            head = (f"{family.name} ({family.prefix}): {_places((self.reader.fact_ref(unit),))} lists "
+                    f"{family.listed} ({squash(unit.value)}); {', '.join(family.added)} "
+                    f"{'is' if len(family.added) == 1 else 'are'} also on {_places(family.added_refs)}")
+            if family.count.value is None:
+                self.questions.append(f"{head}; no count is known (Qty (##)): how many are there?")
+            elif family.was is not None and family.count.value != family.was:
+                self.questions.append(f"{head}; counted {family.count.value} (the count gave {family.was}), "
+                                      "confirm the count.")
+            else:
+                self.questions.append(f"{head}; counted {family.count.value}, confirm the count includes "
+                                      f"{', '.join(family.added)}.")
+
     # -- the invariant: nothing the ledger holds is dropped
 
     def lost(self, drafts: list[_Draft]) -> None:
@@ -1350,6 +1373,7 @@ def plan_job(ledger: Ledger, catalogue: Catalogue, dossier: Dossier, playbook: P
     keys: set[str] = set()
     systems = _with_served([planner.system(d, keys) for d in drafts], drafts)
     planner.family_questions(systems, drafts)
+    planner.added_tags()
     planner.lost(drafts)
     front_end = _front_end(planner)
     questions = own + planner.questions + _unmatched_sections(planner, drafts)
