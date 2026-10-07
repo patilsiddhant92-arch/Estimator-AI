@@ -704,18 +704,23 @@ def evidence_for(system: System, dossier: Dossier) -> str:
     When the dossier carries the reading's schedule objects, each included schedule is a small table — its columns,
     then the rows for this system's tags — instead of the flat dossier lines. The source id stays at the start of
     the title, of each row and of each note."""
-    return ai_evidence.evidence(system, dossier.text, dict(dossier.sources or {}), dict(dossier.sections or {}),
-                                dossier.images, dossier.schedules)
+    return ai_evidence.evidence(system, dossier.text, dict(dossier.sources or {}),
+                                _sections_of(dossier), dossier.images, dossier.schedules)
+
+
+def _sections_of(dossier: Dossier) -> dict:
+    """The dossier's sequence sections, read from its text when it carries none."""
+    sections = dossier.sections or {}
+    if not sections:
+        from estimator.writing.dossier import sections_in
+        sections = sections_in(dossier.text or "")
+    return dict(sections)
 
 
 def evidence_index(dossier: Dossier) -> dict[str, str]:
     """Every source id of the dossier ("S41", "I2", "Q7") -> its text (a picture: its description), for the QC
     pass to check that each Ref's quote is in its source."""
-    sections = dossier.sections or {}
-    if not sections:
-        from estimator.writing.dossier import sections_in
-        sections = sections_in(dossier.text or "")
-    return ai_evidence.index(dossier.text, dict(dossier.sources or {}), dict(sections))
+    return ai_evidence.index(dossier.text, dict(dossier.sources or {}), _sections_of(dossier))
 
 
 # ---- write and revise: the prompt and the checks of a System answer -------------------------------------------------
