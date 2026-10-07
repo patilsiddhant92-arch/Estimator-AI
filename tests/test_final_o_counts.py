@@ -369,3 +369,35 @@ def test_read_job_gives_the_reissue_the_floors_it_replaces(monkeypatch):
     reading = read_job(catalogue, page_opener=lambda document, page: None)
     assert [len(t.floors) for t in reading.typicals if t.document == ADDENDUM] == [3]
     assert [(d.document, d.page, d.total) for d in reading.devices] == [(ADDENDUM, 1, 3)]
+
+
+# ---- RD-11: an addendum reissuing two same-numbered sheets of other titles replaces each ---------------------------
+
+def test_an_addendum_reissuing_both_buildings_sheets_of_one_number_replaces_both(tmp_path):
+    catalogue = _job([(MECH, 1, "M-101", "BUILDING A HVAC LEVEL 1 PLAN", ["VAV-11", "VAV-12", "AHU-1"], ()),
+                      (SECOND, 1, "M-101", "BUILDING B HVAC LEVEL 1 PLAN", ["VAV-21", "VAV-22", "AHU-2"], ()),
+                      (ADDENDUM, 1, "M-101", "BUILDING A HVAC LEVEL 1 PLAN", ["VAV-11", "VAV-12", "AHU-1", "VAV-18"], ()),
+                      (ADDENDUM, 2, "M-101", "BUILDING B HVAC LEVEL 1 PLAN", ["VAV-21", "VAV-22", "AHU-2", "VAV-28"], ())],
+                     kinds={ADDENDUM: "addendum"})
+    inventory, dossier, flags, supersessions, _lines = _read(catalogue, tmp_path)
+    assert flags == []
+    assert sorted((s.current.page, v.document, v.page) for s in supersessions for v in s.replaced) == [
+        (1, MECH, 1), (2, SECOND, 1)]
+    assert governing_pages(catalogue, supersessions) == {(ADDENDUM, 1), (ADDENDUM, 2)}
+    _same(inventory, dossier, VAV=6, AHU=2)
+
+
+def test_an_addendum_whose_first_sheet_is_unchanged_still_replaces_its_second(tmp_path):
+    """The addendum's first M-101 is building A's unchanged: it is still a version of the set, so its building B M-101
+    is found (never the addendum taken for a copy of Mech.pdf by its first page alone)."""
+    a, b = ["VAV-11", "VAV-12", "AHU-1"], ["VAV-21", "VAV-22", "AHU-2"]
+    catalogue = _job([(MECH, 1, "M-101", "BUILDING A HVAC LEVEL 1 PLAN", a, ()),
+                      (SECOND, 1, "M-101", "BUILDING B HVAC LEVEL 1 PLAN", b, ()),
+                      (ADDENDUM, 1, "M-101", "BUILDING A HVAC LEVEL 1 PLAN", a, ()),
+                      (ADDENDUM, 2, "M-101", "BUILDING B HVAC LEVEL 1 PLAN", b + ["VAV-28"], ())],
+                     kinds={ADDENDUM: "addendum"})
+    inventory, dossier, flags, supersessions, _lines = _read(catalogue, tmp_path)
+    assert flags == []
+    assert sorted((s.current.page, v.document, v.page) for s in supersessions for v in s.replaced) == [
+        (1, MECH, 1), (2, SECOND, 1)]
+    _same(inventory, dossier, VAV=5, AHU=2)

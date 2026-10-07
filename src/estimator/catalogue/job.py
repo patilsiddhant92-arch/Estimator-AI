@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import re
-from collections import Counter, defaultdict
+from collections import ChainMap, Counter, defaultdict
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 
@@ -14,7 +14,7 @@ from estimator.catalogue.register import PageRecord, register_job
 from estimator.catalogue.sheet_types import Sheet, classify_sheet, discipline_from_filename
 from estimator.catalogue.spec_sections import SpecSection, index_sections
 from estimator.catalogue.tags import TagEntry, index_tags, is_type_tag, label_keys, line_labels, plan_labels
-from estimator.catalogue.title_block import read_drawing_index, read_title_block
+from estimator.catalogue.title_block import read_drawing_index, read_title_block, sheet_key
 
 
 @dataclass(frozen=True)
@@ -38,9 +38,11 @@ def catalogue_job(root: Path, cache_dir: Path | None = None, workers: int = 1,
     job = find_documents(root, documents)
     pages = tuple(register_job(job, cache_dir, workers))
     kinds = {d.relative: d.kind for d in job.documents}
-    # A sheet whose title block gives no title takes it from the drawing index, wherever the job lists one.
-    index = read_drawing_index(record.text for record in pages if record.status in ("text", "ocr"))
-    sheets = tuple(classify_sheet(record, read_title_block(record.edge_spans, index))
+    # A sheet whose title block gives no title takes it from the drawing index (RD-6): its own document's first,
+    # and another document's only when every index listing the number gives it the same title (two sets can give
+    # one number two titles).
+    indexes = _drawing_indexes(pages)
+    sheets = tuple(classify_sheet(record, read_title_block(record.edge_spans, indexes.get(record.document)))
                    for record in pages if record.large_sheet)
     # A sheet whose discipline is still unknown takes it from its document's file name, when the
     # name carries a single discipline token — but never for a spec book, which isn't a drawing set.
@@ -54,6 +56,22 @@ def catalogue_job(root: Path, cache_dir: Path | None = None, workers: int = 1,
     overview = build_overview(pages, sheets, sections)
     catalogue = Catalogue(job, pages, sheets, sections, bid, tags, (), overview)
     return Catalogue(job, pages, sheets, sections, bid, tags, tuple(_flags(catalogue)), overview)
+
+
+def _drawing_indexes(pages) -> dict[str, ChainMap]:
+    """Document -> the drawing index its sheets take titles from: the document's own index, then each number the
+    other indexes all give one title (never one of two titles two sets give it)."""
+    texts: dict[str, list[str]] = defaultdict(list)
+    for record in pages:
+        texts[record.document] += [record.text] if record.status in ("text", "ocr") else []
+    own = {document: read_drawing_index(found) for document, found in texts.items()}
+    given: dict[str, set[str]] = defaultdict(set)
+    for index in own.values():
+        for key, title in index.items():
+            given[key].add(title)
+    # a number every listing index gives one title (one index, or a cover sheet reissued with its index): that title
+    agreed = {key: next(iter(found)) for key, found in given.items() if len(found) == 1}
+    return {document: ChainMap(index, agreed) for document, index in own.items()}
 
 
 def _name(relative: str) -> str:
@@ -359,18 +377,22 @@ def _flags(catalogue: Catalogue) -> list[str]:
     named = _names(catalogue)
     flags += [_repeat_line(r, named) for r in found]
     repeat_covered = {(number, r.copy) for r in found for number in r.numbers}   # copies and other sets: one line
+    # one sheet however its number is written ("M-101", "M101", "M 101": `sheet_key`, ruling D8), named as first printed
     places: dict[str, dict[str, list[int]]] = defaultdict(lambda: defaultdict(list))
+    printed: dict[str, str] = {}
     for sheet in catalogue.sheets:
         if sheet.number and (sheet.number, sheet.document) not in repeat_covered:
-            places[sheet.number][sheet.document].append(sheet.page)
-    per_floor = repeated_plans(catalogue)
-    for number, by_document in places.items():
+            key = sheet_key(sheet.number)
+            printed.setdefault(key, sheet.number)
+            places[key][sheet.document].append(sheet.page)
+    per_floor = {sheet_key(number) for number in repeated_plans(catalogue)}
+    for key, by_document in places.items():
         count = sum(len(p) for p in by_document.values())
-        if number in per_floor and len(by_document) == 1:
+        if key in per_floor and len(by_document) == 1:
             continue    # one plan per floor: the reading multiplies what is on it, and says so
         if count > 1:
             where = "; ".join(f"{_name(doc)} p.{_ranges(p)}" for doc, p in by_document.items())
-            flags.append(f"Sheet {number} is on {count} pages ({where})")
+            flags.append(f"Sheet {printed[key]} is on {count} pages ({where})")
     if catalogue.bid.finding != "Qualifies":
         flags.append(f"Bid check: {catalogue.bid.finding} — the US team decides before this job is issued")
     return flags
