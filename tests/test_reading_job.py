@@ -157,3 +157,113 @@ def test_a_cache_file_is_written_under_a_name_no_other_run_uses(tmp_path, monkey
     pages._store(tmp_path / "x.json", {"shape": {}, "data": 1})
     pages._store(tmp_path / "x.json", {"shape": {}, "data": 2})
     assert len(set(moved)) == 2 and all(f".{os.getpid()}-" in name and name.endswith(".tmp") for name in moved)
+
+
+# ---- a passing failure: a busy machine, a locked file, never a schedule lost --------------------
+
+def _unreadable(reading) -> list[str]:
+    return [f for f in reading.flags if "could not be read" in f]
+
+
+def test_a_page_that_failed_once_is_not_kept_failed_in_the_cache(job, tmp_path, monkeypatch):
+    """A page whose tables raised on one run is flagged on that run, and read in full on the next:
+    the cache never holds the failure."""
+    cache = tmp_path / "cache"
+    catalogue = catalogue_job(job, cache)
+    whole = read_job(catalogue)
+    real = pymupdf.Page.find_tables
+    calls = []
+
+    def once(page, *args, **kwargs):
+        calls.append(1)
+        if len(calls) == 1:
+            raise RuntimeError("a passing failure")
+        return real(page, *args, **kwargs)
+
+    monkeypatch.setattr(pymupdf.Page, "find_tables", once)
+    broken = read_job(catalogue, cache_dir=cache)
+    assert broken.schedules == () and _unreadable(broken)
+    monkeypatch.setattr(pymupdf.Page, "find_tables", real)
+    assert read_job(catalogue, cache_dir=cache) == whole
+
+
+def test_a_cache_file_that_cannot_be_written_never_loses_the_page(job, tmp_path, monkeypatch):
+    """Moving a cache file into place can fail on Windows while a virus scanner holds the old one:
+    the page was read, so it is used; the cache is simply not kept this time."""
+    import os
+
+    from estimator.reading import pages
+
+    cache = tmp_path / "cache"
+    catalogue = catalogue_job(job, cache)
+    whole = read_job(catalogue)
+    real_replace = os.replace
+
+    def locked(src, dst):
+        if "reading-v" in Path(dst).name:
+            raise PermissionError(13, "The process cannot access the file because it is being used by another process")
+        return real_replace(src, dst)
+
+    monkeypatch.setattr(pages, "RETRY_PAUSE", 0)
+    monkeypatch.setattr(pages.os, "replace", locked)
+    reading = read_job(catalogue, cache_dir=cache)
+    assert reading == whole and not _unreadable(reading)
+    assert not list(cache.glob("reading-v*"))
+
+
+def test_a_document_locked_for_a_moment_is_opened_on_a_retry(job, tmp_path, monkeypatch):
+    """A PDF another program holds for a moment won't open (pymupdf says FileDataError); it is tried
+    again after a short pause, and read in full, not flagged as unreadable for the whole run."""
+    from estimator.reading import pages
+
+    catalogue = catalogue_job(job, tmp_path / "cache")
+    whole = read_job(catalogue)
+    real_open = pymupdf.open
+    calls = []
+
+    def busy(*args, **kwargs):
+        calls.append(1)
+        if len(calls) == 1:
+            raise pymupdf.FileDataError("Failed to open file as type pdf.")
+        return real_open(*args, **kwargs)
+
+    monkeypatch.setattr(pages, "RETRY_PAUSE", 0)
+    monkeypatch.setattr(pymupdf, "open", busy)
+    reading = read_job(catalogue, cache_dir=tmp_path / "pages")
+    assert reading == whole and not _unreadable(reading)
+
+
+def test_a_document_still_locked_after_the_retries_is_flagged(job, tmp_path, monkeypatch):
+    from estimator.reading import pages
+
+    catalogue = catalogue_job(job, tmp_path / "cache")
+
+    def busy(*args, **kwargs):
+        raise pymupdf.FileDataError("Failed to open file as type pdf.")
+
+    monkeypatch.setattr(pages, "RETRY_PAUSE", 0)
+    monkeypatch.setattr(pymupdf, "open", busy)
+    reading = read_job(catalogue, cache_dir=tmp_path / "pages")
+    assert reading.schedules == ()
+    assert any(f.startswith("M-601 (Mech.pdf page 1) could not be read for schedules — the document would not open")
+               for f in reading.flags)
+
+
+def test_a_document_hashed_while_locked_for_a_moment_is_hashed_on_a_retry(job, tmp_path, monkeypatch):
+    from estimator.reading import pages
+
+    catalogue = catalogue_job(job, tmp_path / "cache")
+    whole = read_job(catalogue)
+    real_digest = pages.hashlib.file_digest
+    calls = []
+
+    def busy(*args, **kwargs):
+        calls.append(1)
+        if len(calls) == 1:
+            raise PermissionError(13, "Permission denied")
+        return real_digest(*args, **kwargs)
+
+    monkeypatch.setattr(pages, "RETRY_PAUSE", 0)
+    monkeypatch.setattr(pages.hashlib, "file_digest", busy)
+    reading = read_job(catalogue, cache_dir=tmp_path / "pages")
+    assert reading == whole and not _unreadable(reading)
