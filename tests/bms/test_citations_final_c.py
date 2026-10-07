@@ -133,6 +133,7 @@ def test_the_place_of_a_where_never_prints_an_issued_id_after_a_sheet_word_unles
     assert SourceIds.of(["S141"], [], ["S141"]).where_issued("Sheet S141, Mechanical.pdf page 3") == []
 
 
+@pytest.mark.slow
 def test_the_detector_stays_linear_on_a_long_sheet_list():
     from timing import grows_linearly
     ids = SourceIds.of([f"S{n}" for n in range(1, 400)], [], [f"S{n}" for n in range(1, 400, 2)])

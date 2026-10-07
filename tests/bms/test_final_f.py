@@ -4,6 +4,8 @@ not ("S141, Mechanical.pdf page 3", "Mechanical schedule, S141"); tags, known sh
 (`test_review_final3._verdicts`). Invented fixture only."""
 from __future__ import annotations
 
+import pytest
+
 from bms import ai, run
 from bms.citations import WHERE_ADVICE, SourceIds, job_ids, job_sheets, job_tags
 from bms.model import Ref
@@ -105,6 +107,7 @@ def test_a_hand_edited_change_whose_where_leads_with_an_issued_id_gets_the_card(
         == [("EF.d1", ("S6",))]
 
 
+@pytest.mark.slow
 def test_where_issued_with_no_sheet_word_stays_linear():
     from timing import grows_linearly
     ids = SourceIds.of([f"S{n}" for n in range(1, 400)], [], [f"S{n}" for n in range(1, 400, 2)])

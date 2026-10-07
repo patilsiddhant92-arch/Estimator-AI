@@ -310,6 +310,7 @@ def test_a_fence_closes_only_with_its_own_marker(tmp_path):
     assert any("arrow" in m for m in _messages(root)), _messages(root)
 
 
+@pytest.mark.slow
 def test_many_unclosed_fences_lint_in_linear_time(tmp_path):
     from timing import grows_linearly
     roots: dict[int, object] = {}

@@ -196,6 +196,7 @@ def test_the_safety_net_leaves_no_issued_id_and_takes_out_nothing_else():
     assert not failures, f"{len(failures)} of {N}:\n{shown}"
 
 
+@pytest.mark.slow
 def test_checking_texts_grows_linearly_with_the_number_of_texts():
     """No wall-clock limit (it flaked under load): 4 times the texts take well under 8 times as long."""
     ids = _ids()
@@ -206,6 +207,7 @@ def test_checking_texts_grows_linearly_with_the_number_of_texts():
     assert grows_linearly(check, 500)
 
 
+@pytest.mark.slow
 def test_runtime_grows_linearly_with_the_length_of_one_text():
     ids = _ids()
 

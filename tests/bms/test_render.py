@@ -396,6 +396,7 @@ def test_no_punctuation_is_left_after_a_label(job, kind, text, printed):
     "S141" + " " * 40_000 + "x",                          # review 3 M1: a long whitespace run
     "([" * 8_000 + "I3" + "])" * 8_000,                   # review 3 M1: deep brackets
 ], ids=["20000-words", "5000-ids", "5000-bracketed-ids", "40000-spaces", "8000-deep-brackets"])
+@pytest.mark.slow
 def test_the_detector_and_the_safety_net_are_linear_on_a_long_text(text):
     """M3: a runaway answer never stalls a run."""
     from timing import grows_linearly

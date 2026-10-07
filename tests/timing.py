@@ -11,7 +11,7 @@ import gc
 import time
 from collections.abc import Callable
 
-MIN_BASE = 0.03          # seconds: a smaller run than this is timed again with a larger n
+MIN_BASE = 0.1           # seconds: a smaller run than this is timed again with a larger n
 
 
 def _best(work: Callable[[int], object], n: int, runs: int) -> float:
@@ -44,3 +44,12 @@ def grows_linearly(work: Callable[[int], object], n: int, limit: float = 8.0, at
     """True when `work` grows less than `limit` times from n to 4n; a slow measurement is taken again (up to
     `attempts` times), so a burst of load on one run does not fail it, while quadratic work fails every time."""
     return any(growth(work, n) < limit for _ in range(attempts))
+
+
+def grows_faster(work: Callable[[int], object], n: int, limit: float = 8.0, attempts: int = 3) -> bool:
+    """True when `work` grows `limit` times or more from n to 4n in at least one of `attempts` measurements: the
+    check for work that must NOT be linear. Load can only hide the growth (a burst during the small run makes
+    the big one look less than `limit` times slower), never invent it, so one clear measurement is the proof and
+    a single low one does not fail the test. Fewer runs per measurement (3, not 5): quadratic work is slow at
+    the 4n size, and the repeats across attempts make up for it."""
+    return any(growth(work, n, runs=3) >= limit for _ in range(attempts))
