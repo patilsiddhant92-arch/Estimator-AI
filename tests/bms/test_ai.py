@@ -1487,3 +1487,39 @@ def test_a_revise_still_puts_an_untouched_line_back_exactly(job, raw, dossier, p
     finding = Finding("Dampers under their fan", "EF", "EF.d3", "must_fix", "w", "f")
     revised = ai.revise_system(system, [finding], ai.evidence_for(system, dossier), playbook, FakeTransport(answer))
     assert revised.devices[0] == system.devices[0]
+
+
+# ---- the prompts agree with the Playbook (ruling D5): integration, default party, relays ----------------------------
+
+def _prompt(name: str) -> str:
+    return (ROOT / "src" / "bms" / "prompts" / name).read_text(encoding="utf-8")
+
+
+def test_the_qc_prompt_follows_the_playbooks_integration_rules():
+    qc = _prompt("qc_job.md")
+    assert "Ask for an integration line only when a cited source calls for the BMS to integrate that unit" not in qc
+    assert ("Never ask for VFD or speed lines a factory-controlled unit does not have. The integration lines follow "
+            'the Playbook\'s "Integration trio", "Integration lines cover monitoring" and "Integration lines last".') in qc
+
+
+def test_the_writer_prompt_takes_the_playbook_default_and_flags_only_unclear_ownership():
+    write = _prompt("write_system.md")
+    assert "When the evidence does not say who furnishes, installs or wires a device, follow the Playbook, set flag" \
+        not in write
+    assert ('When the evidence names no party, take the Playbook\'s default ("Who owns what by default", "Three '
+            'ownership questions"). Set flag "ownership" (with an assumption saying what you took and why) only in '
+            'the cases the Playbook lists under "Unclear ownership is flagged".') in write
+
+
+def test_the_writer_prompt_does_not_invite_a_relay_line_the_playbook_absorbs():
+    write = _prompt("write_system.md")
+    assert ("a relay it switches through) is called for by that sentence; cite it, unless the Playbook says another "
+            'line already covers it ("Start/stop covers the relay and status switch") or it is inside a packaged '
+            'unit ("Nothing inside the unit is a line").') in write
+    assert "a relay it switches through) is called for by that sentence; cite it.\n" not in write
+
+
+def test_the_writer_prompts_ownership_flag_is_the_playbooks_unclear_ownership():
+    write = _prompt("write_system.md")
+    assert '"ownership" (who furnishes, installs or wires is not in the evidence)' not in write
+    assert '"ownership" (the Playbook\'s unclear ownership:' in write

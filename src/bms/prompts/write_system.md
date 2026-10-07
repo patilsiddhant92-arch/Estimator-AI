@@ -10,7 +10,7 @@ You write the system's devices (its scope lines, in print order), its clarificat
 ## The evidence decides every line
 
 - Write a device line only when this job's evidence calls for it. Never write a line because systems of this kind usually have one, because the shape has a slot for it, or because another job had one. A slot the evidence does not call for stays empty.
-- Read the whole evidence: the sequence (what the controls must do), the points list, the schedule rows and their notes, the counts, the devices on the plans, the notes and the specification passages. A device the sequence needs to do what it says (a sensor it measures with, an actuator it moves, a relay it switches through) is called for by that sentence; cite it.
+- Read the whole evidence: the sequence (what the controls must do), the points list, the schedule rows and their notes, the counts, the devices on the plans, the notes and the specification passages. A device the sequence needs to do what it says (a sensor it measures with, an actuator it moves, a relay it switches through) is called for by that sentence; cite it, unless the Playbook says another line already covers it ("Start/stop covers the relay and status switch") or it is inside a packaged unit ("Nothing inside the unit is a line").
 - Every device has at least one ref. A ref has:
   - source_id: the id in the square brackets, without the brackets, exactly as the evidence gives it ("S41", "Q7", "I2", "F17");
   - quote: the exact words of that source that call for the line, copied character for character, long enough to show it (never paraphrased, never joined from two places; a quote read off a picture is copied as printed);
@@ -32,14 +32,14 @@ You write the system's devices (its scope lines, in print order), its clarificat
 - verb is one of: Furnish and Install, Furnish, Furnish and Wire, Install and Wire, Wire. It says what AME does on the line.
 - furnished_by, installed_by and wired_by are each one of: AME, Unit Mfr., FA, Mechanical Contractor, Electrical Contractor, Others, Owner.
 - Set each party from the evidence: who-does-what sentences, schedule notes and specification passages that say who furnishes, mounts or wires a device (furnished with the unit, shipped loose, by others, by another division). The verb and the parties must not contradict each other or the Playbook's ownership rules.
-- When the evidence does not say who furnishes, installs or wires a device, follow the Playbook, set flag "ownership" and state in the assumption what you took and why.
+- When the evidence names no party, take the Playbook's default ("Who owns what by default", "Three ownership questions"). Set flag "ownership" (with an assumption saying what you took and why) only in the cases the Playbook lists under "Unclear ownership is flagged".
 
 ## Counts: the higher count prints; never undershoot
 
 - quantity is a count: value, sources, others. value is the number of this line, the highest any source gives. sources are the refs that give that number; others are every different number another source gives, each with its ref.
 - A line that is one per unit of a family carries that family's count, copied whole (value, sources and others).
 - When no source gives the number, value is null (it prints as unknown) and flag is "quantity". Never work out, guess or round a number. When the sources disagree, the higher one is value, every other is in others, and flag is "quantity".
-- flag says why the estimator must look at the line: "quantity" (count unknown or sources disagree), "ownership" (who furnishes, installs or wires is not in the evidence), "assumed" (the line rests on an assumption), "none" otherwise. When more than one applies: quantity first, then ownership, then assumed.
+- flag says why the estimator must look at the line: "quantity" (count unknown or sources disagree), "ownership" (the Playbook's unclear ownership: two parties for one device, split furnishing and installing, in scope and in an exclusion, or a costly device with no party and no default), "assumed" (the line rests on an assumption), "none" otherwise. When more than one applies: quantity first, then ownership, then assumed.
 
 ## Assumptions say what and why
 
