@@ -30,8 +30,9 @@ decisions.json stops the run with a plain message. The run's first and very last
 in `out`: first "running" (rewritten with the quote and the job name once they are known), last how it ended
 (status, stage, how many requests wait, its plain messages, the quote, the job, and how many decisions the history
 held). Each is written whole or not at all, and one that cannot be written never stops the run. A run that crashes
-leaves "running", which `python -m bms status` reports as not finished; a proposal that cannot be printed
-(`bms.render.RenderError`) ends it as stopped, in words. Status trusts an ending only while no ledger or job is
+leaves "running", which `python -m bms status` reports as not finished; a run a person can put right (a proposal
+that cannot be printed, an output open in Word or Excel, a missing job folder) ends it as stopped at its step, in
+words. Status trusts an ending only while no ledger or job is
 newer. Every output goes under `out` (NDA: never the repo). Prints "Wrote <path>" per file, as the old app does (tools/run_job.py reads those lines).
 """
 from __future__ import annotations
@@ -81,7 +82,7 @@ class RunResult:
     "done": the proposal, price sheet and Evidence Package are written."""
     status: Status
     stage: str                              # the last step reached: "read", "count", "write", "decisions", "qc",
-                                            # "revise", "done"; "render" only in the run state of a print error
+                                            # "revise", "done"; "render" only in the run state of a stop while printing
     waiting: int = 0
     job_file: Path | None = None            # out/<quote> Job.json: the Job model as last saved
     findings: tuple[Finding, ...] = ()      # the final validate's findings plus the QC findings left open
@@ -240,6 +241,23 @@ def _stopped(reason: str) -> str:
     return text if text.startswith("Stopped:") else f"Stopped: {text}"
 
 
+def _stop_words(error: Exception, stage: str) -> str:
+    """The plain "Stopped:" line for a run that cannot go on: a locked file by its name, a missing one by its path,
+    a proposal that cannot be printed with the check's own words."""
+    if isinstance(error, PermissionError):
+        if error.filename:
+            return _stopped(f"{Path(error.filename).name} is open in Word or Excel — close it and run again.")
+        return _stopped(f"a file could not be written ({error.strerror or error}); another program may have it "
+                        f"open. Close it and run again.")
+    if isinstance(error, FileNotFoundError):
+        return _stopped(f"{error.filename or error} was not found. Check the job folder and run again.")
+    if str(error).startswith("Stopped:"):
+        return str(error)
+    if isinstance(error, RenderError) or stage == "render":
+        return _stopped(f"the proposal could not be printed: {error}. Fix what it names and run again.")
+    return _stopped(f"{error}. Fix what it names and run again.")
+
+
 def _workers() -> int:
     return max(1, min(4, os.cpu_count() or 1))
 
@@ -314,23 +332,28 @@ def estimate(job_folder: Path, out: Path, cache: Path, mode: Mode = "chat") -> R
     """Run the rebuilt estimate on one job folder. `cache` is where reading is kept and where the chat requests go
     (`cache/judge-chat`); `mode` "chat" or "api" for every AI question (the reading passes too). Its first act is a
     "running" `out/run state.json`; however the run ends (done, waiting or stopped), its last act replaces it with
-    how it ended. A proposal that cannot be printed (`RenderError`) ends it as stopped with the error's words (status
-    "waiting", nothing waiting, a "Stopped:" message), and the error reaches the caller. Any other exception reaches
-    the caller unchanged and leaves "running"."""
+    how it ended. A run that cannot go on for a reason a person can fix (a proposal that cannot be printed,
+    `RenderError`; an output open in Word or Excel, `PermissionError`; a missing job folder or file,
+    `FileNotFoundError`; a template or fit check, `ValueError`) ends it as stopped at the step it reached, in plain
+    words (status "waiting", nothing waiting, a "Stopped:" message); the error reaches the caller with that ending as
+    its `run_result`. A `ModelError` (the pipeline built a bad model) and any other exception reach the caller
+    unchanged and leave "running"."""
     if mode not in MODES:
         raise ValueError(f"the mode must be chat or api, not {mode!r}")
     job_folder, out, cache = Path(job_folder), Path(out), Path(cache)
     _check_folders_outside_repo(out, cache)
     out.mkdir(parents=True, exist_ok=True)
     # the quote and the job name once _estimate knows them; how many decisions the history held at the last save
-    known: dict = {"decisions": _decisions_saved_before(out)}
+    known: dict = {"decisions": _decisions_saved_before(out), "stage": "read"}
     _save_running(out, decisions=known["decisions"])
     try:
         result = _estimate(job_folder, out, cache, mode, known)
-    except RenderError as error:
-        stopped = RunResult("waiting", "render", waiting=0, messages=(
-            _stopped(f"the proposal could not be printed: {error}. Fix what it names and run again."),))
+    except ModelError:
+        raise
+    except (RenderError, PermissionError, FileNotFoundError, ValueError) as error:
+        stopped = RunResult("waiting", known["stage"], waiting=0, messages=(_stop_words(error, known["stage"]),))
         _save_run_state(out, stopped, known.get("quote", ""), known.get("job", ""), known["decisions"])
+        error.run_result = stopped
         raise
     _save_run_state(out, result, known.get("quote", ""), known.get("job", ""), known["decisions"])
     return result
@@ -356,6 +379,7 @@ def _estimate(job_folder: Path, out: Path, cache: Path, mode: Mode, known: dict)
                          messages=(f"Reading stopped at the {ledger.stopped_at} pass: waiting for its answer.",))
 
     # 2. plan, then the counts cross-check
+    known["stage"] = "count"
     playbook = load_playbook()
     job = plan_job(ledger, catalogue, dossier, playbook)
     job = dataclasses.replace(job, header=Header(
@@ -380,6 +404,7 @@ def _estimate(job_folder: Path, out: Path, cache: Path, mode: Mode, known: dict)
                                    "count.",))
 
     # 3. write every system (all are asked before stopping for answers)
+    known["stage"] = "write"
     evidence = {s.key: ai.evidence_for(s, dossier) for s in job.systems}
     # I, one set for every writer and the revise: every id of the job and of every system's evidence. A ref may
     # cite only its system's evidence, so the final job's ids (the validator's and the renderer's I) are in it, and a
@@ -418,6 +443,7 @@ def _estimate(job_folder: Path, out: Path, cache: Path, mode: Mode, known: dict)
     # A family-count change is the only reason to ask again, and the devices already written are kept.
     # A malformed file stops the run in words. The page saves only its own answers, so the run keeps every save in
     # the history (bms.review.merge_decisions) and applies them all: a second save never undoes the first in silence.
+    known["stage"] = "decisions"
     try:
         earlier = load_history(out)
         saved = load_decisions(out)
@@ -471,6 +497,7 @@ def _estimate(job_folder: Path, out: Path, cache: Path, mode: Mode, known: dict)
                          messages=(*notes, *pending))
 
     # validate and QC
+    known["stage"] = "qc"
     findings = validate(job, playbook)
     try:
         qc = ai.qc_job(job, ai.evidence_index(dossier), playbook, transport)
@@ -482,6 +509,7 @@ def _estimate(job_folder: Path, out: Path, cache: Path, mode: Mode, known: dict)
     # 5. revise (must_fix only, one round), validate again
     # an estimator's change that prints an issued id is kept as written: its id finding is not the revise's to fix
     # (the revise would write the line back under its old name); it gets its own card below
+    known["stage"] = "revise"
     estimators = {(d.system_key, device_id) for d, device_id, _ in _ids_in_changes(job, decisions)}
     must_fix = [f for f in [*findings, *qc] if f.severity == "must_fix"
                 and not (f.rule == RULE["ids"] and (f.system_key, f.device_id) in estimators)]
@@ -542,6 +570,7 @@ def _estimate(job_folder: Path, out: Path, cache: Path, mode: Mode, known: dict)
                           *unhonored_decisions(revised_job, checked_late, job, copies=copies), *rechecks])
 
     # 6. the review page, the render and the three documents
+    known["stage"] = "render"
     publish_proofs(job, cache, out)
     review = review_page(job, all_findings, out)
     print(f"Wrote {review}")

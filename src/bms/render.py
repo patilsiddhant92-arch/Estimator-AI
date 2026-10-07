@@ -17,6 +17,7 @@ import datetime as dt
 import re
 from dataclasses import dataclass, replace
 
+from estimator.price_sheet.write import PriceSheetError, check_fit
 from estimator.scope import Alternate, Block, Item, Run
 from estimator.scope import FrontEnd as ScopeFrontEnd
 from estimator.scope import Header as ScopeHeader
@@ -38,7 +39,25 @@ assert set(_AFTER_LINES) == set(CLARIFICATION_KINDS)
 
 
 class RenderError(ValueError):
-    """A Job that cannot be printed (no header, a shape the Playbook lacks, an assumption without its reason)."""
+    """A Job that cannot be printed (no header, a shape the Playbook lacks, an assumption without its reason, a line
+    left blank, a negative quantity or tech hours, more price sheets than the template holds)."""
+
+
+# characters a Word or Excel file cannot hold (XML 1.0): control characters other than tab, line feed and return,
+# lone surrogates, U+FFFE and U+FFFF
+_NOT_XML = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\ud800-\udfff￾￿]")
+
+
+def _xml_safe(value):
+    """The last of the client-text safety net: every string in a scope dump (or one text) with the characters a
+    Word or Excel file cannot hold taken out, so a stray control character prints without it, never a crash."""
+    if isinstance(value, str):
+        return _NOT_XML.sub("", value)
+    if isinstance(value, dict):
+        return {k: _xml_safe(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return type(value)(_xml_safe(v) for v in value)
+    return value
 
 
 @dataclass(frozen=True)
@@ -120,8 +139,17 @@ def render(job: Job, playbook: Playbook) -> ProposalDraft:
             continue
         exceptions.append(text)
     exceptions = tuple(exceptions)
-    scope = ScopeJob(header=header, front_end=front, blocks=tuple(base), add_alternates=tuple(adds),
-                     deduct_alternates=tuple(deducts), named_exceptions=exceptions)
+    try:
+        scope = ScopeJob(header=header, front_end=front, blocks=tuple(base), add_alternates=tuple(adds),
+                         deduct_alternates=tuple(deducts), named_exceptions=exceptions)
+        scope = ScopeJob.model_validate(_xml_safe(scope.model_dump()))
+    except ValueError as error:          # pydantic's ValidationError is a ValueError
+        raise RenderError(f"the job cannot be printed: {error}") from error
+    try:
+        check_fit(scope)                 # the price sheet's room, checked here so the run stops before writing
+    except PriceSheetError as error:
+        raise RenderError(str(error)) from error
+    lines = [replace(line, text=_xml_safe(line.text)) for line in lines]
     return ProposalDraft(scope=scope, lines=tuple(lines))
 
 
@@ -537,15 +565,17 @@ def _system_blocks(system: System, playbook: Playbook, out: list[RenderedLine],
     reference = {n for n in (_printed(f.count) for f in families) if n is not None}
     pending = not families or any(_printed(f.count) is None for f in families)     # "Qty (##)": nothing is priced
     printed = _device_lines(_named(system.devices, ids), shape, system, playbook, reference)
-    items = _items(printed, pending)
     notes = _notes(system.clarifications, system.devices,
                    [f.count for f in system.families] + [d.quantity for d in system.devices], playbook, ids)
-    items += [Item(kind="note", runs=(Run(text=n),)) for n in notes]
+    try:                                 # every field checked: a blank line, a negative quantity or tech hours
+        items = _items(printed, pending) + [Item(kind="note", runs=(Run(text=n),)) for n in notes]
+        last = len(headers) - 1
+        blocks = [Block(header=h, joined=i > 0, tech_hours=system.tech_hours if i == 0 else None,
+                        items=tuple(items) if i == last else ()) for i, h in enumerate(headers)]
+    except ValueError as error:          # pydantic's ValidationError is a ValueError
+        raise RenderError(f"system {system.key}: {error}") from error
     out += [RenderedLine(system.key, None, "header", h, None, None) for h in headers]
     out += _traced(system.key, printed, notes)
-    blocks = [Block(header=h, joined=i > 0) for i, h in enumerate(headers)]
-    blocks[0] = blocks[0].model_copy(update={"tech_hours": system.tech_hours})
-    blocks[-1] = blocks[-1].model_copy(update={"items": tuple(items)})
     return tuple(blocks)
 
 
@@ -566,11 +596,10 @@ def _front_end(front: FrontEnd | None, playbook: Playbook, out: list[RenderedLin
     if front is None:
         return ScopeFrontEnd(mode="new-system")
     printed = _device_lines(_named(front.devices, ids), None, None, playbook, {1})
-    items = _items(printed, False)
     notes = _notes(front.clarifications, front.devices, [d.quantity for d in front.devices], playbook, ids)
-    items += [Item(kind="note", runs=(Run(text=n),)) for n in notes]
     out += _traced("", printed, notes)
     try:
+        items = _items(printed, False) + [Item(kind="note", runs=(Run(text=n),)) for n in notes]
         return ScopeFrontEnd(mode=front.mode, existing_system_name=front.existing_system_name,
                              items=tuple(items), tech_hours=front.tech_hours)
     except ValueError as error:

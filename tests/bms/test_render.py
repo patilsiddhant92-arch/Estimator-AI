@@ -790,3 +790,46 @@ def test_a_line_whose_quantity_differs_from_the_block_count_is_priced_from_the_b
     row = next(r for r in range(6, 397) if "Space Temperature Sensor" in str(ws.cell(r, 4).value or ""))
     assert ws.cell(row, 3).value == 6
     assert ws.cell(row, 5).value == 142.0 and ws.cell(row, 8).value is None
+
+
+# ---- RND-3: a draft that cannot be printed is a RenderError, never a crash further on ---------------------------
+
+def _gas_detection(*devices) -> Job:
+    from bms.model import Header
+    gd = System(key="GD", name="Gas Detection", shape="Gas Detection", control="field",
+                families=(Family("Gas Detection", ("GD-1",), Count(value=1)),), devices=tuple(devices))
+    return Job(name="Invented", systems=(gd,), header=Header("00-0000", "Invented", "Invented", ("A",), "2026-10-04"))
+
+
+def test_a_blank_named_sub_line_is_a_render_error():
+    pb = load_playbook(ROOT / "playbook")
+    job = _gas_detection(device(id="GD.d1", qty=1, slot="panel", name="Gas Detection Panel"),
+                         device(id="GD.d2", qty=1, slot="sensor", name=""))
+    with pytest.raises(RenderError, match="GD"):
+        render(job, pb)
+
+
+def test_negative_tech_hours_are_a_render_error():
+    pb = load_playbook(ROOT / "playbook")
+    with pytest.raises(RenderError, match="EF"):
+        render(_repo_job(system([device(id="EF.d1", qty=2)], tech_hours=-1.0)), pb)
+
+
+def test_more_alternates_than_the_price_sheet_holds_are_a_render_error():
+    pb = load_playbook(ROOT / "playbook")
+    adds = [system([device(id=f"A{n}.d1", qty=2)], key=f"A{n}", alternate="add",
+                   families=(Family("Exhaust Fan", (f"EF-{n}",), Count(value=1)),)) for n in range(10)]
+    with pytest.raises(RenderError, match="price sheets"):
+        render(_repo_job(system([device(id="EF.d1", qty=2)]), *adds), pb)
+
+
+def test_a_control_character_in_a_name_is_printed_without_it(tmp_path):
+    from estimator.__main__ import PROPOSAL_TEMPLATE
+    from estimator.proposal.write import write_proposal
+    pb = load_playbook(ROOT / "playbook")
+    out = render(_repo_job(system([device(id="EF.d1", qty=2, name="Control\x01 Valve")],
+                                  name="Exhaust\x02 Fans")), pb)
+    texts_ = [l.text for l in out.lines]
+    assert any("Control Valve" in t for t in texts_)
+    assert not any(ch in t for t in texts_ for ch in "\x01\x02")
+    assert write_proposal(out.scope, PROPOSAL_TEMPLATE, tmp_path / "p.docx").is_file()
