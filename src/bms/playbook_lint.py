@@ -67,6 +67,11 @@ EMOJI_PATTERN = re.compile(
     "]"
 )
 
+# wording.json values that print as a piece inside a line, so a leading or trailing space is meant (" (Qty. {n} Total)",
+# " (Furnished by Others)", ", "). Every other client string is a whole printed line.
+_PIECE_KEYS = frozenset({"owner_brackets", "quantity.line", "quantity.unknown", "header.tags_joiner",
+                         "count_causes.joiner"})
+
 _COMMENT = re.compile(r"<!--.*?-->", re.S)
 _FENCE_MARK = re.compile(r" {0,3}(`{3,}|~{3,})")
 _BACKTICKS = re.compile(r"`[^`\n]*`")
@@ -260,6 +265,38 @@ def _lint_rules(path: Path) -> tuple[list[LintProblem], set[str] | None]:
     return (refused or _loader_problem(path, load_rules)) + problems, names
 
 
+# ---- client wording ----------------------------------------------------------------------------------------------
+
+def _client_strings(node, key: str = ""):
+    """Every printed string under `node` as (key path, text); keys that start with "$" are descriptions."""
+    if isinstance(node, str):
+        yield key, node
+    elif isinstance(node, dict):
+        for name, value in node.items():
+            if not str(name).startswith("$"):
+                yield from _client_strings(value, f"{key}.{name}" if key else str(name))
+    elif isinstance(node, list):
+        for idx, value in enumerate(node):
+            yield from _client_strings(value, f"{key}[{idx}]")
+
+
+def _wording_style(path: Path, key: str, text: str) -> list[LintProblem]:
+    """House-style checks on one client-printed string: no arrow, emoji, source id or double space, and no space
+    at either end of a whole printed line."""
+    found: list[str] = []
+    if ARROW_PATTERN.search(text):
+        found.append("contains an arrow")
+    if EMOJI_PATTERN.search(_ARROW_CHAR.sub("", text)):
+        found.append("contains emoji")
+    found += [f"contains source id {m.group()!r}" for m in ONE_ID.finditer(text)]
+    if "  " in text:
+        found.append("contains a double space")
+    root = key.split(".")[0].split("[")[0]
+    if text != text.strip() and root not in _PIECE_KEYS and key not in _PIECE_KEYS:
+        found.append("starts or ends with a space")
+    return [LintProblem(str(path), None, f"{key}: client wording {what}") for what in found]
+
+
 # ---- shapes.json -------------------------------------------------------------------------------------------------
 
 def _json(path: Path) -> tuple[dict | None, list[LintProblem]]:
@@ -291,6 +328,9 @@ def _lint_shapes(path: Path) -> list[LintProblem]:
             problem(f"shapes[{idx}] must be an object")
             continue
         name = shape.get("name", f"<unnamed shape {idx}>")
+        for field in ("header", "wording"):
+            for key, text in _client_strings(shape.get(field), field):
+                problems += _wording_style(path, f"shape {name!r} {key}", text)
         line_order, wording, under = shape.get("line_order", []), shape.get("wording", {}), shape.get("under", {})
         if not isinstance(line_order, list) or not all(isinstance(s, str) for s in line_order):
             problem(f"shape {name!r}: line_order must be a list of slot names")
@@ -323,6 +363,8 @@ def _lint_wording(path: Path) -> list[LintProblem]:
     if data is None:
         return problems
     problems = _loader_problem(path, load_wording)
+    for key, text in _client_strings(data):
+        problems += _wording_style(path, key, text)
     draft = data.get("$draft")
     if not problems and draft:
         problems.append(LintProblem(str(path), None, f"$draft still names placeholder values ({', '.join(draft)}): "

@@ -357,3 +357,50 @@ def test_a_heading_with_no_space_is_one_problem_at_its_line(tmp_path, heading):
 def test_a_heading_like_line_inside_a_code_fence_is_rule_text(tmp_path):
     root = _with_rules(tmp_path, "# P\n\n## Topic\n\n### A\nThe form:\n```\n###Second\n```\n")
     assert _messages(root) == []
+
+
+# ---- PBK-10e: house style of the client wording ------------------------------------------------------------------
+
+def _wording_problems(tmp_path: Path, edit) -> list:
+    root = _copy(tmp_path)
+    data = json.loads((root / "wording.json").read_text(encoding="utf-8"))
+    edit(data)
+    _write_json(root, "wording.json", data)
+    return lint_playbook(root)
+
+
+def test_shipped_playbook_client_wording_lints_clean():
+    from bms.playbook_lint import referenced_rule_names
+    assert lint_playbook(Path(REPO_PLAYBOOK), referenced_rule_names()) == []
+
+
+@pytest.mark.parametrize("bad, phrase", [
+    ("Wire \u2192 the panel", "arrow"),
+    ("Wire to the panel \U0001F600", "emoji"),
+    ("Wire per S12", "source id"),
+    ("Wire  the panel", "double space"),
+])
+def test_wording_json_style_problem_names_file_and_key(tmp_path, bad, phrase):
+    problems = _wording_problems(tmp_path, lambda d: d["clarifications"].__setitem__("note", "**{text} " + bad))
+    assert len(problems) == 1
+    assert problems[0].file.endswith("wording.json") and "clarifications.note" in problems[0].message
+    assert phrase in problems[0].message
+
+
+def test_shape_wording_style_problem_names_shape_and_slot(tmp_path):
+    root = _copy(tmp_path)
+    data = _shapes(root)
+    data["shapes"][0]["wording"]["power_loop"] = "Run -> power"
+    data["shapes"][0]["header"] = "Qty ({n}) {name} {tags} "
+    _write_json(root, "shapes.json", data)
+    problems = lint_playbook(root)
+    assert len(problems) == 2
+    assert all(p.file.endswith("shapes.json") for p in problems)
+    assert any("wording.power_loop" in p.message and "arrow" in p.message for p in problems)
+    assert any("header" in p.message and "space" in p.message for p in problems)
+
+
+def test_pieces_may_start_with_a_space_but_whole_lines_may_not(tmp_path):
+    assert _wording_problems(tmp_path / "a", lambda d: d["quantity"].__setitem__("line", " (Qty. {n} Total)")) == []
+    problems = _wording_problems(tmp_path / "b", lambda d: d["clarifications"].__setitem__("assumed", "*Assumed: {text} "))
+    assert len(problems) == 1 and "clarifications.assumed" in problems[0].message
