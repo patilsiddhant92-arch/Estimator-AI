@@ -675,7 +675,7 @@ def test_fixed_house_lines_print_with_no_verb_whatever_verb_the_device_carries()
 
 @pytest.mark.parametrize("name, printed", [
     ("space thermostat", "Space Thermostat"),
-    ("bacnet interface for co and no sensors w/ vfd", "BACnet Interface for CO and NO Sensors w/ VFD"),
+    ("bacnet interface for co and no sensors w/ vfd", "BACnet Interface for CO and No Sensors w/ VFD"),
     ("Erv discharge air temperature sensor", "ERV Discharge Air Temperature Sensor"),
     ("Interlock Wiring between Invented Fans and the Dampers", "Interlock Wiring between Invented Fans and the Dampers"),
     ("fan start/stop and status", "Fan Start/Stop and Status"),

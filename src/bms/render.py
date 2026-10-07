@@ -178,16 +178,21 @@ def _trim(text: str) -> str:
 
 
 ACRONYMS = {a.lower(): a for a in ("BMS", "VFD", "DDC", "ERV", "RTU", "HPAC", "SCR", "UUKL", "BACnet")}
-# NO, IT, CO and FA are left out: they are also ordinary words ("no", "it", "co-located") and print as the source
-# writes them, an upper-case word being kept as it is
-_SMALL_WORDS = {"a", "an", "and", "as", "at", "b", "between", "but", "by", "for", "from", "in", "into", "nor", "of",
-                "on", "or", "per", "the", "thru", "to", "vs", "w", "with", "within"}
+# NO, IT, CO and FA are also ordinary words ("no", "it", "co-located"): an upper-case word is kept as written, and a
+# lower-case (or capitalised) "co" / "it" becomes CO / IT only before the words that name the acronym's thing
+_ACRONYM_BEFORE = {"co": ("CO", {"sensor", "sensors", "detector", "detectors", "detection", "monitor", "monitoring"}),
+                   "it": ("IT", {"room", "rooms", "closet", "closets", "rack", "racks"})}
+_NEXT_WORDS = re.compile(r"[A-Za-z]+")
+_LIST_WORDS = {"and", "or", "no", "fa", "co", "it"}   # passed over to the thing a short list names ("co and no sensors")
+_SMALL_WORDS = {"a", "an", "and", "as", "at", "b", "between", "but", "by", "for", "from", "in", "into", "it", "nor",
+                "of", "on", "or", "per", "the", "thru", "to", "vs", "w", "with", "within"}
 
 
 def _title(text: str) -> str:
     """A name as house lines read: each lower-case word capitalised (small joining words after the first, and the
     part after a hyphen, left alone), the house acronyms in their own spelling (BMS, VFD, BACnet ...); a word already
-    capitalised is kept, so an acronym that is also a word (NO, IT, CO, FA) prints only as the source writes it."""
+    capitalised is kept. An acronym that is also a word prints as the source writes it, except "co" / "it" before the
+    thing they name ("co sensor" -> "CO Sensor", "it room" -> "IT Room", "co2" -> "CO2"); "no" and "fa" never."""
     text = text or ""
 
     def word(match: re.Match) -> str:
@@ -196,6 +201,12 @@ def _title(text: str) -> str:
         if canon:
             return canon
         after_hyphen = match.start() > 0 and text[match.start() - 1] == "-"
+        context = _ACRONYM_BEFORE.get(w.lower())
+        if context and not w.isupper() and not after_hyphen:
+            following = next((n.lower() for n in _NEXT_WORDS.findall(text, match.end())
+                              if n.lower() not in _LIST_WORDS), "")
+            if following in context[1] or (w.lower() == "co" and text[match.end():match.end() + 1] == "2"):
+                return context[0]
         if w.islower() and not after_hyphen and (match.start() == 0 or w not in _SMALL_WORDS):
             return w[0].upper() + w[1:]
         return w

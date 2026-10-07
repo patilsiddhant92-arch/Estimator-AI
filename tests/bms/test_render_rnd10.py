@@ -35,9 +35,14 @@ def job(name: str) -> Job:
     ("Damper actuator with no end switch", "Damper Actuator with No End Switch"),
     ("No. 2 fuel oil pump", "No. 2 Fuel Oil Pump"),
     ("Co-located sensor", "Co-located Sensor"),
-    ("connect it to the panel", "Connect It to the Panel"),
+    ("connect it to the panel", "Connect it to the Panel"),
     ("vfd", "VFD"),
     ("CO sensor", "CO Sensor"),
+    ("co sensor", "CO Sensor"),
+    ("co2 detector", "CO2 Detector"),
+    ("it closet cooling unit", "IT Closet Cooling Unit"),
+    ("no sensor", "No Sensor"),
+    ("FA relay", "FA Relay"),
 ])
 def test_ordinary_words_are_not_turned_into_acronyms(pb, name, printed):
     out = [l.text for l in render(job(name), pb).lines if l.system_key == "EF"]
