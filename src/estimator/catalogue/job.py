@@ -181,16 +181,17 @@ def _not_a_copy(catalogue, original: str, copy: str, shared: frozenset[str], key
     original's sheet of its number (RD-4: more places of EBB-A are places the original lacks; as for units, the
     document labelling more is the original and read); the same plan titles on the shared numbers (BUILDING B is
     never a copy of BUILDING A); and COPY_TEXT of the original's words on the shared sheets (REVIEW-FINAL7 F1, F5)."""
+    name = _names(catalogue).get(original) or _name(original)     # a file name two documents share: its path
     a, b = _plan_units(catalogue, original, shared, keys), _plan_units(catalogue, copy, shared, keys)
     if b - a:
-        return f"shows unit tags {_name(original)} does not"
+        return f"shows unit tags {name} does not"
     if len(b) < COPY_SHARED or len(b) < COPY_OVERLAP * len(a):
         return "not their units"
     labels_a, labels_b = (_plan_label_counts(catalogue, original, shared, keys),
                           _plan_label_counts(catalogue, copy, shared, keys))
     more = set().union(*(labels_b[number] - labels_a[number] for number in labels_b))
     if more:
-        return f"shows more labels of {', '.join(sorted(more))} than {_name(original)}"
+        return f"shows more labels of {', '.join(sorted(more))} than {name}"
     titles_a, titles_b = _plan_titles(catalogue, original, shared), _plan_titles(catalogue, copy, shared)
     if any(titles_a[number] != titles_b[number] for number in set(titles_a) & set(titles_b)):
         return "not their plan titles"
