@@ -15,7 +15,7 @@ from collections import defaultdict
 from collections.abc import Collection, Iterable, Sequence
 from dataclasses import dataclass, field, replace
 
-from estimator.catalogue.job import (CONTROLS_DISCIPLINES, TRADE_WORDS, other_sets, repeats, title_without_number,
+from estimator.catalogue.job import (CONTROLS_DISCIPLINES, TRADE_WORDS, repeats, title_without_number,
                                      title_words)
 from estimator.catalogue.tags import (DECIMAL_TYPE, Equipment, is_type_tag, label_key, label_keys, line_labels,
                                       plan_labels, tag_prefix)
@@ -134,29 +134,40 @@ def compact_tags(tags) -> str:
 
 
 def _one_copy_per_sheet(schedules: list[Schedule], flags: list[str] | None = None,
-                        others: Collection[tuple[str, str]] = ()) -> list[Schedule]:
-    """A sheet number read from two documents (a marked-up copy of the same set, an older issue) is
-    read once: its schedules come from the first document that carries it. Every page of that
-    document with the number is kept — a schedule sheet can run onto a second page. Each sheet
-    whose schedules are dropped is said in `flags`. A sheet of another set of drawings (`others`,
-    (number, document) from `other_sets`: a second building's own schedule) is always kept (REVIEW-FINAL6 F3)."""
-    first: dict[str, str] = {}
-    for s in schedules:
-        if s.sheet and (s.sheet, s.document) not in others:
-            first.setdefault(s.sheet, s.document)
-    kept: list[Schedule] = []
-    dropped: dict[tuple[str, str], int] = defaultdict(int)
-    for s in schedules:
-        if not s.sheet or (s.sheet, s.document) in others or first.get(s.sheet, s.document) == s.document:
-            kept.append(s)
-        else:
-            dropped[(s.sheet, s.document)] += 1
+                        copies: Collection[tuple[str, str]] = ()) -> list[Schedule]:
+    """The schedules come from the governing pages (`governing_pages`), which keep both documents' pages whenever
+    nothing proves one replaces the other: a sheet number read from two documents is counted from both (RD-1, never
+    the first document's alone). Only a sheet of a marked-up copy of the set (`copies`, (number, document) from
+    `repeats`) is read once, from the original; each such sheet whose schedules are set aside is said in `flags`,
+    with the rows set aside and the rows counted from the other documents."""
+    kept = [s for s in schedules if (s.sheet, s.document) not in copies]
     if flags is not None:
-        for (sheet, document), n in dropped.items():
-            what = "1 schedule" if n == 1 else f"{n} schedules"
-            flags.append(f"{what} on {sheet} in {_name(document)} not counted — the same sheet was read from "
-                         f"{_name(first[sheet])}")
+        dropped: dict[tuple[str, str], list[Schedule]] = defaultdict(list)
+        for s in schedules:
+            if (s.sheet, s.document) in copies:
+                dropped[(s.sheet, s.document)].append(s)
+        for (sheet, document), set_aside in dropped.items():
+            rows = sum(1 for s in set_aside for r in s.rows if r.tag)
+            counted = [s for s in kept if s.sheet == sheet]
+            read = sum(1 for s in counted for r in s.rows if r.tag)
+            what = "1 schedule" if len(set_aside) == 1 else f"{len(set_aside)} schedules"
+            where = ", ".join(dict.fromkeys(_name(s.document) for s in counted)) or "no other document"
+            flags.append(f"{what} on {sheet} in {_name(document)} not counted ({_rows(rows)}) — a marked-up copy of "
+                         f"the set; {sheet} counted from {where} ({_rows(read)})")
     return kept
+
+
+def _listed_where(listed: list[tuple[str, str]]) -> str:
+    """Where a tag is listed: its schedule sheets ("M-601, M-602"), each named with its document when the listings
+    come from more than one document ("M-601 in Mech.pdf, M-601 in Mech reissue.pdf")."""
+    if len({document for _, document in listed}) < 2:
+        return _list(dict.fromkeys(place for place, _ in listed))
+    return _list(dict.fromkeys(place if _name(document) in place else f"{place} in {_name(document)}"
+                               for place, document in listed))
+
+
+def _rows(n: int) -> str:
+    return "1 tagged row" if n == 1 else f"{n} tagged rows"
 
 
 @dataclass(frozen=True)
@@ -672,6 +683,24 @@ def _type_rows(schedule: Schedule, known: Collection[str]) -> list[InventoryItem
     return items or None
 
 
+def _higher_quantity(held: InventoryItem, held_schedule: Schedule, other: InventoryItem,
+                     other_schedule: Schedule) -> InventoryItem:
+    """One type code counted by two type-only schedules (two versions of one schedule): the higher quantity counts,
+    never the first document's alone; when they differ the note gives both, and their sum in case the two are
+    two buildings' schedules. A quantity beats no quantity."""
+    if other.quantity is None or (held.quantity is not None and other.quantity <= held.quantity):
+        winner = held
+    else:
+        winner = other
+    if held.quantity is None or other.quantity is None or held.quantity == other.quantity:
+        return winner
+    said = (f"{held.quantity} in {_name(held_schedule.document)}, {other.quantity} in "
+            f"{_name(other_schedule.document)}")
+    return replace(winner, reason=f"{winner.reason} — the schedules give other quantities ({said}); the higher, "
+                                  f"{winner.quantity}, counted ({held.quantity + other.quantity} if they are two "
+                                  f"buildings' schedules); confirm", action="confirm")
+
+
 def build_inventory(catalogue, schedules: list[Schedule], typicals: Sequence = (),
                     pages: Collection[tuple[str, int]] | None = None
                     ) -> tuple[list[InventoryItem], list[FamilyTotal], list[str]]:
@@ -679,7 +708,7 @@ def build_inventory(catalogue, schedules: list[Schedule], typicals: Sequence = (
     governing pages they are read from (by default, worked out here)."""
     equipment = Equipment.load()
     dropped: list[str] = []
-    schedules = _one_copy_per_sheet(list(schedules), dropped, other_sets(catalogue))
+    schedules = _one_copy_per_sheet(list(schedules), dropped, repeats(catalogue)[1])
     entries = {t.tag: t for t in catalogue.tags}
     # A unit whose prefix isn't in the equipment list takes its kind from its schedule's title; the tag
     # index never looked for it, so the other sheets are searched for it here.
@@ -707,6 +736,8 @@ def build_inventory(catalogue, schedules: list[Schedule], typicals: Sequence = (
 
     drawings = {s.number or f"{_name(s.document)} p.{s.page}" for s in catalogue.sheets if "Schedules" not in s.types}
     listings: dict[str, list[tuple[str, str]]] = defaultdict(list)
+    listed_in: dict[str, list[tuple[str, str]]] = defaultdict(list)   # tag → (place, document) of each listing
+    quantities: dict[str, list[tuple[int, str]]] = defaultdict(list)  # tag → (QUANTITY cell, document) per listing
     first_row: dict[str, tuple[Schedule, object]] = {}
     existing: set[str] = set()
     from_text: dict[str, str] = {}      # tag → the schedule it was counted under, from a sheet's text
@@ -723,7 +754,18 @@ def build_inventory(catalogue, schedules: list[Schedule], typicals: Sequence = (
             if row.tag is None:
                 continue
             listings[row.tag].append((_label(schedule), _place(schedule)))
+            listed_in[row.tag].append((_place(schedule), schedule.document))
             first_row.setdefault(row.tag, (schedule, row))
+            column = quantity_header(schedule)
+            stated = _count_in(row.cells.get(column)) if column and getattr(row, "shares", 1) == 1 else None
+            if stated is not None:
+                quantities[row.tag].append((stated, schedule.document))
+                held = first_row[row.tag]
+                held_column = quantity_header(held[0])
+                held_count = _count_in(held[1].cells.get(held_column)) if held_column else None
+                if getattr(held[1], "shares", 1) == 1 and held_count is not None and stated > held_count:
+                    first_row[row.tag] = (schedule, row)   # two versions list the type: the higher quantity
+                                                           # counts, never the first document's (RD-1)
             if getattr(row, "shares", 1) > 1 and getattr(first_row[row.tag][1], "shares", 1) == 1:
                 first_row[row.tag] = (schedule, row)   # named in a series ("A THRU C"): one unit, whatever another
                                                        # schedule's QUANTITY column says of its own row
@@ -770,13 +812,18 @@ def build_inventory(catalogue, schedules: list[Schedule], typicals: Sequence = (
             seen = tuple(p for p in (entry.elsewhere if entry else new_places.get(tag, ())) if p not in own)
             on_drawings = [p for p in seen if p in drawings]
             label = listings[tag][0][0]
-            where = _list(own)
+            where = _listed_where(listed_in[tag])
             typed = None if tag in existing else _as_type(tag, kind, *first_row[tag], placed.get(tag), label, seen)
             if typed is not None:
                 if len(listings[tag]) > 1:       # never lose the listed-twice words (REVIEW-FINAL6 F8)
                     typed = replace(typed, reason=f"{typed.reason} — tag listed {len(listings[tag])} times on the "
                                                   f"schedules ({where}); confirm with the engineer how many units "
                                                   f"there are", action="confirm")
+                stated = sorted(set(quantities.get(tag, ())), reverse=True)
+                if len({n for n, _ in stated}) > 1:
+                    said = ", ".join(f"{n} in {_name(d)}" for n, d in stated)
+                    typed = replace(typed, reason=f"{typed.reason} — the schedules give other quantities ({said}); "
+                                                  f"the higher, {stated[0][0]}, counted; confirm", action="confirm")
                 items.append(typed)
             elif tag in existing:
                 items.append(InventoryItem(tag, kind, "EXISTING", 0, label, seen,
@@ -836,12 +883,23 @@ def build_inventory(catalogue, schedules: list[Schedule], typicals: Sequence = (
                                        f"Shown on {_list(seen)} {why} — don't price until confirmed",
                                        "exclude pending"))
 
+    # A type code a type-only schedule counts (`_type_rows`), by the schedule that first counted it: another version
+    # of the schedule (RD-1) adds the codes it alone lists, and of a code both give a quantity the higher counts.
+    typed_codes: dict[str, tuple[int, Schedule]] = {}
     for schedule in schedules:
         if not schedule.type_only or not schedule.rows:
             continue
-        counted_types = _type_rows(schedule, {item.tag for item in items})
+        counted_types = _type_rows(schedule, {item.tag for item in items if item.tag not in typed_codes})
         if counted_types:
-            items += counted_types
+            for item in counted_types:
+                if item.tag not in typed_codes:
+                    typed_codes[item.tag] = (len(items), schedule)
+                    items.append(item)
+                    continue
+                at, held = typed_codes[item.tag]
+                items[at] = _higher_quantity(items[at], held, item, schedule)
+                if items[at] is item:
+                    typed_codes[item.tag] = (at, schedule)
             continue
         key = schedule.headers[0] if schedule.headers else ""
         codes = list(dict.fromkeys(row.cells.get(key, "") for row in schedule.rows if row.cells.get(key)))
