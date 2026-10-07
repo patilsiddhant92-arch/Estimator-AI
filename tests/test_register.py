@@ -1,5 +1,6 @@
 from pathlib import Path
 
+import pymupdf
 import pytest
 
 from estimator.catalogue import register
@@ -255,3 +256,57 @@ def test_a_picture_ocr_finds_nothing_in_keeps_the_page_as_text(tmp_path, monkeyp
     job = _job(tmp_path, ("mech.pdf", [sheet]))
     [record] = read_document(job.documents[0])
     assert record.status == "text" and FILLER in record.text
+
+
+TAGS = [f"VAV-{column}{row}" for column in range(1, 7) for row in range(1, 5)]
+
+
+def _landscape_scan(width=1512, height=1008):
+    """A landscape drawing — 24 tags in six columns and the sheet number at the bottom right — as a picture."""
+    source = pymupdf.open()
+    drawn = source.new_page(width=width, height=height)
+    for n, tag in enumerate(TAGS):
+        drawn.insert_text((60 + (n // 4) * 230, 150 + (n % 4) * 150), tag, fontsize=28)
+    drawn.insert_text((width - 200, height - 40), "M-601", fontsize=36)
+    return drawn.get_pixmap(dpi=100)
+
+
+def _scanned_sheet(path, rotation, width=1512, height=1008):
+    """The landscape scan as an image-only page: stored landscape (rotation 0), or stored portrait and
+    turned 90° or 270° so it is viewed landscape, the way scanners often save a drawing."""
+    doc = pymupdf.open()
+    if rotation == 0:
+        page = doc.new_page(width=width, height=height)
+        page.insert_image(page.rect, pixmap=_landscape_scan(width, height))
+    else:
+        page = doc.new_page(width=height, height=width)
+        page.set_rotation(rotation)
+        page.insert_image(page.rect * page.derotation_matrix, pixmap=_landscape_scan(width, height), rotate=rotation)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    doc.save(str(path))
+    return path
+
+
+@pytest.mark.skipif(tessdata() is None, reason="Tesseract's tessdata folder isn't on this computer")
+@pytest.mark.parametrize("rotation", [0, 90, 270])
+def test_a_rotated_scan_is_read_whole_by_ocr(tmp_path, rotation):
+    # RD-2: OCR of a scan stored portrait and turned to landscape lost the strip beyond the page's
+    # unrotated width — a third of the sheet, its sheet number among it — without a flag.
+    root = tmp_path / "26-9999"
+    _scanned_sheet(root / "2. Takeoffs" / "1. Base Takeoff" / "scan.pdf", rotation)
+    [record] = read_document(find_documents(root).documents[0])
+    assert record.status == "ocr" and record.rotation == rotation
+    assert [tag for tag in TAGS if tag not in record.text] == []
+    [number] = [span for span in record.edge_spans if span.text == "M-601"]
+    assert number.x0 > 0.8 and number.y0 > 0.8, "the sheet number is placed bottom-right, as the sheet is viewed"
+
+
+@pytest.mark.parametrize("rotation", [90, 270])
+def test_a_full_page_scan_covers_the_page_whatever_its_rotation(tmp_path, rotation):
+    # RD-12: the image's box is in the page's unrotated space; measured against the turned page, a full-page
+    # scan on a long sheet seemed to cover less than half of it.
+    flat = _scanned_sheet(tmp_path / "flat.pdf", 0, 2520, 1008)
+    turned = _scanned_sheet(tmp_path / "turned.pdf", rotation, 2520, 1008)
+    with pymupdf.open(flat) as a, pymupdf.open(turned) as b:
+        assert register._image_covers_half(a[0]) is True
+        assert register._image_covers_half(b[0]) is True

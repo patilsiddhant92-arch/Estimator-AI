@@ -60,11 +60,24 @@ def tessdata() -> Path | None:
 
 
 def ocr_textpage(page: pymupdf.Page, dpi: int = 300) -> pymupdf.TextPage | None:
-    """Read a page that has no text layer by OCR. None when OCR isn't set up."""
+    """Read a page that has no text layer by OCR. None when OCR isn't set up.
+
+    The page is rendered as it is viewed and OCR'd whole; the words are then placed back in the
+    page's unrotated space, as its own text layer's are, so visual_spans treats both alike.
+    (pymupdf's own full-page OCR does the same but keeps only what falls inside the viewed
+    page's outline laid over the unrotated one: on a sheet stored portrait and turned 90° or
+    270°, the strip beyond the unrotated width — about a third of a landscape sheet — was lost.)"""
     folder = tessdata()
     if folder is None:
         return None
-    return page.get_textpage_ocr(language="eng", dpi=dpi, full=True, tessdata=str(folder))
+    pix = page.get_pixmap(dpi=dpi)
+    with pymupdf.open("pdf", pix.pdfocr_tobytes(language="eng", tessdata=str(folder))) as ocr:
+        read = ocr[0]
+        unzoom = page.rect.width / read.rect.width
+        matrix = pymupdf.Matrix(unzoom, unzoom) * page.derotation_matrix
+        textpage = read.get_textpage(clip=read.rect * matrix, matrix=matrix)
+    textpage.parent = page
+    return textpage
 
 
 def ocr_images_textpage(page: pymupdf.Page, dpi: int = 300) -> pymupdf.TextPage | None:
