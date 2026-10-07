@@ -41,6 +41,7 @@ import dataclasses
 import datetime as dt
 import json
 import os
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
@@ -280,13 +281,21 @@ def _untouched(finding: Finding, before: Job, after: Job) -> bool:
 
 def _write_run_state(out: Path, state: dict) -> None:
     """`out/run state.json`, written whole (a temporary name, then swapped in), in plain ASCII so no text can fail to
-    encode. One that cannot be written is let go (the temporary file is removed): it never stops the run, and status
-    then reads an older state, which never makes the run look finished."""
+    encode. The swap is tried up to 5 times, 100 ms apart (on Windows it fails while `bms status` or another reader
+    holds the file open). One that still cannot be written is let go (the temporary file is removed): it never stops
+    the run, and status then reads an older state, which never makes the run look finished."""
     path = out / RUN_STATE
     tmp = path.with_name(path.name + ".tmp")
     try:
         tmp.write_text(json.dumps(state, ensure_ascii=True, indent=1), encoding="ascii")
-        os.replace(tmp, path)
+        for attempt in range(5):
+            try:
+                os.replace(tmp, path)
+                break
+            except OSError:
+                if attempt == 4:
+                    raise
+                time.sleep(0.1)
     except (OSError, ValueError):        # UnicodeError is a ValueError
         try:
             tmp.unlink(missing_ok=True)
@@ -296,7 +305,7 @@ def _write_run_state(out: Path, state: dict) -> None:
 
 def _save_running(out: Path, quote: str = "", job: str = "", decisions: int = 0) -> None:
     """The run has started and not ended: written first, and again once the quote and the job name are known."""
-    _write_run_state(out, {"version": 1, "status": "running", "quote": quote, "job": job, "decisions": decisions})
+    _write_run_state(out, {"version": 1, "status": "running", "stage": "read", "quote": quote, "job": job, "decisions": decisions})
 
 
 def _save_run_state(out: Path, result: RunResult, quote: str = "", job: str = "", decisions: int = 0) -> None:

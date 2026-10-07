@@ -466,6 +466,8 @@ def load_decisions(out_dir: Path) -> list[Decision]:
         data = json.loads(path.read_text(encoding="utf-8-sig"))
     except (json.JSONDecodeError, UnicodeDecodeError) as error:
         raise ModelError(f"{DECISIONS_FILE}: not valid JSON ({error})") from None
+    except OSError:
+        raise ModelError(f"could not read {DECISIONS_FILE}: close it if it is open and run again") from None
     if not isinstance(data, list):
         raise ModelError(f"{DECISIONS_FILE}: expected a list of decisions, got {type(data).__name__}")
     out: list[Decision] = []
@@ -534,6 +536,8 @@ def load_history(out_dir: Path) -> list[SavedDecision]:
                               Decision.from_dict(entry["saved"]) if entry.get("saved") is not None else None,
                               _settled(entry.get("settled")), _copies(entry.get("copies")))
                 for entry in data]
+    except OSError:
+        raise ModelError(f"could not read {DECISIONS_HISTORY}: close it if it is open and run again") from None
     except (json.JSONDecodeError, UnicodeDecodeError, ModelError, KeyError, TypeError, ValueError) as error:
         raise ModelError(f"{DECISIONS_HISTORY}: cannot be read ({error}). This file keeps the decisions of every "
                          f"earlier save; {DECISIONS_FILE} is fine. Put back a good copy of {DECISIONS_HISTORY} if "
