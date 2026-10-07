@@ -67,7 +67,8 @@ def test_type_tags_on_a_floor_drawn_twice_add_up_and_the_line_names_the_two_shee
     assert d.counts["VAV"]["plan_placements"] == 3
     line = _line("EBB", d)
     assert "same plan as" not in line and "may show one plan" not in line
-    assert "M-101 and M-201 counted as one plan: same floor title, same units; check" in line
+    assert ("M-101 and M-201 counted as one plan, 8 (16 if they are two places): same floor title, same units; "
+            "check") in line                                     # FINAL-K: both counts (REVIEW-FINAL6 F5)
     assert "may show one plan" not in _line("VAV", d)
 
 

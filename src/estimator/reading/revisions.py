@@ -23,7 +23,7 @@ from datetime import date, timedelta
 from functools import lru_cache
 from pathlib import Path
 
-from estimator.catalogue.job import repeats
+from estimator.catalogue.job import other_sets, repeats
 from estimator.catalogue.pdf import Span, clean_text
 from estimator.catalogue.register import PageRecord
 from estimator.catalogue.tags import Equipment, find_tags, sheet_number_tags
@@ -369,8 +369,13 @@ def supersede(catalogue, versions: Sequence[SheetVersion],
     exclude = sheet_number_tags((s.number for s in catalogue.sheets), _equipment())
     # A marked-up copy of the set (a document repeating most of another's sheets) is not a competing version.
     copies = {(_sheet_number(number), document) for number, document in repeats(catalogue)[1]}
+    # Another set of drawings with the same sheet numbers (a second building, `other_sets`) is read beside the
+    # original: its sheets are never versions of the original's (REVIEW-FINAL6 F3).
+    others = {(_sheet_number(number), document) for number, document in other_sets(catalogue)}
     by_sheet: dict[str, dict[str, SheetVersion]] = defaultdict(dict)
     for version in versions:
+        if (version.sheet, version.document) in others:
+            continue
         by_sheet[version.sheet].setdefault(version.document, version)   # a page repeated in one document is not a version
 
     contents: dict[tuple[str, int], _Content] = {}
@@ -425,8 +430,11 @@ def governing_pages(catalogue, supersessions: Sequence[Supersession] = (),
     and for each sheet number the pages of the one document that governs it — the later issue
     when a supersession decided it, else the first document that carries it and isn't a marked-up
     copy of another (`repeats`). Inside that document a page repeated with the same text is read
-    once, and a typical sheet (one plan standing for several floors) only on its first page."""
+    once, and a typical sheet (one plan standing for several floors) only on its first page. A sheet of another set
+    of drawings with the same numbers (`other_sets`: a second building) is read too, beside the governing one
+    (REVIEW-FINAL6 F3): when in doubt, sum."""
     copies = {(_sheet_number(number), document) for number, document in repeats(catalogue)[1]}
+    others = {(_sheet_number(number), document) for number, document in other_sets(catalogue)}
     current = {s.sheet: s.current.document for s in supersessions}
     typical = {_sheet_number(t) for t in typicals if t}
     texts = {(p.document, p.page): p.text for p in catalogue.pages}
@@ -439,15 +447,16 @@ def governing_pages(catalogue, supersessions: Sequence[Supersession] = (),
             keep.add((sheet.document, sheet.page))
     for number, sheets in by_number.items():
         documents = list(dict.fromkeys(s.document for s in sheets))
-        governing = current.get(number) or next((d for d in documents if (number, d) not in copies), documents[0])
-        own = [s for s in sheets if s.document == governing]
+        governing = current.get(number) or next((d for d in documents if (number, d) not in copies | others),
+                                                documents[0])
+        own = [s for s in sheets if s.document == governing or (number, s.document) in others]
         if number in typical:
             own = own[:1]
-        read: set[str] = set()
+        read: set[tuple[str, str]] = set()
         for sheet in own:
             text = texts.get((sheet.document, sheet.page), "")
-            if text in read:
+            if (sheet.document, text) in read:
                 continue
-            read.add(text)
+            read.add((sheet.document, text))
             keep.add((sheet.document, sheet.page))
     return frozenset(keep)
