@@ -296,3 +296,122 @@ def test_a_confident_match_does_not_ask_the_vision_model(tmp_path):
     checked = counts.cross_check(job, cat, tmp_path / "cache", transport=transport)
     assert transport.asked == []
     assert checked.system("EF").families[0].count.value == 1
+
+
+# ---- CNT-6: the crop answer stays out of the picture count -------------------------------------------------------
+
+EF3_ONLY_IN_PICTURE = ("EF-3", 2500, 1500, 80, 25)     # drawn in the sheet picture only, in its pixels
+
+
+def _ef_sheet(tmp_path):
+    """EF-1 clean, "(EF-2)" ambiguous in the text layer (150 dpi picture: 1 pt is 150/72 px)."""
+    texts = (
+        (100, 100, FILLER, 10),
+        (300, 300, "EF-1", 14),
+        (600, 400, "(EF-2)", 14),
+    )
+    pdf = make_pdf(tmp_path / "job" / "Drawings.pdf", Page(W, H, texts))
+    with pymupdf.open(pdf) as doc:
+        confident, ambiguous = classify_located_boxes(doc[0], r"EF-[0-9]+", scale=1.0)
+    assert [t for t, _ in confident] == ["EF-1"]
+    assert [t for t, _, _ in ambiguous] == ["EF-2"]
+    return pdf, _catalogue(pdf, [(1, "M-101", "FIRST FLOOR PLAN", "\n".join(t for _, _, t, _ in texts))])
+
+
+def _ef_job(value):
+    return Job(name="26-9999", systems=(
+        System(key="EF", name="Exhaust Fan", shape="Exhaust Fan", control="none",
+               families=(Family(name="Exhaust Fan", tags=("EF-1", "EF-2", "EF-3"), count=Count(value)),)),
+    ))
+
+
+def test_a_sheet_short_of_the_schedule_asks_the_full_tiles_even_with_an_ambiguous_box(tmp_path):
+    _pdf, cat = _ef_sheet(tmp_path)
+    transport = MockTransport(answer_tags=[("EF-2", 1255, 815, 80, 25), EF3_ONLY_IN_PICTURE])
+    cache = tmp_path / "cache"
+    checked = counts.cross_check(_ef_job(3), cat, cache, transport=transport)
+
+    assert len(transport.asked) == 1
+    asked = transport.asked[0]
+    assert not asked["extra"].get("is_crops")
+    assert len(asked["extra"]["tiles"]) > 1
+    [proof] = counts.proofs_for(cache, "EF", "Exhaust Fan")
+    assert "EF-3" in proof["vision_tags"]
+    assert set(proof["vision_tags"]) <= {"EF-2", "EF-3"}        # only what the transport returned
+    assert proof["vision"] == 2
+    assert proof["located_tags"] == ["EF-1", "EF-2"]
+    count = checked.system("EF").families[0].count
+    assert count.value == 3
+
+
+def test_a_crop_answer_is_never_stored_as_the_picture_count(tmp_path):
+    _pdf, cat = _ef_sheet(tmp_path)
+    transport = MockTransport(answer_tags=[("EF-2", 1255, 815, 80, 25)])
+    cache = tmp_path / "cache"
+    checked = counts.cross_check(_ef_job(2), cat, cache, transport=transport)
+
+    assert len(transport.asked) == 1 and transport.asked[0]["extra"].get("is_crops")
+    [proof] = counts.proofs_for(cache, "EF", "Exhaust Fan")
+    assert proof["vision"] is None and proof["vision_tags"] == []
+    assert proof["located_tags"] == ["EF-1", "EF-2"]          # the crop confirmed the ambiguous box
+    count = checked.system("EF").families[0].count
+    refs = [*count.sources, *(o.ref for o in count.others)]
+    assert all(r.quote != counts.SEEN_QUOTE for r in refs)
+    assert count.value == 2 and not count.others
+
+
+def test_a_crop_answer_that_does_not_read_the_ambiguous_tag_drops_it_from_the_located_count(tmp_path):
+    _pdf, cat = _ef_sheet(tmp_path)
+    transport = MockTransport(answer_tags=[])                  # the crop shows no EF tag
+    cache = tmp_path / "cache"
+    checked = counts.cross_check(_ef_job(2), cat, cache, transport=transport)
+
+    assert len(transport.asked) == 1 and transport.asked[0]["extra"].get("is_crops")
+    [proof] = counts.proofs_for(cache, "EF", "Exhaust Fan")
+    assert proof["located_tags"] == ["EF-1"] and proof["vision"] is None
+    count = checked.system("EF").families[0].count
+    assert count.value == 2
+    assert [(o.value, o.ref.quote) for o in count.others] == [(1, counts.LOCATED_QUOTE)]
+
+
+# ---- CNT-8: a raster plan with a vector title block ----------------------------------------------------------------
+
+TITLE_BLOCK = "M-101 FIRST FLOOR PLAN - MECHANICAL. ISSUED FOR BID. DRAWN BY AB, CHECKED BY CD. SCALE 1/8 IN = 1 FT"
+
+
+def test_a_scanned_plan_with_a_vector_title_block_is_counted_on_the_full_tiles(tmp_path):
+    assert len(TITLE_BLOCK) >= 50 and not re.search(r"EF-[0-9]+", TITLE_BLOCK)
+    pdf = make_pdf(tmp_path / "job" / "Scanned.pdf",
+                   Page(W, H, ((1200, 1100, TITLE_BLOCK, 8),), scanned="EF-1 EF-2 ON PLAN"))
+    with pymupdf.open(pdf) as doc:
+        assert has_text_layer(doc[0]) is True
+    cat = _catalogue(pdf, [(1, "M-101", "FIRST FLOOR PLAN", TITLE_BLOCK)])
+    transport = MockTransport(answer_tags=[("EF-1", 200, 200, 50, 20), ("EF-2", 500, 200, 50, 20)])
+    cache = tmp_path / "cache"
+    job = Job(name="26-9999", systems=(
+        System(key="EF", name="Exhaust Fan", shape="Exhaust Fan", control="none",
+               families=(Family(name="Exhaust Fan", tags=("EF-1", "EF-2"), count=Count(None)),)),
+    ))
+    checked = counts.cross_check(job, cat, cache, transport=transport)
+
+    assert len(transport.asked) == 1
+    asked = transport.asked[0]
+    assert not asked["extra"].get("is_crops")
+    assert len(asked["extra"]["tiles"]) > 1
+    count = checked.system("EF").families[0].count
+    assert count.value == 2
+    assert [r.quote for r in count.sources] == [counts.SEEN_QUOTE]
+
+
+def test_a_vector_plan_with_no_tags_is_not_asked(tmp_path):
+    texts = ((100, 100, FILLER, 10), (1200, 1100, TITLE_BLOCK, 8))
+    pdf = make_pdf(tmp_path / "job" / "Drawings.pdf", Page(W, H, texts))
+    cat = _catalogue(pdf, [(1, "M-101", "FIRST FLOOR PLAN", "\n".join(t for _, _, t, _ in texts))])
+    transport = MockTransport(answer_tags=[("EF-1", 200, 200, 50, 20)])
+    job = Job(name="26-9999", systems=(
+        System(key="EF", name="Exhaust Fan", shape="Exhaust Fan", control="none",
+               families=(Family(name="Exhaust Fan", tags=("EF-1",), count=Count(None)),)),
+    ))
+    checked = counts.cross_check(job, cat, tmp_path / "cache", transport=transport)
+    assert transport.asked == []
+    assert checked.system("EF").families[0].count.value is None
