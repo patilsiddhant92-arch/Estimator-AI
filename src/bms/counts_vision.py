@@ -282,8 +282,11 @@ def ask_sheet(transport, picture: Path, patterns: list[str], name: str = "",
     schema, an answer whose tiles_examined leaves out a tile, an answer whose counted tags have no box in their tile).
     A pattern the answer leaves out is not counted: it is not among the listed patterns. An answer that breaks the
     schema, did not examine every tile or placed no box in a tile (`misplaced`) is refused through
-    the transport's `refuse` (the chat asks again on a later run, the API once more now, with the reason). Never
-    raises for a bad pattern list (a pattern that is no regular expression gives None)."""
+    the transport's `refuse` (the chat asks again on a later run, the API once more now, with the reason). A
+    question that will not be answered on this run without waiting (refused `max_attempts` times, or refused
+    again on the API's retry) gives None and its reason is added to the transport's `count_stops` list, which
+    the run checks after the counts. Never raises for a bad pattern list (a pattern that is no regular expression
+    gives None)."""
     from bms.ai import NoAnswer, _ask_checked
 
     patterns = list(dict.fromkeys(patterns))
@@ -324,7 +327,18 @@ def ask_sheet(transport, picture: Path, patterns: list[str], name: str = "",
         return _ask_checked(transport, COUNT_KIND, name or f"Count tags {picture.stem}", INSTRUCTIONS, STEP,
                             prompt_text, SCHEMA, extra,
                             tuple(path for _, path in tiles), check)
-    except NoAnswer:
+    except NoAnswer as missing:
+        # a question refused with no answer to wait for is a stop, not a missing count: it is kept on the
+        # transport (`count_stops`) so the run stops at the count step with it instead of writing without the count
+        if not missing.waiting:
+            try:
+                stops = getattr(transport, "count_stops", None)
+                if stops is None:
+                    stops = []
+                    transport.count_stops = stops
+                stops.append(str(missing.reason))
+            except Exception:
+                pass
         return None
     except Exception as error:          # a transport failure is no count, never a crash
         if hasattr(transport, "last_error"):
