@@ -279,16 +279,20 @@ function buildDecision(q, state) {
     d.reason = String(state.text || "").trim();
     if (q.level === "device" && q.device) {
       var dev = JSON.parse(JSON.stringify(q.device));
-      if (parsed.kind === "number") dev.quantity.value = parsed.value;
+      if (parsed.kind === "number") { dev.quantity.value = parsed.value; dev.quantity.others = []; }
       else if (parsed.kind === "words") dev.name = parsed.value;
       var f = state.fields || {};
       ["verb", "furnished_by", "installed_by", "wired_by"].forEach(function (k) { if (f[k]) dev[k] = f[k]; });
       dev.flag = "none";
       d.device = dev;
     } else if (q.level === "family" && q.count) {
-      var c = JSON.parse(JSON.stringify(q.count));
-      if (parsed.kind === "number") c.value = parsed.value;
-      d.count = c;
+      // A typed count settles the dispute (no other counts left); words alone are no count change.
+      if (parsed.kind === "number") {
+        var c = JSON.parse(JSON.stringify(q.count));
+        c.value = parsed.value;
+        c.others = [];
+        d.count = c;
+      }
     }
   }
   return d;
@@ -616,8 +620,7 @@ def merge_decisions(history: Sequence[SavedDecision], saved: Sequence[Decision],
     latest = max((h.round for h in history), default=0)
     if history and [h.as_saved for h in history if h.round == latest] == saved:
         return history
-    carried = [h for h in history
-               if not any(_same_line(h.as_saved, d, job) or _same_line(h.decision, d, job) for d in saved)]
+    carried = [h for h in history if not any(_replaces(d, h, job) for d in saved)]
     new: list[SavedDecision] = []
     for d in saved:
         base = _changed_into(carried, d)
@@ -629,6 +632,16 @@ def merge_decisions(history: Sequence[SavedDecision], saved: Sequence[Decision],
         rebased = dataclasses.replace(d, device_id=old.device_id, was=old.was)
         new.append(SavedDecision(rebased, latest + 1, saved=d, copies=_seen(job, rebased)))
     return [*carried, *new]
+
+
+def _replaces(d: Decision, h: SavedDecision, job: Job | None) -> bool:
+    """True when the new decision `d` takes the place of the earlier `h` (`_same_line`). A family Accept never takes
+    the place of a family count change: the page shows the family card again after the changed count is written
+    (its other counts are still there), and accepting it says the count is right as it is now, the changed one."""
+    if (d.action == "accept" and d.device_id is None and d.family_name is not None
+            and h.decision.action == "change" and h.decision.device_id is None):
+        return False
+    return _same_line(h.as_saved, d, job) or _same_line(h.decision, d, job)
 
 
 def _seen(job: Job | None, d: Decision) -> int | None:
