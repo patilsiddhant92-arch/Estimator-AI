@@ -24,7 +24,7 @@ from bms.model import Count, Device, Finding, Job, Ref
 from bms.render import left_out_text
 
 SCOPE_TAB, FINDINGS_TAB = "Scope lines", "Findings"
-SCOPE_HEADINGS = ["System", "Line", "Kind", "Printed line", "Slot", "Device", "Verb", "Furnished by",
+SCOPE_HEADINGS = ["System", "Device id", "Kind", "Printed line", "Slot", "Device", "Verb", "Furnished by",
                   "Installed by", "Wired by", "Quantity", "Other counts", "Citations (id, where, quote)",
                   "Assumption", "Flag"]
 FINDING_HEADINGS = ["Rule", "System", "Device", "Severity", "What", "Fix"]
@@ -39,11 +39,14 @@ def _refs(refs: Sequence[Ref]) -> str:
 
 
 def _quantity(count: Count) -> str:
-    return "Qty (##), not known" if count.value is None else str(count.value)
+    """The number the proposal prints (`Count.highest()`, estimator ruling D9)."""
+    n = count.highest()
+    return "Qty (##), not known" if n is None else str(n)
 
 
 def _others(count: Count) -> str | None:
-    return "\n".join(f"{o.value} per {o.ref.where or o.ref.source_id or 'no source'}" for o in count.others) or None
+    """Every other count with its whole citation: source id, where and quote."""
+    return "\n".join(f"{o.value} per {_ref(o.ref)}" for o in count.others) or None
 
 
 def _device_row(system: str, device: Device, printed: dict[str, str]) -> list:

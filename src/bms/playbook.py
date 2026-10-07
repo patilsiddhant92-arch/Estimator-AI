@@ -80,7 +80,7 @@ class Wording:
     integration_depths: tuple[int, ...]
     clarifications: dict[str, str]                  # kind -> "*{text} …"
     header: dict[str, str]                          # count, unknown_count, tags_joiner
-    quantity: dict[str, str]                        # line, unknown, others_note
+    quantity: dict[str, str]                        # line, unknown, others_note (unlabelled)
     draft: tuple[str, ...] = ()
     count_causes: dict[str, str] = field(default_factory=dict)   # form, joiner and each cause's client words
     alternate_label: str = ""                       # optional "ALT #{k}: {name}" form; "" = the renderer's own
@@ -402,11 +402,14 @@ def load_wording(path: Path) -> Wording:
     _form(header["count"], "header.count", path, ("n",), required=("n",))
     _form(header["unknown_count"], "header.unknown_count", path, ())
     quantity = _text_map(data["quantity"], "quantity", path)
-    if set(quantity) != {"line", "unknown", "others_note"}:
-        raise PlaybookError(f"{path.name}: quantity must have exactly line, unknown and others_note")
+    if not {"line", "unknown", "others_note"} <= set(quantity) <= {"line", "unknown", "others_note", "unlabelled"}:
+        raise PlaybookError(f"{path.name}: quantity must have exactly line, unknown and others_note "
+                            "(and, optionally, unlabelled)")
     _form(quantity["line"], "quantity.line", path, ("n",), required=("n",))
     _form(quantity["unknown"], "quantity.unknown", path, ())
     _form(quantity["others_note"], "quantity.others_note", path, ("counts",), required=("counts",))
+    if "unlabelled" in quantity:          # a count note's words for a count with no place (bms.render.UNLABELLED)
+        _form(quantity["unlabelled"], "quantity.unlabelled", path, ())
     causes = _text_map(data["count_causes"], "count_causes", path)
     if set(causes) != set(COUNT_CAUSE_KEYS):
         raise PlaybookError(f"{path.name}: count_causes must have exactly {', '.join(COUNT_CAUSE_KEYS)}")

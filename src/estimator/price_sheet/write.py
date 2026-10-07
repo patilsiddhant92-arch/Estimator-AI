@@ -20,7 +20,7 @@ from estimator.scope import Job
 
 PRICE_PENDING = "PRICE PENDING"
 PRICE_NEEDS_REVIEW = "PRICE NEEDS REVIEW"   # the price book's own note questions this price
-QUANTITY_PENDING = "QUANTITY PENDING"       # a "Qty (##)" block: its count is still to fill, its lines are unpriced
+QUANTITY_PENDING = "QUANTITY PENDING"       # a "Qty (##)" block or a "(Qty. ##)" line: still to fill, unpriced
 BASE_LABEL = "Base Bid"
 MAX_SHEETS = 10
 _FLAG_FONT = Font(bold=True, color="C00000")
@@ -54,7 +54,8 @@ def write_price_sheet(job: Job, template_path: Path, book: PriceBook, out_path: 
             _rename_sheet(workbook, template_title, sheet.title)
         pending += _fill(workbook[sheet.title], sheet, book)
     counts = sum(1 for sheet in plan for row in sheet.rows if row.count_pending)
-    _fill_summary(workbook["Summary"], job, plan, pending, counts)
+    quantities = sum(1 for sheet in plan for row in sheet.rows if row.quantity_pending)
+    _fill_summary(workbook["Summary"], job, plan, pending, counts, quantities)
     workbook.calculation.fullCalcOnLoad = True
     out_path.parent.mkdir(parents=True, exist_ok=True)
     workbook.save(str(out_path))
@@ -71,6 +72,8 @@ def _fill(ws, sheet: Sheet, book: PriceBook) -> int:
             ws.cell(r, HOURS).value = row.hours
         if row.count_pending:
             _flag(ws, r, QUANTITY_PENDING)     # its lines carry no quantity, so none of them is priced
+        if row.quantity_pending:
+            _flag(ws, r, QUANTITY_PENDING)     # a "(Qty. ##)" line: no quantity, so it is not priced
         if row.quantity is not None:
             ws.cell(r, QUANTITY).value = row.quantity
             match = book.lookup(row.item.text)
@@ -107,7 +110,7 @@ def _rename_sheet(workbook, old: str, new: str) -> None:
             defined.attr_text = defined.attr_text.replace(old_ref, new_ref)
 
 
-def _fill_summary(ws, job: Job, plan: list[Sheet], pending: int, counts: int = 0) -> None:
+def _fill_summary(ws, job: Job, plan: list[Sheet], pending: int, counts: int = 0, quantities: int = 0) -> None:
     ws["B7"] = job.header.reference
     ws["B9"] = job.header.quote_number
     ws["B15"] = job.header.date
@@ -122,6 +125,10 @@ def _fill_summary(ws, job: Job, plan: list[Sheet], pending: int, counts: int = 0
         blocks, have = ("block", "has") if counts == 1 else ("blocks", "have")
         said.append(f"{counts} {blocks} {have} no count yet — Qty (##), marked {QUANTITY_PENDING}; their lines "
                     "are not priced until the count is typed in.")
+    if quantities:
+        lines, have = ("line", "has") if quantities == 1 else ("lines", "have")
+        said.append(f"{quantities} {lines} {have} no quantity yet — (Qty. ##), marked {QUANTITY_PENDING}; "
+                    "not priced until the quantity is typed in.")
     if said:
         cell = ws["B34"]
         cell.value = " ".join(said)

@@ -724,15 +724,32 @@ def test_count_note_reads_the_counts_line_part_that_gives_the_value():
                             "3 per schedule rows."]
 
 
-def test_count_note_drops_clauses_with_no_label_and_keeps_five():
+def test_count_note_names_every_count_even_one_with_no_label_and_has_no_cap():
+    # estimator ruling D6, 2026-10-07: every other count prints; one with no place gets the plain fallback words
     counts_line = "equipment counts for EF"
     count = Count(value=20, sources=(Ref("S1", "distinct tags 20", counts_line),),
-                  others=(OtherCount(15, Ref("S2", "distinct tags 15", counts_line)),
-                          OtherCount(6, Ref("S3", "something else", counts_line))))
-    assert _note(count) == []
+                  others=(OtherCount(15, Ref("S2", "distinct tags 15", counts_line)),))
+    assert _note(count) == ["*Qty. (20); 15 elsewhere in the documents."]
     many = Count(value=20, sources=(Ref("S1", "q", "Q-1.00, A.pdf page 1"),),
                  others=tuple(OtherCount(n, Ref(f"S{n}", "q", f"Q-{n}.00, A.pdf page {n}")) for n in (3, 9, 5, 7, 11, 2)))
-    assert _note(many) == ["*Qty. (20) per Q-1.00; 11 per Q-11.00; 9 per Q-9.00; 7 per Q-7.00; 5 per Q-5.00."]
+    assert _note(many) == ["*Qty. (20) per Q-1.00; 11 per Q-11.00; 9 per Q-9.00; 7 per Q-7.00; 5 per Q-5.00; "
+                           "3 per Q-3.00; 2 per Q-2.00."]
+
+
+def test_a_two_family_count_note_names_each_family():
+    pb = load_playbook(ROOT / "playbook")
+    fans = Family("Exhaust Fan", ("EF-1",), Count(value=20, sources=(Ref("S1", "q", "Q-1.00, A.pdf page 1"),),
+                                                 others=(OtherCount(15, Ref("S2", "q", "Q-2.00, A.pdf page 2")),)))
+    heaters = Family("Unit Heater", ("UH-1",), Count(value=4, sources=(Ref("S3", "q", "Q-3.00, A.pdf page 3"),),
+                                                    others=(OtherCount(3, Ref("S4", "q", "Q-4.00, A.pdf page 4")),)))
+    out = texts(render(_repo_job(system([device(qty=20)], families=(fans, heaters), shape="")), pb), "EF")
+    assert [t for t in out if t.startswith("*Qty.")] == [
+        "*Qty. Exhaust Fan (20) per Q-1.00; 15 per Q-2.00; Unit Heater (4) per Q-3.00; 3 per Q-4.00."]
+    # a device that carries its family's count does not print that count a second time
+    fan_device = replace(device(qty=20), quantity=fans.count)
+    out = texts(render(_repo_job(system([fan_device], families=(fans, heaters), shape="")), pb), "EF")
+    assert [t for t in out if t.startswith("*Qty.")] == [
+        "*Qty. Exhaust Fan (20) per Q-1.00; 15 per Q-2.00; Unit Heater (4) per Q-3.00; 3 per Q-4.00."]
 
 
 def test_count_note_folds_the_same_value_from_the_same_label():
