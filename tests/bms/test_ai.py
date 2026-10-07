@@ -138,6 +138,32 @@ def test_evidence_for_a_system_without_tags_uses_its_section_and_its_name(job, d
     assert "S18" not in ids
 
 
+def test_evidence_for_a_system_with_no_plan_sheets_has_no_plan_devices_of_other_systems(job, dossier):
+    """DH has no plan placements, so it is on no sheet: the devices counted on the plans are not its evidence."""
+    ids = _ids(ai.evidence_for(skeleton(job.system("DH")), dossier))
+    assert {"S13", "S20"} <= ids
+    assert not ids & {"S36", "S43"}
+
+
+def test_evidence_for_a_packaged_system_leaves_out_another_systems_integration_passage(job, dossier):
+    """S38 integrates the VRF system: it is the VRF's, not the rooftop units'."""
+    assert "S38" not in _ids(ai.evidence_for(skeleton(job.system("RTU")), dossier))
+    assert "S38" in _ids(ai.evidence_for(skeleton(job.system("VRF")), dossier))
+
+
+def test_evidence_for_reads_the_sections_from_the_text_when_the_dossier_has_none(job, dossier):
+    bare = dataclasses.replace(dossier, sections={})
+    for held in (bare, dossier):
+        text = ai.evidence_for(skeleton(job.system("EF")), held)
+        assert {"S18", "S19"} <= _ids(text) and "--- [Q2] B. EXHAUST FANS ---" in text
+    # a section the planner cited by its Q id (not named by its heading) is found without the sections too
+    system = skeleton(job.system("DH"))
+    system = dataclasses.replace(system, sequence_refs=system.sequence_refs + (Ref("Q2", "start and stop", "p. 10"),))
+    for held in (bare, dossier):
+        text = ai.evidence_for(system, held)
+        assert {"S18", "S19"} <= _ids(text) and "--- [Q2] B. EXHAUST FANS ---" in text
+
+
 def test_evidence_lists_ledger_facts_the_planner_cited(job, dossier):
     system = skeleton(job.system("DH"))
     system = dataclasses.replace(system, sequence_refs=system.sequence_refs + (

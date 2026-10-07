@@ -195,6 +195,7 @@ def evidence(system: System, text: str, sources: dict[str, str], sections: dict,
     for entry in entries:
         by_part.setdefault(entry.part, []).append(entry)
     ids_in_text = {e.sid for e in entries if e.sid}
+    elsewhere = _other_kinds(entries, about)
     sections = sections or {}
     given: set[str] = set()
     out = [f"Evidence for {system.name} (system {system.key}), from this job's documents only. Each passage starts "
@@ -271,7 +272,7 @@ def evidence(system: System, text: str, sources: dict[str, str], sections: dict,
             continue
         m = _DEVICE_SHEETS.search(entry.body)
         on = {piece.strip().split(" ", 1)[0] for piece in m.group(1).split(";")} if m else set()
-        if not sheets or on & sheets or entry.sid in cited or about.names(entry.body):
+        if (sheets and on & sheets) or entry.sid in cited or about.names(entry.body):
             devices.append(entry)
     block("Devices counted on the plan sheets it is on:", devices)
 
@@ -283,7 +284,8 @@ def evidence(system: System, text: str, sources: dict[str, str], sections: dict,
     integrated = system.control in ("integration", "packaged")
     block("Controls specification passages about it:",
           [e for e in by_part.get(SPEC, []) if e.sid and (e.sid in cited or about.names(e.body)
-                                                          or (integrated and _INTEGRATION_WORDS.search(e.body)))],
+                                                          or (integrated and _INTEGRATION_WORDS.search(e.body)
+                                                              and not _names_another(e.body, about, elsewhere)))],
           SPEC_LIMIT)
 
     # 7. who does what, for the whole job (ownership), and the job part's passages naming it
@@ -303,6 +305,26 @@ def evidence(system: System, text: str, sources: dict[str, str], sections: dict,
         for pid, image in pictures:
             out.append(f"[{pid}] Picture: {sources.get(pid) or getattr(image, 'what', '')}. File: {image.path}")
     return "\n".join(out) + "\n"
+
+
+def _other_kinds(entries: list[Entry], about: _About) -> list[re.Pattern]:
+    """The kinds of equipment the job's documents name that are not this system's: the sequence section headings
+    ("B. EXHAUST FANS") and the schedule titles ("VRF SCHEDULE"), as name phrases."""
+    names: list[str] = []
+    for entry in entries:
+        heading = _SECTION.match(entry.text) if entry.sid is None else None
+        if heading:
+            names.append(re.sub(r"^[A-Z0-9]{1,3}[.)]\s+", "", heading.group(2)))
+        elif entry.part == SCHEDULES and entry.sid and " — " in entry.text.split("\n", 1)[0]:
+            title = _ENTRY.sub(lambda m: m.group(2), entry.text.split("\n", 1)[0], count=1).split(" — ", 1)[0]
+            names.append(re.sub(r"\s+(?:SCHEDULES?|LIST)$", "", title.strip(), flags=re.I))
+    phrases = (_phrase(n) for n in dict.fromkeys(names) if not about.names_phrase(n))
+    return [p for p in phrases if p is not None]
+
+
+def _names_another(body: str, about: _About, elsewhere: list[re.Pattern]) -> bool:
+    """The passage names another system's tags or kind of equipment (or a tag that is none of this system's)."""
+    return bool(tags_in(body) - about.tags) or any(p.search(body) for p in elsewhere)
 
 
 def _count_of(body: str, about: _About) -> bool:
