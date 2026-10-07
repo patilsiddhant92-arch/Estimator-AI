@@ -204,28 +204,60 @@ def unexamined(answer: dict, tiles: int) -> list[str]:
     return problems
 
 
+def _placed(box: dict, rects: list[tuple[int, int, int, int]]) -> tuple[int, int, int, int] | None:
+    """A box of the answer in the whole picture's pixels, cut to its tile; None when it is in no tile sent or does
+    not lie in its tile."""
+    n = box["tile"]
+    if not 1 <= n <= len(rects):
+        return None
+    x0, y0, w, h = rects[n - 1]
+    x, y, tw, th = box["x"], box["y"], box["width"], box["height"]
+    if tw <= 0 or th <= 0 or x < 0 or y < 0 or x >= w or y >= h:
+        return None
+    return x0 + x, y0 + y, min(tw, w - x), min(th, h - y)
+
+
+def _clamped(tag: dict, rects: list[tuple[int, int, int, int]]) -> tuple[int, int, int, int]:
+    """A box for a counted tag none of whose boxes lies in its tile: its first box pulled into its tile (the first
+    tile when it names none sent), at least one pixel, in the whole picture's pixels."""
+    box = next((b for b in tag["boxes"] if 1 <= b["tile"] <= len(rects)), None)
+    x0, y0, w, h = rects[box["tile"] - 1] if box else rects[0]
+    x = min(max(box["x"], 0), w - 1) if box else 0
+    y = min(max(box["y"], 0), h - 1) if box else 0
+    tw = min(max(box["width"], 1), w - x) if box else 1
+    th = min(max(box["height"], 1), h - y) if box else 1
+    return x0 + x, y0 + y, tw, th
+
+
+def misplaced(answer: dict, rects: list[tuple[int, int, int, int]]) -> list[str]:
+    """The answer's problems with its boxes: one per pattern that counts tags but has no box lying in a tile sent
+    (boxes given in the whole sheet's pixels, or none at all). An empty list when every such pattern places a box."""
+    sizes = "; ".join(f"tile {n}: 0 to {w} by 0 to {h}" for n, (_, _, w, h) in enumerate(rects, start=1))
+    problems = []
+    for entry in answer.get("patterns", ()) if isinstance(answer, dict) else ():
+        tags = [t for t in entry.get("tags") or () if isinstance(t, dict) and (t.get("count") or 0) > 0]
+        if tags and not any(_placed(b, rects) for t in tags for b in t.get("boxes") or ()):
+            problems.append(f"pattern {entry.get('pattern', '?')}: no box lies in its tile (boxes must be in the "
+                            f"tile's own pixels, measured from that tile's top-left corner, one box per place the "
+                            f"tag is shown; {sizes})")
+    return problems
+
+
 def read_answer(answer: dict, rects: list[tuple[int, int, int, int]]
                 ) -> list[tuple[str, tuple[int, int, int, int]]] | None:
     """The answer's tags, every pattern's together, as (text, box in the whole picture's pixels), one per box; None
     when the answer breaks the schema. A box in no tile sent, or not lying in its tile, is dropped (the AI misplaced
-    it)."""
+    it). A pattern whose counted tags would then keep no box at all keeps each counted tag once, its box pulled into
+    the tile (`_clamped`): a tag the AI counts is never silently a count of 0."""
     if schema_errors(answer, SCHEMA):
         return None
     found = []
     for entry in answer["patterns"]:
-        for tag in entry["tags"]:
-            if tag["count"] <= 0:
-                continue
-            for box in tag["boxes"]:
-                n = box["tile"]
-                if not 1 <= n <= len(rects):
-                    continue
-                x0, y0, w, h = rects[n - 1]
-                x, y, tw, th = box["x"], box["y"], box["width"], box["height"]
-                if tw <= 0 or th <= 0 or x < 0 or y < 0 or x >= w or y >= h:
-                    continue
-                tw, th = min(tw, w - x), min(th, h - y)
-                found.append((tag["text"], (x0 + x, y0 + y, tw, th)))
+        tags = [tag for tag in entry["tags"] if tag["count"] > 0]
+        placed = [(tag["text"], box) for tag in tags for box in (_placed(b, rects) for b in tag["boxes"]) if box]
+        if not placed and rects:
+            placed = [(tag["text"], _clamped(tag, rects)) for tag in tags]
+        found += placed
     return found
 
 
@@ -247,8 +279,9 @@ def ask_sheet(transport, picture: Path, patterns: list[str], name: str = "",
     """The sheet's one count question: every tile or micro-crop of the picture as its own image, every pattern asked together;
     (the found tags (of every pattern) in the whole picture's pixels, the patterns the answer has an entry for), or
     None when there is no usable answer (waiting for the chat, a transport failure, an answer that breaks the
-    schema, an answer whose tiles_examined leaves out a tile). A pattern the answer leaves out is not counted: it is
-    not among the listed patterns. An answer that breaks the schema or did not examine every tile is refused through
+    schema, an answer whose tiles_examined leaves out a tile, an answer whose counted tags have no box in their tile).
+    A pattern the answer leaves out is not counted: it is not among the listed patterns. An answer that breaks the
+    schema, did not examine every tile or placed no box in a tile (`misplaced`) is refused through
     the transport's `refuse` (the chat asks again on a later run, the API once more now, with the reason). Never
     raises for a bad pattern list (a pattern that is no regular expression gives None)."""
     from bms.ai import NoAnswer, _ask_checked
@@ -271,7 +304,7 @@ def ask_sheet(transport, picture: Path, patterns: list[str], name: str = "",
     def check(answer):
         if not isinstance(answer, dict):
             return None, ["the answer is not a JSON object"]
-        problems = schema_errors(answer, SCHEMA) or unexamined(answer, len(rects))
+        problems = schema_errors(answer, SCHEMA) or unexamined(answer, len(rects)) or misplaced(answer, rects)
         if problems:
             return None, problems
         found = read_answer(answer, rects)

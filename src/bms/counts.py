@@ -114,7 +114,7 @@ def cross_check(job: "Job", catalogue: "Catalogue", cache: Path, *, transport=No
     sheet for every family on it). Each count different from `Count.value` is added to `Count.others` with its Ref
     (`source_id` "C<n>", quote "located on the sheet text" or "counted on the sheet picture", `where` the sheets);
     a count equal to it is added to `sources`; `Count.value` becomes the highest (an unknown count takes the plan
-    count), the earlier count moving to `others` with its sources; and the system's devices whose quantity was
+    count when it found a tag; a plan count of 0 leaves it unknown), the earlier count moving to `others` with its sources; and the system's devices whose quantity was
     counted from the family's sources get flag "quantity" when the counts disagree. Proof images and their manifest
     go under `<cache>/count-proofs/`. Families whose sheets cannot be pictured or counted are left as they are.
     Pure apart from the picture cache under `cache`. Never lowers a count, never raises; running it twice changes
@@ -447,6 +447,8 @@ class _Check:
             if known is not None:
                 ids[quote] = known.source_id
                 continue
+            if value is None and n == 0:
+                continue      # no tag found is no count: an unknown count stays unknown, never a known 0
             ref = Ref(f"C{self.next_id}", quote, where)
             self.next_id += 1
             ids[quote] = ref.source_id

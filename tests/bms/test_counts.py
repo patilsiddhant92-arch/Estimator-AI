@@ -14,7 +14,7 @@ import pymupdf
 import pytest
 from PIL import Image
 
-from bms import counts
+from bms import counts, counts_vision
 from bms.ai import NoAnswer
 from bms.model import Count, Family, Job, OtherCount, Ref, System
 
@@ -429,6 +429,18 @@ def test_an_unknown_count_takes_the_plan_count(tmp_path):
     assert count.value == 4 and count.others == () and count.sources[0].quote == "located on the sheet text"
 
 
+def test_an_unknown_count_stays_unknown_when_the_plan_names_the_tag_in_a_note_only(tmp_path):
+    """CNT-1: the plan's only mention is a note, so no tag is placed; a 0 never becomes the count (it would print
+    and price as a known 0)."""
+    texts = ((200, 200, FILLER, 10), (300, 700, "EF-1 SHALL BE INTERLOCKED WITH THE MOTORIZED DAMPER ABOVE", 9),
+             (1580, 1100, "M-101", 30))
+    _, catalogue = _plan(tmp_path, texts=texts)
+    system = System("EF", "Exhaust Fans", "Exhaust Fan", "field", (Family("Exhaust Fan", ("EF-1",), Count(None)),))
+    checked = counts.cross_check(Job("t", (system,)), catalogue, tmp_path / "cache")
+    count = checked.system("EF").families[0].count
+    assert count.value is None or count.value >= 1, count
+
+
 def test_cross_check_never_raises_on_an_unreadable_document(tmp_path):
     pdf = tmp_path / "job" / "Drawings.pdf"
     pdf.parent.mkdir(parents=True)
@@ -503,6 +515,61 @@ def test_cross_check_waiting_vision_keeps_the_text_count(tmp_path):
     ef = _family(checked, "EF", "Exhaust Fan").count
     assert ef.value == 4 and all(o.ref.quote != "counted on the sheet picture" for o in ef.others)
     assert vision.waiting == 1
+
+
+class WholeSheet(Refusable):
+    """A vision that names the tags it sees but gives their boxes in the whole picture's pixels, all in tile 1."""
+
+    def ask(self, kind, name, instructions, system_prompt, prompt, schema, extra=None, images=()):
+        answer = super().ask(kind, name, instructions, system_prompt, prompt, schema, extra, images)
+        for entry in answer["patterns"]:
+            entry["tags"] = [{"text": text, "count": 1, "boxes": [{"tile": 1, "x": x, "y": y, "width": tw,
+                                                                   "height": th}]}
+                             for text, x, y, tw, th in self.tags if re.fullmatch(entry["pattern"], text)]
+        return answer
+
+
+def test_a_vision_answer_in_whole_sheet_pixels_is_refused_with_a_plain_reason(tmp_path):
+    """CNT-2: boxes outside the tile are refused (asked again), never read as a count of 0."""
+    picture = _blank_picture(tmp_path / "p.png", (3600, 2400))
+    seen = [("EF-1", 3000, 2000, 80, 30), ("EF-2", 2500, 1900, 80, 30)]
+    api = WholeSheet(seen, again=True)
+    result = counts.count_tags(picture, "EF-[0-9]+", transport=api)
+    assert result.value != 0
+    assert api.refused and "tile's own pixels" in api.refused[0] and "0 to 1568" in api.refused[0]
+    chat = WholeSheet(seen, again=False)
+    assert counts.count_tags(picture, "EF-[0-9]+", transport=chat) == counts.CountResult(None, ())
+    assert len(chat.refused) == 1
+
+
+def test_an_unknown_count_is_not_zeroed_by_a_vision_answer_in_whole_sheet_pixels(tmp_path):
+    """CNT-2: a scanned plan (no text layer) and an unknown count; the AI names EF-1 and EF-2 in whole-sheet pixels."""
+    pdf = make_pdf(tmp_path / "job" / "Drawings.pdf", Page(W, H, scanned="FIRST FLOOR PLAN"))
+    catalogue = _catalogue(pdf, [(1, "M-101", "FIRST FLOOR PLAN", "")])
+    system = System("EF", "Exhaust Fans", "Exhaust Fan", "field",
+                    (Family("Exhaust Fan", ("EF-1", "EF-2"), Count(None)),))
+    seen = [("EF-1", 3000, 2000, 80, 30), ("EF-2", 2500, 1900, 80, 30)]
+    for again in (True, False):
+        vision = WholeSheet(seen, again=again)
+        checked = counts.cross_check(Job("t", (system,)), catalogue, tmp_path / f"cache{again}", transport=vision)
+        assert vision.asked, "the scanned sheet is asked of the vision"
+        count = checked.system("EF").families[0].count
+        assert count.value is None or count.value >= 1, count
+
+
+def test_a_counted_tag_whose_boxes_are_all_misplaced_is_kept_once():
+    """CNT-2: a pattern whose counted tags have no box in their tile keeps each tag once, its box clamped to the
+    tile, so the answer is never silently a count of 0."""
+    rects = [(0, 0, 1568, 1568), (1376, 0, 1568, 1568)]
+    answer = {"patterns": [{"pattern": "EF-[0-9]+", "tiles_examined": [1, 2], "tags": [
+        {"text": "EF-1", "count": 1, "boxes": [{"tile": 2, "x": 3000, "y": 10, "width": 80, "height": 30}]},
+        {"text": "EF-2", "count": 2, "boxes": []},
+        {"text": "EF-3", "count": 0, "boxes": []}]}]}
+    found = counts_vision.read_answer(answer, rects)
+    assert [t for t, _ in found] == ["EF-1", "EF-2"]
+    for _, (x, y, w, h) in found:
+        assert w > 0 and h > 0 and any(x0 <= x and x + w <= x0 + tw and y0 <= y and y + h <= y0 + th
+                                       for x0, y0, tw, th in rects)
 
 
 # ---- every tile examined ----------------------------------------------------------------------------------------
