@@ -3,7 +3,8 @@
 Only the bid documents are catalogued — the drawings, specs, addenda, RFIs and anything
 else the owner issued. AME's own folders (the proposal, the price workup, vendor quotes)
 and folders left behind by earlier tools are left out, each with a note, and so is a
-second job's folder stored inside this one.
+second job's folder stored inside this one. AME's own folders sit only at the top of a job
+folder: when the input is the takeoff folder itself, every folder in it is read.
 """
 from __future__ import annotations
 
@@ -28,6 +29,17 @@ _DOCUMENTS_FOLDER = re.compile(r"^(?:\d+\.\s*)?(takeoffs|project documents)$", r
 _JOB_MARKER = re.compile(r"^(?:\d+\.\s*)?(takeoffs|proposal|price workup|project documents)$", re.I)
 _NUMBERED = re.compile(r"^\d+\.\s*(.+)$")
 _ADDENDUM = re.compile(r"addend|bulletin", re.I)
+# A folder named like a revision or reissue ("Rev 1", "Revision A", "Addendum 2", "IFC", a date), read as one when
+# it is the first folder under an input folder that is not itself "Takeoffs" or "Project Documents".
+_REVISION_NAME = re.compile(
+    r"(?<![a-z])(?:rev(?:ision|ised)?|addend(?:um|a)?|bulletin|reissued?|issued for|ifc|ifb|ifp|conformed|asi)(?![a-z])"
+    r"|(?<!\d)\d{1,4}[-._]\d{1,2}(?:[-._]\d{1,4})?(?!\d)"
+    r"|(?<![a-z])(?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\.?\s*\d", re.I)
+# A discipline or content folder ("Mechanical", "Electrical Drawings", "Specs") is part of its issue, never a revision.
+_DISCIPLINE_NAME = re.compile(
+    r"(?:mechanical|electrical|plumbing|controls|hvac|mep|architectural|structural|civil|landscape"
+    r"|fire(?: protection| alarm)?|specs|specifications|drawings|plans|sheets)"
+    r"(?:\s+(?:drawings|plans|sheets|specs|specifications))?", re.I)
 _RFI = re.compile(r"(?<![a-z])rfi(?![a-z])", re.I)
 _SPEC_NAME = re.compile(r"spec|manual|(?<!\d)\d{5}(?!\d)|(?<!\d)\d{2}[-_ ]\d{2}[-_ ]\d{2}(?!\d)", re.I)
 _SPEC_TEXT = re.compile(r"\bSECTION\s+(?:\d{2}\s?\d{2}\s?\d{2}|\d{5})\b|END\s+OF\s+SECTION", re.I)
@@ -88,6 +100,9 @@ def find_documents(root: Path, documents: str | Path | None = None) -> JobFolder
     if not start.is_dir():
         raise FileNotFoundError(2, "No such folder", str(start))
     paths, notes, left_out, nested_jobs, other_files = [], [], [], [], []
+    # AME's own folders are left out only at the top of a job folder (one holding its Takeoffs, Proposal, Price
+    # Workup or Project Documents folder); inside the takeoff folder an "Electrical" folder is the bid drawings.
+    at_job_top = not documents and _is_nested_job(root)
 
     def _on_error(error: OSError) -> None:
         where = Path(error.filename)
@@ -105,7 +120,7 @@ def find_documents(root: Path, documents: str | Path | None = None) -> JobFolder
                 relative = (here / name).relative_to(root).as_posix()
                 notes.append(f"{name} is another job's folder inside this one — catalogue it on its own")
                 nested_jobs.append(relative)
-            elif here == start and _LEFT_OUT.match(name):
+            elif at_job_top and here == root and _LEFT_OUT.match(name):
                 left_out.append((here / name).relative_to(root).as_posix())
             else:
                 kept.append(name)
@@ -142,20 +157,26 @@ def _find_duplicate(path: Path, relative: str, seen: dict[tuple, list[dict]]) ->
 
 def _describe(root: Path, path: Path, seen: dict[tuple, list[dict]]) -> Document:
     relative = path.relative_to(root).as_posix()
-    revision = _revision(path.relative_to(root).parts)
-    duplicate_of = _find_duplicate(path, relative, seen)
+    revision = _revision(path.relative_to(root).parts, root.name)
+    try:
+        duplicate_of = _find_duplicate(path, relative, seen)
+    except OSError:     # a file that cannot be opened (locked, no permission) is one unreadable document
+        return Document(path, relative, "unreadable", revision, 0)
     try:
         with pymupdf.open(str(path)) as pdf:
             if pdf.needs_pass:
                 return Document(path, relative, "password", revision, 0, duplicate_of)
-            return Document(path, relative, _kind(path.name, pdf), revision, pdf.page_count, duplicate_of)
-    except (pymupdf.FileDataError, RuntimeError, ValueError):
+            return Document(path, relative, _kind(relative, pdf), revision, pdf.page_count, duplicate_of)
+    except (pymupdf.FileDataError, RuntimeError, ValueError, OSError):
         return Document(path, relative, "unreadable", revision, 0, duplicate_of)
 
 
-def _kind(name: str, pdf: pymupdf.Document) -> str:
-    if _ADDENDUM.search(name):
+def _kind(relative: str, pdf: pymupdf.Document) -> str:
+    """The document's kind from its path in the job folder: an addendum by its file name or any folder it is in
+    ("Addendum 2/M.pdf"), everything else by its file name and its pages."""
+    if any(_ADDENDUM.search(part) for part in relative.split("/")):
         return "addendum"
+    name = relative.rsplit("/", 1)[-1]
     if _RFI.search(name):
         return "rfi"
     if pdf.page_count and max(pdf[0].rect.width, pdf[0].rect.height) >= LARGE_SHEET:
@@ -166,15 +187,24 @@ def _kind(name: str, pdf: pymupdf.Document) -> str:
     return "specs" if _SPEC_TEXT.search(first_pages) else "other"
 
 
-def _revision(parts: tuple[str, ...]) -> str:
-    """The revision folder is the one directly under "Takeoffs" or "Project Documents"."""
-    for index, part in enumerate(parts[:-2]):
+def _revision(parts: tuple[str, ...], root_name: str = "") -> str:
+    """The revision folder is the one directly under "Takeoffs" or "Project Documents", the input folder itself
+    when it is so named. Under an input folder of any other name (the takeoff folder given as the input) the first
+    folder is a revision only when it is named like one ("Rev 1", "Revision A", "Addendum 2", "IFC", a date).
+    A folder named "base", or a discipline or content folder ("Mechanical", "Electrical", "Specs"), is the base
+    set: never a revision of its own."""
+    def label_of(folder: str, any_name: bool) -> str:
+        numbered = _NUMBERED.match(folder)
+        label = numbered.group(1) if numbered else folder
+        if "base" in label.lower() or _DISCIPLINE_NAME.fullmatch(label.strip()):
+            return "base"
+        return label if any_name or _REVISION_NAME.search(label) else "base"
+
+    full = (root_name, *parts) if root_name else tuple(parts)
+    for index, part in enumerate(full[:-2]):
         if _DOCUMENTS_FOLDER.match(part):
-            label = parts[index + 1]
-            numbered = _NUMBERED.match(label)
-            label = numbered.group(1) if numbered else label
-            return "base" if "base" in label.lower() else label
-    return "base"
+            return label_of(full[index + 1], True)
+    return label_of(parts[0], False) if len(parts) > 1 else "base"
 
 
 def _fingerprint(path: Path) -> tuple:
