@@ -247,6 +247,18 @@ def _many_valued(kind: str, subject: str) -> bool:
     return kind in ("note", "location") or (kind == "front_end" and subject.casefold() in ("line", "note"))
 
 
+def _held(ledger: Ledger, kind: str, subject: str, sid: str):
+    """The fact an answer speaks to. A sequence heading can repeat ("1. OCCUPIED MODE" under each system), so a
+    sequence_match citing a section the ledger holds is that section's own fact, never another section's of the
+    same heading; any other fact is found by its kind and subject."""
+    if kind == "sequence_match":
+        sections = [f for f in ledger.of_kind(kind) if f.source_id == sid]
+        if sections:
+            key = subject.casefold()
+            return next((f for f in sections if f.subject.casefold() == key), None)
+    return ledger.find(kind, subject)
+
+
 def _take(ledger: Ledger, pass_, held, value, sid: str, quote: str) -> None:
     """A pass's different value for a fact. A provisional (added) fact of a kind the pass settles takes the value
     and is settled; a count that changes keeps the old count beside it, so the higher prints. Anything else is kept
@@ -305,7 +317,7 @@ def apply(pass_, ledger: Ledger, answer: dict, known: frozenset[str]) -> list[st
                 elif kind in pass_.settles:
                     ledger.settle(same.id)
                 continue
-            held = ledger.find(kind, subject)
+            held = _held(ledger, kind, subject, sid)
             if held is not None and held.state != ADDED and str(held.value) != str(value):
                 ledger.contradict(held.id, value, sid, quote, pass_.name)
                 continue

@@ -250,6 +250,16 @@ def test_a_sequence_section_that_matched_no_system_is_asked():
         "HEATING PLANT; B. BACnet object list. Confirm none of them needs a block of its own.")
 
 
+def test_an_unmatched_section_sharing_a_heading_with_a_matched_one_is_still_asked():
+    ledger = _ledger()
+    _family(ledger, "EF", "Exhaust Fan", "EF-1", 1)
+    ledger.add("sequence_match", "1. OCCUPIED MODE", "EF", "Q1", "1. OCCUPIED MODE", "sequence", SETTLED)
+    ledger.add("sequence_match", "1. OCCUPIED MODE", "RTU", "Q5", "1. OCCUPIED MODE", "sequence", SETTLED)
+    job = _plan(ledger)
+    assert job.questions == (
+        "Sequence section 1. OCCUPIED MODE matched no system (it named RTU); which system is it?",)
+
+
 def test_a_global_points_section_becomes_a_global_points_system():
     ledger = _ledger()
     _family(ledger, "EF", "Exhaust Fan", "EF-1", 1)

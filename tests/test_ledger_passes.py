@@ -163,6 +163,23 @@ def test_a_blank_sequence_heading_is_answered_by_the_sequence_pass():
     assert after.value == "VAV" and after.state == SETTLED and after.contradictions == ()
 
 
+def test_two_sequence_sections_with_one_heading_each_keep_their_own_match():
+    from bms.plan_read import Reader
+    ledger = seed(_dossier(sections={"Q1": ("1. OCCUPIED MODE", ("S2",)), "Q2": ("1. OCCUPIED MODE", ("S3",))}))
+    refused = apply(pass_named("sequence"), ledger, _answer(facts=[
+        {"kind": "sequence_match", "subject": "1. OCCUPIED MODE", "value": "VAV", "source_id": "[Q1]",
+         "quote": "1. OCCUPIED MODE"},
+        {"kind": "sequence_match", "subject": "1. OCCUPIED MODE", "value": "EF", "source_id": "[Q2]",
+         "quote": "1. OCCUPIED MODE"}]), _known(ledger))
+    assert refused == []
+    by_section = {f.source_id: f for f in ledger.of_kind("sequence_match")}
+    assert len(ledger.of_kind("sequence_match")) == 2
+    assert by_section["Q1"].value == "VAV" and by_section["Q1"].state == SETTLED and by_section["Q1"].contradictions == ()
+    assert by_section["Q2"].value == "EF" and by_section["Q2"].state == SETTLED and by_section["Q2"].contradictions == ()
+    assert [f.source_id for f in Reader(ledger).matches("EF")] == ["Q2"]
+    assert [f.source_id for f in Reader(ledger).matches("VAV")] == ["Q1"]
+
+
 def test_a_provisional_count_a_pass_may_only_add_is_kept_beside_it():
     ledger = seed(_dossier())
     ef = ledger.find("count", "EF")
