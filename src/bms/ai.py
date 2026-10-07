@@ -15,14 +15,17 @@ Two transports share the same steps:
   from a rejected one); an answer a step refuses after the schema check is dropped from the cache and its request
   written again with the reason, the answer file left for run_job.py to count as rejected. The same question is
   not written twice while its request is still waiting, and a cached answer removes a request a killed run left
-  behind. A step that refuses the answer `max_attempts` times (`.claude/run-job.json`, else 3) stops: a plain
-  message names the request, and no further request is written.
+  behind. The reason an answer was refused is kept with its count, so a re-run with no new answer (or after a
+  stop) writes the request with it again. A step that refuses the answer `max_attempts` times
+  (`.claude/run-job.json`, else 3) stops: a plain message names the request, and no further request is written.
 - `ApiTransport` — the Anthropic SDK (anthropic 1.8.0), streamed, structured output
   (`output_config={"format": {"type": "json_schema", "schema": schema}}`), no temperature, the Playbook rules as
   the first system block with `cache_control: {"type": "ephemeral"}` (prompt caching), the step's own instructions
   as the second; same cache folder and file form under the API model's name; the key from the environment only.
-  An answer a step refuses is dropped from the cache and the question asked again with the reason, up to
-  `max_attempts` times, then the run stops with a plain message naming the request.
+  An answer a step refuses, or one cut off or outside the schema (a network error is not counted), is dropped
+  from the cache and the question asked again with the reason, up to `max_attempts` times, then the run stops
+  with a plain message naming the request. The retry note is not part of the cache key, so an answer that passes
+  on the retry is found by the next run.
 
 Request kinds (what `/run-job` dispatches on): `write_system` for both writing and revising a system (extra
 `"step": "write" | "revise"`, `"plan_key": system.key`, `"images"`; a revise request's "system" is the system's name
@@ -90,6 +93,11 @@ class NoAnswer(Exception):
         self.waiting = waiting
 
 
+class _BadAnswer(NoAnswer):
+    """The API answered, but the answer cannot be used (cut off, declined, not JSON, not in the schema). It is
+    counted as a refusal and asked again with the reason, unlike a network error or a timeout."""
+
+
 @runtime_checkable
 class Transport(Protocol):
     """How a step's question reaches the AI and its answer comes back."""
@@ -145,7 +153,9 @@ def _fingerprint(images: Sequence[Path]) -> str:
 def _question(model: str, kind: str, name: str, instructions: str, system_prompt: str, prompt: str, schema: dict,
               extra: dict | None, images: Sequence[Path]) -> _Question:
     images = tuple(Path(p) for p in images or ())
-    key = _key(model, prompt + _fingerprint(images), f"{instructions}\n\n{system_prompt}")
+    # The API's retry note is not part of the key: an answer that passes on the retry is the answer to the
+    # question itself, found by the next run, and a refusal drops it from the one place it is kept.
+    key = _key(model, _without_retry(prompt) + _fingerprint(images), f"{instructions}\n\n{system_prompt}")
     return _Question(kind, name, instructions, system_prompt, prompt, schema, dict(extra or {}), images, key, model)
 
 
@@ -203,15 +213,18 @@ def _max_attempts() -> int:
 _RETRY_MARK = "\n\nYour earlier answer to this question could not be used:"
 
 
+def _without_retry(prompt: str) -> str:
+    """The prompt as first asked: the API's retry note taken off."""
+    mark = prompt.find(_RETRY_MARK)
+    return prompt[:mark] if mark != -1 else prompt
+
+
 def _attempt_file(cache: _Cache, q: _Question) -> Path:
     """One counter per question. The prompt, the model, the Playbook rules text, the step's instructions and the
     answer's schema are part of the id, so a decision rewrite, new evidence, a fixed rules.md or another model does
     not share the first write's counter. The API's one immediate retry appends a fixed note; that note is not part
     of the id, so the retry keeps counting."""
-    prompt = q.prompt
-    mark = prompt.find(_RETRY_MARK)
-    if mark != -1:
-        prompt = prompt[:mark]
+    prompt = _without_retry(q.prompt)
     asked = hashlib.sha256("|".join((q.model, q.instructions, q.system_prompt,
                                     json.dumps(q.schema, sort_keys=True))).encode()).hexdigest()
     ident = f"{q.kind}|{q.extra.get('step', '')}|{q.name}|{q.extra.get('plan_key', '')}|{asked}|{prompt}"
@@ -258,11 +271,27 @@ def _rejected_answer_mtime(transport) -> int | None:
         return None
 
 
-def _record_refusal(transport) -> int:
+def _saved_problem(transport) -> str | None:
+    """Why the last answer to this request was refused, as saved with the count; a chat re-run with no new
+    answer writes the request again with it."""
+    cache, last = getattr(transport, "cache", None), getattr(transport, "_last", None)
+    if cache is None or last is None:
+        return None
+    try:
+        problem = json.loads(_attempt_file(cache, last).read_text(encoding="utf-8")).get("problem")
+    except (OSError, ValueError, TypeError, AttributeError):
+        return None
+    return problem if isinstance(problem, str) and problem else None
+
+
+def _record_refusal(transport, problem: str | None = None) -> int:
     cache, last = getattr(transport, "cache", None), getattr(transport, "_last", None)
     count = _refusal_count(transport) + 1
     if cache is not None and last is not None:
         payload: dict = {"attempts": count}
+        problem = problem or _saved_problem(transport)
+        if problem:
+            payload["problem"] = problem
         path = _answer_path(transport)
         mtime = _mtime_ns(path) if path is not None else None
         if mtime is not None:
@@ -440,12 +469,14 @@ class ChatTransport(_IntakeLog):
                 self.last_error = None
                 return answer
             problem = f"the answer for {name} could not be read: {_problems(errors)}"
-            attempts = _record_refusal(self)
+            attempts = _record_refusal(self, problem)
             if attempts >= _max_attempts():
                 counter = _attempt_file(self.cache, q) if self.cache is not None else None
                 _drop_refused(self)
                 self.last_error = _stop_reason(name, attempts, problem, counter, chat=True)
                 raise NoAnswer(self.last_error, waiting=False)
+        if problem is None:                 # nothing new: the request keeps the reason the last answer was refused
+            problem = _saved_problem(self)
         raise self._request(q, problem)
 
     def refuse(self, problem: str) -> bool:
@@ -553,12 +584,20 @@ class ApiTransport(_IntakeLog):
             self.last_error = None
             return cached
         attempts = _refusal_count(self)            # the saved count: a stopped question is not asked again
-        if attempts >= (getattr(self, "max_attempts", None) or _max_attempts()):
+        limit = getattr(self, "max_attempts", None) or _max_attempts()
+        if attempts >= limit:
             self.last_error = _stop_reason(name, attempts, "It is not asked again", _attempt_file(self.cache, q))
             raise NoAnswer(self.last_error, waiting=False)
         try:
             response = self._call(q)
             answer = _answer_of(response, q)
+        except _BadAnswer as bad:           # an unusable answer is a refusal: counted, and asked again with the reason
+            attempts = _record_refusal(self, bad.reason)
+            if attempts >= limit:
+                self.last_error = _stop_reason(name, attempts, bad.reason, _attempt_file(self.cache, q))
+                raise NoAnswer(self.last_error, waiting=False) from None
+            self.last_error = bad.reason
+            raise
         except NoAnswer as failed:
             self.last_error = failed.reason
             raise
@@ -628,22 +667,22 @@ def _content(prompt: str, images: Sequence[Path]) -> list[dict]:
 def _answer_of(response, q: _Question) -> dict:
     stop = getattr(response, "stop_reason", None)
     if stop == "max_tokens":
-        raise NoAnswer(f"{q.name}: the AI answer was cut off before it finished")
+        raise _BadAnswer(f"{q.name}: the AI answer was cut off before it finished")
     if stop == "refusal":
-        raise NoAnswer(f"{q.name}: the AI declined to answer")
+        raise _BadAnswer(f"{q.name}: the AI declined to answer")
     text = "".join(getattr(block, "text", "") for block in getattr(response, "content", ())
                    if getattr(block, "type", None) == "text")
     try:
         answer = json.loads(text)
     except ValueError:
-        raise NoAnswer(f"the answer for {q.name} could not be read: it is not valid JSON") from None
+        raise _BadAnswer(f"the answer for {q.name} could not be read: it is not valid JSON") from None
     if isinstance(answer, dict):
         for name, empty in LATE_FIELDS.items():     # a field added to the contract later: missing means empty
             if name in q.schema.get("properties", {}) and name not in answer:
                 answer[name] = json.loads(json.dumps(empty))
     errors = schema_errors(answer, q.schema)
     if errors:
-        raise NoAnswer(f"the answer for {q.name} could not be read: {_problems(errors)}")
+        raise _BadAnswer(f"the answer for {q.name} could not be read: {_problems(errors)}")
     return answer
 
 
@@ -659,7 +698,14 @@ def _ask_checked(transport, kind: str, name: str, instructions: str, system_prom
     retried = False
     limit = max_attempts or getattr(transport, "max_attempts", None) or _max_attempts()
     while True:
-        answer = transport.ask(kind, name, instructions, system_prompt, prompt_now, schema, extra, images)
+        try:
+            answer = transport.ask(kind, name, instructions, system_prompt, prompt_now, schema, extra, images)
+        except _BadAnswer as bad:           # the API's answer was unusable: already counted, asked once more now
+            if retried:
+                raise NoAnswer(bad.reason) from None
+            retried = True
+            prompt_now = f"{prompt}{_RETRY_MARK} {bad.reason}. Answer again, fixing that."
+            continue
         value, problems = check(answer)
         if not problems:
             _clear_attempts(transport)
@@ -672,7 +718,7 @@ def _ask_checked(transport, kind: str, name: str, instructions: str, system_prom
         if _refusal_count(transport) >= limit:
             _drop_refused(transport)
             raise NoAnswer(_stop_reason(name, limit, reason, counter, chat=_is_chat(transport)), waiting=False)
-        attempts = _record_refusal(transport)
+        attempts = _record_refusal(transport, reason)
         if attempts >= limit:
             _drop_refused(transport)
             raise NoAnswer(_stop_reason(name, attempts, reason, counter, chat=_is_chat(transport)), waiting=False)
