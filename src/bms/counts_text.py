@@ -3,15 +3,16 @@ as boxes in the pixels of that sheet's whole-sheet picture."""
 from __future__ import annotations
 
 import re
+from collections import Counter
 from collections.abc import Iterable, Sequence
 
 import pymupdf
 
 from estimator.catalogue.pdf import clean_text
-from estimator.catalogue.tags import tag_prefix
+from estimator.catalogue.tags import NOTE_WORDS, RANGE_SPAN, label_keys, line_labels, plan_labels, tag_prefix
 
 DASHES = "-‐‑–—"
-NOTE_WORDS = 5      # a line of more words than this is a note or a sentence that names a tag, not a placed tag
+# NOTE_WORDS (from estimator.catalogue.tags): a line of more words than this is a note, never a label line
 
 
 def canonical(text: str) -> str:
@@ -205,40 +206,124 @@ def _extract_page_tags(page: pymupdf.Page, pattern: str, scale: float
                 else:
                     confident.append((tag, box))
 
-        # Check stacked lines within this block (e.g. VAV on line 1, 1 on line 2)
+        # a tag split over two lines of this block: a bare prefix over its number ("VAV" over "1"), or a tag
+        # ending in a dash over the rest ("VAV-" over "3"); never a tag over a number below it ("EF-1" over "450 CFM")
         for i in range(len(line_data) - 1):
             _l1, t1, b1 = line_data[i]
             _l2, t2, b2 = line_data[i + 1]
-            s1, s2 = t1.strip(), t2.strip()
-            for cand in (f"{s1}-{s2}", f"{s1}{s2}"):
-                match = find.search(cand)
-                if match:
-                    chars1 = [b for b in b1 if b is not None]
-                    chars2 = [b for b in b2 if b is not None]
-                    if not chars1 or not chars2:
-                        continue
-                    rect = pymupdf.Rect(chars1[0])
-                    for b in chars1[1:] + chars2:
-                        rect |= b
-                    rect = rect * matrix
-                    rect.normalize()
-                    x0, y0 = int(rect.x0 * scale), int(rect.y0 * scale)
-                    x1, y1 = int(rect.x1 * scale + 0.999), int(rect.y1 * scale + 0.999)
-                    box = (x0, y0, max(1, x1 - x0), max(1, y1 - y0))
-                    tag = canonical(match.group(0))
-                    key = (tag, box)
-                    if key not in seen_keys:
-                        seen_keys.add(key)
-                        ambiguous.append((tag, box, "stacked lines in block"))
-                    break
+            tag = _stacked(t1, t2, pattern, find)
+            if tag is None:
+                continue
+            chars = [b for b in b1 + b2 if b is not None]
+            if not chars:
+                continue
+            rect = pymupdf.Rect(chars[0])
+            for b in chars[1:]:
+                rect |= b
+            rect = rect * matrix
+            rect.normalize()
+            x0, y0 = int(rect.x0 * scale), int(rect.y0 * scale)
+            x1, y1 = int(rect.x1 * scale + 0.999), int(rect.y1 * scale + 0.999)
+            box = (x0, y0, max(1, x1 - x0), max(1, y1 - y0))
+            if (tag, box) not in seen_keys:
+                seen_keys.add((tag, box))
+                ambiguous.append((tag, box, "stacked lines in block"))
 
     return confident, ambiguous
+
+
+_BARE_PREFIX = re.compile(r"[A-Z]{1,8}")
+_ENDS_IN_DASH = re.compile(rf"[A-Z][A-Z0-9]*(?:[{DASHES}][A-Z0-9.]+)*[{DASHES}]")
+_BARE_PART = re.compile(rf"(?:{NUMBER}|{LETTERS})(?:[{DASHES}](?:{NUMBER}|{LETTERS}))*")
+
+
+def _stacked(first: str, second: str, pattern: str, find: re.Pattern) -> str | None:
+    """The tag two consecutive lines make together, or None: the first line a bare prefix ("VAV") or a tag ending in
+    a dash ("VAV-"), the second a bare number or letter part ("1", "3A", "B"), and the two joined the whole of one
+    of the pattern's tags. Never where either line holds a tag already (EF-1 over "450 CFM" is EF-1 alone)."""
+    first, second = first.strip(), second.strip()
+    if not first or not second or find.search(first) or find.search(second):
+        return None
+    if not _BARE_PART.fullmatch(second):
+        return None
+    if _ENDS_IN_DASH.fullmatch(first):
+        joined = first + second
+    elif _BARE_PREFIX.fullmatch(first):
+        joined = f"{first}-{second}"
+    else:
+        return None
+    try:
+        return canonical(joined) if re.fullmatch(f"(?:{pattern})", joined) else None
+    except re.error:
+        return None
+
+
+def _page_lines(page: pymupdf.Page) -> list[list[str]]:
+    """The page's text as it is drawn: each rawdict block's lines (`_line_chars`), block by block."""
+    return [[_line_chars(line)[0] for line in block.get("lines", ())]
+            for block in page.get_text("rawdict").get("blocks", ())]
+
+
+_RANGE_AFTER = re.compile(rf"\s*(?:THRU|THROUGH)\s*", re.I)
+
+
+def _range_tags(text: str, pattern: str, find: re.Pattern) -> set[str]:
+    """The tags between the ends of each "VAV-1 THRU VAV-5" (or "VAV-1 THRU 5") range of a line whose ends are the
+    pattern's tags, so `line_labels` can read the range's members of a family that does not list them."""
+    found: set[str] = set()
+    for low in find.finditer(text):
+        after = _RANGE_AFTER.match(text, low.end())
+        if after is None:
+            continue
+        high = find.match(text, after.end())
+        number = re.match(r"\d+(?![A-Za-z0-9])", text[after.end():]) if high is None else None
+        if high is None and number is None:
+            continue
+        a = re.fullmatch(r"(.*?)(\d+)", canonical(low.group(0)))
+        b = re.fullmatch(r"(.*?)(\d+)", canonical(high.group(0)) if high else f"{a.group(1) if a else ''}"
+                                                                        f"{number.group(0)}")
+        if a is None or b is None or a.group(1) != b.group(1) or not 0 < int(b.group(2)) - int(a.group(2)) <= RANGE_SPAN:
+            continue
+        width = len(a.group(2)) if a.group(2).startswith("0") else 0
+        for n in range(int(a.group(2)), int(b.group(2)) + 1):
+            tag = f"{a.group(1)}{str(n).zfill(width)}"
+            if fits(pattern, tag):
+                found.add(tag)
+    return found
+
+
+def located_labels(page: pymupdf.Page, pattern: str, listed: Iterable[str] = ()) -> Counter:
+    """Each of the pattern's tags placed on the page's text layer and how many places it is labelled, read by the
+    planner's one label reader (`estimator.catalogue.tags.line_labels` over each block's lines, and `plan_labels`):
+    a tag alone or starting a line of at most NOTE_WORDS words ("EF-2 ON ROOF ABOVE CORRIDOR SECOND FLOOR"), a
+    bubble or a tag split over two lines, a THRU range's members ("VAV-1 THRU VAV-5" is five), a stated count of
+    places ("CUH-A (TYP. OF 4)" is four), never a tag after a word like TO or SEE. `listed` are the families' own
+    tags: one of them that is a unit's tag named anywhere on the page and labelled nowhere counts once (the
+    `plan_labels` backstop); a tag the pattern finds that no family lists counts only where it is labelled."""
+    find = searcher(pattern)
+    blocks = _page_lines(page)
+    found = {canonical(t) for t in listed if fits(pattern, t)}
+    for lines in blocks:
+        for n, text in enumerate(lines):
+            found |= {canonical(m.group(0)) for m in find.finditer(text)}
+            found |= _range_tags(text, pattern, find)
+            if n + 1 < len(lines) and (tag := _stacked(text, lines[n + 1], pattern, find)) is not None:
+                found.add(tag)
+    keys = label_keys(sorted(found, key=natural))
+    labels: Counter = Counter()
+    for lines in blocks:
+        labels.update(line_labels("\n".join(lines), keys))
+    own = label_keys(sorted({canonical(t) for t in listed if fits(pattern, t)}, key=natural))
+    page_text = "\n".join(line for lines in blocks for line in lines)
+    tally = plan_labels(page_text, own, labels) if own else labels
+    return Counter({tag: n for tag, n in tally.items() if n > 0 and fits(pattern, tag)})
 
 
 def located_boxes(page: pymupdf.Page, pattern: str, scale: float) -> list[tuple[str, tuple[int, int, int, int]]]:
     """Every placed occurrence of the pattern's tags in the page's text layer: (the tag, its box (x, y, width,
     height) in pixels of the whole-sheet picture as the sheet is viewed, `scale` pixels per point). A tag inside a
-    line of more than NOTE_WORDS words is a note naming it, not a placed tag, and is left out."""
+    line of more than NOTE_WORDS words is a note naming it, not a placed tag, and is left out. These are where the
+    tags are; how many places each is labelled is `located_labels`."""
     confident, ambiguous = _extract_page_tags(page, pattern, scale)
     return confident + [(t, b) for t, b, _ in ambiguous]
 

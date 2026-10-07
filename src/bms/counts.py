@@ -1,14 +1,17 @@
 """The vision count cross-check (workstream 6, design §4.6).
 
 Two counts of each tagged family on the plan sheets that show its tags, independent of the planner's count:
-- located on the sheet text: the family's tags in the PDF page's text layer, each with its box (a tag inside a
-  line of more than a few words is a note naming it, not a placed tag);
+- located on the sheet text: the family's tags in the PDF page's text layer, read by the planner's one label reader
+  (`counts_text.located_labels`: `estimator.catalogue.tags.line_labels` and `plan_labels`, so "VAV-1 THRU VAV-5" is
+  five, "CUH-A (TYP. OF 4)" four, "TO EF-7" none), each with its box;
 - counted on the sheet picture: the whole-sheet picture (as `estimator.writing.dossier.sheet_pictures` draws it)
   cut into overlapping tiles, and the sheet asked of the AI through a `bms.ai` Transport as one question (request
   kind "count_tags") carrying every tile as its own picture and every family's tag pattern on that sheet together.
 
-A family's count on the plans is the number of different tags of the family found over all its plan sheets (a tag
-shown on two sheets is one unit). `cross_check` adds every count that differs from the printed one to
+A family's located count on the plans adds up its tags over all its plan sheets as the inventory counts copies
+(`estimator.reading.inventory.counted_per_place`): a unit's tag is one unit however many sheets show it, a type's tag
+(EBB-A, CUH-A, AC-3.0) counts every place it is labelled, on every sheet. The picture count is the number of
+different tags seen. `cross_check` adds every count that differs from the printed one to
 `Count.others` with its Ref, keeps the highest as `Count.value`, never lowers a count, flags the devices counted from
 a family whose counts disagree, and writes the proof images (a crop of the sheet with the counted tags boxed) and
 their manifest under `<cache>/count-proofs/` for the review page (`load_proofs`, `proofs_for`). Without a transport
@@ -18,13 +21,15 @@ from __future__ import annotations
 
 import dataclasses
 import re
+from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 from bms.citations import plain_id
 from bms.counts_proof import PROOFS_FOLDER, draw_proof, load_manifest, save_manifest
-from bms.counts_text import (canonical, family_pattern, fits, located_boxes, natural, prefix_owners, searcher)
+from bms.counts_text import (canonical, family_pattern, family_tags, fits, located_boxes, natural, prefix_owners,
+                              searcher)
 from bms.counts_vision import COUNT_KIND, TILE, ask_sheet
 from bms.model import Count, Device, Family, OtherCount, Ref, System
 
@@ -236,6 +241,7 @@ class _Sheet:
     picture_place: str               # "M-101 whole sheet, Drawings.pdf page 2 (picture)"
     picture: Path | None = None
     located: list | None = None      # (tag, box) on the sheet text; None when the page could not be read
+    labels: Counter | None = None    # tag -> the places it is labelled on the sheet text (`located_labels`)
     seen: list | None = None         # (tag, box) on the picture; None when not counted
     counted: frozenset = frozenset() # the patterns the picture's answer counted (others were left out of it)
 
@@ -245,6 +251,7 @@ class _Check:
         self.job, self.catalogue, self.cache, self.transport = job, catalogue, cache, transport
         self.micro_crops = micro_crops
         self.pictured: dict[tuple[str, int], bool] = {}     # sheet key: mostly picture (`_mostly_picture`)
+        self.listed: dict[str, set[str]] = {}               # pattern -> the families' own (expanded) tags
         used = [int(m.group(1)) for ref in _refs(job) if (m := re.fullmatch(r"C(\d+)", ref.source_id))]
         self.next_id = max(used, default=0) + 1
 
@@ -260,6 +267,7 @@ class _Check:
             pattern = family_pattern(family.tags, owners)
             if pattern is not None:
                 patterns[(system.key, family.name)] = pattern
+                self.listed.setdefault(pattern, set()).update(family_tags(family.tags))
         records = {(p.document, p.page): p for p in getattr(self.catalogue, "pages", ()) or ()}
         plans = [s for s in getattr(self.catalogue, "sheets", ()) or ()
                  if PLAN_TYPE in (s.types or ()) and s.discipline in CONTROLS_DISCIPLINES
@@ -329,17 +337,22 @@ class _Check:
 
         has_text = True
         confident, ambiguous = [], []
+        listed = {tag for p in here for tag in self.listed.get(p, ())}
         try:
-            confident, ambiguous, has_text = self._classify(sheet, combined, SHEET_DPI / 72)
+            confident, ambiguous, labels, has_text = self._classify(sheet, combined, SHEET_DPI / 72, listed)
+            # only the tags the label reader counts are placed: "TO EF-7" is a note, not a box of the count
+            confident = [(t, b) for t, b in confident if labels.get(canonical(t))]
+            ambiguous = [(t, b, why) for t, b, why in ambiguous if labels.get(canonical(t))]
             sheet.located = ([(t, b) for t, b in confident] + [(t, b) for t, b, _ in ambiguous]) if has_text else None
+            sheet.labels = labels if has_text else None
         except Exception:
-            sheet.located = None
+            sheet.located, sheet.labels = None, None
             confident, ambiguous, has_text = [], [], False
 
         if (has_text and not confident and not ambiguous and self.transport is not None
                 and self._mostly_picture(sheet.key)):
             # a page mostly picture whose text layer shows no tag: the text is a title block, not a count
-            sheet.located, has_text = None, False
+            sheet.located, sheet.labels, has_text = None, None, False
 
         if self.transport is not None and sheet.picture is not None:
             results = {}
@@ -377,6 +390,11 @@ class _Check:
             if not asked or canonical(tag) in read:
                 kept.append((tag, box))
         sheet.located = [(t, b) for t, b in confident] + kept
+        # a tag whose every box the crops did not read leaves the located count
+        still = {canonical(t) for t, _ in sheet.located}
+        for tag, _box, _why in ambiguous:
+            if canonical(tag) not in still and sheet.labels is not None:
+                sheet.labels.pop(canonical(tag), None)
 
     def _mostly_picture(self, key: tuple[str, int]) -> bool:
         """Whether pictures cover at least PICTURE_PLAN of the page (`dossier._picture_boxes`, overlapping ones
@@ -396,10 +414,10 @@ class _Check:
                 cache[key] = False
         return cache[key]
 
-    def _classify(self, sheet: _Sheet, pattern: str, default_scale: float):
+    def _classify(self, sheet: _Sheet, pattern: str, default_scale: float, listed=()):
         import pymupdf
         from PIL import Image
-        from bms.counts_text import classify_located_boxes, has_text_layer
+        from bms.counts_text import classify_located_boxes, has_text_layer, located_labels
 
         documents = {d.relative: Path(d.path) for d in self.catalogue.job.documents}
         document, number = sheet.key
@@ -410,9 +428,9 @@ class _Check:
                 with Image.open(sheet.picture) as picture:
                     scale = picture.size[0] / page.rect.width
             if not has_text_layer(page):
-                return [], [], False
+                return [], [], Counter(), False
             confident, ambiguous = classify_located_boxes(page, pattern, scale)
-            return confident, ambiguous, True
+            return confident, ambiguous, located_labels(page, pattern, listed), True
 
     def _symbols_expected(self, here: list[str], sheet: _Sheet) -> dict[str, int]:
         symbols = {}
@@ -422,7 +440,7 @@ class _Check:
                     continue
                 for p in here:
                     if any(fits(p, t) for t in family.tags):
-                        located_n = len({canonical(t) for t, _ in sheet.located or () if fits(p, t)})
+                        located_n = _located_count([sheet], p)
                         if family.count.value > located_n:
                             symbols[p] = family.count.value - located_n
         return symbols
@@ -434,7 +452,7 @@ class _Check:
                     continue
                 for p in here:
                     if any(fits(p, t) for t in family.tags):
-                        located_n = len({canonical(t) for t, _ in sheet.located or () if fits(p, t)})
+                        located_n = _located_count([sheet], p)
                         if located_n > 0 and family.count.value != located_n:
                             return True
         return False
@@ -461,11 +479,14 @@ class _Check:
             read = [s for s in sheets if getattr(s, attr) is not None and (attr == "located" or pattern in s.counted)]
             if not read:
                 continue
-            tags = {canonical(t) for s in read for t, _ in getattr(s, attr) if fits(pattern, t)}
+            if attr == "located":
+                n = _located_count(read, pattern)
+            else:
+                n = len({canonical(t) for s in read for t, _ in s.seen if fits(pattern, t)})
             complete = len(read) == len(sheets)
-            if not complete and (family.count.value is None or len(tags) <= family.count.value):
+            if not complete and (family.count.value is None or n <= family.count.value):
                 continue      # some sheets unread: only a count above the printed one says anything
-            counted.append((len(tags), quote, "; ".join(getattr(s, place) for s in read)))
+            counted.append((n, quote, "; ".join(getattr(s, place) for s in read)))
         count, ids, disagree = self._merge(family.count, counted)
         if count == family.count:
             return system, ids
@@ -527,7 +548,7 @@ class _Check:
                 "system_key": system_key, "family": family, "sheet": sheet.place,
                 "picture": str(sheet.picture) if sheet.picture else None,
                 "proof": str(proof) if proof else None,
-                "located_text": len(located) if sheet.located is not None else None,
+                "located_text": _located_count([sheet], pattern) if sheet.located is not None else None,
                 "vision": len(seen) if counted else None,
                 "located_tags": [b.text for b in located], "vision_tags": [b.text for b in seen],
                 "located_boxes": [dataclasses.asdict(b) for b in located],
@@ -535,6 +556,21 @@ class _Check:
                 "source_ids": [ids[q] for q in (LOCATED_QUOTE, SEEN_QUOTE) if q in ids],
             })
         return entries
+
+
+def _located_count(sheets, pattern: str) -> int:
+    """The located count of a pattern's tags over these sheets (`_Sheet.labels`), added up as the inventory counts
+    copies (`estimator.reading.inventory.counted_per_place`): a unit's tag once however many sheets label it, a tag
+    counted at every place (a type's tag: EBB-A on two floor plans is 2, "CUH-A (TYP. OF 4)" is 4) every label on
+    every sheet."""
+    from estimator.reading.inventory import counted_per_place
+
+    places: dict[str, list[int]] = {}
+    for sheet in sheets:
+        for tag, n in (sheet.labels or {}).items():
+            if n > 0 and fits(pattern, tag):
+                places.setdefault(canonical(tag), []).append(n)
+    return sum(sum(ns) if counted_per_place(tag, sum(ns), max(ns)) else 1 for tag, ns in places.items())
 
 
 def _refs(job):
