@@ -112,17 +112,46 @@ class Playbook:
 
     def shape_for(self, system_kind: str, prefixes) -> Shape | None:
         """The shape for a system: the first shape (file order) one of whose prefixes is one of `prefixes`
-        (compared upper case, without dashes or spaces); else the first whose kind words appear in `system_kind`
-        (lower case, whole words, a plural s / es allowed); else None (an untemplated system — it is still written, from its evidence)."""
+        (compared upper case, without dashes or spaces); else the shape whose kind word in `system_kind` (lower
+        case, whole words, a plural s / es allowed) names it best (`_best_said`): one at the end of the name ("VAV
+        Air Handling Units" are air handlers; of kind words sharing words there, the one that starts first), then
+        the longest, then file order; else None (an untemplated
+        system — it is still written, from its evidence). A prefix gives way only to a kind word that says more
+        than the prefix shape's own kind word in the name: "Existing Fan Coil Units" tagged FCU take the existing
+        shape (PBK-9)."""
         wanted = {_plain_prefix(p) for p in prefixes or () if p}
+        kind = " ".join(re.findall(r"[a-z0-9]+", (system_kind or "").lower()))
+        said = _kind_words_said(self.shapes.values(), kind)
         for shape in self.shapes.values():
             if wanted & set(shape.prefixes):
-                return shape
-        kind = " ".join(re.findall(r"[a-z0-9]+", (system_kind or "").lower()))
-        for shape in self.shapes.values():
-            if any(re.search(rf"\b{re.escape(w)}(?:s|es)?\b", kind) for w in shape.kind_words):
-                return shape
+                own = {w for s, w, _, _ in said if s is shape}
+                more = [m for m in said if m[0] is not shape and
+                        any(o != m[1] and f" {o} " in f" {m[1]} " for o in own)]
+                return _best_said(said, more, len(kind)) or shape
+        return _best_said(said, said, len(kind))
+
+
+def _kind_words_said(shapes, kind: str) -> list[tuple[Shape, str, int, int]]:
+    """Each (shape, kind word, start, end) where `kind` says a shape's kind word, in file order."""
+    return [(shape, word, m.start(), m.end()) for shape in shapes for word in shape.kind_words
+            for m in re.finditer(rf"\b{re.escape(word)}(?:s|es)?\b", kind)]
+
+
+def _best_said(said, among, end: int) -> Shape | None:
+    """The shape of the kind word in `among` (some of `said`) that names the system best, or None. Kind words that
+    share words make one phrase ("kitchen exhaust" and "exhaust fan" in "Kitchen Exhaust Fans"). A kind word in
+    the phrase that ends the name (at `end`) wins, the one that starts the phrase first (it says more: Kitchen
+    Exhaust Ventilation, not Exhaust Fan), then the longest; else the longest kind word; then file order."""
+    if not among:
         return None
+    phrase_start = end                              # where the phrase that ends the name starts, if one does
+    for _, _, s, e in sorted(said, key=lambda m: -m[3]):
+        if e == end or e > phrase_start:            # ends the name, or shares a word with the phrase
+            phrase_start = min(phrase_start, s)
+    ends = [m for m in among if m[2] >= phrase_start]
+    if ends:
+        return min(enumerate(ends), key=lambda x: (x[1][2], -len(x[1][1]), x[0]))[1][0]
+    return min(enumerate(among), key=lambda x: (-len(x[1][1]), x[0]))[1][0]
 
 
 def _plain_prefix(prefix: str) -> str:
