@@ -633,3 +633,21 @@ def test_a_revision_1_reissue_gives_only_the_reissues_text_in_7c(tmp_path):
     part = _sheet_text_part(d)
     assert "DAMPER ACTUATOR AT MD-7" in part and "LEAK CHIME AT WH-1" not in part
     assert set(d.sheet_pages.values()) == {(second, 1)}
+
+
+# --- two documents with one file name ------------------------------------------------------------------------
+
+def test_two_documents_with_one_file_name_cite_their_own_paths(tmp_path):
+    """LDG-10: "Mech.pdf" in two folders never gives two identical citations; a file name no other document
+    shares is still cited by its name alone."""
+    other = "Bldg B/mech.PDF"
+    catalogue, reading = _job()
+    catalogue.job.documents += (_doc(other, "drawings", 1),)
+    catalogue.pages += (_page(other, 1, "EF-1", large=True),)
+    catalogue.sheets += (_sheet(1, "M-101", "FIRST FLOOR PLAN", document=other),)
+    reading.notes += (Note("M-101", other, 1, "KEY NOTES", "3", "PROVIDE A CURRENT SWITCH FOR EF-1.", True, ""),)
+    d = build_dossier(catalogue, reading, tmp_path)
+    wheres = [w for w in d.sources.values() if w.startswith("KEY NOTES 3, M-101")]
+    assert wheres == ["KEY NOTES 3, M-101, Drawings/Mech.pdf page 1", "KEY NOTES 3, M-101, Bldg B/mech.PDF page 1"]
+    assert "--- M-101, Bldg B/mech.PDF page 1 ---" in d.text
+    assert any(w.endswith(", Specs.pdf page 1") for w in d.sources.values())      # a unique name stays short

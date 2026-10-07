@@ -50,6 +50,9 @@ class Fact:
     stage: str
     state: str = ADDED
     contradictions: tuple[Contradiction, ...] = ()
+    # once settled, always so: a contradiction later turns a settled fact and an added one alike into
+    # "contradicted", and only this tells a schedule's count from one seen on the plans alone
+    was_settled: bool = False
 
     def line(self) -> str:
         """One line for a prompt or a tab: id, kind, subject, value, source, quote, state and pass, then each
@@ -106,14 +109,15 @@ class Ledger:
         if not quote:
             raise ValueError("a fact needs a quote: the words or numbers stating it")
         self._n += 1
-        fact = Fact(f"F{self._n}", kind, " ".join(str(subject or "").split()), value, sid, quote, stage, state)
+        fact = Fact(f"F{self._n}", kind, " ".join(str(subject or "").split()), value, sid, quote, stage, state,
+                    was_settled=state == SETTLED)
         self.facts[fact.id] = fact
         return fact
 
     def settle(self, fact_id: str) -> Fact:
         fact = self.facts[plain_id(fact_id) or fact_id]
         if fact.state == ADDED:
-            fact = replace(fact, state=SETTLED)
+            fact = replace(fact, state=SETTLED, was_settled=True)
             self.facts[fact.id] = fact
         return fact
 
@@ -131,7 +135,8 @@ class Ledger:
         quote = " ".join(str(quote or "").split())
         if not quote:
             raise ValueError("a fact needs a quote: the words or numbers stating it")
-        fact = replace(fact, value=value, source_id=sid, quote=quote, stage=stage, state=SETTLED)
+        fact = replace(fact, value=value, source_id=sid, quote=quote, stage=stage, state=SETTLED,
+                       was_settled=True)
         self.facts[fact.id] = fact
         return fact
 
@@ -200,7 +205,9 @@ class Ledger:
         for raw in data.get("facts") or []:
             fact = Fact(raw["id"], raw["kind"], raw["subject"], raw["value"], raw["source_id"], raw["quote"],
                         raw["stage"], raw.get("state", ADDED),
-                        tuple(Contradiction(**c) for c in raw.get("contradictions") or ()))
+                        tuple(Contradiction(**c) for c in raw.get("contradictions") or ()),
+                        # a ledger saved before the mark: read its state as today's planners did
+                        bool(raw.get("was_settled", raw.get("state", ADDED) != ADDED)))
             ledger.facts[fact.id] = fact
             ledger._n = max(ledger._n, int(fact.id[1:]))
         return ledger

@@ -356,6 +356,10 @@ def apply(pass_, ledger: Ledger, answer: dict, known: frozenset[str]) -> list[st
         if fid not in ledger.facts:
             refused.append(f"a confirmation names {fid or '?'}, which the ledger does not have; left out")
             continue
+        kind = ledger.facts[fid].kind
+        if kind not in pass_.settles:        # a pass that may only add a kind cannot settle it by agreeing
+            refused.append(f"the {pass_.name} pass may not confirm {fid}, a {kind} fact; left out")
+            continue
         ledger.settle(fid)
 
     ledger.understanding[pass_.name] = _text(answer.get("understanding"))

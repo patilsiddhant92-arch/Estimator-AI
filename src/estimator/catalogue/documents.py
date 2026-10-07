@@ -10,6 +10,7 @@ from __future__ import annotations
 import hashlib
 import os
 import re
+from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -52,6 +53,14 @@ class JobFolder:
     left_out: tuple[str, ...] = ()      # AME's own folders that were skipped, for the Documents tab
     nested_jobs: tuple[str, ...] = ()   # another job's folder found inside this one, for the Documents tab
     other_files: tuple[str, ...] = ()   # files under the bid documents that aren't PDFs, for the Documents tab
+
+
+def document_names(relatives) -> dict[str, str]:
+    """Each document's name for a citation or a flag: its file name, or its path in the job folder when another
+    document has the same file name (in any case), so "Mech.pdf" in two folders is never cited alike."""
+    relatives = list(dict.fromkeys(relatives))
+    shared = Counter(r.rsplit("/", 1)[-1].casefold() for r in relatives)
+    return {r: r if shared[r.rsplit("/", 1)[-1].casefold()] > 1 else r.rsplit("/", 1)[-1] for r in relatives}
 
 
 def job_name(root: Path) -> str:

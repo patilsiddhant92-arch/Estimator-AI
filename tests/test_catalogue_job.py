@@ -238,3 +238,18 @@ def test_a_non_drawing_document_is_not_given_a_discipline_by_its_file_name(tmp_p
     result = catalogue_job(root, tmp_path / "cache")
     [sheet] = result.sheets
     assert sheet.discipline == "Unknown"
+
+
+def test_a_copy_with_the_same_file_name_is_named_by_its_path(tmp_path):
+    """LDG-10: "Mech.pdf repeats … of Mech.pdf" says nothing; two documents of one file name are named by their
+    paths in the job folder."""
+    root = tmp_path / "26-9999"
+    base = root / "2. Takeoffs" / "1. Base Takeoff"
+    numbers = [f"M-10{n}" for n in range(1, 6)]
+    make_pdf(base / "Mech.pdf", *[_plan_with_units(n) for n in numbers])
+    make_pdf(base / "Marked" / "Mech.pdf", *[_plan_with_units(n) for n in numbers])
+    result = catalogue_job(root, tmp_path / "cache")
+    repeats = [f for f in result.flags if " repeats 5 sheets of " in f]
+    assert len(repeats) == 1
+    assert "2. Takeoffs/1. Base Takeoff/Mech.pdf" in repeats[0]
+    assert "2. Takeoffs/1. Base Takeoff/Marked/Mech.pdf" in repeats[0]

@@ -6,7 +6,7 @@ from collections import Counter, defaultdict
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 
-from estimator.catalogue.documents import JobFolder, find_documents
+from estimator.catalogue.documents import JobFolder, document_names, find_documents
 from estimator.catalogue.overview import FOUND, STANDARD_EXCLUSION, SpecOverview, build_overview
 from estimator.catalogue.pdf import tessdata
 from estimator.catalogue.qualify import BidCheck, check_bid
@@ -181,16 +181,17 @@ def _not_a_copy(catalogue, original: str, copy: str, shared: frozenset[str], key
     original's sheet of its number (RD-4: more places of EBB-A are places the original lacks; as for units, the
     document labelling more is the original and read); the same plan titles on the shared numbers (BUILDING B is
     never a copy of BUILDING A); and COPY_TEXT of the original's words on the shared sheets (REVIEW-FINAL7 F1, F5)."""
+    name = _names(catalogue).get(original) or _name(original)     # a file name two documents share: its path
     a, b = _plan_units(catalogue, original, shared, keys), _plan_units(catalogue, copy, shared, keys)
     if b - a:
-        return f"shows unit tags {_name(original)} does not"
+        return f"shows unit tags {name} does not"
     if len(b) < COPY_SHARED or len(b) < COPY_OVERLAP * len(a):
         return "not their units"
     labels_a, labels_b = (_plan_label_counts(catalogue, original, shared, keys),
                           _plan_label_counts(catalogue, copy, shared, keys))
     more = set().union(*(labels_b[number] - labels_a[number] for number in labels_b))
     if more:
-        return f"shows more labels of {', '.join(sorted(more))} than {_name(original)}"
+        return f"shows more labels of {', '.join(sorted(more))} than {name}"
     titles_a, titles_b = _plan_titles(catalogue, original, shared), _plan_titles(catalogue, copy, shared)
     if any(titles_a[number] != titles_b[number] for number in set(titles_a) & set(titles_b)):
         return "not their plan titles"
@@ -261,10 +262,17 @@ def other_sets(catalogue) -> set[tuple[str, str]]:
     return {(number, r.copy) for r in document_repeats(catalogue) if not r.same for number in r.numbers}
 
 
-def _repeat_line(r: DocumentRepeat) -> str:
+def _names(catalogue) -> dict[str, str]:
+    """The documents' names for a flag (`document_names`): a file name two documents share gives their paths."""
+    documents = getattr(getattr(catalogue, "job", None), "documents", ()) or ()
+    return document_names([d.relative for d in documents] + [s.document for s in catalogue.sheets])
+
+
+def _repeat_line(r: DocumentRepeat, names: dict[str, str]) -> str:
+    copy, original = names.get(r.copy) or _name(r.copy), names.get(r.original) or _name(r.original)
     if r.same:
-        return f"{_name(r.copy)} repeats {len(r.numbers)} sheets of {_name(r.original)} — probably a marked-up copy"
-    return (f"{_name(r.copy)} repeats {len(r.numbers)} sheets of {_name(r.original)} but {r.why or 'not their units'}"
+        return f"{copy} repeats {len(r.numbers)} sheets of {original} — probably a marked-up copy"
+    return (f"{copy} repeats {len(r.numbers)} sheets of {original} but {r.why or 'not their units'}"
             f" — read as another set of drawings and counted; check whether it is a marked-up copy")
 
 
@@ -273,7 +281,8 @@ def repeats(catalogue: Catalogue) -> tuple[list[str], set[tuple[str, str]]]:
     so, instead of an "is on N pages" flag per sheet (M2), and the sheets of a marked-up copy are given as
     (number, document): read once, from the original. Another set of drawings is said, never set aside."""
     found = document_repeats(catalogue)
-    return ([_repeat_line(r) for r in found],
+    names = _names(catalogue)
+    return ([_repeat_line(r, names) for r in found],
             {(number, r.copy) for r in found if r.same for number in r.numbers})
 
 
@@ -346,7 +355,8 @@ def _flags(catalogue: Catalogue) -> list[str]:
         names = ", ".join(unique[:20]) + (" …" if len(unique) > 20 else "")
         flags.append(f"{_plural(len(untyped), 'drawing sheet')} could not be sorted by type — {names}")
     found = document_repeats(catalogue)
-    flags += [_repeat_line(r) for r in found]
+    named = _names(catalogue)
+    flags += [_repeat_line(r, named) for r in found]
     repeat_covered = {(number, r.copy) for r in found for number in r.numbers}   # copies and other sets: one line
     places: dict[str, dict[str, list[int]]] = defaultdict(lambda: defaultdict(list))
     for sheet in catalogue.sheets:
