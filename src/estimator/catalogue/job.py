@@ -313,6 +313,7 @@ def repeated_plans(catalogue) -> dict[str, tuple[str, tuple[int, ...]]]:
 def _flags(catalogue: Catalogue) -> list[str]:
     job = catalogue.job
     flags = list(job.notes)
+    flags += [f"{folder} was left out — AME's own folder, not a bid document" for folder in job.left_out]
     flags += [f"{d.relative} could not be opened — is it a real PDF?" for d in job.documents if d.kind == "unreadable"]
     flags += [f"{d.relative} is password-protected — ask for an unlocked copy" for d in job.documents if d.kind == "password"]
     flags += [f"{d.relative} is the same file as {d.duplicate_of} — catalogued once" for d in job.documents if d.duplicate_of]
