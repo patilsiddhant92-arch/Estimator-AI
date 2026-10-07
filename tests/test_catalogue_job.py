@@ -272,14 +272,16 @@ def test_each_document_titles_its_sheets_from_its_own_drawing_index(tmp_path):
                                              ("M-601", "BUILDING A HVAC SCHEDULES"), *shared), _untitled("M-101"))
     make_pdf(base / "Building B.pdf", _index(("M-101", "BUILDING B HVAC LEVEL 1 PLAN"), ("M-105", "BUILDING B HVAC ROOF PLAN"),
                                              ("M-601", "BUILDING B HVAC SCHEDULES"), *shared), _untitled("M-101"))
-    make_pdf(base / "Loose sheets.pdf", _untitled("M-105"), _untitled("M-601"))
+    make_pdf(base / "Loose sheets.pdf", _untitled("M-105"), _untitled("M-601"), _untitled("M-001"))
     result = catalogue_job(root, tmp_path / "cache")
     titles = {(s.document.rsplit("/", 1)[-1], s.number): s.title for s in result.sheets}
     assert titles[("Building A.pdf", "M-101")] == "BUILDING A HVAC LEVEL 1 PLAN"
     assert titles[("Building B.pdf", "M-101")] == "BUILDING B HVAC LEVEL 1 PLAN"
     # a document with no index of its own: a number only one document's index lists takes that title ...
     assert titles[("Loose sheets.pdf", "M-105")] == "BUILDING B HVAC ROOF PLAN"
-    # ... and one that two indexes list takes neither: nothing says which set it belongs to
+    # ... one two indexes give one title takes it (a cover sheet reissued with its index) ...
+    assert titles[("Loose sheets.pdf", "M-001")] == "HVAC LEGEND"
+    # ... and one two indexes give two titles takes neither: nothing says which set it belongs to
     assert titles[("Loose sheets.pdf", "M-601")] not in ("BUILDING A HVAC SCHEDULES", "BUILDING B HVAC SCHEDULES")
 
 

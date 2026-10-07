@@ -39,8 +39,8 @@ def catalogue_job(root: Path, cache_dir: Path | None = None, workers: int = 1,
     pages = tuple(register_job(job, cache_dir, workers))
     kinds = {d.relative: d.kind for d in job.documents}
     # A sheet whose title block gives no title takes it from the drawing index (RD-6): its own document's first,
-    # and another document's only when that is the one document whose index lists the number (two sets can give one
-    # number two titles).
+    # and another document's only when every index listing the number gives it the same title (two sets can give
+    # one number two titles).
     indexes = _drawing_indexes(pages)
     sheets = tuple(classify_sheet(record, read_title_block(record.edge_spans, indexes.get(record.document)))
                    for record in pages if record.large_sheet)
@@ -59,15 +59,19 @@ def catalogue_job(root: Path, cache_dir: Path | None = None, workers: int = 1,
 
 
 def _drawing_indexes(pages) -> dict[str, ChainMap]:
-    """Document -> the drawing index its sheets take titles from: the document's own index, then each number only
-    one document's index lists."""
+    """Document -> the drawing index its sheets take titles from: the document's own index, then each number the
+    other indexes all give one title (never one of two titles two sets give it)."""
     texts: dict[str, list[str]] = defaultdict(list)
     for record in pages:
         texts[record.document] += [record.text] if record.status in ("text", "ocr") else []
     own = {document: read_drawing_index(found) for document, found in texts.items()}
-    listed = Counter(key for index in own.values() for key in index)
-    unique = {key: title for index in own.values() for key, title in index.items() if listed[key] == 1}
-    return {document: ChainMap(index, unique) for document, index in own.items()}
+    given: dict[str, set[str]] = defaultdict(set)
+    for index in own.values():
+        for key, title in index.items():
+            given[key].add(title)
+    # a number every listing index gives one title (one index, or a cover sheet reissued with its index): that title
+    agreed = {key: next(iter(found)) for key, found in given.items() if len(found) == 1}
+    return {document: ChainMap(index, agreed) for document, index in own.items()}
 
 
 def _name(relative: str) -> str:
