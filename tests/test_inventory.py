@@ -374,3 +374,21 @@ def test_a_family_seen_only_on_architectural_electrical_or_av_sheets_is_never_eq
     assert {t.prefix for t in totals} == {"RTU"}
     assert ("named only on architectural, electrical, technology or AV sheets, so not equipment: CH-1, SF-1, SF-2"
             in flags)
+
+# --- RD-13: a typical sheet with no number is multiplied for equipment as it is for devices -------------------
+
+def test_a_numberless_typical_plan_multiplies_its_units_by_its_floors():
+    from estimator.catalogue.register import PageRecord
+    from estimator.reading.devices import TypicalSheet
+    from estimator.reading.inventory import placements, plan_floors
+    title = "TYPICAL 2ND-5TH FLOOR PLAN"
+    sheets = (Sheet(DOC, 1, "M-601", "MECHANICAL SCHEDULES", "Mechanical", ("Schedules",)),
+              Sheet(DOC, 2, None, title, "Mechanical", ("Plans",)))
+    pages = (PageRecord(DOC, 1, "text", "SCHEDULES", 0, True), PageRecord(DOC, 2, "text", "FCU-A", 0, True))
+    tags = [TagEntry("FCU-A", "Fan Coil Unit", ("M-601",), (), 1)]
+    catalogue = Catalogue(JobFolder("26-9999", Path("26-9999"), (), ()), pages, sheets, (),
+                          BidCheck("Qualifies", "", (), (), ()), tuple(tags), ())
+    typicals = [TypicalSheet(None, title, ("2", "3", "4", "5"), "", DOC)]
+    assert plan_floors(catalogue, typicals) == {(DOC, 2): frozenset({"2", "3", "4", "5"})}
+    placed = placements(catalogue, ["FCU-A"], typicals)["FCU-A"]
+    assert placed.count == 4 and placed.total == 4

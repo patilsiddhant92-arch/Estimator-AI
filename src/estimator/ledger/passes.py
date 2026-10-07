@@ -117,9 +117,20 @@ def pass_named(name: str) -> Pass:
 
 # --- the documents a pass reads --------------------------------------------------------------------------------
 
+# the line the dossier prints in a section it found nothing for: "(No schedules read from the drawings.)"
+_PLACEHOLDER = re.compile(r"^\((?:No .*|Nothing found\.)\)$")
+
+
+def _says_nothing(section: str) -> bool:
+    """A section whose lines under its heading are only the dossier's placeholder lines (or none): nothing to read."""
+    return all(_PLACEHOLDER.match(line.strip()) for line in section.splitlines()[1:] if line.strip())
+
+
 def documents(pass_, dossier, catalogue) -> str:
     """The dossier text this pass reads: its sections whole, then the sheet-text lines of its sheet types (each
-    line's own sheet, `sheet_text_sheets`). "" when there is nothing for it in this job."""
+    line's own sheet, `sheet_text_sheets`). "" when there is nothing for it in this job: when every one of its
+    sections holds only its placeholder line ("(No schedules read from the drawings.)") and no sheet text is
+    its (LDG-12). Beside a section with something in it a placeholder is kept: it says what the job lacks."""
     sections = dossier_sections(dossier.text)
     parts = []
     for n in pass_.sections:
@@ -128,6 +139,8 @@ def documents(pass_, dossier, catalogue) -> str:
             text = text.split(SHEET_TEXT_MARK, 1)[0].rstrip()
         if text.strip():
             parts.append(text)
+    if all(_says_nothing(part) for part in parts):
+        parts = []
     if pass_.sheet_types:
         wanted, others = set(pass_.sheet_types), set(pass_.not_sheet_types)
         lines = [line for _sid, sheet, line in sheet_text_sheets(dossier, catalogue)

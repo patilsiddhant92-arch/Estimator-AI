@@ -270,6 +270,17 @@ def test_i7_unread_spec_pages_are_admitted_in_the_reason():
     assert "the check could not see them" in bid.reason
 
 
+def test_rd14_unread_pages_are_counted_and_named_per_document():
+    # page 2 of two documents is two pages, never one (a set of page numbers alone merged them)
+    pages = [PageRecord("spec.pdf", 1, "text", "2.1 SYSTEM\nA. The BMS shall use Tridium Niagara.", 0),
+             PageRecord("spec.pdf", 2, "unreadable", "", 0),
+             PageRecord("spec.pdf", 3, "unreadable", "", 0),
+             PageRecord("Addendum 1.pdf", 2, "unreadable", "", 0)]
+    bid = check_bid(pages, [CONTROLS])
+    assert "3 pages of the specs could not be read: pages 2–3 of spec.pdf, page 2 of Addendum 1.pdf" in bid.reason
+    assert "the check could not see them" in bid.reason
+
+
 def test_i7_a_drawing_pages_unreadable_status_is_not_counted_as_a_spec_page():
     pages = [PageRecord("Marked_Mech.pdf", 1, "unreadable", "", 0, True)]
     sheet = Sheet("Marked_Mech.pdf", 1, "M-101", "ROOF PLAN", "Mechanical", ("Plans",))

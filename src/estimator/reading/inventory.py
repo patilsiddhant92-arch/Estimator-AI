@@ -412,11 +412,11 @@ def plan_count(found, groups: dict, per_place: bool) -> int:
 
 
 def plan_floors(catalogue, typicals: Sequence = ()) -> dict[tuple[str, str], frozenset[str]]:
-    """(document, sheet number) -> the floors that plan stands for: a typical sheet's floor list, else, for a sheet
-    number on N pages of one document with the same text on every page, its N pages (one floor each). A sheet not
-    listed stands for one floor. Pages of one number with other text are other sheets, each read and counted
-    (`counting_pages`), never one plan times its pages (REVIEW-FINAL6 F6). A floor named by digits alone is one
-    floor however it is written ("02" and "2", F9)."""
+    """(document, sheet number) -> the floors that plan stands for: a typical sheet's floor list (one with no
+    number by (document, page), `sheet_floors`), else, for a sheet number on N pages of one document with the same
+    text on every page, its N pages (one floor each). A sheet not listed stands for one floor. Pages of one number
+    with other text are other sheets, each read and counted (`counting_pages`), never one plan times its pages
+    (REVIEW-FINAL6 F6). A floor named by digits alone is one floor however it is written ("02" and "2", F9)."""
     # by (document, sheet number) (REVIEW-FINAL8 H4); a typical given with no document (by hand) stands for its
     # number in every document
     named = {(getattr(t, "document", None), t.sheet): frozenset(_floor_name(f) for f in t.floors)
@@ -432,7 +432,24 @@ def plan_floors(catalogue, typicals: Sequence = ()) -> dict[tuple[str, str], fro
                   or (frozenset(f"p.{page}" for page in on) if (document, number) in alike else frozenset()))
         if len(floors) > 1:
             found[(document, number)] = floors
+    # a typical sheet with no number (RD-13) is keyed by its (document, page), as `typical_sheets` makes it: the
+    # page of its document with no number and its title (`count_devices` multiplies its devices the same way)
+    for t in typicals:
+        if t.sheet or not t.floors or not getattr(t, "document", None):
+            continue
+        floors = frozenset(_floor_name(f) for f in t.floors)
+        if len(floors) > 1:
+            for s in catalogue.sheets:
+                if not s.number and s.document == t.document and s.title == t.title:
+                    found[(s.document, s.page)] = floors
     return found
+
+
+def sheet_floors(floor_sets: dict, sheet) -> frozenset[str]:
+    """The floors a plan sheet stands for in `plan_floors`: by (document, sheet number), or by (document, page) for
+    a sheet with no number (RD-13); empty for one floor."""
+    return floor_sets.get((sheet.document, sheet.number) if sheet.number else (sheet.document, sheet.page),
+                          frozenset())
 
 
 def _floor_name(floor: str) -> str:
@@ -589,7 +606,7 @@ def placements(catalogue, tags: Iterable[str], typicals: Sequence = (),
     on_risers: dict[str, dict[str, int]] = defaultdict(dict)
     for sheet, _record, riser in read:
         key = (sheet.document, sheet.page)
-        own = floor_sets.get((sheet.document, sheet.number), frozenset()) if sheet.number else frozenset()
+        own = sheet_floors(floor_sets, sheet)
         for tag, n in tallies[key].items():
             if tag not in asked:
                 continue

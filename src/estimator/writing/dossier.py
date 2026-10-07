@@ -33,7 +33,8 @@ from estimator.catalogue.tags import (STATED_MOST, Equipment, find_tags, label_k
                                       tag_location, tag_prefix, unread_counts)
 from estimator.reading.inventory import (COUNT_CAUSE_WORDS, COUNT_CAUSES_LEAD, TYPE_ON_ONE_SHEET, TYPE_PLACED,
                                         counted_per_place, counting_pages, first_pages, plan_area_doubts, plan_areas,
-                                        plan_count, plan_floors, plan_groups, sheet_labels)
+                                        plan_count, plan_floors, plan_groups, sheet_floors,
+                                        sheet_labels)
 from estimator.reading.revisions import governing_pages, typical_places
 from estimator.reading.schedules import header_key, quantity_header, vocabulary
 from estimator.reading.sequences import POINTS, SEQUENCE
@@ -239,9 +240,9 @@ def sections_in(text: str) -> dict[str, tuple[str, tuple[str, ...]]]:
 # ---- the floor multiplier -------------------------------------------------------------------------
 
 def floor_multipliers(catalogue, reading) -> dict[tuple[str, str], int]:
-    """(document, sheet number) -> how many floors that plan stands for. A typical plan whose title
-    names a floor range stands for the range's floors; otherwise a sheet number on N pages of one
-    document stands for N. Sheets not listed stand for one."""
+    """(document, sheet number), or (document, page) for a sheet with no number, -> how many floors that plan
+    stands for. A typical plan whose title names a floor range stands for the range's floors; otherwise a sheet
+    number on N pages of one document stands for N. Sheets not listed stand for one."""
     return {key: len(floors) for key, floors in plan_floors(catalogue, getattr(reading, "typicals", ())).items()}
 
 
@@ -546,10 +547,21 @@ def _render(page: pymupdf.Page, clip: pymupdf.Rect | None, dpi: int, folder: Pat
     return path
 
 
+# each document's content hash for this process, by (path, size, date): a document is read once however many of
+# its pages are pictured; a later run hashes it afresh (`_file_key`)
+_DIGESTS: dict[tuple[str, int, int], str] = {}
+
+
 def _file_key(path: Path) -> str:
+    """The document's content hash (sha1, as `PageOpener.digest` names its cache files), never its size and date
+    alone: a file rewritten with other content and its date set back is pictured again (LDG-15)."""
     try:
         stat = path.stat()
-        return f"{stat.st_size}-{stat.st_mtime_ns}"
+        memo = (str(Path(path).resolve()), stat.st_size, stat.st_mtime_ns)
+        if memo not in _DIGESTS:
+            with open(path, "rb") as handle:
+                _DIGESTS[memo] = hashlib.file_digest(handle, "sha1").hexdigest()
+        return _DIGESTS[memo]
     except OSError:
         return "missing"
 
@@ -871,8 +883,9 @@ def _counts(catalogue, reading, counted_pages: frozenset, multipliers: dict) -> 
                 unread[tag if tag in code_patterns else _prefix(tag)].append(
                     f"{tag} on {label} reads '{line}': the count beside it is not read (over {STATED_MOST}, or not a "
                     f"number), counted as one place; check")
-        floors = multipliers.get((sheet.document, sheet.number), 1) if sheet.number else 1
-        own = floor_sets.get((sheet.document, sheet.number), frozenset()) if sheet.number else frozenset()
+        # a typical sheet with no number by its (document, page) (RD-13, `sheet_floors`)
+        floors = multipliers.get((sheet.document, sheet.number) if sheet.number else (sheet.document, sheet.page), 1)
+        own = sheet_floors(floor_sets, sheet)
         by_family: Counter = Counter()
         for tag, n in tallies[key].items():
             prefix = tag if tag in code_patterns else _prefix(tag)
