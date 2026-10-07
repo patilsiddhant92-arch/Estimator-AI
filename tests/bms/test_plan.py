@@ -786,6 +786,63 @@ def test_a_damper_family_with_no_count_stays_unknown_and_asks():
     assert any("how many are there in all" in q and "(MD)" in q for q in job.questions)
 
 
+def test_a_damper_link_is_credited_to_the_family_of_its_tag():
+    # PLN-2: "CD-1 damper" does not lead with MD, but its tag is CD's: CD-1 moves under the fan and MD keeps both
+    ledger = _ledger()
+    _family(ledger, "EF", "Exhaust Fan", "EF-1", 1)
+    _family(ledger, "MD", "Motorized Damper", "MD-1, MD-2", 2, source="S2")
+    _family(ledger, "CD", "Motorized Control Damper", "CD-1", 1, source="S2")
+    ledger.add("link", "CD-1 damper", "EF-1", "S2", "CD-1 damper at EF-1", "plans", SETTLED)
+    job = _plan(ledger)
+    systems = _by_key(job)
+    ef = systems["EF"]
+    assert [(f.name, f.tags, f.count.value) for f in ef.families] == [("Exhaust Fan", ("EF-1",), 1),
+                                                                      ("Motorized Control Damper", ("CD-1",), 1)]
+    md = systems["MD"]
+    assert md.families[0].tags == ("MD-1", "MD-2") and md.families[0].count.value == 2
+    assert "CD" not in systems
+    assert not any("1 of the 2" in q for q in job.questions)
+
+
+def test_a_damper_family_with_another_prefix_moves_under_its_fan():
+    # PLN-5: a damper family the ledger names a damper moves under its fan whatever its prefix
+    ledger = _ledger()
+    _family(ledger, "EF", "Exhaust Fan", "EF-1", 1)
+    _family(ledger, "CD", "Motorized Control Damper", "CD-1, CD-2", 2, source="S2")
+    ledger.add("link", "CD-1", "EF-1", "S2", "CD-1 at EF-1", "plans", SETTLED)
+    job = _plan(ledger)
+    systems = _by_key(job)
+    ef = systems["EF"]
+    assert [(f.name, f.tags, f.count.value) for f in ef.families] == [("Exhaust Fan", ("EF-1",), 1),
+                                                                      ("Motorized Control Damper", ("CD-1",), 1)]
+    cd = systems["CD"]
+    assert cd.families[0].tags == ("CD-2",) and cd.families[0].count.value == 1
+    assert any("Motorized Control Damper (CD): 1 of the 2" in q for q in job.questions)
+
+
+def test_a_damper_tag_written_without_its_dash_or_in_brackets_still_moves():
+    ledger = _ledger()
+    _family(ledger, "EF", "Exhaust Fan", "EF-1, EF-2", 2)
+    _family(ledger, "MD", "Motorized Damper", "MD-1 thru 3", 3, source="S2")
+    ledger.add("link", "MD1", "EF-1", "S2", "MD1 at EF-1", "plans", SETTLED)
+    ledger.add("link", "damper (MD-2)", "EF-2", "S2", "damper (MD-2) at EF-2", "plans", SETTLED)
+    job = _plan(ledger)
+    ef = _by_key(job)["EF"]
+    assert ef.families[1].tags == ("MD-1", "MD-2") and ef.families[1].count.value == 2
+    md = _by_key(job)["MD"]
+    assert md.families[0].tags == ("MD-3",) and md.families[0].count.value == 1
+
+
+def test_a_fans_tag_in_a_damper_links_subject_is_not_the_dampers_tag():
+    ledger = _ledger()
+    _family(ledger, "MD", "Motorized Damper", None, 2, source="S2")
+    _family(ledger, "EF", "Exhaust Fan", "EF-1", 1)
+    ledger.add("link", "damper at EF-1", "EF-1", "S2", "damper at EF-1", "plans", SETTLED)
+    ef = _by_key(_plan(ledger))["EF"]
+    assert [(f.name, f.tags, f.count.value) for f in ef.families] == [("Exhaust Fan", ("EF-1",), 1),
+                                                                      ("Motorized Damper", (), 1)]
+
+
 # ---- duct heaters ------------------------------------------------------------------------------------------------
 
 def test_duct_heaters_are_one_system_carrying_the_served_units_sequence():

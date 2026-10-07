@@ -132,6 +132,7 @@ class _Planner:
         self.dossier = dossier
         self.questions: list[str] = []
         self._texts: dict[str, str] | None = None
+        self._damper_prefixes: frozenset[str] | None = None
 
     def texts(self) -> dict[str, str]:
         """Every dossier source id -> its text (a sequence section: its heading and its paragraphs)."""
@@ -169,13 +170,59 @@ class _Planner:
         shape = self.playbook.shape_for(family.name, [family.prefix])
         return shape is not None and _DUCT_HEATER_WORDS.search(f"{shape.name} {' '.join(shape.kind_words)}") is not None
 
+    def damper_shape(self) -> Shape | None:
+        return self._shape_by_kind("damper", unless="fire")
+
+    def damper_prefixes(self) -> frozenset[str]:
+        """The motorized damper prefixes: every family whose ledger name says "damper" (not a fire or smoke
+        damper), and the Playbook's damper shape's prefixes; the constant stands in only while the Playbook has
+        no damper shape (or one with no prefixes)."""
+        if self._damper_prefixes is None:
+            shape = self.damper_shape()
+            found = set(shape.prefixes) if shape is not None and shape.prefixes else set(DAMPER_PREFIXES)
+            for fact in self.reader.family_facts():
+                family = self.reader.family(fact)
+                if family.prefix.upper() in _FIRE_SMOKE_PREFIXES or _FIRE_SMOKE_WORDS.search(family.name):
+                    continue
+                if "damper" in family.name.casefold():
+                    found.add(family.prefix.upper())
+            self._damper_prefixes = frozenset(found)
+        return self._damper_prefixes
+
+    def tag_in(self, subject: str) -> tuple[str, FamilyFacts | None]:
+        """The tag a link's subject holds and the family it is a tag of ("CD-1 damper", "(MD-1)" and "MD1" hold
+        CD-1, MD-1 and MD-1), read as family_of_tag reads a tag. A damper family's tag comes before another
+        family's ("EF-1 damper MD-3" holds MD-3). When the family lists the tag, its own spelling is kept.
+        ("", None) when the subject holds no tag of any family."""
+        found: list[tuple[str, FamilyFacts]] = []
+        for word in re.split(r"[\s,;()\[\]/]+", squash(subject)):
+            word = word.strip(".:")
+            if not word:
+                continue
+            tries = [word]
+            bare = re.match(r"^([A-Za-z]{1,6})(\d[A-Za-z0-9.]*)$", word)
+            if bare:
+                tries.append(f"{bare.group(1)}-{bare.group(2)}")
+            for tag in tries:
+                family = family_of_tag(self.reader, tag)
+                if family is not None:
+                    key = tag.upper().replace("-", "")
+                    found.append((next((t for t in family.tags if t.upper().replace("-", "") == key), tag), family))
+                    break
+        dampers = self.damper_prefixes()
+        return next((f for f in found if f[1].prefix.upper() in dampers), found[0] if found else ("", None))
+
     def is_damper(self, subject: str) -> bool:
-        """A motorized damper's tag or label: it leads with a damper prefix or says "damper". A fire or smoke
-        damper is not one (those stay where they are); a smoke purge duct is not a smoke damper."""
+        """A motorized damper's tag or label: it leads with a damper prefix, holds a tag of a damper family, or
+        says "damper". A fire or smoke damper is not one (those stay where they are); a smoke purge duct is not a
+        smoke damper."""
         text = squash(subject)
         if _lead(text) in _FIRE_SMOKE_PREFIXES or _FIRE_SMOKE_WORDS.search(text):
             return False
-        return _lead(text) in DAMPER_PREFIXES or "damper" in text.casefold()
+        _, family = self.tag_in(text)
+        if family is not None and family.prefix.upper() in self.damper_prefixes():
+            return True
+        return _lead(text) in self.damper_prefixes() or "damper" in text.casefold()
 
     # -- step 1: families and groups
 
@@ -589,9 +636,10 @@ class _Planner:
 
         A damper's link is a ledger link fact, or, for a damper tag no link fact names, its row of a schedule in the
         dossier whose other cells name the tag of exactly one other system (the row is the link's source)."""
-        damper_keys = {d.key.upper() for d in drafts if d.kind == "single" and d.key.upper() in DAMPER_PREFIXES}
+        prefixes = self.damper_prefixes()
+        damper_keys = {d.key.upper() for d in drafts if d.kind == "single" and d.key.upper() in prefixes}
         grouped = {f.source.prefix.upper() for d in drafts if d.kind != "single" for f in d.families
-                   if f.source is not None and f.source.prefix.upper() in DAMPER_PREFIXES}
+                   if f.source is not None and f.source.prefix.upper() in prefixes}
         claims: dict[int, dict[str, list[Fact]]] = {}      # target draft -> damper prefix -> links
         links_of: dict[str, list[Fact]] = {}               # damper prefix -> links
         found: list[tuple[Fact, _Draft]] = []
@@ -601,16 +649,22 @@ class _Planner:
                 continue
             value = squash(link.value)
             target = next((d for d in drafts if d.key.upper() not in damper_keys
-                           and names_in([n for n in d.names() if n.upper() not in DAMPER_PREFIXES], value)), None)
+                           and names_in([n for n in d.names() if n.upper() not in prefixes], value)), None)
             if target is not None:
                 found.append((link, target))
         linked = {squash(link.subject).upper() for link, _ in found}
         found += self._schedule_links(drafts, damper_keys | grouped, linked)
         for link, target in found:
+            # a link holding a tag of a damper family is that family's; only a link with no such tag falls back
+            # to its leading word, and then to the damper family when there is only one
             subject = squash(link.subject)
-            prefix = _lead(subject)
-            if prefix not in damper_keys and prefix not in grouped:
-                prefix = next(iter(sorted(damper_keys)), "") or next(iter(sorted(grouped)), "") or prefix
+            _, family = self.tag_in(subject)
+            prefix = family.prefix.upper() if family is not None and family.prefix.upper() in prefixes else ""
+            if not prefix:
+                prefix = _lead(subject)
+                every = damper_keys | grouped
+                if prefix not in every and len(every) == 1:
+                    prefix = next(iter(every))
             claims.setdefault(id(target), {}).setdefault(prefix, []).append(link)
             links_of.setdefault(prefix, []).append(link)
         if not claims:
@@ -635,9 +689,18 @@ class _Planner:
     def _damper_family(self, prefix: str, links: list[Fact]) -> _Fam:
         family = self.reader.family_by_prefix(prefix)
         name = family.name if family is not None else "Motorized Damper"
-        tags = tuple(dict.fromkeys(squash(l.subject) for l in links if _TAG.match(squash(l.subject))))
+        tags = tuple(dict.fromkeys(t for t in (self.link_tag(l) for l in links) if t))
         return _Fam(name, tags, Count(len(links), tuple(dict.fromkeys(self.reader.fact_ref(l) for l in links))),
                     family, moved=True)
+
+    def link_tag(self, link: Fact) -> str:
+        """The damper tag a link names: the damper family's tag its subject holds, else the subject when it is a
+        tag itself. A fan's tag in the subject ("damper at EF-1") is not the damper's."""
+        tag, family = self.tag_in(link.subject)
+        if family is not None and family.prefix.upper() in self.damper_prefixes():
+            return tag
+        subject = squash(link.subject)
+        return subject if _TAG.match(subject) else ""
 
     def _schedule_links(self, drafts: list[_Draft], damper_prefixes: set[str],
                         linked: set[str]) -> list[tuple[Fact, _Draft]]:
@@ -676,7 +739,7 @@ class _Planner:
                 left = fam.count.value - len(links)
                 if left <= 0:
                     continue
-                claimed = {squash(l.subject).upper() for l in links}
+                claimed = {self.link_tag(l).upper() for l in links}
                 fam = _Fam(fam.name, tuple(t for t in fam.tags if t.upper() not in claimed), Count(left, fam.count.sources),
                            fam.source)
             kept.append(fam)
@@ -685,7 +748,7 @@ class _Planner:
     def _unclaimed(self, draft: _Draft, links: list[Fact], drafts: list[_Draft], claims: dict) -> _Draft | None:
         family = draft.families[0]
         total = family.count.value
-        claimed_tags = {squash(l.subject).upper() for l in links}
+        claimed_tags = {self.link_tag(l).upper() for l in links}
         locations = [f for f in self.ledger.of_kind("location") if naming(draft.key).search(squash(f.subject))]
         refs = tuple(dict.fromkeys([*family.count.sources, *(self.reader.fact_ref(f) for f in locations + links)]))
         sheets = list(dict.fromkeys(r.where.split(",")[0].strip() for r in refs if r.where))
