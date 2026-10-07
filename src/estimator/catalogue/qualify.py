@@ -22,6 +22,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
 from pathlib import Path
 
+from estimator.catalogue.documents import document_names
 from estimator.catalogue.register import PageRecord
 from estimator.catalogue.sheet_types import Sheet
 from estimator.catalogue.spec_sections import SpecSection
@@ -325,11 +326,22 @@ def check_bid(pages: Sequence[PageRecord], sections: Sequence[SpecSection],
         else:
             reason += (" No spec book was found among the bid documents; the drawings' notes and spec sheets "
                        "were searched.")
-    unread = sorted({r.page for r in pages if r.status == "unreadable" and sheets.get((r.document, r.page)) is None})
+    # by (document, page): page 2 of two documents is two pages, each named with its document (RD-14)
+    unread: dict[str, set[int]] = {}
+    for r in pages:
+        if r.status == "unreadable" and sheets.get((r.document, r.page)) is None:
+            unread.setdefault(r.document, set()).add(r.page)
     if unread:
-        word = "page" if len(unread) == 1 else "pages"
-        reason += (f" {len(unread)} {word} of the specs could not be read ({word} {_page_ranges(unread)}) — "
-                   "the check could not see them.")
+        total = sum(len(on) for on in unread.values())
+        word = "page" if total == 1 else "pages"
+        names = document_names(unread)              # a file name two folders share: its path
+        where = [(f"{'page' if len(on) == 1 else 'pages'} {_page_ranges(sorted(on))}", names[document])
+                 for document, on in unread.items()]
+        if len(where) == 1:
+            listed = f" ({where[0][0]}) in {where[0][1]}"
+        else:
+            listed = ": " + ", ".join(f"{on} of {name}" for on, name in where)
+        reason += f" {total} {word} of the specs could not be read{listed} — the check could not see them."
     return BidCheck(finding, reason, others, tuple(mentions), section_names)
 
 

@@ -15,9 +15,11 @@ from collections import defaultdict
 from collections.abc import Collection, Iterable, Sequence
 from dataclasses import dataclass, field, replace
 
-from estimator.catalogue.job import CONTROLS_DISCIPLINES
-from estimator.catalogue.tags import Equipment, tag_prefix
-from estimator.reading.revisions import governing_pages
+from estimator.catalogue.job import (CONTROLS_DISCIPLINES, TRADE_WORDS, repeats, title_without_number,
+                                     title_words)
+from estimator.catalogue.tags import (DECIMAL_TYPE, Equipment, is_type_tag, label_key, label_keys, line_labels,
+                                      plan_labels, tag_prefix)
+from estimator.reading.revisions import governing_pages, typical_places
 from estimator.reading.schedules import (BY_EYE, EQUIPMENT, Schedule, header_key, kind_from_title, quantity_header,
                                         vocabulary)
 
@@ -30,10 +32,29 @@ READ_BY_EYE = "read by eye from a picture of the schedule — check the count"
 TYPE_PLACED = 3        # labels on the plans (floors counted) that make a scheduled tag a type ...
 TYPE_ON_ONE_SHEET = 4  # ... when one sheet alone holds this many (floors counted): a unit's tag can sit by its
                        # symbol and by its thermostat too (26-0478's UH-1, three times on H101)
-_DECIMAL_TYPE = re.compile(r"^[A-Z]+-\d+\.\d+$")   # AC-3.0, HRU-4.0: a size, not a unit number
+# The dossier's counts line names, in the head the ledger quotes, why a family's plan placements are above every
+# other count; the renderer reads these words back to print the Playbook's client wording for each cause
+# (wording.json "count_causes"). Keep them free of the count labels' words (riser, schedule, picture).
+COUNT_CAUSES_LEAD = "placements above the other counts, likely:"
+# ("same plan as" and "one unit's tag on several plans" are retired, FINAL-H: no sheet is merged and a unit's tag
+# counts once since FINAL-G, so neither can be said)
+COUNT_CAUSE_WORDS = {"typical": "a typical unit at each place",
+                     "labelled_twice": "one unit labelled more than once"}
+# (`is_type_tag` and the one label reader, `label_keys` / `line_labels`, live in estimator.catalogue.tags since
+# FINAL-K, so the copy test in estimator.catalogue.job reads labels the same way; they are imported here unchanged)
+
+
+def counted_per_place(tag: str, places: int, most_on_one_sheet: int, code: bool = False) -> bool:
+    """Whether a tag's plan placements count every place it is drawn (summed over the sheets, never merged) rather
+    than once for the unit (lead ruling, FINAL-G): a type's tag (`is_type_tag`), a schedule's type code (`code`),
+    and a numbered tag drawn as a type is (TYPE_PLACED labels over the sheets and TYPE_ON_ONE_SHEET of them on one
+    sheet), so a numbered type is never cut to one. `places` and `most_on_one_sheet` are the labels as drawn, the
+    floors of a typical sheet NOT applied: those floors multiply a unit's tag, they never make it a type (a unit on
+    a typical floor drawn twice would otherwise be summed, doubled)."""
+    return (code or is_type_tag(tag)
+            or (places >= TYPE_PLACED and most_on_one_sheet >= TYPE_ON_ONE_SHEET))
 _A_TYPE = "A type, not one unit"
 _RISER = re.compile(r"\bRISERS?\b", re.I)
-_LABEL_NOISE = re.compile(r"^\((?:N|NEW)\)\s*|\s*\(?\s*TYP(?:ICAL)?\.?\s*\)?$", re.I)
 
 
 @dataclass(frozen=True)
@@ -112,37 +133,62 @@ def compact_tags(tags) -> str:
     return ", ".join(parts)
 
 
-def _one_copy_per_sheet(schedules: list[Schedule], flags: list[str] | None = None) -> list[Schedule]:
-    """A sheet number read from two documents (a marked-up copy of the same set, an older issue) is
-    read once: its schedules come from the first document that carries it. Every page of that
-    document with the number is kept — a schedule sheet can run onto a second page. Each sheet
-    whose schedules are dropped is said in `flags`."""
-    first: dict[str, str] = {}
-    for s in schedules:
-        if s.sheet:
-            first.setdefault(s.sheet, s.document)
-    kept: list[Schedule] = []
-    dropped: dict[tuple[str, str], int] = defaultdict(int)
-    for s in schedules:
-        if not s.sheet or first[s.sheet] == s.document:
-            kept.append(s)
-        else:
-            dropped[(s.sheet, s.document)] += 1
+def _one_copy_per_sheet(schedules: list[Schedule], flags: list[str] | None = None,
+                        copies: Collection[tuple[str, str]] = ()) -> list[Schedule]:
+    """The schedules come from the governing pages (`governing_pages`), which keep both documents' pages whenever
+    nothing proves one replaces the other: a sheet number read from two documents is counted from both (RD-1, never
+    the first document's alone). Only a sheet of a marked-up copy of the set (`copies`, (number, document) from
+    `repeats`) is read once, from the original; each such sheet whose schedules are set aside is said in `flags`,
+    with the rows set aside and the rows counted from the other documents."""
+    kept = [s for s in schedules if (s.sheet, s.document) not in copies]
     if flags is not None:
-        for (sheet, document), n in dropped.items():
-            what = "1 schedule" if n == 1 else f"{n} schedules"
-            flags.append(f"{what} on {sheet} in {_name(document)} not counted — the same sheet was read from "
-                         f"{_name(first[sheet])}")
+        dropped: dict[tuple[str, str], list[Schedule]] = defaultdict(list)
+        for s in schedules:
+            if (s.sheet, s.document) in copies:
+                dropped[(s.sheet, s.document)].append(s)
+        for (sheet, document), set_aside in dropped.items():
+            rows = sum(1 for s in set_aside for r in s.rows if r.tag)
+            counted = [s for s in kept if s.sheet == sheet]
+            read = sum(1 for s in counted for r in s.rows if r.tag)
+            what = "1 schedule" if len(set_aside) == 1 else f"{len(set_aside)} schedules"
+            where = ", ".join(dict.fromkeys(_name(s.document) for s in counted)) or "no other document"
+            flags.append(f"{what} on {sheet} in {_name(document)} not counted ({_rows(rows)}) — a marked-up copy of "
+                         f"the set; {sheet} counted from {where} ({_rows(read)})")
     return kept
+
+
+def _listed_where(listed: list[tuple[str, str]]) -> str:
+    """Where a tag is listed: its schedule sheets ("M-601, M-602"), each named with its document when the listings
+    come from more than one document ("M-601 in Mech.pdf, M-601 in Mech reissue.pdf")."""
+    if len({document for _, document in listed}) < 2:
+        return _list(dict.fromkeys(place for place, _ in listed))
+    return _list(dict.fromkeys(place if _name(document) in place else f"{place} in {_name(document)}"
+                               for place, document in listed))
+
+
+def _rows(n: int) -> str:
+    return "1 tagged row" if n == 1 else f"{n} tagged rows"
 
 
 @dataclass(frozen=True)
 class Placements:
     """Where one tag is labelled: a line of a sheet's text that is the tag alone ("GCF-A"), never a note that
-    names it ("TO EUH-1"). Plan sheets of the trades that carry controls scope, each sheet counted once."""
+    names it ("TO EUH-1"). Plan sheets of the trades that carry controls scope, each sheet (document, page) counted
+    once. `count` is the one counting rule (`plan_count`, FINAL-I), the same the dossier's counts line uses;
+    `per_place` says whether the tag counts at every place (`counted_per_place`, the labels as drawn). `total` is
+    every label summed, floors applied, a cross-check only."""
     on_plans: dict[str, int]                 # plan sheet → labels on it
     floors: dict[str, int]                   # plan sheet → the floors it stands for (1 when not typical)
     on_risers: dict[str, int] = field(default_factory=dict)   # riser diagram → labels on it, a cross-check
+    count: int = 0                           # the plans' count by `plan_count`
+    per_place: bool = False                  # counted at every place (a type), not once per plan group
+    each_place: int = 0                      # the plans' count as a type's (`plan_count` per place): the count of a
+                                             # row the schedule calls a type (REVIEW-FINAL6 F1)
+
+    @property
+    def drawn(self) -> int:
+        """The labels as drawn, the floors of a typical sheet NOT applied."""
+        return sum(self.on_plans.values())
 
     @property
     def total(self) -> int:
@@ -153,6 +199,7 @@ class Placements:
         return max((n * self.floors.get(sheet, 1) for sheet, n in self.on_plans.items()), default=0)
 
     def plans_text(self) -> str:
+        """ "M-101 4, M-113 1 × 10 floors, M-201 4": each sheet and its labels."""
         return ", ".join(f"{sheet} {n}" + (f" × {self.floors[sheet]} floors" if self.floors.get(sheet, 1) > 1 else "")
                          for sheet, n in self.on_plans.items())
 
@@ -160,53 +207,424 @@ class Placements:
         return ", ".join(f"{sheet} {n}" for sheet, n in self.on_risers.items())
 
 
-def _label_key(text: str) -> str:
-    return re.sub(r"[\s\-‐‑–—#]", "", _LABEL_NOISE.sub("", text.strip())).upper()
+# ---- the plan areas: a hint only, never a count (the dossier's counts line) ------------------------------
+# Which sheets MAY show one plan is read here only to name them in the counts line's reading notes
+# (`plan_area_doubts`); it never lowers a count. The one test that does group sheets (`plan_groups`, FINAL-I) is
+# strict: one document, the same title words with a floor among them, and repeated unit tags.
+
+_ORDINALS = {word: n for n, word in enumerate(
+    ("FIRST", "SECOND", "THIRD", "FOURTH", "FIFTH", "SIXTH", "SEVENTH", "EIGHTH", "NINTH", "TENTH", "ELEVENTH",
+     "TWELFTH"), start=1)}
+_NUMBER_WORDS = {word: n for n, word in enumerate(
+    ("ONE", "TWO", "THREE", "FOUR", "FIVE", "SIX", "SEVEN", "EIGHT", "NINE", "TEN", "ELEVEN", "TWELVE"), start=1)}
+_ORDINAL = "|".join(_ORDINALS) + r"|\d{1,3}(?:ST|ND|RD|TH)"
+_NUMBER = "|".join(_NUMBER_WORDS)
+_FLOOR_WORD = r"(?:FLOOR|FLR|LEVEL|LVL)"
+_FLOOR_NAMED = re.compile(
+    rf"\b(?:(?P<ordinal>{_ORDINAL})\s+{_FLOOR_WORD}\b"
+    rf"|{_FLOOR_WORD}\s*(?P<number>(?:{_NUMBER})\b|[A-Z]?\d{{1,3}}[A-Z]?\b)"
+    r"|L-?(?P<short>\d{1,2})\b"
+    r"|(?P<named>SUB-?CELLAR|CELLAR|BASEMENT|GROUND(?:\s+(?:FLOOR|FLR|LEVEL|LVL))?|(?:LOWER|UPPER)\s+LEVEL"
+    r"|MEZZANINE|PENTHOUSE|ROOF|ATTIC)\b)", re.I)
+# a title naming several floors ("FIRST AND SECOND FLOOR PLAN", "LEVELS 2 THRU 5"): no one floor can be read
+_FLOOR_LIST = re.compile(rf"\b(?:FLOORS|LEVELS|FLRS|LVLS)\b|\b(?:{_ORDINAL})\b", re.I)
+_FLOOR_LIST_TAIL = re.compile(rf"^\s*(?:,|&|\+|/|-|–|AND|THRU|THROUGH|TO)\s*(?:\d|(?:{_NUMBER}|{_ORDINAL})\b)", re.I)
+# the parts of a floor that must match: TOWER 1, UNIT 1A, AREA B, DORM WING, NORTH, the LOWER ROOF, 1 OF 2
+_PART_WORD = r"(?:TOWER|UNIT|WING|BUILDING|BLDG|AREA|PART|ZONE|SECTOR|PHASE|BLOCK|POD|SHEET|ANNEX)"
+_PART = re.compile(
+    rf"\b(?P<word>{_PART_WORD})\s*[-#]?\s*(?P<id>(?:{_NUMBER})\b|[A-Z]?\d{{1,3}}[A-Z]?\b|[A-Z]{{1,2}}\b)"
+    rf"|\b(?P<before>[A-Z][A-Z0-9]*)\s+(?P<named>WING|TOWER|BUILDING|BLDG|ANNEX|HALL|PAVILION)\b"
+    rf"(?:\s*[-#]?\s*(?P<named_id>(?:{_NUMBER})\b|[A-Z]?\d{{1,3}}[A-Z]?\b|[A-Z]{{1,2}}\b))?"
+    r"|\b(?P<alone>NORTH(?:EAST|WEST)?|SOUTH(?:EAST|WEST)?|EAST|WEST|LOWER|UPPER|ANNEX|ADDITION)\b"
+    r"|\b(?P<roof>HIGH|LOW)(?=\s+ROOF\b)"
+    r"|\b(?P<of>\d{1,2}\s+OF\s+\d{1,2})\b", re.I)
+_NOT_A_PART = frozenset({"PLAN", "PLANS", "AND", "THE", "OF", "HVAC", "MECHANICAL", "PIPING", "DUCTWORK", "DUCT",
+                         "CONTROLS", "CONTROL", "PLUMBING", "ELECTRICAL", "BAS", "BMS", "DDC", "TEMPERATURE"})
+_ENLARGED = re.compile(r"\b(?:ENLARGED|PARTIAL)\b", re.I)
+AREA_OVERLAP = 0.6       # share of the smaller sheet's unit tags another sheet must repeat to hint one plan
+AREA_SHARED = 3          # and at least this many tags: two tags in common prove nothing
+
+
+def _number(word: str) -> str:
+    word = word.upper()
+    return str(_NUMBER_WORDS.get(word) or _ORDINALS.get(word) or word.lstrip("0") or "0")
+
+
+def _floor(m: re.Match) -> str:
+    if m.group("ordinal"):
+        word = m.group("ordinal").upper()
+        return str(_ORDINALS.get(word) or int(re.match(r"\d+", word).group(0)))
+    if m.group("number"):
+        return _number(m.group("number"))
+    if m.group("short"):
+        return _number(m.group("short"))
+    named = re.sub(r"\W+", " ", m.group("named").upper())
+    return "GROUND" if named.startswith("GROUND") else named
+
+
+def _parts(text: str) -> tuple[str, ...]:
+    parts = set()
+    for m in _PART.finditer(text):
+        if m.group("word"):
+            ident = m.group("id").upper()
+            if ident in _NOT_A_PART:
+                continue
+            parts.add(f"{m.group('word').upper()} {_number(ident) if ident in _NUMBER_WORDS else ident}")
+        elif m.group("named"):
+            before = m.group("before").upper()
+            ident = (m.group("named_id") or "").upper()
+            ident = "" if ident in _NOT_A_PART else _number(ident) if ident in _NUMBER_WORDS else ident
+            words = [w for w in (before if before not in _NOT_A_PART else "", m.group("named").upper(), ident) if w]
+            parts.add(" ".join(words))
+        else:
+            parts.add(re.sub(r"\s+", " ", m.group(0).upper()))
+    return tuple(sorted(parts))
+
+
+def _area_key(title: str | None) -> tuple | None:
+    """The floor (and the parts of it) a plan's title names: "HVAC PIPING AND CONTROLS FIRST FLOOR PLAN",
+    "HVAC 1ST FLR PLAN" and "LEVEL ONE PLAN" are all floor 1; "FIRST FLOOR PLAN - TOWER 2" is floor 1 of TOWER 2.
+    None when no one floor can be read: the title names none, names several ("FIRST AND SECOND FLOOR PLAN"), or
+    names an enlarged or partial plan (one that repeats part of a floor)."""
+    title = (title or "").upper()
+    if _ENLARGED.search(title):
+        return None
+    floors, rest, end = [], [], 0
+    for m in _FLOOR_NAMED.finditer(title):
+        if _FLOOR_LIST_TAIL.match(title[m.end():]):
+            return None
+        floors.append(_floor(m))
+        rest.append(title[end:m.start()] + (" ROOF" if m.group("named") == "ROOF" else ""))   # HIGH ROOF a part
+        end = m.end()
+    rest.append(title[end:])
+    rest_text = " ".join(rest)
+    if not floors or _FLOOR_LIST.search(rest_text):
+        return None
+    return tuple(floors), _parts(rest_text)
+
+
+def _unit_tags(tags) -> set:
+    """The tags that hint two sheets show one plan: unit tags (a unit number in them), each at fewer places on the
+    sheet than a type is (a tag at many places is a typical one, on every floor alike), when the counts are given.
+    A type's tag never hints it, however few its places (REVIEW-FINAL4 F2)."""
+    counts = tags if hasattr(tags, "items") else dict.fromkeys(tags, 1)
+    return {tag for tag, n in counts.items() if not is_type_tag(tag) and n < TYPE_ON_ONE_SHEET}
+
+
+_without_number = title_without_number     # catalogue/job.py, shared with supersession (FINAL-O)
+
+
+def _plain_title(sheet) -> str:
+    """The title's words, its own sheet number taken out (`_without_number`)."""
+    return " ".join(re.findall(r"[A-Z0-9]+", _without_number(sheet)))
+
+
+def _same_tags(a: set, b: set) -> bool:
+    shared = len(a & b)
+    return shared >= AREA_SHARED and shared >= AREA_OVERLAP * min(len(a), len(b))
+
+
+def plan_areas(plans) -> dict[tuple[str, int], int]:
+    """Retired (FINAL-G): every plan sheet is its own area, (document, page) -> its own number, given (sheet, the
+    tags on it) for each plan sheet. No sheet is ever merged with another; which sheets may show one plan is only a
+    hint (`plan_area_doubts`). Kept so callers keep one signature. Pure."""
+    found: dict[tuple[str, int], int] = {}
+    for sheet, _tags in plans:
+        found.setdefault((sheet.document, sheet.page), len(found))
+    return found
+
+
+# ---- the plan groups and the one counting rule (lead ruling, FINAL-I) ------------------------------------
+# Three rounds of reading titles to merge sheets lost units, and counting a unit's tag once over the whole set lost
+# numbered types placed once per floor. The final rule is conservative: when in doubt the sheets are SUMMED, since an
+# overcount is named for the estimator and an undercount is invisible. Plan sheets are one "plan group" (one plan
+# drawn on several sheets: a ductwork plan and its piping plan) only when every test below holds; every other sheet
+# is its own group, and the groups add up. `inventory.placements` and the dossier's counts line both count with
+# `plan_groups` and `plan_count`, so the Evidence Package and the proposal never disagree.
+
+_TRADE_WORDS = TRADE_WORDS
+_FLOOR_TOKEN = re.compile(
+    rf"^(?:FLOORS?|FLRS?|LEVELS?|LVLS?|TYPICAL|TYP|BASEMENT|CELLAR|SUBCELLAR|GROUND|MEZZANINE|MEZZ|PENTHOUSE|ROOF|ATTIC"
+    rf"|{_ORDINAL}|L\d{{1,2}}|\d{{1,3}})$")
+
+
+def _title_tokens(sheet) -> tuple[str, ...]:
+    """The title's words IN ORDER (`catalogue.job.title_words`: its own sheet number and the trade and plan words
+    taken out). Comparing in order can only split groups, so it can only raise a count."""
+    return title_words(sheet)
+
+
+def _one_plan(a, a_tags, b, b_tags, codes: Collection[str]) -> bool:
+    """Two plan sheets show one plan: the same document, the same title words (`_title_tokens`) with a floor among
+    them (so BASEMENT 1 and BASEMENT 2, BLDG. A and BLDG. B, TOWERS 1 AND 2 and 3 AND 4 never are), and at least
+    AREA_SHARED unit tags repeated, AREA_OVERLAP of the smaller sheet's (a type's tag is never evidence). Two pages
+    of one sheet number never are: alike on every page they are one plan for several floors (`plan_floors`), else
+    each page is its own sheet, counted (REVIEW-FINAL7 F7: pages 1 and 3 alike, page 2 other, are three sheets)."""
+    if a.document != b.document or (a.number and a.number == b.number):
+        return False
+    words = _title_tokens(a)
+    if not words or words != _title_tokens(b) or not any(_FLOOR_TOKEN.match(w) for w in words):
+        return False
+    units = [{t for t in _unit_tags(tags) if t not in codes} for tags in (a_tags, b_tags)]
+    return _same_tags(*units)
+
+
+def plan_groups(plans, codes: Collection[str] = ()) -> dict[tuple[str, int], tuple[tuple[str, int], ...]]:
+    """(document, page) -> its plan group, the sheets' (document, page) in their order, given (sheet, the tags on it
+    with their counts) for each plan sheet. Sheets are keyed by (document, page), never by sheet number: one number
+    in two documents is two sheets. A sheet in no group of two or more is its own group. Pure."""
+    keys = [(sheet.document, sheet.page) for sheet, _tags in plans]
+    parent = {key: key for key in keys}
+
+    def root(key):
+        while parent[key] != key:
+            parent[key] = parent[parent[key]]
+            key = parent[key]
+        return key
+
+    for i, (a, a_tags) in enumerate(plans):
+        for b, b_tags in plans[i + 1:]:
+            ka, kb = (a.document, a.page), (b.document, b.page)
+            if ka != kb and root(ka) != root(kb) and _one_plan(a, a_tags, b, b_tags, codes):
+                parent[root(kb)] = root(ka)
+    members: dict[tuple[str, int], list] = defaultdict(list)
+    for key in keys:
+        if key not in members[root(key)]:
+            members[root(key)].append(key)
+    return {key: tuple(members[root(key)]) for key in keys}
+
+
+def plan_count(found, groups: dict, per_place: bool) -> int:
+    """The one counting rule (lead ruling, FINAL-I), given each plan sheet a tag is on as ((document, page), labels
+    on it as drawn, the floors it stands for: a typical sheet's floor names, empty for one floor) and `plan_groups`.
+    In each plan group a unit's tag counts once, a tag counted at every place (`counted_per_place`) the most labels
+    of any one sheet of the group (one plan drawn again), each times the floors the group's sheets stand for, every
+    floor once (two typical sheets of floors 2 to 5 are 4 floors, of floors 2 to 5 and 6 to 10 are 9). The groups
+    are summed."""
+    by_group: dict[tuple, list] = defaultdict(list)
+    for key, n, floors in found:
+        by_group[groups.get(key, (key,))].append((n, frozenset(floors)))
+    total = 0
+    for entries in by_group.values():
+        floors = max(1, len(frozenset().union(*(f for _n, f in entries))))
+        total += (max(n for n, _f in entries) if per_place else 1) * floors
+    return total
+
+
+def plan_floors(catalogue, typicals: Sequence = ()) -> dict[tuple[str, str], frozenset[str]]:
+    """(document, sheet number) -> the floors that plan stands for: a typical sheet's floor list (one with no
+    number by (document, page), `sheet_floors`), else, for a sheet number on N pages of one document with the same
+    text on every page, its N pages (one floor each). A sheet not listed stands for one floor. Pages of one number
+    with other text are other sheets, each read and counted (`counting_pages`), never one plan times its pages
+    (REVIEW-FINAL6 F6). A floor named by digits alone is one floor however it is written ("02" and "2", F9)."""
+    # by (document, sheet number) (REVIEW-FINAL8 H4); a typical given with no document (by hand) stands for its
+    # number in every document
+    named = {(getattr(t, "document", None), t.sheet): frozenset(_floor_name(f) for f in t.floors)
+             for t in typicals if t.sheet and t.floors}
+    pages: dict[tuple[str, str], list[int]] = defaultdict(list)
+    for s in catalogue.sheets:
+        if s.number:
+            pages[(s.document, s.number)].append(s.page)
+    alike = _alike_pages(catalogue)
+    found: dict[tuple[str, str], frozenset[str]] = {}
+    for (document, number), on in pages.items():
+        floors = (named.get((document, number)) or named.get((None, number))
+                  or (frozenset(f"p.{page}" for page in on) if (document, number) in alike else frozenset()))
+        if len(floors) > 1:
+            found[(document, number)] = floors
+    # a typical sheet with no number (RD-13) is keyed by its (document, page), as `typical_sheets` makes it: the
+    # page of its document with no number and its title (`count_devices` multiplies its devices the same way)
+    for t in typicals:
+        if t.sheet or not t.floors or not getattr(t, "document", None):
+            continue
+        floors = frozenset(_floor_name(f) for f in t.floors)
+        if len(floors) > 1:
+            for s in catalogue.sheets:
+                if not s.number and s.document == t.document and s.title == t.title:
+                    found[(s.document, s.page)] = floors
+    return found
+
+
+def sheet_floors(floor_sets: dict, sheet) -> frozenset[str]:
+    """The floors a plan sheet stands for in `plan_floors`: by (document, sheet number), or by (document, page) for
+    a sheet with no number (RD-13); empty for one floor."""
+    return floor_sets.get((sheet.document, sheet.number) if sheet.number else (sheet.document, sheet.page),
+                          frozenset())
+
+
+def _floor_name(floor: str) -> str:
+    floor = str(floor).strip().upper()
+    return str(int(floor)) if floor.isdigit() else floor
+
+
+def _alike_pages(catalogue) -> set[tuple[str, str]]:
+    """(document, sheet number) of each number on 2 or more pages of one document with the same text on every page:
+    one plan printed again (a typical floor per page), read on its first page only."""
+    texts = {(p.document, p.page): p.text for p in catalogue.pages}
+    by_number: dict[tuple[str, str], set] = defaultdict(set)
+    pages: dict[tuple[str, str], int] = defaultdict(int)
+    for s in catalogue.sheets:
+        if s.number:
+            by_number[(s.document, s.number)].add(texts.get((s.document, s.page), ""))
+            pages[(s.document, s.number)] += 1
+    return {key for key, found in by_number.items() if pages[key] >= 2 and len(found) == 1}
+
+
+def first_pages(catalogue) -> dict[tuple[str, int], int]:
+    """(document, page) -> the first page of its sheet number in that document, for each page that only repeats it
+    (the same number on several pages with the same text on every page, `_alike_pages`): such a page is counted on
+    its first page, which the floors stand for. A page of one number with other text is its own sheet."""
+    alike = _alike_pages(catalogue)
+    first: dict[tuple[str, str], int] = {}
+    for s in catalogue.sheets:
+        if s.number and (s.document, s.number) in alike:
+            first[(s.document, s.number)] = min(first.get((s.document, s.number), s.page), s.page)
+    return {(s.document, s.page): first[(s.document, s.number)] for s in catalogue.sheets
+            if s.number and (s.document, s.number) in alike and first[(s.document, s.number)] != s.page}
+
+
+def counting_pages(catalogue, governing: Collection[tuple[str, int]]) -> frozenset[tuple[str, int]]:
+    """The drawing pages the counts read: the governing pages (`governing_pages`), plus a plan sheet whose number is
+    in another document too with exactly the same text, when the two documents are of one issue (the same revision,
+    neither an addendum nor a duplicate file) and its document is not a marked-up copy of the set (`repeats`): two
+    identical buildings issued as two documents are two sheets (REVIEW-FINAL5 F7), both counted and named as maybe
+    one plan. Of a sheet number on several pages of one document with the same text on every page only the first
+    page counts (`plan_floors` stands for the rest); pages of one number with other text all count (F6)."""
+    copies = repeats(catalogue)[1]
+    documents = {d.relative: d for d in getattr(catalogue.job, "documents", ())}
+
+    def issue(document: str) -> tuple | None:
+        """The issue a document belongs to (its revision); None for an addendum or a duplicate file, which reissue
+        or repeat a sheet and never stand for another building."""
+        d = documents.get(document)
+        if d is None:
+            return ("",)
+        if d.kind == "addendum" or getattr(d, "duplicate_of", None):
+            return None
+        return (d.revision,)
+
+    texts = {(p.document, p.page): p.text for p in catalogue.pages}
+    read: dict[str, dict[str, set]] = defaultdict(lambda: defaultdict(set))   # number -> text -> issues read
+    for s in catalogue.sheets:
+        if s.number and (s.document, s.page) in governing:
+            read[s.number][texts.get((s.document, s.page), "")].add(issue(s.document))
+    keep = set(governing)
+    for s in catalogue.sheets:
+        key = (s.document, s.page)
+        if (s.number and key not in governing and "Plans" in s.types and (s.number, s.document) not in copies
+                and texts.get(key) and issue(s.document) is not None
+                and issue(s.document) in read.get(s.number, {}).get(texts[key], ())):
+            keep.add(key)
+    repeated = first_pages(catalogue)
+    return frozenset(key for key in keep if key not in repeated)
+
+
+def sheet_labels(sheets) -> dict[tuple[str, int], str]:
+    """(document, page) -> the sheet's name in the counts: its number ("M-101"), with its document's name when the
+    same number is counted from two documents ("M-101 (Second Building.pdf)"), else the document and page. (Two
+    pages of one number in one document with other text, both counted since FINAL-K, share the number's name: the
+    evidence picks its sheets by number.)"""
+    sheets = list(sheets)
+    documents: dict[str, set] = defaultdict(set)
+    for s in sheets:
+        if s.number:
+            documents[s.number].add(s.document)
+    return {(s.document, s.page): (s.number if len(documents[s.number]) == 1 else f"{s.number} ({_name(s.document)})")
+            if s.number else f"{_name(s.document)} p.{s.page}" for s in sheets}
+
+
+def _named_apart(a, b) -> bool:
+    """Both titles name parts (TOWER 1, DORM WING, NORTH) and not the same ones."""
+    a_parts, b_parts = _parts((a.title or "").upper()), _parts((b.title or "").upper())
+    return bool(a_parts) and bool(b_parts) and a_parts != b_parts
+
+
+def plan_area_doubts(plans, areas: dict[tuple[str, int], int] | None = None
+                     ) -> list[tuple[tuple[str, int], tuple[str, int]]]:
+    """The pairs of plan sheets that MAY show one plan, a hint for the counts line's reading notes (both are
+    counted, the higher count): their titles name the same readable floor and parts; or they are in one document
+    with the same title text (its sheet number taken out); or they repeat each other's unit tags (`_unit_tags`)
+    and their titles do not name two different floors. Never a pair whose titles name two different floors, or no
+    floor and two different parts. `areas` is kept for the signature; every sheet is its own area now. Given
+    (sheet, tags) per plan sheet. Pure."""
+    sheets = [(sheet, _unit_tags(tags), _area_key(sheet.title), _plain_title(sheet)) for sheet, tags in plans]
+    doubts = []
+    for i, (a, a_units, a_key, a_title) in enumerate(sheets):
+        for b, b_units, b_key, b_title in sheets[i + 1:]:
+            ka, kb = (a.document, a.page), (b.document, b.page)
+            if ka == kb:
+                continue
+            if a_key is not None and b_key is not None:
+                maybe = a_key == b_key
+            elif a_key is None and b_key is None and _named_apart(a, b):
+                maybe = False                       # no floor, but two parts named apart (DORM WING, CLASSROOM WING)
+            else:
+                maybe = ((a.document == b.document and bool(a_title) and a_title == b_title)
+                         or _same_tags(a_units, b_units))
+            if maybe:
+                doubts.append((ka, kb))
+    return doubts
 
 
 def placements(catalogue, tags: Iterable[str], typicals: Sequence = (),
                pages: Collection[tuple[str, int]] | None = None) -> dict[str, Placements]:
-    """Each tag's labels on the plan sheets (times each typical sheet's floors, 1.4) and on the riser
-    diagrams, read from the governing page of each sheet. A type sized "X.0" is also labelled "X" (HRU-4)."""
-    keys: dict[str, str] = {}
-    for tag in tags:
-        keys.setdefault(_label_key(tag), tag)
-    for tag in list(keys.values()):
-        if tag.endswith(".0"):
-            keys.setdefault(_label_key(tag[:-2]), tag)
+    """Each tag's labels on the plan sheets and on the riser diagrams, read from the counted pages of each sheet
+    (`counting_pages`), and its count on the plans by the one counting rule (`plan_groups`, `plan_count`), the
+    floors of each typical sheet applied (1.4). A type sized "X.0" is also labelled "X" (HRU-4)."""
+    keys = label_keys(tags)
     if not keys:
         return {}
-    floors = {t.sheet: len(t.floors) for t in typicals if t.sheet}
+    asked = set(keys.values())
+    for entry in catalogue.tags:               # every tag on the plans is evidence of which sheets show one plan
+        keys.setdefault(label_key(entry.tag), entry.tag)
+    floor_sets = plan_floors(catalogue, typicals)
     if pages is None:
-        pages = governing_pages(catalogue, (), [t.sheet for t in typicals])
+        pages = governing_pages(catalogue, (), typical_places(typicals))
+    pages = counting_pages(catalogue, pages)
     sheets = {(s.document, s.page): s for s in catalogue.sheets}
-    on_plans: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))
-    on_risers: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))
+    read: list[tuple] = []
     for record in catalogue.pages:
         sheet = sheets.get((record.document, record.page))
         if (sheet is None or (record.document, record.page) not in pages or sheet.discipline not in CONTROLS_DISCIPLINES
                 or "Schedules" in sheet.types):
             continue
         riser = bool(_RISER.search(sheet.title or "")) or any("riser" in t for t in sheet.types)
-        if not riser and "Plans" not in sheet.types:
-            continue
-        place = sheet.number or f"{_name(record.document)} p.{record.page}"
-        bucket = on_risers if riser else on_plans
-        lines = record.text.splitlines()
-        skip = False
-        for n, line in enumerate(lines):
-            if skip:
-                skip = False
+        if riser or "Plans" in sheet.types:
+            read.append((sheet, record, riser))
+    labels = sheet_labels(sheet for sheet, _r, _riser in read)
+    tallies: dict[tuple[str, int], dict[str, int]] = {}
+    evidence: dict[tuple[str, int], dict[str, int]] = {}
+    for sheet, record, riser in read:
+        # the one label reader (F7); on a plan, a unit named anywhere counts at least once (REVIEW-FINAL7 F4), and
+        # the labels alone are the plan groups' evidence (the backstop never joins two plans)
+        labelled = evidence[(sheet.document, sheet.page)] = line_labels(record.text, keys)
+        tallies[(sheet.document, sheet.page)] = labelled if riser else plan_labels(record.text, keys, labelled)
+    groups = plan_groups([(sheet, evidence[(sheet.document, sheet.page)]) for sheet, _r, riser in read if not riser])
+    found: dict[str, list] = defaultdict(list)            # tag -> [((document, page), labels, floors)]
+    on_plans: dict[str, dict[str, int]] = defaultdict(dict)
+    floors: dict[str, dict[str, int]] = defaultdict(dict)
+    on_risers: dict[str, dict[str, int]] = defaultdict(dict)
+    for sheet, _record, riser in read:
+        key = (sheet.document, sheet.page)
+        own = sheet_floors(floor_sets, sheet)
+        for tag, n in tallies[key].items():
+            if tag not in asked:
                 continue
-            tag = keys.get(_label_key(line))
-            if tag is None and n + 1 < len(lines) and re.fullmatch(r"\s*[A-Z]{1,6}\s*", line):
-                tag = keys.get(_label_key(line + lines[n + 1]))      # a tag bubble: "VAV" over "5-7"
-                skip = tag is not None
-            if tag is not None:
-                bucket[tag][place] += 1
-    return {tag: Placements(dict(on_plans.get(tag, {})), {s: floors.get(s, 1) for s in on_plans.get(tag, {})},
-                            dict(on_risers.get(tag, {})))
-            for tag in set(on_plans) | set(on_risers)}
+            if riser:
+                on_risers[tag][labels[key]] = on_risers[tag].get(labels[key], 0) + n
+                continue
+            on_plans[tag][labels[key]] = on_plans[tag].get(labels[key], 0) + n
+            floors[tag][labels[key]] = max(1, len(own))
+            found[tag].append((key, n, own))
+
+    def placed(tag: str) -> Placements:
+        mine = found.get(tag, [])
+        per_place = bool(mine) and counted_per_place(tag, sum(n for _k, n, _f in mine), max(n for _k, n, _f in mine))
+        return Placements(dict(on_plans.get(tag, {})), dict(floors.get(tag, {})), dict(on_risers.get(tag, {})),
+                          plan_count(mine, groups, per_place) if mine else 0, per_place,
+                          plan_count(mine, groups, True) if mine else 0)
+
+    return {tag: placed(tag) for tag in set(on_plans) | set(on_risers)}
 
 
 def _count_in(cell: str | None) -> int | None:
@@ -217,26 +635,38 @@ def _count_in(cell: str | None) -> int | None:
 
 def _as_type(tag: str, kind: str, schedule: Schedule, row, placed: Placements | None, label: str,
              seen: tuple[str, ...]) -> InventoryItem | None:
-    """The row as a type, counted (1.3), or None when it is one unit. It is a type when its tag has a decimal
-    size, when its schedule has a QUANTITY column, or when the plans label it four or more times on one sheet
-    (floors counted)."""
+    """The row as a type, counted (1.3), or as several units counted on the plans, or None when it is one unit. It
+    is a type when its tag has a decimal size, when its schedule has a QUANTITY column, or when the plans count it
+    at every place (`counted_per_place`, the labels as drawn: a type's tag, or a numbered tag drawn as a type is).
+    A unit's tag the plans count more than once (on plans the one counting rule adds up, or on a typical sheet's
+    floors) is that many units. Either way the plans' count is the dossier's own rule (`plan_count`), so the
+    Evidence Package and the proposal agree (REVIEW-FINAL5 F4); a row called a type by its decimal size or its
+    QUANTITY column is counted as a type, at every place (`Placements.each_place`, REVIEW-FINAL6 F1)."""
     column = quantity_header(schedule)
     if getattr(row, "shares", 1) > 1:
         return None      # the row lists several tags ("A THRU C"): the tags are the count, one unit each
-    if _DECIMAL_TYPE.match(tag):
-        why = f"its tag has a decimal size, {tag}"
+    as_type = False
+    if DECIMAL_TYPE.match(tag):
+        why, as_type = f"its tag has a decimal size, {tag}", True
     elif column:
-        why = f"the schedule has a {column} column"
-    elif placed is not None and placed.total >= TYPE_PLACED and placed.most_on_one_sheet >= TYPE_ON_ONE_SHEET:
-        why = f"it is labelled {placed.total} times on the plans"
+        why, as_type = f"the schedule has a {column} column", True
+    elif placed is not None and placed.per_place and is_type_tag(tag):
+        why = f"its tag names a type, {tag}, labelled {placed.drawn} times on the plans"
+    elif placed is not None and placed.per_place:
+        why = f"it is labelled {placed.drawn} times on the plans"
+    elif placed is not None and placed.count > 1:
+        return InventoryItem(tag, kind, "CONFIRMED", placed.count, label, seen,
+                             f"On the schedule ({label}) and counted {placed.count} times on the plans "
+                             f"({placed.plans_text()}): a unit's tag counts once on each plan and on each floor a "
+                             f"typical plan stands for — check the count", "confirm")
     else:
         return None
     count = _count_in(row.cells.get(column)) if column else None
     action = ""
     if count is not None:
         how = f"quantity {count} from the schedule's {column} column"
-    elif placed is not None and placed.total:
-        count, action = placed.total, "confirm"
+    elif placed is not None and placed.count:
+        count, action = max(placed.count, placed.each_place) if as_type else placed.count, "confirm"
         how = f"{count} counted on the plans ({placed.plans_text()}) — check the count"
     else:
         how = "not counted on the plans yet — count it before pricing"
@@ -270,6 +700,24 @@ def _type_rows(schedule: Schedule, known: Collection[str]) -> list[InventoryItem
     return items or None
 
 
+def _higher_quantity(held: InventoryItem, held_schedule: Schedule, other: InventoryItem,
+                     other_schedule: Schedule) -> InventoryItem:
+    """One type code counted by two type-only schedules (two versions of one schedule): the higher quantity counts,
+    never the first document's alone; when they differ the note gives both, and their sum in case the two are
+    two buildings' schedules. A quantity beats no quantity."""
+    if other.quantity is None or (held.quantity is not None and other.quantity <= held.quantity):
+        winner = held
+    else:
+        winner = other
+    if held.quantity is None or other.quantity is None or held.quantity == other.quantity:
+        return winner
+    said = (f"{held.quantity} in {_name(held_schedule.document)}, {other.quantity} in "
+            f"{_name(other_schedule.document)}")
+    return replace(winner, reason=f"{winner.reason} — the schedules give other quantities ({said}); the higher, "
+                                  f"{winner.quantity}, counted ({held.quantity + other.quantity} if they are two "
+                                  f"buildings' schedules); confirm", action="confirm")
+
+
 def build_inventory(catalogue, schedules: list[Schedule], typicals: Sequence = (),
                     pages: Collection[tuple[str, int]] | None = None
                     ) -> tuple[list[InventoryItem], list[FamilyTotal], list[str]]:
@@ -277,7 +725,7 @@ def build_inventory(catalogue, schedules: list[Schedule], typicals: Sequence = (
     governing pages they are read from (by default, worked out here)."""
     equipment = Equipment.load()
     dropped: list[str] = []
-    schedules = _one_copy_per_sheet(list(schedules), dropped)
+    schedules = _one_copy_per_sheet(list(schedules), dropped, repeats(catalogue)[1])
     entries = {t.tag: t for t in catalogue.tags}
     # A unit whose prefix isn't in the equipment list takes its kind from its schedule's title; the tag
     # index never looked for it, so the other sheets are searched for it here.
@@ -305,6 +753,8 @@ def build_inventory(catalogue, schedules: list[Schedule], typicals: Sequence = (
 
     drawings = {s.number or f"{_name(s.document)} p.{s.page}" for s in catalogue.sheets if "Schedules" not in s.types}
     listings: dict[str, list[tuple[str, str]]] = defaultdict(list)
+    listed_in: dict[str, list[tuple[str, str]]] = defaultdict(list)   # tag → (place, document) of each listing
+    quantities: dict[str, list[tuple[int, str]]] = defaultdict(list)  # tag → (QUANTITY cell, document) per listing
     first_row: dict[str, tuple[Schedule, object]] = {}
     existing: set[str] = set()
     from_text: dict[str, str] = {}      # tag → the schedule it was counted under, from a sheet's text
@@ -321,7 +771,18 @@ def build_inventory(catalogue, schedules: list[Schedule], typicals: Sequence = (
             if row.tag is None:
                 continue
             listings[row.tag].append((_label(schedule), _place(schedule)))
+            listed_in[row.tag].append((_place(schedule), schedule.document))
             first_row.setdefault(row.tag, (schedule, row))
+            column = quantity_header(schedule)
+            stated = _count_in(row.cells.get(column)) if column and getattr(row, "shares", 1) == 1 else None
+            if stated is not None:
+                quantities[row.tag].append((stated, schedule.document))
+                held = first_row[row.tag]
+                held_column = quantity_header(held[0])
+                held_count = _count_in(held[1].cells.get(held_column)) if held_column else None
+                if getattr(held[1], "shares", 1) == 1 and held_count is not None and stated > held_count:
+                    first_row[row.tag] = (schedule, row)   # two versions list the type: the higher quantity
+                                                           # counts, never the first document's (RD-1)
             if getattr(row, "shares", 1) > 1 and getattr(first_row[row.tag][1], "shares", 1) == 1:
                 first_row[row.tag] = (schedule, row)   # named in a series ("A THRU C"): one unit, whatever another
                                                        # schedule's QUANTITY column says of its own row
@@ -368,9 +829,18 @@ def build_inventory(catalogue, schedules: list[Schedule], typicals: Sequence = (
             seen = tuple(p for p in (entry.elsewhere if entry else new_places.get(tag, ())) if p not in own)
             on_drawings = [p for p in seen if p in drawings]
             label = listings[tag][0][0]
-            where = _list(own)
+            where = _listed_where(listed_in[tag])
             typed = None if tag in existing else _as_type(tag, kind, *first_row[tag], placed.get(tag), label, seen)
             if typed is not None:
+                if len(listings[tag]) > 1:       # never lose the listed-twice words (REVIEW-FINAL6 F8)
+                    typed = replace(typed, reason=f"{typed.reason} — tag listed {len(listings[tag])} times on the "
+                                                  f"schedules ({where}); confirm with the engineer how many units "
+                                                  f"there are", action="confirm")
+                stated = sorted(set(quantities.get(tag, ())), reverse=True)
+                if len({n for n, _ in stated}) > 1:
+                    said = ", ".join(f"{n} in {_name(d)}" for n, d in stated)
+                    typed = replace(typed, reason=f"{typed.reason} — the schedules give other quantities ({said}); "
+                                                  f"the higher, {stated[0][0]}, counted; confirm", action="confirm")
                 items.append(typed)
             elif tag in existing:
                 items.append(InventoryItem(tag, kind, "EXISTING", 0, label, seen,
@@ -430,12 +900,23 @@ def build_inventory(catalogue, schedules: list[Schedule], typicals: Sequence = (
                                        f"Shown on {_list(seen)} {why} — don't price until confirmed",
                                        "exclude pending"))
 
+    # A type code a type-only schedule counts (`_type_rows`), by the schedule that first counted it: another version
+    # of the schedule (RD-1) adds the codes it alone lists, and of a code both give a quantity the higher counts.
+    typed_codes: dict[str, tuple[int, Schedule]] = {}
     for schedule in schedules:
         if not schedule.type_only or not schedule.rows:
             continue
-        counted_types = _type_rows(schedule, {item.tag for item in items})
+        counted_types = _type_rows(schedule, {item.tag for item in items if item.tag not in typed_codes})
         if counted_types:
-            items += counted_types
+            for item in counted_types:
+                if item.tag not in typed_codes:
+                    typed_codes[item.tag] = (len(items), schedule)
+                    items.append(item)
+                    continue
+                at, held = typed_codes[item.tag]
+                items[at] = _higher_quantity(items[at], held, item, schedule)
+                if items[at] is item:
+                    typed_codes[item.tag] = (at, schedule)
             continue
         key = schedule.headers[0] if schedule.headers else ""
         codes = list(dict.fromkeys(row.cells.get(key, "") for row in schedule.rows if row.cells.get(key)))

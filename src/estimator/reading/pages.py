@@ -9,7 +9,10 @@ written whole under a name no other run uses, then moved into place, so an inter
 never leaves half a file behind and two runs never write into each other's.
 
 A page that can't be read (a document that won't open, a page pymupdf chokes on) raises; the
-readers catch it, skip that page, and say so with `unreadable_page`.
+readers catch it, skip that page, and say so with `unreadable_page`. A busy machine can hold a file
+for a moment (a virus scanner, another program): opening a document and hashing it are tried again
+after a short pause before giving up, and a cache file that can't be written is simply not kept —
+the page was read, so it is used. Only a page that was read in full is ever kept.
 
 `PageOpener(catalogue, cache_dir)` is called as `opener(document, page)` — the page opener the
 schedules and devices readers take. What it returns behaves like a pymupdf page for what they
@@ -21,6 +24,7 @@ import hashlib
 import json
 import os
 import secrets
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from types import SimpleNamespace
@@ -30,6 +34,19 @@ import pymupdf
 CACHE_VERSION = 1     # raise it whenever what is kept, or how it is read, changes
 _PYMUPDF = "".join(ch for ch in str(getattr(pymupdf, "VersionBind", "") or getattr(pymupdf, "__version__", ""))
                    if ch.isalnum() or ch == ".") or "unknown"
+TRIES = 3             # times a document is opened, hashed or its cache file moved into place before giving up
+RETRY_PAUSE = 0.2     # seconds between those tries
+
+
+def _tried(action, *, again=lambda error: True):
+    """`action()`, tried up to TRIES times while it raises an error `again` accepts; the last error is raised."""
+    for attempt in range(1, TRIES + 1):
+        try:
+            return action()
+        except Exception as error:
+            if attempt == TRIES or not again(error):
+                raise
+            time.sleep(RETRY_PAUSE)
 
 
 def unreadable_page(sheet: str | None, document: str, page: int, what: str, error: BaseException) -> str:
@@ -171,8 +188,11 @@ class PageOpener:
         if document not in self._open:
             if document in self._failed:
                 raise RuntimeError(self._failed[document])
+            # A file another program holds won't open (pymupdf says FileDataError): tried again. A missing one isn't.
+            path = str(self._paths[document])
             try:
-                self._open[document] = pymupdf.open(str(self._paths[document]))
+                self._open[document] = _tried(lambda: pymupdf.open(path), again=lambda error: not isinstance(
+                    error, (FileNotFoundError, pymupdf.FileNotFoundError)))
             except Exception as error:
                 self._failed[document] = f"the document would not open ({' '.join(str(error).split()) or type(error).__name__})"
                 raise RuntimeError(self._failed[document]) from error
@@ -181,8 +201,10 @@ class PageOpener:
     def digest(self, document: str) -> str:
         """The document's content hash (sha1): what names its cache files and its schedule pictures."""
         if document not in self._digests:
-            with open(self._paths[document], "rb") as handle:
-                self._digests[document] = hashlib.file_digest(handle, "sha1").hexdigest()
+            def read() -> str:
+                with open(self._paths[document], "rb") as handle:
+                    return hashlib.file_digest(handle, "sha1").hexdigest()
+            self._digests[document] = _tried(read, again=lambda error: isinstance(error, PermissionError))
         return self._digests[document]
 
     def cache_file(self, document: str, page: int, part: str) -> Path | None:
@@ -213,7 +235,15 @@ def _load(path: Path) -> dict | None:
 
 
 def _store(path: Path, data: dict) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
+    """Never raises: a cache file that can't be written (a full disk, an old one a virus scanner holds
+    so it can't be replaced) is left out, and the page is read again next run."""
     tmp = path.with_name(f"{path.name}.{os.getpid()}-{secrets.token_hex(4)}.tmp")
-    tmp.write_text(json.dumps(data), encoding="utf-8")
-    os.replace(tmp, path)
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp.write_text(json.dumps(data), encoding="utf-8")
+        _tried(lambda: os.replace(tmp, path), again=lambda error: isinstance(error, PermissionError))
+    except OSError:
+        try:
+            tmp.unlink(missing_ok=True)
+        except OSError:
+            pass

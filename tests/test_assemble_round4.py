@@ -354,12 +354,12 @@ def test_the_cross_check_maps_a_picture_id_to_the_job_wide_picture():
 # --- 8. stale requests -----------------------------------------------------------------------------------------------
 
 def test_a_chat_run_moves_this_jobs_requests_it_does_not_ask_again_into_old(tmp_path):
-    judge = Judge(tmp_path / "cache", mode="chat", job="26-0478, Somerville HS")
+    judge = Judge(tmp_path / "cache", mode="chat", job="26-0478, Example HS")
     requests = judge.requests_dir
     requests.mkdir(parents=True)
-    mine = {"key": "a", "kind": "write_system", "job": "26-0478, Somerville HS", "prompt": "x"}
-    theirs = {"key": "b", "kind": "write_system", "job": "26-0193, Fordham", "prompt": "x"}
-    legacy = {"key": "c", "kind": "plan_job", "prompt": "The dossier:\n== 1. JOB ==\n[S1] Job: 26-0478, Somerville"}
+    mine = {"key": "a", "kind": "write_system", "job": "26-0478, Example HS", "prompt": "x"}
+    theirs = {"key": "b", "kind": "write_system", "job": "26-9999, Harbor Point", "prompt": "x"}
+    legacy = {"key": "c", "kind": "plan_job", "prompt": "The dossier:\n== 1. JOB ==\n[S1] Job: 26-0478, Example"}
     for name, data in (("a", mine), ("b", theirs), ("c", legacy)):
         (requests / f"{name}.json").write_text(json.dumps(data), encoding="utf-8")
     judge.answers_dir.mkdir(parents=True)
@@ -375,8 +375,8 @@ def test_a_chat_run_moves_this_jobs_requests_it_does_not_ask_again_into_old(tmp_
     real = RealPlannedSystem("UH", "Unit Heater UH-1", "EUH / CUH / UH", ("UH-1",), 1, "", "", (), (), "", "", "", "")
     judge.write_system(real, "evidence", [], [], [], "STYLE")
     (asked,) = [p for p in requests.glob("*.json") if p.name != "b.json"]
-    assert json.loads(asked.read_text(encoding="utf-8"))["job"] == "26-0478, Somerville HS"
+    assert json.loads(asked.read_text(encoding="utf-8"))["job"] == "26-0478, Example HS"
     (asked.parent / "old" / asked.name).write_text("{}", encoding="utf-8")
-    Judge(tmp_path / "cache", mode="chat", job="26-0478, Somerville HS").write_system(real, "evidence", [], [], [],
+    Judge(tmp_path / "cache", mode="chat", job="26-0478, Example HS").write_system(real, "evidence", [], [], [],
                                                                                       "STYLE")
     assert not (asked.parent / "old" / asked.name).exists()

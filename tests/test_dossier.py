@@ -206,7 +206,7 @@ def test_a_spec_section_reissued_in_an_addendum_is_given_from_the_addendum(tmp_p
 
 
 def test_running_headers_are_left_out_of_the_sequence(tmp_path):
-    header = "Fordham Landing / Issued for Construction\nSequence of Operations 230993 - {n}\n"
+    header = "Harbor Point / Issued for Construction\nSequence of Operations 230993 - {n}\n"
     body = "\n".join(f"{i}. Point {i} of the unit shall be shown at the BMS." for i in range(1, 12))
     documents = [_doc(SPEC, "specs", 4)]
     pages = [_page(SPEC, n, header.format(n=n) + f"\n{n}.1 SYSTEM {n}\nA. Unit {n} shall run on a schedule.\n"
@@ -239,7 +239,8 @@ def test_the_counts_hold_schedule_rows_distinct_tags_and_plan_placements(tmp_pat
     d = build_dossier(catalogue, reading, tmp_path)
     assert d.counts["AHU"] == {"schedule_rows": 1, "quantity_column": None, "plan_placements": 1, "riser": None,
                                "distinct_tags": 1}
-    # EF-2 is existing on the schedule, but still placed on the plan: EF-1 twice, EF-2 once.
+    # EF-2 is existing on the schedule, but still placed on the plan: EF-1 on the FIRST FLOOR and the ROOF plans, EF-2
+    # once. FINAL-I (lead ruling): two plans with other titles add up, so 3 (FINAL-G 2, EF-1 once over the set).
     assert d.counts["EF"]["schedule_rows"] == 1
     assert d.counts["EF"]["plan_placements"] == 3
     assert d.counts["EF"]["distinct_tags"] == 2
@@ -278,7 +279,8 @@ def test_the_floor_multiplier_applies_to_placements_and_devices(tmp_path):
     reading = _reading(devices=devices, typicals=typicals)
     assert floor_multipliers(catalogue, reading) == {(DWG, "M-113"): 3, (DWG, "M-110"): 7}
     d = build_dossier(catalogue, reading, tmp_path)
-    assert d.counts["VAV"]["plan_placements"] == 2 * 3 + 1 * 7
+    # FINAL-G: VAV-1 twice on M-113 is one unit on each of its 3 floors (was 2 * 3)
+    assert d.counts["VAV"]["plan_placements"] == 1 * 3 + 1 * 7
     assert d.device_totals == {"T": 3 * 3 + 1 * 7}
     assert "M-113 2 × 3 = 6" in d.text
     assert "M-110 1 × 7 = 7" in d.text
@@ -290,7 +292,7 @@ def test_a_riser_count_is_kept_separately(tmp_path):
     catalogue.sheets += (_sheet(4, "M-501", "AIR RISER DIAGRAM", types=("Air riser",)),)
     d = build_dossier(catalogue, reading, tmp_path)
     assert d.counts["EF"]["riser"] == 2
-    assert d.counts["EF"]["plan_placements"] == 3               # the riser is not a plan
+    assert d.counts["EF"]["plan_placements"] == 3               # the riser is not a plan (EF-1 on two plans: 2)
 
 
 def test_a_tag_in_every_title_block_is_not_a_unit(tmp_path):
@@ -424,7 +426,7 @@ def test_the_controls_spec_highlights_keep_the_headings_that_price_the_job(tmp_p
     assert "Provide one operator workstation" in spec
     assert "Drawings and general provisions" not in spec
     assert spec.index("OPERATOR WORKSTATION") < spec.index("WARRANTY")    # the front end first
-    assert "23 09 93 SEQUENCE OF OPERATIONS, Specs.pdf: given in full above" in spec
+    assert "above" not in spec                    # section 8 is read alone: it points at nothing
     ids = _ids_in(spec)
     assert all("23 09 23 DIRECT DIGITAL CONTROL §" in d.sources[i] for i in ids)
 
@@ -507,3 +509,176 @@ def test_sheet_pictures_render_whole_sheets_once(tmp_path):
     assert again[0].path == images[0].path
     missing, flags = sheet_pictures(catalogue, tmp_path / "cache", [("H.pdf", 9)], "plan sheet")
     assert missing == [] and len(flags) == 1
+
+
+# --- the spec pass reads sections 1 and 8 only: section 8 never points at text above -------------------
+
+DDC = "Specs/230923.pdf"
+DDC_ADDENDUM = "Addendum/230923 Adden 1.pdf"
+DDC_POINTS = "POINTS LIST\nAHU-1 supply fan status and discharge air temperature.\n"
+
+
+def _job_with_a_controls_spec_printed_whole_above():
+    """The controls spec section carries a points list, so section 3 prints its pages whole."""
+    catalogue, reading = _job()
+    catalogue.job.documents += (_doc(DDC, "specs", 2),)
+    catalogue.pages += (_page(DDC, 1, CONTROLS_SPEC), _page(DDC, 2, DDC_POINTS))
+    catalogue.sections += (SpecSection("23 09 23", "DIRECT DIGITAL CONTROL", DDC, 1, 2),)
+    reading.backbone += (_backbone(POINTS, "23 09 23 DIRECT DIGITAL CONTROL (230923.pdf, pages 1–2)", DDC, 1, 2),)
+    return catalogue, reading
+
+
+def _spec_pass_text(catalogue, reading, tmp_path):
+    from estimator.ledger.passes import documents, pass_named
+    d = build_dossier(catalogue, reading, tmp_path)
+    return d, documents(pass_named("spec"), d, catalogue)
+
+
+def test_the_spec_pass_gets_the_highlights_of_a_controls_spec_printed_whole_above(tmp_path):
+    catalogue, reading = _job_with_a_controls_spec_printed_whole_above()
+    d, text = _spec_pass_text(catalogue, reading, tmp_path)
+    assert "warrant the system for two years" in d.text.split("== 3. POINTS LISTS ==")[1].split("== 4.")[0]
+    spec = text.split("== 8. CONTROLS SPEC HIGHLIGHTS ==")[1]
+    assert "warrant the system for two years" in spec
+    assert "Provide one operator workstation" in spec
+    assert "above" not in text.split("== 8.")[1]
+    ids = _ids_in(spec)
+    assert ids and all("23 09 23 DIRECT DIGITAL CONTROL §" in d.sources[i] for i in ids)
+
+
+def test_the_spec_pass_gets_the_highlights_of_the_addendum_copy_without_a_pointer(tmp_path):
+    catalogue, reading = _job_with_a_controls_spec_printed_whole_above()
+    catalogue.job.documents += (_doc(DDC_ADDENDUM, "specs", 2, revision="Addendum"),)
+    catalogue.pages += (_page(DDC_ADDENDUM, 1, CONTROLS_SPEC.replace("two years", "three years")),
+                        _page(DDC_ADDENDUM, 2, DDC_POINTS))
+    catalogue.sections += (SpecSection("23 09 23", "DIRECT DIGITAL CONTROL", DDC_ADDENDUM, 1, 2),)
+    reading.backbone += (_backbone(POINTS, "23 09 23 DIRECT DIGITAL CONTROL (230923 Adden 1.pdf, pages 1–2)",
+                                   DDC_ADDENDUM, 1, 2),)
+    _, text = _spec_pass_text(catalogue, reading, tmp_path)
+    spec = text.split("== 8. CONTROLS SPEC HIGHLIGHTS ==")[1]
+    assert "warrant the system for three years" in spec
+    assert "two years" not in spec                       # the replaced copy is named, not quoted
+    assert "replaced by a later copy" in spec
+    assert "above" not in spec
+
+
+def test_the_highlights_of_a_section_printed_above_keep_the_cap_and_say_what_was_cut(tmp_path, monkeypatch):
+    monkeypatch.setattr(dossier_module, "SPEC_LIMIT", 120)
+    catalogue, reading = _job_with_a_controls_spec_printed_whole_above()
+    _, text = _spec_pass_text(catalogue, reading, tmp_path)
+    spec = text.split("== 8. CONTROLS SPEC HIGHLIGHTS ==")[1]
+    assert "Cut at 120 characters. Left out:" in spec
+    assert "1.14 WARRANTY" in spec.split("Left out:")[1]
+    assert "above" not in spec
+
+
+def test_a_controls_spec_with_no_highlight_article_says_so_without_a_pointer(tmp_path):
+    catalogue, reading = _job()
+    _, text = _spec_pass_text(catalogue, reading, tmp_path)
+    spec = text.split("== 8. CONTROLS SPEC HIGHLIGHTS ==")[1]
+    assert "above" not in spec
+    assert "No controls spec section found" not in spec
+    assert "23 09 93 SEQUENCE OF OPERATIONS, Specs.pdf" in spec
+
+
+def test_the_same_keynote_on_the_same_sheet_of_two_documents_is_given_twice_with_two_sources(tmp_path):
+    """LDG-9: building B's M-101 carries the same note text as building A's; each one is its own fact."""
+    catalogue, reading = _job()
+    other = "Drawings/BuildingB.pdf"
+    catalogue.sheets = catalogue.sheets + (_sheet(1, "M-101", "FIRST FLOOR PLAN", document=other),)
+    text = "PROVIDE A DUCT SMOKE DETECTOR RELAY FOR AHU-9."
+    reading.notes = tuple(reading.notes) + (Note("M-101", DWG, 1, "KEY NOTES", "9", text, True, ""),
+                                            Note("M-101", other, 1, "KEY NOTES", "9", text, True, ""))
+    d = build_dossier(catalogue, reading, tmp_path)
+    part = d.text.split("== 7. NOTES ==")[1].split("--- 7b PLAN SHEET NOTES ---")[0]
+    lines = [ln for ln in part.splitlines() if text in ln]
+    assert len(lines) == 2
+    ids = {re.match(r"\[(S\d+)\]", ln).group(1) for ln in lines}
+    assert len(ids) == 2 and all(sid in d.sources for sid in ids)
+
+
+# --- 7c gives each governing page, keyed by (document, page) (LDG-8) -----------------------------------------
+
+def _two_m101_job(second_kind="drawings", second_revision="base", supersessions=()):
+    """Two documents that each carry an M-101 plan with its own text: two buildings, or a base and its reissue."""
+    first, second = "Drawings/Bldg A.pdf", "Drawings/Bldg B.pdf"
+    documents = [_doc(first, "drawings", 1), _doc(second, second_kind, 1, revision=second_revision)]
+    pages = [_page(first, 1, "FIRST FLOOR PLAN KEYED NOTE 1 PROVIDE A LEAK CHIME AT WH-1."),
+             _page(second, 1, "FIRST FLOOR PLAN KEYED NOTE 1 PROVIDE A DAMPER ACTUATOR AT MD-7.")]
+    sheets = [_sheet(1, "M-101", "FIRST FLOOR PLAN", document=first),
+              _sheet(1, "M-101", "FIRST FLOOR PLAN", document=second)]
+    return _catalogue(documents, pages, sheets), _reading(supersessions=supersessions), first, second
+
+
+def _sheet_text_part(d):
+    return d.text.split("--- 7c PLAN SHEET TEXT ---")[1].split("== 8.")[0]
+
+
+def test_two_base_documents_each_with_an_m101_give_both_texts_in_7c(tmp_path):
+    catalogue, reading, first, second = _two_m101_job()
+    d = build_dossier(catalogue, reading, tmp_path)
+    part = _sheet_text_part(d)
+    assert "LEAK CHIME AT WH-1" in part and "DAMPER ACTUATOR AT MD-7" in part
+    assert d.sheet_pages and set(d.sheet_pages.values()) == {(first, 1), (second, 1)}
+
+
+def test_a_revision_1_reissue_gives_only_the_reissues_text_in_7c(tmp_path):
+    from estimator.reading.revisions import SheetVersion, Supersession
+    first, second = "Drawings/Bldg A.pdf", "Drawings/Bldg B.pdf"
+    base = SheetVersion("M-101", first, 1, (), None, "title block")
+    reissue = SheetVersion("M-101", second, 1, (), None, "title block")
+    catalogue, reading, _, _ = _two_m101_job(second_revision="1",
+                                             supersessions=[Supersession("M-101", reissue, (base,), (), "")])
+    d = build_dossier(catalogue, reading, tmp_path)
+    part = _sheet_text_part(d)
+    assert "DAMPER ACTUATOR AT MD-7" in part and "LEAK CHIME AT WH-1" not in part
+    assert set(d.sheet_pages.values()) == {(second, 1)}
+
+
+# --- two documents with one file name ------------------------------------------------------------------------
+
+def test_two_documents_with_one_file_name_cite_their_own_paths(tmp_path):
+    """LDG-10: "Mech.pdf" in two folders never gives two identical citations; a file name no other document
+    shares is still cited by its name alone."""
+    other = "Bldg B/mech.PDF"
+    catalogue, reading = _job()
+    catalogue.job.documents += (_doc(other, "drawings", 1),)
+    catalogue.pages += (_page(other, 1, "EF-1", large=True),)
+    catalogue.sheets += (_sheet(1, "M-101", "FIRST FLOOR PLAN", document=other),)
+    reading.notes += (Note("M-101", other, 1, "KEY NOTES", "3", "PROVIDE A CURRENT SWITCH FOR EF-1.", True, ""),)
+    d = build_dossier(catalogue, reading, tmp_path)
+    wheres = [w for w in d.sources.values() if w.startswith("KEY NOTES 3, M-101")]
+    assert wheres == ["KEY NOTES 3, M-101, Drawings/Mech.pdf page 1", "KEY NOTES 3, M-101, Bldg B/mech.PDF page 1"]
+    assert "--- M-101, Bldg B/mech.PDF page 1 ---" in d.text
+    assert any(w.endswith(", Specs.pdf page 1") for w in d.sources.values())      # a unique name stays short
+
+
+def test_a_picture_is_drawn_again_when_its_documents_content_changes_though_its_size_and_date_do_not(tmp_path):
+    # LDG-15: the picture's name follows the document's content (sha1), never its size and date alone
+    import os
+    from estimator.writing.dossier import sheet_pictures
+    catalogue, reading = _picture_job(tmp_path)
+    pdf = tmp_path / "H.pdf"
+    before = pdf.stat()
+    [first], _ = sheet_pictures(catalogue, tmp_path / "cache", [("H.pdf", 1)], "plan sheet")
+    pictured = build_dossier(catalogue, reading, tmp_path / "cache").images[0].path
+    changed = pdf.read_bytes().replace(b"(" * 7200, b"P" * 7200)          # the picture's grey made lighter
+    assert changed != pdf.read_bytes() and len(changed) == before.st_size     # other content, the same size
+    pdf.write_bytes(changed)
+    os.utime(pdf, ns=(before.st_atime_ns, before.st_mtime_ns))                  # and the same date
+    dossier_module._DIGESTS.clear()                 # a later run: its own hashes, the earlier run's PNGs on disk
+    [again], _ = sheet_pictures(catalogue, tmp_path / "cache", [("H.pdf", 1)], "plan sheet")
+    assert again.path != first.path
+    assert build_dossier(catalogue, reading, tmp_path / "cache").images[0].path != pictured
+
+
+def test_a_numberless_typical_plans_units_are_counted_times_its_floors_in_the_counts_line():
+    # RD-13: the counts line the ledger seed and the planner read, not only the inventory
+    title = "TYPICAL 2ND-5TH FLOOR PLAN"
+    documents = [_doc(DWG, "drawings", 2)]
+    pages = [_page(DWG, 1, "FAN COIL SCHEDULE FCU-1", large=True), _page(DWG, 2, "FCU-1", large=True)]
+    sheets = [_sheet(1, "M-601", "SCHEDULES", types=("Schedules",)), _sheet(2, None, title)]
+    catalogue = _catalogue(documents, pages, sheets, tags=[_tag("FCU-1", elsewhere=())])
+    reading = _reading(typicals=[TypicalSheet(None, title, ("2", "3", "4", "5"), "", DWG)])
+    d = build_dossier(catalogue, reading, None)
+    assert d.counts["FCU"]["plan_placements"] == 4

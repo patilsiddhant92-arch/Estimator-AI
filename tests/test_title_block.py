@@ -14,7 +14,7 @@ def test_sheet_number_shapes(text):
     assert SHEET_NUMBER.fullmatch(text)
 
 
-@pytest.mark.parametrize("text", ["275 HARTZ WAY", "2026", "PROJECT", "A", "SCALE: 1/8\"=1'-0\"", "15970",
+@pytest.mark.parametrize("text", ["1 INVENTED WAY", "2026", "PROJECT", "A", "SCALE: 1/8\"=1'-0\"", "15970",
                                   "ISSUED FOR CONSTRUCTION", "03/31/2026"])
 def test_not_sheet_numbers(text):
     assert not SHEET_NUMBER.fullmatch(text)
@@ -63,7 +63,7 @@ def test_the_title_under_its_label_not_the_permit_number_beside_it():
 
 def test_a_label_split_over_two_lines():
     # 26-0352: "DRAWING" and "TITLE" are two small lines, the title beside them.
-    spans = [_span("TISHMAN SPEYER", 18.8, 0.874, 0.788), _span("DRAWING", 9.4, 0.832, 0.842),
+    spans = [_span("HARBOR POINT", 18.8, 0.874, 0.788), _span("DRAWING", 9.4, 0.832, 0.842),
              _span("TITLE", 9.4, 0.832, 0.849), _span("MECHANICAL 21ST FLOOR PLAN", 16.9, 0.857, 0.857, w=0.09),
              _span("SEAL & SIGNATURE", 9.4, 0.832, 0.886), _span("M-100.00", 25.1, 0.926, 0.930, h=0.014)]
     assert read_title_block(spans) == TitleBlock("M-100.00", "MECHANICAL 21ST FLOOR PLAN")
@@ -79,7 +79,7 @@ def test_a_title_as_large_as_the_sheet_number():
 
 def test_an_address_just_smaller_than_the_title_is_left_out():
     # 26-0436's controls sheets: the firm's address is 13.1 pt, the title 15.6 pt.
-    spans = [_span("CONTROLS AND DESIGN", 13.1, 0.913, 0.853), _span("275 HARTZ WAY", 13.1, 0.922, 0.860),
+    spans = [_span("CONTROLS AND DESIGN", 13.1, 0.913, 0.853), _span("1 INVENTED WAY", 13.1, 0.922, 0.860),
              _span("SECOND FLOOR RAS", 15.6, 0.914, 0.885), _span("INSTRUMENT LOCATION", 15.6, 0.910, 0.894),
              _span("IC015", 36.7, 0.922, 0.972, h=0.02)]
     assert read_title_block(spans) == TitleBlock("IC015", "SECOND FLOOR RAS INSTRUMENT LOCATION")
@@ -100,7 +100,7 @@ def test_stamps_and_disclaimers_are_not_titles():
 
 
 def test_no_number_and_no_title():
-    spans = [_span("275 HARTZ WAY", 15.7, 0.90, 0.90), _span("REVISIONS", 10, 0.90, 0.80)]
+    spans = [_span("1 INVENTED WAY", 15.7, 0.90, 0.90), _span("REVISIONS", 10, 0.90, 0.80)]
     assert read_title_block(spans) == TitleBlock(None, None)
 
 
@@ -231,3 +231,44 @@ def test_the_labelled_layout_reads_a_small_prefixed_number_and_title():
 def test_an_existing_unprefixed_number_still_reads_the_same():
     spans = [_span("HVAC SCHEDULES SHEET 3", 20.4, 0.91, 0.851, w=0.07), _span("M006.00", 41, 0.935, 0.92, h=0.02)]
     assert read_title_block(spans) == TitleBlock("M006.00", "HVAC SCHEDULES SHEET 3")
+
+
+# --- RD-10: one sheet, however its number is spaced; never a revision mark ----------------------------
+
+from estimator.catalogue.title_block import sheet_key   # noqa: E402
+
+
+@pytest.mark.parametrize("text", ["M-101-A", "M2.1-B"])
+def test_a_sheet_number_with_a_lettered_part_is_a_sheet_number(text):
+    assert SHEET_NUMBER.fullmatch(text)
+
+
+def test_a_lettered_sheet_number_is_read_whole_from_the_title_block():
+    spans = [_span("HVAC LEVEL 1 PLAN", 20.4, 0.91, 0.851, w=0.07), _span("M-101-A", 41, 0.935, 0.92, h=0.02)]
+    assert read_title_block(spans) == TitleBlock("M-101-A", "HVAC LEVEL 1 PLAN")
+
+
+def test_a_revision_mark_is_never_the_sheet_number():
+    assert read_title_block([_span("REV 2", 41, 0.935, 0.92, h=0.02)]) == TitleBlock(None, None)
+    # a two-digit revision mark would beat a short real number on the two-digits rule
+    spans = [_span("REV 12", 41, 0.935, 0.92, h=0.02), _span("M1", 30, 0.935, 0.96, h=0.02)]
+    assert read_title_block(spans).number == "M1"
+    labelled = [_span("SHEET NO", 8, 0.90, 0.900), _span("NO 3", 11.5, 0.90, 0.915), _span("M-101", 11.5, 0.90, 0.93)]
+    assert read_title_block(labelled).number == "M-101"
+
+
+def test_a_revision_mark_is_never_a_drawing_index_line():
+    index = read_drawing_index(["DRAWING INDEX\nM-101 HVAC LEVEL 1 PLAN\nM-102 HVAC LEVEL 2 PLAN\n"
+                                "M-103 HVAC LEVEL 3 PLAN\nM-601 HVAC SCHEDULES\nREV 2 HVAC REVISED PIPING\n"])
+    assert index_key("M-101") in index and index_key("REV 2") not in index
+
+
+@pytest.mark.parametrize("a, b", [("M-101", "M101"), ("M-101", "M 101"), ("m-101", "M101"), ("C-7.0", "C7.0"),
+                                  ("M-101-A", "M101-A")])
+def test_one_sheet_however_its_number_is_spaced(a, b):
+    assert sheet_key(a) == sheet_key(b) == index_key(a)
+
+
+@pytest.mark.parametrize("a, b", [("M-1.01", "M-101"), ("M1-01", "M-101"), ("M-101-A", "M-101")])
+def test_another_sheet_keeps_its_own_key(a, b):
+    assert sheet_key(a) != sheet_key(b)

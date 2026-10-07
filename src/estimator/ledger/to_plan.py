@@ -6,7 +6,7 @@ from __future__ import annotations
 import re
 from dataclasses import replace
 
-from estimator.ledger.facts import ADDED, CONTRADICTED, Fact, Ledger, where_short
+from estimator.ledger.facts import CONTRADICTED, Fact, Ledger, where_short
 from estimator.writing.whole_job import Family, JobPlan, PlannedSystem
 
 _SPACES = re.compile(r"\s+")
@@ -200,7 +200,7 @@ def _system(ledger: Ledger, fact: Fact) -> PlannedSystem:
     note = count_note(ledger, count) if count else ""
     if count is None and fact.stage == "sequence":
         why = "Named in the sequence of operation; no drawing shows it."
-    elif count is None or count.state == ADDED:     # no schedule settled a count: the name alone proves nothing
+    elif count is None or not count.was_settled:    # no schedule settled a count: the name alone proves nothing
         why = PLAN_ONLY_WHY
     else:
         why = f"From the job ledger: {len(ids) + len(matched)} facts."

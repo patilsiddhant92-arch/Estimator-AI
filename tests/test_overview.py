@@ -1,4 +1,6 @@
-from estimator.catalogue.overview import Place, build_overview, short_place
+import json
+
+from estimator.catalogue.overview import AME_VENDORS, Place, build_overview, short_place
 from estimator.catalogue.register import PageRecord
 from estimator.catalogue.sheet_types import Sheet
 from estimator.catalogue.spec_sections import SpecSection
@@ -88,7 +90,10 @@ def test_belimo_or_approved_equal_ame_quotes_it():
     belimo = next(m for m in overview.makers if m.maker == "Belimo")
     assert belimo.ame_quotes is True
     assert belimo.terms == "Or approved equal"
-    assert any("Broudy Precision — jchandler@broudyprecision.com; tsanroman@broudyprecision.com" == v for v in belimo.vendors)
+    # the contact is read from the estimator's own vendor list, never written into a test
+    contact = next(v["contact"] for v in json.loads(AME_VENDORS.read_text(encoding="utf-8"))["vendors"]
+                   if v["vendor"] == "Broudy Precision")
+    assert f"Broudy Precision — {contact}" in belimo.vendors
     assert belimo.email_draft.startswith("Could you please provide the pricing for the Belimo - Actuators and dampers?")
 
 

@@ -8,7 +8,7 @@
 
 **Reference job:** 26-0445, in `D:\Estimation Assistant\Learn\26-0445` (read-only).
 - Its proposal is `3. Proposal\1. Base Proposal\Sid revision comment26-0445 2.docx`, the estimator's own revision.
-- Its spec is Division 25 (`25 05 00` to `25 35 00`) inside `2026.06.26 QTS WTX-1 DC-1 IFC PManual 26061.0000.pdf`.
+- Its spec is Division 25 (`25 05 00` to `25 35 00`) inside `2026.06.26 OWNERCO XX-1 DC-1 IFC PManual 00000.0000.pdf`.
 - Its controls drawings are `Marked_10_CONTROLS_COMBINED.pdf`. IC00-00 holds a responsibility matrix.
 
 The estimator carried scope the standard exclusions would have left out. Examples:
@@ -18,7 +18,7 @@ The estimator carried scope the standard exclusions would have left out. Example
 - rope leak sensors and hydrogen detection
 - fiber cabling
 
-They also noted "Owner Provided Server", "QTS BMS / EPMS Switch by Owner", "IDF Cabinet by Others" and "Procure Licenses … SCADA Software (25 15 50 - 2)".
+They also noted "Owner Provided Server", "OWNERCO BMS / EPMS Switch by Owner", "IDF Cabinet by Others" and "Procure Licenses … SCADA Software (25 15 50 - 2)".
 
 **Architecture:**
 - Extend `src/estimator/catalogue/overview.py` and `SpecOverview`.

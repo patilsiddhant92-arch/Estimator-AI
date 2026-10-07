@@ -18,7 +18,8 @@ from estimator.files import open_workbook
 from estimator.text import squash, strip_list_marker
 
 SHEETS = ("Parts Pricing", "BMS-DDC-Panels")
-_QUANTITY = re.compile(r"\s*[–-]\s*\(qty\.?\s*\d+\s*total\).*$", re.IGNORECASE)
+# "(Qty. 6 Total)", "(Qty. ##)" and the old "– (Qty. 6 Total)": only a bracket that starts with "Qty" is taken off.
+_QUANTITY = re.compile(r"\s*(?:[–-]\s*)?\(qty\.?\s*(?:\d+|##)\s*(?:total)?\s*\).*$", re.IGNORECASE)
 # "install" and "install and wire" are deliberately not stripped: an install-only line's device
 # is furnished by others, so pricing its material from the book's furnish-and-install price would
 # be a guessed price for the part AME isn't supplying. Those lines go PRICE PENDING instead.

@@ -11,7 +11,8 @@ from estimator.reading.devices import DeviceCount, LegendEntry, TypicalSheet, co
 from estimator.reading.inventory import FamilyTotal, InventoryItem, build_inventory
 from estimator.reading.keynotes import Note, read_notes
 from estimator.reading.pages import PageOpener
-from estimator.reading.revisions import SheetVersion, Supersession, governing_pages, sheet_versions, supersede
+from estimator.reading.revisions import (SheetVersion, Supersession, governing_pages, sheet_versions, supersede,
+                                         typical_places)
 from estimator.reading.schedules import Schedule, read_schedules
 from estimator.reading.sequences import POINTS, SEQUENCE, Backbone, find_backbone
 
@@ -45,8 +46,8 @@ def read_job(catalogue, page_opener=None, cache_dir: Path | None = None, judge=N
     sheet whose schedules are pictures is read by eye, its pictures kept in the cache's schedule-images folder."""
     versions = sheet_versions(catalogue)
     supersessions, revision_flags = supersede(catalogue, versions)
-    typicals = typical_sheets(catalogue)
-    pages = governing_pages(catalogue, supersessions, [t.sheet for t in typicals])
+    typicals = typical_sheets(catalogue, supersessions=supersessions)   # a reissue keeps the floors it replaces
+    pages = governing_pages(catalogue, supersessions, typical_places(typicals))
     page_flags: list[str] = []
     opener = page_opener or PageOpener(catalogue, cache_dir)
     try:

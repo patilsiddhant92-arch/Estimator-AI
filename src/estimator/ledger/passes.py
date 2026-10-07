@@ -12,7 +12,7 @@ import re
 from dataclasses import dataclass
 
 from estimator.ledger.facts import ADDED, KINDS, SETTLED, Ledger, plain_id
-from estimator.ledger.seed import dossier_sections, sheet_text_lines
+from estimator.ledger.seed import dossier_sections, sheet_text_sheets
 
 SHEET_TEXT_MARK = "--- 7c PLAN SHEET TEXT ---"
 
@@ -117,17 +117,20 @@ def pass_named(name: str) -> Pass:
 
 # --- the documents a pass reads --------------------------------------------------------------------------------
 
-def _types_by_number(catalogue) -> dict[str, tuple[str, ...]]:
-    found: dict[str, tuple[str, ...]] = {}
-    for sheet in getattr(catalogue, "sheets", ()) or ():
-        if sheet.number:
-            found.setdefault(sheet.number, tuple(sheet.types or ()))
-    return found
+# the line the dossier prints in a section it found nothing for: "(No schedules read from the drawings.)"
+_PLACEHOLDER = re.compile(r"^\((?:No .*|Nothing found\.)\)$")
+
+
+def _says_nothing(section: str) -> bool:
+    """A section whose lines under its heading are only the dossier's placeholder lines (or none): nothing to read."""
+    return all(_PLACEHOLDER.match(line.strip()) for line in section.splitlines()[1:] if line.strip())
 
 
 def documents(pass_, dossier, catalogue) -> str:
-    """The dossier text this pass reads: its sections whole, then the sheet-text lines of its sheet types. "" when
-    there is nothing for it in this job."""
+    """The dossier text this pass reads: its sections whole, then the sheet-text lines of its sheet types (each
+    line's own sheet, `sheet_text_sheets`). "" when there is nothing for it in this job: when every one of its
+    sections holds only its placeholder line ("(No schedules read from the drawings.)") and no sheet text is
+    its (LDG-12). Beside a section with something in it a placeholder is kept: it says what the job lacks."""
     sections = dossier_sections(dossier.text)
     parts = []
     for n in pass_.sections:
@@ -136,11 +139,12 @@ def documents(pass_, dossier, catalogue) -> str:
             text = text.split(SHEET_TEXT_MARK, 1)[0].rstrip()
         if text.strip():
             parts.append(text)
+    if all(_says_nothing(part) for part in parts):
+        parts = []
     if pass_.sheet_types:
-        types = _types_by_number(catalogue)
         wanted, others = set(pass_.sheet_types), set(pass_.not_sheet_types)
-        lines = [line for _sid, number, line in sheet_text_lines(dossier.text)
-                 if number and wanted & set(types.get(number, ())) and not others & set(types.get(number, ()))]
+        lines = [line for _sid, sheet, line in sheet_text_sheets(dossier, catalogue)
+                 if sheet is not None and wanted & set(sheet.types or ()) and not others & set(sheet.types or ())]
         if lines:
             parts.append("\n".join([f"== SHEET TEXT: {', '.join(pass_.sheet_types)} ==", *lines]))
     return "\n\n".join(parts)
@@ -247,10 +251,23 @@ def _many_valued(kind: str, subject: str) -> bool:
     return kind in ("note", "location") or (kind == "front_end" and subject.casefold() in ("line", "note"))
 
 
+def _held(ledger: Ledger, kind: str, subject: str, sid: str):
+    """The fact an answer speaks to. A sequence heading can repeat ("1. OCCUPIED MODE" under each system), so a
+    sequence_match citing a section the ledger holds is that section's own fact, never another section's of the
+    same heading; any other fact is found by its kind and subject."""
+    if kind == "sequence_match":
+        sections = [f for f in ledger.of_kind(kind) if f.source_id == sid]
+        if sections:
+            key = subject.casefold()
+            return next((f for f in sections if f.subject.casefold() == key), None)
+    return ledger.find(kind, subject)
+
+
 def _take(ledger: Ledger, pass_, held, value, sid: str, quote: str) -> None:
     """A pass's different value for a fact. A provisional (added) fact of a kind the pass settles takes the value
-    and is settled; a count that changes keeps the old count beside it, so the higher prints. Anything else is kept
-    beside the fact as a contradiction."""
+    and is settled; a count that changes keeps the old count beside it, so the higher prints, and a tag list that
+    changes keeps the old list beside it, so no tag it named is lost (the seed's list holds the plans' tags too).
+    Anything else is kept beside the fact as a contradiction."""
     if held.state != ADDED or held.kind not in pass_.settles:     # a settled fact, or a pass that may only add
         ledger.contradict(held.id, value, sid, quote, pass_.name)
         return
@@ -258,15 +275,18 @@ def _take(ledger: Ledger, pass_, held, value, sid: str, quote: str) -> None:
     ledger.resolve(held.id, value, sid, quote, pass_.name)          # the pass that owns the kind answers it
     if held.kind in ("count", "device") and old is not None and new is not None and old != new:
         ledger.contradict(held.id, held.value, held.source_id, held.quote, held.stage)   # the higher prints
+    elif held.kind == "unit":
+        ledger.contradict(held.id, held.value, held.source_id, held.quote, held.stage)   # the planner joins both lists
 
 
 def apply(pass_, ledger: Ledger, answer: dict, known: frozenset[str]) -> list[str]:
     """Write the pass's answer into the ledger; the refusals, in plain words."""
     refused: list[str] = []
-    prompt_ids = {plain_id(k) or k for k in known}
 
     def known_source(sid: str) -> bool:
-        return bool(sid) and (sid in prompt_ids or ledger.knows(sid))
+        """Only a source the ledger holds (the dossier's, a picture's) or a fact it has: an id that merely appears in
+        a document's own words ("per detail [M5]") is in the prompt but is no source."""
+        return bool(sid) and ledger.knows(sid)
 
     answered = [_text(raw.get("subject")) for raw in answer.get("facts") or []      # names this answer adds
                 if isinstance(raw, dict) and _text(raw.get("kind")) in ("family", "group")]
@@ -296,26 +316,29 @@ def apply(pass_, ledger: Ledger, answer: dict, known: frozenset[str]) -> list[st
         if kind == "sequence_match" and value != "" and not _names_a_system(str(value), _match_values(ledger) + answered):
             refused.append(f"{label} names no system the ledger holds; left out")
             continue
-        if _many_valued(kind, subject):              # notes, front-end lines and notes, locations: one fact per value
-            same = ledger.find_value(kind, subject, value)
-            if same is None:
-                ledger.add(kind, subject, value, sid, quote, pass_.name, SETTLED if kind in pass_.settles else ADDED)
-            elif kind in pass_.settles:
-                ledger.settle(same.id)
-            continue
-        held = ledger.find(kind, subject)
-        if held is not None and held.state != ADDED and str(held.value) != str(value):
-            ledger.contradict(held.id, value, sid, quote, pass_.name)
-            continue
-        if held is not None and str(held.value) == str(value):
-            if kind in pass_.settles:
-                ledger.settle(held.id)
-            continue
-        if held is not None and held.state == ADDED:
-            _take(ledger, pass_, held, value, sid, quote)
-            continue
-        state = SETTLED if kind in pass_.settles else ADDED
-        ledger.add(kind, subject, value, sid, quote, pass_.name, state)
+        try:
+            if _many_valued(kind, subject):              # notes, front-end lines and notes, locations: one fact per value
+                same = ledger.find_value(kind, subject, value)
+                if same is None:
+                    ledger.add(kind, subject, value, sid, quote, pass_.name, SETTLED if kind in pass_.settles else ADDED)
+                elif kind in pass_.settles:
+                    ledger.settle(same.id)
+                continue
+            held = _held(ledger, kind, subject, sid)
+            if held is not None and held.state != ADDED and str(held.value) != str(value):
+                ledger.contradict(held.id, value, sid, quote, pass_.name)
+                continue
+            if held is not None and str(held.value) == str(value):
+                if kind in pass_.settles:
+                    ledger.settle(held.id)
+                continue
+            if held is not None and held.state == ADDED:
+                _take(ledger, pass_, held, value, sid, quote)
+                continue
+            state = SETTLED if kind in pass_.settles else ADDED
+            ledger.add(kind, subject, value, sid, quote, pass_.name, state)
+        except ValueError as problem:         # a bad answer is refused, never a crash
+            refused.append(f"{label}: {problem}; left out")
 
     for raw in answer.get("contradictions") or []:
         if not isinstance(raw, dict):
@@ -336,12 +359,19 @@ def apply(pass_, ledger: Ledger, answer: dict, known: frozenset[str]) -> list[st
         if value is None:
             refused.append(f"the contradiction of {fid} ({_text(raw.get('value'))}): {NOT_A_NUMBER}")
             continue
-        _take(ledger, pass_, held, value, sid, quote)
+        try:
+            _take(ledger, pass_, held, value, sid, quote)
+        except ValueError as problem:
+            refused.append(f"the contradiction of {fid}: {problem}; left out")
 
     for raw in answer.get("confirmations") or []:
         fid = plain_id(raw) or _text(raw)
         if fid not in ledger.facts:
             refused.append(f"a confirmation names {fid or '?'}, which the ledger does not have; left out")
+            continue
+        kind = ledger.facts[fid].kind
+        if kind not in pass_.settles:        # a pass that may only add a kind cannot settle it by agreeing
+            refused.append(f"the {pass_.name} pass may not confirm {fid}, a {kind} fact; left out")
             continue
         ledger.settle(fid)
 

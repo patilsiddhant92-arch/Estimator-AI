@@ -19,8 +19,9 @@ from estimator.catalogue.pdf import Span
 
 SHEET_NUMBER = re.compile(
     r"(?:(?=[A-Z0-9]{1,6}-)[A-Z0-9]*[A-Z][A-Z0-9]*-)?"     # an optional building/phase prefix ("H3T-", "HEL03-")
-    r"[A-Z]{1,3}[-\s.]?\d{1,4}(?:-\d{1,3}(?:[A-Z]\d{0,3})?)?(?:\.\d{1,3})?[A-Z]?"
+    r"[A-Z]{1,3}[-\s.]?\d{1,4}(?:-\d{1,3}(?:[A-Z]\d{0,3})?)?(?:\.\d{1,3})?(?:-[A-Z])?[A-Z]?"
 )
+_REVISION_MARK = re.compile(r"^(?:REV|NO)(?![A-Z])", re.I)   # "REV 2", "NO 3": a revision row's mark, never a sheet
 MIN_NUMBER_SIZE = 12      # points: sheet numbers measured 19–56 pt; a cross-reference is ~10
 MIN_TITLE_SIZE = 12       # points: titles measured 15–25 pt; labels, names and notes are 7–10
 LABEL_SIZE = 12           # labels ("DRAWING TITLE:", "SCALE", "Drawing No.:") are smaller than this
@@ -53,9 +54,23 @@ class TitleBlock:
     source: str | None = field(default=None, compare=False)
 
 
+def sheet_key(number: str) -> str:
+    """A sheet number as two sheet numbers are compared (estimator ruling D8): "M-101", "M101" and "M 101" are one
+    sheet, in any case. Only a space or dash between the letters and the digits is passed over; the dot between
+    digits is kept ("M-1.01" is another sheet than "M-101"), and so is a dash between digits ("M1-01"). A sheet
+    number is always shown as printed; this key is for comparing only."""
+    return re.sub(r"(?<=[A-Z])[\s\-‐‑–—]+(?=\d)", "", " ".join(number.split()).upper())
+
+
 def index_key(number: str) -> str:
-    """A sheet number as the drawing index and the title block are compared: "C-7.0" and "C7.0" are one sheet."""
-    return re.sub(r"[\s\-‐‑–—.]", "", number).upper()
+    """A sheet number as the drawing index and the title block are compared (`sheet_key`): "C-7.0" and "C7.0" are
+    one sheet."""
+    return sheet_key(number)
+
+
+def _is_number(text: str) -> bool:
+    """Text with a sheet number's shape that is no revision mark ("REV 2" has the shape)."""
+    return bool(SHEET_NUMBER.fullmatch(text)) and not _REVISION_MARK.match(text)
 
 
 def _index_title(text: str) -> str | None:
@@ -71,12 +86,12 @@ def _index_pairs(text: str) -> dict[str, str]:
     lines = [line for line in lines if line]
     pairs: dict[str, str] = {}
     for n, line in enumerate(lines):
-        if SHEET_NUMBER.fullmatch(line) and re.search(r"\d", line):
+        if _is_number(line) and re.search(r"\d", line):
             title = _index_title(lines[n + 1]) if n + 1 < len(lines) else None
             number = line
         else:
             m = _NUMBER_THEN_TITLE.match(line)
-            if not m:
+            if not m or _REVISION_MARK.match(m.group(1)):
                 continue
             number, title = m.group(1), _index_title(m.group(2))
         if title:
@@ -104,7 +119,7 @@ def read_drawing_index(texts: Iterable[str]) -> dict[str, str]:
 def read_title_block(spans: Sequence[Span], index: Mapping[str, str] | None = None) -> TitleBlock:
     number = _number_by_label(spans)
     if number is None:
-        numbers = [s for s in spans if s.size >= MIN_NUMBER_SIZE and SHEET_NUMBER.fullmatch(s.text)]
+        numbers = [s for s in spans if s.size >= MIN_NUMBER_SIZE and _is_number(s.text)]
         if not numbers:
             return TitleBlock(None, None)
         # A real sheet number almost always carries two digits in a row somewhere ("M00-03", "P01-00A1.1");
@@ -130,7 +145,7 @@ def _number_by_label(spans: Sequence[Span]) -> Span | None:
         return None
     candidates = [
         s for s in spans
-        if s is not label and SHEET_NUMBER.fullmatch(" ".join(s.text.split()))
+        if s is not label and _is_number(" ".join(s.text.split()))
         and ((label.y0 - 0.004 <= s.y0 <= label.y0 + 0.10 and label.x0 - 0.01 <= s.x0 <= label.x0 + 0.12)
              or (abs(s.y0 - label.y0) < 0.006 and s.x0 > label.x0))
     ]

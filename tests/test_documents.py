@@ -39,7 +39,7 @@ def _by_name(folder):
 
 def test_job_name_is_the_number():
     from pathlib import Path
-    assert job_name(Path("D:/x/26-0352, Tishman Speyer, 45 Rockefeller")) == "26-0352"
+    assert job_name(Path("D:/x/26-0352, Harbor Point, 1 Invented Street")) == "26-0352"
     assert job_name(Path("D:/x/26-0246")) == "26-0246"
 
 
@@ -181,3 +181,61 @@ def test_documents_are_listed_in_a_fixed_order(job):
 def test_a_missing_folder_is_refused(tmp_path):
     with pytest.raises(FileNotFoundError):
         find_documents(tmp_path / "nowhere")
+
+
+@pytest.mark.parametrize("name", ["2. Takeoffs", "Bid set from the owner"])
+def test_the_takeoff_folder_as_input_reads_electrical_and_its_revision_folders(tmp_path, name):
+    # RD-8: with the takeoff folder itself as the input, its "Electrical" subfolder is a bid document folder (AME's
+    # own folders sit only at the top of the job), and a revision folder directly under it is that revision; a
+    # discipline folder is no revision.
+    root = tmp_path / name
+    make_pdf(root / "Electrical" / "E.pdf", DRAWING)
+    make_pdf(root / "Rev 1" / "M.pdf", DRAWING)
+    make_pdf(root / "Mechanical" / "M2.pdf", LETTER)
+    folder = find_documents(root)
+    documents = _by_name(folder)
+    assert "E.pdf" in documents and folder.left_out == ()
+    assert documents["M.pdf"].revision == "Rev 1"
+    assert documents["M2.pdf"].revision == "base"
+    assert documents["E.pdf"].revision == "base"
+
+
+def test_a_discipline_folder_under_takeoffs_is_no_revision(tmp_path):
+    # RD-8: "2. Takeoffs/Mechanical" is the base set's mechanical drawings, not a revision named "Mechanical".
+    root = tmp_path / "26-9999"
+    make_pdf(root / "2. Takeoffs" / "Mechanical" / "M.pdf", DRAWING)
+    make_pdf(root / "2. Takeoffs" / "2. A" / "M rev.pdf", DRAWING)
+    documents = _by_name(find_documents(root))
+    assert documents["M.pdf"].revision == "base"
+    assert documents["M rev.pdf"].revision == "A"
+
+
+def test_a_folder_left_out_is_flagged(tmp_path):
+    # RD-8: a folder left out of the job is said in the flags, not only on the Documents tab.
+    from estimator.catalogue.job import catalogue_job
+    root = tmp_path / "26-9999"
+    make_pdf(root / "2. Takeoffs" / "1. Base Takeoff" / "M.pdf", LETTER)
+    make_pdf(root / "6. Electrical" / "sub quote.pdf", LETTER)
+    flags = catalogue_job(root, tmp_path / "cache").flags
+    assert any(f.startswith("6. Electrical was left out") for f in flags)
+
+
+def test_a_document_inside_an_addendum_folder_is_an_addendum(tmp_path):
+    # RD-9: an addendum is known by its folder too, not only by its file name.
+    root = tmp_path / "Takeoffs"
+    make_pdf(root / "Addendum 2" / "M.pdf", LETTER)
+    [document] = find_documents(root).documents
+    assert document.kind == "addendum"
+
+
+def test_a_file_that_cannot_be_opened_is_unreadable_not_fatal(tmp_path, monkeypatch):
+    # RD-15: a locked file is one unreadable document; cataloguing goes on.
+    root = tmp_path / "Takeoffs"
+    make_pdf(root / "Locked.pdf", LETTER)
+
+    def _locked(path):
+        raise PermissionError(13, "Permission denied", str(path))
+
+    monkeypatch.setattr(documents, "_fingerprint", _locked)
+    [document] = find_documents(root).documents
+    assert document.kind == "unreadable" and document.pages == 0

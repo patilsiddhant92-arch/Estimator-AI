@@ -11,8 +11,8 @@ _SECTION = re.compile(r"^== (\d)\. [A-Z ]+ ==\s*$")
 _ID_LINE = re.compile(r"^\[(S\d+)\] (.*)$")
 _SHEET_TEXT_START = "--- 7c PLAN SHEET TEXT ---"
 _SHEET_LINE = re.compile(r"^\[(S\d+)\] (?:(?P<number>[A-Z][A-Z0-9.\-]*\d[A-Z0-9.\-]*), )?")
-_COUNT_LINE = re.compile(r"^\[(S\d+)\] (?P<prefix>[A-Z0-9/\-]+) \((?P<kind>[^)]*)\): (?P<body>.*)$")
-_DEVICE_LINE = re.compile(r"^\[(S\d+)\] (?P<label>\S+) \((?P<name>[^)]*)\): (?P<total>\d+) in all")
+_COUNT_LINE = re.compile(r"^\[(S\d+)\] (?P<prefix>[A-Z0-9/\-]+) \((?P<kind>.*?)\): (?P<body>.*)$")
+_DEVICE_LINE = re.compile(r"^\[(S\d+)\] (?P<label>\S+) \((?P<name>.*)\): (?P<total>\d+) in all")
 _TAGS = re.compile(r"\bTags: (.+?)\.(?: By location|\s*Reading notes|$)")
 
 
@@ -44,16 +44,43 @@ def sheet_text_lines(text: str) -> list[tuple[str, str, str]]:
     return lines
 
 
-def _count_lines(sections: dict[int, str]) -> dict[str, tuple[str, str, str, str]]:
-    """prefix -> (source id, the quote: the line up to its first full stop (". ", never the period inside a sheet
-    number such as M-101.00), the whole line, the kind the line names in brackets)."""
+def sheet_text_sheets(dossier, catalogue) -> list[tuple[str, object, str]]:
+    """(source id, the catalogue sheet whose text the line gives or None, the line) for each 7c line. The sheet is
+    the (document, page) the dossier recorded for the id (`Dossier.sheet_pages`), never a number read back from the
+    line: "M 201" and an unnumbered sheet are found, and two buildings' M-101 or a reissue each stand for their own
+    page. A dossier made without that record (one written by hand) falls back to the line's sheet number."""
+    sheets = list(getattr(catalogue, "sheets", ()) or ())
+    by_page = {(s.document, s.page): s for s in sheets}
+    by_number: dict[str, object] = {}
+    for s in sheets:
+        if s.number:
+            by_number.setdefault(s.number, s)
+    pages = getattr(dossier, "sheet_pages", None) or {}
+    found = []
+    for sid, number, line in sheet_text_lines(dossier.text):
+        if sid in pages:
+            sheet = by_page.get(tuple(pages[sid]))
+        else:
+            sheet = by_number.get(number) if number else None
+        found.append((sid, sheet, line))
+    return found
+
+
+def _count_lines(sections: dict[int, str], unread: list[str] | None = None) -> dict[str, tuple[str, str, str, str]]:
+    """prefix -> (source id, the quote: the line up to the full stop that ends its counts clauses (the one before
+    " Tags:", " By location:", " Reading notes:" or the line's end; never a period inside a sheet number such as
+    M-101.00 or a document name such as "Bldg. A"), the whole line, the kind the line names in brackets). A "[S…]"
+    line that does not read as a counts line is added to `unread`."""
     found = {}
     for line in sections.get(5, "").splitlines():
         match = _COUNT_LINE.match(line)
         if match:
             body = match.group("body")
-            head = f"{match.group('prefix')} ({match.group('kind')}): {re.split(r'\.(?:\s|$)', body, maxsplit=1)[0]}"
+            clauses = re.split(r"\.(?=\s+(?:Tags|By location|Reading notes):|\s*$)", body, maxsplit=1)[0]
+            head = f"{match.group('prefix')} ({match.group('kind')}): {clauses}"
             found[match.group("prefix")] = (match.group(1), head, line, match.group("kind").strip())
+        elif unread is not None and _ID_LINE.match(line):
+            unread.append(line)
     return found
 
 
@@ -70,7 +97,8 @@ def seed(dossier) -> Ledger:
     ledger.job_name = str(getattr(dossier, "job_name", "") or "")
     sections = dossier_sections(dossier.text)
     kinds = {f.prefix: f.kind for f in getattr(dossier, "families", ()) or ()}
-    count_lines = _count_lines(sections)
+    unread: list[str] = []
+    count_lines = _count_lines(sections, unread)
 
     for prefix, counts in (getattr(dossier, "counts", None) or {}).items():
         if prefix not in count_lines:
@@ -94,6 +122,12 @@ def seed(dossier) -> Ledger:
         if match:
             ledger.add("device", match.group("label"), int(match.group("total")), match.group(1), line.split("] ", 1)[1],
                        "seed", ADDED)
+        elif _ID_LINE.match(line):
+            unread.append(line)
+
+    if unread:                            # a line the seed could not read leaves a record, never a silent gap
+        ledger.refused["seed"] = [f"the seed could not read this dossier line, so it gave no fact: {line}"
+                                  for line in unread]
 
     for qid, (heading, _ids) in (getattr(dossier, "sections", None) or {}).items():
         if ledger.knows(qid):

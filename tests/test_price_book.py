@@ -17,6 +17,36 @@ def test_price_key(line, key):
     assert price_key(line) == key
 
 
+@pytest.mark.parametrize("line", [
+    "o  Furnish and Install Space Temperature Sensor (Qty. 6 Total)",   # the renderer's form: no dash
+    "Furnish and Install Space Temperature Sensor (Qty. ##)",           # an unknown count
+    "Furnish and Install Space Temperature Sensor - (Qty. 6 Total)",    # the old dash form
+    "Furnish and Install Space Temperature Sensor – (Qty. 6 Total)",
+    "Furnish and Install Space Temperature Sensor (Qty. 6)",
+])
+def test_price_key_takes_off_every_quantity_form(line):
+    assert price_key(line) == "space temperature sensor"
+
+
+def test_price_key_keeps_a_bracket_that_is_part_of_the_name():
+    assert price_key("Furnish Sensor (Wall Mount)") == "sensor (wall mount)"
+
+
+@pytest.mark.parametrize("line", [
+    "o  Furnish and Install Space Temperature Sensor (Qty. 6 Total)",   # the renderer's form: no dash
+    "Furnish and Install Space Temperature Sensor (Qty. ##)",           # an unknown count
+    "Furnish and Install Space Temperature Sensor - (Qty. 6 Total)",    # the old dash form
+    "Furnish and Install Space Temperature Sensor – (Qty. 6 Total)",
+    "Furnish and Install Space Temperature Sensor (Qty. 6)",
+])
+def test_price_key_takes_off_every_quantity_form(line):
+    assert price_key(line) == "space temperature sensor"
+
+
+def test_price_key_keeps_a_bracket_that_is_part_of_the_name():
+    assert price_key("Furnish Sensor (Wall Mount)") == "sensor (wall mount)"
+
+
 def test_every_priced_row_is_loaded(price_book):
     assert len(price_book.items) == 67
     assert sum(1 for i in price_book.items if i.sheet == "Parts Pricing") == 50

@@ -128,12 +128,19 @@ def _sheet(number):
                                                 (2800, 2000, number, 40)))
 
 
+def _plan_with_units(number):
+    """A roof plan that shows three units (FINAL-K: a marked-up copy is told by its plans' unit tags)."""
+    units = tuple((400 + 300 * k, 900, f"VAV-{k}", 14) for k in (1, 2, 3))
+    return Page(width=3024, height=2160, texts=((200, 300, FILLER, 12), *units, (2640, 1860, "ROOF PLAN", 20),
+                                                (2800, 2000, number, 40)))
+
+
 def test_m2_a_marked_up_copy_gets_one_flag_not_one_per_sheet(tmp_path):
     root = tmp_path / "26-9999"
     base = root / "2. Takeoffs" / "1. Base Takeoff"
     numbers = [f"M-10{n}" for n in range(1, 6)]
-    make_pdf(base / "Mech.pdf", *[_sheet(n) for n in numbers])
-    make_pdf(base / "Marked_Mech.pdf", *[_sheet(n) for n in numbers])
+    make_pdf(base / "Mech.pdf", *[_plan_with_units(n) for n in numbers])
+    make_pdf(base / "Marked_Mech.pdf", *[_plan_with_units(n) for n in numbers])
     result = catalogue_job(root, tmp_path / "cache")
     assert any(f == "Marked_Mech.pdf repeats 5 sheets of Mech.pdf — probably a marked-up copy" for f in result.flags)
     assert not [f for f in result.flags if f.startswith("Sheet M-10")]
@@ -231,3 +238,58 @@ def test_a_non_drawing_document_is_not_given_a_discipline_by_its_file_name(tmp_p
     result = catalogue_job(root, tmp_path / "cache")
     [sheet] = result.sheets
     assert sheet.discipline == "Unknown"
+
+
+def test_a_copy_with_the_same_file_name_is_named_by_its_path(tmp_path):
+    """LDG-10: "Mech.pdf repeats … of Mech.pdf" says nothing; two documents of one file name are named by their
+    paths in the job folder."""
+    root = tmp_path / "26-9999"
+    base = root / "2. Takeoffs" / "1. Base Takeoff"
+    numbers = [f"M-10{n}" for n in range(1, 6)]
+    make_pdf(base / "Mech.pdf", *[_plan_with_units(n) for n in numbers])
+    make_pdf(base / "Marked" / "Mech.pdf", *[_plan_with_units(n) for n in numbers])
+    result = catalogue_job(root, tmp_path / "cache")
+    repeats = [f for f in result.flags if " repeats 5 sheets of " in f]
+    assert len(repeats) == 1
+    assert "2. Takeoffs/1. Base Takeoff/Mech.pdf" in repeats[0]
+    assert "2. Takeoffs/1. Base Takeoff/Marked/Mech.pdf" in repeats[0]
+
+
+def _index(*pairs):
+    return Page(texts=((72, 72, "DRAWING INDEX\n" + "\n".join(f"{n} {t}" for n, t in pairs), 10),))
+
+
+def _untitled(number):
+    return Page(width=3024, height=2160, texts=((200, 300, FILLER, 12), (2800, 2000, number, 40)))
+
+
+def test_each_document_titles_its_sheets_from_its_own_drawing_index(tmp_path):
+    # RD-6: two sets with their own indexes, each giving M-101 another title; the title blocks give none
+    root = tmp_path / "26-9999"
+    base = root / "2. Takeoffs" / "1. Base Takeoff"
+    shared = [("M-001", "HVAC LEGEND"), ("M-002", "HVAC NOTES")]
+    make_pdf(base / "Building A.pdf", _index(("M-101", "BUILDING A HVAC LEVEL 1 PLAN"),
+                                             ("M-601", "BUILDING A HVAC SCHEDULES"), *shared), _untitled("M-101"))
+    make_pdf(base / "Building B.pdf", _index(("M-101", "BUILDING B HVAC LEVEL 1 PLAN"), ("M-105", "BUILDING B HVAC ROOF PLAN"),
+                                             ("M-601", "BUILDING B HVAC SCHEDULES"), *shared), _untitled("M-101"))
+    make_pdf(base / "Loose sheets.pdf", _untitled("M-105"), _untitled("M-601"), _untitled("M-001"))
+    result = catalogue_job(root, tmp_path / "cache")
+    titles = {(s.document.rsplit("/", 1)[-1], s.number): s.title for s in result.sheets}
+    assert titles[("Building A.pdf", "M-101")] == "BUILDING A HVAC LEVEL 1 PLAN"
+    assert titles[("Building B.pdf", "M-101")] == "BUILDING B HVAC LEVEL 1 PLAN"
+    # a document with no index of its own: a number only one document's index lists takes that title ...
+    assert titles[("Loose sheets.pdf", "M-105")] == "BUILDING B HVAC ROOF PLAN"
+    # ... one two indexes give one title takes it (a cover sheet reissued with its index) ...
+    assert titles[("Loose sheets.pdf", "M-001")] == "HVAC LEGEND"
+    # ... and one two indexes give two titles takes neither: nothing says which set it belongs to
+    assert titles[("Loose sheets.pdf", "M-601")] not in ("BUILDING A HVAC SCHEDULES", "BUILDING B HVAC SCHEDULES")
+
+
+def test_one_sheet_written_two_ways_in_two_documents_is_flagged_once(tmp_path):
+    # RD-10 (ruling D8): "M-101" and "M101" are one sheet; the flag names it as first printed
+    root = tmp_path / "26-9999"
+    takeoffs = root / "2. Takeoffs"
+    make_pdf(takeoffs / "1. Base Takeoff" / "Mech.pdf", _untitled("M-101"))
+    make_pdf(takeoffs / "2. Addendum 1" / "Addendum 1.pdf", _untitled("M101"))
+    flags = catalogue_job(root, tmp_path / "cache").flags
+    assert [f for f in flags if f.startswith("Sheet ")] == ["Sheet M-101 is on 2 pages (Mech.pdf p.1; Addendum 1.pdf p.1)"]

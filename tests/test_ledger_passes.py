@@ -106,8 +106,10 @@ def test_contradictions_and_confirmations_by_id():
                         {"fact_id": "F99", "value": 3, "source_id": "[S4]", "quote": "three"}],
         confirmations=[ef.id, "F98"]), _known(ledger))
     assert ledger.facts["F1"].state == CONTRADICTED
-    assert ledger.find("count", "EF").state == SETTLED
+    # LDG-3: the plans pass may only add, so its confirmation of EF's count is refused and the count stays added
+    assert ledger.find("count", "EF").state == ADDED
     assert refused == ["a contradiction names F99, which the ledger does not have; left out",
+                       f"the plans pass may not confirm {ef.id}, a count fact; left out",
                        "a confirmation names F98, which the ledger does not have; left out"]
 
 
@@ -161,6 +163,23 @@ def test_a_blank_sequence_heading_is_answered_by_the_sequence_pass():
         _known(ledger))
     after = ledger.facts[heading.id]
     assert after.value == "VAV" and after.state == SETTLED and after.contradictions == ()
+
+
+def test_two_sequence_sections_with_one_heading_each_keep_their_own_match():
+    from bms.plan_read import Reader
+    ledger = seed(_dossier(sections={"Q1": ("1. OCCUPIED MODE", ("S2",)), "Q2": ("1. OCCUPIED MODE", ("S3",))}))
+    refused = apply(pass_named("sequence"), ledger, _answer(facts=[
+        {"kind": "sequence_match", "subject": "1. OCCUPIED MODE", "value": "VAV", "source_id": "[Q1]",
+         "quote": "1. OCCUPIED MODE"},
+        {"kind": "sequence_match", "subject": "1. OCCUPIED MODE", "value": "EF", "source_id": "[Q2]",
+         "quote": "1. OCCUPIED MODE"}]), _known(ledger))
+    assert refused == []
+    by_section = {f.source_id: f for f in ledger.of_kind("sequence_match")}
+    assert len(ledger.of_kind("sequence_match")) == 2
+    assert by_section["Q1"].value == "VAV" and by_section["Q1"].state == SETTLED and by_section["Q1"].contradictions == ()
+    assert by_section["Q2"].value == "EF" and by_section["Q2"].state == SETTLED and by_section["Q2"].contradictions == ()
+    assert [f.source_id for f in Reader(ledger).matches("EF")] == ["Q2"]
+    assert [f.source_id for f in Reader(ledger).matches("VAV")] == ["Q1"]
 
 
 def test_a_provisional_count_a_pass_may_only_add_is_kept_beside_it():
@@ -365,3 +384,99 @@ def test_plans_and_risers_ask_for_short_names_and_a_note_for_the_reasons():
         assert ("the family's prefix as the note's subject (never \"question\" or \"general\")"
                 in pass_.instructions)
         assert "note" in pass_.kinds
+
+
+def test_an_id_only_written_in_document_text_is_refused_not_a_crash():
+    """A bracketed id inside a document's own words ("per detail [M5]") is in the prompt but is not a source the
+    ledger holds: an answer citing it is refused, and the ledger is left as it was."""
+    ledger = seed(_dossier())
+    before = (dict(ledger.facts), dict(ledger.sources))
+    refused = apply(pass_named("plans"), ledger, _answer(
+        facts=[{"kind": "location", "subject": "VAV", "value": "floor 1", "source_id": "[M5]", "quote": "per detail [M5]"}],
+        contradictions=[{"fact_id": "F1", "value": "2", "source_id": "[M5]", "quote": "per detail [M5]"}]),
+        _known(ledger) | {"M5"})
+    assert len(refused) == 2 and all("[M5]" in r for r in refused)
+    assert (dict(ledger.facts), dict(ledger.sources)) == before
+
+
+# --- a 7c line is read by its own (document, page), never by a number parsed from the line (LDG-7) --------------
+
+def _built(sheets, pages, documents=(("Drawings/Mech.pdf", "drawings", "base"),), supersessions=()):
+    """A dossier built from an invented catalogue, and the catalogue."""
+    from pathlib import Path
+    from estimator.catalogue.documents import Document
+    from estimator.catalogue.overview import SpecOverview
+    from estimator.writing.dossier import build_dossier
+    job = SimpleNamespace(name="26-9999", root=Path("."),
+                          documents=tuple(Document(Path(d), d, kind, rev, 3) for d, kind, rev in documents))
+    catalogue = SimpleNamespace(job=job, pages=tuple(pages), sheets=tuple(sheets), sections=(), tags=(),
+                                overview=SpecOverview(), bid=None, flags=())
+    reading = SimpleNamespace(schedules=(), totals=(), devices=(), typicals=(), notes=(), backbone=(), versions=(),
+                              supersessions=tuple(supersessions), inventory=(), legend=(), flags=())
+    import tempfile
+    return build_dossier(catalogue, reading, Path(tempfile.mkdtemp())), catalogue
+
+
+def test_the_plans_pass_reads_a_spaced_sheet_number_and_an_unnumbered_plans_sheet():
+    from estimator.catalogue.register import PageRecord
+    from estimator.catalogue.sheet_types import Sheet
+    dwg = "Drawings/Mech.pdf"
+    sheets = [Sheet(dwg, 1, "M 201", "SECOND FLOOR PLAN", "Mechanical", ("Plans",)),
+              Sheet(dwg, 2, None, "THIRD FLOOR PLAN", "Mechanical", ("Plans",))]
+    pages = [PageRecord(dwg, 1, "text", "SECOND FLOOR PLAN KEYED NOTE 2 PROVIDE A LEAK CHIME AT WH-2.", 0, True, ()),
+             PageRecord(dwg, 2, "text", "THIRD FLOOR PLAN KEYED NOTE 5 PROVIDE A CO2 SENSOR IN ROOM 301.", 0, True, ())]
+    dossier, catalogue = _built(sheets, pages)
+    assert "LEAK CHIME AT WH-2" in dossier.text and "CO2 SENSOR IN ROOM 301" in dossier.text   # both 7c lines written
+    plans = documents(pass_named("plans"), dossier, catalogue)
+    assert "LEAK CHIME AT WH-2" in plans
+    assert "CO2 SENSOR IN ROOM 301" in plans
+
+
+def test_a_tag_list_the_schedules_pass_shortens_keeps_the_seeds_list_beside_it():
+    # LDG-4: the seed's tags are the counts line's (scheduled and on the plans); a shorter schedule list must not
+    # erase VAV-11 and VAV-12 with no record
+    ledger = seed(_dossier())
+    unit = ledger.find("unit", "VAV")
+    assert unit.state == ADDED and unit.value == "VAV-1 thru 12"
+    refused = apply(pass_named("schedules"), ledger, _answer(facts=[
+        {"kind": "unit", "subject": "VAV", "value": "VAV-1 thru 10", "source_id": "[S4]", "quote": "VAV-1 thru VAV-10"}]),
+        _known(ledger))
+    after = ledger.facts[unit.id]
+    assert refused == []
+    assert after.value == "VAV-1 thru 10" and after.stage == "schedules"
+    assert [(c.value, c.source_id, c.stage) for c in after.contradictions] == [("VAV-1 thru 12", unit.source_id, "seed")]
+    assert [f.id for f in ledger.of_kind("unit") if f.subject == "VAV"] == [unit.id]   # no second unit fact
+
+
+# --- a pass that may only add never takes away the "confirm it exists" flag ------------------------------------
+
+def test_a_pass_may_confirm_only_the_kinds_it_settles():
+    ledger = seed(_dossier())
+    ef = ledger.find("count", "EF")
+    assert ef.state == ADDED
+    refused = apply(pass_named("spec"), ledger, _answer(confirmations=[ef.id]), _known(ledger))
+    assert ledger.facts[ef.id].state == ADDED
+    assert refused == [f"the spec pass may not confirm {ef.id}, a count fact; left out"]
+
+
+def test_a_plans_count_for_a_plan_only_family_keeps_it_plan_only():
+    from bms.plan_read import Reader
+    from estimator.ledger.to_plan import PLAN_ONLY_WHY, ledger_plan
+    ledger = seed(_dossier())
+    apply(pass_named("plans"), ledger, _answer(facts=[
+        {"kind": "count", "subject": "EF", "value": 3, "source_id": "[S10]", "quote": "EF-1, EF-2, EF-3"}]), _known(ledger))
+    assert ledger.find("count", "EF").contradictions          # the other count is still kept beside it
+    reader = Reader(ledger)
+    assert reader.family(ledger.find("family", "EF")).plan_only
+    assert next(s for s in ledger_plan(ledger).systems if s.key == "EF").why.startswith(PLAN_ONLY_WHY)
+
+
+def test_a_scheduled_count_the_plans_contradict_is_not_plan_only():
+    from bms.plan_read import Reader
+    from estimator.ledger.to_plan import PLAN_ONLY_WHY, ledger_plan
+    ledger = seed(_dossier())
+    apply(pass_named("plans"), ledger, _answer(facts=[
+        {"kind": "count", "subject": "VAV", "value": 14, "source_id": "[S10]", "quote": "VAV-1 … VAV-14"}]), _known(ledger))
+    assert ledger.find("count", "VAV").state == CONTRADICTED
+    assert not Reader(ledger).family(ledger.find("family", "VAV")).plan_only
+    assert not next(s for s in ledger_plan(ledger).systems if s.key == "VAV").why.startswith(PLAN_ONLY_WHY)

@@ -9,7 +9,7 @@ TEXT = """JOB DOSSIER — 26-9999
 Everything controls-relevant.
 
 == 1. JOB ==
-[S1] 26-9999 Somerville HS. Controls: new BACnet system.
+[S1] 26-9999 Example HS. Controls: new BACnet system.
 
 == 2. SEQUENCE OF OPERATION ==
 --- [Q1] VAV BOXES ---
@@ -125,3 +125,29 @@ def test_a_counts_line_quote_keeps_sheet_numbers_with_a_period():
     family = seed(_dossier(text=text)).find("family", "VAV")
     assert family.quote == ("VAV (Variable Air Volume Box): schedule rows 12; QUANTITY column total 12; distinct tags 12; "
                             "plan placements 14 (M-201.00 6; M-202.00 8); riser —")
+
+
+def test_a_device_name_with_brackets_is_still_seeded():
+    text = TEXT.replace("[S8] OCC (Occupancy sensor): 21 in all — M-201 10, M-202 11",
+                        "[S8] TB (Thermostat (by others?)): 21 in all — M-201 10, M-202 11")
+    ledger = seed(_dossier(text=text))
+    assert [f.value for f in ledger.of_kind("device") if f.subject == "TB"] == [21]
+    assert not ledger.refused.get("seed")
+
+
+def test_a_device_line_that_cannot_be_read_is_recorded_not_dropped():
+    text = TEXT.replace("[S8] OCC (Occupancy sensor): 21 in all — M-201 10, M-202 11",
+                        "[S8] OCC Occupancy sensor: 21 in all — M-201 10, M-202 11")
+    ledger = seed(_dossier(text=text))
+    assert not ledger.of_kind("device")
+    assert any("[S8]" in note for note in ledger.refused.get("seed", []))
+
+
+def test_a_full_stop_inside_a_sheet_label_does_not_cut_the_counts_quote():
+    from bms.plan_read import counts_clauses
+    line = ("[S5] VAV (Variable Air Volume Box): schedule rows 12; QUANTITY column total 12; distinct tags 12; "
+            "plan placements 14 (M-101 (Bldg. A.pdf) 6, M-102 8); riser 7. Tags: VAV-1 thru 12.")
+    ledger = seed(_dossier(text=TEXT.split("[S5]")[0] + line + "\n" + "\n== 6." + TEXT.split("\n== 6.")[1]))
+    fact = next(f for f in ledger.of_kind("count") if f.subject == "VAV")
+    assert "riser 7" in fact.quote
+    assert ("riser 7", 7) in counts_clauses(fact.quote)

@@ -83,20 +83,37 @@ def test_one_schedule_set_out_in_two_blocks_is_one_listing():
     assert totals[0].scheduled == 2
 
 
-def test_the_same_sheet_in_a_marked_up_copy_is_read_once():
+def test_a_sheet_in_two_documents_not_proven_a_copy_is_kept_and_counted_once():
+    """RD-1: nothing proves Marked_Mech.pdf a marked-up copy (`repeats`), so both schedules are kept; VAV-1, listed by
+    both, is one unit, and its note names both documents."""
     tags = [TagEntry("VAV-1", "Variable Air Volume Box", ("M-601",), ("M-101",), 3)]
     original = schedule("VAV BOX SCHEDULE", row("VAV-1"))
     copy = Schedule("Marked_Mech.pdf", 1, "M-601", "VAV BOX SCHEDULE", ("TAG",), (row("VAV-1"),), False, (), ())
-    items, _, _ = build_inventory(catalogue_with(tags), [original, copy])
-    assert [i.category for i in items] == ["CONFIRMED"]
+    items, totals, flags = build_inventory(catalogue_with(tags), [original, copy])
+    [item] = items
+    assert (item.category, item.quantity) == ("DISCREPANCY", 1)
+    assert "M-601 in Mech.pdf" in item.reason and "M-601 in Marked_Mech.pdf" in item.reason
+    assert totals[0].scheduled == 1
+    assert not [f for f in flags if "not counted" in f]
 
 
 def test_a_copy_in_another_document_is_dropped_and_said():
-    tags = [TagEntry("VAV-1", "Variable Air Volume Box", ("M-601",), ("M-101",), 3)]
-    original = schedule("VAV BOX SCHEDULE", row("VAV-1"))
-    copy = Schedule("Marked_Mech.pdf", 1, "M-601", "VAV BOX SCHEDULE", ("TAG",), (row("VAV-1"),), False, (), ())
-    _, _, flags = build_inventory(catalogue_with(tags), [original, copy])
-    assert flags == ["1 schedule on M-601 in Marked_Mech.pdf not counted — the same sheet was read from Mech.pdf"]
+    """RD-1: a schedule sheet is set aside only when `repeats` proves its document a marked-up copy of the set (two
+    documents with the same sheets, tags and text); the note gives the rows set aside and the rows counted."""
+    from estimator.catalogue.job import repeats
+    from test_dossier_plan_areas import DWG, OTHER, _schedule
+    from test_review_final6_counts import _two_buildings
+
+    catalogue, a, _b = _two_buildings(same_tags=True)
+    marked = next(document for number, document in repeats(catalogue)[1] if number == "M-601")
+    kept = OTHER if marked == DWG else DWG
+    tags = [t for f in a for t in f]
+    _, totals, flags = build_inventory(catalogue, [_schedule("VAV SCHEDULE", tags, 4, document=kept),
+                                                   _schedule("VAV SCHEDULE", tags, 4, document=marked)])
+    assert totals[0].scheduled == 9
+    name = lambda d: d.rsplit("/", 1)[-1]
+    assert (f"1 schedule on M-601 in {name(marked)} not counted (9 tagged rows) — a marked-up copy of the set; "
+            f"M-601 counted from {name(kept)} (9 tagged rows)") in flags
 
 
 def test_a_later_page_with_the_same_number_in_one_document_is_still_read():
@@ -282,14 +299,19 @@ def test_a_type_row_is_counted_from_its_placements_on_the_plans_times_the_floors
     assert (got["GCF-A"].category, got["GCF-A"].quantity) == ("CONFIRMED", 4)
     assert "labelled 4 times" in got["GCF-A"].reason
     # EUH-1: 1 on M-100 ("TO EUH-1" is a note, not a label), 2 on M-101, 1 on M-113 x 10; an electrical plan's
-    # labels are that trade's own.
-    assert got["EUH-1"].quantity == 13
-    # RTU-1 is labelled once per plan: one unit.
-    assert (got["RTU-1"].category, got["RTU-1"].quantity) == ("CONFIRMED", 1)
-    # AHU-1 is labelled four times, but three at most on one sheet (by its symbol and its thermostats): one unit.
-    assert (got["AHU-1"].category, got["AHU-1"].quantity) == ("CONFIRMED", 1)
+    # labels are that trade's own. FINAL-I (lead ruling): the type rule reads the labels as drawn (4, at most 2 on
+    # one sheet), so a unit's tag, once on each plan and on each of M-113's 10 floors: 12 (FINAL-G 13, the floors
+    # made it a type and M-101's two labels counted twice).
+    assert (got["EUH-1"].category, got["EUH-1"].quantity) == ("CONFIRMED", 12)
+    assert not got["EUH-1"].reason.startswith("A type") and "counted 12 times on the plans" in got["EUH-1"].reason
+    # RTU-1 is labelled on M-100 ("RTU-1 ABOVE": FINAL-N, REVIEW-FINAL7 F4, a tag that starts a line is a label
+    # whatever words follow) and on M-101: once on each plan, which add up (when in doubt sum: was 1).
+    assert (got["RTU-1"].category, got["RTU-1"].quantity) == ("CONFIRMED", 2)
+    # AHU-1 is labelled four times, three at most on one sheet (by its symbol and its thermostats): a unit's tag,
+    # once on each of the CELLAR and LEVEL 01 plans, which add up (FINAL-I, when in doubt sum: was 1).
+    assert (got["AHU-1"].category, got["AHU-1"].quantity) == ("CONFIRMED", 2)
     scheduled = {t.prefix: t.scheduled for t in totals}
-    assert scheduled == {"AC": 12, "GCF": 4, "EUH": 13, "RTU": 1, "AHU": 1}
+    assert scheduled == {"AC": 12, "GCF": 4, "EUH": 12, "RTU": 2, "AHU": 2}   # RTU 2: FINAL-N, as above
 
 
 def test_a_schedules_quantity_column_gives_a_types_count():
@@ -352,3 +374,21 @@ def test_a_family_seen_only_on_architectural_electrical_or_av_sheets_is_never_eq
     assert {t.prefix for t in totals} == {"RTU"}
     assert ("named only on architectural, electrical, technology or AV sheets, so not equipment: CH-1, SF-1, SF-2"
             in flags)
+
+# --- RD-13: a typical sheet with no number is multiplied for equipment as it is for devices -------------------
+
+def test_a_numberless_typical_plan_multiplies_its_units_by_its_floors():
+    from estimator.catalogue.register import PageRecord
+    from estimator.reading.devices import TypicalSheet
+    from estimator.reading.inventory import placements, plan_floors
+    title = "TYPICAL 2ND-5TH FLOOR PLAN"
+    sheets = (Sheet(DOC, 1, "M-601", "MECHANICAL SCHEDULES", "Mechanical", ("Schedules",)),
+              Sheet(DOC, 2, None, title, "Mechanical", ("Plans",)))
+    pages = (PageRecord(DOC, 1, "text", "SCHEDULES", 0, True), PageRecord(DOC, 2, "text", "FCU-A", 0, True))
+    tags = [TagEntry("FCU-A", "Fan Coil Unit", ("M-601",), (), 1)]
+    catalogue = Catalogue(JobFolder("26-9999", Path("26-9999"), (), ()), pages, sheets, (),
+                          BidCheck("Qualifies", "", (), (), ()), tuple(tags), ())
+    typicals = [TypicalSheet(None, title, ("2", "3", "4", "5"), "", DOC)]
+    assert plan_floors(catalogue, typicals) == {(DOC, 2): frozenset({"2", "3", "4", "5"})}
+    placed = placements(catalogue, ["FCU-A"], typicals)["FCU-A"]
+    assert placed.count == 4 and placed.total == 4

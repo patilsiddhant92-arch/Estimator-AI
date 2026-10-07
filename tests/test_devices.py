@@ -220,7 +220,9 @@ def _two_documents(tmp_path, base_pages, addendum_pages):
               for name, pages in docs.items()}
     sheets = tuple(Sheet(name, i, number, title, "Mechanical", ("Plans",))
                    for name, pages in docs.items() for i, (_, number, title) in enumerate(pages, start=1))
-    records = tuple(PageRecord(name, i, "text", f"{name} page {i}", 0, True)
+    # the same text in both documents: one version of the sheet, read once. FINAL-N (REVIEW-FINAL7 F2): with no
+    # supersession given, two versions of other text are both read and summed, so the text no longer names its document
+    records = tuple(PageRecord(name, i, "text", f"page {i}", 0, True)
                     for name, pages in docs.items() for i in range(1, len(pages) + 1))
     return SimpleNamespace(pages=records, sheets=sheets), (lambda document, page: opened[document][page - 1])
 

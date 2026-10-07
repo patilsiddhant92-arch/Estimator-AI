@@ -368,7 +368,7 @@ def _by_name(folder):
 
 def test_job_name_is_the_number():
     from pathlib import Path
-    assert job_name(Path("D:/x/26-0352, Tishman Speyer, 45 Rockefeller")) == "26-0352"
+    assert job_name(Path("D:/x/26-0352, Harbor Point, 1 Invented Street")) == "26-0352"
     assert job_name(Path("D:/x/26-0246")) == "26-0246"
 
 
@@ -866,7 +866,7 @@ def test_sheet_number_shapes(text):
     assert SHEET_NUMBER.fullmatch(text)
 
 
-@pytest.mark.parametrize("text", ["275 HARTZ WAY", "2026", "PROJECT", "A", "SCALE: 1/8\"=1'-0\"", "15970",
+@pytest.mark.parametrize("text", ["1 INVENTED WAY", "2026", "PROJECT", "A", "SCALE: 1/8\"=1'-0\"", "15970",
                                   "ISSUED FOR CONSTRUCTION", "03/31/2026"])
 def test_not_sheet_numbers(text):
     assert not SHEET_NUMBER.fullmatch(text)
@@ -915,7 +915,7 @@ def test_the_title_under_its_label_not_the_permit_number_beside_it():
 
 def test_a_label_split_over_two_lines():
     # 26-0352: "DRAWING" and "TITLE" are two small lines, the title beside them.
-    spans = [_span("TISHMAN SPEYER", 18.8, 0.874, 0.788), _span("DRAWING", 9.4, 0.832, 0.842),
+    spans = [_span("HARBOR POINT", 18.8, 0.874, 0.788), _span("DRAWING", 9.4, 0.832, 0.842),
              _span("TITLE", 9.4, 0.832, 0.849), _span("MECHANICAL 21ST FLOOR PLAN", 16.9, 0.857, 0.857, w=0.09),
              _span("SEAL & SIGNATURE", 9.4, 0.832, 0.886), _span("M-100.00", 25.1, 0.926, 0.930, h=0.014)]
     assert read_title_block(spans) == TitleBlock("M-100.00", "MECHANICAL 21ST FLOOR PLAN")
@@ -931,7 +931,7 @@ def test_a_title_as_large_as_the_sheet_number():
 
 def test_an_address_just_smaller_than_the_title_is_left_out():
     # 26-0436's controls sheets: the firm's address is 13.1 pt, the title 15.6 pt.
-    spans = [_span("CONTROLS AND DESIGN", 13.1, 0.913, 0.853), _span("275 HARTZ WAY", 13.1, 0.922, 0.860),
+    spans = [_span("CONTROLS AND DESIGN", 13.1, 0.913, 0.853), _span("1 INVENTED WAY", 13.1, 0.922, 0.860),
              _span("SECOND FLOOR RAS", 15.6, 0.914, 0.885), _span("INSTRUMENT LOCATION", 15.6, 0.910, 0.894),
              _span("IC015", 36.7, 0.922, 0.972, h=0.02)]
     assert read_title_block(spans) == TitleBlock("IC015", "SECOND FLOOR RAS INSTRUMENT LOCATION")
@@ -952,7 +952,7 @@ def test_stamps_and_disclaimers_are_not_titles():
 
 
 def test_no_number_and_no_title():
-    spans = [_span("275 HARTZ WAY", 15.7, 0.90, 0.90), _span("REVISIONS", 10, 0.90, 0.80)]
+    spans = [_span("1 INVENTED WAY", 15.7, 0.90, 0.90), _span("REVISIONS", 10, 0.90, 0.80)]
     assert read_title_block(spans) == TitleBlock(None, None)
 
 
@@ -1438,7 +1438,7 @@ def test_a_cross_reference_opens_nothing():
 
 def test_a_running_header_at_the_top_of_every_page():
     # 26-0356: the capitalised heading is the ninth line, below the running header.
-    top = "Mott Haven Houses\nCommunity Center Upgrades\nRFQ No. 511469\nBid Documents\n09/10/2025\n"
+    top = "Example Houses\nCommunity Center Upgrades\nRFQ No. 000000\nBid Documents\n09/10/2025\n"
     pages = _pages("rfq.pdf",
                    top + "Page 1 of 42\nSection 23 09 00\nInstrumentation and Controls for HVAC\n"
                          "SECTION 23 09 00\nINSTRUMENTATION AND CONTROLS FOR HVAC\nPART 1",
@@ -1450,9 +1450,9 @@ def test_a_running_header_at_the_top_of_every_page():
 def test_number_page_and_title_on_one_line():
     # 26-0344: "230900-4" and the title share the page's first lines.
     pages = _pages("hvac.pdf",
-                   "80 Broad Street Conversion\nPennoni Associates, Inc.\n230900-4        Instrumentation and Control of HVAC\n"
+                   "1 Invented Street Conversion\nExample Associates, Inc.\n230900-4        Instrumentation and Control of HVAC\n"
                    "50% CD\nF. Samples for Verification",
-                   "80 Broad Street Conversion\nPennoni Associates, Inc.\n230900-5        Instrumentation and Control of HVAC\n"
+                   "1 Invented Street Conversion\nExample Associates, Inc.\n230900-5        Instrumentation and Control of HVAC\n"
                    "2.2 CONTROL SYSTEM")
     assert index_sections(pages) == [SpecSection("23 09 00", "Instrumentation and Control of HVAC", "hvac.pdf", 1, 2)]
 
@@ -2791,10 +2791,10 @@ def test_a_job_with_no_drawings_is_not_a_sheet_miss():
 
 
 def test_finding_a_job_folder_by_its_number(tmp_path):
-    (tmp_path / "26-0352, Tishman Speyer, 45 Rockefeller").mkdir()
-    nested = tmp_path / "26-0436, Equinix" / "2. Takeoffs" / "1. Base Takeoff" / "26-0437"
+    (tmp_path / "26-0352, Harbor Point, 1 Invented Street").mkdir()
+    nested = tmp_path / "26-0436, Example Client" / "2. Takeoffs" / "1. Base Takeoff" / "26-0437"
     nested.mkdir(parents=True)
-    assert learn_check.find_job(tmp_path, "26-0352") == tmp_path / "26-0352, Tishman Speyer, 45 Rockefeller"
+    assert learn_check.find_job(tmp_path, "26-0352") == tmp_path / "26-0352, Harbor Point, 1 Invented Street"
     assert learn_check.find_job(tmp_path, "26-0437") == nested
 ```
 
