@@ -42,3 +42,56 @@ Every duct heater line is in the duct heater block.
 
 ### VRF and split as one block
 A VRF or split group is one block with its indoor, condensing and branch-selector families.
+
+## Ownership
+
+### Three ownership questions
+Each line answers who furnishes it, who installs it and who wires it.
+
+### Who owns what by default
+With no document saying otherwise, AME furnishes, installs and wires its own devices.
+
+### Every line carries its ownership
+A line furnished by another party prints that party in its bracket.
+
+### Unclear ownership is flagged
+When the documents do not say who furnishes a device, the line carries a confirm note.
+
+## Blocks and lines
+
+### One system one block
+One system prints as one block.
+
+### Placing a device in a slot
+A device goes in the slot of its shape that names what it is.
+
+### Sub-lines under their parent
+A sub-line prints one level in, under its parent line.
+
+### Nothing inside the unit is a line
+A part the unit manufacturer builds into the unit is not a line of its own.
+
+### Start/stop covers the relay and status switch
+A start/stop line covers its relay and its status switch; they are not lines of their own.
+
+### Systems named only in the sequence
+A system only the sequence of operations names is written from that sequence.
+
+## Integration
+
+### Integration trio
+A unit with factory controls gets the three integration lines.
+
+### Integration lines last
+The integration lines print last in their block.
+
+### Integration lines cover monitoring
+The integration lines cover the points monitored through the unit's interface.
+
+## Counts and assumptions in client words
+
+### Never undershoot
+A count is never lower than any source of this job gives.
+
+### Assumption wording has no source ids
+An assumption's words name the document by its title, never by its source id.

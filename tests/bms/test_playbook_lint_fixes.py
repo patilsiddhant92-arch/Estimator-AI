@@ -341,3 +341,19 @@ def test_a_nameless_rule_heading_is_one_problem(tmp_path):
     root = _with_rules(tmp_path, "# P\n\n## Topic\n\n### \nText.\n")
     problems = lint_playbook(root)
     assert len(problems) == 1 and "no name" in problems[0].message, [str(p) for p in problems]
+
+
+# ---- PBK-8: a heading with no space after its marks ------------------------------------------------------------
+
+@pytest.mark.parametrize("heading", ["###Second rule", "##Topic two", "###\tSecond rule"])
+def test_a_heading_with_no_space_is_one_problem_at_its_line(tmp_path, heading):
+    root = _with_rules(tmp_path, f"# P\n\n## Topic\n\n### A\nOne.\n{heading}\nTwo.\n")
+    load_playbook(root)                 # the loader reads it as rule text of A
+    problems = lint_playbook(root)
+    assert [p.line for p in problems] == [7], [str(p) for p in problems]
+    assert "heading" in problems[0].message
+
+
+def test_a_heading_like_line_inside_a_code_fence_is_rule_text(tmp_path):
+    root = _with_rules(tmp_path, "# P\n\n## Topic\n\n### A\nThe form:\n```\n###Second\n```\n")
+    assert _messages(root) == []

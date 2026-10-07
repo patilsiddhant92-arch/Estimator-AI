@@ -2,9 +2,11 @@
 
 "Lints clean" means the app can load the Playbook (each file goes through the loader's own checks in
 `bms.playbook`) and the house style holds: no emoji, no arrows, no source ids, no trailing whitespace, no rule names
-that differ only in case. The rule names the code needs come from the code itself: `bms.validate.RULE` and the
-rule names quoted in the AI prompts (`src/bms/prompts/*.md`). A Playbook rule no code names is the estimator's to
-rename or drop. `python -m bms playbook-lint [ROOT]` prints the problems and exits 1, or exits 0 when clean.
+that differ only in case, no heading without a space after its marks, no sample rule or `$draft` value left over.
+The rule names the code needs come from the code itself: `bms.validate.RULE`, the rule names quoted in the AI prompts
+(`src/bms/prompts/*.md`) and the rule each Finding in `src/bms/*.py` names as a literal text, but the few run-level
+names of `RUN_LEVEL_RULE_NAMES`. A Playbook rule no code names is the estimator's to rename or drop.
+`python -m bms playbook-lint [ROOT]` prints the problems and exits 1, or exits 0 when clean.
 """
 from __future__ import annotations
 
@@ -14,10 +16,18 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from bms.citations import ONE_ID
-from bms.playbook import DEFAULT_ROOT, PlaybookError, load_rules, load_shapes, load_wording
+from bms.playbook import (DEFAULT_ROOT, SAMPLE_PATTERN, PlaybookError, load_rules, load_shapes, load_wording,
+                          strip_comments)
 from bms.validate import RULE
 
 PROMPTS = Path(__file__).resolve().parent / "prompts"
+SOURCES = Path(__file__).resolve().parent                  # src/bms: the code whose Findings name rules
+
+# Rules a Finding names that are the run's own, not a practice rule, so rules.md need not hold them (ruling D4).
+# "decision not honored": the estimator's own decision was not carried out (bms.review, bms.run).
+RUN_LEVEL_RULE_NAMES = frozenset({"decision not honored"})
+# A Finding written with its rule as a literal text in double quotes, the text on the next line allowed.
+_FINDING_RULE = re.compile(r'\bFinding\(\s*"([^"\n]+)"')
 
 # A quoted phrase in a prompt that starts with a capital and has a space is a rule citation (the same reading
 # tests/bms/test_rule_names.py uses).
@@ -61,6 +71,9 @@ _COMMENT = re.compile(r"<!--.*?-->", re.S)
 _FENCE_MARK = re.compile(r" {0,3}(`{3,}|~{3,})")
 _BACKTICKS = re.compile(r"`[^`\n]*`")
 _DOUBLE_QUOTED = re.compile(r'"[^"\n]*"')
+# A line that looks like a heading but that the loader reads as rule text: no space after its # marks ("###Name"),
+# or a tab after them ("###<tab>Name").
+_LOOSE_HEADING = re.compile(r"#{1,6}(?=[^#\s])|#{2,3}\t")
 
 
 @dataclass(frozen=True)
@@ -82,10 +95,19 @@ def prompt_rule_names(folder: Path | None = None) -> set[str]:
     return names
 
 
+def finding_rule_names(folder: Path | None = None) -> set[str]:
+    """The rule names the code writes as literal texts, the first argument of a Finding (`src/bms/*.py`)."""
+    names: set[str] = set()
+    for source in sorted(Path(folder or SOURCES).glob("*.py")):
+        names |= set(_FINDING_RULE.findall(source.read_text(encoding="utf-8")))
+    return names
+
+
 def referenced_rule_names() -> set[str]:
-    """The rule names the code needs in rules.md: every validator's rule and every rule a prompt quotes. Read at
-    call time, so a new name in `bms.validate.RULE` or a prompt is required at once."""
-    return set(RULE.values()) | prompt_rule_names(PROMPTS)
+    """The rule names the code needs in rules.md: every validator's rule, every rule a prompt quotes and every rule
+    a Finding in the code names, but the run-level names (`RUN_LEVEL_RULE_NAMES`). Read at call time, so a new
+    name in `bms.validate.RULE`, a prompt or a Finding is required at once."""
+    return (set(RULE.values()) | prompt_rule_names(PROMPTS) | finding_rule_names(SOURCES)) - RUN_LEVEL_RULE_NAMES
 
 
 def lint_playbook(root: Path = DEFAULT_ROOT, known_rule_names: set[str] | None = None) -> list[LintProblem]:
@@ -167,6 +189,8 @@ def _lint_rules(path: Path) -> tuple[list[LintProblem], set[str] | None]:
         refused.append(LintProblem(str(path), n, f"the app cannot load this file: {where}: {message}"))
 
     lines = _blank(_COMMENT, text).splitlines()         # comments (the sample mark too) are not rule text
+    loaded = strip_comments(text)                       # the loader's reading, its sample marks still in
+    sample_lines = {loaded.count("\n", 0, m.start()) + 1 for m in SAMPLE_PATTERN.finditer(loaded)}
     fenced = _fenced(lines)                             # arrows count outside code fences and backticks
 
     topics: set[str] = set()
@@ -174,19 +198,23 @@ def _lint_rules(path: Path) -> tuple[list[LintProblem], set[str] | None]:
     rule: str | None = None
     rule_line = 0
     rule_text: list[str] = []
+    rule_sample = False
     names: set[str] = set()
     folded: dict[str, str] = {}
 
     def close() -> None:
         if rule and not "\n".join(rule_text).strip():
             refuse(None, f"rule {rule!r} has no text")
+        elif rule and rule_sample:
+            problem(rule_line, f"rule {rule!r} is still a format sample (<!-- sample -->): write the house rule "
+                               "and take the mark out")
 
     for n, line in enumerate(lines, start=1):
         where = f"rule {rule!r}" if rule else f"line {n}"
         nameless = False
         if line.startswith("### "):
             close()
-            rule, rule_line, rule_text = line[4:].strip(), n, []
+            rule, rule_line, rule_text, rule_sample = line[4:].strip(), n, [], False
             where, nameless = f"rule heading {rule!r}", not rule
             if topic is None:
                 refuse(n, f"rule {rule!r} is not under a topic (## heading)")
@@ -210,6 +238,10 @@ def _lint_rules(path: Path) -> tuple[list[LintProblem], set[str] | None]:
             refuse(n, "only ## topics and ### rules are allowed")
         elif rule is not None:
             rule_text.append(line)
+            rule_sample = rule_sample or n in sample_lines
+        if n - 1 not in fenced and _LOOSE_HEADING.match(line):
+            problem(n, f"{line.strip()!r} looks like a heading but the app reads it as rule text: put one space "
+                       "after the # marks")
 
         if line != line.rstrip() and not nameless:      # a nameless heading is already reported
             problem(n, f"{where} has trailing whitespace")
@@ -285,6 +317,14 @@ def _lint_shapes(path: Path) -> list[LintProblem]:
 # ---- wording.json ------------------------------------------------------------------------------------------------
 
 def _lint_wording(path: Path) -> list[LintProblem]:
-    """wording.json is judged by the loader alone (its words); the linter adds only the file and JSON checks."""
+    """wording.json is judged by the loader (its words); the linter adds the file and JSON checks and a `$draft`
+    still naming placeholder values."""
     data, problems = _json(path)
-    return problems if data is None else _loader_problem(path, load_wording)
+    if data is None:
+        return problems
+    problems = _loader_problem(path, load_wording)
+    draft = data.get("$draft")
+    if not problems and draft:
+        problems.append(LintProblem(str(path), None, f"$draft still names placeholder values ({', '.join(draft)}): "
+                                                     "confirm or replace each and empty $draft"))
+    return problems
