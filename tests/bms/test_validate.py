@@ -438,3 +438,56 @@ def test_a_line_counted_from_a_family_below_its_printed_count_is_a_check(job):
     assert got == [("Never undershoot", "EF", "EF.d1", "check")]
     j = edit_device(j, "EF", "EF.d1", quantity=dc.replace(s.devices[0].quantity, value=5))
     assert rules(validate(j, PB), "Never undershoot") == []
+
+
+# ---- VAL-6, VAL-7, VAL-13, VAL-15 ------------------------------------------------------------------------------
+
+def test_a_system_with_no_lines_gives_the_writers_no_scope_reason(job):
+    """VAL-6: the writer's reason for a block with no lines is its no_scope_reason, not only a clarification."""
+    j = edit(job, "DH", devices=(), no_scope_reason="the invented heaters are controlled by their own panel")
+    found = [f for f in validate(j, PB) if f.rule == RULE["left_out"]]
+    assert [(f.system_key, f.device_id, f.severity) for f in found] == [("DH", None, "check")]
+    assert "the invented heaters are controlled by their own panel" in found[0].what
+    assert "gave no reason" not in found[0].what
+
+
+def test_a_shape_not_in_the_playbook_is_a_must_fix(job):
+    """VAL-7: a shape name the Playbook does not have would stop the render; the validator says so first."""
+    j = edit(job, "EF", shape="Exhaust Fann")
+    got = [f for f in validate(j, PB) if f.rule == RULE["slot"]]
+    assert [(f.system_key, f.device_id, f.severity) for f in got] == [("EF", None, "must_fix")]
+    assert "Exhaust Fann" in got[0].what and "not in the Playbook" in got[0].what
+    assert rules(validate(edit(job, "EF", shape=""), PB), RULE["slot"]) == []      # no shape is an untemplated system
+
+
+def test_a_citation_with_no_place_is_a_must_fix(job):
+    """VAL-13: a ref with an empty where cites no place of this job."""
+    j = edit_device(job, "EF", "EF.d1", refs=(Ref("S9", "quote", ""),))
+    got = rules(validate(j, PB), RULE["cites"])
+    assert got == [(RULE["cites"], "EF", "EF.d1", "must_fix")]
+    what = [f.what for f in validate(j, PB) if f.rule == RULE["cites"]][0]
+    assert "missing its source id, quote or place" in what
+
+
+def test_an_unknown_device_quantity_with_no_clarification_is_a_check(job):
+    """VAL-15: a line whose wording prints its quantity, with the quantity unknown, prints "(Qty. ##)": the block
+    needs a confirm or per-drawings clarification."""
+    j = edit_device(job, "EF", "EF.d1", quantity=Count(None))
+    assert rules(validate(j, PB), RULE["unknown"]) == [(RULE["unknown"], "EF", "EF.d1", "check")]
+    # with a confirm clarification, or on a line whose wording prints no quantity, it is clean
+    j2 = edit(j, "EF", clarifications=(Clarification("confirm", "confirm the controller count"),))
+    assert rules(validate(j2, PB), RULE["unknown"]) == []
+    j3 = edit_device(job, "EF", "EF.d2", quantity=Count(None))
+    assert rules(validate(j3, PB), RULE["unknown"]) == []
+
+
+def test_a_front_end_citation_with_no_place_is_a_check(job):
+    """VAL-13: a front-end ref comes from the planner, which no writer can fix: an empty where there is a check;
+    an empty source id or quote stays a must_fix."""
+    fe = job.front_end
+    d = dc.replace(fe.devices[0], refs=(Ref("S9", "quote", ""),))
+    j = dc.replace(job, front_end=dc.replace(fe, devices=(d,) + fe.devices[1:]))
+    assert rules(validate(j, PB), RULE["cites"]) == [(RULE["cites"], "", d.id, "check")]
+    d2 = dc.replace(d, refs=(Ref("", "quote", ""),))
+    j2 = dc.replace(job, front_end=dc.replace(fe, devices=(d2,) + fe.devices[1:]))
+    assert rules(validate(j2, PB), RULE["cites"]) == [(RULE["cites"], "", d2.id, "must_fix")]

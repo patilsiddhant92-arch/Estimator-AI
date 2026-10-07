@@ -398,6 +398,16 @@ def _slot_form(shape: Shape | None, slot: str) -> str:
     return GENERIC_FORM
 
 
+def line_form(device: Device, shape: Shape | None, playbook: Playbook) -> str:
+    """The wording a device's line prints with: its slot's wording in the shape (else the generic form), a fixed
+    integration slot's house line in a block whose shape lacks it, or a house line printed as written."""
+    house_lines, house_slots = _fixed_texts(playbook)
+    form = _slot_form(shape, device.slot)
+    if form == GENERIC_FORM and device.slot in house_slots:
+        form = house_slots[device.slot]          # a fixed integration slot in a block whose shape lacks it
+    return house_lines.get(_plain(device.name), form)    # a house line printed as written, never with a verb
+
+
 def _device_lines(devices, shape: Shape | None, system: System | None, playbook: Playbook,
                   reference: set[int]) -> list[_Printed]:
     """The devices as printed lines: in the shape's line order, then the order given. A device of a sub-line slot
@@ -433,19 +443,13 @@ def _device_lines(devices, shape: Shape | None, system: System | None, playbook:
     ranked = sorted(range(len(devices)), key=key)
     what = _title(system.name) if system is not None and system.control == "integration" else ""
     quantity_words = playbook.wording.quantity
-    house_lines, house_slots = _fixed_texts(playbook)
     out: list[_Printed] = []
     for i in ranked:
         device = devices[i]
         slot_kind = shape.slot_kinds.get(device.slot) if shape is not None else None
         number = _printed(device.quantity)
         owner = _owner(device, playbook)
-        form = _slot_form(shape, device.slot)
-        if form == GENERIC_FORM and device.slot in house_slots:
-            form = house_slots[device.slot]          # a fixed integration slot in a block whose shape lacks it
-        fixed = house_lines.get(_plain(device.name))
-        if fixed is not None:
-            form = fixed                             # a house line printed as written, never with a verb
+        form = line_form(device, shape, playbook)
         qty = ""
         if "{qty}" in form:
             if number is None:
@@ -518,8 +522,9 @@ LEFT_OUT = "{name}: left out, no lines written"
 
 def left_out_text(system: System) -> str:
     """The Evidence Package note for a system with no lines (it prints nothing in the proposal), with the writer's
-    reason when its clarifications give one."""
-    reason = "; ".join(_trim(c.text) for c in system.clarifications if _trim(c.text))
+    reason: its no_scope_reason, else what its clarifications say."""
+    reason = (_trim(system.no_scope_reason or "")
+              or "; ".join(_trim(c.text) for c in system.clarifications if _trim(c.text)))
     return LEFT_OUT.format(name=system.name) + (f" ({reason})" if reason else "")
 
 

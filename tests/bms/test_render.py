@@ -833,3 +833,11 @@ def test_a_control_character_in_a_name_is_printed_without_it(tmp_path):
     assert any("Control Valve" in t for t in texts_)
     assert not any(ch in t for t in texts_ for ch in "\x01\x02")
     assert write_proposal(out.scope, PROPOSAL_TEMPLATE, tmp_path / "p.docx").is_file()
+
+
+def test_a_system_with_no_lines_carries_its_no_scope_reason(job, playbook):
+    """RND-8: the writer's no_scope_reason is the reason the left-out note gives."""
+    empty = system([], key="EMPTY", name="Invented Units", no_scope_reason="the invented units are owner furnished")
+    out = render(replace(job, systems=(job.system("EF"), empty)), playbook)
+    left = [l for l in out.lines if l.system_key == "EMPTY"]
+    assert len(left) == 1 and "the invented units are owner furnished" in left[0].text
