@@ -11,6 +11,7 @@ import re
 from collections import Counter
 from pathlib import Path
 
+from estimator.catalogue.documents import document_names
 from estimator.ledger.passes import LEDGER_PROMPT, PASSES, apply, documents, prompt, schema
 from estimator.ledger.seed import dossier_sections, seed, sheet_text_sheets
 from estimator.writing.dossier import sheet_pictures
@@ -58,7 +59,9 @@ def _picture_source(image, catalogue) -> str:
         (s.number for s in getattr(catalogue, "sheets", ()) or ()
          if s.number and s.document == image.document and s.page == image.page), "")
     what = image.what if not number or image.what.startswith(number) else f"{number} {image.what}"
-    return f"{what}, {Path(image.document).name} page {image.page} (picture)"
+    documents = getattr(getattr(catalogue, "job", None), "documents", ()) or ()
+    names = document_names([d.relative for d in documents] + [image.document])     # a shared file name: its path
+    return f"{what}, {names.get(image.document) or Path(image.document).name} page {image.page} (picture)"
 
 
 def read_job(judge, dossier, catalogue, save_to: Path | None = None, limit: int | None = None,

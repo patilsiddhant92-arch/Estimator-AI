@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, replace
 
-from estimator.ledger.facts import ADDED, Fact, Ledger, where_short
+from estimator.ledger.facts import Fact, Ledger, where_short
 
 from bms.model import Count, OtherCount, Ref
 
@@ -252,7 +252,7 @@ class Reader:
                           tuple(_unique([*count.others, OtherCount(count.value, count.sources[0])]))
                           if count.sources else count.others)
         sequence_only = count_fact is None and fact.stage == "sequence"
-        plan_only = not sequence_only and (count_fact is None or count_fact.state == ADDED)
+        plan_only = not sequence_only and (count_fact is None or not count_fact.was_settled)
         found = FamilyFacts(fact, prefix, short_name(fact.value, prefix), tags, count, plan_only, sequence_only,
                             added, len(listed), was, added_refs)
         self._families[prefix.casefold()] = found

@@ -444,3 +444,37 @@ def test_a_tag_list_the_schedules_pass_shortens_keeps_the_seeds_list_beside_it()
     assert after.value == "VAV-1 thru 10" and after.stage == "schedules"
     assert [(c.value, c.source_id, c.stage) for c in after.contradictions] == [("VAV-1 thru 12", unit.source_id, "seed")]
     assert [f.id for f in ledger.of_kind("unit") if f.subject == "VAV"] == [unit.id]   # no second unit fact
+
+
+# --- a pass that may only add never takes away the "confirm it exists" flag ------------------------------------
+
+def test_a_pass_may_confirm_only_the_kinds_it_settles():
+    ledger = seed(_dossier())
+    ef = ledger.find("count", "EF")
+    assert ef.state == ADDED
+    refused = apply(pass_named("spec"), ledger, _answer(confirmations=[ef.id]), _known(ledger))
+    assert ledger.facts[ef.id].state == ADDED
+    assert refused == [f"the spec pass may not confirm {ef.id}, a count fact; left out"]
+
+
+def test_a_plans_count_for_a_plan_only_family_keeps_it_plan_only():
+    from bms.plan_read import Reader
+    from estimator.ledger.to_plan import PLAN_ONLY_WHY, ledger_plan
+    ledger = seed(_dossier())
+    apply(pass_named("plans"), ledger, _answer(facts=[
+        {"kind": "count", "subject": "EF", "value": 3, "source_id": "[S10]", "quote": "EF-1, EF-2, EF-3"}]), _known(ledger))
+    assert ledger.find("count", "EF").contradictions          # the other count is still kept beside it
+    reader = Reader(ledger)
+    assert reader.family(ledger.find("family", "EF")).plan_only
+    assert next(s for s in ledger_plan(ledger).systems if s.key == "EF").why.startswith(PLAN_ONLY_WHY)
+
+
+def test_a_scheduled_count_the_plans_contradict_is_not_plan_only():
+    from bms.plan_read import Reader
+    from estimator.ledger.to_plan import PLAN_ONLY_WHY, ledger_plan
+    ledger = seed(_dossier())
+    apply(pass_named("plans"), ledger, _answer(facts=[
+        {"kind": "count", "subject": "VAV", "value": 14, "source_id": "[S10]", "quote": "VAV-1 … VAV-14"}]), _known(ledger))
+    assert ledger.find("count", "VAV").state == CONTRADICTED
+    assert not Reader(ledger).family(ledger.find("family", "VAV")).plan_only
+    assert not next(s for s in ledger_plan(ledger).systems if s.key == "VAV").why.startswith(PLAN_ONLY_WHY)

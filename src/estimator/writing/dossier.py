@@ -20,11 +20,13 @@ import os
 import re
 import secrets
 from collections import Counter, defaultdict
+from contextvars import ContextVar
 from dataclasses import dataclass, field
 from pathlib import Path
 
 import pymupdf
 
+from estimator.catalogue.documents import document_names
 from estimator.catalogue.job import CONTROLS_DISCIPLINES, document_repeats
 from estimator.catalogue.overview import FOUND, RULED_OUT, STANDARD_CLARIFICATION, STANDARD_EXCLUSION
 from estimator.catalogue.tags import (STATED_MOST, Equipment, find_tags, label_keys, line_labels, plan_labels,
@@ -105,8 +107,13 @@ class Dossier:
 
 # ---- small helpers ------------------------------------------------------------------------------
 
+# the job's documents' names (`document_names`), set by `build_dossier` while it builds: a file name two documents
+# share is cited by each one's path, so their places never read alike
+_NAMES: ContextVar[dict[str, str]] = ContextVar("dossier_document_names", default={})
+
+
 def _name(document: str) -> str:
-    return document.rsplit("/", 1)[-1]
+    return _NAMES.get().get(document) or document.rsplit("/", 1)[-1]
 
 
 def _squash(text: str | None) -> str:
@@ -1386,6 +1393,16 @@ _SECTIONS = (("job", "1. JOB"), ("sequence", "2. SEQUENCE OF OPERATION"), ("poin
 
 def build_dossier(catalogue, reading, cache_dir: Path | None) -> Dossier:
     """Everything controls-relevant in the job, in one document with every paragraph citable."""
+    documents = getattr(getattr(catalogue, "job", None), "documents", ()) or ()
+    names = document_names([d.relative for d in documents] + [p.document for p in catalogue.pages])
+    token = _NAMES.set(names)
+    try:
+        return _build_dossier(catalogue, reading, cache_dir)
+    finally:
+        _NAMES.reset(token)
+
+
+def _build_dossier(catalogue, reading, cache_dir: Path | None) -> Dossier:
     ids = _Ids()
     texts = {(p.document, p.page): p.text for p in catalogue.pages}
     counted = _counted_pages(catalogue, reading)
