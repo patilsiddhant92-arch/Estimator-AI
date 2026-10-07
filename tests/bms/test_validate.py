@@ -592,3 +592,126 @@ def test_a_front_end_citation_with_no_place_is_a_check(job):
     d2 = dc.replace(d, refs=(Ref("", "quote", ""),))
     j2 = dc.replace(job, front_end=dc.replace(fe, devices=(d2,) + fe.devices[1:]))
     assert rules(validate(j2, PB), RULE["cites"]) == [(RULE["cites"], "", d2.id, "must_fix")]
+
+
+# ---- VAL-10: the verb follows from the three owners ----------------------------------------------------------------
+
+def _owner_hits(j, playbook=PB):
+    return [(f.device_id, f.severity, f.what) for f in validate(j, playbook) if f.rule == RULE["owner"]]
+
+
+def test_a_verb_that_does_not_follow_from_its_owners_is_must_fix(job):
+    """VAL-10, rule "Verb from the three answers": Install and Wire is for a device another party furnishes; a
+    device AME furnishes written Install and Wire is a must_fix under "Every line carries its ownership"."""
+    j = edit_device(job, "EF", "EF.d3", verb="Install and Wire")
+    hits = _owner_hits(j)
+    assert [(d, s) for d, s, _ in hits] == [("EF.d3", "must_fix")]
+    assert "Install and Wire" in hits[0][2]
+    j2 = edit_device(job, "EF", "EF.d3", furnished_by="Others")          # Furnish and Install, AME not furnishing
+    assert [(d, s) for d, s, _ in _owner_hits(j2)] == [("EF.d3", "must_fix")]
+
+
+def test_a_line_no_part_of_which_is_ames_is_must_fix(job):
+    """VAL-10: another party furnishes, installs and wires it: not AME's scope, it goes to the exclusions only. A Wire
+    line the electrical contractor wires, and a line all by Others."""
+    j = edit_device(job, "EF", "EF.d3", verb="Wire", furnished_by="Unit Mfr.", installed_by="Unit Mfr.",
+                    wired_by="Electrical Contractor")
+    hits = _owner_hits(j)
+    assert [(d, s) for d, s, _ in hits] == [("EF.d3", "must_fix")]
+    assert "exclusions" in hits[0][2]
+    j2 = edit_device(job, "EF", "EF.d3", furnished_by="Others", installed_by="Others", wired_by="Others")
+    assert [(d, s) for d, s, _ in _owner_hits(j2)] == [("EF.d3", "must_fix")]
+
+
+def test_integration_lines_and_lines_that_print_no_verb_are_not_verb_checked():
+    """VAL-10: the integration trio carries the house verbs (the rep line is the mechanical contractor's), and a line
+    whose wording prints no verb ("VRF Communication Wiring") is not checked for its verb."""
+    s = _unit("VRF", "VRF System", ["Indoor Unit", "Condensing Unit"],
+              [_line("VRF.d1", "vrf_comm_wiring", "Wire", "AME", "AME", "AME"),
+               _line("VRF.d2", "rep_assist", "Furnish", "Mechanical Contractor", "Mechanical Contractor",
+                     "Mechanical Contractor")])
+    assert _owner_hits(Job("Invented", systems=(s,)), load_playbook()) == []
+
+
+# ---- VAL-12: VRF and split, one block ------------------------------------------------------------------------------
+
+def _unit(key, shape, families, devices=(), control="integration"):
+    fams = tuple(Family(n, (f"{key}-{i}",), Count(1, (REF,))) for i, n in enumerate(families))
+    return System(key, f"Invented {key}", shape, control, fams, devices=tuple(devices))
+
+
+def _line(id_, slot, verb="Install and Wire", f="Unit Mfr.", i="AME", w="AME", name="Invented Line"):
+    return Device(id_, slot, name, verb, f, i, w, Count(1, (REF,)), (REF,))
+
+
+def _vrf_hits(j, playbook=None):
+    return sorted(((f.system_key, f.device_id, f.severity) for f in validate(j, playbook or load_playbook())
+                   if f.rule == RULE["vrf"]), key=str)
+
+
+def test_indoor_and_outdoor_split_blocks_are_must_fix():
+    """VAL-12: a split system's indoor unit and its outdoor unit are one block; "Outdoor Unit" is an outdoor unit."""
+    a = _unit("IU", "Split System", ["Indoor Unit"], [_line("IU.d1", "thermostat")])
+    b = _unit("OU", "Split System", ["Outdoor Unit"], [_line("OU.d1", "other_install_and_wire")])
+    hits = _vrf_hits(Job("Invented", systems=(a, b)))
+    assert ("IU", None, "must_fix") in hits and ("OU", None, "must_fix") in hits
+
+
+def test_a_branch_selector_block_of_its_own_is_must_fix():
+    """VAL-12: the branch selectors are written with the indoor and outdoor units, never as a block of their own,
+    even when that block repeats the VRF Communication Wiring."""
+    main = _unit("VRF", "VRF System", ["Indoor Unit", "Condensing Unit"],
+                 [_line("VRF.d1", "thermostat"), _line("VRF.d2", "vrf_comm_wiring", "Wire", "Unit Mfr.", "Unit Mfr.")])
+    bs = _unit("BS", "VRF System", ["Branch Selector"],
+               [_line("BS.d1", "vrf_comm_wiring", "Wire", "Unit Mfr.", "Unit Mfr.")])
+    hits = _vrf_hits(Job("Invented", systems=(main, bs)))
+    assert ("BS", None, "must_fix") in hits
+    assert ("VRF", None, "must_fix") not in hits
+
+
+def test_two_whole_vrf_systems_are_two_blocks():
+    """VAL-12: two VRF systems, each with its indoor and outdoor units, one with no branch selectors, are clean."""
+    a = _unit("V1", "VRF System", ["Indoor Unit", "Condensing Unit", "Branch Selector"],
+              [_line("V1.d1", "thermostat"), _line("V1.d2", "vrf_comm_wiring", "Wire", "Unit Mfr.", "Unit Mfr.")])
+    b = _unit("V2", "VRF System", ["Indoor Unit", "Condensing Unit"],
+              [_line("V2.d1", "thermostat"), _line("V2.d2", "vrf_comm_wiring", "Wire", "Unit Mfr.", "Unit Mfr.")])
+    assert _vrf_hits(Job("Invented", systems=(a, b))) == []
+
+
+def test_map_points_twice_in_a_vrf_block_is_must_fix():
+    """VAL-12: the integration lines are written once for the system, every one of them, not only the comm lines."""
+    s = _unit("VRF", "VRF System", ["Indoor Unit", "Condensing Unit"],
+              [_line("VRF.d1", "vrf_comm_wiring", "Wire", "Unit Mfr.", "Unit Mfr."),
+               _line("VRF.d2", "map_points", "Furnish", "AME"), _line("VRF.d3", "map_points", "Furnish", "AME")])
+    assert ("VRF", "VRF.d3", "must_fix") in _vrf_hits(Job("Invented", systems=(s,)))
+
+
+def test_a_clean_split_block_has_no_vrf_finding():
+    """VAL-12: a split system's shape has no VRF Communication Wiring line, so a split block without one is clean."""
+    s = _unit("SS", "Split System", ["Indoor Unit", "Outdoor Unit"], [_line("SS.d1", "thermostat")])
+    assert _vrf_hits(Job("Invented", systems=(s,))) == []
+
+
+def test_a_vrf_block_with_no_vrf_communication_wiring_is_a_check():
+    s = _unit("VRF", "VRF System", ["Indoor Unit", "Condensing Unit"], [_line("VRF.d1", "thermostat")])
+    assert _vrf_hits(Job("Invented", systems=(s,))) == [("VRF", None, "check")]
+
+
+# ---- VAL-19: no point lines and no AME controller on a factory-controlled VRF --------------------------------------
+
+def test_a_point_line_on_a_factory_controlled_vrf_is_must_fix():
+    """VAL-19, rule "Point lines only on AME controllers": on a factory-controlled unit the integration lines cover
+    every monitored point; the planner gives a VRF control "integration", so the packaged check covers it."""
+    s = _unit("VRF", "VRF System", ["Indoor Unit", "Condensing Unit"],
+              [_line("VRF.d1", "vrf_comm_wiring", "Wire", "Unit Mfr.", "Unit Mfr."),
+               _line("VRF.d2", "other_point", "Furnish", "AME", name="Unit Alarm")])
+    found = [(f.device_id, f.severity) for f in validate(Job("Invented", systems=(s,)), load_playbook())
+             if f.rule == RULE["packaged"]]
+    assert found == [("VRF.d2", "must_fix")]
+
+
+def test_a_point_line_on_an_integration_unit_that_is_not_vrf_is_left_alone():
+    """VAL-19 is for VRF and split shapes only: an apartment heat pump is not one."""
+    s = _unit("HP", "Apartment Heat Pumps", ["Apartment Heat Pump"],
+              [_line("HP.d1", "other_point", "Furnish", "AME", name="Unit Alarm")])
+    assert [f for f in validate(Job("Invented", systems=(s,)), load_playbook()) if f.rule == RULE["packaged"]] == []
