@@ -125,7 +125,10 @@ def cross_check(job: "Job", catalogue: "Catalogue", cache: Path, *, transport=No
     a count equal to it is added to `sources`; `Count.value` becomes the highest (an unknown count takes the plan
     count when it found a tag; a plan count of 0 leaves it unknown), the earlier count moving to `others` with its sources; and the system's devices whose quantity was
     counted from the family's sources get flag "quantity" when the counts disagree. Proof images and their manifest
-    go under `<cache>/count-proofs/`. Families whose sheets cannot be pictured or counted are left as they are.
+    go under `<cache>/count-proofs/`. A family whose whole-sheet pictures show symbols drawn with no tag
+    (`CountResult.untagged` above 0) gets one plain-words question in `Job.questions` naming every such sheet and its
+    number; they are never added to the count. Families whose sheets cannot be pictured or counted are left as they
+    are.
     Pure apart from the picture cache under `cache`. Never lowers a count, never raises; running it twice changes
     nothing more."""
     try:
@@ -314,7 +317,7 @@ class _Check:
             self._count_sheet(sheet, here)
         self.groups = self._plan_groups(list(sheets.values()))
 
-        job, entries = self.job, []
+        job, entries, asked = self.job, [], []
         for system, family in families:
             keys = on_sheet.get((system.key, family.name))
             if not keys:
@@ -325,7 +328,14 @@ class _Check:
             new_system, ids = self._check_family(system, family, pattern, [sheets[k] for k in keys])
             job = job.with_system(new_system)
             entries += self._proofs(system.key, family.name, pattern, [sheets[k] for k in keys], ids)
+            merged = next(f for f in new_system.families if f.name == family.name)
+            asked.append(_untagged_question(merged, pattern, [sheets[k] for k in keys]))
         self._save_proofs(entries)
+        asked = [q for q in asked if q]
+        if asked:
+            # symbols drawn with no tag may be more units than counted: the estimator is asked, the count is not
+            # changed (an undercount the estimator cannot see is the worst failure)
+            job = dataclasses.replace(job, questions=tuple(dict.fromkeys([*job.questions, *asked])))
         return job
 
     def _save_proofs(self, entries: list[dict]) -> None:
@@ -598,6 +608,22 @@ def _located_count(sheets, pattern: str, groups: dict | None = None) -> int:
         per_place = counted_per_place(tag, sum(n for _k, n, _f in mine), max(n for _k, n, _f in mine))
         total += plan_count(mine, groups or {}, per_place)
     return total
+
+
+def _untagged_question(family: Family, pattern: str, sheets: list[_Sheet]) -> str | None:
+    """One plain-words question for a family whose sheet pictures show symbols with no tag (the whole-sheet answer's
+    `untagged_symbols`, never a micro-crop's): every such sheet and its number, the count left as it is. None when no
+    sheet shows any."""
+    seen = [(s.sheet.number if s.sheet is not None and s.sheet.number else s.place, n) for s in sheets
+            if pattern in s.counted and (n := s.untagged.get(pattern) or 0) > 0]
+    if not seen:
+        return None
+    (first, n), rest = seen[0], seen[1:]
+    more = f" (and {', '.join(f'{m} on {where}' for where, m in rest)})" if rest else ""
+    value = family.count.highest()
+    counted = f"the count of {value}" if value is not None else "the count"
+    return (f"The sheet picture of {first} shows {n} {family.name} {'symbol' if n == 1 else 'symbols'} with no "
+            f"tag{more}; {counted} does not include them. Confirm whether they are more units.")
 
 
 def _refs(job):

@@ -387,10 +387,13 @@ it (e.g. naming a revise request), keeping the old app working.
 
 ### Workstream 6 — `bms.counts`
 `count_tags(image_path: Path, tag_pattern: str) -> CountResult` — `CountResult(value: int | None, boxes:
-tuple[Box])`, `Box(x, y, width, height, text)`; never raises on an unreadable picture.
+tuple[Box], untagged: int | None = None)` (`untagged`: the symbols the answer sees drawn with no tag, its own count,
+never in `value`), `Box(x, y, width, height, text)`; never raises on an unreadable picture.
 `cross_check(job: Job, catalogue: Catalogue, cache: Path) -> Job` — adds a differing vision count to the family's
 `Count.others` (Ref: picture id, "counted on the sheet picture", the sheet), keeps the highest as `value`, never
-lowers a count. The app ships with text counts if vision is not ready: `cross_check` may then return `job` unchanged.
+lowers a count. Symbols a whole-sheet picture shows with no tag become one `Job.questions` entry per family (the
+sheets and their numbers), never part of the count. The app ships with text counts if vision is not ready:
+`cross_check` may then return `job` unchanged.
 Patterns (2026-10-04): a family's patterns are built from its expanded tags (`expand_tags`: "SPXF-A, B, C" is three
 tags), match lettered, numbered and dotted tags (TXF-B, EUH-2, CAC-1.5) and never a bare letter or number; the
 located-text and vision counts use the same patterns. Each pattern's vision answer lists `tiles_examined`; one that

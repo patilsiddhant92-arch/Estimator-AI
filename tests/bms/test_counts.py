@@ -853,3 +853,60 @@ def test_a_family_tagged_by_its_prefix_alone_is_counted_on_the_plans(tmp_path):
     checked = counts.cross_check(Job("t", (ahu,)), catalogue, tmp_path / "cache")
     count = checked.system("AHU").families[0].count
     assert count.value == 2 and count.sources[0].quote == counts.LOCATED_QUOTE
+
+
+# ---- untagged symbols on the sheet picture reach the estimator as a question -------------------------------------
+
+class Untagged(FakeVision):
+    """A FakeVision whose answer gives the Exhaust Fan pattern `untagged_symbols`: the n-th sheet asked gets the
+    n-th number of `untagged`."""
+
+    def __init__(self, *args, untagged: list[int], **kwargs):
+        super().__init__(*args, **kwargs)
+        self.untagged = untagged
+
+    def ask(self, kind, name, instructions, system_prompt, prompt, schema, extra=None, images=()):
+        from bms.counts_text import fits
+
+        answer = super().ask(kind, name, instructions, system_prompt, prompt, schema, extra, images)
+        n = self.untagged[len(self.asked) - 1] if len(self.asked) <= len(self.untagged) else 0
+        for entry in answer["patterns"]:
+            entry["untagged_symbols"] = n if fits(entry["pattern"], "EF-1") else 0
+        return answer
+
+
+def _untagged_questions(job: Job) -> list[str]:
+    return [q for q in job.questions if "no tag" in q]
+
+
+def test_untagged_symbols_on_one_sheet_raise_one_question_naming_the_family_the_sheet_and_the_number(tmp_path):
+    _, catalogue = _plan(tmp_path)
+    before = counts.cross_check(_sample_job(), catalogue, tmp_path / "plain", transport=FakeVision([]))
+    vision = Untagged([], untagged=[3])
+    checked = counts.cross_check(_sample_job(), catalogue, tmp_path / "cache", transport=vision)
+    [question] = _untagged_questions(checked)
+    assert "Exhaust Fan" in question and "M-101" in question and "shows 3 " in question
+    assert "confirm" in question.lower()
+    # the printed count is unchanged: the symbols are never added to it
+    assert _family(checked, "EF", "Exhaust Fan").count == _family(before, "EF", "Exhaust Fan").count
+    again = counts.cross_check(checked, catalogue, tmp_path / "cache", transport=Untagged([], untagged=[3]))
+    assert again.questions == checked.questions               # running it twice asks nothing more
+
+
+def test_no_untagged_symbols_raise_no_question(tmp_path):
+    _, catalogue = _plan(tmp_path)
+    checked = counts.cross_check(_sample_job(), catalogue, tmp_path / "cache", transport=Untagged([], untagged=[0]))
+    assert _untagged_questions(checked) == []
+    assert checked.questions == _sample_job().questions
+
+
+def test_untagged_symbols_on_two_sheets_are_one_question_for_the_family(tmp_path):
+    first = ((200, 200, FILLER, 10), (300, 400, "EF-1", 14), (900, 300, "EF-2", 14))
+    second = ((200, 200, FILLER, 10), (300, 400, "EF-3", 14))
+    pdf = make_pdf(tmp_path / "job" / "Drawings.pdf", Page(W, H, first), Page(W, H, second))
+    catalogue = _catalogue(pdf, [(1, "M-101", "FIRST FLOOR PLAN", "EF-1 EF-2"),
+                                 (2, "M-102", "SECOND FLOOR PLAN", "EF-3")])
+    checked = counts.cross_check(_sample_job(), catalogue, tmp_path / "cache",
+                                 transport=Untagged([], untagged=[3, 1]))
+    [question] = _untagged_questions(checked)
+    assert "M-101 shows 3 " in question and "1 on M-102" in question
