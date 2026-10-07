@@ -263,10 +263,11 @@ def _take(ledger: Ledger, pass_, held, value, sid: str, quote: str) -> None:
 def apply(pass_, ledger: Ledger, answer: dict, known: frozenset[str]) -> list[str]:
     """Write the pass's answer into the ledger; the refusals, in plain words."""
     refused: list[str] = []
-    prompt_ids = {plain_id(k) or k for k in known}
 
     def known_source(sid: str) -> bool:
-        return bool(sid) and (sid in prompt_ids or ledger.knows(sid))
+        """Only a source the ledger holds (the dossier's, a picture's) or a fact it has: an id that merely appears in
+        a document's own words ("per detail [M5]") is in the prompt but is no source."""
+        return bool(sid) and ledger.knows(sid)
 
     answered = [_text(raw.get("subject")) for raw in answer.get("facts") or []      # names this answer adds
                 if isinstance(raw, dict) and _text(raw.get("kind")) in ("family", "group")]
@@ -296,26 +297,29 @@ def apply(pass_, ledger: Ledger, answer: dict, known: frozenset[str]) -> list[st
         if kind == "sequence_match" and value != "" and not _names_a_system(str(value), _match_values(ledger) + answered):
             refused.append(f"{label} names no system the ledger holds; left out")
             continue
-        if _many_valued(kind, subject):              # notes, front-end lines and notes, locations: one fact per value
-            same = ledger.find_value(kind, subject, value)
-            if same is None:
-                ledger.add(kind, subject, value, sid, quote, pass_.name, SETTLED if kind in pass_.settles else ADDED)
-            elif kind in pass_.settles:
-                ledger.settle(same.id)
-            continue
-        held = ledger.find(kind, subject)
-        if held is not None and held.state != ADDED and str(held.value) != str(value):
-            ledger.contradict(held.id, value, sid, quote, pass_.name)
-            continue
-        if held is not None and str(held.value) == str(value):
-            if kind in pass_.settles:
-                ledger.settle(held.id)
-            continue
-        if held is not None and held.state == ADDED:
-            _take(ledger, pass_, held, value, sid, quote)
-            continue
-        state = SETTLED if kind in pass_.settles else ADDED
-        ledger.add(kind, subject, value, sid, quote, pass_.name, state)
+        try:
+            if _many_valued(kind, subject):              # notes, front-end lines and notes, locations: one fact per value
+                same = ledger.find_value(kind, subject, value)
+                if same is None:
+                    ledger.add(kind, subject, value, sid, quote, pass_.name, SETTLED if kind in pass_.settles else ADDED)
+                elif kind in pass_.settles:
+                    ledger.settle(same.id)
+                continue
+            held = ledger.find(kind, subject)
+            if held is not None and held.state != ADDED and str(held.value) != str(value):
+                ledger.contradict(held.id, value, sid, quote, pass_.name)
+                continue
+            if held is not None and str(held.value) == str(value):
+                if kind in pass_.settles:
+                    ledger.settle(held.id)
+                continue
+            if held is not None and held.state == ADDED:
+                _take(ledger, pass_, held, value, sid, quote)
+                continue
+            state = SETTLED if kind in pass_.settles else ADDED
+            ledger.add(kind, subject, value, sid, quote, pass_.name, state)
+        except ValueError as problem:         # a bad answer is refused, never a crash
+            refused.append(f"{label}: {problem}; left out")
 
     for raw in answer.get("contradictions") or []:
         if not isinstance(raw, dict):
@@ -336,7 +340,10 @@ def apply(pass_, ledger: Ledger, answer: dict, known: frozenset[str]) -> list[st
         if value is None:
             refused.append(f"the contradiction of {fid} ({_text(raw.get('value'))}): {NOT_A_NUMBER}")
             continue
-        _take(ledger, pass_, held, value, sid, quote)
+        try:
+            _take(ledger, pass_, held, value, sid, quote)
+        except ValueError as problem:
+            refused.append(f"the contradiction of {fid}: {problem}; left out")
 
     for raw in answer.get("confirmations") or []:
         fid = plain_id(raw) or _text(raw)
