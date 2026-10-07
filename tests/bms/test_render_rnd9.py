@@ -105,3 +105,11 @@ def test_the_cause_words_print_when_the_printed_count_has_a_sheet_too(pb):
     [note] = [t for t in out if t.startswith("*Qty.")]
     assert words in note
     assert note.startswith("*Qty. (12) per M-101")
+
+
+def test_the_alternate_label_form_comes_from_the_wording_when_set(pb):
+    from dataclasses import replace
+    custom = replace(pb, wording=replace(pb.wording, alternate_label="Alternate {k} - {name}"))
+    s = system([device(id="A1.d1", qty=1)], key="A1", name="Invented Fan", alternate="add", shape="",
+               families=(Family("Invented Fan", ("IF-1",), Count(value=1)),))
+    assert [a.label for a in render(job(s), custom).scope.add_alternates] == ["Alternate 1 - Invented Fan IF-1"]
