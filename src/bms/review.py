@@ -830,14 +830,19 @@ def unhonored_decisions(before: Job, decisions: Sequence[Decision], after: Job, 
     counts changed or the line has been re-flagged. A "not honored" card sits on the line that came back.
     A device decision that carries the line as the page showed it (`was`) but matches no line of `before` could not
     be applied: it is a must_fix "decision could not be applied" (same rule name), on the line in `after` that still
-    has that content when there is one, else on the system (no device). A decision without `was` that named
-    nothing the earlier job had is skipped, as `apply_decisions` skips it. A delete `apply_decisions` holds back
+    has that content when there is one, else on the system (no device). Such a decision, or a family decision,
+    whose system (or family) `before` does not have at all is not applied: a check (severity "check") saying so,
+    unless it is a delete or a system delete among `decisions` took that system out. A decision without `was` that named nothing the earlier job had is skipped, as
+    `apply_decisions` skips it. A delete `apply_decisions` holds back
     (`copies`: the number of copies of the line differs from what the estimator saw) could not be applied either."""
     copies = copies or {}
     expected = apply_seen(before, decisions, copies)
     accepted = _accepted_families(decisions)
+    deleted = frozenset(d.system_key for d in decisions
+                        if d.action == "delete" and d.device_id is None and d.family_name is None)
     return [finding for decision in decisions
-            if (finding := _unhonored(before, decision, after, expected, copies.get(decision), accepted)) is not None]
+            if (finding := _unhonored(before, decision, after, expected, copies.get(decision), accepted,
+                                      deleted)) is not None]
 
 
 def _matches_nothing(job: Job, decision: Decision) -> bool:
@@ -859,12 +864,15 @@ _TWIN_DELETE = ("When you deleted this line, the job had a different number of c
 
 
 def _unhonored(before: Job, decision: Decision, after: Job, expected: Job | None = None,
-               seen: int | None = None, accepted: dict[str, frozenset[str]] | None = None) -> Finding | None:
+               seen: int | None = None, accepted: dict[str, frozenset[str]] | None = None,
+               deleted: frozenset[str] = frozenset()) -> Finding | None:
     if accepted is None:
         accepted = _accepted_families([decision])
     if expected is None:
         expected = apply_seen(before, [decision], {decision: seen} if seen is not None else None)
     subject = decision.device_id or decision.family_name or decision.system_key or "the front end"
+    if _lost_its_system(before, decision, deleted):
+        return _lost_card(before, decision, subject)
     if _held_back(_devices(before, decision.system_key), decision, seen):
         still = next((dev for dev in _devices(after, decision.system_key) or () if _same_device((dev,), decision.was)),
                      None)
@@ -889,6 +897,36 @@ def _unhonored(before: Job, decision: Decision, after: Job, expected: Job | None
                        f"decision not honored: {decision.action} {subject}",
                        "The estimator's decision stands. The last write undid it.")
     return None
+
+
+def _lost_its_system(before: Job, decision: Decision, deleted: frozenset[str]) -> bool:
+    """True for a line decision (it carries the line as the page showed it, `was`) or a family decision whose
+    system (or family) `before` does not have, when no system delete among the decisions (`deleted`, by key) took
+    that system out: `apply_decisions` skips it, so it is not applied and must not pass in silence (RUN-5). Never
+    for a delete: with its system (or family) gone, a delete has nothing left to do."""
+    if decision.system_key in deleted or decision.action == "delete":
+        return False
+    if decision.device_id is not None and decision.was is not None:
+        return _devices(before, decision.system_key) is None
+    if decision.device_id is None and decision.family_name is not None and decision.system_key != "":
+        return _family(before, decision.system_key, decision.family_name) is None
+    return False
+
+
+def _lost_card(before: Job, decision: Decision, subject: str) -> Finding:
+    """The check (severity "check", not must_fix, so the estimator is never left with a card they cannot clear) for
+    a saved decision whose system, or family, this run no longer has (`_lost_its_system`). About the system (no
+    line): the decision is not applied."""
+    key = decision.system_key
+    if decision.device_id is None and any(s.key == key for s in before.systems):
+        where = f"the {decision.family_name} count of the {key} system, which this run no longer has"
+        fix = ("It is not applied. If the count was merged into another family or renamed, set the count again on "
+               "its new card.")
+    else:
+        where = f"the {key} system, which this run no longer has"
+        fix = "It is not applied. If the system was merged or renamed, make the change again on its new block."
+    return Finding("decision not honored", key, None, "check",
+                   f"this saved decision ({decision.action} {subject}) is for {where}; it is not applied", fix)
 
 
 def _decision_holds(before: Job, decision: Decision, after: Job, expected: Job,
