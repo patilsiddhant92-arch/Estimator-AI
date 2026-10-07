@@ -280,3 +280,81 @@ def test_a_type_typical_of_four_counts_four_on_both_sides(tmp_path):
     catalogue = _job([(MECH, 1, "M-101", "HVAC LEVEL 1 PLAN", ["CUH-A (TYP. OF 4)", "VAV-1"], ())])
     inventory, dossier, _flags, _s, _lines = _read(catalogue, tmp_path)
     _same(inventory, dossier, CUH=4)
+
+
+# ---- RD-3: a reissue of a plan printed alike on several pages keeps the floors -----------------------------------------
+
+def _typical_reissue():
+    """Mech.pdf prints M-102 on 3 identical pages (one plan for 3 floors); the addendum reissues it on 1 page with one
+    note added."""
+    plan = ["VAV-11", "FCU-A", "FCU-A"]
+    base = [(MECH, n, "M-102", "HVAC TYPICAL FLOOR PLAN", plan, ()) for n in (1, 2, 3)]
+    return base, _job(base + [(ADDENDUM, 1, "M-102", "HVAC TYPICAL FLOOR PLAN",
+                               plan + ["PROVIDE NEW THERMOSTAT AT EACH FAN COIL"], ())], kinds={ADDENDUM: "addendum"})
+
+
+def _read_reissued(catalogue, tmp_path):
+    """As `read_job` reads them: the typical sheets know the supersessions (a reissue keeps the floors it replaces)."""
+    supersessions, flags = supersede(catalogue, sheet_versions(catalogue))
+    typicals = typical_sheets(catalogue, supersessions=supersessions)
+    reading = _reading()
+    reading.supersessions, reading.typicals = tuple(supersessions), tuple(typicals)
+    pages = governing_pages(catalogue, supersessions, [(t.document, t.sheet) for t in typicals])
+    placed = placements(catalogue, [t.tag for t in catalogue.tags], typicals, pages)
+    d = build_dossier(catalogue, reading, tmp_path)
+    dossier = {f: (c or {}).get("plan_placements", 0) for f, c in d.counts.items()}
+    return placed, dossier, flags, supersessions, typicals, pages
+
+
+def test_a_one_page_reissue_of_a_plan_printed_on_three_pages_keeps_its_three_floors(tmp_path):
+    base, catalogue = _typical_reissue()
+    alone = placements(_job(base), ["VAV-11", "FCU-A"], typical_sheets(_job(base)))
+    assert (alone["VAV-11"].count, alone["FCU-A"].count) == (3, 6)
+    placed, dossier, flags, [s], typicals, pages = _read_reissued(catalogue, tmp_path)
+    assert s.current.document == ADDENDUM and sorted(v.page for v in s.replaced) == [1, 2, 3]
+    assert s.floors == ("p.1", "p.2", "p.3")
+    assert (placed["VAV-11"].count, placed["FCU-A"].count) == (3, 6)
+    assert (dossier.get("VAV"), dossier.get("FCU")) == (3, 6)
+    assert pages >= {(ADDENDUM, 1)} and not pages & {(MECH, 1), (MECH, 2), (MECH, 3)}
+    [flag] = flags
+    assert "1 page" in flag and "3 pages" in flag and "Mech.pdf" in flag and "3" in flag
+    assert flag == "addendum reissues M-102 (1 page); base prints it on 3 pages (Mech.pdf), one plan for 3 floors: "                    "floors kept ×3; check"
+    [typical] = [t for t in typicals if t.document == ADDENDUM]
+    assert (typical.sheet, typical.floors) == ("M-102", ("p.1", "p.2", "p.3"))
+    assert plan_floors(catalogue, typicals)[(ADDENDUM, "M-102")] == frozenset({"P.1", "P.2", "P.3"})
+
+
+def test_a_two_page_reissue_of_a_plan_printed_on_three_pages_keeps_three_floors_not_two(tmp_path):
+    plan = ["VAV-11", "FCU-A", "FCU-A"]
+    new = plan + ["PROVIDE NEW THERMOSTAT AT EACH FAN COIL"]
+    catalogue = _job([(MECH, n, "M-102", "HVAC TYPICAL FLOOR PLAN", plan, ()) for n in (1, 2, 3)]
+                     + [(ADDENDUM, n, "M-102", "HVAC TYPICAL FLOOR PLAN", new, ()) for n in (1, 2)],
+                     kinds={ADDENDUM: "addendum"})
+    placed, dossier, flags, [s], typicals, _pages = _read_reissued(catalogue, tmp_path)
+    assert (placed["VAV-11"].count, placed["FCU-A"].count) == (3, 6)
+    assert (dossier.get("VAV"), dossier.get("FCU")) == (3, 6)
+    assert flags == ["addendum reissues M-102 (2 pages); base prints it on 3 pages (Mech.pdf), one plan for 3 floors: "
+                     "floors kept ×3; check"]
+    assert [(t.document, len(t.floors)) for t in typicals if t.document == ADDENDUM] == [(ADDENDUM, 3)]
+
+
+def test_the_devices_on_a_one_page_reissue_take_the_three_floors_too(tmp_path, monkeypatch):
+    from estimator.reading import devices
+    _base, catalogue = _typical_reissue()
+    _placed, _dossier, _flags, _s, typicals, pages = _read_reissued(catalogue, tmp_path)
+    monkeypatch.setattr(devices, "_words", lambda page: [devices._Word("T", 10, 10, 12, 12, False)])
+    counts, _f = devices.count_devices(catalogue, lambda document, page: None, [], typicals, pages=pages)
+    assert [(c.document, c.page, c.floors, c.total) for c in counts] == [(ADDENDUM, 1, 3, 3)]
+
+
+def test_guard_a_reissue_of_a_page_the_base_never_multiplied_carries_no_floors(tmp_path):
+    """Pages 1 and 2 alike beside a page 3 of other text are not one plan for several floors: nothing to carry."""
+    plan = ["VAV-11", "VAV-12"]
+    catalogue = _job([(MECH, 1, "M-101", "HVAC LEVEL 1 PLAN", plan, ()),
+                      (MECH, 2, "M-101", "HVAC LEVEL 1 PLAN", plan, ()),
+                      (MECH, 3, "M-101", "HVAC LEVEL 1 PLAN", ["VAV-15"], ()),
+                      (ADDENDUM, 1, "M-101", "HVAC LEVEL 1 PLAN", plan + ["VAV-18"], ())],
+                     kinds={ADDENDUM: "addendum"})
+    placed, _dossier, _flags, [s], typicals, _pages = _read_reissued(catalogue, tmp_path)
+    assert s.floors == () and typicals == []
+    assert sum(p.count for t, p in placed.items() if t.startswith("VAV")) == 4

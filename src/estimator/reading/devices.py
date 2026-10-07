@@ -235,14 +235,16 @@ def read_legend(catalogue, page_opener: PageOpener, reading: DeviceList | None =
 
 # ---- typical floors ---------------------------------------------------------------------------
 
-def typical_sheets(catalogue, reading: DeviceList | None = None) -> list[TypicalSheet]:
+def typical_sheets(catalogue, reading: DeviceList | None = None, supersessions: Sequence = ()) -> list[TypicalSheet]:
     """Plans that stand for several floors, by one rule for both ways a set shows it:
     - a title that says TYPICAL and names a floor range ("10TH-16TH", "LEVEL 13 TO 22"), or
     - one sheet number printed on several pages of one document with the same text on each (26-0193's
       M-113.00 on 10 pages), whatever its title (`catalogue.job.plans_printed_again`).
     Either way the plan is counted once, on its first page, and what is on it is multiplied: by the floors
     its title names, else by the pages it is printed on. One typical sheet per (document, sheet number), never
-    per number alone (REVIEW-FINAL8 H4): another document's sheet of the number is typical only if it is so."""
+    per number alone (REVIEW-FINAL8 H4): another document's sheet of the number is typical only if it is so.
+    A reissue on fewer pages of a plan printed alike on several (`supersessions`, `Supersession.floors`) stands
+    for the floors it replaces, unless it already stands for as many (RD-3: never one floor for three)."""
     reading = reading or _default_list()
     per_floor = plans_printed_again(catalogue)
     pages_by_number: dict[tuple[str, str], list] = defaultdict(list)
@@ -297,7 +299,28 @@ def typical_sheets(catalogue, reading: DeviceList | None = None) -> list[Typical
             note += (f" Floor {reading.unlucky_floor} may not exist — check the floor list."
                      if low <= reading.unlucky_floor <= high else " Check the floor list.")
         typicals.append(TypicalSheet(sheet.number, sheet.title, floors, note, sheet.document))
+    sheets = {(s.document, s.page): s for s in catalogue.sheets}
+    for s in supersessions:
+        sheet = sheets.get((s.current.document, s.current.page))
+        if not getattr(s, "floors", ()) or sheet is None:
+            continue
+        mine = [t for t in typicals if (t.document, t.sheet) == (sheet.document, sheet.number)]
+        if any(len(t.floors) >= len(s.floors) for t in mine):
+            continue
+        base = _and_names(v.document for v in s.replaced)
+        pages = len(per_floor.get((sheet.document, sheet.number), ())) or 1
+        typicals = [t for t in typicals if t not in mine]
+        typicals.append(TypicalSheet(sheet.number, sheet.title, tuple(s.floors),
+                                     f"Plan {sheet.number} ({sheet.document.rsplit('/', 1)[-1]}) is reissued on "
+                                     f"{_plural(pages, 'page')} for the {len(s.floors)} pages of {base} it replaces, "
+                                     f"one plan for {len(s.floors)} floors: what is on it is counted once and "
+                                     f"multiplied by {len(s.floors)}. Check the floor list.", sheet.document))
     return typicals
+
+
+def _and_names(documents) -> str:
+    names = list(dict.fromkeys(d.rsplit("/", 1)[-1] for d in documents))
+    return names[0] if len(names) == 1 else f"{', '.join(names[:-1])} and {names[-1]}"
 
 
 # ---- counting ---------------------------------------------------------------------------------
