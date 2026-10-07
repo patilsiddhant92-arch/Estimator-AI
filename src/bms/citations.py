@@ -4,10 +4,14 @@ clarification kinds.
 S is a schedule line, Q a keynote, I a drawing, F a fact, C a count. A token is id-shaped when it reads `[SQIFC]` +
 1 to 4 digits + an optional letter as a whole token, in any case ("S141", "s141", "S141A"; not "F12" for "F1", not
 "S141.5", not "S141ft"). Detection reads a copy of the text made for detection only: NFKC (full-width forms read as
-ASCII), a Cyrillic or Greek look-alike read as the ASCII letter or digit it shows (a Cyrillic DZE, U+0405, before
-"141" reads "S141"; a Cyrillic O between "S2" and "1" reads "S201"), zero-width characters taken out, except that one
-glued between a word and an id is a token boundary ("per", U+200B, "S141" reads "per S141"). The text itself is never
-rewritten by detection: the renderer cuts the original characters of a token.
+ASCII), a digit of another script read as its ASCII digit ("S" and the Arabic-Indic digits 1 4 1 read "S141"), a
+look-alike read as the ASCII letter or digit it shows (Cyrillic and Greek, and the Latin, Cherokee and Lisu
+look-alikes of the id letters: a Cyrillic DZE, U+0405, or a small capital S, U+A731, before "141" reads "S141"; a
+Cyrillic O between "S2" and "1" reads "S201"), zero-width characters taken out, except that a run of them between a
+word and an id, or between an id and a word, is a token boundary ("per", U+200B, "S141" reads "per S141"; "S141",
+U+200B, "per" reads "S141 per"); inside an id, and before a single suffix letter, it glues. Tags are read on the same
+copy (`tag_tokens`). The text itself is never rewritten by detection: the renderer cuts the original characters of
+a token.
 
 `SourceIds.scan` sorts the id-shaped tokens of a text that are not tags (T, every tag of the job, a range "F1-F4"
 covering F1 to F4) into four kinds (the estimator's ruling of 2026-10-05):
@@ -77,6 +81,12 @@ _LOOKS = {
     "Α": "A", "Β": "B", "Ε": "E", "Ζ": "Z", "Η": "H", "Κ": "K", "Μ": "M",
     "Ν": "N", "Ρ": "P", "Τ": "T", "Υ": "Y", "Χ": "X", "Ϲ": "C", "Ϝ": "F",
     "ϲ": "c", "κ": "k", "ν": "v", "ρ": "p", "υ": "u", "χ": "x",
+    # FINAL-M: the look-alikes of the id letters S, C, F, M and Q (and I, below) outside Cyrillic and Greek that NFKC
+    # leaves alone: the Latin small capitals, Cherokee DU, TLI and LU, Lisu SA, CA, TSA and MA. Not the small capital
+    # G (U+0262) or O: no id letter
+    "\ua731": "S", "\u1d04": "C", "\ua730": "F", "\u1d0d": "M", "\ua7af": "Q",
+    "\u13da": "S", "\u13df": "C", "\u13b7": "M",
+    "\ua4e2": "S", "\ua4da": "C", "\ua4dd": "F", "\ua4df": "M",
 }
 # a look-alike of both a letter and a digit (O and 0, I and 1): the digit after a digit or an id letter ("S2О1",
 # "S14І"), else the letter ("ІNLET")
@@ -84,6 +94,9 @@ _LOOKS_TWO = {
     "О": ("O", "0"), "о": ("o", "0"), "Ο": ("O", "0"), "ο": ("o", "0"),
     "І": ("I", "1"), "і": ("i", "1"), "Ι": ("I", "1"), "ι": ("i", "1"),
     "Ӏ": ("I", "1"), "ӏ": ("l", "1"),
+    # FINAL-M: the Latin small capital I (and its capital), the dotless i, the Latin iota, the dental click, Lisu I
+    "\u026a": ("I", "1"), "\ua7ae": ("I", "1"), "\u0131": ("i", "1"), "\u0196": ("I", "1"),
+    "\u01c0": ("I", "1"), "\ua4f2": ("I", "1"),
 }
 _ID_LETTERS = frozenset("SQIFCsqifc")
 # a range of plain ids in a tag ("F1-F4", "F1 thru 4"); a hyphen between the letter and the digits ("F-1 thru F-4")
@@ -113,7 +126,8 @@ def plain_id(source_id) -> str:
 
 
 def _key(token) -> str:
-    return unicodedata.normalize("NFKC", plain_id(token)).upper()
+    """A token as the detector compares it: its detection copy (`_for_detection`), upper case."""
+    return _for_detection(plain_id(token))[0].upper()
 
 
 def without_ledger_brackets(text: str) -> str:
@@ -265,16 +279,39 @@ def tag_tokens(tags: Iterable[str]) -> frozenset[str]:
     token the scanner itself reads inside the tag ("F1", "C2", "AHU-S1" and "AHU_S12" as "S1" and "S12") and each one
     a range of them covers ("F1-F4", "F1 thru 4": F1, F2, F3, F4). "S-1", "S_1A", "F-1 thru F-4", "EF-S-1" and
     "AHU_S12X3" protect nothing: the scanner never reads a plain id out of them, and their plain forms are issued ids
-    of the job (facts F1, counts C1), never the tag."""
+    of the job (facts F1, counts C1), never the tag. A tag is read on the scanner's own detection copy
+    (`_for_detection`: look-alikes, digits of other scripts, zero-width runs), so a tag written with a look-alike
+    ("FCU-" with a Cyrillic DZE and "141") protects what the scanner reads in it, S141 (FINAL-M); except that a soft
+    hyphen before a digit is a separator in a tag (`_tag_copy`), never glue: "S", U+00AD, "1" protects nothing, as
+    "S-1" does not."""
     out: set[str] = set()
     for tag in tags:
-        tag = unicodedata.normalize("NFKC", str(tag or ""))
+        tag = _tag_copy(str(tag or ""))
         out |= {match.group(0).upper() for match in _TOKEN.finditer(tag)}
         for found in _TAG_RANGE.finditer(tag):
             first, last = int(found.group(2)), int(found.group(3))
             if first <= last <= first + MAX_RANGE:
                 out |= {f"{found.group(1).upper()}{n}" for n in range(first, last + 1)}
     return frozenset(out)
+
+
+def _tag_copy(tag: str) -> str:
+    """The detection copy of a tag (`_for_detection`), with each soft hyphen that stands before a digit (zero-width
+    characters between not counted) read as a space, a separator, where the scanner reads glue: the tag reader's
+    hyphen handling ("S", U+00AD, "1" is the form "S-1", which protects nothing). Any other soft hyphen is a
+    zero-width character, as the scanner reads it ("AHU", U+00AD, "S1" protects S1). One pass back to front."""
+    if "\u00ad" not in tag:
+        return _for_detection(tag)[0]
+    chars = list(tag)
+    digit_next = False                       # the next character that is not zero-width is a digit
+    for n in range(len(chars) - 1, -1, -1):
+        char = chars[n]
+        if char == "\u00ad" and digit_next:
+            chars[n] = " "
+        if char not in _ZERO_WIDTH:
+            first = unicodedata.normalize("NFKC", char)[:1]
+            digit_next = unicodedata.digit(char, None) is not None or ("0" <= first <= "9")
+    return _for_detection("".join(chars))[0]
 
 
 # ---- detection ---------------------------------------------------------------------------------------------------
@@ -290,10 +327,13 @@ def _look_alike(char: str, before: str) -> str:
 
 def _for_detection(text: str) -> tuple[str, list[int] | None]:
     """The detection copy of `text` and, for each of its characters, the index of the character of `text` it came
-    from (None: the copy is the text). NFKC per character, then each Cyrillic or Greek look-alike as the ASCII
-    letter or digit it shows (REVIEW-FINAL6 B4); zero-width characters out, except that a run of them between a
-    letter or digit and an id-shaped start (an id letter and a digit: "per", U+200B, "S141") is one space, a token
-    boundary; inside an id ("S", U+200B, "141") it glues. One pass over the text and one over its gaps: linear."""
+    from (None: the copy is the text). NFKC per character, then each digit of another script as its ASCII digit
+    and each look-alike as the ASCII letter or digit it shows (REVIEW-FINAL6 B4, FINAL-M); zero-width characters
+    out, except that a run of them is one space, a token boundary, between a letter or digit and an id-shaped start
+    (an id letter and a digit: "per", U+200B, "S141") and between a digit and a word of two or more letters or
+    digits ("S141", U+200B, "per", FINAL-M); inside an id ("S", U+200B, "141"), between digits, and before a single
+    suffix letter ("S141", U+200B, "A" reads "S141A", as ASCII does) it glues. One pass over the text and one over
+    its gaps: linear."""
     if text.isascii():
         return text, None
     out: list[str] = []
@@ -307,7 +347,10 @@ def _for_detection(text: str) -> tuple[str, list[int] | None]:
         # a look-alike before NFKC too: NFKC reads a Greek lunate sigma (it shows a C) as a sigma
         looks = char in _LOOKS or char in _LOOKS_TWO
         for piece in (char if char.isascii() or looks else unicodedata.normalize("NFKC", char)):
-            out.append(piece if piece.isascii() else _look_alike(piece, out[-1] if out else ""))
+            if not piece.isascii():
+                digit = unicodedata.digit(piece, None)      # a digit of another script reads as its ASCII digit
+                piece = str(digit) if digit is not None else _look_alike(piece, out[-1] if out else "")
+            out.append(piece)
             origin.append(n)
     if not gaps:
         return "".join(out), origin
@@ -320,7 +363,11 @@ def _for_detection(text: str) -> tuple[str, list[int] | None]:
         at = index
         if (0 < index < len(out) - 1 and out[index - 1].isalnum() and out[index] in _ID_LETTERS
                 and "0" <= out[index + 1] <= "9"):
-            copy.append(" ")
+            copy.append(" ")                 # before an id: "per", U+200B, "S141"
+            where.append(n)
+        elif (0 < index < len(out) - 1 and "0" <= out[index - 1] <= "9" and out[index].isalpha()
+              and out[index + 1].isalnum()):
+            copy.append(" ")                 # after one, before a word: "S141", U+200B, "per" (FINAL-M)
             where.append(n)
     copy += out[at:]
     where += origin[at:]
