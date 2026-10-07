@@ -99,6 +99,7 @@ def test_a_tag_part_after_a_separator_protects_its_plain_form(tag, protected):
     assert citations.tag_tokens([tag]) == frozenset(protected)
 
 
+@pytest.mark.slow
 def test_reading_the_tag_forms_is_linear_in_the_length_of_the_tags():
     for piece in ("S-1_", "S-", "_S", "S-1-", "AHU_S12"):
         # growth, not a wall-clock limit (it flaked under load)

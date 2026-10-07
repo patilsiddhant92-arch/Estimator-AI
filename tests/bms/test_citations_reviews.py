@@ -328,6 +328,7 @@ def test_a_stray_id_is_refused_at_intake_and_a_stale_one_is_must_fix_then_taken_
     assert [l.text for l in render(stale, pb).lines if l.system_key == "EF"][-1] == "**Valves per"
 
 
+@pytest.mark.slow
 def test_the_review_long_texts_are_detected_in_linear_time():
     """r1 M3, r3 M1."""
     ids = _detector(("S141", "I3"))

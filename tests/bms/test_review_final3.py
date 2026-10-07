@@ -177,6 +177,7 @@ def test_f5_a_tag_after_a_sheet_word_is_treated_alike_in_text_and_in_a_where():
     assert _verdicts("where", "Sheet C101, Civil.pdf page 1", "C101", (), "C101") == ACCEPTED
 
 
+@pytest.mark.slow
 def test_where_issued_stays_linear():
     from timing import grows_linearly
     ids = SourceIds.of([f"S{n}" for n in range(1, 400)], [], [f"S{n}" for n in range(1, 400, 2)])
@@ -248,22 +249,25 @@ def _quadratic(n):
 
 
 @pytest.mark.parametrize("n", [20, 120])
+@pytest.mark.slow
 def test_grows_linearly_fails_quadratic_work_from_any_starting_size(n):
-    from timing import grows_linearly
-    assert not grows_linearly(_quadratic, n, attempts=1)
+    from timing import grows_faster
+    assert grows_faster(_quadratic, n)
 
 
+@pytest.mark.slow
 def test_grows_linearly_raises_the_base_until_a_hidden_quadratic_part_shows():
-    from timing import grows_linearly
+    from timing import grows_faster
 
     def mostly_linear(n):                                # a linear part 50 times the quadratic one at n = 50
         total = 0
         for i in range(50 * n):
             total += i
         return total + _quadratic(n)
-    assert not grows_linearly(mostly_linear, 50, attempts=1)
+    assert grows_faster(mostly_linear, 50)
 
 
+@pytest.mark.slow
 def test_grows_linearly_passes_linear_work_under_random_load():
     from timing import grows_linearly
     rng = random.Random(7)

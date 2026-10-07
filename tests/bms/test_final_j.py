@@ -124,6 +124,7 @@ def test_the_job_detector_keeps_k_and_the_source_sheets_apart():
     assert ids.sheets == frozenset({"S141"}) and ids.source_sheets == frozenset({"S201"})
 
 
+@pytest.mark.slow
 def test_a_text_full_of_source_sheets_is_read_in_linear_time():
     from timing import grows_linearly
     ids = SourceIds.of([f"S{k}" for k in range(1, 400)], (), (), source_sheets=[f"S{k}" for k in range(1, 400)])
