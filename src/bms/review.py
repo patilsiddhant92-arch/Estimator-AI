@@ -459,10 +459,12 @@ the same line replaces the earlier one.</div><div id="saved"></div></header>
 def _changes_nothing(decision: Decision) -> str | None:
     """A plain reason when the decision could change nothing (so it is a mistake, not an answer), else None. A
     change of a device carries the new `device`; a change of a family carries a `count` or words (`reason`: the page
-    saves a words-only family change with no count); a family belongs to a system."""
+    saves a words-only family change with no count); a family cannot be deleted and belongs to a system."""
     if decision.family_name is not None:
         if decision.system_key == "":
             return f"the family {decision.family_name!r} belongs to a system, but system_key is empty"
+        if decision.action == "delete":
+            return f"a family count cannot be deleted ({decision.family_name!r}); change its count instead"
         if decision.action == "change" and decision.count is None and not decision.reason.strip():
             return f"a change of the {decision.family_name!r} count has no count and no words, so it changes nothing"
     elif decision.device_id is not None and decision.action == "change" and decision.device is None:

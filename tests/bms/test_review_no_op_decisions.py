@@ -16,6 +16,7 @@ def _write(tmp_path, *decisions):
     (Decision("EF", "change", device_id="EF.d1", reason="x"), "has no device"),
     (Decision("EF", "change", family_name="Fans"), "changes nothing"),
     (Decision("EF", "change", family_name="Fans", reason="  "), "changes nothing"),
+    (Decision("EF", "delete", family_name="Fans"), "cannot be deleted"),
     (Decision("", "change", family_name="Fans", count=Count(value=3)), "system_key is empty"),
 ])
 def test_an_entry_that_changes_nothing_is_refused(tmp_path, decision, word):
