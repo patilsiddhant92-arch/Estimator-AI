@@ -178,18 +178,18 @@ back as a question only.
 ## Clarifications and assumptions
 
 ### One clarification per block
-A block has at most one "*" clarification, naming the lines it covers: the quantities to confirm, the ownership to
-confirm and the assumptions made. Do not put a bracket on every line; the per-line detail stays in the Evidence
-Package. When a block needs several, they are joined in that one clarification. Its forms: "*Confirm quantity:
-...", "*Confirm ownership: ...", "*Assumed: ...", "*Quantity per <trade> drawings", and "**<note>" for client notes.
+A block has at most one "*" clarification of each kind, naming the lines it covers: the quantities to confirm, the
+ownership to confirm and the assumptions made. Do not put a bracket on every line; the per-line detail stays in the
+Evidence Package. When a block needs several items of one kind, they are joined in that kind's one line. Its forms:
+"*Confirm quantity: ...", "*Confirm ownership: ...", "*Assumed: ...", "*Quantity per <trade> drawings", and
+"**<note>" for client notes. The quantity note naming the block's other counts is its own "*" line after them.
 
 ### Joining into the one clarification
-The block's one clarification has one kind. When only one kind of item is needed, it takes that kind's form. When
-several are needed, the kind is "confirm" if anything is to be confirmed or counted per drawings, else "assumed",
-else "note". The parts are joined with "; " in the order: to confirm, assumed, per drawings, client notes. After
-the first part each keeps its own leading words ("Assumed: ...", "quantity per plumbing drawings", "Note: ...").
-Example: "*Confirm quantity: 4 per schedule; Assumed: relay by AME, as the sequence asks for a stop; Note: Start/Stop
-via Fire Alarm System". The front end block follows the same rule.
+Each kind prints as one line, in a fixed order after the block's lines: to confirm, assumed, per drawings, client
+notes. The items of one kind are joined with "; " in that kind's form. Last comes the quantity note, on its own
+line, naming every other count of the block with where it is (none dropped; a count with no place still prints).
+Example: "*Confirm quantity: 4 per schedule", then "*Assumed: relay by AME, as the sequence asks for a stop", then
+"**Start/Stop via Fire Alarm System". The front end block follows the same rule.
 
 ### Every assumption says why
 Every assumption says what was assumed and why, in a few plain words naming the document or the missing
