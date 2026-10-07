@@ -186,22 +186,28 @@ def _sublines(system, shape, job, playbook) -> Iterator[Hit]:
 
 def _packaged(system, shape, job, playbook) -> Iterator[Hit]:
     # a VRF or split system runs on its manufacturer's controls: the planner gives it "integration", and rules.md
-    # "Point lines only on AME controllers" holds for it as for a packaged unit: no points, no AME controller (VAL-19)
+    # "Point lines only on AME controllers" holds for it as for a packaged unit: no points, no AME controller. The
+    # rule leaves room ("unless the documents give them to AME"), so on a VRF it is a check, not a must_fix (VAL-19)
     factory_vrf = system.control == "integration" and _is_vrf(system)
     if system.control != "packaged" and not factory_vrf:
         return
     for d in system.devices:
         kind = _kind(shape, d)
-        if kind == "point" and d.verb.startswith("Furnish"):
-            unit = "factory-controlled VRF or split system" if factory_vrf else "packaged unit"
-            yield (d.id, "must_fix", f"{d.name}: AME does not furnish points on a {unit}",
+        if factory_vrf and (kind == "point" and d.verb.startswith("Furnish")
+                            or d.slot == "controller" and d.furnished_by == "AME"):
+            what = "point line" if kind == "point" else "AME controller"
+            yield (d.id, "check", f"{d.name}: a {what} on a factory-controlled VRF or split system",
+                   f"If the documents give this {'point' if kind == 'point' else 'controller'} to AME, keep it; "
+                   "otherwise delete it: the integration lines cover it.")
+        elif factory_vrf:
+            continue                    # the device check and the integration lines below are the packaged unit's
+        elif kind == "point" and d.verb.startswith("Furnish"):
+            yield (d.id, "must_fix", f"{d.name}: AME does not furnish points on a packaged unit",
                    "Take the point line out; AME integrates through the manufacturer's interface.")
         elif d.slot == "controller" and d.furnished_by == "AME":
             # rules.md "No AME controller on a packaged unit"
             yield (d.id, "must_fix", f"{d.name}: AME furnishes no DDC controller on a unit on factory controls",
                    "Delete the line; AME integrates through the manufacturer's interface.")
-        elif factory_vrf:
-            continue                    # the device check and the integration lines below are the packaged unit's
         elif kind == "device" and d.furnished_by == "AME":
             # the documents may give the device to the controls contractor ("Explicit assignment always wins",
             # "Mixed ownership device by device"); the model carries no such link, so a check (VAL-2)

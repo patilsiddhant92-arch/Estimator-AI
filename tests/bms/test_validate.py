@@ -699,15 +699,16 @@ def test_a_vrf_block_with_no_vrf_communication_wiring_is_a_check():
 
 # ---- VAL-19: no point lines and no AME controller on a factory-controlled VRF --------------------------------------
 
-def test_a_point_line_on_a_factory_controlled_vrf_is_must_fix():
+def test_a_point_line_on_a_factory_controlled_vrf_is_a_check():
     """VAL-19, rule "Point lines only on AME controllers": on a factory-controlled unit the integration lines cover
-    every monitored point; the planner gives a VRF control "integration", so the packaged check covers it."""
+    every monitored point; the planner gives a VRF control "integration", so the packaged check covers it. The
+    Playbook leaves room ("unless the documents give them to AME"), so a check, not a must_fix (lead's ruling)."""
     s = _unit("VRF", "VRF System", ["Indoor Unit", "Condensing Unit"],
               [_line("VRF.d1", "vrf_comm_wiring", "Wire", "Unit Mfr.", "Unit Mfr."),
                _line("VRF.d2", "other_point", "Furnish", "AME", name="Unit Alarm")])
-    found = [(f.device_id, f.severity) for f in validate(Job("Invented", systems=(s,)), load_playbook())
-             if f.rule == RULE["packaged"]]
-    assert found == [("VRF.d2", "must_fix")]
+    found = [f for f in validate(Job("Invented", systems=(s,)), load_playbook()) if f.rule == RULE["packaged"]]
+    assert [(f.device_id, f.severity) for f in found] == [("VRF.d2", "check")]
+    assert "give this point to AME" in found[0].fix
 
 
 def test_a_point_line_on_an_integration_unit_that_is_not_vrf_is_left_alone():
