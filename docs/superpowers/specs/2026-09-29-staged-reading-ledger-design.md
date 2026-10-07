@@ -83,8 +83,10 @@ Every seed fact cites the dossier line it comes from:
 
 The seed writes no `location`, `provider`, `front_end`, `link` or `group` fact: the passes add those from the
 documents. A counts line's other numbers (plan placements, riser, distinct tags) stay in the count's quote, and
-the planner reads them from it (`bms.plan_read.counts_clauses`): the highest prints. A dossier line the seed
-cannot read is listed under `refused["seed"]`, never dropped in silence.
+the bms planner reads them from it (`bms.plan_read.counts_clauses`): the highest prints. The old planner
+(`ledger/to_plan.py`) does not: it prints the count's own value and its contradictions only, and the seed does
+not yet add a higher plan or riser count as a contradiction (LDG-11, open). A dossier line the seed cannot read
+is listed under `refused["seed"]`, never dropped in silence.
 
 ### 1.4 Printing a contradicted count
 

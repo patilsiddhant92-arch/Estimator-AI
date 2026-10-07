@@ -22,6 +22,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
 from pathlib import Path
 
+from estimator.catalogue.documents import document_names
 from estimator.catalogue.register import PageRecord
 from estimator.catalogue.sheet_types import Sheet
 from estimator.catalogue.spec_sections import SpecSection
@@ -333,7 +334,8 @@ def check_bid(pages: Sequence[PageRecord], sections: Sequence[SpecSection],
     if unread:
         total = sum(len(on) for on in unread.values())
         word = "page" if total == 1 else "pages"
-        where = [(f"{'page' if len(on) == 1 else 'pages'} {_page_ranges(sorted(on))}", document.rsplit("/", 1)[-1])
+        names = document_names(unread)              # a file name two folders share: its path
+        where = [(f"{'page' if len(on) == 1 else 'pages'} {_page_ranges(sorted(on))}", names[document])
                  for document, on in unread.items()]
         if len(where) == 1:
             listed = f" ({where[0][0]}) in {where[0][1]}"

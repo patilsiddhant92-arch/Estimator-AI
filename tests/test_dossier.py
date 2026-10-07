@@ -666,6 +666,19 @@ def test_a_picture_is_drawn_again_when_its_documents_content_changes_though_its_
     assert changed != pdf.read_bytes() and len(changed) == before.st_size     # other content, the same size
     pdf.write_bytes(changed)
     os.utime(pdf, ns=(before.st_atime_ns, before.st_mtime_ns))                  # and the same date
+    dossier_module._DIGESTS.clear()                 # a later run: its own hashes, the earlier run's PNGs on disk
     [again], _ = sheet_pictures(catalogue, tmp_path / "cache", [("H.pdf", 1)], "plan sheet")
     assert again.path != first.path
     assert build_dossier(catalogue, reading, tmp_path / "cache").images[0].path != pictured
+
+
+def test_a_numberless_typical_plans_units_are_counted_times_its_floors_in_the_counts_line():
+    # RD-13: the counts line the ledger seed and the planner read, not only the inventory
+    title = "TYPICAL 2ND-5TH FLOOR PLAN"
+    documents = [_doc(DWG, "drawings", 2)]
+    pages = [_page(DWG, 1, "FAN COIL SCHEDULE FCU-1", large=True), _page(DWG, 2, "FCU-1", large=True)]
+    sheets = [_sheet(1, "M-601", "SCHEDULES", types=("Schedules",)), _sheet(2, None, title)]
+    catalogue = _catalogue(documents, pages, sheets, tags=[_tag("FCU-1", elsewhere=())])
+    reading = _reading(typicals=[TypicalSheet(None, title, ("2", "3", "4", "5"), "", DWG)])
+    d = build_dossier(catalogue, reading, None)
+    assert d.counts["FCU"]["plan_placements"] == 4
