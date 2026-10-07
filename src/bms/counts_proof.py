@@ -88,13 +88,19 @@ def load_manifest(cache: Path) -> list[dict]:
     return [entry for entry in data if isinstance(entry, dict)] if isinstance(data, list) else []
 
 
-def save_manifest(cache: Path, entries: Sequence[dict]) -> None:
-    """The manifest with `entries` replacing any earlier entry for the same system, family and sheet."""
+def save_manifest(cache: Path, entries: Sequence[dict], families=()) -> None:
+    """The manifest with `entries` replacing any earlier entry for the same system, family and sheet, and every
+    earlier entry of `families` ((system key, family name) pairs checked again) dropped, whatever its sheet.
+    Nothing is written when nothing changes."""
     path = manifest_path(cache)
     def key(entry):
         return entry.get("system_key"), entry.get("family"), entry.get("sheet")
     fresh = {key(e) for e in entries}
-    kept = [e for e in load_manifest(cache) if key(e) not in fresh]
+    checked = set(families)
+    earlier = load_manifest(cache)
+    kept = [e for e in earlier if key(e) not in fresh and key(e)[:2] not in checked]
+    if not entries and len(kept) == len(earlier):
+        return
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_name(f"{path.stem}.{os.getpid()}-{secrets.token_hex(4)}.tmp")
     try:

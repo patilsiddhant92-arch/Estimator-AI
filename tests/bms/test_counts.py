@@ -807,3 +807,49 @@ def test_two_sheets_of_one_plan_count_a_unit_once(tmp_path):
     for key, value in {"EF": 3, "EBB": 2}.items():
         count = checked.system(key).families[0].count
         assert count.value == value and not count.others, (key, count)
+
+
+# ---- CNT-10: a proof of a sheet no longer counted is not published --------------------------------------------
+
+def test_a_proof_of_a_sheet_no_longer_counted_is_not_published(tmp_path):
+    """A family re-checked on fewer sheets with the same cache: the earlier run's proof of the dropped sheet does not
+    stay in the manifest next to a new count that reuses its id."""
+    first = ((200, 200, FILLER, 10), (300, 400, "EF-1", 14), (900, 300, "EF-2", 14))
+    second = ((200, 200, FILLER, 10), (300, 400, "EF-2", 14), (900, 300, "EF-5", 14))
+    pdf = make_pdf(tmp_path / "job" / "Drawings.pdf", Page(W, H, first), Page(W, H, second))
+    two = _catalogue(pdf, [(1, "M-101", "FIRST FLOOR PLAN", "EF-1 EF-2"),
+                           (2, "M-102", "SECOND FLOOR PLAN", "EF-2 EF-5")])
+    one = _catalogue(pdf, [(1, "M-101", "FIRST FLOOR PLAN", "EF-1 EF-2")])
+    cache = tmp_path / "cache"
+    counts.cross_check(_sample_job(), two, cache)
+    assert {p["sheet"] for p in counts.proofs_for(cache, "EF", "Exhaust Fan")} == {
+        "M-101, Drawings.pdf page 1", "M-102, Drawings.pdf page 2"}
+    checked = counts.cross_check(_sample_job(), one, cache)
+    assert [p["sheet"] for p in counts.proofs_for(cache, "EF", "Exhaust Fan")] == ["M-101, Drawings.pdf page 1"]
+    manifest = counts.publish_proofs(checked, cache, tmp_path / "out")
+    published = json.loads(manifest.read_text(encoding="utf-8"))
+    assert [p["sheet"] for p in published if p["family"] == "Exhaust Fan"] == ["M-101, Drawings.pdf page 1"]
+
+
+# ---- CNT-11: a family whose tag is only its prefix --------------------------------------------------------------
+
+def test_a_bare_prefix_only_one_family_has_is_any_tag_of_that_prefix():
+    from bms.counts_text import family_pattern, fits, prefix_owners
+
+    pattern = family_pattern(["AHU"], {"AHU": 1})
+    assert pattern is not None
+    assert fits(pattern, "AHU-1") and fits(pattern, "AHU-12") and fits(pattern, "AHU-B")
+    assert not fits(pattern, "AHU") and not fits(pattern, "1")
+    assert prefix_owners([["AHU"]]) == {"AHU": 1}
+    owners = prefix_owners([["AHU"], ["AHU-1"]])                 # two families have the prefix: neither owns it
+    assert owners == {"AHU": 2} and family_pattern(["AHU"], owners) is None
+
+
+def test_a_family_tagged_by_its_prefix_alone_is_counted_on_the_plans(tmp_path):
+    texts = ((200, 200, FILLER, 10), (300, 400, "AHU-1", 14), (900, 300, "AHU-2", 14))
+    pdf = make_pdf(tmp_path / "job" / "Drawings.pdf", Page(W, H, texts))
+    catalogue = _catalogue(pdf, [(1, "M-101", "FIRST FLOOR PLAN", "AHU-1 AHU-2")])
+    ahu = System("AHU", "AHU", "AHU", "field", (Family("AHU", ("AHU",), Count(1, (Ref("S1", "AHU", "M"),))),))
+    checked = counts.cross_check(Job("t", (ahu,)), catalogue, tmp_path / "cache")
+    count = checked.system("AHU").families[0].count
+    assert count.value == 2 and count.sources[0].quote == counts.LOCATED_QUOTE

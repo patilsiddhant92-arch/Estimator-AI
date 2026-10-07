@@ -63,6 +63,8 @@ class Box:
 class CountResult:
     value: int | None         # how many tags matching the pattern are on the sheet; None when it could not count
     boxes: tuple[Box, ...]    # one per counted tag (len(boxes) == value when value is not None)
+    untagged: int | None = None   # symbols of the equipment drawn with no tag, as the answer gives them (its own
+                                  # count, never in `value`); None when the answer gives none
 
 
 def count_tags(image_path: Path, tag_pattern: str, *, transport=None) -> CountResult:
@@ -83,12 +85,12 @@ def count_tags(image_path: Path, tag_pattern: str, *, transport=None) -> CountRe
 
 
 def count_sheet(image_path: Path, tag_patterns, *, transport=None,
-                crops: list[tuple[tuple[int, int, int, int], Path]] | None = None,
-                symbols_expected: dict[str, int] | None = None) -> dict[str, CountResult]:
+                crops: list[tuple[tuple[int, int, int, int], Path]] | None = None) -> dict[str, CountResult]:
     """Count every pattern of `tag_patterns` on one whole-sheet picture with ONE vision question (every tile as its
     own picture, every pattern together): {pattern: CountResult}, each as `count_tags` gives it. Every result is
     `CountResult(None, ())` when the sheet could not be counted (unreadable picture, a bad pattern, no transport,
     no usable answer yet). A pattern the answer leaves out is absent from the result (no count, not a count of 0).
+    `untagged` is the answer's own count of the equipment's symbols drawn with no tag, kept apart from `value`.
     Never raises."""
     patterns = list(dict.fromkeys(tag_patterns))
     unknown = {p: CountResult(None, ()) for p in patterns}
@@ -97,16 +99,16 @@ def count_sheet(image_path: Path, tag_patterns, *, transport=None,
             re.compile(pattern)
         if transport is None or not patterns:
             return unknown
-        asked = ask_sheet(transport, Path(image_path), patterns, crops=crops, symbols_expected=symbols_expected)
+        asked = ask_sheet(transport, Path(image_path), patterns, crops=crops)
         if asked is None:
             return unknown
-        found, listed = asked
+        found, listed, untagged = asked
         results = {}
         for pattern in patterns:
             if pattern not in listed:
                 continue          # the answer leaves this pattern out: no vision count for it
             boxes = _distinct([(text, box) for text, box in found if fits(pattern, text)])
-            results[pattern] = CountResult(len(boxes), tuple(boxes))
+            results[pattern] = CountResult(len(boxes), tuple(boxes), untagged.get(pattern))
         return results
     except Exception:
         return unknown
@@ -178,7 +180,9 @@ def load_proofs(cache: Path) -> list[dict]:
     """Every proof `cross_check` wrote under `cache`: dicts with `system_key`, `family`, `sheet` (the place),
     `picture` (the whole-sheet PNG), `proof` (the cropped PNG with the boxes, or None), `located_text` and
     `vision` (that sheet's counts, None when not counted), `located_tags` / `vision_tags`, `located_boxes` /
-    `vision_boxes` ({x, y, width, height, text} in the picture's pixels) and `source_ids` (the Refs' ids)."""
+    `vision_boxes` ({x, y, width, height, text} in the picture's pixels), `vision_untagged` (the symbols the
+    picture's answer saw drawn with no tag: its own count, never in `vision`; None when not given) and
+    `source_ids` (the Refs' ids)."""
     return load_manifest(cache)
 
 
@@ -247,6 +251,7 @@ class _Sheet:
     sheet: object = None             # the catalogue's Sheet
     seen: list | None = None         # (tag, box) on the picture; None when not counted
     counted: frozenset = frozenset() # the patterns the picture's answer counted (others were left out of it)
+    untagged: dict = dataclasses.field(default_factory=dict)  # pattern -> symbols the picture shows with no tag
 
 
 class _Check:
@@ -256,6 +261,7 @@ class _Check:
         self.pictured: dict[tuple[str, int], bool] = {}     # sheet key: mostly picture (`_mostly_picture`)
         self.listed: dict[str, set[str]] = {}               # pattern -> the families' own (expanded) tags
         self.groups: dict = {}                              # sheet key -> its plan group (`plan_groups`)
+        self.patterns: dict[tuple[str, str], str] = {}     # (system key, family name) -> the family's pattern
         used = [int(m.group(1)) for ref in _refs(job) if (m := re.fullmatch(r"C(\d+)", ref.source_id))]
         self.next_id = max(used, default=0) + 1
 
@@ -266,7 +272,7 @@ class _Check:
         if not families:
             return self.job
         owners = prefix_owners(f.tags for s in self.job.systems for f in s.families)
-        patterns = {}
+        patterns = self.patterns
         for system, family in families:
             pattern = family_pattern(family.tags, owners)
             if pattern is not None:
@@ -301,6 +307,7 @@ class _Check:
                             (f"{sheet.number} whole sheet, {doc} page {sheet.page} (picture)" if sheet.number
                              else f"{doc} page {sheet.page} (picture)"), sheet=sheet)
         if not sheets:
+            self._save_proofs([])
             return self.job
         for key, sheet in sheets.items():
             here = [patterns[f] for f, keys in on_sheet.items() if key in keys]
@@ -318,12 +325,16 @@ class _Check:
             new_system, ids = self._check_family(system, family, pattern, [sheets[k] for k in keys])
             job = job.with_system(new_system)
             entries += self._proofs(system.key, family.name, pattern, [sheets[k] for k in keys], ids)
-        if entries:
-            try:
-                save_manifest(self.cache, entries)
-            except Exception:
-                pass
+        self._save_proofs(entries)
         return job
+
+    def _save_proofs(self, entries: list[dict]) -> None:
+        """The manifest with every entry of the families checked on this run replaced by this run's (a sheet no
+        longer counted for a family leaves no proof behind beside a new count that may reuse its id)."""
+        try:
+            save_manifest(self.cache, entries, families=set(self.patterns))
+        except Exception:
+            pass
 
     # -- one sheet, both counts, every family on it at once
 
@@ -365,18 +376,18 @@ class _Check:
             if not (self.micro_crops and has_text):
                 results = count_sheet(sheet.picture, here, transport=self.transport)
             else:
-                symbols_expected = self._symbols_expected(here, sheet)
-                if symbols_expected or self._schedule_disagrees(here, sheet):
+                if self._short_of_schedule(here, sheet) or self._schedule_disagrees(here, sheet):
                     # the text is short of the schedule or disagrees with it: the whole sheet is asked, whatever
-                    # is ambiguous, so the picture count is independent of the text
-                    results = count_sheet(sheet.picture, here, transport=self.transport,
-                                          symbols_expected=symbols_expected)
+                    # is ambiguous, so the picture count is independent of the text (and is never told the
+                    # schedule's count)
+                    results = count_sheet(sheet.picture, here, transport=self.transport)
                 elif ambiguous:
                     self._confirm(sheet, here, confident, ambiguous, cut_micro_crops)
 
             if results and all(r.value is not None for r in results.values()):
                 sheet.counted = frozenset(results)
                 sheet.seen = [(b.text, (b.x, b.y, b.width, b.height)) for r in results.values() for b in r.boxes]
+                sheet.untagged = {p: r.untagged for p, r in results.items() if r.untagged is not None}
 
     def _confirm(self, sheet: _Sheet, here: list[str], confident, ambiguous, cut_micro_crops) -> None:
         """Ask micro-crops around the ambiguous text boxes, and keep in the located count only the ambiguous tags
@@ -448,30 +459,23 @@ class _Check:
         except Exception:
             return {}
 
-    def _symbols_expected(self, here: list[str], sheet: _Sheet) -> dict[str, int]:
-        symbols = {}
+    def _counted_here(self, here: list[str]):
+        """(the family's count, its pattern) for every family with a known count whose pattern is asked on this
+        sheet: matched by the family's own pattern (`family_pattern`, so a list, a range or a bare prefix is
+        matched as the check reads it), never the raw tag text."""
         for system in self.job.systems:
             for family in system.families:
-                if family.count.value is None or not family.tags:
-                    continue
-                for p in here:
-                    if any(fits(p, t) for t in family.tags):
-                        located_n = _located_count([sheet], p)
-                        if family.count.value > located_n:
-                            symbols[p] = family.count.value - located_n
-        return symbols
+                pattern = self.patterns.get((system.key, family.name))
+                if family.count.value is not None and pattern in here:
+                    yield family.count.value, pattern
+
+    def _short_of_schedule(self, here: list[str], sheet: _Sheet) -> bool:
+        """Whether the sheet's text shows fewer of a family's tags than its count: the whole sheet is then asked.
+        Only the choice of question: the count itself is never put to the picture."""
+        return any(value > _located_count([sheet], p) for value, p in self._counted_here(here))
 
     def _schedule_disagrees(self, here: list[str], sheet: _Sheet) -> bool:
-        for system in self.job.systems:
-            for family in system.families:
-                if family.count.value is None or not family.tags:
-                    continue
-                for p in here:
-                    if any(fits(p, t) for t in family.tags):
-                        located_n = _located_count([sheet], p)
-                        if located_n > 0 and family.count.value != located_n:
-                            return True
-        return False
+        return any((n := _located_count([sheet], p)) > 0 and value != n for value, p in self._counted_here(here))
 
     def _located(self, sheet: _Sheet, pattern: str, default_scale: float) -> list:
         import pymupdf
@@ -569,6 +573,7 @@ class _Check:
                 "located_tags": [b.text for b in located], "vision_tags": [b.text for b in seen],
                 "located_boxes": [dataclasses.asdict(b) for b in located],
                 "vision_boxes": [dataclasses.asdict(b) for b in seen],
+                "vision_untagged": sheet.untagged.get(pattern) if counted else None,
                 "source_ids": [ids[q] for q in (LOCATED_QUOTE, SEEN_QUOTE) if q in ids],
             })
         return entries
