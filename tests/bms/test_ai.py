@@ -993,6 +993,79 @@ def test_write_system_through_the_api_retries_once_with_the_reason(job, raw, dos
     assert len(written.devices) == 3
 
 
+def test_an_api_answer_that_passes_on_the_retry_is_reused_by_the_next_run(job, raw, dossier, playbook, tmp_path):
+    """AI-7: the good answer to the retry is kept under the question itself, so identical inputs give the same job."""
+    system = skeleton(job.system("EF"))
+    evidence = ai.evidence_for(system, dossier)
+    bad = _bad(raw, lambda a: a["devices"][0].update(slot="gadget"))
+    good_a = raw["systems"][1]
+    good_b = _bad(raw, lambda a: a["devices"][0].update(name="An invented other answer"))
+    first = FakeClient(_Response(json.dumps(bad)), _Response(json.dumps(good_a)))
+    one = ai.write_system(system, evidence, playbook, ai.ApiTransport(tmp_path, model="claude-test", client=first))
+    assert len(first.calls) == 2
+    second = FakeClient(_Response(json.dumps(good_b)))
+    two = ai.write_system(system, evidence, playbook, ai.ApiTransport(tmp_path, model="claude-test", client=second))
+    assert second.calls == []
+    assert [d.name for d in two.devices] == [d.name for d in one.devices]
+
+
+def test_a_schema_invalid_api_answer_is_counted_fed_back_and_stops(job, dossier, playbook, tmp_path):
+    """AI-8: an answer that breaks the schema is a refusal like any other: the retry carries the reason, the count
+    is saved, and at the cap the run stops without calling again."""
+    system = skeleton(job.system("EF"))
+    evidence = ai.evidence_for(system, dossier)
+    client = FakeClient(*(_Response(json.dumps({"invented": 1})) for _ in range(4)))
+
+    def run():
+        return ai.write_system(system, evidence, playbook,
+                               ai.ApiTransport(tmp_path, model="claude-test", client=client))
+
+    with pytest.raises(ai.NoAnswer) as first:
+        run()
+    assert len(client.calls) == 2 and "Stopped" not in first.value.reason
+    retry_prompt = client.calls[1]["messages"][0]["content"][0]["text"]
+    assert "could not be used" in retry_prompt and "could not be read" in retry_prompt
+    with pytest.raises(ai.NoAnswer) as third:
+        run()
+    assert len(client.calls) == 3 and "Stopped:" in third.value.reason and not third.value.waiting
+    with pytest.raises(ai.NoAnswer) as after:
+        run()
+    assert len(client.calls) == 3 and "Stopped:" in after.value.reason and not after.value.waiting
+
+
+def test_a_chat_rerun_without_a_new_answer_keeps_the_refusal_reason(job, raw, dossier, playbook, tmp_path):
+    """AI-9: the reason a chat answer was refused stays in the request on a re-run with nothing new, and after
+    a stop."""
+    system = skeleton(job.system("EF"))
+    evidence = ai.evidence_for(system, dossier)
+    cache = tmp_path / "cache"
+    with pytest.raises(ai.NoAnswer):
+        ai.write_system(system, evidence, playbook, ai.ChatTransport(cache, job="00-0000"))
+    (request_file,) = (cache / "judge-chat" / "requests").glob("*.json")
+    answer = Path(json.loads(request_file.read_text(encoding="utf-8"))["answer_file"])
+    answer.parent.mkdir(parents=True, exist_ok=True)
+    answer.write_text(json.dumps(_bad(raw, lambda a: a["devices"][0].update(slot="gadget"))), encoding="utf-8")
+    _stamp(answer, 10)
+    with pytest.raises(ai.NoAnswer):
+        ai.write_system(system, evidence, playbook, ai.ChatTransport(cache, job="00-0000"))
+    assert "gadget" in json.loads(request_file.read_text(encoding="utf-8"))["previous_problem"]
+
+    with pytest.raises(ai.NoAnswer) as waiting:
+        ai.write_system(system, evidence, playbook, ai.ChatTransport(cache, job="00-0000"))
+    assert waiting.value.waiting
+    assert "gadget" in json.loads(request_file.read_text(encoding="utf-8"))["previous_problem"]
+
+    for seconds in (20, 30):
+        _stamp(answer, seconds)
+        with pytest.raises(ai.NoAnswer) as stopped:
+            ai.write_system(system, evidence, playbook, ai.ChatTransport(cache, job="00-0000"))
+    assert "Stopped" in stopped.value.reason and not request_file.exists()
+    with pytest.raises(ai.NoAnswer) as again:
+        ai.write_system(system, evidence, playbook, ai.ChatTransport(cache, job="00-0000"))
+    assert again.value.waiting
+    assert "gadget" in json.loads(request_file.read_text(encoding="utf-8"))["previous_problem"]
+
+
 def test_a_shapeless_system_takes_any_slot(job, raw, dossier, playbook):
     system = dataclasses.replace(skeleton(job.system("EF")), shape="")
     answer = _bad(raw, lambda a: a["devices"][0].update(slot="fan_controller"))
