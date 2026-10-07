@@ -1,8 +1,11 @@
+from collections import Counter
+
 import pytest
 
 from estimator.catalogue.register import PageRecord
 from estimator.catalogue.sheet_types import Sheet
-from estimator.catalogue.tags import Equipment, TagEntry, find_tags, index_tags, unlisted_prefixes
+from estimator.catalogue.tags import (Equipment, TagEntry, find_tags, index_tags, label_key, label_keys, line_labels,
+                                      unlisted_prefixes)
 
 EQUIPMENT = Equipment.load()
 
@@ -110,3 +113,15 @@ def test_tags_sort_in_number_order():
 def test_codes_with_an_unlisted_prefix_are_counted_for_the_learn_check():
     counts = unlisted_prefixes(["FFCH-548 FFCH-549 AHU-1 MUH-05", "XYZ-1"], EQUIPMENT)
     assert counts["FFCH"] == 2 and counts["MUH"] == 1 and counts["XYZ"] == 1 and "AHU" not in counts
+
+
+def test_label_keys_keep_a_tag_with_its_digit_groups_in_order():
+    keys = label_keys(["VAV-1-11", "VAV-11-1"])
+    assert label_key("VAV-1-11") != label_key("VAV-11-1") and len(keys) == 2     # RD-5: not merged
+    assert line_labels("VAV-11-1", keys) == Counter({"VAV-11-1": 1})
+    assert line_labels("VAV-1-11", keys) == Counter({"VAV-1-11": 1})
+
+
+def test_label_key_still_ignores_the_spelling():
+    assert label_key("VAV 1") == label_key("VAV-1") == label_key("(N) VAV-1") == label_key("VAV#1")
+    assert label_key("VAV 1-11") == label_key("VAV-1-11") == label_key("VAV 1 - 11")
