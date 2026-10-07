@@ -405,11 +405,31 @@ def _header_under(system, shape, job, playbook) -> Iterator[Hit]:
                    "correct the device quantity.")
 
 
+def _family_under(system, shape, job, playbook) -> Iterator[Hit]:
+    """A device counted from a family (`counts.counted_from`: its quantity cites the family's count sources) whose
+    quantity is below the family's printed count: the line undershoots, and the line's quantity is what prints and
+    prices (AI-1: a changed family count left the lines at the old one). A device of unknown count is not this
+    check's."""
+    from bms.counts import counted_from
+    for d in system.devices:
+        n = d.quantity.highest()
+        if n is None:
+            continue
+        for f in system.families:
+            header = f.count.highest()
+            if header is not None and n < header and counted_from(d, f):
+                yield (d.id, "must_fix", f"{d.name}: device quantity {n} is counted from the {f.name} count but is "
+                       f"lower than it ({header})", f"Carry the {f.name} count of {header} on the line, or cite the "
+                       "source that gives the lower count.")
+                break
+
+
 _SYSTEM_RULES: tuple[tuple[str, Callable], ...] = (
     ("cites", _cites), ("owner", _owners), ("slot", _slots), ("subline", _sublines), ("packaged", _packaged), ("loose", _loose),
     ("damper", _dampers), ("heater", _heaters), ("vrf", _vrf), ("higher", _higher), ("unknown", _unknown),
     ("one_note", _one_note), ("assumption", _assumption), ("sequence", _sequence), ("left_out", _left_out),
     ("ids", _ids), ("long_note", _long_note), ("long_assumption", _long_assumption), ("header_under", _header_under),
+    ("header_under", _family_under),
 )
 
 _FRONT_END_RULES = ("cites", "owner", "assumption", "one_note", "ids", "long_note", "long_assumption")

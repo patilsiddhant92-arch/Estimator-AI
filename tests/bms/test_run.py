@@ -839,3 +839,37 @@ def test_a_revised_line_quoting_words_its_source_lacks_stays_open(job_folder, tm
     open_quotes = [f for f in result.findings if f.severity == "must_fix" and f.system_key == key
                    and "invented words no source of this job says" in f.what]
     assert len(open_quotes) == 1 and cited[0].strip("[]") in open_quotes[0].what
+
+
+def test_a_line_left_at_the_old_family_count_after_a_count_rewrite_takes_the_new_count():
+    """AI-1 safety net: the estimator changes the Exhaust Fan count from 3 to 5 and the count rewrite's answer
+    leaves a line counted from that family at 3 (or drops it, and it is put back at 3). The run gives it 5. A line
+    at another count, or one not counted from the family, keeps its count."""
+    from bms import run
+    from bms.model import Job
+    sample = Job.from_dict(json.loads((TESTS / "bms" / "fixtures" / "sample_job.json").read_text(encoding="utf-8")))
+    before = sample.system("EF")
+    family = before.families[0]
+    after = dataclasses.replace(before, families=(dataclasses.replace(
+        family, count=dataclasses.replace(family.count, value=5)),))
+    carried = run._carry_new_counts(before, after, after)
+    assert [(d.id, d.quantity.value) for d in carried.devices] == [("EF.d1", 5), ("EF.d2", 3), ("EF.d3", 2)]
+    assert carried.devices[0].quantity.sources == before.devices[0].quantity.sources
+    assert run._carry_new_counts(before, before, before) == before          # no family count changed
+
+
+def test_a_line_the_estimator_changed_keeps_its_typed_count_through_a_count_rewrite():
+    """AI-1: the estimator changes the Exhaust Fan count to 5 and, in the same save, types 3 on EF.d1. Neither the
+    rewrite's answer (5) nor the safety net replaces the typed count."""
+    from bms import run
+    from bms.model import Job
+    sample = Job.from_dict(json.loads((TESTS / "bms" / "fixtures" / "sample_job.json").read_text(encoding="utf-8")))
+    before = sample.system("EF")
+    family = before.families[0]
+    after = dataclasses.replace(before, families=(dataclasses.replace(
+        family, count=dataclasses.replace(family.count, value=5)),))
+    first = before.devices[0]
+    answered = dataclasses.replace(after, devices=(
+        dataclasses.replace(first, quantity=dataclasses.replace(first.quantity, value=5)), *after.devices[1:]))
+    carried = run._carry_new_counts(before, after, answered, frozenset({"EF.d1"}))
+    assert carried.devices[0].quantity == first.quantity

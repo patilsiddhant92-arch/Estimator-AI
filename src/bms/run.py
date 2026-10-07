@@ -57,9 +57,9 @@ from estimator.writing.judge import Judge
 
 from bms import ai, ai_evidence
 from bms.citations import device_refs, job_ids, job_sheets, job_tags, source_sheets
-from bms.counts import cross_check, flag_written_devices, publish_proofs
+from bms.counts import counted_from, cross_check, flag_written_devices, publish_proofs
 from bms.evidence import write_evidence
-from bms.model import Decision, Finding, Header, Job, ModelError
+from bms.model import Decision, Device, Finding, Header, Job, ModelError, System
 from bms.plan import plan_job
 from bms.playbook import load_playbook
 from bms.citations import SourceIds
@@ -155,6 +155,32 @@ def _revised(system, findings, evidence, playbook, transport, job=None, decision
 def _families_changed(before: Job, key: str, after: Job) -> bool:
     """True when a decision changed a family's count. A device edit does not."""
     return before.system(key).families != after.system(key).families
+
+
+def _carry_new_counts(before: System, after: System, rewritten: System, typed: frozenset[str] = frozenset()
+                      ) -> System:
+    """The count rewrite's system with every line still at a changed family's old count given the new one (AI-1,
+    the safety net under `ai.rewrite_for_count`): a line counted from the family as it was (`counts.counted_from`
+    on `before`'s family, since the estimator's count may cite other sources) whose quantity is the old count.
+    Only the number changes. A family is matched by name; one whose count was or is unknown changes nothing.
+    A line the estimator changed (its id in `typed`) keeps the count it has in `after`: a typed count is never
+    replaced, by the answer or by this net."""
+    changed = [(old, new) for old in before.families for new in after.families
+               if new.name == old.name and None not in (old.count.value, new.count.value)
+               and old.count.value != new.count.value]
+    own = {d.id: d.quantity for d in after.devices if d.id in typed}
+
+    def carried(device: Device) -> Device:
+        if device.id in own:
+            return device if device.quantity == own[device.id] else dataclasses.replace(device,
+                                                                                        quantity=own[device.id])
+        for old, new in changed:
+            if device.quantity.value == old.count.value and counted_from(device, old):
+                return dataclasses.replace(device, quantity=dataclasses.replace(device.quantity,
+                                                                                value=new.count.value))
+        return device
+    devices = tuple(carried(device) for device in rewritten.devices)
+    return rewritten if devices == rewritten.devices else dataclasses.replace(rewritten, devices=devices)
 
 
 def _count_note(decisions: tuple[Decision, ...] | list[Decision], key: str) -> str:
@@ -479,9 +505,14 @@ def _estimate(job_folder: Path, out: Path, cache: Path, mode: Mode, known: dict)
         if not _families_changed(decided_from, key, job):
             continue
         try:
-            rewritten = flag_written_devices(ai.rewrite_for_count(
+            # a line the answer left at the old count still gets the new one; a line the estimator changed keeps
+            # the count the estimator typed (AI-1)
+            typed = frozenset(d.device_id for d in decisions if d.system_key == key and d.action == "change"
+                              and d.device_id and d.device is not None)
+            asked = ai.rewrite_for_count(
                 system, f"{evidence[key]}\n\n{_count_note(decisions, key)}", playbook, transport,
-                tags=job_tags(job), ids=issued(job), sheets=sheets(job), source_sheets=source(job)))
+                tags=job_tags(job), ids=issued(job), sheets=sheets(job), source_sheets=source(job))
+            rewritten = flag_written_devices(_carry_new_counts(decided_from.system(key), system, asked, typed))
             standing = _standing_accepts(history, key, decided_from)    # accepted after it saw the new count
             if standing:
                 rewritten = apply_decisions(job.with_system(rewritten), standing).system(key)
