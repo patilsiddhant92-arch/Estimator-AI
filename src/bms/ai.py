@@ -372,8 +372,9 @@ def _stop_reason(name: str, attempts: int, reason: str, counter: Path | None = N
             where += f" The refusals are counted in {counter}."
     else:
         where = f" To ask this question again, delete {counter}." if counter is not None else ""
+    changed = "new evidence, a changed Playbook" if chat else "new evidence, a changed Playbook, another model"
     return (f"Stopped: the request {name} was refused {attempts} times. {reason}.{where}"
-            " A changed question (new evidence, a changed Playbook, another model) starts a new count.")
+            f" A changed question ({changed}) starts a new count.")
 
 
 def _is_chat(transport) -> bool:

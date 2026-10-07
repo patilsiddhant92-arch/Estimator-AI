@@ -170,11 +170,14 @@ def waiting_requests(requests: Path, job: str, attempts: dict, text: str = "") -
     the run crashed (`text` holds a Traceback) nothing is judged: no answer is deleted and no attempt counted."""
     waiting = []
     crashed = "Traceback" in text
+    present = set()                  # keys of every request file still there (any job)
     for path in sorted(requests.glob("*.json")):
         try:
             request = _load(path)
         except ValueError:
             continue
+        if isinstance(request, dict) and request.get("key"):
+            present.add(request["key"])
         if not isinstance(request, dict) or request.get("job") != job:
             continue
         answer = request.get("answer_file", "")
@@ -193,7 +196,13 @@ def waiting_requests(requests: Path, job: str, attempts: dict, text: str = "") -
             if key:
                 attempts[key] = attempts.get(key, 0) + 1
             entry |= {"rejected": True, "reason": _reason(text, request.get("system"))}
+        elif (not crashed and request.get("key") and not request.get("previous_problem")
+              and not (answer and answer_path.exists())):
+            attempts.pop(request["key"], None)      # a fresh question: an earlier run's count does not carry over
         waiting.append(entry | {"attempts": attempts.get(request.get("key"), 0)})
+    if not crashed:
+        for key in [k for k in attempts if k not in present]:
+            del attempts[key]                       # its request was used: nothing left to count
     return waiting
 
 
@@ -219,8 +228,9 @@ def cmd_status(args) -> int:
     waiting = []
     if requests.is_dir():
         (requests / OUT_MARKER).write_text(str(out.resolve()), encoding="utf-8")
+        before = dict(attempts)
         waiting = waiting_requests(requests, job_name(args.job), attempts, text)
-        if any(w.get("rejected") for w in waiting):
+        if attempts != before:
             (out / ATTEMPTS).write_text(json.dumps(attempts, indent=1), encoding="utf-8")
     proposal = None
     if not waiting:
@@ -234,6 +244,7 @@ def cmd_status(args) -> int:
 
 
 def main(argv=None) -> int:
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")     # a piped Windows console is cp1252
     parser = argparse.ArgumentParser(prog="run_job")
     sub = parser.add_subparsers(dest="command", required=True)
     st = sub.add_parser("status")

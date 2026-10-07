@@ -104,3 +104,40 @@ def test_a_stop_names_the_decisions_stage():
 def test_the_skill_stops_when_nothing_waits_and_no_proposal_was_written():
     text = Path(".claude/skills/run-job/SKILL.md").read_text(encoding="utf-8")
     assert "no waiting requests and no proposal: report the last summary and stop" in text
+
+
+def test_an_earlier_runs_attempt_count_does_not_carry_over_to_a_fresh_request(tmp_path):
+    sys.path.insert(0, "tools")
+    import run_job
+    (tmp_path / "k.json").write_text(json.dumps(
+        {"key": "k", "kind": "qc_job", "job": "26-0001", "system": None, "answer_file": str(tmp_path / "k-ans.json")}),
+        encoding="utf-8")
+    attempts = {"k": 3, "gone": 2}
+    waiting = run_job.waiting_requests(tmp_path, "26-0001", attempts, "")
+    assert waiting[0]["attempts"] == 0 and attempts == {}
+
+
+def test_a_retry_of_a_refused_answer_keeps_its_count(tmp_path):
+    sys.path.insert(0, "tools")
+    import run_job
+    (tmp_path / "k.json").write_text(json.dumps(
+        {"key": "k", "kind": "qc_job", "job": "26-0001", "system": None, "previous_problem": "no",
+         "answer_file": str(tmp_path / "k-ans.json")}), encoding="utf-8")
+    attempts = {"k": 2}
+    assert run_job.waiting_requests(tmp_path, "26-0001", attempts, "")[0]["attempts"] == 2
+
+
+def test_status_prints_its_json_block_on_a_cp1252_console(tmp_path):
+    """A fake estimate prints a character cp1252 cannot hold; the JSON block still comes out, parseable."""
+    pkg = tmp_path / "fake" / "bms"
+    pkg.mkdir(parents=True)
+    (pkg / "__init__.py").write_text("", encoding="utf-8")
+    (pkg / "__main__.py").write_text("import sys\nsys.stdout.reconfigure(encoding='utf-8')\nprint('count \u2265 5')\n",
+                                     encoding="utf-8")
+    env = dict(os.environ, PYTHONIOENCODING="cp1252", PYTHONPATH=str(tmp_path / "fake"))
+    run = subprocess.run([sys.executable, "tools/run_job.py", "status", str(tmp_path / "26-0001"), "--out",
+                          str(tmp_path / "out")], capture_output=True, env=env)
+    text = run.stdout.decode("utf-8").replace(chr(13) + chr(10), chr(10))
+    assert run.returncode == 0, run.stderr
+    block = json.loads(text[text.index('{\n "waiting"'):])
+    assert block["waiting"] == [] and block["exit"] == 0

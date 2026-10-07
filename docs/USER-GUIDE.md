@@ -111,7 +111,10 @@ question (the number is `max_attempts` in `.claude/run-job.json`) the run stops 
 - In chat mode (the usual way), the next run asks the question again by itself.
 - In API mode, delete the counter file the message names, then run again.
 
-A changed Playbook, new documents or another model make it a new question, which starts a new count.
+A changed Playbook or new documents make it a new question, which starts a new count. In chat mode the question
+is always put to the same chat model, so a different model never makes a new question there; the same question is
+asked again, with the reason it was refused, until the 3 attempts are used. (In API mode a different model does make
+a new question.)
 
 ## The rules it follows
 

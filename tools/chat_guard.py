@@ -12,6 +12,7 @@ written back to chat.txt. Exit code 0 = nothing wrong, 3 = the chat had been ove
 from __future__ import annotations
 
 import argparse
+import os
 import re
 import sys
 from pathlib import Path
@@ -42,6 +43,21 @@ def reconcile(history: str, current: str) -> tuple[str, bool]:
     return history.rstrip("\n") + "\n\n" + "\n\n".join(extra) + "\n", True
 
 
+def write_if_unchanged(chat: Path, text: str, expected: str) -> bool:
+    """Replace chat.txt with `text` only while it still holds `expected`: the text goes to a temporary file beside it
+    first (LF line ends, as chat_post writes), chat.txt is read again, and only then is the file swapped in whole.
+    False (nothing replaced) when someone appended in the meantime."""
+    tmp = chat.with_name(chat.name + ".tmp")
+    try:
+        tmp.write_text(text, encoding="utf-8", newline="\n")
+        if chat.read_text(encoding="utf-8") != expected:
+            return False
+        os.replace(tmp, chat)
+        return True
+    finally:
+        tmp.unlink(missing_ok=True)
+
+
 def run(chat: Path, archive: Path, check_only: bool = False) -> int:
     archive.mkdir(parents=True, exist_ok=True)
     history_file = archive / "chat.history.txt"
@@ -52,11 +68,10 @@ def run(chat: Path, archive: Path, check_only: bool = False) -> int:
         print(f"ALERT: {chat} was overwritten or truncated ({len(current)} bytes now, history holds {len(history)}).")
         if check_only:
             return 3
-        if chat.read_text(encoding="utf-8") != current:          # someone appended while we worked: look again
+        if not write_if_unchanged(chat, merged, current):         # someone appended while we worked: look again
             return run(chat, archive, check_only)
-        chat.write_text(merged, encoding="utf-8")
         print(f"Restored: {len(merged)} bytes written back.")
-    history_file.write_text(merged, encoding="utf-8")
+    history_file.write_text(merged, encoding="utf-8", newline="\n")
     return 3 if overwritten else 0
 
 

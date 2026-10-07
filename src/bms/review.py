@@ -456,9 +456,23 @@ the same line replaces the earlier one.</div><div id="saved"></div></header>
 # ---- the decisions ----------------------------------------------------------------------------------------------
 
 
+def _changes_nothing(decision: Decision) -> str | None:
+    """A plain reason when the decision could change nothing (so it is a mistake, not an answer), else None. A
+    change of a device carries the new `device`; a change of a family carries a `count` or words (`reason`: the page
+    saves a words-only family change with no count); a family belongs to a system."""
+    if decision.family_name is not None:
+        if decision.system_key == "":
+            return f"the family {decision.family_name!r} belongs to a system, but system_key is empty"
+        if decision.action == "change" and decision.count is None and not decision.reason.strip():
+            return f"a change of the {decision.family_name!r} count has no count and no words, so it changes nothing"
+    elif decision.device_id is not None and decision.action == "change" and decision.device is None:
+        return f"a change of device {decision.device_id!r} has no device, so it changes nothing"
+    return None
+
+
 def load_decisions(out_dir: Path) -> list[Decision]:
     """The decisions in `out_dir/decisions.json` (a JSON list of Decision dicts); [] when the file is missing.
-    Raises `bms.model.ModelError` naming the entry when one is malformed."""
+    Raises `bms.model.ModelError` naming the entry when one is malformed or could change nothing."""
     path = Path(out_dir) / DECISIONS_FILE
     if not path.is_file():
         return []
@@ -473,9 +487,12 @@ def load_decisions(out_dir: Path) -> list[Decision]:
     out: list[Decision] = []
     for n, entry in enumerate(data):
         try:
-            out.append(Decision.from_dict(entry))
+            decision = Decision.from_dict(entry)
         except ModelError as error:
             raise ModelError(f"{DECISIONS_FILE}: decisions[{n}]: {error}") from None
+        if (problem := _changes_nothing(decision)) is not None:
+            raise ModelError(f"{DECISIONS_FILE}: decisions[{n}]: {problem}")
+        out.append(decision)
     return out
 
 

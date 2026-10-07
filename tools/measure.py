@@ -213,6 +213,7 @@ def _rendered_from(source: Path) -> list[RenderedLine]:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")     # a piped Windows console is cp1252
     args = list(sys.argv[1:] if argv is None else argv)
     if args and args[0] in ("-h", "--help"):
         print(__doc__)

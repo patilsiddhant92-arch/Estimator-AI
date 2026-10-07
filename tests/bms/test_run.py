@@ -897,3 +897,27 @@ def test_a_renamed_line_still_takes_a_changed_family_count():
     counted = dataclasses.replace(first, quantity=dataclasses.replace(first.quantity, value=4))
     typed = [Decision("EF", "change", device_id="EF.d1", device=counted, was=first)]
     assert run._typed_counts(typed, "EF", sample) == frozenset({"EF.d1"})
+
+
+def test_a_run_says_it_wrote_each_file_it_touched_under_out(job_folder, tmp_path, monkeypatch, capsys):
+    """Job.json, the decisions history, the count proofs' manifest and the run state each get a "Wrote" line."""
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    out, cache = tmp_path / "out", tmp_path / "cache"
+    assert _reach(job_folder, out, cache, "write").stage == "write"
+    key = json.loads(sorted((cache / "judge-chat" / "requests").glob("*.json"))[0].read_text(encoding="utf-8"))["plan_key"]
+    _plant(cache, {key: ("Controller", "Start Stop")})
+    (out / "decisions.json").write_text(json.dumps([{
+        "system_key": key, "action": "accept", "device_id": f"{key}.d1", "reason": "invented"}]), encoding="utf-8")
+    capsys.readouterr()
+    result = estimate(job_folder, out, cache, "chat")
+    for _ in range(25):
+        if result.status == "done":
+            break
+        assert answer_all(cache)
+        result = estimate(job_folder, out, cache, "chat")
+    assert result.status == "done"
+    printed = capsys.readouterr().out
+    for path in (result.job_file, out / "decisions history.json", out / "count-proofs" / "proofs.json",
+                 out / "run state.json"):
+        assert path.exists(), path
+        assert f"Wrote {path}" in printed.splitlines(), path
