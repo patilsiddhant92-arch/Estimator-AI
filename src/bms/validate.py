@@ -98,7 +98,11 @@ def _cites(system, shape, job, playbook) -> Iterator[Hit]:
             yield (d.id, "must_fix", f"{d.name} has no usable citation from this job",
                    "Cite the passage of this job's documents that calls for it, or delete the line.")
         elif any(not r.source_id.strip() or not r.quote.strip() or not r.where.strip() for r in d.refs):
-            yield (d.id, "must_fix", f"a citation of {d.name} is missing its source id, quote or place",
+            # a ref missing only its place on a front-end device (system key "") is the planner's, which no writer
+            # can fix (plan_read.where gives "" for an id not in the ledger): a check, not a must_fix
+            placeless = all(r.source_id.strip() and r.quote.strip() for r in d.refs)
+            severity = "check" if placeless and not system.key else "must_fix"
+            yield (d.id, severity, f"a citation of {d.name} is missing its source id, quote or place",
                    "Cite the passage of this job's documents that calls for it, with its source id, the quote and "
                    "where it is, or delete the line.")
 

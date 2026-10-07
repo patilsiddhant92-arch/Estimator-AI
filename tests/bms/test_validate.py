@@ -465,3 +465,15 @@ def test_an_unknown_device_quantity_with_no_clarification_is_a_check(job):
     assert rules(validate(j2, PB), RULE["unknown"]) == []
     j3 = edit_device(job, "EF", "EF.d2", quantity=Count(None))
     assert rules(validate(j3, PB), RULE["unknown"]) == []
+
+
+def test_a_front_end_citation_with_no_place_is_a_check(job):
+    """VAL-13: a front-end ref comes from the planner, which no writer can fix: an empty where there is a check;
+    an empty source id or quote stays a must_fix."""
+    fe = job.front_end
+    d = dc.replace(fe.devices[0], refs=(Ref("S9", "quote", ""),))
+    j = dc.replace(job, front_end=dc.replace(fe, devices=(d,) + fe.devices[1:]))
+    assert rules(validate(j, PB), RULE["cites"]) == [(RULE["cites"], "", d.id, "check")]
+    d2 = dc.replace(d, refs=(Ref("", "quote", ""),))
+    j2 = dc.replace(job, front_end=dc.replace(fe, devices=(d2,) + fe.devices[1:]))
+    assert rules(validate(j2, PB), RULE["cites"]) == [(RULE["cites"], "", d2.id, "must_fix")]
