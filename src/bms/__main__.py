@@ -69,11 +69,17 @@ def _estimate(args: argparse.Namespace) -> int:
     from bms.run import estimate
     try:
         result = estimate(args.job, args.out, _cache(args), args.mode)
-    except ValueError as error:
-        if not str(error).startswith("Stopped:"):
-            raise
-        print(error)
-        return 1
+    except (PermissionError, FileNotFoundError, ValueError) as error:
+        stopped = getattr(error, "run_result", None)     # the run ended as stopped, at its step (bms.run.estimate)
+        if stopped is not None:
+            for line in stopped.messages:
+                print(line)
+            print(f"Stopped at the {stopped.stage} step.")
+            return 1
+        if isinstance(error, ValueError) and str(error).startswith("Stopped:"):
+            print(error)                                 # refused before the run began (a folder inside the repo)
+            return 1
+        raise
     for line in result.messages:
         print(line)
     if result.status == "waiting":
