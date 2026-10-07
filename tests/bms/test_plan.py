@@ -1279,3 +1279,147 @@ def test_a_shorter_schedule_tag_list_keeps_the_seeds_plan_tags_in_the_plan():
     vav = next(f for s in job.systems for f in s.families if "VAV-1" in f.tags)
     assert vav.count.value is None or vav.count.value >= 12
     assert any("VAV-11" in q and "10" in q for q in job.questions)
+
+
+# ---- a tag names its own block; a VRF group stays whole; a clear name beats a prefix (PLN-4, 6, 7, 8) ------------
+
+def test_a_link_exception_or_provider_naming_a_tag_lands_on_the_block_holding_that_tag():
+    """A group holding EF-1 does not take what the documents say of EF-2: the block holding EF-2 does (PLN-4)."""
+    ledger = _ledger()
+    _family(ledger, "EF", "Exhaust Fan", "EF-1, EF-2", 2)
+    _family(ledger, "AHU", "Air Handling Unit", "AHU-1", 1)
+    _family(ledger, "MD", "Motorized Damper", "MD-1, MD-2", 2, source="S2")
+    ledger.add("group", "AHU-1 Plant", "AHU, EF (EF-1)", "S5", "AHU-1 plant riser", "risers", SETTLED)
+    ledger.add("link", "MD-1", "EF-2", "S2", "MD-1 at EF-2", "plans", SETTLED)
+    ledger.add("note", "exception", "EF-2 controls by others", "S4", "EF-2 by others", "spec", SETTLED)
+    ledger.add("provider", "EF-2", "furnished with the unit", "S4", "furnished with the unit", "spec", SETTLED)
+    job = _plan(ledger)
+    systems = _by_key(job)
+    plant, ef = systems["AHU-1 Plant"], systems["EF"]
+    assert [f.tags for f in plant.families] == [("EF-1",), ("AHU-1",)]
+    assert [f.tags for f in ef.families] == [("EF-2",), ("MD-1",)]
+    assert systems["MD"].families[0].tags == ("MD-2",)
+    (exception,) = job.exceptions
+    assert exception.system_key == "EF"
+    assert ef.control == "packaged" and plant.control == "field"
+    # a provider fact naming the family by its prefix alone still reaches every block of the family
+    ledger.add("provider", "AHU", "factory controls by the unit manufacturer", "S4", "factory", "spec", SETTLED)
+    assert _by_key(_plan(ledger))["AHU-1 Plant"].control == "packaged"
+
+
+def test_a_vrf_group_with_indoor_and_outdoor_sections_stays_one_block():
+    """A VRF group's indoor and outdoor units each matching a sequence section of their own are still one VRF block
+    carrying both sections; the join is asked, naming every member (PLN-6)."""
+    ledger = _ledger()
+    _family(ledger, "CU", "VRF Condensing Unit", "CU-1", 1)
+    _family(ledger, "FCU", "VRF Indoor Unit", "FCU-1 thru 4", 4)
+    _family(ledger, "BS", "Branch Selector Box", "BS-1", 1)
+    ledger.add("group", "VRF System", "CU, FCU, BS", "S5", "VRF riser", "risers", SETTLED)
+    ledger.add("sequence_match", "VRF OUTDOOR UNITS", "CU", "Q1", "VRF OUTDOOR UNITS", "sequence", SETTLED)
+    ledger.add("sequence_match", "VRF INDOOR UNITS", "FCU", "Q2", "VRF INDOOR UNITS", "sequence", SETTLED)
+    job = _plan(ledger)
+    (vrf,) = job.systems
+    assert vrf.key == "VRF System" and vrf.shape == "VRF System" and vrf.control == "integration"
+    assert {f.name for f in vrf.families} == {"Indoor Unit", "Condensing Unit", "Branch Selector"}
+    assert {r.source_id for r in vrf.sequence_refs} == {"Q1", "Q2"}
+    (asked,) = [q for q in job.questions if "VRF System" in q]
+    assert all(p in asked for p in ("CU", "FCU", "BS")) and "onfirm" in asked
+
+
+def test_a_group_split_apart_names_every_member_in_its_question():
+    ledger = _ledger()
+    _family(ledger, "RTU", "Rooftop Unit", "RTU-1", 1)
+    _family(ledger, "EF", "Exhaust Fan", "EF-1", 1)
+    _family(ledger, "UH", "Unit Heater", "UH-1", 1)
+    ledger.add("group", "corridor air", "RTU, EF, UH", "S5", "corridor air", "risers", SETTLED)
+    ledger.add("sequence_match", "ROOFTOP UNITS", "RTU", "Q5", "ROOFTOP UNITS", "sequence", SETTLED)
+    ledger.add("sequence_match", "EXHAUST FANS", "EF", "Q1", "EXHAUST FANS", "sequence", SETTLED)
+    job = _plan(ledger)
+    assert [s.key for s in job.systems] == ["RTU", "EF", "UH"]
+    (asked,) = [q for q in job.questions if "corridor air" in q]
+    assert "RTU, EF, UH" in asked
+
+
+def _with_shapes(*shapes):
+    return dataclasses.replace(PLAYBOOK, shapes={**PLAYBOOK.shapes, **{s.name: s for s in shapes}})
+
+
+def _shape(name, prefixes, kind_words):
+    return Shape(name=name, prefixes=prefixes, kind_words=kind_words, header="{name}", family_names=(name,),
+                 line_order=("comm",), slot_kinds={"comm": "wiring"}, wording={"comm": "{verb} {device}"},
+                 tech_hours=TechHours("unit", 1.0))
+
+
+def test_condensate_pumps_joining_a_lone_split_unit_keep_its_split_shape():
+    """A lone split unit is its own block; condensate pumps of its number join it, and it keeps the split shape:
+    only a block of condensate pumps alone never takes it (PLN-7)."""
+    playbook = _with_shapes(_shape("Split System", ("AC", "ACCU"), ("split system",)))
+    ledger = _ledger()
+    _family(ledger, "AC", "Air Conditioning Unit", "AC-21", 1)
+    _family(ledger, "CP", "Condensate Pump", "CP-21", 1)
+    job = _plan(ledger, playbook)
+    (ac,) = job.systems
+    assert ac.key == "AC" and [f.tags for f in ac.families] == [("AC-21",), ("CP-21",)]
+    assert ac.shape == "Split System"
+
+
+def test_a_family_named_otherwise_is_not_gathered_by_prefix():
+    """A Dehumidifier tagged DH is no duct heater, an Air Curtain tagged AC no split unit: a clear family name beats
+    a prefix when the planner gathers blocks (PLN-8). A VRF indoor unit no group took is still a split unit."""
+    playbook = _with_shapes(_shape("Air Curtain", ("ACU",), ("air curtain",)))
+    ledger = _ledger()
+    _family(ledger, "SS", "Indoor Unit", "SS-1", 1)
+    _family(ledger, "ACCU", "Outdoor Unit", "ACCU-1", 1)
+    _family(ledger, "IU", "VRF Indoor Unit", "IU-1", 1)
+    _family(ledger, "AC", "Air Curtain", "AC-1", 1)
+    _family(ledger, "EDH", "Electric Duct Heater", "EDH-1", 1)
+    _family(ledger, "RH", "Reheat Duct Heater", "RH-1", 1)
+    _family(ledger, "DH", "Dehumidifier", "DH-1", 1)
+    systems = _by_key(_plan(ledger, playbook))
+    assert [f.tags for f in systems["Split System"].families] == [("SS-1",), ("ACCU-1",), ("IU-1",)]
+    assert [f.tags for f in systems["Duct Heaters"].families] == [("EDH-1",), ("RH-1",)]
+    assert systems["AC"].families[0].tags == ("AC-1",)
+    assert systems["DH"].families[0].tags == ("DH-1",)
+    # a heater with only a general name still joins by its prefix
+    ledger = _ledger()
+    _family(ledger, "EDH", "Electric Duct Heater", "EDH-1", 1)
+    _family(ledger, "DH", "Heater", "DH-1", 1)
+    assert [f.tags for f in _by_key(_plan(ledger))["Duct Heaters"].families] == [("EDH-1",), ("DH-1",)]
+
+
+def test_a_plant_group_with_a_condensing_boiler_and_a_fan_coil_is_still_split_apart():
+    """Only a split, condensing or branch prefix makes a member a VRF or split system's outdoor unit (PLN-6)."""
+    ledger = _ledger()
+    _family(ledger, "B", "Condensing Boiler", "B-1", 1)
+    _family(ledger, "FCU", "Fan Coil Unit", "FCU-1", 1)
+    ledger.add("group", "Heating Plant", "B, FCU", "S5", "heating plant", "risers", SETTLED)
+    ledger.add("sequence_match", "HEATING PLANT", "B", "Q2", "HEATING PLANT", "sequence", SETTLED)
+    ledger.add("sequence_match", "ROOFTOP UNITS", "FCU", "Q5", "ROOFTOP UNITS", "sequence", SETTLED)
+    assert [s.key for s in _plan(ledger).systems] == ["B", "FCU"]
+
+
+def test_a_ducted_split_indoor_unit_scheduled_as_an_air_handling_unit_stays_a_split_unit():
+    playbook = _with_shapes(_shape("Air Handling Unit", ("AHU",), ("air handling unit",)))
+    ledger = _ledger()
+    _family(ledger, "SS", "Air Handling Unit", "SS-1", 1)
+    _family(ledger, "ACCU", "Outdoor Unit", "ACCU-1", 1)
+    (split,) = _plan(ledger, playbook).systems
+    assert split.key == "Split System"
+
+
+def test_a_block_refused_by_its_name_takes_the_shape_its_name_gives_with_the_real_playbook():
+    """PLN-8: an Air Curtain tagged AC is never a Split System, a Dehumidifier tagged DH never a Duct Heater; each
+    takes the shape its name gives (or none). Real split units and duct heaters keep theirs."""
+    playbook = load_playbook()
+    ledger = _ledger()
+    _family(ledger, "AC", "Air Curtain", "AC-1", 1)
+    _family(ledger, "DH", "Dehumidifier", "DH-1", 1)
+    _family(ledger, "SS", "Indoor Unit", "SS-1", 1)
+    _family(ledger, "ACCU", "Outdoor Unit", "ACCU-1", 1)
+    _family(ledger, "EDH", "Electric Duct Heater", "EDH-1", 1)
+    systems = _by_key(_plan(ledger, playbook))
+    assert systems["AC"].shape == "Air Curtain"
+    assert systems["DH"].shape not in ("Duct Heater", "Split System")
+    by_name = playbook.shape_for("Dehumidifier", [])
+    assert systems["DH"].shape == (by_name.name if by_name is not None else "")
+    assert systems["Split System"].shape == "Split System" and systems["EDH"].shape == "Duct Heater"
