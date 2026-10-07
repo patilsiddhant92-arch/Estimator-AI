@@ -1342,3 +1342,89 @@ def test_a_chat_answer_file_fills_only_a_missing_late_field(tmp_path):
     rejected, problems = _read_answer(path, schema)
     assert rejected is None and any("serves" in problem for problem in problems)
 
+
+
+# ---- AI-3 and AI-4: every quantity id and every quote is checked against the evidence ----------------------------
+
+def _invented_quantity(answer):
+    answer["devices"][2]["quantity"] = {"value": 7, "sources": [{"source_id": "F999", "quote": "x", "where": "y"}],
+                                        "others": [{"value": 9, "ref": {"source_id": "I999", "quote": "x",
+                                                                        "where": "y"}}]}
+
+
+def test_a_quantity_citing_ids_the_evidence_lacks_is_refused(job, raw, dossier, playbook):
+    reason = _refused(skeleton(job.system("EF")), dossier, playbook, _bad(raw, _invented_quantity))
+    assert "F999" in reason and "I999" in reason
+
+
+def test_a_quantity_keeps_the_plan_count_checks_own_records(job, raw, dossier, playbook):
+    from bms.counts import NO_SOURCE_QUOTE
+    def change(a):
+        a["devices"][2]["quantity"]["others"] = [{"value": 9, "ref": {"source_id": "", "quote": NO_SOURCE_QUOTE,
+                                                                      "where": ""}}]
+    assert len(_written(job, raw, dossier, playbook, change).devices) == 3
+
+
+def test_an_invented_quantity_id_from_the_earlier_answer_is_not_citable_in_a_revise(job, raw, dossier, playbook):
+    raw["systems"][1]["devices"][2]["quantity"]["sources"].append({"source_id": "F999", "quote": "x", "where": "y"})
+    system = Job.from_dict(raw).system("EF")
+    answer = copy.deepcopy(raw["systems"][1])
+    answer["devices"][2]["quantity"]["sources"].pop()
+    answer["devices"][2]["refs"] = [{"source_id": "F999", "quote": "x", "where": "y"}]
+    finding = Finding("Dampers under their fan", "EF", "EF.d3", "must_fix", "w", "f")
+    with pytest.raises(ai.NoAnswer) as refused:
+        ai.revise_system(system, [finding], ai.evidence_for(system, dossier), playbook, FakeTransport(answer))
+    assert "F999" in refused.value.reason
+
+
+def test_qc_finds_a_quantity_citing_an_id_no_source_or_planner_gave(job, raw, dossier, playbook):
+    raw["systems"][1]["devices"][2]["quantity"]["others"] = [
+        {"value": 9, "ref": {"source_id": "I999", "quote": "x", "where": "y"}}]
+    raw["systems"][1]["devices"][0]["quantity"]["sources"].append({"source_id": "F999", "quote": "x", "where": "y"})
+    findings = ai.qc_job(Job.from_dict(raw), ai.evidence_index(dossier), playbook, FakeTransport({"findings": []}))
+    assert [(f.system_key, f.device_id, f.severity) for f in findings] == [("EF", "EF.d1", "must_fix"),
+                                                                           ("EF", "EF.d3", "must_fix")]
+    assert "F999" in findings[0].what and "I999" in findings[1].what
+
+
+def test_qc_passes_a_ledger_fact_the_planner_gave_and_a_picture_of_the_job(job, raw, dossier, playbook):
+    fact = {"source_id": "F17", "quote": "duct heaters by the electrical contractor", "where": "ledger fact"}
+    raw["systems"][1]["sequence_refs"].append(fact)
+    raw["systems"][1]["devices"][0]["refs"].append(fact)
+    raw["systems"][1]["devices"][1]["refs"].append({"source_id": "I1", "quote": "the sheet", "where": "M-102"})
+    findings = ai.qc_job(Job.from_dict(raw), ai.evidence_index(dossier), playbook, FakeTransport({"findings": []}))
+    assert findings == []
+
+
+def _misquoted(answer):
+    answer["devices"][2]["refs"] = [{"source_id": "S7", "quote": "MD-1 shall be a smoke damper",
+                                     "where": "M-101, Drawings.pdf page 2"}]
+
+
+def test_a_write_answer_quoting_words_its_source_lacks_is_refused(job, raw, dossier, playbook):
+    reason = _refused(skeleton(job.system("EF")), dossier, playbook, _bad(raw, _misquoted))
+    assert "S7" in reason and "MD-1 shall be a smoke damper" in reason
+
+
+def test_a_revise_answer_quoting_words_its_source_lacks_is_refused(job, raw, dossier, playbook):
+    system = job.system("EF")
+    finding = Finding("Dampers under their fan", "EF", "EF.d3", "must_fix", "w", "f")
+    with pytest.raises(ai.NoAnswer) as refused:
+        ai.revise_system(system, [finding], ai.evidence_for(system, dossier), playbook,
+                         FakeTransport(_bad(raw, _misquoted)))
+    assert "S7" in refused.value.reason and "MD-1 shall be a smoke damper" in refused.value.reason
+
+
+def test_a_quote_of_a_sequence_section_is_checked_against_its_paragraphs(job, raw, dossier, playbook):
+    def change(a):
+        a["devices"][0]["refs"] = [{"source_id": "Q2", "quote": "when EF-1 runs, MD-1 shall open",
+                                    "where": "23 09 93, Specs.pdf page 10"}]
+    assert len(_written(job, raw, dossier, playbook, change).devices) == 3
+
+
+def test_a_sequence_section_holds_only_its_own_paragraphs_at_intake(job, raw, dossier, playbook):
+    system = skeleton(job.system("CUH"))
+    answer = copy.deepcopy(next(s for s in raw["systems"] if s["key"] == "CUH"))
+    answer["devices"][0]["refs"] = [{"source_id": "Q4", "quote": "A 1500", "where": "23 09 93, Specs.pdf page 12"}]
+    reason = _refused(system, dossier, playbook, answer)
+    assert "Q4" in reason and "A 1500" in reason

@@ -499,8 +499,9 @@ def _estimate(job_folder: Path, out: Path, cache: Path, mode: Mode, known: dict)
     # validate and QC
     known["stage"] = "qc"
     findings = validate(job, playbook)
+    index = ai.evidence_index(dossier)
     try:
-        qc = ai.qc_job(job, ai.evidence_index(dossier), playbook, transport)
+        qc = ai.qc_job(job, index, playbook, transport)
     except ai.NoAnswer as missing:
         save(job)
         return RunResult("waiting", "qc", waiting=transport.waiting, job_file=job_file, findings=tuple(findings),
@@ -565,6 +566,10 @@ def _estimate(job_folder: Path, out: Path, cache: Path, mode: Mode, known: dict)
                          messages=(*notes, *pending))
     findings = validate(job, playbook)
     open_qc = [f for f in qc if f.severity != "must_fix" or _untouched(f, written, job)]
+    # the revised job's quotes, checked again: a revise that changed a line closes its QC finding, never the check
+    known_qc = {(f.rule, f.system_key, f.device_id, f.what) for f in open_qc}
+    open_qc += [f for f in ai.quote_findings(job, index, playbook)
+                if (f.rule, f.system_key, f.device_id, f.what) not in known_qc]
     id_cards = [_id_change_card(*found) for found in _ids_in_changes(job, decisions)]
     all_findings = tuple([*id_cards, *findings, *open_qc, *unhonored_decisions(decided_from, early, job, copies=copies),
                           *unhonored_decisions(revised_job, checked_late, job, copies=copies), *rechecks])

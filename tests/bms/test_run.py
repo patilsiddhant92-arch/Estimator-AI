@@ -807,3 +807,35 @@ def test_api_mode_prompt_caching_and_refusal_retry(tmp_path):
         ai.write_system(system, "[S1] quote from where", load_playbook(), transport_fail)
     assert len(client_fail.calls) == 2
     assert "could not be used" in exc.value.reason
+
+
+def test_a_revised_line_quoting_words_its_source_lacks_stays_open(job_folder, tmp_path, monkeypatch):
+    """AI-4: QC is not asked again after the revise, so the run checks the revised job's quotes itself: a revised
+    line whose quote its source does not hold is a must_fix finding on the review page, never closed."""
+    from bms import ai, run
+    from bms.model import Finding
+
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    out, cache = tmp_path / "out", tmp_path / "cache"
+    assert _reach(job_folder, out, cache, "write").stage == "write"
+    requests = sorted((cache / "judge-chat" / "requests").glob("*.json"))
+    key = json.loads(requests[0].read_text(encoding="utf-8"))["plan_key"]
+    _plant(cache, {key: ("Controller", "Start Stop", "Damper Actuator")})
+    real_validate = run.validate
+    monkeypatch.setattr(run, "validate", lambda job, playbook: [*real_validate(job, playbook), Finding(
+        "Every line cites this job", key, None, "must_fix", "invented must_fix", "invented fix")])
+    cited = []
+
+    def misquote(system, findings, evidence, playbook, transport, **kw):   # stands for a revise answer let through
+        def bad(device):
+            ref = dataclasses.replace(device.refs[0], quote="invented words no source of this job says")
+            cited.append(ref.source_id)
+            return dataclasses.replace(device, name="Damper Actuator, motorized", refs=(ref,))
+        return dataclasses.replace(system, devices=tuple(bad(d) if d.name == "Damper Actuator" else d
+                                                         for d in system.devices))
+    monkeypatch.setattr(ai, "revise_system", misquote)
+    result = _reach(job_folder, out, cache, "done")
+    assert result.status == "done" and cited
+    open_quotes = [f for f in result.findings if f.severity == "must_fix" and f.system_key == key
+                   and "invented words no source of this job says" in f.what]
+    assert len(open_quotes) == 1 and cited[0].strip("[]") in open_quotes[0].what
