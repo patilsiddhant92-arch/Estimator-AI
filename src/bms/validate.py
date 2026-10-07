@@ -68,9 +68,29 @@ def _is_heater_system(system: System) -> bool:
     return "duct heater" in _words(system)
 
 
+def _role(family_name: str) -> str | None:
+    """The part of a VRF or split system a family is (rules.md "VRF and split as one block"): its indoor units,
+    its outdoor (condensing) units, or its branch selectors or branch circuit controllers."""
+    n = family_name.lower()
+    if "indoor" in n:
+        return "indoor"
+    if "condensing" in n or "outdoor" in n or "heat pump" in n:
+        return "outdoor"
+    if "selector" in n or ("branch" in n and "controller" in n):
+        return "branch"
+    return None
+
+
+def _roles(system: System) -> set[str]:
+    return {r for r in (_role(f.name) for f in system.families) if r}
+
+
 def _is_vrf(system: System) -> bool:
+    """A VRF or split block: its shape or a family names it, or it has both indoor and outdoor units, or it has
+    branch selectors. A heat pump alone is not one (an apartment heat pump is its own shape)."""
     words = _words(system)
-    return "vrf" in words or "split" in words or ("indoor unit" in words and "condensing unit" in words)
+    roles = _roles(system)
+    return "vrf" in words or "split" in words or {"indoor", "outdoor"} <= roles or "branch" in roles
 
 
 def _is_damper(device: Device) -> bool:
@@ -108,6 +128,36 @@ def _owners(system, shape, job, playbook) -> Iterator[Hit]:
         if missing:
             yield (d.id, "must_fix", f"{d.name} does not say who it is {', '.join(missing)}",
                    "Give the party that furnishes, installs and wires it.")
+        else:
+            yield from _verb(d, shape)
+
+
+def _prints_verb(device: Device, shape: Shape | None) -> bool:
+    """The line prints its verb: not an integration line (the house trio, whose rep line is the mechanical
+    contractor's) and not a slot whose wording carries no {verb} ("VRF Communication Wiring", "Interlock with ...")."""
+    if shape is None or device.slot not in shape.slot_kinds:
+        return True
+    if shape.slot_kinds[device.slot] == "integration":
+        return False
+    return "{verb}" in shape.wording.get(device.slot, "{verb}")
+
+
+def _verb(d: Device, shape: Shape | None) -> Iterator[Hit]:
+    """rules.md "Verb from the three answers": the verb follows from who furnishes, installs and wires (VAL-10).
+    Furnish alone is a hardwired signal, so any AME furnishing fits it; Furnish and Wire is written for every valve
+    "without exception" ("Verbs by device type"), so AME installing does not break it."""
+    if not _prints_verb(d, shape):
+        return
+    f, i, w = (p == "AME" for p in (d.furnished_by, d.installed_by, d.wired_by))
+    ok = {"Furnish and Install": f and i, "Furnish and Wire": f and w, "Furnish": f,
+          "Install and Wire": not f and i and w, "Wire": not f and w}.get(d.verb)
+    if not (f or i or w):
+        yield (d.id, "must_fix", f"{d.name} is not AME's scope (another party furnishes, installs and wires "
+               "it): move it to the exclusions", "Take the line out and name it in the exclusions.")
+    elif ok is False:
+        yield (d.id, "must_fix", f"{d.name}: the verb {d.verb} does not follow from who furnishes, installs and "
+               f"wires it ({d.furnished_by}, {d.installed_by}, {d.wired_by})",
+               "Set the verb from the three answers, or correct the party that furnishes, installs or wires it.")
 
 
 def _slots(system, shape, job, playbook) -> Iterator[Hit]:
@@ -135,11 +185,23 @@ def _sublines(system, shape, job, playbook) -> Iterator[Hit]:
 
 
 def _packaged(system, shape, job, playbook) -> Iterator[Hit]:
-    if system.control != "packaged":
+    # a VRF or split system runs on its manufacturer's controls: the planner gives it "integration", and rules.md
+    # "Point lines only on AME controllers" holds for it as for a packaged unit: no points, no AME controller. The
+    # rule leaves room ("unless the documents give them to AME"), so on a VRF it is a check, not a must_fix (VAL-19)
+    factory_vrf = system.control == "integration" and _is_vrf(system)
+    if system.control != "packaged" and not factory_vrf:
         return
     for d in system.devices:
         kind = _kind(shape, d)
-        if kind == "point" and d.verb.startswith("Furnish"):
+        if factory_vrf and (kind == "point" and d.verb.startswith("Furnish")
+                            or d.slot == "controller" and d.furnished_by == "AME"):
+            what = "point line" if kind == "point" else "AME controller"
+            yield (d.id, "check", f"{d.name}: a {what} on a factory-controlled VRF or split system",
+                   f"If the documents give this {'point' if kind == 'point' else 'controller'} to AME, keep it; "
+                   "otherwise delete it: the integration lines cover it.")
+        elif factory_vrf:
+            continue                    # the device check and the integration lines below are the packaged unit's
+        elif kind == "point" and d.verb.startswith("Furnish"):
             yield (d.id, "must_fix", f"{d.name}: AME does not furnish points on a packaged unit",
                    "Take the point line out; AME integrates through the manufacturer's interface.")
         elif d.slot == "controller" and d.furnished_by == "AME":
@@ -151,7 +213,8 @@ def _packaged(system, shape, job, playbook) -> Iterator[Hit]:
             # "Mixed ownership device by device"); the model carries no such link, so a check (VAL-2)
             yield (d.id, "check", f"{d.name} is a device on the packaged unit that AME furnishes",
                    "If the documents give this device to the controls contractor, keep it; otherwise delete it.")
-    if shape is None or not system.devices:        # a block with no lines needs no integration lines (VAL-5)
+    # a block with no lines needs no integration lines (VAL-5); a VRF's integration lines are the VRF check's
+    if factory_vrf or shape is None or not system.devices:
         return
     drive = _has_drive(system, shape)
     for slot in shape.slots_of_kind("integration"):
@@ -249,31 +312,39 @@ def _heaters(system, shape, job, playbook) -> Iterator[Hit]:
                "under the unit each serves.")
 
 
+def _once_slots(shape: Shape | None) -> tuple[str, ...]:
+    """The lines written once for a VRF or split system: every integration line and "VRF Communication Wiring"."""
+    if shape is None:
+        return ("comm_wiring", "map_points", "rep_assist", "vrf_comm_wiring")
+    vrf_comm = ("vrf_comm_wiring",) if "vrf_comm_wiring" in shape.slot_kinds else ()
+    return (*shape.slots_of_kind("integration"), *vrf_comm)
+
+
 def _vrf(system, shape, job, playbook) -> Iterator[Hit]:
+    """rules.md "VRF and split as one block": the indoor, outdoor and branch units in one block, and the integration
+    lines and "VRF Communication Wiring" once (VAL-12). "VRF Communication Wiring" and the integration trio's BMS
+    communication wiring are different lines, each written once."""
     if not _is_vrf(system):
         return
-    comm: dict[str, list[Device]] = {}
-    for d in system.devices:
-        if "comm" in d.slot.lower():
-            comm.setdefault(d.slot, []).append(d)
-    # one line per communication-wiring slot: "VRF Communication Wiring" and the integration trio's BMS
-    # communication wiring are different lines, each written once
-    repeated = next((lines for lines in comm.values() if len(lines) > 1), None)
-    if repeated:
-        yield (repeated[1].id, "must_fix", "Communication wiring appears more than once in this VRF or split block",
-               "Keep one communication wiring line per system.")
-    elif not comm and system.devices:
-        yield (None, "check", "This VRF or split block has no communication wiring line", "Add it once.")
-    names = {f.name.lower() for f in system.families}
-    indoor, outdoor = "indoor unit" in names, "condensing unit" in names
-    if indoor != outdoor:
-        want, lack = ("condensing unit", "indoor unit") if indoor else ("indoor unit", "condensing unit")
-        other = [s for s in job.systems if s.key != system.key and _is_vrf(s)
-                 and want in {f.name.lower() for f in s.families}
-                 and lack not in {f.name.lower() for f in s.families}]
-        if other:
-            yield (None, "must_fix", f"The indoor and outdoor units of one system are split across blocks "
-                   f"({system.key} and {other[0].key})", "Put the indoor, condensing and branch units in one block.")
+    for slot in _once_slots(shape):
+        lines = [d for d in system.devices if d.slot == slot]
+        if len(lines) > 1:
+            yield (lines[1].id, "must_fix", f"The '{slot}' line appears {len(lines)} times in this VRF or split block",
+                   "Write it once for the system.")
+    # only a shape that has the line can miss it (a split system has none)
+    if (shape is not None and "vrf_comm_wiring" in shape.slot_kinds and system.devices
+            and not any(d.slot == "vrf_comm_wiring" for d in system.devices)):
+        yield (None, "check", "This VRF block has no VRF Communication Wiring line", "Add it once.")
+    # a block that is not a whole system (indoor and outdoor units) while another VRF or split block carries a part
+    # it lacks: one system split across blocks. Two whole systems are two blocks, with branch selectors or without.
+    roles = _roles(system)
+    if not roles or {"indoor", "outdoor"} <= roles:
+        return
+    other = next((s for s in job.systems if s.key != system.key and _is_vrf(s) and _roles(s) - roles), None)
+    if other is not None:
+        lack = " and ".join(sorted(_roles(other) - roles))
+        yield (None, "must_fix", f"The units of one VRF or split system are split across blocks ({system.key} has "
+               f"no {lack} units, which {other.key} carries)", "Put the indoor, outdoor and branch units in one block.")
 
 
 def _count_problems(count: Count, label: str) -> Iterator[tuple[str, str]]:
