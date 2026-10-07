@@ -259,3 +259,36 @@ def test_cli_main_doctor(capsys):
     assert exit_code == 0
     assert "BMS Doctor" in captured
     assert "All checks passed" in captured
+
+
+# ---- RUN-12: assets, the pinned Python, known models ---------------------------------------------------------------
+
+def test_check_assets_passes_on_the_repo():
+    assert doctor.check_assets().ok
+
+
+def test_check_assets_names_each_missing_file(tmp_path):
+    here = tmp_path / "here.xlsx"
+    here.write_text("x", encoding="utf-8")
+    res = doctor.check_assets({"proposal template": tmp_path / "gone.docx", "price book": here})
+    assert not res.ok and "proposal template" in res.message and "price book" not in res.message
+
+
+def test_run_doctor_fails_when_an_asset_is_missing(tmp_path, monkeypatch):
+    monkeypatch.setattr(doctor, "PRICE_BOOK", tmp_path / "gone.xlsx")
+    ok, lines = run_doctor(cache_dir=tmp_path / "cache")
+    assert not ok and any("[FAIL] Assets" in line and "price book" in line for line in lines)
+
+
+def test_python_below_the_pinned_version_is_refused_by_default():
+    with patch.object(doctor.sys, "version_info", (3, 12, 4, "final", 0)):
+        res = check_python()
+    assert not res.ok and "3.13" in res.message
+
+
+def test_a_misspelled_model_is_refused(tmp_path):
+    cfg_file = tmp_path / "run-job.json"
+    cfg_file.write_text(json.dumps({"judge_model": "opsu", "writer_model": "opus", "qc_model": "opus",
+                                    "count_model": "sonnet"}), encoding="utf-8")
+    res = check_config(cfg_file)
+    assert not res.ok and "opsu" in res.message and "haiku" in res.detail

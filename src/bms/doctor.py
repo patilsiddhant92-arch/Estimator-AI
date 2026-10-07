@@ -1,11 +1,12 @@
 """Diagnostic health checks for the BMS estimating system (`python -m bms doctor`).
 
 Checks:
-1. Python version (minimum 3.10+).
+1. Python version (minimum 3.13, as pyproject.toml pins).
 2. Required third-party dependencies.
-3. Model configuration in `.claude/run-job.json`.
+3. Model configuration in `.claude/run-job.json` (each model one of opus, sonnet, haiku, fable).
 4. Playbook loading and rule name citations against validators and prompts.
 5. Cache directory writability.
+6. The proposal and workup templates, the price book and its aliases exist.
 """
 from __future__ import annotations
 
@@ -20,6 +21,7 @@ from typing import Sequence
 
 from bms.playbook import Playbook, PlaybookError, load_playbook
 from bms.validate import RULE
+from estimator.__main__ import ALIASES, PRICE_BOOK, PROPOSAL_TEMPLATE, WORKUP_TEMPLATE
 
 
 REQUIRED_PACKAGES: list[tuple[str, str]] = [
@@ -33,6 +35,7 @@ REQUIRED_PACKAGES: list[tuple[str, str]] = [
 ]
 
 REQUIRED_CONFIG_KEYS = ["judge_model", "writer_model", "qc_model", "count_model"]
+KNOWN_MODELS = ("opus", "sonnet", "haiku", "fable")
 DEFAULT_CONFIG_PATH = Path(__file__).resolve().parents[2] / ".claude" / "run-job.json"
 
 
@@ -44,7 +47,7 @@ class CheckResult:
     detail: str = ""
 
 
-def check_python(min_version: tuple[int, int] = (3, 10)) -> CheckResult:
+def check_python(min_version: tuple[int, int] = (3, 13)) -> CheckResult:
     """Check that Python meets the minimum version requirement."""
     version = sys.version_info[:2]
     ver_str = ".".join(map(str, sys.version_info[:3]))
@@ -136,6 +139,15 @@ def check_config(config_path: Path | None = None) -> CheckResult:
             ok=False,
             message=f"Configuration file {path} missing required keys: {', '.join(missing)}",
             detail=f"Required string keys: {', '.join(REQUIRED_CONFIG_KEYS)}",
+        )
+
+    unknown = [f"{k}: {data[k]!r}" for k in REQUIRED_CONFIG_KEYS if data[k].strip() not in KNOWN_MODELS]
+    if unknown:
+        return CheckResult(
+            name="Configuration",
+            ok=False,
+            message=f"Configuration file {path} names an unknown model: {', '.join(unknown)}",
+            detail=f"Each model must be one of: {', '.join(KNOWN_MODELS)}.",
         )
 
     max_attempts = data.get("max_attempts")
@@ -250,6 +262,23 @@ def check_cache_folder(cache_dir: Path | None = None) -> CheckResult:
     )
 
 
+def check_assets(files: dict[str, Path] | None = None) -> CheckResult:
+    """Check that the files a run prints with exist: the proposal template, the price workup template, the price
+    book and its aliases."""
+    wanted = files if files is not None else {
+        "proposal template": PROPOSAL_TEMPLATE, "price workup template": WORKUP_TEMPLATE,
+        "price book": PRICE_BOOK, "price book aliases": ALIASES}
+    missing = [f"{label} ({path})" for label, path in wanted.items() if not Path(path).is_file()]
+    if missing:
+        return CheckResult(
+            name="Assets",
+            ok=False,
+            message=f"Missing file(s): {', '.join(missing)}",
+            detail="Restore them in the assets folder (git checkout assets).",
+        )
+    return CheckResult(name="Assets", ok=True, message=f"All {len(wanted)} template and price book files exist")
+
+
 def run_doctor(cache_dir: Path | None = None, playbook_dir: Path | None = None,
                config_path: Path | None = None, prompts_dir: Path | None = None) -> tuple[bool, list[str]]:
     """Execute all diagnostic checks and return (all_passed, formatted_lines)."""
@@ -259,6 +288,7 @@ def run_doctor(cache_dir: Path | None = None, playbook_dir: Path | None = None,
         check_config(config_path),
         check_playbook(playbook_dir, prompts_dir),
         check_cache_folder(cache_dir),
+        check_assets(),
     ]
 
     all_ok = all(c.ok for c in checks)

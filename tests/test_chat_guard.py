@@ -45,3 +45,37 @@ def test_check_mode_reports_but_does_not_write(tmp_path):
 def test_blocks_split_on_message_headers():
     blocks = guard.split_blocks("intro\n\n" + A + "\n" + B)
     assert len(blocks) == 3 and blocks[0].startswith("intro") and blocks[2].startswith("[2026-01-01 10:05]")
+
+
+def test_a_restore_writes_lf_line_ends_like_chat_post(tmp_path):
+    chat, archive = tmp_path / "chat.txt", tmp_path / "archive"
+    chat.write_bytes(("preamble\n\n" + A + "\n" + B).encode("utf-8"))
+    assert guard.run(chat, archive) == 0
+    chat.write_bytes(("preamble\n\n" + A + "\n" + C).encode("utf-8"))
+    assert guard.run(chat, archive) == 3
+    assert b"\r" not in chat.read_bytes()
+    assert b"\r" not in (archive / "chat.history.txt").read_bytes()
+    assert not list(tmp_path.glob("*.tmp"))
+
+
+def test_a_post_appended_before_the_swap_is_not_lost(tmp_path):
+    chat = tmp_path / "chat.txt"
+    chat.write_bytes(("preamble\n\n" + A).encode("utf-8"))
+    seen = chat.read_text(encoding="utf-8")
+    with chat.open("ab") as handle:                                           # chat_post appends in between
+        handle.write(("\n" + B).encode("utf-8"))
+    assert guard.write_if_unchanged(chat, "restored\n", seen) is False
+    assert "hi back" in chat.read_text(encoding="utf-8") and "restored" not in chat.read_text(encoding="utf-8")
+    assert not list(tmp_path.glob("*.tmp"))
+
+
+def test_a_restore_swaps_in_through_a_temporary_file(tmp_path, monkeypatch):
+    chat, archive = tmp_path / "chat.txt", tmp_path / "archive"
+    chat.write_text("preamble\n\n" + A + "\n" + B, encoding="utf-8")
+    guard.run(chat, archive)
+    chat.write_text("preamble\n\n" + A + "\n" + C, encoding="utf-8")
+    swaps = []
+    real = guard.os.replace
+    monkeypatch.setattr(guard.os, "replace", lambda a, b: (swaps.append((Path(a).name, Path(b).name)), real(a, b))[1])
+    assert guard.run(chat, archive) == 3
+    assert swaps == [("chat.txt.tmp", "chat.txt")]

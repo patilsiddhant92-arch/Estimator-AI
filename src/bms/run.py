@@ -293,9 +293,10 @@ def _save_history(out: Path, history: list[SavedDecision], job_file: Path) -> Ru
     """Save the decisions history; when it cannot be saved (another program has it open), the run stops with a
     plain message naming the file, never a traceback (`save_history` gives every failure as a ModelError)."""
     try:
-        save_history(out, history)
+        saved_to = save_history(out, history)
     except ModelError as error:
         return RunResult("waiting", "decisions", waiting=0, job_file=job_file, messages=(_stopped(error),))
+    print(f"Wrote {saved_to}")
     return None
 
 
@@ -426,7 +427,10 @@ def estimate(job_folder: Path, out: Path, cache: Path, mode: Mode = "chat") -> R
         _save_run_state(out, stopped, known.get("quote", ""), known.get("job", ""), known["decisions"])
         error.run_result = stopped
         raise
+    if result.job_file is not None and result.job_file.is_file():
+        print(f"Wrote {result.job_file}")
     _save_run_state(out, result, known.get("quote", ""), known.get("job", ""), known["decisions"])
+    print(f"Wrote {out / RUN_STATE}")
     return result
 
 
@@ -664,7 +668,9 @@ def _estimate(job_folder: Path, out: Path, cache: Path, mode: Mode, known: dict)
 
     # 6. the review page, the render and the three documents
     known["stage"] = "render"
-    publish_proofs(job, cache, out)
+    manifest = publish_proofs(job, cache, out)
+    if manifest is not None:
+        print(f"Wrote {manifest}")
     review = review_page(job, all_findings, out)
     print(f"Wrote {review}")
     draft = render(job, playbook)

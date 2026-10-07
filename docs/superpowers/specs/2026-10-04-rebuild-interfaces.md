@@ -376,7 +376,8 @@ Refusals: an answer a step refuses is dropped from the cache and its request wri
 `max_attempts` refusals of one request (`.claude/run-job.json`, else 3) the run stops with a plain "Stopped:" message
 naming the request; the counter is `<cache>/judge/attempts/<digest>.json`, one per question (the digest covers the
 model, the step's instructions, the Playbook rules text, the schema and the prompt, so a changed Playbook, new
-evidence or another model starts a new count). In chat mode, a newer answer file for a stopped request gets a fresh
+evidence or, in API mode, another model starts a new count; in chat mode the key always uses the one chat model, so
+the same question is asked again with the reason it was refused, up to `max_attempts`). In chat mode, a newer answer file for a stopped request gets a fresh
 set of attempts on the next run. The API transport reads the saved count first and, at the cap, stops without
 calling the API.
 `tools/run_job.py check` already accepts a System answer (Phase 0 changed its main-list check). API mode: the

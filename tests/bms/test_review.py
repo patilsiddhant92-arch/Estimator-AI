@@ -188,7 +188,7 @@ qs.forEach(function (q) {
   var a = buildDecision(q, {action: "accept"}); out.push(a);
   var c = buildDecision(q, {action: "change", text: q.level === "device" ? "7" : "##",
                             fields: {verb: "Furnish", furnished_by: "AME"}}); out.push(c);
-  out.push(buildDecision(q, {action: "delete"}));
+  if (q.level !== "family") out.push(buildDecision(q, {action: "delete"}));   // the page offers no family delete
 });
 out.push(buildDecision(qs[0], {}));
 console.log(JSON.stringify(out.filter(Boolean)));

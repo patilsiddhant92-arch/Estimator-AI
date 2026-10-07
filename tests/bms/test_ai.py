@@ -1710,3 +1710,24 @@ def test_a_finding_about_a_missing_device_does_not_open_the_whole_block(job, raw
     del answer["devices"][1]
     revised = ai.revise_system(system, findings, ai.evidence_for(system, dossier), playbook, FakeTransport(answer))
     assert revised.devices[0] == system.devices[0] and revised.devices[1] == system.devices[1]
+
+
+def test_a_chat_stop_does_not_promise_that_another_model_makes_a_new_question(job, raw, dossier, playbook, tmp_path):
+    """In chat mode the key uses the one chat model, so the stop message names only what really starts a new count."""
+    system = skeleton(job.system("EF"))
+    evidence = ai.evidence_for(system, dossier)
+    cache = tmp_path / "cache"
+    with pytest.raises(ai.NoAnswer):
+        ai.write_system(system, evidence, playbook, ai.ChatTransport(cache, job="00-0000"))
+    (request_file,) = (cache / "judge-chat" / "requests").glob("*.json")
+    answer = Path(json.loads(request_file.read_text(encoding="utf-8"))["answer_file"])
+    answer.parent.mkdir(parents=True, exist_ok=True)
+    answer.write_text(json.dumps(_bad(raw, lambda a: a["devices"][0].update(slot="gadget"))), encoding="utf-8")
+    _stamp(answer, 10)
+    for seconds in (20, 30):
+        with pytest.raises(ai.NoAnswer):
+            ai.write_system(system, evidence, playbook, ai.ChatTransport(cache, job="00-0000"))
+        _stamp(answer, seconds)
+    with pytest.raises(ai.NoAnswer) as stopped:
+        ai.write_system(system, evidence, playbook, ai.ChatTransport(cache, job="00-0000"))
+    assert "Stopped" in stopped.value.reason and "another model" not in stopped.value.reason
