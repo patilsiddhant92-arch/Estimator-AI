@@ -122,3 +122,38 @@ def test_only_a_proven_marked_up_copy_of_the_set_is_set_aside_and_its_note_gives
     name = lambda d: d.rsplit("/", 1)[-1]
     assert (f"1 schedule on M-601 in {name(copy)} not counted (9 tagged rows) — a marked-up copy of the set; "
             f"M-601 counted from {name(original)} (9 tagged rows)") in flags
+
+
+def _type_only(document, *codes_and_quantities):
+    from estimator.reading.schedules import Schedule, ScheduleRow
+    rows = tuple(ScheduleRow(None, {"UNIT NO.": code, "QUANTITY": quantity}, None, None, False)
+                 for code, quantity in codes_and_quantities)
+    return Schedule(document, 1, "M-602", "HEAT PUMP AIR CONDITIONING UNIT SCHEDULE", ("UNIT NO.", "QUANTITY"), rows,
+                    True, (), ())
+
+
+def test_a_type_code_only_the_second_version_of_a_type_only_schedule_adds_is_counted():
+    from estimator.reading.inventory import build_inventory
+    from test_inventory import catalogue_with
+
+    items, totals, _ = build_inventory(catalogue_with([]), [_type_only("Mech.pdf", ("HPAC", "40")),
+                                                            _type_only("Mech reissue.pdf", ("HPAC", "40"),
+                                                                       ("HPBC", "12"))])
+    got = {i.tag: i for i in items}
+    assert (got["HPAC"].category, got["HPAC"].quantity) == ("CONFIRMED", 40)
+    assert (got["HPBC"].category, got["HPBC"].quantity) == ("CONFIRMED", 12)
+    assert not [i for i in items if i.category == "TYPE ONLY"]
+    assert dict((t.prefix, t.scheduled) for t in totals) == {"HPAC": 40, "HPBC": 12}
+
+
+def test_two_versions_of_a_type_only_schedule_giving_other_quantities_count_the_higher_and_say_both():
+    from estimator.reading.inventory import build_inventory
+    from test_inventory import catalogue_with
+
+    items, totals, _ = build_inventory(catalogue_with([]), [_type_only("Mech.pdf", ("HPAC", "40")),
+                                                            _type_only("Mech reissue.pdf", ("HPAC", "44"))])
+    [item] = [i for i in items if i.tag == "HPAC"]
+    assert item.quantity == 44 and item.action == "confirm"
+    assert "40 in Mech.pdf" in item.reason and "44 in Mech reissue.pdf" in item.reason
+    assert not [i for i in items if i.category == "TYPE ONLY"]
+    assert dict((t.prefix, t.scheduled) for t in totals) == {"HPAC": 44}

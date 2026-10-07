@@ -83,20 +83,37 @@ def test_one_schedule_set_out_in_two_blocks_is_one_listing():
     assert totals[0].scheduled == 2
 
 
-def test_the_same_sheet_in_a_marked_up_copy_is_read_once():
+def test_a_sheet_in_two_documents_not_proven_a_copy_is_kept_and_counted_once():
+    """RD-1: nothing proves Marked_Mech.pdf a marked-up copy (`repeats`), so both schedules are kept; VAV-1, listed by
+    both, is one unit, and its note names both documents."""
     tags = [TagEntry("VAV-1", "Variable Air Volume Box", ("M-601",), ("M-101",), 3)]
     original = schedule("VAV BOX SCHEDULE", row("VAV-1"))
     copy = Schedule("Marked_Mech.pdf", 1, "M-601", "VAV BOX SCHEDULE", ("TAG",), (row("VAV-1"),), False, (), ())
-    items, _, _ = build_inventory(catalogue_with(tags), [original, copy])
-    assert [i.category for i in items] == ["CONFIRMED"]
+    items, totals, flags = build_inventory(catalogue_with(tags), [original, copy])
+    [item] = items
+    assert (item.category, item.quantity) == ("DISCREPANCY", 1)
+    assert "M-601 in Mech.pdf" in item.reason and "M-601 in Marked_Mech.pdf" in item.reason
+    assert totals[0].scheduled == 1
+    assert not [f for f in flags if "not counted" in f]
 
 
 def test_a_copy_in_another_document_is_dropped_and_said():
-    tags = [TagEntry("VAV-1", "Variable Air Volume Box", ("M-601",), ("M-101",), 3)]
-    original = schedule("VAV BOX SCHEDULE", row("VAV-1"))
-    copy = Schedule("Marked_Mech.pdf", 1, "M-601", "VAV BOX SCHEDULE", ("TAG",), (row("VAV-1"),), False, (), ())
-    _, _, flags = build_inventory(catalogue_with(tags), [original, copy])
-    assert flags == ["1 schedule on M-601 in Marked_Mech.pdf not counted — the same sheet was read from Mech.pdf"]
+    """RD-1: a schedule sheet is set aside only when `repeats` proves its document a marked-up copy of the set (two
+    documents with the same sheets, tags and text); the note gives the rows set aside and the rows counted."""
+    from estimator.catalogue.job import repeats
+    from test_dossier_plan_areas import DWG, OTHER, _schedule
+    from test_review_final6_counts import _two_buildings
+
+    catalogue, a, _b = _two_buildings(same_tags=True)
+    marked = next(document for number, document in repeats(catalogue)[1] if number == "M-601")
+    kept = OTHER if marked == DWG else DWG
+    tags = [t for f in a for t in f]
+    _, totals, flags = build_inventory(catalogue, [_schedule("VAV SCHEDULE", tags, 4, document=kept),
+                                                   _schedule("VAV SCHEDULE", tags, 4, document=marked)])
+    assert totals[0].scheduled == 9
+    name = lambda d: d.rsplit("/", 1)[-1]
+    assert (f"1 schedule on M-601 in {name(marked)} not counted (9 tagged rows) — a marked-up copy of the set; "
+            f"M-601 counted from {name(kept)} (9 tagged rows)") in flags
 
 
 def test_a_later_page_with_the_same_number_in_one_document_is_still_read():

@@ -683,6 +683,24 @@ def _type_rows(schedule: Schedule, known: Collection[str]) -> list[InventoryItem
     return items or None
 
 
+def _higher_quantity(held: InventoryItem, held_schedule: Schedule, other: InventoryItem,
+                     other_schedule: Schedule) -> InventoryItem:
+    """One type code counted by two type-only schedules (two versions of one schedule): the higher quantity counts,
+    never the first document's alone; when they differ the note gives both, and their sum in case the two are
+    two buildings' schedules. A quantity beats no quantity."""
+    if other.quantity is None or (held.quantity is not None and other.quantity <= held.quantity):
+        winner = held
+    else:
+        winner = other
+    if held.quantity is None or other.quantity is None or held.quantity == other.quantity:
+        return winner
+    said = (f"{held.quantity} in {_name(held_schedule.document)}, {other.quantity} in "
+            f"{_name(other_schedule.document)}")
+    return replace(winner, reason=f"{winner.reason} — the schedules give other quantities ({said}); the higher, "
+                                  f"{winner.quantity}, counted ({held.quantity + other.quantity} if they are two "
+                                  f"buildings' schedules); confirm", action="confirm")
+
+
 def build_inventory(catalogue, schedules: list[Schedule], typicals: Sequence = (),
                     pages: Collection[tuple[str, int]] | None = None
                     ) -> tuple[list[InventoryItem], list[FamilyTotal], list[str]]:
@@ -865,12 +883,23 @@ def build_inventory(catalogue, schedules: list[Schedule], typicals: Sequence = (
                                        f"Shown on {_list(seen)} {why} — don't price until confirmed",
                                        "exclude pending"))
 
+    # A type code a type-only schedule counts (`_type_rows`), by the schedule that first counted it: another version
+    # of the schedule (RD-1) adds the codes it alone lists, and of a code both give a quantity the higher counts.
+    typed_codes: dict[str, tuple[int, Schedule]] = {}
     for schedule in schedules:
         if not schedule.type_only or not schedule.rows:
             continue
-        counted_types = _type_rows(schedule, {item.tag for item in items})
+        counted_types = _type_rows(schedule, {item.tag for item in items if item.tag not in typed_codes})
         if counted_types:
-            items += counted_types
+            for item in counted_types:
+                if item.tag not in typed_codes:
+                    typed_codes[item.tag] = (len(items), schedule)
+                    items.append(item)
+                    continue
+                at, held = typed_codes[item.tag]
+                items[at] = _higher_quantity(items[at], held, item, schedule)
+                if items[at] is item:
+                    typed_codes[item.tag] = (at, schedule)
             continue
         key = schedule.headers[0] if schedule.headers else ""
         codes = list(dict.fromkeys(row.cells.get(key, "") for row in schedule.rows if row.cells.get(key)))
