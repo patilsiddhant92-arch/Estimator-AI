@@ -397,11 +397,15 @@ def _estimate(job_folder: Path, out: Path, cache: Path, mode: Mode, known: dict)
     def save(current: Job) -> None:
         job_file.write_text(current.to_json(), encoding="utf-8")
 
-    if transport.waiting > asked:
+    # a count question refused its last time stops the run here, in its own words: the systems are not written
+    # without that sheet's count (beside any other sheet still waiting for its answer)
+    count_stops = tuple(dict.fromkeys(_stopped(s) for s in getattr(transport, "count_stops", None) or ()))
+    if count_stops or transport.waiting > asked:
         save(job)
+        waits = ((f"Plan counts: {transport.waiting - asked} sheet(s) wait for the vision count.",)
+                 if transport.waiting > asked else ())
         return RunResult("waiting", "count", waiting=transport.waiting, job_file=job_file,
-                         messages=(f"Plan counts: {transport.waiting - asked} sheet(s) wait for the vision "
-                                   "count.",))
+                         messages=(*count_stops, *waits))
 
     # 3. write every system (all are asked before stopping for answers)
     known["stage"] = "write"
