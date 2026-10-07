@@ -745,7 +745,7 @@ def build_inventory(catalogue, schedules: list[Schedule], typicals: Sequence = (
                 held = first_row[row.tag]
                 held_column = quantity_header(held[0])
                 held_count = _count_in(held[1].cells.get(held_column)) if held_column else None
-                if getattr(held[1], "shares", 1) == 1 and (held_count is None or stated > held_count):
+                if getattr(held[1], "shares", 1) == 1 and held_count is not None and stated > held_count:
                     first_row[row.tag] = (schedule, row)   # two versions list the type: the higher quantity
                                                            # counts, never the first document's (RD-1)
             if getattr(row, "shares", 1) > 1 and getattr(first_row[row.tag][1], "shares", 1) == 1:
