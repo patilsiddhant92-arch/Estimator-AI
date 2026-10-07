@@ -169,7 +169,13 @@ def test_check_playbook_catches_missing_rules_against_prompts(tmp_path):
     sample = ROOT / "tests" / "bms" / "fixtures" / "sample_playbook"
     import shutil
     shutil.copytree(sample, tmp_path / "playbook")
-    # Sample playbook lacks full repo rules: check_playbook should report missing rules vs validators/prompts
+    # The sample playbook now holds every rule the code names (PBK-10c), so take one out of the copy: check_playbook
+    # should report it missing vs validators/prompts
+    rules = tmp_path / "playbook" / "rules.md"
+    text = rules.read_text(encoding="utf-8")
+    cut = "### Never undershoot\nA count is never lower than any source of this job gives.\n"
+    assert cut in text
+    rules.write_text(text.replace(cut, ""), encoding="utf-8")
     res = check_playbook(playbook_dir=tmp_path / "playbook")
     assert not res.ok
     assert "missing" in res.message.lower()
