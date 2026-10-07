@@ -95,3 +95,12 @@ A count is never lower than any source of this job gives.
 
 ### Assumption wording has no source ids
 An assumption's words name the document by its title, never by its source id.
+
+### Everything assigned is extracted
+Nothing on the list of assigned systems is dropped; a block with no lines says why.
+
+### Words the client never sees
+Client text carries no internal flag words, prices, source ids or reasoning words.
+
+### Line form
+A printed line is one short line of at most 160 characters.
