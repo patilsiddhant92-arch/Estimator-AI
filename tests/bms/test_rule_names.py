@@ -275,3 +275,28 @@ def test_vrf_communication_wiring_and_the_trio_comm_line_are_two_lines_not_a_rep
                                          dev("VRF.d2", "comm_wiring", verb="Furnish"),
                                          dev("VRF.d3", "map_points", verb="Furnish")], family="Indoor Unit"))
     assert RULE["vrf"] not in {f.rule for f in validate(vrf, PLAYBOOK) if f.severity == "must_fix"}
+
+
+# ---- every rule a Finding names in the code (PBK-3, ruling D4) -------------------------------------------------------
+
+def test_every_literal_finding_rule_in_the_code_is_a_playbook_rule_or_a_named_run_level_rule():
+    """A `Finding("...")` written in src/bms names a rules.md rule, or one of the few run-level names the linter
+    lists as needing no rule (ruling D4: "decision not honored" stays out of rules.md)."""
+    import re
+    from bms.playbook_lint import RUN_LEVEL_RULE_NAMES, referenced_rule_names
+    literal = re.compile(r'\bFinding\(\s*"([^"\n]+)"')
+    named = {m for path in sorted((ROOT / "src" / "bms").glob("*.py"))
+             for m in literal.findall(path.read_text(encoding="utf-8"))}
+    assert "decision not honored" in named and "decision not honored" in RUN_LEVEL_RULE_NAMES
+    assert sorted(n for n in named if n not in PLAYBOOK.rules and n not in RUN_LEVEL_RULE_NAMES) == []
+    assert named - RUN_LEVEL_RULE_NAMES <= referenced_rule_names()
+
+
+def test_a_literal_finding_rule_the_playbook_lacks_does_not_lint_clean(tmp_path, monkeypatch):
+    import bms.playbook_lint as lint
+    source = tmp_path / "invented.py"
+    source.write_text('x = Finding(\n    "An invented run rule", None, None, "check", "w", "f")\n', encoding="utf-8")
+    monkeypatch.setattr(lint, "SOURCES", tmp_path)
+    assert "An invented run rule" in lint.referenced_rule_names()
+    assert any("An invented run rule" in p.message for p in lint.lint_playbook(ROOT / "playbook",
+                                                                                lint.referenced_rule_names()))

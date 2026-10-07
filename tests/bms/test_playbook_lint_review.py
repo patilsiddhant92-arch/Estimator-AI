@@ -64,3 +64,24 @@ def test_the_estimator_may_rename_a_rule_no_code_names(tmp_path):
     (root / "rules.md").write_text(rules.replace("### Warranty lines\n", "### Warranty terms\n"), encoding="utf-8")
     load_playbook(root)
     assert main(["playbook-lint", str(root)]) == 0
+
+
+# ---- PBK-7: a sample marker written without spaces --------------------------------------------------------------
+
+@pytest.mark.parametrize("mark", ["<!--sample-->", "<!--  sample\t-->", "<!-- sample -->"])
+def test_a_sample_marker_variant_is_a_marker_to_loader_and_linter(tmp_path, mark):
+    root = _copy_playbook(tmp_path)
+    (root / "rules.md").write_text(f"# P\n\n## Topic\n\n### Rule one\n{mark}\nPlain words.\n", encoding="utf-8")
+    rule = load_playbook(root).rule("Rule one")
+    assert rule.sample and rule.text == "Plain words."
+    assert not [p for p in lint_playbook(root) if "cannot load" in p.message]
+
+
+@pytest.mark.parametrize("mark", ["<!--sample-->", "<!-- sample -->"])
+def test_a_rule_holding_only_a_sample_marker_is_refused_by_loader_and_linter(tmp_path, mark):
+    root = _copy_playbook(tmp_path)
+    (root / "rules.md").write_text(f"# P\n\n## Topic\n\n### Rule one\n{mark}\n\n### Rule two\nWords.\n",
+                                   encoding="utf-8")
+    with pytest.raises(PlaybookError, match="no text"):
+        load_playbook(root)
+    assert any("no text" in p.message for p in lint_playbook(root))

@@ -24,6 +24,9 @@ DEFAULT_ROOT = Path(__file__).resolve().parents[2] / "playbook"
 TECH_HOUR_BASES = ("unit", "hardware_point", "indoor_unit", "panel", "fan", "fixed", "line")
 SLOT_KINDS = ("device", "point", "interlock", "integration", "wiring")
 SAMPLE_MARK = "<!-- sample -->"
+SAMPLE_PATTERN = re.compile(r"<!--\s*sample\s*-->")              # the mark as written, spaces or none
+# a kind word: lower-case words of letters and digits, one space between (as a system kind is compared)
+_KIND_WORD = re.compile(r"[a-z0-9]+( [a-z0-9]+)*")
 
 
 class PlaybookError(ValueError):
@@ -158,7 +161,7 @@ def load_rules(path: Path) -> tuple[str, tuple[str, ...], dict[str, Rule]]:
     """Load and check rules.md. Raises PlaybookError on a malformed file."""
     path = Path(path)
     text = _read(path)
-    body = re.sub(r"<!--(?!\s*sample\s*-->).*?-->", "", text, flags=re.S)   # comments out, sample marks kept
+    body = strip_comments(text)
     topics: list[str] = []
     rules: dict[str, Rule] = {}
     topic: str | None = None
@@ -169,8 +172,8 @@ def load_rules(path: Path) -> tuple[str, tuple[str, ...], dict[str, Rule]]:
             return
         name, lines = current
         joined = "\n".join(lines).strip()
-        sample = SAMPLE_MARK in joined
-        joined = joined.replace(SAMPLE_MARK, "").strip()
+        sample = SAMPLE_PATTERN.search(joined) is not None
+        joined = SAMPLE_PATTERN.sub("", joined).strip()
         if not joined:
             raise PlaybookError(f"{path.name}: rule {name!r} has no text")
         rules[name] = Rule(topic or "", name, joined, sample)
@@ -201,6 +204,12 @@ def load_rules(path: Path) -> tuple[str, tuple[str, ...], dict[str, Rule]]:
     if not topics:
         raise PlaybookError(f"{path.name}: no topic (## heading)")
     return text, tuple(topics), rules
+
+
+def strip_comments(text: str) -> str:
+    """rules.md as the loader reads it: comments out, sample marks kept. A comment's line breaks stay, so a line
+    number still names the line of the file (bms.playbook_lint reads the file the same way)."""
+    return re.sub(r"<!--(?!\s*sample\s*-->).*?-->", lambda m: "\n" * m.group().count("\n"), text, flags=re.S)
 
 
 _load_rules = load_rules
@@ -270,6 +279,8 @@ def load_shapes(path: Path) -> dict[str, Shape]:
     if not isinstance(raw, list):
         raise PlaybookError(f"{path.name}: \"shapes\" must be a list")
     shapes: dict[str, Shape] = {}
+    prefix_owner: dict[str, str] = {}               # prefix -> the shape it names
+    word_owner: dict[str, str] = {}                 # kind word -> the shape it names
     for n, entry in enumerate(raw):
         where = f"shapes[{n}]"
         if not isinstance(entry, dict):
@@ -292,8 +303,14 @@ def load_shapes(path: Path) -> dict[str, Shape]:
         if any(p != _plain_prefix(p) for p in prefixes):
             raise PlaybookError(f"{path.name}: {where}.applies_to.prefixes must be upper case with no dash or space")
         kind_words = _strings(applies["kind_words"], f"{where}.applies_to.kind_words", path)
-        if any(w != w.lower() for w in kind_words):
-            raise PlaybookError(f"{path.name}: {where}.applies_to.kind_words must be lower case")
+        if not all(_KIND_WORD.fullmatch(w) for w in kind_words):
+            raise PlaybookError(f"{path.name}: {where}.applies_to.kind_words must be lower case letters and digits, "
+                                "one space between words (no dash or other mark; a system kind is compared so)")
+        for label, values, seen in (("prefix", prefixes, prefix_owner), ("kind word", kind_words, word_owner)):
+            for value in values:
+                if seen.setdefault(value, name) != name:
+                    raise PlaybookError(f"{path.name}: {where}: the {label} {value!r} is already shape "
+                                        f"{seen[value]!r}'s (each names one shape)")
         header = _form(entry["header"], f"{where}.header", path, HEADER_FIELDS, required=("n",))
         family_names = _strings(entry["family_names"], f"{where}.family_names", path, allow_empty=False)
         line_order = _strings(entry["line_order"], f"{where}.line_order", path, allow_empty=False)
@@ -350,8 +367,10 @@ def _tech_hours(raw, where: str, path: Path, slots: set[str]) -> TechHours:
         raise PlaybookError(f"{path.name}: {where}.tech_hours.when must be a list")
     for cond in raw["when"]:
         if (not isinstance(cond, dict) or set(cond) != {"if", "hours"}
-                or isinstance(cond["hours"], bool) or not isinstance(cond["hours"], (int, float))):
-            raise PlaybookError(f"{path.name}: {where}.tech_hours.when entries must be {{\"if\": [...], \"hours\": n}}")
+                or isinstance(cond["hours"], bool) or not isinstance(cond["hours"], (int, float))
+                or cond["hours"] < 0):
+            raise PlaybookError(f"{path.name}: {where}.tech_hours.when entries must be {{\"if\": [...], \"hours\": n}}, "
+                                "n a number, 0 or more")
         named = _strings(cond["if"], f"{where}.tech_hours.when.if", path, allow_empty=False)
         if not set(named) <= slots:
             raise PlaybookError(f"{path.name}: {where}.tech_hours.when names a slot not in line_order")

@@ -9,7 +9,7 @@
     "count_causes": "The quantity note's words for why the plan placements are above the other counts, when the equipment counts line names it (bms.render). form: printed after the \"plan placements\" clause ({causes}: the causes, joined by joiner); typical: a typical unit placed at each place; labelled_twice: one unit labelled more than once on a sheet. Client words only: never a tag, a sheet or an estimator's hint (\"check ...\").",
     "quantity": "line: the {qty} form on a line whose quantity differs from the block's ({n} the count); unknown: the {qty} form when it is unknown; others_note: the clarification text naming every other count ({value} printed, {others} the others as \"N per where\" joined by \"; \")."
   },
-  "$draft": ["owner_brackets.Electrical Contractor", "owner_brackets.Owner", "clarifications", "quantity"],
+  "$draft": [],
   "verbs": ["Furnish and Install", "Furnish", "Furnish and Wire", "Install and Wire", "Wire"],
   "owner_brackets": {
     "Unit Mfr.": " (Furnished by Unit Mfr.)",

@@ -56,6 +56,7 @@ from estimator.writing.judge import DEFAULT_MODEL, KEY_VARIABLE, MODEL_VARIABLE,
 from bms import ai_evidence
 from bms.model import Device, Family, Finding, Job, ModelError, Ref, System, json_schema, schema_errors
 from bms.playbook import Playbook, Shape
+from bms.validate import RULE
 from bms.citations import WHERE_ADVICE, SourceIds, label_off, plan_refs, ref_sheets, system_tags
 
 WRITE_SYSTEM = "write_system"       # kind of both the write and the revise request
@@ -74,8 +75,8 @@ MAX_PROBLEMS = 8                    # problems named in a refusal
 PROMPTS = Path(__file__).resolve().parent / "prompts"
 LATE_FIELDS = {"no_scope_reason": None, "serves": []}  # System fields added after answers were written: missing
 #                                                       means this value
+CITES_RULE = RULE["cites"]          # the rule the mechanical quote check reports under
 SKELETON_FIELDS = ("key", "name", "shape", "control", "families", "sequence_refs", "alternate", "serves")
-CITATIONS_TOPIC = "Evidence and citations"
 INTAKE_FILE = "intake.json"         # beside the cache: what the intake cleaned in this run's answers
 
 
@@ -1463,8 +1464,10 @@ def _quote_findings(job: Job, index: Mapping[str, str], rule: str) -> list[Findi
 
 
 def _citation_rule(playbook: Playbook) -> str | None:
-    """The Playbook rule the quote check reports under: the first rule of the evidence and citations topic."""
-    return next((r.name for r in playbook.rules.values() if r.topic == CITATIONS_TOPIC), None)
+    """The Playbook rule the quote check reports under: the validators' citation rule (`validate.RULE["cites"]`),
+    found by its name, so where it sits in rules.md and what its topic is called do not matter. None when the
+    Playbook lacks it."""
+    return CITES_RULE if CITES_RULE in playbook.rules else None
 
 
 def quote_findings(job: Job, evidence_index: Mapping[str, str], playbook: Playbook) -> list[Finding]:
@@ -1586,7 +1589,7 @@ def qc_job(job: Job, evidence_index: Mapping[str, str], playbook: Playbook, tran
 
     First a mechanical check: every Ref of the job cites a source of this job whose text holds its quote (a picture
     of this job, or a ledger fact the planner cited, aside); each device (or block) that fails is a must_fix
-    finding under the Playbook's first evidence and citations rule. Then the reviewer, told those findings, gets the job and the text of every source
+    finding under the Playbook's citation rule (`validate.RULE["cites"]`). Then the reviewer, told those findings, gets the job and the text of every source
     it cites (extra step "qc"; the schema's rule and system_key allow only the Playbook's rule names and the job's
     keys). Every part is asked before NoAnswer is raised. A finding naming a device the job lacks keeps the finding,
     its device_id null and the id named in `what`."""
