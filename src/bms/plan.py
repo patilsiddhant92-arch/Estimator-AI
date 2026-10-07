@@ -188,10 +188,11 @@ class _Planner:
     def named_otherwise(self, draft: _Draft) -> bool:
         """A unit with a split unit's prefix whose ledger name says another kind of equipment (the kind words of a
         Playbook shape that is neither the split shape nor a VRF shape, "Air Curtain") and nothing of a split unit
-        (the split shape's kind words, "split", an indoor or outdoor unit's words): it is no split unit (PLN-8)."""
+        (the split shape's kind words, "split", an indoor or outdoor unit's words, "air handling" of a ducted indoor
+        unit): it is no split unit (PLN-8)."""
         split = self.split_shape()
         for name in (squash(f.source.name) for f in draft.families if f.source is not None):
-            if (split is not None and _says_kind(split, name)) or re.search(r"\bsplit\b", name, re.I) or \
+            if (split is not None and _says_kind(split, name)) or re.search(r"\bsplit\b|\bair\s+handl", name, re.I) or \
                     _INDOOR_WORDS.search(name) or _CONDENSING_WORDS.search(name):
                 return False
             if any(_says_kind(s, name) for s in self.playbook.shapes.values()
@@ -306,13 +307,17 @@ class _Planner:
 
     def _one_refrigerant_system(self, group: Fact) -> bool:
         """A VRF or split group (the house rule: one system, one block): its words say VRF or a branch selector, or
-        its members hold a branch selector or a condensing unit together with an indoor unit (PLN-6)."""
+        its members hold a branch selector or a condensing unit together with an indoor unit (PLN-6). Only a member
+        with a split, condensing or branch prefix is read as a condensing unit or a branch selector here: a
+        Condensing Boiler with a fan coil is no split system."""
         found = members(self.reader, group)
         words = f"{_group_name(self.reader, group)} {squash(group.value)} " + \
             " ".join(f"{f.prefix} {f.name}" for f, _ in found)
         if _VRF_WORDS.search(words) or _BRANCH_WORDS.search(words):
             return True
-        roles = {self._role(_Fam(f.name, f.tags, f.count, f), words) for f, _ in found}
+        refrigerant = self.split_prefixes() | _CONDENSING_PREFIXES | _BRANCH_PREFIXES
+        roles = {role for f, _ in found for role in [self._role(_Fam(f.name, f.tags, f.count, f), words)]
+                 if role == "indoor" or _lead(f.prefix) in refrigerant}
         return "indoor" in roles and bool(roles & {"branch", "condensing"})
 
     def _join_owner(self, drafts: list[_Draft], family: FamilyFacts, owner: FamilyFacts) -> None:

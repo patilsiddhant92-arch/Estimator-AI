@@ -1385,3 +1385,23 @@ def test_a_family_named_otherwise_is_not_gathered_by_prefix():
     _family(ledger, "EDH", "Electric Duct Heater", "EDH-1", 1)
     _family(ledger, "DH", "Heater", "DH-1", 1)
     assert [f.tags for f in _by_key(_plan(ledger))["Duct Heaters"].families] == [("EDH-1",), ("DH-1",)]
+
+
+def test_a_plant_group_with_a_condensing_boiler_and_a_fan_coil_is_still_split_apart():
+    """Only a split, condensing or branch prefix makes a member a VRF or split system's outdoor unit (PLN-6)."""
+    ledger = _ledger()
+    _family(ledger, "B", "Condensing Boiler", "B-1", 1)
+    _family(ledger, "FCU", "Fan Coil Unit", "FCU-1", 1)
+    ledger.add("group", "Heating Plant", "B, FCU", "S5", "heating plant", "risers", SETTLED)
+    ledger.add("sequence_match", "HEATING PLANT", "B", "Q2", "HEATING PLANT", "sequence", SETTLED)
+    ledger.add("sequence_match", "ROOFTOP UNITS", "FCU", "Q5", "ROOFTOP UNITS", "sequence", SETTLED)
+    assert [s.key for s in _plan(ledger).systems] == ["B", "FCU"]
+
+
+def test_a_ducted_split_indoor_unit_scheduled_as_an_air_handling_unit_stays_a_split_unit():
+    playbook = _with_shapes(_shape("Air Handling Unit", ("AHU",), ("air handling unit",)))
+    ledger = _ledger()
+    _family(ledger, "SS", "Air Handling Unit", "SS-1", 1)
+    _family(ledger, "ACCU", "Outdoor Unit", "ACCU-1", 1)
+    (split,) = _plan(ledger, playbook).systems
+    assert split.key == "Split System"
