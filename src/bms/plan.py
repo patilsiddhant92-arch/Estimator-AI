@@ -694,10 +694,13 @@ class _Planner:
                     family, moved=True)
 
     def link_tag(self, link: Fact) -> str:
-        """The damper tag a link names: the tag its subject holds, else the subject when it is a tag itself."""
-        tag, _ = self.tag_in(link.subject)
+        """The damper tag a link names: the damper family's tag its subject holds, else the subject when it is a
+        tag itself. A fan's tag in the subject ("damper at EF-1") is not the damper's."""
+        tag, family = self.tag_in(link.subject)
+        if family is not None and family.prefix.upper() in self.damper_prefixes():
+            return tag
         subject = squash(link.subject)
-        return tag or (subject if _TAG.match(subject) else "")
+        return subject if _TAG.match(subject) else ""
 
     def _schedule_links(self, drafts: list[_Draft], damper_prefixes: set[str],
                         linked: set[str]) -> list[tuple[Fact, _Draft]]:

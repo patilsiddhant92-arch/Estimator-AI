@@ -823,6 +823,16 @@ def test_a_damper_tag_written_without_its_dash_or_in_brackets_still_moves():
     assert md.families[0].tags == ("MD-3",) and md.families[0].count.value == 1
 
 
+def test_a_fans_tag_in_a_damper_links_subject_is_not_the_dampers_tag():
+    ledger = _ledger()
+    _family(ledger, "MD", "Motorized Damper", None, 2, source="S2")
+    _family(ledger, "EF", "Exhaust Fan", "EF-1", 1)
+    ledger.add("link", "damper at EF-1", "EF-1", "S2", "damper at EF-1", "plans", SETTLED)
+    ef = _by_key(_plan(ledger))["EF"]
+    assert [(f.name, f.tags, f.count.value) for f in ef.families] == [("Exhaust Fan", ("EF-1",), 1),
+                                                                      ("Motorized Damper", (), 1)]
+
+
 # ---- duct heaters ------------------------------------------------------------------------------------------------
 
 def test_duct_heaters_are_one_system_carrying_the_served_units_sequence():
