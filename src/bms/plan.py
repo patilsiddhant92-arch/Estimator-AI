@@ -874,6 +874,10 @@ class _Planner:
             shape = self._shape_by_kind("global")
         else:
             shape = self.playbook.shape_for(draft.name, draft.prefixes)
+            if shape is not None and self._refused_by_name(draft, shape):
+                # a block the planner did not gather by its prefix takes the shape its name gives, or none: an Air
+                # Curtain tagged AC is no Split System, a Dehumidifier tagged DH no Duct Heater (PLN-8)
+                shape = self.playbook.shape_for(draft.name, [])
             if shape is not None and shape is self.split_shape() and _all_condensate(draft):
                 # a pump block's name may say "split ac"; it is no split unit. A lone split unit its pumps joined
                 # keeps the shape (PLN-7)
@@ -892,6 +896,16 @@ class _Planner:
                       families=tuple(Family(_one(f.name) if _is_one([f]) else f.name, tuple(f.tags), f.count)
                                      for f in families),
                       sequence_refs=tuple(dict.fromkeys(refs)), alternate=draft.alternate)
+
+    def _refused_by_name(self, draft: _Draft, shape: Shape) -> bool:
+        """The prefix picked a shape the planner's gathering refused the block by its name: the split shape for a
+        unit named otherwise (`named_otherwise`), or a duct heater shape for a block with no duct heater family
+        (`is_duct_heater`)."""
+        if shape is self.split_shape() and _lead(draft.key) in self.split_prefixes() and self.named_otherwise(draft):
+            return True
+        heater = _DUCT_HEATER_WORDS.search(f"{shape.name} {' '.join(shape.kind_words)}") is not None
+        sources = [f.source for f in draft.families if f.source is not None]
+        return heater and bool(sources) and not any(self.is_duct_heater(s) for s in sources)
 
     def _role(self, fam: _Fam, words: str) -> str:
         source = fam.source

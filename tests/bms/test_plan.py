@@ -1405,3 +1405,21 @@ def test_a_ducted_split_indoor_unit_scheduled_as_an_air_handling_unit_stays_a_sp
     _family(ledger, "ACCU", "Outdoor Unit", "ACCU-1", 1)
     (split,) = _plan(ledger, playbook).systems
     assert split.key == "Split System"
+
+
+def test_a_block_refused_by_its_name_takes_the_shape_its_name_gives_with_the_real_playbook():
+    """PLN-8: an Air Curtain tagged AC is never a Split System, a Dehumidifier tagged DH never a Duct Heater; each
+    takes the shape its name gives (or none). Real split units and duct heaters keep theirs."""
+    playbook = load_playbook()
+    ledger = _ledger()
+    _family(ledger, "AC", "Air Curtain", "AC-1", 1)
+    _family(ledger, "DH", "Dehumidifier", "DH-1", 1)
+    _family(ledger, "SS", "Indoor Unit", "SS-1", 1)
+    _family(ledger, "ACCU", "Outdoor Unit", "ACCU-1", 1)
+    _family(ledger, "EDH", "Electric Duct Heater", "EDH-1", 1)
+    systems = _by_key(_plan(ledger, playbook))
+    assert systems["AC"].shape == "Air Curtain"
+    assert systems["DH"].shape not in ("Duct Heater", "Split System")
+    by_name = playbook.shape_for("Dehumidifier", [])
+    assert systems["DH"].shape == (by_name.name if by_name is not None else "")
+    assert systems["Split System"].shape == "Split System" and systems["EDH"].shape == "Duct Heater"
