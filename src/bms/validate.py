@@ -407,9 +407,10 @@ def _header_under(system, shape, job, playbook) -> Iterator[Hit]:
 
 def _family_under(system, shape, job, playbook) -> Iterator[Hit]:
     """A device counted from a family (`counts.counted_from`: its quantity cites the family's count sources) whose
-    quantity is below the family's printed count: the line undershoots, and the line's quantity is what prints and
-    prices (AI-1: a changed family count left the lines at the old one). A device of unknown count is not this
-    check's."""
+    quantity is below the family's printed count: the line may undershoot, and the line's quantity is what prints
+    and prices (AI-1: a changed family count left the lines at the old one). A check, not a must_fix: a line can
+    count fewer than its family (VFDs on 2 of 5 fans), and the run lifts a line a count rewrite left at the old
+    count. A device of unknown count is not this check's."""
     from bms.counts import counted_from
     for d in system.devices:
         n = d.quantity.highest()
@@ -418,7 +419,7 @@ def _family_under(system, shape, job, playbook) -> Iterator[Hit]:
         for f in system.families:
             header = f.count.highest()
             if header is not None and n < header and counted_from(d, f):
-                yield (d.id, "must_fix", f"{d.name}: device quantity {n} is counted from the {f.name} count but is "
+                yield (d.id, "check", f"{d.name}: device quantity {n} is counted from the {f.name} count but is "
                        f"lower than it ({header})", f"Carry the {f.name} count of {header} on the line, or cite the "
                        "source that gives the lower count.")
                 break

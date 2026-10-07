@@ -157,14 +157,29 @@ def _families_changed(before: Job, key: str, after: Job) -> bool:
     return before.system(key).families != after.system(key).families
 
 
+def _typed_counts(decisions, key: str, before: Job) -> frozenset[str]:
+    """The ids of `key`'s lines whose count the estimator set: a device change whose quantity differs from the
+    line's as the page showed it (`was`; without one, the line in `before`). A rename or other words-only change
+    sets no count, so its line still takes a changed family count (AI-1)."""
+    lines = {d.id: d for d in before.system(key).devices} if any(s.key == key for s in before.systems) else {}
+    typed = set()
+    for d in decisions:
+        if d.system_key != key or d.action != "change" or d.device is None or not d.device_id:
+            continue
+        shown = d.was if d.was is not None else lines.get(d.device_id)
+        if shown is None or d.device.quantity != shown.quantity:
+            typed.add(d.device_id)
+    return frozenset(typed)
+
+
 def _carry_new_counts(before: System, after: System, rewritten: System, typed: frozenset[str] = frozenset()
                       ) -> System:
     """The count rewrite's system with every line still at a changed family's old count given the new one (AI-1,
     the safety net under `ai.rewrite_for_count`): a line counted from the family as it was (`counts.counted_from`
     on `before`'s family, since the estimator's count may cite other sources) whose quantity is the old count.
     Only the number changes. A family is matched by name; one whose count was or is unknown changes nothing.
-    A line the estimator changed (its id in `typed`) keeps the count it has in `after`: a typed count is never
-    replaced, by the answer or by this net."""
+    A line whose count the estimator typed (its id in `typed`, `_typed_counts`) keeps the count it has in `after`:
+    a typed count is never replaced, by the answer or by this net."""
     changed = [(old, new) for old in before.families for new in after.families
                if new.name == old.name and None not in (old.count.value, new.count.value)
                and old.count.value != new.count.value]
@@ -505,10 +520,9 @@ def _estimate(job_folder: Path, out: Path, cache: Path, mode: Mode, known: dict)
         if not _families_changed(decided_from, key, job):
             continue
         try:
-            # a line the answer left at the old count still gets the new one; a line the estimator changed keeps
-            # the count the estimator typed (AI-1)
-            typed = frozenset(d.device_id for d in decisions if d.system_key == key and d.action == "change"
-                              and d.device_id and d.device is not None)
+            # a line the answer left at the old count still gets the new one; a line whose count the estimator
+            # typed keeps it (AI-1)
+            typed = _typed_counts(decisions, key, decided_from)
             asked = ai.rewrite_for_count(
                 system, f"{evidence[key]}\n\n{_count_note(decisions, key)}", playbook, transport,
                 tags=job_tags(job), ids=issued(job), sheets=sheets(job), source_sheets=source(job))
@@ -542,14 +556,9 @@ def _estimate(job_folder: Path, out: Path, cache: Path, mode: Mode, known: dict)
     # an estimator's change that prints an issued id is kept as written: its id finding is not the revise's to fix
     # (the revise would write the line back under its old name); it gets its own card below
     known["stage"] = "revise"
-    # and so is a count the estimator typed on a line: a count below (or above) its family is the estimator's
-    # call (RUN-1), the revise would write it away (AI-1); the finding still shows on the page
     estimators = {(d.system_key, device_id) for d, device_id, _ in _ids_in_changes(job, decisions)}
-    typed = {(d.system_key, d.device_id) for d in decisions
-             if d.action == "change" and d.device is not None and d.device_id}
     must_fix = [f for f in [*findings, *qc] if f.severity == "must_fix"
-                and not (f.rule == RULE["ids"] and (f.system_key, f.device_id) in estimators)
-                and not (f.rule == RULE["header_under"] and (f.system_key, f.device_id) in typed)]
+                and not (f.rule == RULE["ids"] and (f.system_key, f.device_id) in estimators)]
     written = job
     for key in dict.fromkeys(f.system_key for f in must_fix if f.system_key):
         system = job.system(key)
