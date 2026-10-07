@@ -22,8 +22,8 @@ import pymupdf
 from estimator.catalogue.documents import LARGE_SHEET, Document, JobFolder
 from estimator.catalogue.pdf import Span, clean_text, ocr_images_textpage, ocr_textpage, tessdata, visual_spans
 
-CACHE_VERSION = 4   # bumped: the title-block reading (prefixed sheet numbers, labelled layout) changed what a
-                    # cached page's spans classify as, so a stale cache must not hand back the old sheets
+CACHE_VERSION = 5   # bumped: OCR of a scan turned 90° or 270° used to lose a third of the sheet (RD-2), so a
+                    # cached reading of such a page must not hand back the short text
 MIN_TEXT = 50          # characters: fewer and the page is treated as having no text layer
 MIN_OCR_TEXT = 20      # characters OCR must recover for the page to count as read
 IMAGE_TEXT = 500       # characters: below this, a page more than half covered by an image is OCR'd too
@@ -82,7 +82,9 @@ def _image_covers_half(page: pymupdf.Page) -> bool:
     area = page.rect.width * page.rect.height
     if area <= 0:
         return False
-    covered = sum((pymupdf.Rect(info["bbox"]) & page.rect).get_area() for info in page.get_image_info())
+    # get_image_info's boxes are in the page's unrotated space: measure them against that space.
+    space = page.rect * page.derotation_matrix
+    covered = sum((pymupdf.Rect(info["bbox"]) & space).get_area() for info in page.get_image_info())
     return covered / area > IMAGE_COVER
 
 
