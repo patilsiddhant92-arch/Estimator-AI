@@ -249,7 +249,6 @@ def test_the_devices_take_the_floors_of_their_own_documents_sheet(monkeypatch):
 KEYS = ["CUH-A", "VAV-1", "VAV-3", "VAV-101", "EBB-A"]
 
 
-@pytest.mark.xfail(strict=True, reason="FINAL-O H3: not fixed yet")
 @pytest.mark.parametrize("line, tag, n", [
     ("CUH-A (TYP. OF 4)", "CUH-A", 4), ("CUH-A TYP OF 4", "CUH-A", 4), ("CUH-A TYP. OF 4", "CUH-A", 4),
     ("CUH-A (TYPICAL OF 4)", "CUH-A", 4), ("CUH-A x4", "CUH-A", 4), ("CUH-A X 4", "CUH-A", 4),
@@ -268,7 +267,6 @@ def test_guard_no_multiplier_or_one_out_of_reach_counts_one_place(line, tag):
     assert line_labels(line, label_keys(KEYS)) == Counter({tag: 1})
 
 
-@pytest.mark.xfail(strict=True, reason="FINAL-O H3: not fixed yet")
 @pytest.mark.parametrize("text", ["CUH-A (TYP. OF 60)", "CUH-A TYP. OF FOUR"])
 def test_a_multiplier_out_of_reach_is_counted_once_and_named_on_the_counts_line(tmp_path, text):
     catalogue = _job([(MECH, 1, "M-101", "HVAC LEVEL 1 PLAN", [text], ())])
@@ -278,7 +276,6 @@ def test_a_multiplier_out_of_reach_is_counted_once_and_named_on_the_counts_line(
         in lines["CUH"]
 
 
-@pytest.mark.xfail(strict=True, reason="FINAL-O H3: not fixed yet")
 def test_a_type_typical_of_four_counts_four_on_both_sides(tmp_path):
     catalogue = _job([(MECH, 1, "M-101", "HVAC LEVEL 1 PLAN", ["CUH-A (TYP. OF 4)", "VAV-1"], ())])
     inventory, dossier, _flags, _s, _lines = _read(catalogue, tmp_path)

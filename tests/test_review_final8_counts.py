@@ -664,8 +664,7 @@ def _status(inventory: int, dossier: int, line: str, truth_: int, either: int | 
 _H3 = pytest.mark.xfail(strict=True, reason="REVIEW-FINAL8 H3 (the label reader): 'CUH-A (TYP. OF 4)' reads as "
                        "one place; REVIEW-FINAL7 names four places right (its rule 4, LOW), FINAL-N left it (concern "
                        "3), and the counts line says nothing: 1 where 4 is right, silent")
-TABLE = [pytest.param(*row, id=row[0][:70], marks=[_H3] if row[0].startswith("FINAL7 table 21:") else [])
-         for row in ROWS]
+TABLE = [pytest.param(*row, id=row[0][:70]) for row in ROWS]   # FINAL-O H3: row 21 reads 4 places; _H3 kept unused
 
 
 @pytest.mark.parametrize("name, build, family, truth_, either", TABLE)
