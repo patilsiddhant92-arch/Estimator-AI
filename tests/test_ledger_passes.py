@@ -428,3 +428,19 @@ def test_the_plans_pass_reads_a_spaced_sheet_number_and_an_unnumbered_plans_shee
     plans = documents(pass_named("plans"), dossier, catalogue)
     assert "LEAK CHIME AT WH-2" in plans
     assert "CO2 SENSOR IN ROOM 301" in plans
+
+
+def test_a_tag_list_the_schedules_pass_shortens_keeps_the_seeds_list_beside_it():
+    # LDG-4: the seed's tags are the counts line's (scheduled and on the plans); a shorter schedule list must not
+    # erase VAV-11 and VAV-12 with no record
+    ledger = seed(_dossier())
+    unit = ledger.find("unit", "VAV")
+    assert unit.state == ADDED and unit.value == "VAV-1 thru 12"
+    refused = apply(pass_named("schedules"), ledger, _answer(facts=[
+        {"kind": "unit", "subject": "VAV", "value": "VAV-1 thru 10", "source_id": "[S4]", "quote": "VAV-1 thru VAV-10"}]),
+        _known(ledger))
+    after = ledger.facts[unit.id]
+    assert refused == []
+    assert after.value == "VAV-1 thru 10" and after.stage == "schedules"
+    assert [(c.value, c.source_id, c.stage) for c in after.contradictions] == [("VAV-1 thru 12", unit.source_id, "seed")]
+    assert [f.id for f in ledger.of_kind("unit") if f.subject == "VAV"] == [unit.id]   # no second unit fact

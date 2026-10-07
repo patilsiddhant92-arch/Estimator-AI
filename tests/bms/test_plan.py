@@ -1240,3 +1240,42 @@ def test_a_rest_block_names_the_count_it_was_reduced_from():
     assert pump.tags == ("P-1",) and pump.count.value == 1
     asked = [q for q in job.questions if "SPX-1" in q and "general name" in q]
     assert len(asked) == 1 and "3" in asked[0] and "2 per" in asked[0]
+
+
+# ---- tags a later pass adds to a family are kept (PLN-1) -----------------------------------------------------------
+
+def test_tags_a_later_pass_adds_to_a_family_are_kept():
+    # the schedule lists EF-1 thru 3 and counts 3; the plans pass contradicts the tag list with EF-1 thru 4
+    ledger = _ledger()
+    _family(ledger, "EF", "Exhaust Fan", "EF-1 thru 3", 3)
+    unit = ledger.find("unit", "EF")
+    ledger.contradict(unit.id, "EF-1 thru 4", "S2", "EF-1 EF-2 EF-3 EF-4", "plans")
+    job = _plan(ledger)
+    _counts_hold(job)
+    (ef,) = job.systems
+    (family,) = ef.families
+    assert family.tags == ("EF-1", "EF-2", "EF-3", "EF-4")
+    assert family.count.value >= 4
+    assert 3 in {o.value for o in family.count.others}             # the old number is kept with its source
+    asked = [q for q in job.questions if "EF-4" in q]
+    assert len(asked) == 1 and "counted 4" in asked[0] and "lists 3" in asked[0]
+
+
+def test_a_shorter_schedule_tag_list_keeps_the_seeds_plan_tags_in_the_plan():
+    # LDG-4 through the planner: the seed's "VAV-1 thru 12" (scheduled and on the plans), the schedules pass's
+    # "VAV-1 thru 10": VAV-11 and VAV-12 are still the family's tags
+    from estimator.ledger.passes import apply, pass_named
+    from estimator.ledger.seed import seed
+    from tests.test_ledger_seed import _dossier as _seed_dossier
+
+    ledger = seed(_seed_dossier())
+    answer = {"facts": [{"kind": "unit", "subject": "VAV", "value": "VAV-1 thru 10", "source_id": "[S4]",
+                         "quote": "VAV-1 thru VAV-10"}],
+              "contradictions": [], "confirmations": [], "understanding": "Ten VAV boxes scheduled."}
+    assert apply(pass_named("schedules"), ledger, answer, frozenset(ledger.sources) | frozenset(ledger.facts)) == []
+    job = _plan(ledger)
+    tags = _tags_in(job)
+    assert {"VAV-11", "VAV-12"} <= tags
+    vav = next(f for s in job.systems for f in s.families if "VAV-1" in f.tags)
+    assert vav.count.value is None or vav.count.value >= 12
+    assert any("VAV-11" in q and "10" in q for q in job.questions)

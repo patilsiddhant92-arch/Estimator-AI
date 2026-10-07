@@ -89,6 +89,10 @@ class FamilyFacts:
     count: Count
     plan_only: bool             # seen on the drawings, on no schedule: its existence is a question
     sequence_only: bool         # named only by the sequence of operation, no count
+    added: tuple[str, ...] = ()            # tags only a later pass's tag list gives (on the plans, not the list)
+    listed: int = 0                        # how many tags the fact's own list gives
+    was: int | None = None                 # the count before those tags raised it
+    added_refs: tuple[Ref, ...] = ()       # where the added tags are
 
 
 class Reader:
@@ -235,14 +239,47 @@ class Reader:
         if prefix.casefold() in self._families:
             return self._families[prefix.casefold()]
         unit = self.ledger.find("unit", prefix)
-        tags = tuple(expand([squash(unit.value)])) if unit is not None and squash(unit.value) else ()
+        listed = tuple(expand([squash(unit.value)])) if unit is not None and squash(unit.value) else ()
+        added, added_refs = self._added_tags(unit, listed)
+        tags = listed + added
         count_fact = self.ledger.find("count", prefix)
         count = self.family_count(prefix, tags)
+        was = count.value
+        if added and count.value is not None and count.value < len(tags):
+            # one per tag (never undershoot): the old number is kept beside it, and the planner asks with both
+            raised = (self.fact_ref(unit), *added_refs)
+            count = Count(len(tags), tuple(_unique(list(raised))),
+                          tuple(_unique([*count.others, OtherCount(count.value, count.sources[0])]))
+                          if count.sources else count.others)
         sequence_only = count_fact is None and fact.stage == "sequence"
         plan_only = not sequence_only and (count_fact is None or count_fact.state == ADDED)
-        found = FamilyFacts(fact, prefix, short_name(fact.value, prefix), tags, count, plan_only, sequence_only)
+        found = FamilyFacts(fact, prefix, short_name(fact.value, prefix), tags, count, plan_only, sequence_only,
+                            added, len(listed), was, added_refs)
         self._families[prefix.casefold()] = found
         return found
+
+    def _added_tags(self, unit: Fact | None, listed: tuple[str, ...]) -> tuple[tuple[str, ...], tuple[Ref, ...]]:
+        """The tags a unit fact's contradictions give that its own list does not (a later pass saw "EF-1 thru 4"
+        where the schedule lists EF-1 thru 3), brackets dropped and ranges expanded as `seen_tags` does, each once
+        in ledger order, with the refs giving them. Only words with a letter and a digit and no space are tags."""
+        if unit is None:
+            return (), ()
+        have = {t.upper() for t in listed}
+        tags: list[str] = []
+        refs: list[Ref] = []
+        for c in unit.contradictions:
+            text = squash(re.sub(r"\([^()]*\)", " ", str(c.value or "")))
+            gave = False
+            for tag in expand([text]) if text else []:
+                tag = squash(tag)
+                if (tag and " " not in tag and re.search(r"[A-Za-z]", tag) and re.search(r"\d", tag)
+                        and tag.upper() not in have):
+                    have.add(tag.upper())
+                    tags.append(tag)
+                    gave = True
+            if gave:
+                refs.append(self.ref(c.source_id, c.quote))
+        return tuple(tags), tuple(_unique(refs))
 
     def rename(self, family: FamilyFacts, name: str) -> FamilyFacts:
         """The family under another name, kept so every later read of it gives that name."""
