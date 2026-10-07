@@ -165,10 +165,39 @@ class _Planner:
         return frozenset(shape.prefixes) if shape is not None and shape.prefixes else SPLIT_PREFIXES
 
     def is_duct_heater(self, family: FamilyFacts) -> bool:
-        if _DUCT_HEATER_WORDS.search(f"{family.prefix} {family.name}"):
+        """A duct heater family: its name says so, or says the kind words of a Playbook shape for duct heaters. Its
+        prefix (EDH, or a duct heater shape's prefix) counts only when the name gives no kind of its own: a general
+        kind ("Heater", "Unit"), its code, or a heater no other shape's kind words name ("Electric Heater"). A
+        Dehumidifier tagged DH is no duct heater (PLN-8)."""
+        name = squash(family.name)
+        heater_shapes = [s for s in self.playbook.shapes.values()
+                         if _DUCT_HEATER_WORDS.search(f"{s.name} {' '.join(s.kind_words)}")]
+        if _DUCT_HEATER_WORDS.search(name) or any(_says_kind(s, name) for s in heater_shapes):
+            return True
+        low = name.casefold()
+        general = not low or low in _GENERIC_KINDS or low in (NO_KIND, family.prefix.casefold()) or (
+            re.search(r"\bheaters?$", low) is not None and
+            not any(_says_kind(s, name) for s in self.playbook.shapes.values() if s not in heater_shapes))
+        if not general:
+            return False
+        if _DUCT_HEATER_WORDS.search(family.prefix):
             return True
         shape = self.playbook.shape_for(family.name, [family.prefix])
-        return shape is not None and _DUCT_HEATER_WORDS.search(f"{shape.name} {' '.join(shape.kind_words)}") is not None
+        return shape is not None and shape in heater_shapes
+
+    def named_otherwise(self, draft: _Draft) -> bool:
+        """A unit with a split unit's prefix whose ledger name says another kind of equipment (the kind words of a
+        Playbook shape that is neither the split shape nor a VRF shape, "Air Curtain") and nothing of a split unit
+        (the split shape's kind words, "split", an indoor or outdoor unit's words): it is no split unit (PLN-8)."""
+        split = self.split_shape()
+        for name in (squash(f.source.name) for f in draft.families if f.source is not None):
+            if (split is not None and _says_kind(split, name)) or re.search(r"\bsplit\b", name, re.I) or \
+                    _INDOOR_WORDS.search(name) or _CONDENSING_WORDS.search(name):
+                return False
+            if any(_says_kind(s, name) for s in self.playbook.shapes.values()
+                   if s is not split and not _VRF_WORDS.search(f"{s.name} {' '.join(s.kind_words)}")):
+                return True
+        return False
 
     def damper_shape(self) -> Shape | None:
         return self._shape_by_kind("damper", unless="fire")
@@ -232,9 +261,19 @@ class _Planner:
         for group in self.ledger.of_kind("group"):
             apart = split_apart(reader, group)
             if apart:
+                every = ", ".join(f.prefix for f, _ in members(reader, group))
+                name = _group_name(reader, group)
+                if self._one_refrigerant_system(group):
+                    sections = ", ".join(dict.fromkeys(squash(m.subject) for m in reader.matches(*apart)))
+                    self.questions.append(
+                        f"The documents group {every} as “{name}”, and its families match separate sequence sections "
+                        f"({sections}); a VRF or split system is one block, so it is planned as one block carrying "
+                        "each section's sequence. Confirm it is one system.")
+                    kept.append(group)
+                    continue
                 self.questions.append(
-                    f"The documents group {', '.join(apart)} as “{_group_name(reader, group)}”, but each matches "
-                    "its own sequence section, so each is planned as its own system; confirm they are separate systems.")
+                    f"The documents group {every} as “{name}”, but its families match their own sequence sections, "
+                    "so each is planned as its own system; confirm they are separate systems.")
                 continue
             kept.append(group)
         claims_of = parts(reader, kept)
@@ -264,6 +303,17 @@ class _Planner:
         for family, owner in no_kind:
             self._join_owner(drafts, family, owner)
         return drafts
+
+    def _one_refrigerant_system(self, group: Fact) -> bool:
+        """A VRF or split group (the house rule: one system, one block): its words say VRF or a branch selector, or
+        its members hold a branch selector or a condensing unit together with an indoor unit (PLN-6)."""
+        found = members(self.reader, group)
+        words = f"{_group_name(self.reader, group)} {squash(group.value)} " + \
+            " ".join(f"{f.prefix} {f.name}" for f, _ in found)
+        if _VRF_WORDS.search(words) or _BRANCH_WORDS.search(words):
+            return True
+        roles = {self._role(_Fam(f.name, f.tags, f.count, f), words) for f, _ in found}
+        return "indoor" in roles and bool(roles & {"branch", "condensing"})
 
     def _join_owner(self, drafts: list[_Draft], family: FamilyFacts, owner: FamilyFacts) -> None:
         """A code with no kind of its own that is a tag of another family ("GI-4" of GI) is a part of that family:
@@ -449,7 +499,7 @@ class _Planner:
         else the first). Only units with the same alternate and the same exception share a block. A lone unit
         stays on its own."""
         prefixes = self.split_prefixes()
-        loose = [d for d in drafts if d.kind == "single" and _lead(d.key) in prefixes]
+        loose = [d for d in drafts if d.kind == "single" and _lead(d.key) in prefixes and not self.named_otherwise(d)]
         out, used = list(drafts), set()
         for alternate, exception in dict.fromkeys((d.alternate, d.exception) for d in loose):
             alike = [d for d in loose if (d.alternate, d.exception) == (alternate, exception)]
@@ -476,7 +526,8 @@ class _Planner:
         in the split / VRF block, furnished by the mechanical contractor (ame_practice.txt, VRF SYSTEMS and
         OWNERSHIP ANSWERS (3)). Pumps that share only some numbers, or numbers of two blocks, stay apart and are
         asked. Each move is asked to be confirmed."""
-        splits = [d for d in drafts if d.kind == "split" or (d.kind == "single" and _lead(d.key) in prefixes)]
+        splits = [d for d in drafts if d.kind == "split" or (d.kind == "single" and _lead(d.key) in prefixes
+                                                              and not self.named_otherwise(d))]
         out = list(drafts)
         for pump in [d for d in drafts if d.kind == "single" and _lead(d.key) not in prefixes and _is_condensate(d)]:
             mine = _family_suffixes(pump.families)
@@ -666,8 +717,8 @@ class _Planner:
             if not self.is_damper(subject):
                 continue
             value = squash(link.value)
-            target = next((d for d in drafts if d.key.upper() not in damper_keys
-                           and names_in([n for n in d.names() if n.upper() not in prefixes], value)), None)
+            target = next(iter(_named([d for d in drafts if d.key.upper() not in damper_keys], value, prefixes)),
+                          None)
             if target is not None:
                 found.append((link, target))
         linked = {squash(link.subject).upper() for link, _ in found}
@@ -804,7 +855,7 @@ class _Planner:
 
     # -- step 5: the systems
 
-    def system(self, draft: _Draft, keys: set[str]) -> System:
+    def system(self, draft: _Draft, keys: set[str], drafts: list[_Draft]) -> System:
         vrf = draft.kind == "group" and self._is_vrf(draft)
         if draft.kind == "split":
             # by kind words only: a split unit's prefix (CU, AC) may also be a VRF shape's, and a split block
@@ -818,8 +869,10 @@ class _Planner:
             shape = self._shape_by_kind("global")
         else:
             shape = self.playbook.shape_for(draft.name, draft.prefixes)
-            if shape is not None and shape is self.split_shape() and _is_condensate(draft):
-                shape = None                            # a pump block's name may say "split ac"; it is no split unit
+            if shape is not None and shape is self.split_shape() and _all_condensate(draft):
+                # a pump block's name may say "split ac"; it is no split unit. A lone split unit its pumps joined
+                # keeps the shape (PLN-7)
+                shape = None
         families = draft.families
         if vrf or draft.kind == "split":
             families = [self._role_named(f, draft, shape, vrf) for f in families]
@@ -830,7 +883,7 @@ class _Planner:
         refs = [self.reader.fact_ref(m) for m in draft.matches] + draft.extra_refs
         name = _one(draft.name) if _is_one(families) else draft.name
         return System(key=key, name=name, shape=shape.name if shape is not None else "",
-                      control=self._control(draft, vrf),
+                      control=self._control(draft, vrf, drafts),
                       families=tuple(Family(_one(f.name) if _is_one([f]) else f.name, tuple(f.tags), f.count)
                                      for f in families),
                       sequence_refs=tuple(dict.fromkeys(refs)), alternate=draft.alternate)
@@ -872,14 +925,15 @@ class _Planner:
         word = next((n for n in names if any(w in n.casefold() for w in _ROLE_WORDS[role])), _ROLE_NAMES[role])
         return replace(fam, name=word)
 
-    def _control(self, draft: _Draft, vrf: bool) -> str:
+    def _control(self, draft: _Draft, vrf: bool, drafts: list[_Draft]) -> str:
         """packaged when a provider fact about the system says the unit maker or the factory controls it;
         integration when one says the BMS integrates it (or the system is a VRF group and none says otherwise);
-        none when one says no controls are in the contract; else field. Global points are integration."""
+        none when one says no controls are in the contract; else field. Global points are integration. A provider
+        fact naming a tag is about the system holding that tag only (`_named`, PLN-4)."""
         if draft.kind == "global":
             return "integration"
-        names = draft.names()
-        found = [squash(f.value) for f in self.ledger.of_kind("provider") if names_in(names, f.subject)]
+        found = [squash(f.value) for f in self.ledger.of_kind("provider")
+                 if any(d is draft for d in _named(drafts, f.subject))]
         if any(_MAKER.search(v) and not _NOT_MAKER.search(v) for v in found):
             return "packaged"
         if any(_INTEGRATION.search(v) for v in found):
@@ -1061,6 +1115,13 @@ _ACRONYMS = frozenset({"IT", "VRF", "ERV", "RTU", "HPAC", "DDC", "BMS", "VFD", "
 _PLURAL_KINDS = frozenset({"fans", "pumps", "units", "dampers", "devices", "coils", "valves"})
 
 
+def _says_kind(shape: Shape, name: str) -> bool:
+    """The name says one of the shape's kind words (whole words, a plural s / es allowed), as `shape_for` reads
+    them."""
+    kind = " ".join(re.findall(r"[a-z0-9]+", (name or "").lower()))
+    return any(re.search(rf"\b{re.escape(w)}(?:s|es)?\b", kind) for w in shape.kind_words)
+
+
 def _reduced(count: Count, new: int) -> Count:
     """A family's count made smaller for one block (a group's part, the rest after the parts, the dampers no fan
     took): `new` prints, citing the sources of the number it came from. The family's other counts below `new` are
@@ -1163,6 +1224,14 @@ def _is_condensate(draft: _Draft) -> bool:
     return any(_CONDENSATE.search(squash(n)) for n in names)
 
 
+def _all_condensate(draft: _Draft) -> bool:
+    """A block of condensate pumps only: every family's name or ledger name says so (a lone split unit its pumps
+    joined is not one, PLN-7)."""
+    return bool(draft.families) and all(
+        _CONDENSATE.search(squash(f.name)) or (f.source is not None and _CONDENSATE.search(squash(f.source.name)))
+        for f in draft.families)
+
+
 _CONDENSATE_SOURCE = re.compile(
     # equipment whose cooling coil drains condensate; never "cooling" alone (a cooling tower makes none,
     # REVIEW-FINAL4 F4); never "rooftop" or "heat recovery" alone (a rooftop exhaust fan and a heat recovery chiller
@@ -1260,23 +1329,26 @@ def _units_named(drafts: list[_Draft], heater: _Draft, text: str) -> list[tuple[
     for tag in heater.tags():
         text = naming(tag).sub(" ", text)
     out = []
-    for draft in drafts:
-        if draft is heater or draft.kind in ("heaters", "global") or not names_in(draft.names(), text):
-            continue
+    units = [d for d in drafts if d is not heater and d.kind not in ("heaters", "global")]
+    named = {id(d) for d in _named(units, text)}
+    for draft in (d for d in units if id(d) in named):
         tags = [t for t in draft.tags() if naming(t).search(text)]
         out.append((draft, tags or draft.tags()))
     return out
 
 
-def _draft_named(drafts: list[_Draft], text: str) -> _Draft | None:
+def _named(drafts: list[_Draft], text: str, skip=frozenset()) -> list[_Draft]:
+    """The systems a text names, those holding a tag it names whole first, then those it names by their key, a
+    prefix or a tag's prefix, each in plan order (PLN-4). A word that heads a tag the text names and a system holds
+    ("EF" of "EF-2") names that tag only: a group holding EF-1 is not named by "EF-2", the block holding EF-2 is.
+    Names in `skip` (the damper prefixes, for a damper's link) name nothing."""
     text = squash(text)
-    for draft in drafts:
-        if any(n.casefold() == text.casefold() for n in draft.names()):
-            return draft
-    for draft in drafts:
-        if names_in(draft.names(), text):
-            return draft
-    return None
+    held = {id(d): [t for t in d.tags() if naming(t).search(text)] for d in drafts}
+    tags = {t.upper() for found in held.values() for t in found}
+    heads = lambda name: any(t.startswith(name.upper() + "-") for t in tags)  # noqa: E731
+    return [d for d in drafts if held[id(d)]] + [
+        d for d in drafts if not held[id(d)]
+        and names_in([n for n in d.names() if n.upper() not in skip and not heads(n)], text)]
 
 
 def _with_served(systems: list[System], drafts: list[_Draft]) -> list[System]:
@@ -1314,7 +1386,8 @@ def _exceptions(planner: _Planner, systems: list[System], drafts: list[_Draft]) 
         text = without_ledger_brackets(fact.value)      # the ledger's "[S14]" form; any other id is validate's
         if not text:
             continue
-        key = next((s.key for s, d in zip(systems, drafts) if names_in(d.names(), text)), "")
+        named = _named(drafts, text)
+        key = next((s.key for s, d in zip(systems, drafts) if named and d is named[0]), "")
         out.append(ScopeException(system_key=key, text=text, refs=(planner.reader.fact_ref(fact),)))
     return tuple(out)
 
@@ -1371,7 +1444,7 @@ def plan_job(ledger: Ledger, catalogue: Catalogue, dossier: Dossier, playbook: P
     planner.heater_sequences(drafts)
     drafts += planner.global_points(drafts)
     keys: set[str] = set()
-    systems = _with_served([planner.system(d, keys) for d in drafts], drafts)
+    systems = _with_served([planner.system(d, keys, drafts) for d in drafts], drafts)
     planner.family_questions(systems, drafts)
     planner.added_tags()
     planner.lost(drafts)
