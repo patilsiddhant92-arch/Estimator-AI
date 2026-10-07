@@ -4,7 +4,10 @@ clarification kinds.
 S is a schedule line, Q a keynote, I a drawing, F a fact, C a count. A token is id-shaped when it reads `[SQIFC]` +
 1 to 4 digits + an optional letter as a whole token, in any case ("S141", "s141", "S141A"; not "F12" for "F1", not
 "S141.5", not "S141ft"). Detection reads a copy of the text made for detection only: NFKC (full-width forms read as
-ASCII), zero-width characters taken out. The text itself is never rewritten by detection.
+ASCII), a Cyrillic or Greek look-alike read as the ASCII letter or digit it shows (a Cyrillic DZE, U+0405, before
+"141" reads "S141"; a Cyrillic O between "S2" and "1" reads "S201"), zero-width characters taken out, except that one
+glued between a word and an id is a token boundary ("per", U+200B, "S141" reads "per S141"). The text itself is never
+rewritten by detection: the renderer cuts the original characters of a token.
 
 `SourceIds.scan` sorts the id-shaped tokens of a text that are not tags (T, every tag of the job, a range "F1-F4"
 covering F1 to F4) into four kinds (the estimator's ruling of 2026-10-05):
@@ -52,13 +55,37 @@ SHEET = re.compile(r"\b(?:[A-Z]{1,2}-?\d{1,3}(?:\.\d{1,3})?[A-Z]?|(?i:[SQIFC]\d{
 _FILE_PART = re.compile(r"\.(?:pdf|docx?|xlsx?|dwg|txt|png|jpe?g)\b|\bpage\s+\d+\b", re.IGNORECASE)
 _NOT_A_DOCUMENT = ("equipment counts",)          # the dossier's own label for a combined count, not a document
 _NOT_A_PLACE = re.compile(r"^\s*ledger\b|\.(?:png|jpe?g)\b", re.IGNORECASE)   # a ledger fact or a picture file
-# "sheet C101", "sheets C101 and C102", "dwg C3", "Sheet: C101", "Sheet No. C101", "Dwg No. C3"; not "drawing", which
-# the writer uses for a picture id ("drawing I12"), and not a bare "No."
-_SHEET_BEFORE = re.compile(r"(?<![^\W_])(?:sheets?|dwgs?\.?)(?:\s*(?:no|nos|number)\b\.?)?\s*[:#]?\s*$",
-                           re.IGNORECASE)
-_JOIN = re.compile(r"\s*(?:,|and|or|to|through|thru|[-–—/‐‑])\s*", re.IGNORECASE)
-_WINDOW = 32                                      # how far back a sheet word is looked for
+# "sheet C101", "sheets C101 and C102", "dwg C3", "sht. C3", "Sheet: C101", "Sheet No. C101", "Dwg No. C3", "sheet
+# (C101)", "sheet-C101"; not "drawing", which the writer uses for a picture id ("drawing I12"), not a bare "No.", and
+# not the ledger's bracket ("sheet [S41]")
+_SHEET_BEFORE = re.compile(r"(?<![^\W_])(?:sheets?|dwgs?\.?|shts?\.?)(?:\s*(?:no|nos|number)\b\.?)?\s*"
+                           r"[:#(\-–—‐‑]?\s*$", re.IGNORECASE)
+_JOIN = re.compile(r"\s*(?:,|;|&|and|or|to|through|thru|[-–—/‐‑])\s*", re.IGNORECASE)
+_WINDOW = 32                                      # how far back a sheet word is looked for (white space before the
+                                                  # token not counted)
 _ZERO_WIDTH = frozenset("​‌‍⁠﻿­")
+# the dossier's own label part of a note or section where ("GENERAL NOTES 3, ", "sequence section “VALVES”, "),
+# after which it names the sheet: "GENERAL NOTES 3, S201, Structural.pdf page 3"
+_LABEL_FIRST = re.compile(r"(?:sequence section “[^”]*”|[^,“”]*[^\s,“”]),\s*")
+# look-alikes (REVIEW-FINAL6 B4): the Cyrillic and Greek letters that show as an ASCII letter or digit an id uses
+_LOOKS = {
+    "А": "A", "В": "B", "С": "C", "Е": "E", "Н": "H", "Ј": "J", "К": "K",
+    "М": "M", "Р": "P", "Ѕ": "S", "Т": "T", "Х": "X", "Ү": "Y", "Ԛ": "Q",
+    "Ԝ": "W", "З": "3",
+    "а": "a", "с": "c", "е": "e", "ј": "j", "р": "p", "ѕ": "s", "х": "x",
+    "у": "y", "ԛ": "q", "ԝ": "w", "һ": "h", "ԁ": "d", "з": "3",
+    "Α": "A", "Β": "B", "Ε": "E", "Ζ": "Z", "Η": "H", "Κ": "K", "Μ": "M",
+    "Ν": "N", "Ρ": "P", "Τ": "T", "Υ": "Y", "Χ": "X", "Ϲ": "C", "Ϝ": "F",
+    "ϲ": "c", "κ": "k", "ν": "v", "ρ": "p", "υ": "u", "χ": "x",
+}
+# a look-alike of both a letter and a digit (O and 0, I and 1): the digit after a digit or an id letter ("S2О1",
+# "S14І"), else the letter ("ІNLET")
+_LOOKS_TWO = {
+    "О": ("O", "0"), "о": ("o", "0"), "Ο": ("O", "0"), "ο": ("o", "0"),
+    "І": ("I", "1"), "і": ("i", "1"), "Ι": ("I", "1"), "ι": ("i", "1"),
+    "Ӏ": ("I", "1"), "ӏ": ("l", "1"),
+}
+_ID_LETTERS = frozenset("SQIFCsqifc")
 # a range of plain ids in a tag ("F1-F4", "F1 thru 4"); a hyphen between the letter and the digits ("F-1 thru F-4")
 # is no plain id, so it is no range of them either
 _TAG_RANGE = re.compile(r"\b([SQIFC])(\d{1,4})\s*(?:-|–|\bthru\b|\bthrough\b|\bto\b)\s*(?:\1)?(\d{1,4})\b",
@@ -156,7 +183,8 @@ def job_sheets(job) -> frozenset[str]:
 def source_sheets(*sources: dict[str, str]) -> tuple[str, ...]:
     """The id-shaped sheet numbers the wheres of the ledger's (and the dossier's) sources name in sheet form
     (source id -> where, as `Ledger.sources` gives them), read as `ref_sheets` reads a planner's where (a where
-    naming its own source id is not trusted, a ledger fact, a picture and the equipment counts name none): upper
+    naming its own source id is not trusted, a ledger fact, a picture and the equipment counts name none; the
+    dossier's note and section wheres name theirs second, "GENERAL NOTES 3, S201, Structural.pdf page 3"): upper
     case, sorted, for `Job.source_sheets`."""
     return tuple(sorted(ref_sheets([{"source_id": sid, "where": where} for found in sources
                                     for sid, where in (found or {}).items()])))
@@ -170,12 +198,40 @@ def job_refs(job) -> list:
     return refs + [r for x in job.exceptions for r in x.refs]
 
 
-def _sheet_form(text: str, found: re.Match) -> bool:
-    """`found` (a sheet-number match in a where) reads as a sheet: a sheet word comes before it ("Sheet C501") or
-    it stands first with a file part after it ("C101, Controls.pdf page 2", the ledger's own sheet form)."""
-    if _SHEET_BEFORE.search(text[max(0, found.start() - _WINDOW):found.start()]):
+def _after_sheet_word(text: str, start: int) -> bool:
+    """A sheet word (`_SHEET_BEFORE`) stands right before `start`, at most `_WINDOW` characters back with the white
+    space right before `start` not counted ("sheet", a long run of spaces, "S201"). Linear over a text: each token's
+    white space run before it is its own."""
+    end = start
+    while end > 0 and text[end - 1].isspace():
+        end -= 1
+    return bool(_SHEET_BEFORE.search(text[max(0, end - _WINDOW):end]))
+
+
+def _second_slot(text: str) -> int:
+    """Where the dossier's own note and section wheres name their sheet: right after their label part
+    (`_LABEL_FIRST`: "GENERAL NOTES 3, ", "sequence section “VALVES”, "), a label holding no id-shaped token and no
+    file part; -1 when `text` has no such label."""
+    found = _LABEL_FIRST.match(text)
+    if found is None or ONE_ID.search(found.group(0)) or _FILE_PART.search(found.group(0)):
+        return -1
+    return found.end()
+
+
+def _sheet_form(text: str, found: re.Match, slot: int | None = None) -> bool:
+    """`found` (a sheet-number match in a where) reads as a sheet: a sheet word comes before it ("Sheet C501"), it
+    stands first with a file part after it ("C101, Controls.pdf page 2", the ledger's own sheet form), or it stands
+    second, after the dossier's own label part and before a comma and a file part ("GENERAL NOTES 3, S201,
+    Structural.pdf page 3", "sequence section “VALVES”, S201, Structural.pdf page 3": REVIEW-FINAL6 B2). `slot`:
+    `_second_slot(text)`, which a caller reading many matches of one text gives once."""
+    if _after_sheet_word(text, found.start()):
         return True
-    return found.start() == 0 and bool(_FILE_PART.search(text[found.end():]))
+    if found.start() == 0:
+        return bool(_FILE_PART.search(text, found.end()))
+    if slot is None:
+        slot = _second_slot(text)
+    return (found.start() == slot and text[found.end():found.end() + 2].lstrip().startswith(",")
+            and bool(_FILE_PART.search(text, found.end())))
 
 
 def _where_text(where) -> str:
@@ -186,17 +242,20 @@ def _where_text(where) -> str:
 
 
 def ref_sheets(refs) -> frozenset[str]:
-    """K: the id-shaped sheet numbers the wheres of `refs` (Refs or their dicts) name in sheet form, upper case. A
-    where naming its own ref's source id as the sheet is not trusted (that is the id, misplaced)."""
+    """K: the id-shaped sheet numbers the wheres of `refs` (Refs or their dicts) name in sheet form (`_sheet_form`:
+    after a sheet word, first with a file part, or second after the dossier's own note or section label and before
+    a file part), upper case. A where naming its own ref's source id as the sheet is not trusted (that is the id,
+    misplaced)."""
     out: set[str] = set()
     for ref in refs:
         get = ref.get if isinstance(ref, dict) else (lambda name, default="": getattr(ref, name, default))
         text, own = _where_text(get("where", "")), _key(get("source_id", ""))
         if _NOT_A_PLACE.search(text) or text.lower().startswith(_NOT_A_DOCUMENT):
             continue
+        slot = _second_slot(text)
         for found in SHEET.finditer(text):
             token = _key(found.group(0))
-            if ONE_ID.fullmatch(token) and token != own and _sheet_form(text, found):
+            if ONE_ID.fullmatch(token) and token != own and _sheet_form(text, found, slot):
                 out.add(token)
     return frozenset(out)
 
@@ -220,20 +279,52 @@ def tag_tokens(tags: Iterable[str]) -> frozenset[str]:
 
 # ---- detection ---------------------------------------------------------------------------------------------------
 
+def _look_alike(char: str, before: str) -> str:
+    """`char` as the ASCII letter or digit it shows (`_LOOKS`, `_LOOKS_TWO`: the digit right after a digit or an id
+    letter), else `char` itself."""
+    two = _LOOKS_TWO.get(char)
+    if two is not None:
+        return two[1] if "0" <= before <= "9" or before in _ID_LETTERS else two[0]
+    return _LOOKS.get(char, char)
+
+
 def _for_detection(text: str) -> tuple[str, list[int] | None]:
-    """The detection copy of `text` (NFKC per character, zero-width characters out) and, for each of its
-    characters, the index of the character of `text` it came from (None: the copy is the text)."""
+    """The detection copy of `text` and, for each of its characters, the index of the character of `text` it came
+    from (None: the copy is the text). NFKC per character, then each Cyrillic or Greek look-alike as the ASCII
+    letter or digit it shows (REVIEW-FINAL6 B4); zero-width characters out, except that a run of them between a
+    letter or digit and an id-shaped start (an id letter and a digit: "per", U+200B, "S141") is one space, a token
+    boundary; inside an id ("S", U+200B, "141") it glues. One pass over the text and one over its gaps: linear."""
     if text.isascii():
         return text, None
     out: list[str] = []
     origin: list[int] = []
+    gaps: list[tuple[int, int]] = []         # (index in the copy, index in the text) of each zero-width run
     for n, char in enumerate(text):
         if char in _ZERO_WIDTH:
+            if not gaps or gaps[-1][0] != len(out):
+                gaps.append((len(out), n))
             continue
-        piece = unicodedata.normalize("NFKC", char) if not char.isascii() else char
-        out.append(piece)
-        origin += [n] * len(piece)
-    return "".join(out), origin
+        # a look-alike before NFKC too: NFKC reads a Greek lunate sigma (it shows a C) as a sigma
+        looks = char in _LOOKS or char in _LOOKS_TWO
+        for piece in (char if char.isascii() or looks else unicodedata.normalize("NFKC", char)):
+            out.append(piece if piece.isascii() else _look_alike(piece, out[-1] if out else ""))
+            origin.append(n)
+    if not gaps:
+        return "".join(out), origin
+    copy: list[str] = []
+    where: list[int] = []
+    at = 0
+    for index, n in gaps:
+        copy += out[at:index]
+        where += origin[at:index]
+        at = index
+        if (0 < index < len(out) - 1 and out[index - 1].isalnum() and out[index] in _ID_LETTERS
+                and "0" <= out[index + 1] <= "9"):
+            copy.append(" ")
+            where.append(n)
+    copy += out[at:]
+    where += origin[at:]
+    return "".join(copy), where
 
 
 @dataclass(frozen=True)
@@ -290,6 +381,7 @@ class SourceIds:
         tokens = list(_TOKEN.finditer(copy))
         if not tokens:
             return []
+        in_list = self._sheet_listed(copy)
         found: list[list] = []           # [token, start, end, kind, joined to the one before], on the copy
         listed = False                   # the token is in a list after a sheet word ("sheets C101, S141 and C102")
         for match in tokens:
@@ -299,7 +391,7 @@ class SourceIds:
                 listed = False
                 continue
             joined = bool(found) and start - found[-1][2] <= _WINDOW and bool(_JOIN.fullmatch(copy[found[-1][2]:start]))
-            listed = bool(_SHEET_BEFORE.search(copy[max(0, start - _WINDOW):start])) or (joined and listed)
+            listed = _after_sheet_word(copy, start) or (joined and listed) or start in in_list
             if _key(token) in self.sheets:
                 kind = "sheet"
             elif _key(token) in self.source_sheets and (where or listed):
@@ -327,6 +419,26 @@ class SourceIds:
             out.append(Found(token, start, end, kind))
         return out
 
+    def _sheet_listed(self, copy: str) -> frozenset[int]:
+        """The starts of the sheet numbers (`SHEET`, id-shaped or not: "M-101", "S201") of the detection copy that
+        stand in a list after a sheet word, whatever their order: "sheets M-101 and S201" as "sheets S201 and M-101"
+        (REVIEW-FINAL6 B1). A member is joined to the one before by `_JOIN`, within `_WINDOW`; a tag of the job ends
+        the list, as in `_scan`. One pass."""
+        out: set[int] = set()
+        last_end, last_listed = -1, False
+        for match in SHEET.finditer(copy):
+            start = match.start()
+            joined = (last_end >= 0 and start - last_end <= _WINDOW
+                      and _JOIN.fullmatch(copy, last_end, start) is not None)
+            if ONE_ID.fullmatch(match.group(0)) and self.is_tag(match.group(0)):
+                listed = False
+            else:
+                listed = (joined and last_listed) or _after_sheet_word(copy, start)
+            if listed:
+                out.add(start)
+            last_end, last_listed = match.end(), listed
+        return frozenset(out)
+
     def refusal(self, text: str) -> str:
         """Why the intake refuses `text` ("" when it does not): an issued id that is no tag and no sheet number, or
         an unissued token joined to one, named in text order."""
@@ -352,7 +464,7 @@ class SourceIds:
 
     # ---- places: a sheet number or a section, never a file name, never a source id ----
 
-    def _sheet_ok(self, text: str, found: re.Match) -> bool:
+    def _sheet_ok(self, text: str, found: re.Match, slot: int | None = None) -> bool:
         """A sheet number found in a where: printable unless it is id-shaped and the ledger does not know it as a
         sheet. An id-shaped token is a sheet when the planner's wheres name it as a sheet (K) or it is one of the
         job's source sheets (in a where, wherever it stands); else only when it is
@@ -364,7 +476,7 @@ class SourceIds:
             return True
         if _key(token) in self.sheets or _key(token) in self.source_sheets:
             return True
-        return not self.is_id(token) and _sheet_form(text, found)
+        return not self.is_id(token) and _sheet_form(text, found, slot)
 
     def where_issued(self, where: str) -> list[str]:
         """The issued ids (not in K, no source sheet, no tag) that `where` names anywhere, after a sheet word or not
@@ -386,7 +498,8 @@ class SourceIds:
         text = _where_text(where)
         if _NOT_A_PLACE.search(text) or text.lower().startswith(_NOT_A_DOCUMENT):
             return ""
-        return next((f.group(0) for f in SHEET.finditer(text) if self._sheet_ok(text, f)), "")
+        slot = _second_slot(text)
+        return next((f.group(0) for f in SHEET.finditer(text) if self._sheet_ok(text, f, slot)), "")
 
     def place(self, where: str) -> str:
         """Where a source is, as the client reads it: the first printable sheet number in it ("M-112.00", "C101");
