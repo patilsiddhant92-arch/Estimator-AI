@@ -414,9 +414,9 @@ def plan_count(found, groups: dict, per_place: bool) -> int:
 def plan_floors(catalogue, typicals: Sequence = ()) -> dict[tuple[str, str], frozenset[str]]:
     """(document, sheet number) -> the floors that plan stands for: a typical sheet's floor list (one with no
     number by (document, page), `sheet_floors`), else, for a sheet number on N pages of one document with the same
-    text on every page, its N pages (one floor each). A sheet not listed stands for one floor. Pages of one number with other text are other sheets, each read and counted
-    (`counting_pages`), never one plan times its pages (REVIEW-FINAL6 F6). A floor named by digits alone is one
-    floor however it is written ("02" and "2", F9)."""
+    text on every page, its N pages (one floor each). A sheet not listed stands for one floor. Pages of one number
+    with other text are other sheets, each read and counted (`counting_pages`), never one plan times its pages
+    (REVIEW-FINAL6 F6). A floor named by digits alone is one floor however it is written ("02" and "2", F9)."""
     # by (document, sheet number) (REVIEW-FINAL8 H4); a typical given with no document (by hand) stands for its
     # number in every document
     named = {(getattr(t, "document", None), t.sheet): frozenset(_floor_name(f) for f in t.floors)

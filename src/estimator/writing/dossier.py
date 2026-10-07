@@ -547,12 +547,20 @@ def _render(page: pymupdf.Page, clip: pymupdf.Rect | None, dpi: int, folder: Pat
     return path
 
 
-def _file_key(path: Path) -> str:
+def _file_key(path: Path, known: dict | None = None) -> str:
+    """The document's content hash (sha1, as `PageOpener.digest` names its cache files), never its size and date:
+    a file rewritten with other content and its date set back is pictured again (LDG-15). `known` keeps each
+    document's hash for one run of pictures, so a document is read once however many of its pages are drawn."""
+    if known is not None and path in known:
+        return known[path]
     try:
-        stat = path.stat()
-        return f"{stat.st_size}-{stat.st_mtime_ns}"
+        with open(path, "rb") as handle:
+            key = hashlib.file_digest(handle, "sha1").hexdigest()
     except OSError:
-        return "missing"
+        key = "missing"
+    if known is not None:
+        known[path] = key
+    return key
 
 
 def _schedule_images(catalogue, reading, counted: frozenset, cache_dir: Path | None
@@ -584,6 +592,7 @@ def _schedule_images(catalogue, reading, counted: frozenset, cache_dir: Path | N
     paths = {d.relative: Path(d.path) for d in catalogue.job.documents}
     folder = Path(cache_dir).resolve() / IMAGES_FOLDER if cache_dir is not None else None
     opened: dict[str, pymupdf.Document] = {}
+    digests: dict[Path, str] = {}                 # each document's content hash, read once (`_file_key`)
     try:
         for key in sorted(candidates, key=lambda k: (list(paths).index(k[0]) if k[0] in paths else 0, k[1])):
             document, number = key
@@ -603,7 +612,7 @@ def _schedule_images(catalogue, reading, counted: frozenset, cache_dir: Path | N
                 if folder is None:
                     flags.append(f"{label}: not pictured — no cache folder to keep pictures in")
                     continue
-                base = f"v{IMAGE_VERSION}|{document}|{_file_key(paths[document])}|{number}"
+                base = f"v{IMAGE_VERSION}|{document}|{_file_key(paths[document], digests)}|{number}"
                 one_picture = any(abs(b) >= ONE_PICTURE * area for b in boxes)
                 if covered >= PICTURE_SHARE and not one_picture:
                     found = []
@@ -641,6 +650,7 @@ def sheet_pictures(catalogue, cache_dir: Path | None, keys: list[tuple[str, int]
     images: list[DossierImage] = []
     flags: list[str] = []
     opened: dict[str, pymupdf.Document] = {}
+    digests: dict[Path, str] = {}                 # each document's content hash, read once (`_file_key`)
     try:
         for document, number in keys:
             sheet = sheets.get((document, number))
@@ -657,7 +667,7 @@ def sheet_pictures(catalogue, cache_dir: Path | None, keys: list[tuple[str, int]
                 if not 1 <= number <= opened[document].page_count:
                     raise IndexError(f"page {number} is not in {_name(document)}")
                 page = opened[document][number - 1]
-                key = f"v{IMAGE_VERSION}|{document}|{_file_key(paths[document])}|{number}|sheet|{SHEET_DPI}"
+                key = f"v{IMAGE_VERSION}|{document}|{_file_key(paths[document], digests)}|{number}|sheet|{SHEET_DPI}"
                 path = _render(page, None, SHEET_DPI, folder, key)
                 images.append(DossierImage(str(path), f"{label} — {what}", sheet.number if sheet else None,
                                            document, number))

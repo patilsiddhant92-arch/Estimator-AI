@@ -651,3 +651,21 @@ def test_two_documents_with_one_file_name_cite_their_own_paths(tmp_path):
     assert wheres == ["KEY NOTES 3, M-101, Drawings/Mech.pdf page 1", "KEY NOTES 3, M-101, Bldg B/mech.PDF page 1"]
     assert "--- M-101, Bldg B/mech.PDF page 1 ---" in d.text
     assert any(w.endswith(", Specs.pdf page 1") for w in d.sources.values())      # a unique name stays short
+
+
+def test_a_picture_is_drawn_again_when_its_documents_content_changes_though_its_size_and_date_do_not(tmp_path):
+    # LDG-15: the picture's name follows the document's content (sha1), never its size and date alone
+    import os
+    from estimator.writing.dossier import sheet_pictures
+    catalogue, reading = _picture_job(tmp_path)
+    pdf = tmp_path / "H.pdf"
+    before = pdf.stat()
+    [first], _ = sheet_pictures(catalogue, tmp_path / "cache", [("H.pdf", 1)], "plan sheet")
+    pictured = build_dossier(catalogue, reading, tmp_path / "cache").images[0].path
+    changed = pdf.read_bytes().replace(b"(" * 7200, b"P" * 7200)          # the picture's grey made lighter
+    assert changed != pdf.read_bytes() and len(changed) == before.st_size     # other content, the same size
+    pdf.write_bytes(changed)
+    os.utime(pdf, ns=(before.st_atime_ns, before.st_mtime_ns))                  # and the same date
+    [again], _ = sheet_pictures(catalogue, tmp_path / "cache", [("H.pdf", 1)], "plan sheet")
+    assert again.path != first.path
+    assert build_dossier(catalogue, reading, tmp_path / "cache").images[0].path != pictured
