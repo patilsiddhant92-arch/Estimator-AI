@@ -21,6 +21,7 @@ from estimator.evidence.workbook import _table
 from estimator.evidence.workbook import write_evidence as write_old_evidence
 
 from bms.model import Count, Device, Finding, Job, Ref
+from bms.render import left_out_text
 
 SCOPE_TAB, FINDINGS_TAB = "Scope lines", "Findings"
 SCOPE_HEADINGS = ["System", "Line", "Kind", "Printed line", "Slot", "Device", "Verb", "Furnished by",
@@ -54,8 +55,8 @@ def _device_row(system: str, device: Device, printed: dict[str, str]) -> list:
 
 
 def scope_rows(job: Job, printed: dict[str, str] | None = None) -> list[list]:
-    """The Scope lines rows: per system its family counts, its devices in model order, its clarification; then the
-    front end's devices and the exceptions."""
+    """The Scope lines rows: per system its family counts, its devices in model order (a system with none: a "left
+    out" row with the writer's reason), its clarification; then the front end's devices and the exceptions."""
     printed = printed or {}
     rows: list[list] = []
     for system in job.systems:
@@ -67,6 +68,8 @@ def scope_rows(job: Job, printed: dict[str, str] | None = None) -> list[list]:
                          None, None, None, _quantity(family.count), _others(family.count),
                          _refs(family.count.sources), None, None])
         rows += [_device_row(label, d, printed) for d in system.devices]
+        if not system.devices:              # it prints nothing in the proposal: the package says why
+            rows.append([label, None, "left out", left_out_text(system)] + [None] * 11)
         for clarification in system.clarifications:
             rows.append([label, None, f"clarification ({clarification.kind})", clarification.text] + [None] * 11)
         if system.sequence_refs:

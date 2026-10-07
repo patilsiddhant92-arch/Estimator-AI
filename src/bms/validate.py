@@ -15,6 +15,7 @@ from bms import citations
 from bms.citations import WHERE_ADVICE, SourceIds
 from bms.model import PARTIES, Count, Device, Finding, Job, System
 from bms.playbook import Playbook, Shape
+from bms.render import line_form
 
 RULE = {
     "cites": "Every line cites this job",
@@ -93,9 +94,13 @@ def _sequence_only(system: System) -> bool:
 
 def _cites(system, shape, job, playbook) -> Iterator[Hit]:
     for d in system.devices:
-        if not d.refs or any(not r.source_id.strip() or not r.quote.strip() for r in d.refs):
+        if not d.refs:
             yield (d.id, "must_fix", f"{d.name} has no usable citation from this job",
                    "Cite the passage of this job's documents that calls for it, or delete the line.")
+        elif any(not r.source_id.strip() or not r.quote.strip() or not r.where.strip() for r in d.refs):
+            yield (d.id, "must_fix", f"a citation of {d.name} is missing its source id, quote or place",
+                   "Cite the passage of this job's documents that calls for it, with its source id, the quote and "
+                   "where it is, or delete the line.")
 
 
 def _owners(system, shape, job, playbook) -> Iterator[Hit]:
@@ -109,6 +114,9 @@ def _owners(system, shape, job, playbook) -> Iterator[Hit]:
 
 def _slots(system, shape, job, playbook) -> Iterator[Hit]:
     if shape is None:
+        if system.shape and system.shape not in playbook.shapes:     # the renderer cannot print this block
+            yield (None, "must_fix", f"the shape '{system.shape}' is not in the Playbook",
+                   "Set the shape to a Playbook shape name or leave it empty.")
         return
     for d in system.devices:
         if d.slot not in shape.slot_kinds:
@@ -280,11 +288,16 @@ def _unknown(system, shape, job, playbook) -> Iterator[Hit]:
         return
     if any(c.kind in ("per_drawings", "confirm") for c in system.clarifications):
         return
-    for f in system.families:
-        if f.count.value is None:
-            yield (None, "check", f"The {f.name} count is unknown and carries no clarification",
-                   "Add one 'per drawings' or 'confirm' clarification to the block.")
-            return
+    family = next((f for f in system.families if f.count.value is None), None)
+    if family is not None:
+        yield (None, "check", f"The {family.name} count is unknown and carries no clarification",
+               "Add one 'per drawings' or 'confirm' clarification to the block.")
+    # a line whose wording prints its quantity, with the quantity unknown, prints "(Qty. ##)"
+    for d in system.devices:
+        if d.quantity.highest() is None and "{qty}" in line_form(d, shape, playbook):
+            yield (d.id, "check", f"{d.name}: its quantity is unknown and the block carries no clarification",
+                   "Give the count from the evidence, or add one 'per drawings' or 'confirm' clarification to the "
+                   "block.")
 
 
 def _one_note(system, shape, job, playbook) -> Iterator[Hit]:
@@ -319,7 +332,8 @@ def _left_out(system, shape, job, playbook) -> Iterator[Hit]:
     """A system with no lines prints nothing in the proposal (the renderer leaves it out): the estimator sees it."""
     if system.devices:
         return
-    reason = "; ".join(c.text.strip() for c in system.clarifications if c.text.strip())
+    reason = ((system.no_scope_reason or "").strip()
+              or "; ".join(c.text.strip() for c in system.clarifications if c.text.strip()))
     yield (None, "check", f"{system.name}: left out: no lines written"
            + (f"; the writer's reason: {reason}" if reason else "; the writer gave no reason"),
            "Write its lines from the evidence, or make it a named exception with its reason.")
