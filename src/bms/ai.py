@@ -871,9 +871,12 @@ def _all_refs(system: System) -> list[Ref]:
 
 def _sent_index(evidence: str) -> dict[str, str]:
     """Every source id of the evidence one system was sent -> its text there (a sequence section: its heading and
-    the paragraphs under it), for the intake's quote check."""
+    the paragraphs under it, never the blocks after it), for the intake's quote check."""
     from estimator.writing.dossier import sections_in
-    return ai_evidence.index(evidence, {}, dict(sections_in(evidence)))
+    sections: dict = {}
+    for block in (evidence or "").split("\n\n"):     # each block of the evidence follows an empty line
+        sections |= sections_in(block)
+    return ai_evidence.index(evidence, {}, sections)
 
 
 def _quote_problem(ref: dict, index: Mapping[str, str]) -> str | None:
@@ -1312,6 +1315,13 @@ def _quote_findings(job: Job, index: Mapping[str, str], rule: str) -> list[Findi
 def _citation_rule(playbook: Playbook) -> str | None:
     """The Playbook rule the quote check reports under: the first rule of the evidence and citations topic."""
     return next((r.name for r in playbook.rules.values() if r.topic == CITATIONS_TOPIC), None)
+
+
+def quote_findings(job: Job, evidence_index: Mapping[str, str], playbook: Playbook) -> list[Finding]:
+    """The QC pass's mechanical check alone (no question asked): every Ref of the job cites a source of this job
+    whose text holds its quote. The run gives it the revised job, since QC is not asked again after the revise."""
+    rule = _citation_rule(playbook)
+    return _quote_findings(job, evidence_index, rule) if rule else []
 
 
 def _job_refs(job: Job, systems: Sequence[System], whole: bool) -> list[Ref]:

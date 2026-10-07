@@ -1420,3 +1420,11 @@ def test_a_quote_of_a_sequence_section_is_checked_against_its_paragraphs(job, ra
         a["devices"][0]["refs"] = [{"source_id": "Q2", "quote": "when EF-1 runs, MD-1 shall open",
                                     "where": "23 09 93, Specs.pdf page 10"}]
     assert len(_written(job, raw, dossier, playbook, change).devices) == 3
+
+
+def test_a_sequence_section_holds_only_its_own_paragraphs_at_intake(job, raw, dossier, playbook):
+    system = skeleton(job.system("CUH"))
+    answer = copy.deepcopy(next(s for s in raw["systems"] if s["key"] == "CUH"))
+    answer["devices"][0]["refs"] = [{"source_id": "Q4", "quote": "A 1500", "where": "23 09 93, Specs.pdf page 12"}]
+    reason = _refused(system, dossier, playbook, answer)
+    assert "Q4" in reason and "A 1500" in reason
