@@ -44,6 +44,28 @@ def sheet_text_lines(text: str) -> list[tuple[str, str, str]]:
     return lines
 
 
+def sheet_text_sheets(dossier, catalogue) -> list[tuple[str, object, str]]:
+    """(source id, the catalogue sheet whose text the line gives or None, the line) for each 7c line. The sheet is
+    the (document, page) the dossier recorded for the id (`Dossier.sheet_pages`), never a number read back from the
+    line: "M 201" and an unnumbered sheet are found, and two buildings' M-101 or a reissue each stand for their own
+    page. A dossier made without that record (one written by hand) falls back to the line's sheet number."""
+    sheets = list(getattr(catalogue, "sheets", ()) or ())
+    by_page = {(s.document, s.page): s for s in sheets}
+    by_number: dict[str, object] = {}
+    for s in sheets:
+        if s.number:
+            by_number.setdefault(s.number, s)
+    pages = getattr(dossier, "sheet_pages", None) or {}
+    found = []
+    for sid, number, line in sheet_text_lines(dossier.text):
+        if sid in pages:
+            sheet = by_page.get(tuple(pages[sid]))
+        else:
+            sheet = by_number.get(number) if number else None
+        found.append((sid, sheet, line))
+    return found
+
+
 def _count_lines(sections: dict[int, str], unread: list[str] | None = None) -> dict[str, tuple[str, str, str, str]]:
     """prefix -> (source id, the quote: the line up to the full stop that ends its counts clauses (the one before
     " Tags:", " By location:", " Reading notes:" or the line's end; never a period inside a sheet number such as

@@ -103,3 +103,30 @@ def test_a_picture_source_starts_with_its_sheet_number(tmp_path, monkeypatch):
     (source,) = [v for v in ledger.sources.values() if v.endswith("(picture)")]
     assert source.startswith("M-201 ")
     assert place_words(source, "VAV-1 VAV-2") == "M-201"
+
+
+def test_an_addendum_reissue_is_pictured_from_its_own_page_not_the_superseded_one(tmp_path, monkeypatch):
+    from estimator.catalogue.register import PageRecord
+    from estimator.catalogue.sheet_types import Sheet
+    from estimator.ledger import run as run_module
+    from estimator.reading.revisions import SheetVersion, Supersession
+    from tests.test_ledger_passes import _built
+    base, addendum = "Drawings/Mech.pdf", "Addendum/Addendum 1.pdf"
+    sheets = [Sheet(base, 1, "M-101", "FIRST FLOOR PLAN", "Mechanical", ("Plans",)),
+              Sheet(addendum, 4, "M-101", "FIRST FLOOR PLAN", "Mechanical", ("Plans",))]
+    pages = [PageRecord(base, 1, "text", "FIRST FLOOR PLAN KEYED NOTE 1 PROVIDE A LEAK CHIME AT WH-1.", 0, True, ()),
+             PageRecord(addendum, 4, "text", "FIRST FLOOR PLAN KEYED NOTE 1 PROVIDE A DAMPER ACTUATOR AT MD-7.", 0,
+                        True, ())]
+    replaced = SheetVersion("M-101", base, 1, (), None, "title block")
+    current = SheetVersion("M-101", addendum, 4, (), None, "document is an addendum")
+    dossier, catalogue = _built(sheets, pages, documents=((base, "drawings", "base"), (addendum, "addendum", "base")),
+                                supersessions=[Supersession("M-101", current, (replaced,), (), "")])
+    rendered = []
+    def fake_pictures(catalogue, cache_dir, keys, what):
+        rendered.extend(keys)
+        return [SimpleNamespace(path=str(tmp_path / f"{p}.png"), what=f"page {p} — {what}", sheet=None, document=d,
+                                page=p) for d, p in keys], []
+    monkeypatch.setattr(run_module, "sheet_pictures", fake_pictures)
+    client = FakeClient(*[_reply("ok") for _ in range(8)])
+    read_job(Judge(tmp_path / "cache", model="test-model", client=client), dossier, catalogue)
+    assert rendered == [(addendum, 4)]

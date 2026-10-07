@@ -395,3 +395,36 @@ def test_an_id_only_written_in_document_text_is_refused_not_a_crash():
         _known(ledger) | {"M5"})
     assert len(refused) == 2 and all("[M5]" in r for r in refused)
     assert (dict(ledger.facts), dict(ledger.sources)) == before
+
+
+# --- a 7c line is read by its own (document, page), never by a number parsed from the line (LDG-7) --------------
+
+def _built(sheets, pages, documents=(("Drawings/Mech.pdf", "drawings", "base"),), supersessions=()):
+    """A dossier built from an invented catalogue, and the catalogue."""
+    from pathlib import Path
+    from estimator.catalogue.documents import Document
+    from estimator.catalogue.overview import SpecOverview
+    from estimator.writing.dossier import build_dossier
+    job = SimpleNamespace(name="26-9999", root=Path("."),
+                          documents=tuple(Document(Path(d), d, kind, rev, 3) for d, kind, rev in documents))
+    catalogue = SimpleNamespace(job=job, pages=tuple(pages), sheets=tuple(sheets), sections=(), tags=(),
+                                overview=SpecOverview(), bid=None, flags=())
+    reading = SimpleNamespace(schedules=(), totals=(), devices=(), typicals=(), notes=(), backbone=(), versions=(),
+                              supersessions=tuple(supersessions), inventory=(), legend=(), flags=())
+    import tempfile
+    return build_dossier(catalogue, reading, Path(tempfile.mkdtemp())), catalogue
+
+
+def test_the_plans_pass_reads_a_spaced_sheet_number_and_an_unnumbered_plans_sheet():
+    from estimator.catalogue.register import PageRecord
+    from estimator.catalogue.sheet_types import Sheet
+    dwg = "Drawings/Mech.pdf"
+    sheets = [Sheet(dwg, 1, "M 201", "SECOND FLOOR PLAN", "Mechanical", ("Plans",)),
+              Sheet(dwg, 2, None, "THIRD FLOOR PLAN", "Mechanical", ("Plans",))]
+    pages = [PageRecord(dwg, 1, "text", "SECOND FLOOR PLAN KEYED NOTE 2 PROVIDE A LEAK CHIME AT WH-2.", 0, True, ()),
+             PageRecord(dwg, 2, "text", "THIRD FLOOR PLAN KEYED NOTE 5 PROVIDE A CO2 SENSOR IN ROOM 301.", 0, True, ())]
+    dossier, catalogue = _built(sheets, pages)
+    assert "LEAK CHIME AT WH-2" in dossier.text and "CO2 SENSOR IN ROOM 301" in dossier.text   # both 7c lines written
+    plans = documents(pass_named("plans"), dossier, catalogue)
+    assert "LEAK CHIME AT WH-2" in plans
+    assert "CO2 SENSOR IN ROOM 301" in plans

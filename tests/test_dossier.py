@@ -595,3 +595,41 @@ def test_the_same_keynote_on_the_same_sheet_of_two_documents_is_given_twice_with
     assert len(lines) == 2
     ids = {re.match(r"\[(S\d+)\]", ln).group(1) for ln in lines}
     assert len(ids) == 2 and all(sid in d.sources for sid in ids)
+
+
+# --- 7c gives each governing page, keyed by (document, page) (LDG-8) -----------------------------------------
+
+def _two_m101_job(second_kind="drawings", second_revision="base", supersessions=()):
+    """Two documents that each carry an M-101 plan with its own text: two buildings, or a base and its reissue."""
+    first, second = "Drawings/Bldg A.pdf", "Drawings/Bldg B.pdf"
+    documents = [_doc(first, "drawings", 1), _doc(second, second_kind, 1, revision=second_revision)]
+    pages = [_page(first, 1, "FIRST FLOOR PLAN KEYED NOTE 1 PROVIDE A LEAK CHIME AT WH-1."),
+             _page(second, 1, "FIRST FLOOR PLAN KEYED NOTE 1 PROVIDE A DAMPER ACTUATOR AT MD-7.")]
+    sheets = [_sheet(1, "M-101", "FIRST FLOOR PLAN", document=first),
+              _sheet(1, "M-101", "FIRST FLOOR PLAN", document=second)]
+    return _catalogue(documents, pages, sheets), _reading(supersessions=supersessions), first, second
+
+
+def _sheet_text_part(d):
+    return d.text.split("--- 7c PLAN SHEET TEXT ---")[1].split("== 8.")[0]
+
+
+def test_two_base_documents_each_with_an_m101_give_both_texts_in_7c(tmp_path):
+    catalogue, reading, first, second = _two_m101_job()
+    d = build_dossier(catalogue, reading, tmp_path)
+    part = _sheet_text_part(d)
+    assert "LEAK CHIME AT WH-1" in part and "DAMPER ACTUATOR AT MD-7" in part
+    assert d.sheet_pages and set(d.sheet_pages.values()) == {(first, 1), (second, 1)}
+
+
+def test_a_revision_1_reissue_gives_only_the_reissues_text_in_7c(tmp_path):
+    from estimator.reading.revisions import SheetVersion, Supersession
+    first, second = "Drawings/Bldg A.pdf", "Drawings/Bldg B.pdf"
+    base = SheetVersion("M-101", first, 1, (), None, "title block")
+    reissue = SheetVersion("M-101", second, 1, (), None, "title block")
+    catalogue, reading, _, _ = _two_m101_job(second_revision="1",
+                                             supersessions=[Supersession("M-101", reissue, (base,), (), "")])
+    d = build_dossier(catalogue, reading, tmp_path)
+    part = _sheet_text_part(d)
+    assert "DAMPER ACTUATOR AT MD-7" in part and "LEAK CHIME AT WH-1" not in part
+    assert set(d.sheet_pages.values()) == {(second, 1)}
