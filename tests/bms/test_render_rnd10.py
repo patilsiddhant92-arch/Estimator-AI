@@ -43,6 +43,8 @@ def job(name: str) -> Job:
     ("it closet cooling unit", "IT Closet Cooling Unit"),
     ("no sensor", "No Sensor"),
     ("FA relay", "FA Relay"),
+    ("fa relay", "FA Relay"),
+    ("fa panel interface", "FA Panel Interface"),
 ])
 def test_ordinary_words_are_not_turned_into_acronyms(pb, name, printed):
     out = [l.text for l in render(job(name), pb).lines if l.system_key == "EF"]

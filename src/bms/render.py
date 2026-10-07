@@ -179,9 +179,11 @@ def _trim(text: str) -> str:
 
 ACRONYMS = {a.lower(): a for a in ("BMS", "VFD", "DDC", "ERV", "RTU", "HPAC", "SCR", "UUKL", "BACnet")}
 # NO, IT, CO and FA are also ordinary words ("no", "it", "co-located"): an upper-case word is kept as written, and a
-# lower-case (or capitalised) "co" / "it" becomes CO / IT only before the words that name the acronym's thing
+# lower-case (or capitalised) "co" / "it" / "fa" becomes CO / IT / FA only before the words that name its thing
 _ACRONYM_BEFORE = {"co": ("CO", {"sensor", "sensors", "detector", "detectors", "detection", "monitor", "monitoring"}),
-                   "it": ("IT", {"room", "rooms", "closet", "closets", "rack", "racks"})}
+                   "it": ("IT", {"room", "rooms", "closet", "closets", "rack", "racks"}),
+                   "fa": ("FA", {"relay", "relays", "panel", "panels", "interface", "shutdown", "alarm", "alarms",
+                                 "system", "interlock", "interlocks"})}
 _NEXT_WORDS = re.compile(r"[A-Za-z]+")
 _LIST_WORDS = {"and", "or", "no", "fa", "co", "it"}   # passed over to the thing a short list names ("co and no sensors")
 _SMALL_WORDS = {"a", "an", "and", "as", "at", "b", "between", "but", "by", "for", "from", "in", "into", "it", "nor",
@@ -191,8 +193,9 @@ _SMALL_WORDS = {"a", "an", "and", "as", "at", "b", "between", "but", "by", "for"
 def _title(text: str) -> str:
     """A name as house lines read: each lower-case word capitalised (small joining words after the first, and the
     part after a hyphen, left alone), the house acronyms in their own spelling (BMS, VFD, BACnet ...); a word already
-    capitalised is kept. An acronym that is also a word prints as the source writes it, except "co" / "it" before the
-    thing they name ("co sensor" -> "CO Sensor", "it room" -> "IT Room", "co2" -> "CO2"); "no" and "fa" never."""
+    capitalised is kept. An acronym that is also a word prints as the source writes it, except "co" / "it" / "fa"
+    before the thing they name ("co sensor" -> "CO Sensor", "it room" -> "IT Room", "fa relay" -> "FA Relay", "co2" ->
+    "CO2"); "no" never."""
     text = text or ""
 
     def word(match: re.Match) -> str:
