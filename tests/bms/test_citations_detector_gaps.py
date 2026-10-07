@@ -177,3 +177,24 @@ def test_a_hyphen_family_tag_never_makes_an_issued_id_printable_anywhere_in_the_
     assert _intake(text, tags=citations.job_tags(j)) is None
     found, printed = _downstream(j, text)
     assert "must_fix" in found and not _prints(printed, token), (found, printed)
+
+
+# ---- VAL-16: every invisible format character reads as zero-width -----------------------------------------------
+
+@pytest.mark.parametrize("char", ["\u200e", "\u200f", "\u2061", "\u2062", "\u2063", "\u2064", "\u2066", "\u180e",
+                                  "\u034f"])
+def test_an_id_split_by_an_invisible_format_character_is_found(char):
+    ids = citations.SourceIds.of(ids=["S201"])
+    found = ids.scan("per S" + char + "201")
+    assert [f.kind for f in found] == ["issued"], (hex(ord(char)), found)
+
+
+# ---- VAL-17: ids of five and six digits are found -----------------------------------------------------------------
+
+def test_an_id_of_five_digits_is_found():
+    found = citations.SourceIds.of(ids=["S10001"]).scan("per S10001")
+    assert [(f.token, f.kind) for f in found] == [("S10001", "issued")]
+
+
+def test_an_id_of_six_digits_in_the_ledger_bracket_is_taken_out():
+    assert citations.without_ledger_brackets("Fire alarm by others [F123456]") == "Fire alarm by others"

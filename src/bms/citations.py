@@ -2,7 +2,7 @@
 clarification kinds.
 
 S is a schedule line, Q a keynote, I a drawing, F a fact, C a count. A token is id-shaped when it reads `[SQIFC]` +
-1 to 4 digits + an optional letter as a whole token, in any case ("S141", "s141", "S141A"; not "F12" for "F1", not
+1 to 6 digits + an optional letter as a whole token, in any case ("S141", "s141", "S141A"; not "F12" for "F1", not
 "S141.5", not "S141ft"). Detection reads a copy of the text made for detection only: NFKC (full-width forms read as
 ASCII), a digit of another script read as its ASCII digit ("S" and the Arabic-Indic digits 1 4 1 read "S141"), a
 look-alike read as the ASCII letter or digit it shows (Cyrillic and Greek, and the Latin, Cherokee and Lisu
@@ -46,16 +46,17 @@ import unicodedata
 from collections.abc import Iterable
 from dataclasses import dataclass
 
-ONE_ID_TEXT = r"\b[SQIFC]\d{1,4}[A-Za-z]?\b"
+ONE_ID_TEXT = r"\b[SQIFC]\d{1,6}[A-Za-z]?\b"
 ONE_ID = re.compile(ONE_ID_TEXT, re.IGNORECASE)
 # a token on the detection copy: no letter or digit on either side, no decimal part ("S141.5" is a number)
-_TOKEN = re.compile(r"(?<![^\W_])(?<![0-9]\.)[SQIFC][0-9]{1,4}[A-Za-z]?(?![^\W_])(?!\.[0-9])", re.IGNORECASE)
+_TOKEN = re.compile(r"(?<![^\W_])(?<![0-9]\.)[SQIFC][0-9]{1,6}[A-Za-z]?(?![^\W_])(?!\.[0-9])", re.IGNORECASE)
 # the ledger's own bracket form of an id ("[S41]"), which the planner takes out of its texts
-LEDGER_BRACKET = re.compile(r"\[[SQIFC]\d{1,4}[a-z]?\]", re.IGNORECASE)
+LEDGER_BRACKET = re.compile(r"\[[SQIFC]\d{1,6}[a-z]?\]", re.IGNORECASE)
 
 # a sheet number in a where: an upper-case sheet ("M-101", "M-112.00", "C501A"), or an id-shaped token as `_TOKEN`
-# reads one (any case, 1 to 4 digits: "s141", "S2010"), so the where checks find every id the scanner finds
-SHEET = re.compile(r"\b(?:[A-Z]{1,2}-?\d{1,3}(?:\.\d{1,3})?[A-Z]?|(?i:[SQIFC]\d{1,4}[A-Z]?)(?!\.\d))\b")
+# reads one (any case, 1 to 6 digits: "s141", "S2010", "S10001"), so the where checks find every id the scanner
+# finds
+SHEET = re.compile(r"\b(?:[A-Z]{1,2}-?\d{1,3}(?:\.\d{1,3})?[A-Z]?|(?i:[SQIFC]\d{1,6}[A-Z]?)(?!\.\d))\b")
 _FILE_PART = re.compile(r"\.(?:pdf|docx?|xlsx?|dwg|txt|png|jpe?g)\b|\bpage\s+\d+\b", re.IGNORECASE)
 _NOT_A_DOCUMENT = ("equipment counts",)          # the dossier's own label for a combined count, not a document
 _NOT_A_PLACE = re.compile(r"^\s*ledger\b|\.(?:png|jpe?g)\b", re.IGNORECASE)   # a ledger fact or a picture file
@@ -68,6 +69,14 @@ _JOIN = re.compile(r"\s*(?:,|;|&|and|or|to|through|thru|[-–—/‐‑])\s*", r
 _WINDOW = 32                                      # how far back a sheet word is looked for (white space before the
                                                   # token not counted)
 _ZERO_WIDTH = frozenset("​‌‍⁠﻿­")
+
+
+def _zero_width(char: str) -> bool:
+    """An invisible character read as zero-width: the listed ones and every format character (Unicode category Cf:
+    the direction marks U+200E and U+200F, the invisible operators U+2061 to U+2064, the isolates U+2066 on, the
+    Mongolian vowel separator U+180E, the soft hyphen), and the combining grapheme joiner U+034F (VAL-16)."""
+    return char in _ZERO_WIDTH or char == "\u034f" or unicodedata.category(char) == "Cf"
+
 # the dossier's own label part of a note or section where ("GENERAL NOTES 3, ", "sequence section “VALVES”, "),
 # after which it names the sheet: "GENERAL NOTES 3, S201, Structural.pdf page 3"
 _LABEL_FIRST = re.compile(r"(?:sequence section “[^”]*”|[^,“”]*[^\s,“”]),\s*")
@@ -101,7 +110,7 @@ _LOOKS_TWO = {
 _ID_LETTERS = frozenset("SQIFCsqifc")
 # a range of plain ids in a tag ("F1-F4", "F1 thru 4"); a hyphen between the letter and the digits ("F-1 thru F-4")
 # is no plain id, so it is no range of them either
-_TAG_RANGE = re.compile(r"\b([SQIFC])(\d{1,4})\s*(?:-|–|\bthru\b|\bthrough\b|\bto\b)\s*(?:\1)?(\d{1,4})\b",
+_TAG_RANGE = re.compile(r"\b([SQIFC])(\d{1,6})\s*(?:-|–|\bthru\b|\bthrough\b|\bto\b)\s*(?:\1)?(\d{1,6})\b",
                         re.IGNORECASE)
 MAX_RANGE = 500                                   # a tag range wider than this is not expanded
 TRADE = re.compile(r"\b(plumbing|electrical|mechanical|architectural|fire protection|civil|structural)\b",
@@ -308,7 +317,7 @@ def _tag_copy(tag: str) -> str:
         char = chars[n]
         if char == "\u00ad" and digit_next:
             chars[n] = " "
-        if char not in _ZERO_WIDTH:
+        if not _zero_width(char):
             first = unicodedata.normalize("NFKC", char)[:1]
             digit_next = unicodedata.digit(char, None) is not None or ("0" <= first <= "9")
     return _for_detection("".join(chars))[0]
@@ -340,7 +349,7 @@ def _for_detection(text: str) -> tuple[str, list[int] | None]:
     origin: list[int] = []
     gaps: list[tuple[int, int]] = []         # (index in the copy, index in the text) of each zero-width run
     for n, char in enumerate(text):
-        if char in _ZERO_WIDTH:
+        if _zero_width(char):
             if not gaps or gaps[-1][0] != len(out):
                 gaps.append((len(out), n))
             continue

@@ -1,8 +1,8 @@
 """The validators (workstream 3, design §4.3): one small function per Playbook rule, on fields, never on text.
 
 Every check reads Job fields only: verbs, parties, slot and its kind in the shape, refs, counts, flags and the
-kind of each clarification. None judges the wording of a sentence; two only look at its surface (a source id in
-it, its length). Each finding is named by a rule heading of the
+kind of each clarification. None judges the wording of a sentence; five only look at its surface (a source id in
+it, a word the client never sees, the length of a clarification, an assumption or a printed line). Each finding is named by a rule heading of the
 repo Playbook (`playbook/rules.md`); `RULE` maps each check to it (tests/bms/test_rule_names.py holds the two
 together).
 """
@@ -32,14 +32,22 @@ RULE = {
     "sequence": "Systems named only in the sequence",
     "slot": "Placing a device in a slot",
     "subline": "Sub-lines under their parent",
-    "left_out": "One system one block",
+    "left_out": "Everything assigned is extracted",     # a system with no lines drops what it was given (VAL-20)
     "ids": "Assumption wording has no source ids",
     "long_note": "One clarification per block",
     "long_assumption": "Every assumption says why",
     "header_under": "Never undershoot",
+    "long_line": "Line form",
+    "client_words": "Words the client never sees",
 }
 
 LONG_TEXT = 220                       # a clarification or an assumption longer than this is a check
+LONG_LINE = 160                       # a printed line longer than this is a check (rules.md "Line form")
+# the words of rules.md "Words the client never sees" a text's surface shows: a dollar sign, "GEM", "QC", the flag
+# words in capitals and the reasoning words. Case counts for the capitals: "Existing Fan Coil Unit" is a name
+CLIENT_NEVER_SEES = re.compile(
+    r"\$|\b(?:GEM|QC|CONFIRMED|ADDED|ASSUMPTION|PENDING|DISCREPANCY|EXTRA|MISSING|ORPHANED|CONFLICT|EXISTING)\b"
+    r"|\b(?i:mandatory minimum|field DDC default|quick scan)\b")
 
 # a checker yields (device_id | None, severity, what, fix) for one system
 Hit = tuple["str | None", str, str, str]
@@ -422,6 +430,38 @@ def _long_assumption(system, shape, job, playbook) -> Iterator[Hit]:
                    "Say what is assumed and why in fewer words; it prints whole.")
 
 
+def _long_line(system, shape, job, playbook) -> Iterator[Hit]:
+    """A line that prints over 160 characters (rules.md "Line form"), read as the renderer prints it (VAL-14). The
+    render module is imported here, not at the top, as in `_unknown`."""
+    from bms.render import printed_texts
+    for device_id, text in printed_texts(system, shape, playbook, SourceIds.of_job(job)):
+        if len(text) > LONG_LINE:
+            name = next((d.name for d in system.devices if d.id == device_id), device_id)
+            yield (device_id, "check", f"The line of {name} prints {len(text)} characters, over {LONG_LINE}",
+                   "Name the device in fewer words, the documents' noun; details go in the Evidence Package.")
+
+
+def _never_sees(device_id, field: str, text: str) -> Iterator[Hit]:
+    words = list(dict.fromkeys(m.group(0) for m in CLIENT_NEVER_SEES.finditer(text or "")))
+    if words:
+        yield (device_id, "check", f"{field} prints {', '.join(repr(w) for w in words)}, which the client never sees",
+               "Take it out: no prices or dollar signs, no GEM or QC, no flag words in capitals, no reasoning words.")
+
+
+def _client_words(system, shape, job, playbook) -> Iterator[Hit]:
+    """The words of rules.md "Words the client never sees" in a text that prints (clarifications, device names,
+    assumptions, the reason a block has no lines; the named exceptions in `validate`): a check (VAL-21)."""
+    for c in system.clarifications:
+        yield from _never_sees(None, f"The {c.kind} clarification", c.text)
+    for d in system.devices:
+        yield from _never_sees(d.id, f"The name of {d.name}", d.name)
+        a = d.assumption
+        if a is not None:
+            yield from _never_sees(d.id, f"The assumption on {d.name}", f"{a.what} {a.why}")
+    if not system.devices and system.no_scope_reason:
+        yield from _never_sees(None, "The reason it has no lines", system.no_scope_reason)
+
+
 def _one_per_unit(slot: str) -> bool:
     """A slot written once per unit: the controller and a start/stop line. Any other line may total several per unit
     (two dampers on each fan), rules.md "Line quantity"."""
@@ -477,10 +517,11 @@ _SYSTEM_RULES: tuple[tuple[str, Callable], ...] = (
     ("damper", _dampers), ("heater", _heaters), ("vrf", _vrf), ("higher", _higher), ("unknown", _unknown),
     ("one_note", _one_note), ("assumption", _assumption), ("sequence", _sequence), ("left_out", _left_out),
     ("ids", _ids), ("long_note", _long_note), ("long_assumption", _long_assumption), ("header_under", _header_under),
-    ("header_under", _family_under),
+    ("header_under", _family_under), ("long_line", _long_line), ("client_words", _client_words),
 )
 
-_FRONT_END_RULES = ("cites", "owner", "assumption", "one_note", "ids", "long_note", "long_assumption")
+_FRONT_END_RULES = ("cites", "owner", "assumption", "one_note", "ids", "long_note", "long_assumption", "long_line",
+                    "client_words")
 
 
 def validate(job: Job, playbook: Playbook) -> list[Finding]:
@@ -543,5 +584,7 @@ def validate(job: Job, playbook: Playbook) -> list[Finding]:
         # the whole job's finding (system key ""): no writer writes an exception, so no system's revise can fix it
         for hit in _id_hits(None, "the named exception", exception.text, ids):
             add(len(job.systems), "", {}, "ids", hit)
+        for hit in _never_sees(None, "The named exception", exception.text):
+            add(len(job.systems), "", {}, "client_words", hit)
     found.sort(key=lambda item: item[0])
     return [f for _, f in found]

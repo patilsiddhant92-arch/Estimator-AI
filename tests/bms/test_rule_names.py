@@ -149,11 +149,21 @@ def _header_under():
     return job(sysm("EF", "Exhaust Fan", [dev("EF.d1", "controller", qty=Count(4, (REF,)))]))
 
 
+def _long_line():
+    return job(sysm("EF", "Exhaust Fan", [dev("EF.d1", "controller", name="Invented Controller " + "x" * 200)]))
+
+
+def _client_words():
+    return job(sysm("EF", "Exhaust Fan", [dev("EF.d1", "controller")],
+                    clarifications=(Clarification("note", "Invented PENDING"),)))
+
+
 TRIGGERS = {"cites": _cites, "owner": _owner, "slot": _slot, "subline": _subline, "packaged": _packaged,
             "loose": _loose, "damper": _damper, "heater": _heater, "vrf": _vrf, "higher": _higher,
             "unknown": _unknown, "one_note": _one_note, "assumption": _assumption, "sequence": _sequence,
             "once": _once, "left_out": _left_out, "ids": _ids, "long_note": _long_note,
-            "long_assumption": _long_assumption, "header_under": _header_under}
+            "long_assumption": _long_assumption, "header_under": _header_under, "long_line": _long_line,
+            "client_words": _client_words}
 
 
 def test_every_check_has_a_trigger():
@@ -164,6 +174,17 @@ def test_every_check_has_a_trigger():
 def test_every_check_is_reachable_with_the_repo_playbook(check):
     found = validate(TRIGGERS[check](), PLAYBOOK)
     assert RULE[check] in {f.rule for f in found}, [f.rule for f in found]
+
+
+def test_each_check_is_filed_under_the_rule_it_enforces():
+    """VAL-20: a system left with no lines breaks "nothing on the list is dropped"; the words the client never sees
+    and the line limit have their own checks. The two length checks and the id check keep their headings."""
+    assert RULE["left_out"] == "Everything assigned is extracted"
+    assert RULE["ids"] == "Assumption wording has no source ids"
+    assert RULE["client_words"] == "Words the client never sees"
+    assert RULE["long_line"] == "Line form"
+    assert RULE["long_note"] == "One clarification per block"
+    assert RULE["long_assumption"] == "Every assumption says why"
 
 
 def test_a_subline_with_its_parent_is_clean():

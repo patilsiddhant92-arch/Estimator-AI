@@ -458,7 +458,9 @@ def _device_lines(devices, shape: Shape | None, system: System | None, playbook:
     """The devices as printed lines: in the shape's line order, then the order given. A device of a sub-line slot
     (the shape's `under`) prints one level in, directly after its parent: the nearest device of the parent slot
     listed before it (else the last one listed), with no verb; with no parent device it prints in its own slot's
-    place. Every line prints its slot's wording (integration lines too: the comm wiring line names its controls,
+    place. A line of the integration trio whose slot the shape sets under no parent (a block with no shape) prints
+    at the trio's own depth (wording.json integration_trio.depths: the rep line one level in). Every line prints its
+    slot's wording (integration lines too: the comm wiring line names its controls,
     the map and rep lines are house text). A line carries a quantity form only when its slot's wording has {qty}
     and its quantity is unknown or not the block's own count."""
     devices = list(devices)
@@ -489,6 +491,7 @@ def _device_lines(devices, shape: Shape | None, system: System | None, playbook:
     what = _title(system.name) if system is not None and system.control == "integration" else ""
     quantity_words = playbook.wording.quantity
     house_lines, _ = _fixed_texts(playbook, shape)
+    trio = dict(zip(playbook.wording.integration_trio, playbook.wording.integration_depths))
     out: list[_Printed] = []
     for i in ranked:
         device = devices[i]
@@ -511,8 +514,23 @@ def _device_lines(devices, shape: Shape | None, system: System | None, playbook:
             text = form
         verb = device.verb if "{verb}" in form else None
         acts = "AME" in (device.furnished_by, device.installed_by, device.wired_by)
-        out.append(_Printed(text, len(key(i)), device, verb, number, acts and slot_kind != "interlock"))
+        depth = len(key(i))
+        if device.slot not in under and form in trio:   # a trio line the shape sets under no parent: the trio's
+            depth = trio[form]                          # own depth (the rep line one level in, RND-13)
+        out.append(_Printed(text, depth, device, verb, number, acts and slot_kind != "interlock"))
     return out
+
+
+def printed_texts(system: System, shape: Shape | None, playbook: Playbook, ids: SourceIds) -> list[tuple[str, str]]:
+    """Each line a system's devices print, as (device id, text), in print order: the text the proposal prints, an
+    issued id taken out of a name as `_system_blocks` does. The front end (a system with no key) counts its lines
+    against 1 and names no equipment, as `_front_end` does. The validator's line-length check reads it (VAL-14)."""
+    if system.key:
+        reference = {n for n in (_printed(f.count) for f in _header_families(system)) if n is not None}
+    else:
+        reference = {1}
+    return [(p.device.id, p.text) for p in _device_lines(_named(system.devices, ids), shape,
+                                                          system if system.key else None, playbook, reference)]
 
 
 # ---- the "*" clarifications --------------------------------------------------------------------------------------
