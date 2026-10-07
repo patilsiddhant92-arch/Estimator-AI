@@ -12,7 +12,7 @@ import re
 from dataclasses import dataclass
 
 from estimator.ledger.facts import ADDED, KINDS, SETTLED, Ledger, plain_id
-from estimator.ledger.seed import dossier_sections, sheet_text_lines
+from estimator.ledger.seed import dossier_sections, sheet_text_sheets
 
 SHEET_TEXT_MARK = "--- 7c PLAN SHEET TEXT ---"
 
@@ -117,17 +117,9 @@ def pass_named(name: str) -> Pass:
 
 # --- the documents a pass reads --------------------------------------------------------------------------------
 
-def _types_by_number(catalogue) -> dict[str, tuple[str, ...]]:
-    found: dict[str, tuple[str, ...]] = {}
-    for sheet in getattr(catalogue, "sheets", ()) or ():
-        if sheet.number:
-            found.setdefault(sheet.number, tuple(sheet.types or ()))
-    return found
-
-
 def documents(pass_, dossier, catalogue) -> str:
-    """The dossier text this pass reads: its sections whole, then the sheet-text lines of its sheet types. "" when
-    there is nothing for it in this job."""
+    """The dossier text this pass reads: its sections whole, then the sheet-text lines of its sheet types (each
+    line's own sheet, `sheet_text_sheets`). "" when there is nothing for it in this job."""
     sections = dossier_sections(dossier.text)
     parts = []
     for n in pass_.sections:
@@ -137,10 +129,9 @@ def documents(pass_, dossier, catalogue) -> str:
         if text.strip():
             parts.append(text)
     if pass_.sheet_types:
-        types = _types_by_number(catalogue)
         wanted, others = set(pass_.sheet_types), set(pass_.not_sheet_types)
-        lines = [line for _sid, number, line in sheet_text_lines(dossier.text)
-                 if number and wanted & set(types.get(number, ())) and not others & set(types.get(number, ()))]
+        lines = [line for _sid, sheet, line in sheet_text_sheets(dossier, catalogue)
+                 if sheet is not None and wanted & set(sheet.types or ()) and not others & set(sheet.types or ())]
         if lines:
             parts.append("\n".join([f"== SHEET TEXT: {', '.join(pass_.sheet_types)} ==", *lines]))
     return "\n\n".join(parts)

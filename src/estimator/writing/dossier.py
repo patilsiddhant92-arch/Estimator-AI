@@ -100,6 +100,7 @@ class Dossier:
     stats: dict[str, int]           # characters per section, page counts, image count
     sections: dict = field(default_factory=dict)   # "Q7" -> (the sequence heading, the source ids under it)
     schedules: tuple = ()       # estimator.reading.schedules.Schedule, when the reading is still in hand
+    sheet_pages: dict = field(default_factory=dict)   # 7c source id -> the (document, page) whose text it gives
 
 
 # ---- small helpers ------------------------------------------------------------------------------
@@ -1223,23 +1224,23 @@ PLAN_TEXT_HEAD = ("--- 7c PLAN SHEET TEXT ---",
 
 @dataclass
 class _SheetText:
-    """What 7c has given so far: the sheet keys given, the characters used, whether the total cap stopped it."""
+    """What 7c has given so far: the pages given, the characters used, whether the total cap stopped it, and each
+    line's source id with the (document, page) whose text it gives."""
     keys: set = field(default_factory=set)
     used: int = 0
     stopped: bool = False
+    pages: dict = field(default_factory=dict)
 
 
-def _choose_sheets(catalogue, keep) -> dict[str, object]:
-    """The plan-note sheets `keep(sheet)` takes, one per sheet number (an addendum's copy first)."""
-    kinds = {d.relative: d.kind for d in getattr(catalogue.job, "documents", ()) or ()}
-    chosen: dict[str, object] = {}
+def _choose_sheets(catalogue, counted, keep) -> dict[tuple[str, int], object]:
+    """The plan-note sheets `keep(sheet)` takes, by (document, page), among the pages the readers count (`counted`:
+    each sheet's governing pages, never a superseded page nor one that only repeats its sheet's first page). Two
+    buildings' M-101 are two sheets; a reissue stands in for the page it replaces."""
+    chosen: dict[tuple[str, int], object] = {}
     for sheet in getattr(catalogue, "sheets", ()) or ():
-        if sheet.discipline not in PLAN_NOTE_DISCIPLINES or not keep(sheet):
-            continue
-        key = sheet.number or f"{sheet.document}#{sheet.page}"
-        held = chosen.get(key)
-        if held is None or (kinds.get(sheet.document) == "addendum" and kinds.get(held.document) != "addendum"):
-            chosen[key] = sheet
+        key = (sheet.document, sheet.page)
+        if sheet.discipline in PLAN_NOTE_DISCIPLINES and key in counted and keep(sheet):
+            chosen.setdefault(key, sheet)
     return chosen
 
 
@@ -1261,52 +1262,49 @@ def _sheet_text_lines(chosen: dict, texts: dict, ids: _Ids, given: _SheetText, w
         sid = ids.new(f"{where} (sheet text)")
         lines.append(f"[{sid}] {where} {sheet.title or ''}: {cut}".replace("  ", " "))
         given.keys.add(key)
+        given.pages[sid] = key
         given.used += len(cut)
     return lines
 
 
-def _plan_sheet_text(catalogue, texts: dict, ids: _Ids, printed: _Printed,
+def _plan_sheet_text(catalogue, texts: dict, ids: _Ids, printed: _Printed, counted,
                      given: _SheetText | None = None) -> list[str]:
     """7c: each mechanical, controls and plumbing sheet's own text, squashed and cut at PLAN_TEXT_LIMIT
     characters. The note reader only catches blocks under a heading ("KEY NOTES"); keyed notes written
-    beside the drawing (a damper actuator, a leak chime) are only here. One id per sheet; a sheet number
-    seen in several documents is given once, an addendum's copy first; pages given above are skipped here
-    (`_printed_sheet_text` adds the ones a 7c pass would otherwise miss)."""
+    beside the drawing (a damper actuator, a leak chime) are only here. One id per counted page (`counted`, as
+    `_choose_sheets` reads it): a reissue's text and never the page it replaces, each building's sheet of one
+    number; pages given above are skipped here (`_printed_sheet_text` adds the ones a 7c pass would otherwise
+    miss)."""
     given = given if given is not None else _SheetText()
-    chosen = _choose_sheets(catalogue, lambda s: (s.document, s.page) not in printed.pages)
+    chosen = _choose_sheets(catalogue, counted, lambda s: (s.document, s.page) not in printed.pages)
     if not chosen:
         return []
     return [*PLAN_TEXT_HEAD, *_sheet_text_lines(chosen, texts, ids, given, "more sheet")]
 
 
-def _sheet_text_readers(sheet, types_by_number: dict) -> list:
-    """The reading passes that read this sheet's 7c line (by its sheet number's types, as `passes.documents`
-    picks them)."""
+def _sheet_text_readers(sheet) -> list:
+    """The reading passes that read this sheet's 7c line (by the sheet's own types, as `passes.documents` picks
+    them)."""
     from estimator.ledger.passes import PASSES          # the passes read the dossier; imported here, not above
-    types = set(types_by_number.get(sheet.number, ()))
-    return [p for p in PASSES
-            if sheet.number and set(p.sheet_types) & types and not set(p.not_sheet_types) & types]
+    types = set(sheet.types or ())
+    return [p for p in PASSES if set(p.sheet_types) & types and not set(p.not_sheet_types) & types]
 
 
-def _printed_sheet_text(catalogue, texts: dict, ids: _Ids, printed_by: dict, given: _SheetText) -> list[str]:
+def _printed_sheet_text(catalogue, texts: dict, ids: _Ids, printed_by: dict, given: _SheetText,
+                        counted) -> list[str]:
     """The 7c lines of the sheets whose pages sections 2 or 3 printed (`printed_by`: page -> section number) that a
     reading pass reads from 7c without reading the section that printed them. The details, risers, network and
     plans passes read no section 2 or 3, so a drawing sheet that is a sequence sheet and also a control diagram or
     a riser gets its own text here, never a pointer to text those passes do not receive. A sheet each of whose 7c
     passes reads the section that printed it, or that no pass reads from 7c, is not repeated. Built after section
-    8, so no earlier source id moves; a sheet number 7c already gave is not given twice."""
-    types_by_number: dict[str, tuple] = {}
-    for sheet in getattr(catalogue, "sheets", ()) or ():
-        if sheet.number:
-            types_by_number.setdefault(sheet.number, tuple(sheet.types or ()))
-
+    8, so no earlier source id moves; a page 7c already gave is not given twice."""
     def missed(sheet) -> bool:
         section = printed_by.get((sheet.document, sheet.page))
         if section is None:
             return False
-        return any(section not in p.sections for p in _sheet_text_readers(sheet, types_by_number))
+        return any(section not in p.sections for p in _sheet_text_readers(sheet))
 
-    chosen = {k: s for k, s in _choose_sheets(catalogue, missed).items() if k not in given.keys}
+    chosen = {k: s for k, s in _choose_sheets(catalogue, counted, missed).items() if k not in given.keys}
     if not chosen:
         return []
     return _sheet_text_lines(chosen, texts, ids, given, "more sheet printed in sections 2 and 3")
@@ -1414,9 +1412,9 @@ def build_dossier(catalogue, reading, cache_dir: Path | None) -> Dossier:
     body["devices"] = _devices_section(device_totals, by_label, names, ids)
     sheet_text = _SheetText()
     body["notes"] = _notes_section(catalogue, reading, ids) + _plan_sheet_text(catalogue, texts, ids, printed,
-                                                                               sheet_text)
+                                                                               counted, sheet_text)
     body["spec"] = _spec_section(catalogue, printed, texts, ids)
-    more = _printed_sheet_text(catalogue, texts, ids, printed_by, sheet_text)      # its ids come after section 8's
+    more = _printed_sheet_text(catalogue, texts, ids, printed_by, sheet_text, counted)      # its ids come after section 8's
     if more:
         body["notes"] += ([] if PLAN_TEXT_HEAD[0] in body["notes"] else list(PLAN_TEXT_HEAD)) + more
 
@@ -1449,4 +1447,4 @@ def build_dossier(catalogue, reading, cache_dir: Path | None) -> Dossier:
     sections = {q: (heading, tuple(sids)) for q, (heading, sids) in ids.sections.items()}
     return Dossier(catalogue.job.name, text, tuple(all_images), dict(ids.where), tuple(reading.totals),
                    device_totals, _counts_dict(families), stats, sections,
-                   tuple(getattr(reading, "schedules", ()) or ()))
+                   tuple(getattr(reading, "schedules", ()) or ()), dict(sheet_text.pages))

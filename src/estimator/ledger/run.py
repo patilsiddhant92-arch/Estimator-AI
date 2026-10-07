@@ -8,40 +8,47 @@ sheets with the most device labels first, up to a cap; the sheets left out are n
 from __future__ import annotations
 
 import re
+from collections import Counter
 from pathlib import Path
 
 from estimator.ledger.passes import LEDGER_PROMPT, PASSES, apply, documents, prompt, schema
-from estimator.ledger.seed import dossier_sections, seed, sheet_text_lines
+from estimator.ledger.seed import dossier_sections, seed, sheet_text_sheets
 from estimator.writing.dossier import sheet_pictures
 
 PICTURE_CAP = 24        # whole-sheet pictures sent with one pass
 
 
 def _label_count(devices: str, number: str) -> int:
-    """How many of the dossier's device-label lines (section 6) name this sheet."""
+    """How many of the dossier's device-label lines (section 6) name this sheet; none for a sheet with no number."""
+    if not number:
+        return 0
     pattern = re.compile(rf"(?<![\w-]){re.escape(number)}(?![\w-]|\.\d)")
     return sum(1 for line in devices.splitlines() if pattern.search(line))
 
 
 def _picture_sheets(pass_, dossier, catalogue, text: str, cap: int) -> tuple[list[tuple[str, int]], list[str]]:
     """The (document, page) of the sheets whose text this part of the pass reads and whose types are the pass's
-    picture types, the most device labels first, within the cap; and the sheet numbers left out over the cap."""
-    sheets: dict[str, object] = {}
-    for sheet in getattr(catalogue, "sheets", ()) or ():
-        if sheet.number:
-            sheets.setdefault(sheet.number, sheet)
+    picture types, the most device labels first, within the cap; and the sheets left out over the cap, by name.
+    Each 7c line is its own page (`sheet_text_sheets`): a reissue is pictured from its own page, never the one it
+    replaces."""
     read = set(re.findall(r"\[(S\d+)\]", text))
     wanted = set(pass_.picture_types)
-    numbers: list[str] = []
-    for sid, number, _line in sheet_text_lines(dossier.text):
-        sheet = sheets.get(number)
-        if (sid in read and sheet is not None and number not in numbers
-                and wanted & set(sheet.types or ())):
-            numbers.append(number)
+    chosen: dict[tuple[str, int], object] = {}
+    for sid, sheet, _line in sheet_text_sheets(dossier, catalogue):
+        if sid in read and sheet is not None and wanted & set(sheet.types or ()):
+            chosen.setdefault((sheet.document, sheet.page), sheet)
     devices = dossier_sections(dossier.text).get(6, "")
-    order = sorted(numbers, key=lambda n: -_label_count(devices, n))   # stable: ties keep the dossier's order
+    order = sorted(chosen, key=lambda k: -_label_count(devices, chosen[k].number or ""))   # stable: ties keep the order
     kept, left = order[:max(0, cap)], order[max(0, cap):]
-    return [(sheets[n].document, sheets[n].page) for n in kept], left
+    numbers = Counter(chosen[k].number for k in chosen if chosen[k].number)
+
+    def name(key: tuple[str, int]) -> str:
+        number = chosen[key].number
+        if number and numbers[number] == 1:
+            return number
+        return f"{number} ({Path(key[0]).name})" if number else f"{Path(key[0]).name} page {key[1]}"
+
+    return kept, [name(k) for k in left]
 
 
 def _picture_source(image, catalogue) -> str:
