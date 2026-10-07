@@ -13,7 +13,7 @@ from estimator.catalogue.qualify import BidCheck, check_bid
 from estimator.catalogue.register import PageRecord, register_job
 from estimator.catalogue.sheet_types import Sheet, classify_sheet, discipline_from_filename
 from estimator.catalogue.spec_sections import SpecSection, index_sections
-from estimator.catalogue.tags import TagEntry, index_tags, is_type_tag, label_keys, plan_labels
+from estimator.catalogue.tags import TagEntry, index_tags, is_type_tag, label_keys, line_labels, plan_labels
 from estimator.catalogue.title_block import read_drawing_index, read_title_block
 
 
@@ -145,6 +145,17 @@ def _plan_units(catalogue, document: str, numbers: frozenset[str], keys: dict[st
     return units
 
 
+def _plan_label_counts(catalogue, document: str, numbers: frozenset[str], keys: dict[str, str]) -> dict[str, Counter]:
+    """Each sheet number's labels of every tag, unit or type (`line_labels`), on the document's plan sheets of these
+    numbers: EBB-A labelled 4 times is 4 places of the type, which a sheet labelling it twice lacks (RD-4)."""
+    texts = {(p.document, p.page): p.text for p in catalogue.pages}
+    labels: dict[str, Counter] = defaultdict(Counter)
+    for sheet in catalogue.sheets:
+        if sheet.document == document and sheet.number in numbers and "Plans" in sheet.types:
+            labels[sheet.number] += line_labels(texts.get((sheet.document, sheet.page)) or "", keys)
+    return labels
+
+
 def _words(catalogue, document: str, numbers: frozenset[str]) -> Counter:
     """The words (letters and digits, upper case) on the document's sheets of these numbers."""
     pages = {(s.document, s.page) for s in catalogue.sheets if s.document == document and s.number in numbers}
@@ -166,13 +177,20 @@ def _plan_titles(catalogue, document: str, numbers: frozenset[str]) -> dict[str,
 def _not_a_copy(catalogue, original: str, copy: str, shared: frozenset[str], keys: dict[str, str]) -> str:
     """Why `copy` is no marked-up copy of `original` ("" when it is one). A marked-up copy only adds clouds and text:
     its plans show no unit tag the original lacks (the original is the superset), at least COPY_SHARED of the
-    original's unit tags and COPY_OVERLAP of them; the same plan titles on the shared numbers (BUILDING B is never a
-    copy of BUILDING A); and COPY_TEXT of the original's words on the shared sheets (REVIEW-FINAL7 F1, F5)."""
+    original's unit tags and COPY_OVERLAP of them; no sheet labelling a tag, a type tag too, more often than the
+    original's sheet of its number (RD-4: more places of EBB-A are places the original lacks; as for units, the
+    document labelling more is the original and read); the same plan titles on the shared numbers (BUILDING B is
+    never a copy of BUILDING A); and COPY_TEXT of the original's words on the shared sheets (REVIEW-FINAL7 F1, F5)."""
     a, b = _plan_units(catalogue, original, shared, keys), _plan_units(catalogue, copy, shared, keys)
     if b - a:
         return f"shows unit tags {_name(original)} does not"
     if len(b) < COPY_SHARED or len(b) < COPY_OVERLAP * len(a):
         return "not their units"
+    labels_a, labels_b = (_plan_label_counts(catalogue, original, shared, keys),
+                          _plan_label_counts(catalogue, copy, shared, keys))
+    more = set().union(*(labels_b[number] - labels_a[number] for number in labels_b))
+    if more:
+        return f"shows more labels of {', '.join(sorted(more))} than {_name(original)}"
     titles_a, titles_b = _plan_titles(catalogue, original, shared), _plan_titles(catalogue, copy, shared)
     if any(titles_a[number] != titles_b[number] for number in set(titles_a) & set(titles_b)):
         return "not their plan titles"

@@ -125,6 +125,44 @@ def test_guard_the_same_titles_and_units_are_read_once_and_the_note_gives_the_su
     assert "read once, 9; if it is another building, 18" in _line("VAV", d)
 
 
+_NOTES = ["GENERAL NOTES: COORDINATE ALL WORK WITH OTHER TRADES BEFORE INSTALLATION AND VERIFY EVERY DIMENSION IN",
+          "THE FIELD. PROVIDE ACCESS PANELS WHERE CONCEALED EQUIPMENT REQUIRES SERVICE. ROUTE ALL PIPING PARALLEL",
+          "WITH BUILDING LINES AND KEEP CLEAR OF LIGHT FIXTURES. SEAL EVERY PENETRATION THROUGH RATED WALLS WITH AN",
+          "APPROVED SYSTEM. REFER TO THE SPECIFICATIONS FOR SUBMITTAL REQUIREMENTS, START UP AND OWNER TRAINING."] * 2
+_REV1 = "Drawings/Rev 1/Mech.pdf"
+
+
+def _type_labels_job(notes=()):
+    """RD-4. Mech.pdf and Rev 1/Mech.pdf (the same issue): M-101 to 103, the same titles and the same unit tags
+    VAV-n1 to n3; each Rev 1 sheet labels EBB-A (a type tag) 4 times, each Mech.pdf sheet twice."""
+    pages, sheets = [], []
+    for document, heaters in ((DWG, 2), (_REV1, 4)):
+        for n in (1, 2, 3):
+            pages.append(_page(document, n, _lines(f"LEVEL {n} PLAN", *_floor(n), *["EBB-A"] * heaters, *notes)))
+            sheets.append(_sheet(n, f"M-10{n}", f"LEVEL {n} PLAN", document))
+    tags = [t for n in (1, 2, 3) for t in _floor(n)] + ["EBB-A"]
+    return _catalogue(pages, sheets, tags, [_doc(DWG, 3), _doc(_REV1, 3)])
+
+
+def test_a_document_that_labels_a_type_more_often_is_never_a_marked_up_copy_of_the_other():
+    """More places of a type are something the other set lacks: Rev 1 is no copy of Mech.pdf and the flag names
+    EBB-A. Was: a copy, Mech.pdf read alone, EBB-A 6 instead of 12, "probably a marked-up copy" with no counts."""
+    catalogue = _type_labels_job()
+    [found] = document_repeats(catalogue)
+    assert found.same is False and "EBB-A" in found.why
+    assert placements(catalogue, ["EBB-A"])["EBB-A"].count >= 12
+
+
+def test_of_two_documents_the_one_labelling_a_type_more_often_is_the_original_and_read():
+    """The same sheets with the same long notes (the text test passes both ways): Mech.pdf shows nothing Rev 1 lacks,
+    so Mech.pdf is Rev 1's copy, as a document showing fewer units is (test_final_n_counts), and Rev 1 is read: EBB-A
+    12, never Mech.pdf's 6."""
+    catalogue = _type_labels_job(_NOTES)
+    [found] = document_repeats(catalogue)
+    assert (found.copy, found.original, found.same) == (DWG, _REV1, True)
+    assert placements(catalogue, ["EBB-A"])["EBB-A"].count >= 12
+
+
 # ---- (1b) a typical sheet of another set ---------------------------------------------------------------------------
 
 def test_a_typical_sheet_of_another_set_is_read_and_its_floors_counted(tmp_path):
