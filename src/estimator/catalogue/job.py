@@ -81,6 +81,31 @@ def _plural(n: int, word: str) -> str:
     return f"{n} {word}" if n == 1 else f"{n} {word}s"
 
 
+TRADE_WORDS = frozenset({"PLAN", "PLANS", "DUCTWORK", "DUCT", "PIPING", "PIPE", "CONTROLS", "CONTROL", "HVAC",
+                         "MECHANICAL", "MECH", "PLUMBING", "AND"})
+
+
+def title_without_number(sheet) -> str:
+    """The title upper-cased, its own sheet number taken out only where a title block prefixes or ends it: as a
+    whole token at the title's start or end ("M-301 MECHANICAL PLAN" is "MECHANICAL PLAN"). A number inside the
+    title names a part of it ("WING MA1 FIRST FLOOR PLAN" on MA1 keeps MA1, REVIEW-FINAL6 F4)."""
+    title = (sheet.title or "").upper().strip()
+    if sheet.number:
+        number = re.escape(sheet.number.upper().strip())
+        title = re.sub(rf"^{number}(?![A-Z0-9])|(?<![A-Z0-9]){number}$", " ", title).strip()
+    return title
+
+
+def title_words(sheet) -> tuple[str, ...]:
+    """The title's words IN ORDER, its own sheet number (`title_without_number`) and the trade and plan words
+    (TRADE_WORDS) taken out ("HVAC DUCTWORK FIRST FLOOR PLAN" and "HVAC PIPING FIRST FLOOR PLAN" are both FIRST
+    FLOOR). In order, never sorted: "BUILDING 1 LEVEL 2" and "BUILDING 2 LEVEL 1" are two places (REVIEW-FINAL6
+    F2). The plan groups (`inventory.plan_groups`) and supersession (`revisions.supersede`: a reissue replaces only
+    the sheet of its number with these same words) both read titles so."""
+    title = re.sub(r"\bL-(\d)", r"L\1", title_without_number(sheet))
+    return tuple(w for w in re.findall(r"[A-Z0-9]+", title) if w not in TRADE_WORDS)
+
+
 COPY_SHARED = 3          # unit tags a marked-up copy's plans must repeat of its original's ...
 COPY_OVERLAP = 0.6       # ... and this share of the original's unit tags (REVIEW-FINAL6 F3, REVIEW-FINAL7 F1)
 COPY_TEXT = 0.9          # the share of the original's words on the shared sheets the copy repeats (REVIEW-FINAL7 F1)

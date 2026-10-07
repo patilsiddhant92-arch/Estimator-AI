@@ -15,7 +15,8 @@ from collections import defaultdict
 from collections.abc import Collection, Iterable, Sequence
 from dataclasses import dataclass, field, replace
 
-from estimator.catalogue.job import CONTROLS_DISCIPLINES, other_sets, repeats
+from estimator.catalogue.job import (CONTROLS_DISCIPLINES, TRADE_WORDS, other_sets, repeats, title_without_number,
+                                     title_words)
 from estimator.catalogue.tags import (DECIMAL_TYPE, Equipment, is_type_tag, label_key, label_keys, line_labels,
                                       plan_labels, tag_prefix)
 from estimator.reading.revisions import governing_pages
@@ -299,15 +300,7 @@ def _unit_tags(tags) -> set:
     return {tag for tag, n in counts.items() if not is_type_tag(tag) and n < TYPE_ON_ONE_SHEET}
 
 
-def _without_number(sheet) -> str:
-    """The title upper-cased, its own sheet number taken out only where a title block prefixes or ends it: as a
-    whole token at the title's start or end ("M-301 MECHANICAL PLAN" is "MECHANICAL PLAN"). A number inside the
-    title names a part of it ("WING MA1 FIRST FLOOR PLAN" on MA1 keeps MA1, REVIEW-FINAL6 F4)."""
-    title = (sheet.title or "").upper().strip()
-    if sheet.number:
-        number = re.escape(sheet.number.upper().strip())
-        title = re.sub(rf"^{number}(?![A-Z0-9])|(?<![A-Z0-9]){number}$", " ", title).strip()
-    return title
+_without_number = title_without_number     # catalogue/job.py, shared with supersession (FINAL-O)
 
 
 def _plain_title(sheet) -> str:
@@ -338,20 +331,16 @@ def plan_areas(plans) -> dict[tuple[str, int], int]:
 # is its own group, and the groups add up. `inventory.placements` and the dossier's counts line both count with
 # `plan_groups` and `plan_count`, so the Evidence Package and the proposal never disagree.
 
-_TRADE_WORDS = frozenset({"PLAN", "PLANS", "DUCTWORK", "DUCT", "PIPING", "PIPE", "CONTROLS", "CONTROL", "HVAC",
-                          "MECHANICAL", "MECH", "PLUMBING", "AND"})
+_TRADE_WORDS = TRADE_WORDS
 _FLOOR_TOKEN = re.compile(
     rf"^(?:FLOORS?|FLRS?|LEVELS?|LVLS?|TYPICAL|TYP|BASEMENT|CELLAR|SUBCELLAR|GROUND|MEZZANINE|MEZZ|PENTHOUSE|ROOF|ATTIC"
     rf"|{_ORDINAL}|L\d{{1,2}}|\d{{1,3}})$")
 
 
 def _title_tokens(sheet) -> tuple[str, ...]:
-    """The title's words IN ORDER, its own sheet number (`_without_number`) and the trade and plan words taken out
-    ("HVAC DUCTWORK FIRST FLOOR PLAN" and "HVAC PIPING FIRST FLOOR PLAN" are both FIRST FLOOR). In order, never
-    sorted: "BUILDING 1 LEVEL 2" and "BUILDING 2 LEVEL 1" are two places (REVIEW-FINAL6 F2). Comparing in order can
-    only split groups, so it can only raise a count."""
-    title = re.sub(r"\bL-(\d)", r"L\1", _without_number(sheet))
-    return tuple(w for w in re.findall(r"[A-Z0-9]+", title) if w not in _TRADE_WORDS)
+    """The title's words IN ORDER (`catalogue.job.title_words`: its own sheet number and the trade and plan words
+    taken out). Comparing in order can only split groups, so it can only raise a count."""
+    return title_words(sheet)
 
 
 def _one_plan(a, a_tags, b, b_tags, codes: Collection[str]) -> bool:
