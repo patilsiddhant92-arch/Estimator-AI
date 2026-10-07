@@ -11,7 +11,7 @@ import gc
 import time
 from collections.abc import Callable
 
-MIN_BASE = 0.1           # seconds: a smaller run than this is timed again with a larger n
+MIN_BASE = 0.03          # seconds: a smaller run than this is timed again with a larger n
 
 
 def _best(work: Callable[[int], object], n: int, runs: int) -> float:
