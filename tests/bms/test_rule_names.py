@@ -76,14 +76,16 @@ def _packaged():
 
 
 def _loose():
+    # shipped loose (the unit manufacturer furnishes, AME installs) but not written Install and Wire (VAL-1)
     return job(sysm("RTU", "Packaged ERU / RTU / AHU",
-                    [dev("RTU.d1", "shipped_loose", verb="Wire", furnished="Unit Mfr.", installed="Unit Mfr.")],
+                    [dev("RTU.d1", "shipped_loose", verb="Wire", furnished="Unit Mfr.")],
                     control="packaged"))
 
 
 def _damper():
+    # a damper in an untemplated block (no shape) beside a fan block; a Motorized Dampers block is allowed (VAL-3)
     return job(sysm("EF", "Exhaust Fan", [dev("EF.d1", "controller")], family="Exhaust Fan"),
-               sysm("MD", "Motorized Dampers", [dev("MD.d1", "damper_actuator")], family="Motorized Damper"))
+               sysm("IU", "", [dev("IU.d1", "damper_actuator")]))
 
 
 def _heater():
@@ -116,7 +118,8 @@ def _assumption():
 
 
 def _sequence():
-    return job(sysm("IE", "Integrated Equipment", [], count=Count(2, (REF,)), sequence_refs=(REF,)))
+    # no source counts it, only the sequence names it, yet it prints a count (VAL-4)
+    return job(sysm("IE", "Integrated Equipment", [], count=Count(2), sequence_refs=(REF,)))
 
 
 def _once():

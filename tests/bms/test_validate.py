@@ -47,14 +47,36 @@ def test_every_rule_name_is_a_heading_of_the_repo_playbook():
     assert {k for k, v in RULE.items() if v not in load_playbook().rules} == set()
 
 
-def test_packaged_internal_device_and_trio_twice(job):
+def test_an_ame_device_on_a_packaged_unit_is_a_check_and_the_trio_twice_is_must_fix(job):
+    """VAL-2, rules "Packaged units" (AME's work includes "any device the documents explicitly give to the controls
+    contractor"), "Explicit assignment always wins" and "Mixed ownership device by device": an AME-furnished device
+    on a packaged unit may be the documents' own assignment, so it is a check; the trio twice stays a must_fix."""
     s = job.system("RTU")
     extra = Device("RTU.d9", "map_points", "Points", "Furnish", "AME", "AME", "AME", Count(2), (REF,))
     j = edit(job, "RTU", devices=s.devices + (extra,))
     j = edit_device(j, "RTU", "RTU.d4", furnished_by="AME", verb="Furnish and Install")
-    got = rules(validate(j, PB), "Packaged units")
-    assert ("Packaged units", "RTU", "RTU.d4", "must_fix") in got
+    found = [f for f in validate(j, PB) if f.rule == "Packaged units"]
+    got = rules(found)
+    assert ("Packaged units", "RTU", "RTU.d4", "check") in got
+    assert ("Packaged units", "RTU", "RTU.d4", "must_fix") not in got
     assert ("Packaged units", "RTU", None, "must_fix") in got
+    check = next(f for f in found if f.device_id == "RTU.d4")
+    assert "controls contractor" in check.fix
+
+
+def test_an_ame_ddc_controller_on_a_packaged_unit_is_must_fix(job):
+    """VAL-2, rule "No AME controller on a packaged unit": "Never write 'Furnish and Install DDC Controller' for a
+    unit on factory controls"; the controller slot stays a must_fix."""
+    d = Device("RTU.d9", "controller", "DDC Controller", "Furnish and Install", "AME", "AME", "AME", Count(2), (REF,))
+    j = edit(job, "RTU", devices=job.system("RTU").devices + (d,))
+    assert ("Packaged units", "RTU", "RTU.d9", "must_fix") in rules(validate(j, PB))
+
+
+def test_an_empty_packaged_block_with_a_reason_needs_no_integration_lines(job):
+    """VAL-5, rule "Packaged units": the three integration lines are AME's work on a packaged unit it writes; a block
+    left out with its reason has no lines, so no trio is missing."""
+    j = edit(job, "RTU", devices=(), no_scope_reason="the documents give the unit no BMS connection")
+    assert rules(validate(j, PB), "Packaged units") == []
 
 
 def test_packaged_trio_missing(job):
@@ -121,6 +143,21 @@ def test_shipped_loose_must_be_install_and_wire(job):
     assert ("Shipped-loose devices", "RTU", "RTU.d4", "must_fix") in rules(validate(j, PB))
 
 
+def test_a_wire_line_and_an_install_and_wire_line_by_other_trades_are_not_shipped_loose():
+    """VAL-1, rules "Factory-installed devices" ("Wire <device> (Furnished by Unit Mfr.)" when the sequence gives the
+    wiring to AME), "Shipped-loose devices", "Verb from the three answers" (another party furnishes and installs, AME
+    only wires: Wire; another party furnishes, AME installs and wires: Install and Wire) and "Other trades in
+    brackets" ("(Furnished by Mechanical Contractor)" for condensate pumps and float switches)."""
+    repo = load_playbook()
+    lines = (Device("PU.d1", "other_wire", "Filter Differential Pressure Switch", "Wire", "Unit Mfr.", "Unit Mfr.",
+                    "AME", Count(2, (REF,)), (REF,)),
+             Device("PU.d2", "other_install_and_wire", "Condensate Float Switch", "Install and Wire",
+                    "Mechanical Contractor", "AME", "AME", Count(2, (REF,)), (REF,)))
+    system = System("PU", "Packaged Units", "Packaged ERU / RTU / AHU", "packaged",
+                    (Family("Packaged Unit", ("PU-1", "PU-2"), Count(2, (REF,))),), devices=lines)
+    assert rules(validate(Job("Invented", (system,)), repo), "Shipped-loose devices") == []
+
+
 def test_damper_in_a_system_without_a_fan(job):
     d = Device("DH.d9", "damper_actuator", "Damper Actuator", "Furnish and Install", "AME", "AME", "AME",
                Count(1), (REF,))
@@ -128,12 +165,33 @@ def test_damper_in_a_system_without_a_fan(job):
     assert ("Dampers under their fan", "DH", "DH.d9", "check") in rules(validate(j, PB))
 
 
-def test_a_stand_alone_damper_block_is_must_fix(job):
+def test_a_stand_alone_damper_block_is_at_most_a_check(job):
+    """VAL-3, rules "Untraced dampers in their own block" (when a damper's fan cannot be traced, the dampers form one
+    Motorized Dampers block of their own) and "Unclaimed dampers in their own block": a damper block the Playbook
+    allows is never a must_fix; one of an unknown shape is at most a check."""
     d = Device("DM.d1", "damper_actuator", "Damper Actuator", "Furnish and Install", "AME", "AME", "AME",
                Count(1), (REF,))
     dm = dc.replace(job.system("DH"), key="DM", name="Dampers", shape="Damper Block", devices=(d,))
     j = dc.replace(job, systems=job.systems + (dm,))
-    assert ("Dampers under their fan", "DM", "DM.d1", "must_fix") in rules(validate(j, PB))
+    assert rules(validate(j, PB), "Dampers under their fan") == [("Dampers under their fan", "DM", "DM.d1", "check")]
+
+
+def _repo_system(key, shape, family, devices, control="field"):
+    return System(key, f"Invented {shape}", shape, control, (Family(family, (f"{key}-1",), Count(1, (REF,))),),
+                  devices=tuple(Device(f"{key}.d{n}", slot, "Invented Device", "Furnish and Install", "AME", "AME",
+                                       "AME", Count(1, (REF,)), (REF,)) for n, slot in enumerate(devices, 1)))
+
+
+def test_a_motorized_dampers_block_beside_a_fan_block_is_no_must_fix():
+    """VAL-3, rules "Untraced dampers in their own block" and "Unclaimed dampers in their own block" (stair-top vent
+    dampers have their own block): the Motorized Dampers and Stair / Elevator Vent blocks of the repo Playbook are
+    allowed beside an exhaust fan block; their dampers fill their own shape's slot, so no finding."""
+    repo = load_playbook()
+    j = Job("Invented", (_repo_system("EF", "Exhaust Fan", "Exhaust Fan", ("controller", "start_stop_status")),
+                         _repo_system("MD", "Motorized Dampers", "Motorized Damper", ("damper_actuator",)),
+                         _repo_system("SV", "Stair / Elevator Vent", "Stair / Elevator Vent", ("damper_actuator",))))
+    assert rules(validate(j, repo), "Dampers under their fan") == []
+    assert [f for f in validate(j, repo) if f.severity == "must_fix"] == []
 
 
 def test_an_rtu_with_its_own_damper_and_a_fan_system_stays_clean(job):
@@ -143,11 +201,15 @@ def test_an_rtu_with_its_own_damper_and_a_fan_system_stays_clean(job):
     assert rules(validate(j, PB), "Dampers under their fan") == []
 
 
-def test_an_air_handler_with_a_damper_is_only_a_check(job):
-    d = Device("DH.d9", "mixing_damper", "Mixing Damper", "Furnish and Install", "AME", "AME", "AME",
-               Count(1), (REF,))
-    j = edit(job, "DH", devices=job.system("DH").devices + (d,))
-    assert all(f[3] == "check" for f in rules(validate(j, PB), "Dampers under their fan"))
+def test_an_air_handler_with_its_own_outside_air_damper_has_no_damper_finding():
+    """VAL-3, rule "Dampers under their fan": a damper actuator is written in the block of the fan or unit it serves
+    ("the unit's outside air damper"); an air handler's own oa_damper slot is where the Playbook puts it, even when
+    it is the block's only damper line, and even with an exhaust fan block in the job."""
+    repo = load_playbook()
+    j = Job("Invented", (_repo_system("EF", "Exhaust Fan", "Exhaust Fan", ("controller", "start_stop_status")),
+                         _repo_system("AHU", "Air Handling Unit", "Air Handling Unit", ("controller", "oa_damper")),
+                         _repo_system("AH2", "Air Handling Unit", "Air Handling Unit", ("oa_damper",))))
+    assert rules(validate(j, repo), "Dampers under their fan") == []
 
 
 def test_damper_with_no_fan_system_anywhere_is_left_alone(job):
@@ -229,11 +291,27 @@ def test_assumption_needs_what_and_why(job):
     assert ("Every assumption says why", "EF", "EF.d1", "must_fix") in rules(validate(j2, PB))
 
 
-def test_sequence_only_system_prints_no_count(job):
-    j = edit(job, "DH", devices=(), clarifications=())
-    assert [r for r in rules(validate(j, PB)) if r[1] == "DH" and r[3] == "must_fix"]
-    j2 = edit(job, "DH", devices=(), families=(Family("Duct Heater", ("DH-1",), Count(None)),))
-    assert rules(validate(j2, PB)) == [(RULE["left_out"], "DH", None, "check")]       # left out: no lines written
+def test_a_block_with_a_sourced_count_and_no_lines_is_not_sequence_only(job):
+    """VAL-4, rule "Systems named only in the sequence": a system the sequence names but no drawing shows. A family
+    count with a source is a drawing or schedule showing it, so an empty block with its reason is left out, not
+    sequence-only."""
+    j = edit(job, "DH", devices=(), clarifications=(), no_scope_reason="the duct heaters are by others")
+    assert rules(validate(j, PB), RULE["sequence"]) == []
+    assert [r for r in rules(validate(j, PB)) if r[1] == "DH"] == [(RULE["left_out"], "DH", None, "check")]
+
+
+def test_a_sequence_only_system_prints_qty_hash_with_its_clarification(job):
+    """VAL-4, rule "Systems named only in the sequence": printed with its integration lines, "Qty (##)", and the
+    clarification "*Quantity per plumbing drawings" (or the drawings of the trade that shows it). A family with no
+    counted source and a sequence reference is sequence-only, with lines or without."""
+    rtu = Family("Rooftop Unit", ("RTU-1",), Count(None))
+    j = edit(job, "RTU", families=(rtu,), clarifications=())
+    assert rules(validate(j, PB), RULE["sequence"]) == [(RULE["sequence"], "RTU", None, "check")]
+    j2 = edit(j, "RTU", clarifications=(Clarification("per_drawings", "Quantity per mechanical drawings"),))
+    assert rules(validate(j2, PB), RULE["sequence"]) == []
+    # a count no source gives is invented: clear it
+    j3 = edit(j2, "RTU", families=(Family("Rooftop Unit", ("RTU-1",), Count(2)),))
+    assert rules(validate(j3, PB), RULE["sequence"]) == [(RULE["sequence"], "RTU", None, "must_fix")]
 
 
 def test_ownership_must_be_a_known_party(job):
@@ -398,11 +476,34 @@ def test_a_long_clarification_or_assumption_is_a_check(job):
     assert (RULE["long_assumption"], "RTU", "RTU.d4", "check") in rules(validate(j2, PB))
 
 
-def test_a_device_quantity_above_the_header_count_is_must_fix(job):
-    j = edit_device(job, "EF", "EF.d3", quantity=Count(9))
+def test_a_one_per_unit_line_above_the_header_count_is_must_fix_and_any_other_line_a_check(job):
+    """VAL-9, rules "Never undershoot" and "Line quantity" ("Identical lines for several units are one line with the
+    total"): a controller or a start/stop line is one per unit, so its quantity above the header count means the
+    header undershoots (must_fix); a damper line may total several per unit, so above the header is a check."""
+    j = edit_device(job, "EF", "EF.d1", quantity=Count(9))
     found = [f for f in validate(j, PB) if f.rule == RULE["header_under"]]
-    assert [(f.system_key, f.device_id, f.severity) for f in found] == [("EF", "EF.d3", "must_fix")]
+    assert [(f.system_key, f.device_id, f.severity) for f in found] == [("EF", "EF.d1", "must_fix")]
     assert found[0].what.endswith("device quantity 9 is higher than the header count 3: print the higher count")
+    j2 = edit_device(job, "EF", "EF.d3", quantity=Count(9))
+    found2 = [f for f in validate(j2, PB) if f.rule == RULE["header_under"]]
+    assert [(f.system_key, f.device_id, f.severity) for f in found2] == [("EF", "EF.d3", "check")]
+    assert "print the higher count" not in found2[0].what
+
+
+def test_three_fans_with_six_damper_actuators_is_no_must_fix(job):
+    """VAL-9, rule "Line quantity": identical lines for several units are one line with the total; two dampers on
+    each of 3 fans print as one line of 6, which never forces the fan count to 6."""
+    j = edit_device(job, "EF", "EF.d3", quantity=Count(6, (REF,)))
+    assert [f for f in validate(j, PB) if f.severity == "must_fix"] == []
+
+
+def test_an_unknown_printed_count_with_a_known_other_is_must_fix(job):
+    """VAL-18, rules "Higher count prints" and "Never undershoot" (estimator ruling D9: a count's value is the highest
+    whenever any count exists; None only when no count exists at all)."""
+    fam = Family("Exhaust Fan", ("EF-1",), Count(None, (), (OtherCount(5, REF),)))
+    found = [f for f in validate(edit(job, "EF", families=(fam,)), PB) if f.rule == RULE["higher"]]
+    assert [(f.system_key, f.device_id, f.severity) for f in found] == [("EF", None, "must_fix")]
+    assert "5" in found[0].fix
 
 
 def test_a_device_quantity_at_or_below_the_header_count_is_clean(job):
