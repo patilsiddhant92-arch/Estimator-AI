@@ -9,6 +9,31 @@ draft is for you to check, correct and sign off.
 The job's takeoff folder (the plan sets and specification sections you would work from). Marked-up copies carry
 the earlier estimator's counts, so give it clean copies.
 
+How it reads a set with copies, reissues and addenda. The rule behind all of it: counting too few is the worst
+mistake, so the app leaves a page out only when it can prove the page adds nothing. Otherwise it counts both and
+tells you, with both numbers.
+
+- A marked-up copy. A document that repeats most of another's sheet numbers (at least 3 sheets, 80% of its own)
+  is read once, as a copy, only when it shows nothing the other lacks: no unit the other does not show, at least 3
+  of the other's units and 60% of them, the same plan titles, and 90% of the other's words. If any of that fails,
+  it is read as another set of drawings (for example a second building with the same sheet numbers), counted, and
+  the Flags tab says why ("but not their units") so you can check.
+- Two versions of one sheet. The later date in the title block wins; with no dates, an addendum wins. When nothing
+  says which one wins, both are counted, and the flag says "summed, for now". Tell the app which one governs.
+- An addendum or reissue replaces only the sheet it is a new version of: the same sheet number AND the same plan
+  title (the trade words aside). Building B's own M-101 is never dropped because building A's M-101 was reissued.
+  If two sheets have the same number and the same title, so the app cannot tell which one the addendum replaces,
+  it keeps both and says "addendum M-101 may replace one of two M-101 sheets (...): both counted; check". If the
+  addendum's title matches no sheet of its number, nothing is replaced and the flag says so.
+- An addendum page that replaces part of a sheet. If the base set has M-101 on two pages and the addendum reissues
+  only one, the addendum page replaces the base page it is most like. The other page is kept and counted, and the
+  flag says "addendum reissues M-101 (1 page); base has 2 pages (...): unmatched page kept (p.2), counted; check".
+  If the addendum page is just as like both, neither is replaced.
+- One page printed again. A sheet number printed on several pages of one document with exactly the same text is
+  one plan for several floors: counted once and multiplied by its pages. Pages of one number with different text
+  are each a sheet, each counted. This is decided document by document: a number printed twice in Mech.pdf never
+  changes how Second Building.pdf's sheet of that number is read.
+
 ## How to run a job
 
 In any Claude Code session in this folder, type:
@@ -30,7 +55,7 @@ A run takes about 25 to 45 minutes of working time. Work is shared out to AI age
 | Price Sheet (.xlsx) | Tech hours and quantities per line |
 | Evidence Package (.xlsx) | Every line with its verb, owners, quantity, the quote and sheet or section it rests on, and the reviewer's findings |
 | Review.html | One page of open questions: each count with the images it was counted from, each assumption with its reason |
-| Job.json | The whole job as data, for reading, for measuring and for `status`. The next run does not read it: it builds the job again from the answers it has kept |
+| Job.json | The whole job as data, for reading, for measuring and for `status`. The next run does not read it: it builds the job again from the answers it has kept. Its `source_sheets` list is every sheet number the facts were read from: a line may name one of them after a sheet word ("per sheet S201"); written alone, one that looks like a source id the app issued (S201) is refused |
 | Ledger.json | The facts the app read from the documents, each with where it was found |
 | count-proofs (folder) | The sheet pictures the counts were made from; the review page shows them |
 | decisions history.json | Every set of decisions you have saved, kept by the app (see "Your part") |
@@ -98,9 +123,11 @@ The main ones:
 - Every line says who furnishes, installs and wires.
 - The higher count prints, flagged, with every count named. An unknown count prints as "Qty (##)".
 - On the plans, when in doubt the sheets add up: an overcount is named for you, an undercount would be invisible.
-  Two plan sheets count as one plan only when they are in one document, their titles say the same floor in the
-  same words (the trade words aside: "HVAC DUCTWORK FIRST FLOOR PLAN" and "HVAC PIPING FIRST FLOOR PLAN") and they
-  repeat at least three of each other's units. Then a unit's tag (VAV-101) counts once and a type's tag (EBB-A) the
+  Two plan sheets count as one plan only when they are in one document, have two different sheet numbers (two
+  pages of one number are never one plan), their titles name a floor and say the same words in the same order (the
+  trade words aside: "HVAC DUCTWORK FIRST FLOOR PLAN" and "HVAC PIPING FIRST FLOOR PLAN"; "BUILDING 1 LEVEL 2" and
+  "BUILDING 2 LEVEL 1" are two places) and they repeat at least three of each other's units, and 60% of the
+  smaller sheet's. Then a unit's tag (VAV-101) counts once and a type's tag (EBB-A) the
   most of one sheet, and the counts line says "M-101 and M-201 counted as one plan ...; check". Every other sheet
   adds up, so EBB-1 on ten floors' plans is 10, and the counts line names it in case it is one unit shown again,
   and names sheets that may show one plan. A typical plan counts once per floor it stands for, each floor once.
@@ -109,6 +136,14 @@ The main ones:
   "*Qty. (12) per plan placements (likely a typical unit at each place); 1 per schedule rows." Those words
   are in `playbook/wording.json` (`count_causes`). The tags and sheets behind a cause go to the writers'
   evidence, never into the client's note.
+- How a label is read. A tag counts on a plan when it stands alone ("VAV-3", "(VAV-3)") or starts a short line,
+  whatever words follow ("VAV-3 450 CFM", "EF-2 ON ROOF"); other tags on that line count too ("FCU-4 / FCU-5",
+  "VAV-1 THRU VAV-5"). A tag after a word like TO, FROM, SEE, PER or SERVED BY is a note, not a label, and so is any
+  line of more than 12 words. A count written after a tag is that many places: "CUH-A (TYP. OF 4)", "CUH-A x4",
+  "CUH-A (4)" and "CUH-A 4 PLACES" are four. A count over 50, or one the app cannot read, is counted as one place,
+  and the counts line names the tag and the words so you can check.
+- A unit is never lost. A unit's tag (VAV-101) the plan names anywhere, even only in a note, counts once on that
+  plan when it is labelled nowhere. A type's tag (EBB-A) counts only where it is labelled.
 - One "*" clarification per block. Every assumption says what and why.
 
 ## Older app
