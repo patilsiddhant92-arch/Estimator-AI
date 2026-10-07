@@ -424,3 +424,17 @@ def test_front_end_is_checked(job):
     fe2 = dc.replace(job.front_end, clarifications=(Clarification("note", "a"), Clarification("note", "b")))
     got = rules(validate(dc.replace(job, front_end=fe2), PB))
     assert ("One clarification per block", "", None, "must_fix") in got
+
+
+def test_a_line_counted_from_a_family_below_its_printed_count_is_a_check(job):
+    """AI-1: the Exhaust Fan count is 5 but EF.d1, counted from it (its quantity cites the family's source S6),
+    still carries 3. Device quantity is what prints and prices: a possible silent undershoot, a check (a line can
+    count fewer than its family). A line not counted from the family (EF.d2 cites no source, EF.d3 its dampers)
+    is not this check's."""
+    s = job.system("EF")
+    family = s.families[0]
+    j = edit(job, "EF", families=(dc.replace(family, count=dc.replace(family.count, value=5)),))
+    got = rules(validate(j, PB), "Never undershoot")
+    assert got == [("Never undershoot", "EF", "EF.d1", "check")]
+    j = edit_device(j, "EF", "EF.d1", quantity=dc.replace(s.devices[0].quantity, value=5))
+    assert rules(validate(j, PB), "Never undershoot") == []

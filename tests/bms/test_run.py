@@ -839,3 +839,61 @@ def test_a_revised_line_quoting_words_its_source_lacks_stays_open(job_folder, tm
     open_quotes = [f for f in result.findings if f.severity == "must_fix" and f.system_key == key
                    and "invented words no source of this job says" in f.what]
     assert len(open_quotes) == 1 and cited[0].strip("[]") in open_quotes[0].what
+
+
+def test_a_line_left_at_the_old_family_count_after_a_count_rewrite_takes_the_new_count():
+    """AI-1 safety net: the estimator changes the Exhaust Fan count from 3 to 5 and the count rewrite's answer
+    leaves a line counted from that family at 3 (or drops it, and it is put back at 3). The run gives it 5. A line
+    at another count, or one not counted from the family, keeps its count."""
+    from bms import run
+    from bms.model import Job
+    sample = Job.from_dict(json.loads((TESTS / "bms" / "fixtures" / "sample_job.json").read_text(encoding="utf-8")))
+    before = sample.system("EF")
+    family = before.families[0]
+    after = dataclasses.replace(before, families=(dataclasses.replace(
+        family, count=dataclasses.replace(family.count, value=5)),))
+    carried = run._carry_new_counts(before, after, after)
+    assert [(d.id, d.quantity.value) for d in carried.devices] == [("EF.d1", 5), ("EF.d2", 3), ("EF.d3", 2)]
+    assert carried.devices[0].quantity.sources == before.devices[0].quantity.sources
+    assert run._carry_new_counts(before, before, before) == before          # no family count changed
+
+
+def test_a_line_the_estimator_changed_keeps_its_typed_count_through_a_count_rewrite():
+    """AI-1: the estimator changes the Exhaust Fan count to 5 and, in the same save, types 3 on EF.d1. Neither the
+    rewrite's answer (5) nor the safety net replaces the typed count."""
+    from bms import run
+    from bms.model import Job
+    sample = Job.from_dict(json.loads((TESTS / "bms" / "fixtures" / "sample_job.json").read_text(encoding="utf-8")))
+    before = sample.system("EF")
+    family = before.families[0]
+    after = dataclasses.replace(before, families=(dataclasses.replace(
+        family, count=dataclasses.replace(family.count, value=5)),))
+    first = before.devices[0]
+    answered = dataclasses.replace(after, devices=(
+        dataclasses.replace(first, quantity=dataclasses.replace(first.quantity, value=5)), *after.devices[1:]))
+    carried = run._carry_new_counts(before, after, answered, frozenset({"EF.d1"}))
+    assert carried.devices[0].quantity == first.quantity
+
+
+def test_a_renamed_line_still_takes_a_changed_family_count():
+    """AI-1 (lead review): a rename sets no count, so it does not freeze the line's count through a count rewrite.
+    The estimator renames EF.d1 (its count as shown) and changes the Exhaust Fan count 3 -> 5; the answer leaves
+    EF.d1 at 3: it carries 5. A change that typed a count (EF.d1 at 4) keeps it."""
+    from bms import run
+    from bms.model import Decision, Job
+    sample = Job.from_dict(json.loads((TESTS / "bms" / "fixtures" / "sample_job.json").read_text(encoding="utf-8")))
+    before = sample.system("EF")
+    family = before.families[0]
+    first = before.devices[0]
+    renamed = dataclasses.replace(first, name="Exhaust Fan Controller")
+    decisions = [Decision("EF", "change", device_id="EF.d1", device=renamed, was=first),
+                 Decision("EF", "change", family_name=family.name,
+                          count=dataclasses.replace(family.count, value=5))]
+    assert run._typed_counts(decisions, "EF", sample) == frozenset()
+    after = dataclasses.replace(before, families=(dataclasses.replace(family, count=decisions[1].count),),
+                                devices=(renamed, *before.devices[1:]))
+    carried = run._carry_new_counts(before, after, after, run._typed_counts(decisions, "EF", sample))
+    assert (carried.devices[0].name, carried.devices[0].quantity.value) == ("Exhaust Fan Controller", 5)
+    counted = dataclasses.replace(first, quantity=dataclasses.replace(first.quantity, value=4))
+    typed = [Decision("EF", "change", device_id="EF.d1", device=counted, was=first)]
+    assert run._typed_counts(typed, "EF", sample) == frozenset({"EF.d1"})

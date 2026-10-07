@@ -1428,3 +1428,62 @@ def test_a_sequence_section_holds_only_its_own_paragraphs_at_intake(job, raw, do
     answer["devices"][0]["refs"] = [{"source_id": "Q4", "quote": "A 1500", "where": "23 09 93, Specs.pdf page 12"}]
     reason = _refused(system, dossier, playbook, answer)
     assert "Q4" in reason and "A 1500" in reason
+
+
+# ---- rewrite_for_count: the changed count reaches the lines already written (AI-1) ------------------------------------
+
+def _ef_counted_at(job, value: int) -> System:
+    """The written Exhaust Fans with the estimator's family count changed to `value` (same source, S6)."""
+    system = job.system("EF")
+    family = system.families[0]
+    return dataclasses.replace(system, families=(dataclasses.replace(
+        family, count=dataclasses.replace(family.count, value=value)),))
+
+
+def test_a_count_rewrite_takes_the_new_count_onto_the_lines_already_written(job, raw, dossier, playbook):
+    """EF 3 -> 5: the writer answers EF.d1 and EF.d2 at 5. Each kept line keeps its words and id but carries the
+    new count; before AI-1 every kept id was put back as it was, still at 3, while the family said 5."""
+    system = _ef_counted_at(job, 5)
+    answer = copy.deepcopy(raw["systems"][1])
+    for device in answer["devices"][:2]:
+        device["quantity"]["value"] = 5
+    answer["devices"][0]["name"] = "Changed without being asked"                 # words stay the kept line's
+    transport = FakeTransport(answer)
+    rewritten = ai.rewrite_for_count(system, ai.evidence_for(system, dossier), playbook, transport)
+    (asked,) = transport.asked
+    assert asked["extra"]["step"] == "decide"
+    assert "Each line that carries a changed family's count carries the new count." in asked["prompt"]
+    assert [(d.id, d.quantity.value) for d in rewritten.devices] == [("EF.d1", 5), ("EF.d2", 5), ("EF.d3", 2)]
+    assert rewritten.devices[0].name == system.devices[0].name
+    assert rewritten.devices[0].quantity.sources == system.devices[0].quantity.sources
+    assert rewritten.devices[0].refs == system.devices[0].refs
+
+
+def test_a_count_rewrite_takes_only_the_answers_number_never_its_sources_or_its_flag(job, raw, dossier, playbook):
+    """A kept line skips the intake's checks, so only the count comes from the answer: its quantity sources stay
+    the kept line's, and the answer neither clears nor raises a flag (the flags are the estimator's and
+    `counts.flag_written_devices`')."""
+    system = _ef_counted_at(job, 5)
+    system = dataclasses.replace(system, devices=(dataclasses.replace(system.devices[0], flag="quantity"),
+                                                  *system.devices[1:]))
+    answer = copy.deepcopy(raw["systems"][1])
+    answer["devices"][0]["quantity"] = {"value": 5, "sources": [{"source_id": "S999", "quote": "x", "where": "y"}],
+                                        "others": []}
+    answer["devices"][0]["flag"] = "none"
+    answer["devices"][1]["flag"] = "quantity"
+    answer["devices"][1]["quantity"]["value"] = 2          # a line citing no source takes only a family's count
+    answer["devices"][2]["quantity"]["value"] = 1          # a line counted from its own sources keeps its count
+    rewritten = ai.rewrite_for_count(system, ai.evidence_for(system, dossier), playbook, FakeTransport(answer))
+    first = rewritten.devices[0]
+    assert first.quantity.value == 5 and first.quantity.sources == system.devices[0].quantity.sources
+    assert [d.flag for d in rewritten.devices] == ["quantity", "none", "none"]
+    assert [d.quantity.value for d in rewritten.devices] == [5, 3, 2]
+
+
+def test_a_revise_still_puts_an_untouched_line_back_exactly(job, raw, dossier, playbook):
+    system = job.system("EF")
+    answer = copy.deepcopy(raw["systems"][1])
+    answer["devices"][0]["quantity"]["value"] = 7                                  # not asked: put back
+    finding = Finding("Dampers under their fan", "EF", "EF.d3", "must_fix", "w", "f")
+    revised = ai.revise_system(system, [finding], ai.evidence_for(system, dossier), playbook, FakeTransport(answer))
+    assert revised.devices[0] == system.devices[0]

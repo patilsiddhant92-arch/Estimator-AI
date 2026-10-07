@@ -58,9 +58,9 @@ from estimator.writing.judge import Judge
 
 from bms import ai, ai_evidence
 from bms.citations import device_refs, job_ids, job_sheets, job_tags, source_sheets
-from bms.counts import cross_check, flag_written_devices, publish_proofs
+from bms.counts import counted_from, cross_check, flag_written_devices, publish_proofs
 from bms.evidence import write_evidence
-from bms.model import Decision, Finding, Header, Job, ModelError
+from bms.model import Decision, Device, Finding, Header, Job, ModelError, System
 from bms.plan import plan_job
 from bms.playbook import load_playbook
 from bms.citations import SourceIds
@@ -156,6 +156,47 @@ def _revised(system, findings, evidence, playbook, transport, job=None, decision
 def _families_changed(before: Job, key: str, after: Job) -> bool:
     """True when a decision changed a family's count. A device edit does not."""
     return before.system(key).families != after.system(key).families
+
+
+def _typed_counts(decisions, key: str, before: Job) -> frozenset[str]:
+    """The ids of `key`'s lines whose count the estimator set: a device change whose quantity differs from the
+    line's as the page showed it (`was`; without one, the line in `before`). A rename or other words-only change
+    sets no count, so its line still takes a changed family count (AI-1)."""
+    lines = {d.id: d for d in before.system(key).devices} if any(s.key == key for s in before.systems) else {}
+    typed = set()
+    for d in decisions:
+        if d.system_key != key or d.action != "change" or d.device is None or not d.device_id:
+            continue
+        shown = d.was if d.was is not None else lines.get(d.device_id)
+        if shown is None or d.device.quantity != shown.quantity:
+            typed.add(d.device_id)
+    return frozenset(typed)
+
+
+def _carry_new_counts(before: System, after: System, rewritten: System, typed: frozenset[str] = frozenset()
+                      ) -> System:
+    """The count rewrite's system with every line still at a changed family's old count given the new one (AI-1,
+    the safety net under `ai.rewrite_for_count`): a line counted from the family as it was (`counts.counted_from`
+    on `before`'s family, since the estimator's count may cite other sources) whose quantity is the old count.
+    Only the number changes. A family is matched by name; one whose count was or is unknown changes nothing.
+    A line whose count the estimator typed (its id in `typed`, `_typed_counts`) keeps the count it has in `after`:
+    a typed count is never replaced, by the answer or by this net."""
+    changed = [(old, new) for old in before.families for new in after.families
+               if new.name == old.name and None not in (old.count.value, new.count.value)
+               and old.count.value != new.count.value]
+    own = {d.id: d.quantity for d in after.devices if d.id in typed}
+
+    def carried(device: Device) -> Device:
+        if device.id in own:
+            return device if device.quantity == own[device.id] else dataclasses.replace(device,
+                                                                                        quantity=own[device.id])
+        for old, new in changed:
+            if device.quantity.value == old.count.value and counted_from(device, old):
+                return dataclasses.replace(device, quantity=dataclasses.replace(device.quantity,
+                                                                                value=new.count.value))
+        return device
+    devices = tuple(carried(device) for device in rewritten.devices)
+    return rewritten if devices == rewritten.devices else dataclasses.replace(rewritten, devices=devices)
 
 
 def _count_note(decisions: tuple[Decision, ...] | list[Decision], key: str) -> str:
@@ -492,9 +533,13 @@ def _estimate(job_folder: Path, out: Path, cache: Path, mode: Mode, known: dict)
         if not _families_changed(decided_from, key, job):
             continue
         try:
-            rewritten = flag_written_devices(ai.rewrite_for_count(
+            # a line the answer left at the old count still gets the new one; a line whose count the estimator
+            # typed keeps it (AI-1)
+            typed = _typed_counts(decisions, key, decided_from)
+            asked = ai.rewrite_for_count(
                 system, f"{evidence[key]}\n\n{_count_note(decisions, key)}", playbook, transport,
-                tags=job_tags(job), ids=issued(job), sheets=sheets(job), source_sheets=source(job)))
+                tags=job_tags(job), ids=issued(job), sheets=sheets(job), source_sheets=source(job))
+            rewritten = flag_written_devices(_carry_new_counts(decided_from.system(key), system, asked, typed))
             standing = _standing_accepts(history, key, decided_from)    # accepted after it saw the new count
             if standing:
                 rewritten = apply_decisions(job.with_system(rewritten), standing).system(key)

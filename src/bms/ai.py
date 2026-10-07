@@ -51,7 +51,7 @@ from estimator.writing.dossier import Dossier
 from estimator.writing.judge import DEFAULT_MODEL, KEY_VARIABLE, MODEL_VARIABLE, _key, _plain
 
 from bms import ai_evidence
-from bms.model import Device, Finding, Job, ModelError, Ref, System, json_schema, schema_errors
+from bms.model import Device, Family, Finding, Job, ModelError, Ref, System, json_schema, schema_errors
 from bms.playbook import Playbook, Shape
 from bms.citations import WHERE_ADVICE, SourceIds, label_off, plan_refs, ref_sheets, system_tags
 
@@ -897,20 +897,23 @@ def _check_system(answer, skeleton: System, shape: Shape | None, known: frozense
                   changes: list[str] | None = None, tags: Sequence[str] = (),
                   ids: Sequence[str] = (), sheets: Sequence[str] = (),
                   source_sheets: Sequence[str] = (),
-                  index: Mapping[str, str] | None = None) -> tuple[System | None, list[str]]:
+                  index: Mapping[str, str] | None = None,
+                  recount: bool = False) -> tuple[System | None, list[str]]:
     """A System answer made usable, or the problems that stop it: the skeleton's fields win; untouched devices
     (`keep`) are put back as they were; labels come off the client texts (`_normalise`, each change added to
     `changes`) and a client text that prints a source id is refused;
     every device cites the evidence, and so does every source and other count of its quantity (the plan count
     check's record given without a source aside); with `index` (the evidence sent, `_sent_index`) every quote of
     a device is in its source; slots fit the shape; a known count is 1 or more; at most one clarification;
-    every assumption says what and why; device ids unique and of this system."""
+    every assumption says what and why; device ids unique and of this system. With `recount` (the count rewrite)
+    a kept device takes the count the answer gives it (`_recounted`)."""
     from bms.counts import NO_SOURCE_QUOTE
     if not isinstance(answer, dict):
         return None, ["the answer is not a JSON object"]
     answer = {"no_scope_reason": None, **answer, **_skeleton_dict(skeleton)}   # an answer without the field: null
     if keep:
-        answer = dict(answer, devices=_put_back(answer.get("devices"), keep, originals))
+        answer = dict(answer, devices=_put_back(answer.get("devices"), keep, originals,
+                                                skeleton.families if recount else ()))
     errors = schema_errors(answer, json_schema(System))
     if errors:
         return None, [f"it breaks the schema at {e.removeprefix('$.')}" for e in errors]
@@ -1100,11 +1103,37 @@ def _number_devices(devices: list[dict], key: str, reserved: set[str]) -> None:
         used.add(device["id"])
 
 
-def _put_back(devices, keep: Sequence[Device], originals: Sequence[Device]):
-    """The answer's devices with every untouched device (`keep`) as it was, and back in its place if dropped."""
+def _recounted(device: Device, answered, families: Sequence[Family]) -> dict:
+    """A kept device as it was, but carrying the count the count rewrite's answer gives it (AI-1): only when the
+    device's quantity is counted from one of the system's families (`counts.counted_from`), or cites no source of
+    its own and the number is one of the families' counts, and only the number (1 or more), never the answer's sources or flag (a kept device skips the intake's
+    checks, and its flag is the estimator's and `counts.flag_written_devices`')."""
+    from bms.counts import counted_from
+    kept = device.to_dict()
+    if not isinstance(answered, dict):
+        return kept
+    tied = any(counted_from(device, family) for family in families)
+    if device.quantity.sources and not tied:
+        return kept
+    quantity = answered.get("quantity")
+    value = quantity.get("value") if isinstance(quantity, dict) else None
+    # a line citing no count source takes only a number one of the families now gives: never a stray lower one
+    if not tied and value not in {family.count.value for family in families}:
+        return kept
+    if isinstance(value, int) and not isinstance(value, bool) and value >= 1:
+        kept["quantity"] = dict(kept["quantity"], value=value)
+    return kept
+
+
+def _put_back(devices, keep: Sequence[Device], originals: Sequence[Device], families: Sequence[Family] = ()):
+    """The answer's devices with every untouched device (`keep`) as it was, and back in its place if dropped.
+    With `families` (the count rewrite only) a kept device the answer gives takes its new count (`_recounted`)."""
     if not isinstance(devices, list):
         return devices
     kept = {d.id: d.to_dict() for d in keep}
+    if families:
+        answered = {d.get("id"): d for d in devices if isinstance(d, dict)}
+        kept.update({d.id: _recounted(d, answered[d.id], families) for d in keep if d.id in answered})
     out = [kept.get(d.get("id"), d) if isinstance(d, dict) else d for d in devices]
     for n, device in enumerate(originals):
         if device.id not in kept or any(isinstance(d, dict) and d.get("id") == device.id for d in out):
@@ -1163,34 +1192,38 @@ def rewrite_for_count(system: System, evidence: str, playbook: Playbook, transpo
     decisions).
 
     The prompt names those devices by their words, not as a list of ids to delete. A device decision does not
-    come here: the run applies it and does not ask the writer again."""
+    come here: the run applies it and does not ask the writer again. A kept device keeps its words and id but
+    carries the count the answer gives it when it is counted from a family or cites no count source of its own
+    (`_recounted`, AI-1): the new count reaches the lines already written."""
     shape = _shape(system, playbook)
     images, listing = _pictures(evidence)
     known = ai_evidence.cited_ids(evidence) | _ref_ids(ai_evidence.system_refs(system))
-    kept = "\n".join(f"- {device.name} ({device.slot})" for device in system.devices)
+    kept ="\n".join(f"- {device.name} ({device.slot})" for device in system.devices)
     prompt = (_write_prompt(system, shape, evidence)
               + "\n\nThe estimator changed a count. Keep every device already written. Do not drop one and do not "
-              + "add a replacement.\n" + kept)
+              + "add a replacement. Each line that carries a changed family's count carries the new count.\n"
+              + kept)
     return _ask_system(transport, system.name, playbook, "write_system", prompt,
                        {"step": "decide", "plan_key": system.key, "images": listing}, images, system, shape, known,
                        system.devices, system.devices, tags=tags, ids=ids, sheets=sheets,
-                       source_sheets=source_sheets, evidence=evidence)
+                       source_sheets=source_sheets, evidence=evidence, recount=True)
 
 
 def _ask_system(transport, name: str, playbook: Playbook, step: str, prompt: str, extra: dict,
                 images: Sequence[Path], system: System, shape: Shape | None, known: frozenset[str],
                 keep: Sequence[Device] = (), originals: Sequence[Device] = (), tags: Sequence[str] = (),
                 ids: Sequence[str] = (), sheets: Sequence[str] = (), source_sheets: Sequence[str] = (),
-                evidence: str = "") -> System:
+                evidence: str = "", recount: bool = False) -> System:
     """One WRITE_SYSTEM question checked by `_check_system`, every quote against the `evidence` sent; what the
-    intake cleaned in the used answer goes to the transport's intake log."""
+    intake cleaned in the used answer goes to the transport's intake log. `recount`: the count rewrite's
+    (`_recounted`)."""
     changes: list[str] = []
     index = _sent_index(evidence)
 
     def check(answer):
         changes.clear()                     # only the used answer's changes are logged
         return _check_system(answer, system, shape, known, keep, originals, changes, tags, ids, sheets,
-                             source_sheets, index)
+                             source_sheets, index, recount)
 
     written = _ask_checked(transport, WRITE_SYSTEM, name, playbook.rules_text, _instructions(step), prompt,
                            json_schema(System), extra, images, check)
