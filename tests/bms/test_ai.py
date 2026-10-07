@@ -1523,3 +1523,91 @@ def test_the_writer_prompts_ownership_flag_is_the_playbooks_unclear_ownership():
     write = _prompt("write_system.md")
     assert '"ownership" (who furnishes, installs or wires is not in the evidence)' not in write
     assert '"ownership" (unclear ownership as the Playbook lists it:' in write
+
+# ---- ids in a revise and a count rewrite: a renumbered answer loses no line and doubles none (AI-2) ------------------
+
+_NEW_LINE = {"id": "EF.d2", "slot": "interlock", "name": "Exhaust Fan Interlock", "verb": "Furnish",
+             "furnished_by": "AME", "installed_by": "AME", "wired_by": "AME",
+             "quantity": {"value": None, "sources": [], "others": []},
+             "refs": [{"source_id": "Q2", "quote": "exhaust fans shall start and stop on the BMS schedule",
+                       "where": "23 09 93, Specs.pdf page 10"}],
+             "assumption": None, "flag": "quantity"}
+
+
+def _renumbered(raw) -> dict:
+    """The EF answer with a new line inserted as d2 and the rest renumbered: d1, NEW(d2), old d2 as d3, old d3 as
+    d4."""
+    answer = copy.deepcopy(raw["systems"][1])
+    old = answer["devices"]
+    answer["devices"] = [old[0], copy.deepcopy(_NEW_LINE), dict(old[1], id="EF.d3"), dict(old[2], id="EF.d4")]
+    return answer
+
+
+def _pairs(system: System) -> list[tuple[str, str]]:
+    return [(d.slot, d.name) for d in system.devices]
+
+
+def test_a_revise_answer_that_renumbers_after_a_new_line_keeps_the_new_line_and_doubles_none(job, raw, dossier,
+                                                                                             playbook):
+    system = job.system("EF")
+    answer = _renumbered(raw)
+    answer["devices"][0]["name"] = "DDC Controller (fixed)"
+    finding = Finding("Dampers under their fan", "EF", "EF.d1", "must_fix", "w", "f")
+    revised = ai.revise_system(system, [finding], ai.evidence_for(system, dossier), playbook, FakeTransport(answer))
+    pairs = _pairs(revised)
+    assert ("interlock", "Exhaust Fan Interlock") in pairs                          # the added line is not lost
+    assert len(pairs) == len(set(pairs)) == 4                                       # no line twice
+    assert len({d.id for d in revised.devices}) == 4
+    kept = {d.id: d for d in revised.devices}
+    assert kept["EF.d2"] == system.devices[1] and kept["EF.d3"] == system.devices[2]
+    assert "keep the ids given; a new line takes the next free number" in \
+        (ROOT / "src" / "bms" / "prompts" / "revise_system.md").read_text(encoding="utf-8")
+
+
+def test_a_count_rewrite_answer_that_renumbers_keeps_the_new_line_and_doubles_none(job, raw, dossier, playbook):
+    system = _ef_counted_at(job, 5)
+    answer = _renumbered(raw)
+    for device in answer["devices"][:3]:
+        device["quantity"]["value"] = 5 if device["slot"] != "interlock" else None
+    transport = FakeTransport(answer)
+    rewritten = ai.rewrite_for_count(system, ai.evidence_for(system, dossier), playbook, transport)
+    pairs = _pairs(rewritten)
+    assert ("interlock", "Exhaust Fan Interlock") in pairs
+    assert len(pairs) == len(set(pairs)) == 4
+    assert len({d.id for d in rewritten.devices}) == 4
+    counts = {d.id: d.quantity.value for d in rewritten.devices}
+    assert counts["EF.d1"] == 5 and counts["EF.d2"] == 5 and counts["EF.d3"] == 2   # AI-1: the new count reaches
+    prompt = transport.asked[0]["prompt"]
+    assert "keep the ids given; a new line takes the next free number" in prompt
+    assert "EF.d2" in prompt                                                        # the kept lines by their ids
+
+
+# ---- a device-only revise keeps the block's clarification, tech hours and no-scope reason (AI-10) -----------------
+
+def test_a_device_only_revise_keeps_the_clarification_and_the_tech_hours(job, raw, dossier, playbook):
+    system = job.system("EF")
+    answer = copy.deepcopy(raw["systems"][1])
+    answer["clarifications"] = [{"kind": "note", "text": "Fans carried at three"}]
+    answer["tech_hours"] = 99.0
+    answer["no_scope_reason"] = "nothing to scope"
+    finding = Finding("Dampers under their fan", "EF", "EF.d3", "must_fix", "w", "f")
+    revised = ai.revise_system(system, [finding], ai.evidence_for(system, dossier), playbook, FakeTransport(answer))
+    assert revised.clarifications == system.clarifications
+    assert revised.tech_hours == system.tech_hours
+    assert revised.no_scope_reason == system.no_scope_reason
+
+
+# ---- a QC finding about a device the job lacks is about no device in the revise (AI-16) ----------------------------
+
+def test_a_finding_about_a_missing_device_does_not_open_the_whole_block(job, raw, dossier, playbook):
+    system = job.system("EF")
+    qc = {"findings": [
+        Finding("Dampers under their fan", "EF", "EF.d3", "must_fix", "the damper line names no tags", "x").to_dict(),
+        Finding("Dampers under their fan", "EF", "EF.d9", "must_fix", "a line the job lacks", "x").to_dict()]}
+    findings = ai.qc_job(job, ai.evidence_index(dossier), playbook, FakeTransport(qc))
+    assert findings[1].device_id is None                                            # the QC contract stays
+    answer = copy.deepcopy(raw["systems"][1])
+    answer["devices"][0]["name"] = "Changed without being asked"
+    del answer["devices"][1]
+    revised = ai.revise_system(system, findings, ai.evidence_for(system, dossier), playbook, FakeTransport(answer))
+    assert revised.devices[0] == system.devices[0] and revised.devices[1] == system.devices[1]

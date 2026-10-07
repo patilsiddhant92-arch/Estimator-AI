@@ -898,7 +898,7 @@ def _check_system(answer, skeleton: System, shape: Shape | None, known: frozense
                   ids: Sequence[str] = (), sheets: Sequence[str] = (),
                   source_sheets: Sequence[str] = (),
                   index: Mapping[str, str] | None = None,
-                  recount: bool = False) -> tuple[System | None, list[str]]:
+                  recount: bool = False, block: Mapping | None = None) -> tuple[System | None, list[str]]:
     """A System answer made usable, or the problems that stop it: the skeleton's fields win; untouched devices
     (`keep`) are put back as they were; labels come off the client texts (`_normalise`, each change added to
     `changes`) and a client text that prints a source id is refused;
@@ -906,14 +906,15 @@ def _check_system(answer, skeleton: System, shape: Shape | None, known: frozense
     check's record given without a source aside); with `index` (the evidence sent, `_sent_index`) every quote of
     a device is in its source; slots fit the shape; a known count is 1 or more; at most one clarification;
     every assumption says what and why; device ids unique and of this system. With `recount` (the count rewrite)
-    a kept device takes the count the answer gives it (`_recounted`)."""
+    a kept device takes the count the answer gives it (`_recounted`). With `block` (a revise whose findings all
+    name devices) the block's clarifications, tech hours and no-scope reason are the original's (AI-10)."""
     from bms.counts import NO_SOURCE_QUOTE
     if not isinstance(answer, dict):
         return None, ["the answer is not a JSON object"]
-    answer = {"no_scope_reason": None, **answer, **_skeleton_dict(skeleton)}   # an answer without the field: null
+    answer = {"no_scope_reason": None, **answer, **_skeleton_dict(skeleton), **(block or {})}  # no field: null
     if keep:
         answer = dict(answer, devices=_put_back(answer.get("devices"), keep, originals,
-                                                skeleton.families if recount else ()))
+                                                skeleton.families if recount else (), skeleton.key))
     errors = schema_errors(answer, json_schema(System))
     if errors:
         return None, [f"it breaks the schema at {e.removeprefix('$.')}" for e in errors]
@@ -1125,16 +1126,73 @@ def _recounted(device: Device, answered, families: Sequence[Family]) -> dict:
     return kept
 
 
-def _put_back(devices, keep: Sequence[Device], originals: Sequence[Device], families: Sequence[Family] = ()):
+def _same_line(device: dict, slot, name) -> bool:
+    """The answer's device is that line: the same slot and the same name (case and spacing aside)."""
+    def norm(text) -> str:
+        return " ".join(str(text or "").split()).casefold()
+    return norm(device.get("slot")) == norm(slot) and norm(device.get("name")) == norm(name)
+
+
+def _matched(devices: list, keep: Sequence[Device]) -> tuple[dict[int, str], set[int]]:
+    """Which answer device (by its place in the answer) is which kept device, and which answer devices only repeat
+    a kept one (AI-2). First by content, slot and name, whatever id it carries (a writer that adds a line renumbers
+    the rest); then by id with the same slot (an unasked edit of that line, put back as it was). A later answer
+    device with a kept device's content is a duplicate."""
+    match: dict[int, str] = {}
+    duplicates: set[int] = set()
+    claimed: set[str] = set()
+    for n, device in enumerate(devices):
+        if not isinstance(device, dict):
+            continue
+        same = [d.id for d in keep if _same_line(device, d.slot, d.name)]
+        if not same:
+            continue
+        free = [i for i in same if i not in claimed]
+        if not free:
+            duplicates.add(n)
+            continue
+        match[n] = device.get("id") if device.get("id") in free else free[0]
+        claimed.add(match[n])
+    for n, device in enumerate(devices):
+        if not isinstance(device, dict) or n in match or n in duplicates:
+            continue
+        line = next((d for d in keep if d.id == device.get("id")), None)
+        if line is not None and line.id not in claimed and _same_line(device, line.slot, device.get("name")):
+            match[n] = line.id
+            claimed.add(line.id)
+    return match, duplicates
+
+
+def _put_back(devices, keep: Sequence[Device], originals: Sequence[Device], families: Sequence[Family] = (),
+              key: str = ""):
     """The answer's devices with every untouched device (`keep`) as it was, and back in its place if dropped.
-    With `families` (the count rewrite only) a kept device the answer gives takes its new count (`_recounted`)."""
+    With `families` (the count rewrite only) a kept device the answer gives takes its new count (`_recounted`).
+
+    An answer device is a kept one by its content, or by its id with the same slot (`_matched`); one that only
+    repeats a kept line is dropped; a new line carrying a kept line's id gets the next free id of `key` (no id an
+    original or the answer holds), so the kept line keeps its own (AI-2)."""
     if not isinstance(devices, list):
         return devices
+    match, duplicates = _matched(devices, keep)
     kept = {d.id: d.to_dict() for d in keep}
     if families:
-        answered = {d.get("id"): d for d in devices if isinstance(d, dict)}
-        kept.update({d.id: _recounted(d, answered[d.id], families) for d in keep if d.id in answered})
-    out = [kept.get(d.get("id"), d) if isinstance(d, dict) else d for d in devices]
+        by_id = {d.id: d for d in keep}
+        kept.update({i: _recounted(by_id[i], devices[n], families) for n, i in match.items()})
+    taken = {d.id for d in originals} | set(kept) | {str(d.get("id")) for d in devices if isinstance(d, dict)}
+    out = []
+    for n, device in enumerate(devices):
+        if n in duplicates:
+            continue
+        if n in match:
+            out.append(kept[match[n]])
+        elif isinstance(device, dict) and key and device.get("id") in kept:
+            number = 1
+            while f"{key}.d{number}" in taken:
+                number += 1
+            taken.add(f"{key}.d{number}")
+            out.append(dict(device, id=f"{key}.d{number}"))         # a new line in a kept line's id
+        else:
+            out.append(device)
     for n, device in enumerate(originals):
         if device.id not in kept or any(isinstance(d, dict) and d.get("id") == device.id for d in out):
             continue
@@ -1191,17 +1249,20 @@ def rewrite_for_count(system: System, evidence: str, playbook: Playbook, transpo
     `tags`, `ids`, `sheets` and `source_sheets` are as for `write_system` (the run passes the job's after the
     decisions).
 
-    The prompt names those devices by their words, not as a list of ids to delete. A device decision does not
+    The prompt names those devices by their id and words (to keep, never a list of ids to delete) and gives one id
+    rule: keep the ids given; a new line takes the next free number. A renumbered answer loses no line and repeats
+    none (`_put_back`, AI-2). A device decision does not
     come here: the run applies it and does not ask the writer again. A kept device keeps its words and id but
     carries the count the answer gives it when it is counted from a family or cites no count source of its own
     (`_recounted`, AI-1): the new count reaches the lines already written."""
     shape = _shape(system, playbook)
     images, listing = _pictures(evidence)
     known = ai_evidence.cited_ids(evidence) | _ref_ids(ai_evidence.system_refs(system))
-    kept ="\n".join(f"- {device.name} ({device.slot})" for device in system.devices)
+    kept = "\n".join(f"- {device.id}: {device.name} ({device.slot})" for device in system.devices)
     prompt = (_write_prompt(system, shape, evidence)
               + "\n\nThe estimator changed a count. Keep every device already written. Do not drop one and do not "
-              + "add a replacement. Each line that carries a changed family's count carries the new count.\n"
+              + "add a replacement. Each line that carries a changed family's count carries the new count. "
+              + "Ids: keep the ids given; a new line takes the next free number.\n"
               + kept)
     return _ask_system(transport, system.name, playbook, "write_system", prompt,
                        {"step": "decide", "plan_key": system.key, "images": listing}, images, system, shape, known,
@@ -1213,17 +1274,17 @@ def _ask_system(transport, name: str, playbook: Playbook, step: str, prompt: str
                 images: Sequence[Path], system: System, shape: Shape | None, known: frozenset[str],
                 keep: Sequence[Device] = (), originals: Sequence[Device] = (), tags: Sequence[str] = (),
                 ids: Sequence[str] = (), sheets: Sequence[str] = (), source_sheets: Sequence[str] = (),
-                evidence: str = "", recount: bool = False) -> System:
+                evidence: str = "", recount: bool = False, block: Mapping | None = None) -> System:
     """One WRITE_SYSTEM question checked by `_check_system`, every quote against the `evidence` sent; what the
     intake cleaned in the used answer goes to the transport's intake log. `recount`: the count rewrite's
-    (`_recounted`)."""
+    (`_recounted`); `block`: the block fields a device-only revise keeps."""
     changes: list[str] = []
     index = _sent_index(evidence)
 
     def check(answer):
         changes.clear()                     # only the used answer's changes are logged
         return _check_system(answer, system, shape, known, keep, originals, changes, tags, ids, sheets,
-                             source_sheets, index, recount)
+                             source_sheets, index, recount, block)
 
     written = _ask_checked(transport, WRITE_SYSTEM, name, playbook.rules_text, _instructions(step), prompt,
                            json_schema(System), extra, images, check)
@@ -1239,21 +1300,26 @@ def revise_system(system: System, findings: Sequence[Finding], evidence: str, pl
     must_fix finding for this system it returns `system` unchanged without asking. Raises NoAnswer.
 
     The request's name is the system's name with " (revise)". When every finding names a device, every other
-    device is kept exactly as it was (put back if the answer changed or dropped it)."""
+    device is kept exactly as it was (put back if the answer changed or dropped it), and so are the block's
+    clarifications, tech hours and no-scope reason (AI-10). A finding about a device the system lacks (QC's
+    `_missing_device`) is about no device (AI-16): the writer is told it and may add the line it asks for, but it
+    neither opens the whole block nor lets the other devices change."""
     mine = [f for f in findings if f.severity == "must_fix" and f.system_key == system.key]
     if not mine:
         return system
     shape = _shape(system, playbook)
     images, listing = _pictures(evidence)
     named = {f.device_id for f in mine if f.device_id}
-    whole = any(f.device_id is None for f in mine)
+    whole = any(f.device_id is None and not _missing_device(f, system) for f in mine)
     keep = () if whole else tuple(d for d in system.devices if d.id not in named)
+    block = None if whole else {k: v for k, v in system.to_dict().items()
+                                if k in ("clarifications", "tech_hours", "no_scope_reason")}
     # the evidence and the planner's refs only: an id the earlier answer wrote is no evidence of itself
     known = ai_evidence.cited_ids(evidence) | _ref_ids(ai_evidence.system_refs(system))
     return _ask_system(transport, f"{system.name} (revise)", playbook, "revise_system",
                        _revise_prompt(system, mine, shape, evidence),
                        {"step": "revise", "plan_key": system.key, "images": listing}, images, system, shape, known,
-                       keep, system.devices, tags, ids, sheets, source_sheets, evidence)
+                       keep, system.devices, tags, ids, sheets, source_sheets, evidence, block=block)
 
 
 # ---- QC -------------------------------------------------------------------------------------------------------------
@@ -1431,6 +1497,20 @@ def _qc_prompt(job: Job, systems: Sequence[System], whole: bool, index: Mapping[
         "The text of every source it cites, by id:\n" + ("\n".join(sources) or "(none)")] if p)
 
 
+_MISSING = " (about {}, which the written job does not have)"
+_MISSING_AT_END = re.compile(re.escape(_MISSING).replace(r"\{\}", r"(\S+)") + "$")   # the same words, read back
+
+
+def _missing_device(finding: Finding, system: System) -> bool:
+    """A finding about a device the system does not have: QC's (`_check_findings` nulls its device id and names the
+    id in `what` with `_MISSING`), or one whose device id the system lacks."""
+    ids = {d.id for d in system.devices}
+    if finding.device_id is not None:
+        return finding.device_id not in ids
+    found = _MISSING_AT_END.search(finding.what)
+    return found is not None and found.group(1) not in ids
+
+
 def _check_findings(answer, job: Job) -> tuple[list[Finding] | None, list[str]]:
     if not isinstance(answer, dict) or not isinstance(answer.get("findings"), list):
         return None, ["the answer has no list of findings"]
@@ -1443,8 +1523,7 @@ def _check_findings(answer, job: Job) -> tuple[list[Finding] | None, list[str]]:
         except ModelError as error:
             return None, [f"finding {n + 1}: {error}"]
         if finding.device_id is not None and finding.device_id not in devices.get(finding.system_key, set()):
-            finding = replace(finding, device_id=None,
-                              what=f"{finding.what} (about {finding.device_id}, which the written job does not have)")
+            finding = replace(finding, device_id=None, what=f"{finding.what}{_MISSING.format(finding.device_id)}")
         out.append(finding)
     return out, []
 
