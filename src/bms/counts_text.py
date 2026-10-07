@@ -56,12 +56,16 @@ def family_tags(tags: Sequence[str]) -> list[str]:
 
 
 def _spelled(tag: str) -> str:
-    """One tag as a pattern allowing any dash, a space or nothing before a numbered part, a dash before a lettered
-    part ("TXF-B", never "TXFB")."""
+    """One tag as a pattern allowing any dash, a space or nothing before the first numbered part, any dash or a
+    space before a later one (VAV-1-01 is never "VAV-101"), a dash before a lettered part ("TXF-B", never
+    "TXFB")."""
     parts = [p for p in re.split(f"[{DASHES}]", canonical(tag)) if p]
     spelled = re.escape(parts[0])
-    for part in parts[1:]:
-        joint = f"(?:[{DASHES}] ?| ?)" if part[0].isdigit() else f"[{DASHES}] ?"
+    for n, part in enumerate(parts[1:]):
+        if not part[0].isdigit():
+            joint = f"[{DASHES}] ?"
+        else:
+            joint = f"(?:[{DASHES}] ?| ?)" if n == 0 else f"(?:[{DASHES}] ?| )"
         spelled += joint + re.escape(part)
     return spelled
 
@@ -109,8 +113,9 @@ def prefix_owners(families_tags: Iterable[Sequence[str]]) -> dict[str, int]:
 
 
 def searcher(pattern: str) -> re.Pattern:
-    """The pattern found inside running text: not part of a longer word or tag."""
-    return re.compile(rf"(?<![A-Za-z0-9_])(?:{pattern})(?![A-Za-z0-9])")
+    """The pattern found inside running text: not part of a longer word or tag (VAV-1 is not found in VAV-10,
+    VAV-1-01 or XVAV-1, CAC-1 not in CAC-1.5; a full stop or comma after a tag still ends it)."""
+    return re.compile(rf"(?<![A-Za-z0-9_])(?:{pattern})(?![A-Za-z0-9]|[{DASHES}.][A-Za-z0-9])")
 
 
 def fits(pattern: str, text: str) -> bool:

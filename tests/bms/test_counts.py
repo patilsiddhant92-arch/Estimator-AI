@@ -679,3 +679,38 @@ def test_the_located_text_count_uses_the_expanded_tags(tmp_path):
     assert len(asked["extra"]["patterns"]) == len(LETTER_FAMILIES)
     for pattern in asked["extra"]["patterns"]:
         assert not any(fits(pattern, bare) for bare in ("B", "C", "2"))
+
+
+# ---- a tag is never found inside a longer tag (CNT-3) -------------------------------------------------------------
+
+@pytest.mark.parametrize("b_first", [True, False])
+def test_a_tag_inside_a_longer_tag_is_not_another_family_s_tag(tmp_path, b_first):
+    texts = ((200, 200, FILLER, 10), (300, 400, "VAV-1-01", 14), (900, 300, "VAV-1-02", 14))
+    _, catalogue = _plan(tmp_path, texts=texts)
+    a = System("A", "Boxes A", "VAV Box", "field", (Family("VAV Box", ("VAV-1-01", "VAV-1-02"), Count(None)),))
+    b = System("B", "Box B", "VAV Box", "field",
+               (Family("VAV Box", ("VAV-1",), Count(1, (Ref("S1", "VAV-1", "M-001"),))),))
+    checked = counts.cross_check(Job("t", (b, a) if b_first else (a, b)), catalogue, tmp_path / "cache")
+    located_a = checked.system("A").families[0].count
+    assert located_a.value == 2 and located_a.sources[0].quote == "located on the sheet text", located_a
+    located_b = checked.system("B").families[0].count
+    assert not any(r.quote == "located on the sheet text" for r in located_b.sources), located_b
+    assert not any(o.ref.quote == "located on the sheet text" for o in located_b.others), located_b
+
+
+def test_a_spelled_tag_of_two_numbered_parts_never_runs_them_together():
+    from bms.counts_text import family_pattern, fits
+
+    pattern = family_pattern(["VAV-1-01"], {"VAV": 2})
+    assert fits(pattern, "VAV-1-01") and fits(pattern, "VAV 1-01") and fits(pattern, "VAV1-01")
+    assert not fits(pattern, "VAV-101")
+
+
+def test_a_tag_followed_by_a_dash_or_dot_and_more_is_a_longer_tag():
+    from bms.counts_text import family_pattern, searcher
+
+    cac = searcher(family_pattern(["CAC-1"], {"CAC": 2}))
+    assert cac.search("CAC-1.5") is None and cac.search("SEE CAC-1-2") is None
+    assert cac.search("SEE CAC-1.") and cac.search("CAC-1, CAC-2")      # a full stop or comma ends the tag
+    vav = searcher(family_pattern(["VAV-1"], {"VAV": 2}))
+    assert vav.search("VAV-1-01") is None and vav.search("VAV-10") is None and vav.search("XVAV-1") is None

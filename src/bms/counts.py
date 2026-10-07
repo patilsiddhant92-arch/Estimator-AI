@@ -313,7 +313,8 @@ class _Check:
             sheet.picture = Path(images[0].path) if images else None
         except Exception:
             sheet.picture = None
-        combined = "|".join(f"(?:{p})" for p in here)
+        # the longest pattern first: where two families' tags start alike (VAV-1, VAV-1 01) the longer reading wins
+        combined = "|".join(f"(?:{p})" for p in sorted(here, key=len, reverse=True))
 
         has_text = True
         confident, ambiguous = [], []
