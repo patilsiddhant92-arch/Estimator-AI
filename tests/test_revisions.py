@@ -277,14 +277,22 @@ def test_the_governing_pages_take_each_sheet_number_from_one_document():
 
 
 def test_the_governing_pages_skip_a_marked_up_copy_and_repeats_inside_one_document():
+    from dataclasses import replace
+
+    from estimator.catalogue.tags import TagEntry
     from estimator.reading.revisions import governing_pages
 
+    # a marked-up copy shows its original's units (FINAL-K: the copy test reads the plans' unit tags)
     marked = "2. Takeoffs/1. Base Takeoff/Marked_Mech.pdf"
-    pages = [(marked, n, number, f"PLAN {number} MARKED", ()) for n, number in enumerate(("M-201", "M-202", "M-203"), 1)]
-    pages += [(BASE, n, number, f"PLAN {number}", ()) for n, number in enumerate(("M-201", "M-202", "M-203", "M-204"), 1)]
+    units = "\nVAV-1\nVAV-2\nVAV-3"
+    pages = [(marked, n, number, f"PLAN {number} MARKED{units}", ())
+             for n, number in enumerate(("M-201", "M-202", "M-203"), 1)]
+    pages += [(BASE, n, number, f"PLAN {number}{units if number != 'M-204' else ''}", ())
+              for n, number in enumerate(("M-201", "M-202", "M-203", "M-204"), 1)]
     pages += [(BASE, 5, "M-204", "PLAN M-204", ()),               # the same page again: read once
               (BASE, 6, "M-204", "PLAN M-204 PART 2", ()),        # the same number, other text: read too
               (BASE, 7, "M-110", "TYPICAL FLOOR 10", ()), (BASE, 8, "M-110", "TYPICAL FLOOR 11", ())]
-    catalogue = _catalogue(*pages)
+    tags = tuple(TagEntry(f"VAV-{n}", "", (), ("M-201",), 7) for n in (1, 2, 3))
+    catalogue = replace(_catalogue(*pages), tags=tags)
     assert governing_pages(catalogue, (), typicals=["M-110"]) == {
         (BASE, 1), (BASE, 2), (BASE, 3), (BASE, 4), (BASE, 6), (BASE, 7)}

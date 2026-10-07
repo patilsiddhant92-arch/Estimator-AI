@@ -54,9 +54,10 @@ def test_a_floor_drawn_on_a_ductwork_and_a_piping_plan_is_one_group_and_a_type_c
     d = build_dossier(_catalogue(pages, sheets, UNITS + ["EBB-A"]), _reading(), tmp_path)
     assert d.counts["VAV"]["plan_placements"] == 3
     assert d.counts["EBB"]["plan_placements"] == 4
-    for prefix in ("VAV", "EBB"):
+    for prefix, one, apart in (("VAV", 3, 6), ("EBB", 4, 8)):
         line = _line(prefix, d)
-        assert "M-101 and M-201 counted as one plan: same floor title, same units; check" in _notes(line)
+        assert (f"M-101 and M-201 counted as one plan, {one} ({apart} if they are two places): same floor title, "
+                "same units; check") in _notes(line)                # FINAL-K: both counts (REVIEW-FINAL6 F5)
         assert "same plan as" not in line and "may show one plan" not in line
 
 

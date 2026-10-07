@@ -217,3 +217,70 @@ def unlisted_prefixes(texts: Iterable[str], equipment: Equipment) -> Counter:
     for text in texts:
         counts.update(m.group(1) for m in _TAG_SHAPED.finditer(text) if m.group(1) not in equipment.prefixes)
     return counts
+
+
+# ---- the one label reader (FINAL-K, REVIEW-FINAL6 F7) ----------------------------------------------------------
+# A tag is placed on a plan where a line of the sheet's text is the tag alone ("GCF-A", "EF-1 (TYP)", a bubble "VAV"
+# over "5-7") or a line of only tags and symbols ("VAV-1  VAV-2 T"); a note that names it ("TO EUH-1") places
+# nothing. The inventory's placements and the dossier's counts line both read labels so, and the copy test
+# (`document_repeats`) too.
+
+_DECIMAL_TYPE = re.compile(r"^[A-Z]+-\d+\.\d+$")   # AC-3.0, HRU-4.0: a size, not a unit number
+_TYPE_FORM = re.compile(r"-[A-Z]{1,2}$", re.I)     # CUH-A, EBB-B: a type's tag, no unit number in it
+_LABEL_NOISE = re.compile(r"^\((?:N|NEW)\)\s*|\s*\(?\s*TYP(?:ICAL)?\.?\s*\)?$", re.I)
+_BUBBLE_HEAD = re.compile(r"\s*[A-Z]{1,6}\s*")
+# beside tags on one line, what is no word of a note: a symbol's letter (T, S), a number (450), (E), TYP.
+_LABEL_FILLER = re.compile(r"\W*(?:[A-Z0-9]|\d+|TYP(?:ICAL)?|NEW|EXIST(?:ING)?)\W*", re.I)
+
+
+def is_type_tag(tag: str) -> bool:
+    """A tag that names a kind used at many places, not one unit: a letter suffix with no unit number (EBB-A,
+    CUH-A) or a decimal size (AC-3.0). Every other tag (VAV-101, EF-3, ACCU-109) names one unit."""
+    return bool(_TYPE_FORM.search(tag) or _DECIMAL_TYPE.match(tag.upper()))
+
+
+def label_key(text: str) -> str:
+    """A label's spelling-free key: "VAV-1", "VAV 1", "(N) VAV-1" and "VAV-1 TYP." are all VAV1."""
+    return re.sub(r"[\s\-‐‑–—#]", "", _LABEL_NOISE.sub("", text.strip())).upper()
+
+
+def label_keys(tags: Iterable[str]) -> dict[str, str]:
+    """Each tag's label key -> the tag (the first tag of a key wins); a type sized "X.0" is also labelled "X"."""
+    keys: dict[str, str] = {}
+    tags = list(tags)
+    for tag in tags:
+        keys.setdefault(label_key(tag), tag)
+    for tag in tags:
+        if tag.endswith(".0"):
+            keys.setdefault(label_key(tag[:-2]), tag)
+    return keys
+
+
+def line_labels(text: str, keys: Mapping[str, str]) -> Counter:
+    """Each tag's labels in a sheet's text (`label_keys` gives `keys`): a line that is the tag alone, a bubble (a
+    prefix alone over its number), and each tag of a line made only of tags and symbols beside them ("VAV-1 VAV-1 T
+    T", "EF-1 450", "AHU-1 (E)"). Never a tag in a line with a word of a note ("TO EUH-1", "RTU-1 ABOVE")."""
+    tally: Counter = Counter()
+    lines = text.splitlines()
+    skip = False
+    for n, line in enumerate(lines):
+        if skip:
+            skip = False
+            continue
+        tag = keys.get(label_key(line))
+        if tag is None and n + 1 < len(lines) and _BUBBLE_HEAD.fullmatch(line):
+            tag = keys.get(label_key(line + lines[n + 1]))      # a tag bubble: "VAV" over "5-7"
+            skip = tag is not None
+        if tag is not None:
+            tally[tag] += 1
+            continue
+        found, words = [], 0
+        for token in (t for t in re.split(r"[\s,;]+", line) if t):
+            tag = keys.get(label_key(token))
+            if tag is not None:
+                found.append(tag)
+            elif not _LABEL_FILLER.fullmatch(token):
+                words += 1
+        if found and not words:
+            tally.update(found)
+    return tally

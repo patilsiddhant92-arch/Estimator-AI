@@ -128,12 +128,19 @@ def _sheet(number):
                                                 (2800, 2000, number, 40)))
 
 
+def _plan_with_units(number):
+    """A roof plan that shows three units (FINAL-K: a marked-up copy is told by its plans' unit tags)."""
+    units = tuple((400 + 300 * k, 900, f"VAV-{k}", 14) for k in (1, 2, 3))
+    return Page(width=3024, height=2160, texts=((200, 300, FILLER, 12), *units, (2640, 1860, "ROOF PLAN", 20),
+                                                (2800, 2000, number, 40)))
+
+
 def test_m2_a_marked_up_copy_gets_one_flag_not_one_per_sheet(tmp_path):
     root = tmp_path / "26-9999"
     base = root / "2. Takeoffs" / "1. Base Takeoff"
     numbers = [f"M-10{n}" for n in range(1, 6)]
-    make_pdf(base / "Mech.pdf", *[_sheet(n) for n in numbers])
-    make_pdf(base / "Marked_Mech.pdf", *[_sheet(n) for n in numbers])
+    make_pdf(base / "Mech.pdf", *[_plan_with_units(n) for n in numbers])
+    make_pdf(base / "Marked_Mech.pdf", *[_plan_with_units(n) for n in numbers])
     result = catalogue_job(root, tmp_path / "cache")
     assert any(f == "Marked_Mech.pdf repeats 5 sheets of Mech.pdf — probably a marked-up copy" for f in result.flags)
     assert not [f for f in result.flags if f.startswith("Sheet M-10")]

@@ -12,7 +12,7 @@ from estimator.catalogue.qualify import BidCheck, check_bid
 from estimator.catalogue.register import PageRecord, register_job
 from estimator.catalogue.sheet_types import Sheet, classify_sheet, discipline_from_filename
 from estimator.catalogue.spec_sections import SpecSection, index_sections
-from estimator.catalogue.tags import TagEntry, index_tags
+from estimator.catalogue.tags import TagEntry, index_tags, is_type_tag, label_keys, line_labels
 from estimator.catalogue.title_block import read_drawing_index, read_title_block
 
 
@@ -80,29 +80,112 @@ def _plural(n: int, word: str) -> str:
     return f"{n} {word}" if n == 1 else f"{n} {word}s"
 
 
-def repeats(catalogue: Catalogue) -> tuple[list[str], set[tuple[str, str]]]:
-    """One document's sheet numbers can be almost entirely a repeat of another's — a marked-up
-    copy of the same set. One line says so, instead of an "is on N pages" flag per sheet (M2)."""
+COPY_SHARED = 3          # unit tags a marked-up copy's plans must repeat of its original's ...
+COPY_OVERLAP = 0.6       # ... and this share of the smaller document's unit tags (REVIEW-FINAL6 F3)
+
+
+@dataclass(frozen=True)
+class DocumentRepeat:
+    """A document whose sheet numbers are almost all another's (3 or more, 80% of its own)."""
+    copy: str                   # the document that repeats
+    original: str               # the document it repeats
+    numbers: frozenset[str]     # the sheet numbers it repeats
+    same: bool                  # True: a marked-up copy (the same units on its plans), read once; False: another set
+                                # of drawings (a second building issued with the same sheet numbers), read and summed
+
+
+def _issue(documents: dict, relative: str) -> tuple | None:
+    """The issue a document belongs to (its revision); None for an addendum or a duplicate file, which reissue a
+    sheet: supersession decides between them, never the copy rule."""
+    d = documents.get(relative)
+    if d is None:
+        return ("",)
+    if d.kind == "addendum" or getattr(d, "duplicate_of", None):
+        return None
+    return (d.revision,)
+
+
+def _plan_units(catalogue, document: str, numbers: frozenset[str], keys: dict[str, str]) -> set[str]:
+    """The unit tags (`is_type_tag` false) labelled (`line_labels`) on the document's plan sheets of these numbers."""
+    texts = {(p.document, p.page): p.text for p in catalogue.pages}
+    units: set[str] = set()
+    for sheet in catalogue.sheets:
+        if sheet.document == document and sheet.number in numbers and "Plans" in sheet.types:
+            units |= {tag for tag in line_labels(texts.get((sheet.document, sheet.page), ""), keys)
+                      if not is_type_tag(tag)}
+    return units
+
+
+def document_repeats(catalogue) -> list[DocumentRepeat]:
+    """Each document that repeats most of another's sheet numbers, and whether it is a marked-up copy. Sheet numbers
+    alone never make a copy (REVIEW-FINAL6 F3): a copy only adds clouds and text, so its plans show the same unit
+    tags as the original's (at least COPY_SHARED of them, COPY_OVERLAP of the smaller set's). One that shows other
+    units, of the same issue, is another set of drawings (a second building issued with the same numbers): read and
+    summed. An addendum or a duplicate file is neither, nor is a later issue with other units: supersession decides.
+    Two documents never each claim the other: a document claimed as a copy is never an original, and an original is
+    never claimed."""
     numbers: dict[str, set[str]] = defaultdict(set)
     for sheet in catalogue.sheets:
         if sheet.number:
             numbers[sheet.document].add(sheet.number)
-    by_size = sorted(numbers, key=lambda d: -len(numbers[d]))
-    lines: list[str] = []
+    documents = {d.relative: d for d in getattr(getattr(catalogue, "job", None), "documents", ())}
+    text = Counter()
+    for p in catalogue.pages:
+        text[p.document] += len(p.text or "")
+    # the larger set first; of two the same size, the original is the one with less text (a copy adds markups), then
+    # the one whose name does not say it is marked up
+    by_size = sorted(numbers, key=lambda d: (-len(numbers[d]), text[d], "MARK" in _name(d).upper(), d))
+    keys: dict[str, str] | None = None
+    found: list[DocumentRepeat] = []
     claimed: set[str] = set()
-    covered: set[tuple[str, str]] = set()
+    originals: set[str] = set()
     for original in by_size:
+        if original in claimed:
+            continue
         for copy in by_size:
-            if copy == original or copy in claimed or not numbers[copy]:
+            if copy == original or copy in claimed or copy in originals or not numbers[copy]:
                 continue
             if len(numbers[copy]) > len(numbers[original]):
                 continue
-            shared = numbers[copy] & numbers[original]
-            if len(numbers[copy]) >= 3 and len(shared) / len(numbers[copy]) >= 0.8:
-                lines.append(f"{_name(copy)} repeats {len(shared)} sheets of {_name(original)} — probably a marked-up copy")
-                claimed.add(copy)
-                covered |= {(number, copy) for number in shared}
-    return lines, covered
+            shared = frozenset(numbers[copy] & numbers[original])
+            if not (len(numbers[copy]) >= 3 and len(shared) / len(numbers[copy]) >= 0.8):
+                continue
+            issues = _issue(documents, original), _issue(documents, copy)
+            if None in issues:
+                continue
+            if keys is None:
+                keys = label_keys(t.tag for t in getattr(catalogue, "tags", ()))
+            a, b = _plan_units(catalogue, original, shared, keys), _plan_units(catalogue, copy, shared, keys)
+            common = len(a & b)
+            same = common >= COPY_SHARED and common >= COPY_OVERLAP * min(len(a), len(b))
+            if not same and issues[0] != issues[1]:
+                continue
+            found.append(DocumentRepeat(copy, original, shared, same))
+            claimed.add(copy)
+            originals.add(original)
+    return found
+
+
+def other_sets(catalogue) -> set[tuple[str, str]]:
+    """(sheet number, document) of each sheet of another set of drawings (`document_repeats`, not a copy): a sheet
+    read and summed beside the original's, never a version of it."""
+    return {(number, r.copy) for r in document_repeats(catalogue) if not r.same for number in r.numbers}
+
+
+def _repeat_line(r: DocumentRepeat) -> str:
+    if r.same:
+        return f"{_name(r.copy)} repeats {len(r.numbers)} sheets of {_name(r.original)} — probably a marked-up copy"
+    return (f"{_name(r.copy)} repeats {len(r.numbers)} sheets of {_name(r.original)} but not their units — read as "
+            f"another set of drawings and counted; check whether it is a marked-up copy")
+
+
+def repeats(catalogue: Catalogue) -> tuple[list[str], set[tuple[str, str]]]:
+    """One document's sheet numbers can be almost entirely a repeat of another's (`document_repeats`). One line says
+    so, instead of an "is on N pages" flag per sheet (M2), and the sheets of a marked-up copy are given as
+    (number, document): read once, from the original. Another set of drawings is said, never set aside."""
+    found = document_repeats(catalogue)
+    return ([_repeat_line(r) for r in found],
+            {(number, r.copy) for r in found if r.same for number in r.numbers})
 
 
 def repeated_plans(catalogue) -> dict[str, tuple[str, tuple[int, ...]]]:
@@ -168,8 +251,9 @@ def _flags(catalogue: Catalogue) -> list[str]:
         unique = list(dict.fromkeys(s.number for s in untyped))   # each number named once, even from copies
         names = ", ".join(unique[:20]) + (" …" if len(unique) > 20 else "")
         flags.append(f"{_plural(len(untyped), 'drawing sheet')} could not be sorted by type — {names}")
-    repeat_lines, repeat_covered = repeats(catalogue)
-    flags += repeat_lines
+    found = document_repeats(catalogue)
+    flags += [_repeat_line(r) for r in found]
+    repeat_covered = {(number, r.copy) for r in found for number in r.numbers}   # copies and other sets: one line
     places: dict[str, dict[str, list[int]]] = defaultdict(lambda: defaultdict(list))
     for sheet in catalogue.sheets:
         if sheet.number and (sheet.number, sheet.document) not in repeat_covered:
