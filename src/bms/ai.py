@@ -1105,17 +1105,21 @@ def _number_devices(devices: list[dict], key: str, reserved: set[str]) -> None:
 
 def _recounted(device: Device, answered, families: Sequence[Family]) -> dict:
     """A kept device as it was, but carrying the count the count rewrite's answer gives it (AI-1): only when the
-    device's quantity is counted from one of the system's families (`counts.counted_from`) or cites no source of
-    its own, and only the number (1 or more), never the answer's sources or flag (a kept device skips the intake's
+    device's quantity is counted from one of the system's families (`counts.counted_from`), or cites no source of
+    its own and the number is one of the families' counts, and only the number (1 or more), never the answer's sources or flag (a kept device skips the intake's
     checks, and its flag is the estimator's and `counts.flag_written_devices`')."""
     from bms.counts import counted_from
     kept = device.to_dict()
     if not isinstance(answered, dict):
         return kept
-    if device.quantity.sources and not any(counted_from(device, family) for family in families):
+    tied = any(counted_from(device, family) for family in families)
+    if device.quantity.sources and not tied:
         return kept
     quantity = answered.get("quantity")
     value = quantity.get("value") if isinstance(quantity, dict) else None
+    # a line citing no count source takes only a number one of the families now gives: never a stray lower one
+    if not tied and value not in {family.count.value for family in families}:
+        return kept
     if isinstance(value, int) and not isinstance(value, bool) and value >= 1:
         kept["quantity"] = dict(kept["quantity"], value=value)
     return kept

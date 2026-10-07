@@ -542,9 +542,14 @@ def _estimate(job_folder: Path, out: Path, cache: Path, mode: Mode, known: dict)
     # an estimator's change that prints an issued id is kept as written: its id finding is not the revise's to fix
     # (the revise would write the line back under its old name); it gets its own card below
     known["stage"] = "revise"
+    # and so is a count the estimator typed on a line: a count below (or above) its family is the estimator's
+    # call (RUN-1), the revise would write it away (AI-1); the finding still shows on the page
     estimators = {(d.system_key, device_id) for d, device_id, _ in _ids_in_changes(job, decisions)}
+    typed = {(d.system_key, d.device_id) for d in decisions
+             if d.action == "change" and d.device is not None and d.device_id}
     must_fix = [f for f in [*findings, *qc] if f.severity == "must_fix"
-                and not (f.rule == RULE["ids"] and (f.system_key, f.device_id) in estimators)]
+                and not (f.rule == RULE["ids"] and (f.system_key, f.device_id) in estimators)
+                and not (f.rule == RULE["header_under"] and (f.system_key, f.device_id) in typed)]
     written = job
     for key in dict.fromkeys(f.system_key for f in must_fix if f.system_key):
         system = job.system(key)

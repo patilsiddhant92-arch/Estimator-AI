@@ -35,3 +35,24 @@ def test_a_family_accept_saved_after_a_count_change_keeps_the_changed_count(job_
     assert [(h["round"], h["decision"]["action"]) for h in history
             if h["decision"]["family_name"] == family["family_name"]] == [(1, "change"), (2, "accept")]
     assert next(h for h in history if h["decision"]["action"] == "change")["decision"]["count"]["value"] == 5
+
+
+def test_a_count_the_estimator_typed_below_its_family_is_not_sent_to_the_revise(job_folder, tmp_path, monkeypatch):
+    """AI-1 next to RUN-1: the estimator types 3 on the sensor line, which is counted from the VAV family (its
+    quantity cites the family's source) while the family prints 4. The validator's "Never undershoot" must_fix on
+    a line counted below its family is not the revise's to fix on the estimator's own line: the typed count stays
+    and no "decision not honored" card is left."""
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    out, cache = tmp_path / "out", tmp_path / "cache"
+    _drive(job_folder, out, cache, [])
+    cards = _cards(out)
+    family = next(c for c in cards if c["level"] == "family")
+    sensor = next(c for c in cards if c["level"] == "device")
+    typed = copy.deepcopy(sensor["device"])
+    typed["quantity"] = dict(copy.deepcopy(family["count"]), value=3, others=[])
+    (out / "decisions.json").write_text(json.dumps([_decision(sensor, "change", device=typed, reason="3")]),
+                                        encoding="utf-8")
+    second = _drive(job_folder, out, cache, [])
+    system = next(s for s in _job(second)["systems"] if s["key"] == sensor["system_key"])
+    assert [d["quantity"]["value"] for d in system["devices"] if d["id"] == sensor["device_id"]] == [3]
+    assert not [f for f in second.findings if f.rule == "decision not honored"], second.findings

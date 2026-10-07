@@ -1471,12 +1471,13 @@ def test_a_count_rewrite_takes_only_the_answers_number_never_its_sources_or_its_
                                         "others": []}
     answer["devices"][0]["flag"] = "none"
     answer["devices"][1]["flag"] = "quantity"
+    answer["devices"][1]["quantity"]["value"] = 2          # a line citing no source takes only a family's count
     answer["devices"][2]["quantity"]["value"] = 1          # a line counted from its own sources keeps its count
     rewritten = ai.rewrite_for_count(system, ai.evidence_for(system, dossier), playbook, FakeTransport(answer))
     first = rewritten.devices[0]
     assert first.quantity.value == 5 and first.quantity.sources == system.devices[0].quantity.sources
     assert [d.flag for d in rewritten.devices] == ["quantity", "none", "none"]
-    assert rewritten.devices[2].quantity.value == 2
+    assert [d.quantity.value for d in rewritten.devices] == [5, 3, 2]
 
 
 def test_a_revise_still_puts_an_untouched_line_back_exactly(job, raw, dossier, playbook):
