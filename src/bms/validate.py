@@ -65,13 +65,6 @@ def _is_fan_system(system: System) -> bool:
     return any(re.search(r"\bfan\b", n.lower()) and not any(x in n.lower() for x in _NOT_A_FAN) for n in names)
 
 
-def _is_damper_block(system: System) -> bool:
-    """A block that is only dampers: named for them, or every line of it a damper."""
-    if "damper" in _words(system):
-        return True
-    return bool(system.devices) and all(_is_damper(d) for d in system.devices)
-
-
 def _is_heater_system(system: System) -> bool:
     return "duct heater" in _words(system)
 
@@ -86,7 +79,9 @@ def _is_damper(device: Device) -> bool:
 
 
 def _sequence_only(system: System) -> bool:
-    return bool(system.sequence_refs) and not system.devices
+    """Named only in the sequence (rules.md "Systems named only in the sequence": "no drawing shows" it): the
+    sequence cites it and no family count has a source or another count, with lines or without (VAL-4)."""
+    return bool(system.sequence_refs) and all(not f.count.sources and not f.count.others for f in system.families)
 
 
 # ---- the rules, one small function each (system level) ------------------------------------------------------
@@ -148,10 +143,16 @@ def _packaged(system, shape, job, playbook) -> Iterator[Hit]:
         if kind == "point" and d.verb.startswith("Furnish"):
             yield (d.id, "must_fix", f"{d.name}: AME does not furnish points on a packaged unit",
                    "Take the point line out; AME integrates through the manufacturer's interface.")
+        elif d.slot == "controller" and d.furnished_by == "AME":
+            # rules.md "No AME controller on a packaged unit"
+            yield (d.id, "must_fix", f"{d.name}: AME furnishes no DDC controller on a unit on factory controls",
+                   "Delete the line; AME integrates through the manufacturer's interface.")
         elif kind == "device" and d.furnished_by == "AME":
-            yield (d.id, "must_fix", f"{d.name} is a device inside the packaged unit, which AME does not furnish",
-                   "Delete the line, or if it ships loose, have the unit manufacturer furnish it.")
-    if shape is None:
+            # the documents may give the device to the controls contractor ("Explicit assignment always wins",
+            # "Mixed ownership device by device"); the model carries no such link, so a check (VAL-2)
+            yield (d.id, "check", f"{d.name} is a device on the packaged unit that AME furnishes",
+                   "If the documents give this device to the controls contractor, keep it; otherwise delete it.")
+    if shape is None or not system.devices:        # a block with no lines needs no integration lines (VAL-5)
         return
     drive = _has_drive(system, shape)
     for slot in shape.slots_of_kind("integration"):
@@ -180,26 +181,31 @@ def _has_drive(system: System, shape: Shape) -> bool:
 def _loose(system, shape, job, playbook) -> Iterator[Hit]:
     if system.control != "packaged":
         return
+    # shipped loose: the unit manufacturer furnishes it and AME installs it. A Wire line (the manufacturer mounts it,
+    # AME wires it: "Factory-installed devices") and an Install and Wire line another trade furnishes ("Other
+    # trades in brackets") are not shipped loose (VAL-1)
     for d in system.devices:
-        loose = d.verb == "Install and Wire" or (_kind(shape, d) == "device" and d.furnished_by == "Unit Mfr.")
-        if loose and (d.verb != "Install and Wire" or d.furnished_by != "Unit Mfr."
-                      or d.installed_by != "AME" or d.wired_by != "AME"):
+        loose = d.furnished_by == "Unit Mfr." and d.installed_by == "AME"
+        if loose and (d.verb != "Install and Wire" or d.wired_by != "AME"):
             yield (d.id, "must_fix", f"{d.name} ships loose with the unit but its ownership is not "
                    "'Install and Wire' by AME with the unit manufacturer furnishing",
                    "Set the verb to Install and Wire, furnished by Unit Mfr., installed and wired by AME.")
 
 
 def _dampers(system, shape, job, playbook) -> Iterator[Hit]:
-    """The model carries no link from a damper to a fan, so a damper is only a must_fix when its block is a
-    stand-alone damper block; in a block with equipment of its own it is a check (a packaged unit's own
-    economizer or mixing damper is left alone)."""
+    """The model carries no link from a damper to a fan, so this is never a must_fix: a damper block of its own is
+    the Playbook's ("Untraced dampers in their own block", "Unclaimed dampers in their own block"), and a damper in
+    a slot of the block's own shape (an air handler's oa_damper, a Motorized Dampers block's actuator) is where the
+    shape puts it. Only a damper outside its shape's slots, in a block with no fan while the job has one, is a
+    check (VAL-3)."""
     if _is_fan_system(system) or system.control == "packaged" or not any(_is_fan_system(s) for s in job.systems):
         return
-    severity = "must_fix" if _is_damper_block(system) else "check"
     for d in system.devices:
-        if _is_damper(d):
-            yield (d.id, severity, f"{d.name} is a damper in a block with no fan, while the job has a fan block",
-                   "If it serves a fan, move it under that fan; if it belongs to this equipment, leave it.")
+        own = shape is not None and d.slot in shape.slot_kinds and not d.slot.startswith("other_")
+        if _is_damper(d) and not own:
+            yield (d.id, "check", f"{d.name} is a damper in a block with no fan, while the job has a fan block",
+                   "If it serves a fan, move it under that fan; if it belongs to this equipment or no fan can be "
+                   "traced, leave it.")
 
 
 def _heater_words(playbook: Playbook) -> tuple[str, ...]:
@@ -273,6 +279,9 @@ def _vrf(system, shape, job, playbook) -> Iterator[Hit]:
 
 def _count_problems(count: Count, label: str) -> Iterator[tuple[str, str]]:
     top = count.highest()
+    if count.value is None and top is not None:     # estimator ruling D9: None only when no count exists (VAL-18)
+        yield (f"{label} prints 'Qty (##)' but a source gives {top}",
+               f"Set the count to {top}, the highest, and name the other in the note.")
     if count.value is not None and top is not None and count.value < top:
         yield (f"{label} prints {count.value} but another source gives {top}",
                f"Print the higher count, {top}, and name the other in the note.")
@@ -324,12 +333,17 @@ def _assumption(system, shape, job, playbook) -> Iterator[Hit]:
 
 
 def _sequence(system, shape, job, playbook) -> Iterator[Hit]:
+    """A sequence-only system prints "Qty (##)" and one 'per drawings' or 'confirm' clarification, with its lines or
+    without: a count no source gives is a must_fix, a missing clarification a check (as an unknown count is)."""
     if not _sequence_only(system):
         return
     for f in system.families:
         if f.count.value is not None:
             yield (None, "must_fix", f"{system.name} has only a sequence of operation but the {f.name} count is "
                    f"{f.count.value}", "A sequence-only system prints 'Qty (##)'; clear the count.")
+    if not any(c.kind in ("per_drawings", "confirm") for c in system.clarifications):
+        yield (None, "check", f"{system.name} is named only in the sequence and carries no clarification",
+               "Add one 'per drawings' clarification naming the drawings of the trade that shows it.")
 
 
 def _left_out(system, shape, job, playbook) -> Iterator[Hit]:
@@ -406,9 +420,16 @@ def _long_assumption(system, shape, job, playbook) -> Iterator[Hit]:
                    "Say what is assumed and why in fewer words; it prints whole.")
 
 
+def _one_per_unit(slot: str) -> bool:
+    """A slot written once per unit: the controller and a start/stop line. Any other line may total several per unit
+    (two dampers on each fan), rules.md "Line quantity"."""
+    return slot == "controller" or "start_stop" in slot
+
+
 def _header_under(system, shape, job, playbook) -> Iterator[Hit]:
-    """A device quantity above its family's header count, while the family names no other count: the header
-    undershoots. Only a block with one family that prints a header (a damper family under a fan prints none)."""
+    """A device quantity above its family's header count, while the family names no other count: on a one-per-unit
+    line the header undershoots (must_fix); on any other line it may be a total over the units, a check (VAL-9).
+    Only a block with one family that prints a header (a damper family under a fan prints none)."""
     families = [f for f in system.families if "damper" not in f.name.lower()] or list(system.families)
     if len(families) != 1 or families[0].count.others:
         return
@@ -417,10 +438,16 @@ def _header_under(system, shape, job, playbook) -> Iterator[Hit]:
         return
     for d in system.devices:
         n = d.quantity.highest()
-        if n is not None and n > header:
+        if n is None or n <= header:
+            continue
+        if _one_per_unit(d.slot):
             yield (d.id, "must_fix", f"{d.name}: device quantity {n} is higher than the header count {header}: "
                    "print the higher count", f"Carry the {families[0].name} count at {n} with its source, or "
                    "correct the device quantity.")
+        else:
+            yield (d.id, "check", f"{d.name}: device quantity {n} is higher than the header count {header}",
+                   f"If each {families[0].name} has more than one, keep the total; otherwise carry the "
+                   f"{families[0].name} count at {n} with its source, or correct the device quantity.")
 
 
 def _family_under(system, shape, job, playbook) -> Iterator[Hit]:
