@@ -230,3 +230,35 @@ def test_pbk5_a_file_saved_with_a_bom_loads(tmp_path, name):
     playbook = load_playbook(folder)
     assert "\ufeff" not in playbook.rules_text
     check_file(path)
+
+
+def test_pbk9_the_kind_word_at_the_end_of_the_name_wins():
+    """PBK-9: "VAV Air Handling Units" are air handlers; the kind word that ends the name names the equipment, not
+    the first shape (file order) whose kind word appears somewhere in it."""
+    playbook = load_playbook(DEFAULT_ROOT)
+    assert playbook.shape_for("VAV Air Handling Units", []).name == "Air Handling Unit"
+    assert playbook.shape_for("VAV Boxes", []).name == "VAV / Fan VAV"
+
+
+def test_pbk9_of_kind_words_sharing_words_at_the_end_the_first_wins():
+    """PBK-9: "kitchen exhaust" and "exhaust fan" share a word in "Kitchen Exhaust Fans"; the one that starts first
+    says more (these are kitchen exhaust fans), though only "exhaust fan" ends the name."""
+    playbook = load_playbook(DEFAULT_ROOT)
+    assert playbook.shape_for("Kitchen Exhaust Fans", []).name == "Kitchen Exhaust Ventilation"
+    assert playbook.shape_for("Toilet Exhaust Fans", []).name == "Toilet Exhaust Fan"
+
+
+def test_pbk9_a_more_specific_kind_word_beats_a_prefix():
+    """PBK-9: "Existing Fan Coil Units" tagged FCU take the existing shape (no prefixes of its own): its kind word
+    "existing fan coil unit" holds the FCU shape's "fan coil unit" and says more."""
+    playbook = load_playbook(DEFAULT_ROOT)
+    assert playbook.shape_for("Existing Fan Coil Units", ["FCU"]).name == "Existing Fan Coil Unit (relocated)"
+    assert playbook.shape_for("Fan Coil Units", ["FCU"]).name == "Fan Coil Unit"
+    assert playbook.shape_for("anything", ["FCU"]).name == "Fan Coil Unit"
+
+
+def test_pbk9_the_longest_kind_word_wins_when_none_ends_the_name():
+    """PBK-9: no kind word ends the name: the longest one that appears wins, then file order."""
+    playbook = load_playbook(DEFAULT_ROOT)
+    assert playbook.shape_for("Toilet Exhaust Fans Level 2", []).name == "Toilet Exhaust Fan"
+    assert playbook.shape_for("Exhaust Fans Level 2", []).name == "Exhaust Fan"
