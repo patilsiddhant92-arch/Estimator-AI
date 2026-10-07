@@ -283,9 +283,10 @@ def ask_sheet(transport, picture: Path, patterns: list[str], name: str = "",
     A pattern the answer leaves out is not counted: it is not among the listed patterns. An answer that breaks the
     schema, did not examine every tile or placed no box in a tile (`misplaced`) is refused through
     the transport's `refuse` (the chat asks again on a later run, the API once more now, with the reason). A
-    question refused `max_attempts` times gives None and its "Stopped:" message is added to the transport's
-    `count_stops` list, which the run checks after the counts. Never raises for a bad pattern list (a pattern
-    that is no regular expression gives None)."""
+    question that will not be answered on this run without waiting (refused `max_attempts` times, or refused
+    again on the API's retry) gives None and its reason is added to the transport's `count_stops` list, which
+    the run checks after the counts. Never raises for a bad pattern list (a pattern that is no regular expression
+    gives None)."""
     from bms.ai import NoAnswer, _ask_checked
 
     patterns = list(dict.fromkeys(patterns))
@@ -327,9 +328,9 @@ def ask_sheet(transport, picture: Path, patterns: list[str], name: str = "",
                             prompt_text, SCHEMA, extra,
                             tuple(path for _, path in tiles), check)
     except NoAnswer as missing:
-        # a question refused its last time is a stop, not a missing count: it is kept on the transport
-        # (`count_stops`) so the run stops at the count step with it instead of writing without the count
-        if not missing.waiting and str(missing.reason).startswith("Stopped:"):
+        # a question refused with no answer to wait for is a stop, not a missing count: it is kept on the
+        # transport (`count_stops`) so the run stops at the count step with it instead of writing without the count
+        if not missing.waiting:
             try:
                 stops = getattr(transport, "count_stops", None)
                 if stops is None:
