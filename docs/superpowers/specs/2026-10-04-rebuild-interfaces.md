@@ -190,7 +190,7 @@ Constants: TECH_HOUR_BASES, SLOT_KINDS, DEFAULT_ROOT, COUNT_CAUSE_KEYS
 | `Catalogue` (job, pages, sheets, sections, bid, tags, flags, overview); `catalogue_job(root, cache_dir, workers, documents=None)` | `estimator.catalogue.job` | run, plan, counts |
 | `JobReading`; `read_job(catalogue, page_opener=None, cache_dir=None, judge=None)` | `estimator.reading.job` | run |
 | `Dossier` (job_name, text, images: tuple[DossierImage], sources: dict id→where, families, device_totals, counts, stats, sections); `build_dossier(catalogue, reading, cache_dir)`; `sheet_pictures(catalogue, cache_dir, keys, what)`; `plan_areas` (re-exported from `estimator.reading.inventory`) | `estimator.writing.dossier` | run, plan, ai, counts |
-| `plan_areas(plans: [(sheet, tags)]) -> {(document, page): area}` (retired, FINAL-G: every sheet its own area); `plan_area_doubts(plans, areas=None) -> [((document, page), (document, page))]` (a hint only); `is_type_tag(tag)`, `counted_per_place(tag, places, most_on_one_sheet, code=False)`; `plan_groups(plans, codes=()) -> {(document, page): group}`, `plan_count(found, groups, per_place) -> int`, `plan_floors(catalogue, typicals=()) -> {(document, number): floors}`, `counting_pages(catalogue, governing) -> pages`, `sheet_labels(sheets) -> {(document, page): label}` (FINAL-I, the one counting rule); `placements(catalogue, tags, typicals=(), pages=None) -> {tag: Placements}`; `COUNT_CAUSES_LEAD`, `COUNT_CAUSE_WORDS` (`typical`, `labelled_twice`; `SAME_PLAN` removed, FINAL-H) | `estimator.reading.inventory` | dossier, render |
+| `plan_areas(plans: [(sheet, tags)]) -> {(document, page): area}` (retired, FINAL-G: every sheet its own area); `plan_area_doubts(plans, areas=None) -> [((document, page), (document, page))]` (a hint only); `is_type_tag(tag)`, `counted_per_place(tag, places, most_on_one_sheet, code=False)`; `plan_groups(plans, codes=()) -> {(document, page): group}`, `plan_count(found, groups, per_place) -> int`, `plan_floors(catalogue, typicals=()) -> {(document, number): floors}`, `counting_pages(catalogue, governing) -> pages`, `first_pages(catalogue) -> {(document, page): first page}` (the pages that only repeat an alike number, FINAL-N), `sheet_labels(sheets) -> {(document, page): label}` (FINAL-I, the one counting rule); `placements(catalogue, tags, typicals=(), pages=None) -> {tag: Placements}`; `COUNT_CAUSES_LEAD`, `COUNT_CAUSE_WORDS` (`typical`, `labelled_twice`; `SAME_PLAN` removed, FINAL-H) | `estimator.reading.inventory` | dossier, render |
 | `Ledger` (sources, facts: dict[id, Fact], understanding, complete, stopped_at, job_name, refused; `of_kind`, `about`, `find`, `printed_count`, `to_dict`/`from_dict`/`load`); `Fact` (id, kind, subject, value, source_id, quote, stage, state, contradictions); `Contradiction`; `KINDS`; `where_short` | `estimator.ledger.facts` | plan |
 | `read_job(judge, dossier, catalogue, save_to=None, limit=None, pictures=True, picture_cap=24) -> Ledger` (imported as `read_ledger`; the brief's "read_ledger") | `estimator.ledger.run` | run |
 | `ledger_plan`, `count_note`, `place_words` (the old planner, for reference / reuse) | `estimator.ledger.to_plan` | plan (may import) |
@@ -238,12 +238,27 @@ line and `inventory.placements` / `_as_type` (the Evidence Package), so the two 
   the same issue with exactly the same text (not an addendum, a duplicate file or a marked-up copy, `repeats`) is
   counted too (two identical buildings, REVIEW-FINAL5 F7); a number counted from two documents is printed with its
   document's name ("M-101 (Second Building.pdf)").
-- Plan sheets are one plan group only when ALL hold: the same document; the same title words as a multiset once the
-  sheet number and the trade and plan words (PLAN, DUCTWORK, DUCT, PIPING, PIPE, CONTROLS, CONTROL, HVAC, MECHANICAL,
-  MECH, PLUMBING, AND, punctuation) are taken out, with a floor word left (FLOOR, LEVEL, an ordinal, a number,
-  BASEMENT, ROOF, TYPICAL ...); and at least AREA_SHARED (3) unit tags repeated, AREA_OVERLAP (0.6) of the smaller
-  sheet's (a type's tag is never evidence). BASEMENT 1 / 2, BLDG. A / B, SUITE 3 / 4, TOWERS 1 AND 2 / 3 AND 4,
-  1000 / 2000 never group.
+- Plan sheets are one plan group only when ALL hold: the same document; two different sheet numbers (two pages of
+  one number are never one group: alike on every page they are one plan for several floors, else each page is its
+  own sheet, REVIEW-FINAL7 F7); the same title words IN THE SAME ORDER (`catalogue.job.title_words`, since FINAL-K:
+  "BUILDING 1 LEVEL 2" and "BUILDING 2 LEVEL 1" are two places, REVIEW-FINAL6 F2) once the sheet number and the
+  trade and plan words (PLAN, PLANS, DUCTWORK, DUCT, PIPING, PIPE, CONTROLS, CONTROL, HVAC, MECHANICAL, MECH,
+  PLUMBING, AND, punctuation) are taken out, with a floor word left (FLOOR, LEVEL, an ordinal, a number, BASEMENT,
+  ROOF, TYPICAL ...); and at least AREA_SHARED (3) unit tags repeated, AREA_OVERLAP (0.6) of the smaller sheet's.
+  The evidence is the labels alone (`line_labels`, never the backstop), and a type's tag, or a unit's tag labelled
+  TYPE_ON_ONE_SHEET (4) or more times on the sheet, is never evidence. BASEMENT 1 / 2, BLDG. A / B, SUITE 3 / 4,
+  TOWERS 1 AND 2 / 3 AND 4, 1000 / 2000 never group.
+- Pages printed again: a sheet number on 2 or more pages of ONE document is set aside to its first page only when
+  every page of that number in that document has the same text (`inventory.first_pages`, `_alike_pages`; one plan
+  standing for one floor per page, `plan_floors` multiplies it by its pages). Pages of one number with other text
+  are each read and counted (REVIEW-FINAL7 F7: pages 1 and 3 alike, page 2 other, are three sheets). A typical sheet
+  is read on its first page in each document, and another page of its number in that document only when it shows
+  something the first lacks (`governing_pages`).
+- Typical sheets and floors are keyed by (document, sheet number), never by the number alone (FINAL-O, REVIEW-FINAL8
+  H4): `typical_sheets` gives one `TypicalSheet` per (document, number) with its `document`, `plan_floors` and
+  `count_devices` give its floors to that document's sheet only, and `governing_pages` never sets aside another
+  document's page of the number because the number is typical in one document. A number printed twice alike in
+  Mech.pdf is two floors there; Second Building.pdf's M-101 on two pages of other text is read page by page, once.
 - In a group a unit's tag counts once, and a tag counted at every place (`counted_per_place`: a type's tag
   `is_type_tag`, EBB-A, CUH-A, AC-3.0; a schedule's type code; a numbered tag drawn at TYPE_PLACED places with
   TYPE_ON_ONE_SHEET on one sheet, labels as drawn) the most labels of one sheet of the group; each times the floors
@@ -264,6 +279,63 @@ place; one unit labelled more than once, said only of tags counted at every plac
 tags and sheets. The inventory's type-tag check (`placements`, "labelled N times on the plans") sums every sheet's
 labels, never merged. Section 7c also gives the text of a sheet sections 2 or 3 printed when a pass that reads it from 7c
 (details, risers, network, plans) does not read that section; those lines take ids after section 8's.
+
+Reading the drawing set (FINAL-K to FINAL-O). The principle, ruled: an undercount is the worst failure, so every
+reduction (a page set aside, a copy read once, a sheet replaced) is made only where it is provably safe; otherwise
+the pages are summed and the estimator is told, with both numbers where there are two.
+- Copies (`catalogue.job.document_repeats`). A document is compared with another only when it has at least 3 sheet
+  numbers and 80% of them are the other's, and only within one issue (the same revision label; an addendum or a
+  duplicate file never: supersession decides between versions). It is a marked-up copy, read once from the
+  original, only when ALL of `_not_a_copy` hold: its plans show no unit tag the original lacks (the superset is
+  always the original); they repeat at least COPY_SHARED (3) of the original's unit tags and COPY_OVERLAP (0.6) of
+  them; the plan titles on the shared numbers are the same; and it repeats COPY_TEXT (0.9) of the original's words
+  on those sheets. Of two documents the same size the original is the one whose plans show more units, then the one
+  with less text, then the one whose name does not say it is marked up. Any other such document is another set of
+  drawings (`other_sets`, a second building issued with the same numbers): read and summed beside the original, and
+  flagged "X.pdf repeats N sheets of Y.pdf but not their units / text / plan titles — read as another set of
+  drawings and counted; check whether it is a marked-up copy". A copy's own count is still said on the counts line
+  ("... read once, N; if it is another building, M; check").
+- Versions (`revisions.supersede`). A sheet number in two or more documents: the latest title-block date governs;
+  with no dates, a single addendum governs. When nothing orders them, every version is read and SUMMED, and the flag
+  says so: "Sheet M-201 is in two documents with no dates to order them — check which governs; counted from
+  Mech.pdf and Mech reissue.pdf, summed, for now" (REVIEW-FINAL7 F2).
+- A reissue replaces only the sheet it is a version of (FINAL-O, REVIEW-FINAL8 H1). Of its number, only the pages
+  whose title words (`title_words`: the number and the trade and plan words out, word order kept) are the reissue's
+  own. A same-numbered sheet of another document with another title is another sheet: kept and read, with no flag
+  (the match is provable). Base versions of the same title in two or more documents that are not one sheet's chain
+  of issues (each revision table listing every row of the one before, all listed on the reissue's) are all kept,
+  summed and flagged: "addendum M-101 may replace one of two M-101 sheets (Mech.pdf, Second Building.pdf): both
+  counted; check". A reissue whose title matches no other sheet of its number replaces nothing: "addendum M-101 has
+  another title than every other M-101 (Mech.pdf): both counted; check". Another set's sheet (`other_sets`) is a
+  candidate too, so an addendum never replaces one building's sheet because the other's was set aside. The 3-number
+  and 80% gate of the copy rule plays no part here.
+- A reissue with fewer pages than its base (FINAL-O, REVIEW-FINAL8 H2). Pages printed again alike are one run,
+  replaced whole or not at all. A reissue with as many runs as the base, or more, replaces them all; with fewer,
+  each reissued page replaces the one base run its tags and note lines are most like, only when it is strictly the
+  most like and like it at all. A page it does not match is kept and counted: "addendum reissues M-101 (1 page);
+  base has 2 pages (Mech.pdf): unmatched page kept (p.2), counted; check"; a tie replaces nothing ("... no page
+  matched best, every page kept and counted; check"). `Supersession.replaced` lists every replaced page, and
+  `governing_pages` sets aside exactly those (document, page) pairs; every other page of the number is read.
+- The label reader (`catalogue.tags.line_labels`, one reader for the inventory, the dossier and the copy and
+  version tests). A label is a line that is the tag alone ("VAV-3", "(VAV-3)", "[VAV-3]", "VAV-3.", "(N) VAV-1",
+  "VAV-1 TYP."), a bubble (a prefix alone over its number), a tag split over two lines ("VAV-" over "3"), or a line
+  that STARTS with a tag, whatever words follow ("VAV-3 450 CFM", "EF-2 ON ROOF", "VAV-101 (OFFICE 101)"). On such
+  a line every other tag counts too ("FCU-4 / FCU-5", "FCU-4&FCU-5", "VAV-1, VAV-2", "/", "&", "+", "," and ";"
+  are joiners), and a THRU range counts its members between its ends ("VAV-1 THRU VAV-5", "VAV-1 THRU 5"), at most
+  RANGE_SPAN (200). Never a label: a tag after a reference word (TO, FROM, SEE, PER, BY, SERVING, SERVES, SERVED,
+  FEEDS, FEED, FEEDING, CONNECT, CONNECTS, CONNECTED, VIA, FOR, OF, WITH, AS, REFER, SIMILAR, SAME: "AHU-1 SUPPLY
+  TO VAV-3" labels AHU-1 only), a line that does not start with a tag ("TO VAV-3"), and any line of more than
+  NOTE_WORDS (12) words (a note).
+- A stated count after a tag is that many places (FINAL-O, REVIEW-FINAL8 H3, ruled): "CUH-A (TYP. OF 4)", "CUH-A
+  TYP OF 4", "CUH-A x4", "CUH-A (4)", "CUH-A 4 PLACES" are 4 labels of CUH-A on that sheet, up to STATED_MOST (50).
+  The line must be the tag and the count only. A count over 50, zero, or not a number ("TYP. OF FOUR") is one
+  place, and the counts line's reading notes say so ("CUH-A on M-101 reads 'CUH-A (TYP. OF 60)': the count beside
+  it is not read (over 50, or not a number), counted as one place; check", `unread_counts`). A unit's tag so
+  labelled ("VAV-1 x2") is still counted once on its plan by the one counting rule, with the "labelled N times"
+  note.
+- The backstop (`plan_labels`, REVIEW-FINAL7 F4). On a counted plan, a unit's tag the sheet names anywhere (in a
+  note too) and labels nowhere counts once there, so a unit shown on a plan is never lost however it is written. A
+  type's tag counts only where it is labelled. The labels alone (never the backstop) are the plan groups' evidence.
 
 ### Workstream 5 — `bms.ai`
 ```

@@ -15,10 +15,11 @@ from collections import defaultdict
 from collections.abc import Collection, Iterable, Sequence
 from dataclasses import dataclass, field, replace
 
-from estimator.catalogue.job import CONTROLS_DISCIPLINES, other_sets, repeats
+from estimator.catalogue.job import (CONTROLS_DISCIPLINES, TRADE_WORDS, other_sets, repeats, title_without_number,
+                                     title_words)
 from estimator.catalogue.tags import (DECIMAL_TYPE, Equipment, is_type_tag, label_key, label_keys, line_labels,
                                       plan_labels, tag_prefix)
-from estimator.reading.revisions import governing_pages
+from estimator.reading.revisions import governing_pages, typical_places
 from estimator.reading.schedules import (BY_EYE, EQUIPMENT, Schedule, header_key, kind_from_title, quantity_header,
                                         vocabulary)
 
@@ -299,15 +300,7 @@ def _unit_tags(tags) -> set:
     return {tag for tag, n in counts.items() if not is_type_tag(tag) and n < TYPE_ON_ONE_SHEET}
 
 
-def _without_number(sheet) -> str:
-    """The title upper-cased, its own sheet number taken out only where a title block prefixes or ends it: as a
-    whole token at the title's start or end ("M-301 MECHANICAL PLAN" is "MECHANICAL PLAN"). A number inside the
-    title names a part of it ("WING MA1 FIRST FLOOR PLAN" on MA1 keeps MA1, REVIEW-FINAL6 F4)."""
-    title = (sheet.title or "").upper().strip()
-    if sheet.number:
-        number = re.escape(sheet.number.upper().strip())
-        title = re.sub(rf"^{number}(?![A-Z0-9])|(?<![A-Z0-9]){number}$", " ", title).strip()
-    return title
+_without_number = title_without_number     # catalogue/job.py, shared with supersession (FINAL-O)
 
 
 def _plain_title(sheet) -> str:
@@ -338,20 +331,16 @@ def plan_areas(plans) -> dict[tuple[str, int], int]:
 # is its own group, and the groups add up. `inventory.placements` and the dossier's counts line both count with
 # `plan_groups` and `plan_count`, so the Evidence Package and the proposal never disagree.
 
-_TRADE_WORDS = frozenset({"PLAN", "PLANS", "DUCTWORK", "DUCT", "PIPING", "PIPE", "CONTROLS", "CONTROL", "HVAC",
-                          "MECHANICAL", "MECH", "PLUMBING", "AND"})
+_TRADE_WORDS = TRADE_WORDS
 _FLOOR_TOKEN = re.compile(
     rf"^(?:FLOORS?|FLRS?|LEVELS?|LVLS?|TYPICAL|TYP|BASEMENT|CELLAR|SUBCELLAR|GROUND|MEZZANINE|MEZZ|PENTHOUSE|ROOF|ATTIC"
     rf"|{_ORDINAL}|L\d{{1,2}}|\d{{1,3}})$")
 
 
 def _title_tokens(sheet) -> tuple[str, ...]:
-    """The title's words IN ORDER, its own sheet number (`_without_number`) and the trade and plan words taken out
-    ("HVAC DUCTWORK FIRST FLOOR PLAN" and "HVAC PIPING FIRST FLOOR PLAN" are both FIRST FLOOR). In order, never
-    sorted: "BUILDING 1 LEVEL 2" and "BUILDING 2 LEVEL 1" are two places (REVIEW-FINAL6 F2). Comparing in order can
-    only split groups, so it can only raise a count."""
-    title = re.sub(r"\bL-(\d)", r"L\1", _without_number(sheet))
-    return tuple(w for w in re.findall(r"[A-Z0-9]+", title) if w not in _TRADE_WORDS)
+    """The title's words IN ORDER (`catalogue.job.title_words`: its own sheet number and the trade and plan words
+    taken out). Comparing in order can only split groups, so it can only raise a count."""
+    return title_words(sheet)
 
 
 def _one_plan(a, a_tags, b, b_tags, codes: Collection[str]) -> bool:
@@ -417,7 +406,10 @@ def plan_floors(catalogue, typicals: Sequence = ()) -> dict[tuple[str, str], fro
     listed stands for one floor. Pages of one number with other text are other sheets, each read and counted
     (`counting_pages`), never one plan times its pages (REVIEW-FINAL6 F6). A floor named by digits alone is one
     floor however it is written ("02" and "2", F9)."""
-    named = {t.sheet: frozenset(_floor_name(f) for f in t.floors) for t in typicals if t.sheet and t.floors}
+    # by (document, sheet number) (REVIEW-FINAL8 H4); a typical given with no document (by hand) stands for its
+    # number in every document
+    named = {(getattr(t, "document", None), t.sheet): frozenset(_floor_name(f) for f in t.floors)
+             for t in typicals if t.sheet and t.floors}
     pages: dict[tuple[str, str], list[int]] = defaultdict(list)
     for s in catalogue.sheets:
         if s.number:
@@ -425,8 +417,8 @@ def plan_floors(catalogue, typicals: Sequence = ()) -> dict[tuple[str, str], fro
     alike = _alike_pages(catalogue)
     found: dict[tuple[str, str], frozenset[str]] = {}
     for (document, number), on in pages.items():
-        floors = named.get(number) or (frozenset(f"p.{page}" for page in on) if (document, number) in alike
-                                       else frozenset())
+        floors = (named.get((document, number)) or named.get((None, number))
+                  or (frozenset(f"p.{page}" for page in on) if (document, number) in alike else frozenset()))
         if len(floors) > 1:
             found[(document, number)] = floors
     return found
@@ -559,7 +551,7 @@ def placements(catalogue, tags: Iterable[str], typicals: Sequence = (),
         keys.setdefault(label_key(entry.tag), entry.tag)
     floor_sets = plan_floors(catalogue, typicals)
     if pages is None:
-        pages = governing_pages(catalogue, (), [t.sheet for t in typicals])
+        pages = governing_pages(catalogue, (), typical_places(typicals))
     pages = counting_pages(catalogue, pages)
     sheets = {(s.document, s.page): s for s in catalogue.sheets}
     read: list[tuple] = []

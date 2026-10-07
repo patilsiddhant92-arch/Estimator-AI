@@ -23,10 +23,10 @@ from datetime import date, timedelta
 from functools import lru_cache
 from pathlib import Path
 
-from estimator.catalogue.job import other_sets, repeats
+from estimator.catalogue.job import other_sets, repeats, title_words
 from estimator.catalogue.pdf import Span, clean_text
 from estimator.catalogue.register import PageRecord
-from estimator.catalogue.tags import Equipment, find_tags, label_keys, line_labels, sheet_number_tags
+from estimator.catalogue.tags import Equipment, find_tags, label_keys, line_labels, plan_labels, sheet_number_tags
 
 ASSETS = Path(__file__).resolve().parents[3] / "assets"
 REVISIONS = ASSETS / "reading_lists" / "revisions.json"
@@ -373,10 +373,16 @@ def supersede(catalogue, versions: Sequence[SheetVersion],
     # original: its sheets are never versions of the original's (REVIEW-FINAL6 F3).
     others = {(_sheet_number(number), document) for number, document in other_sets(catalogue)}
     by_sheet: dict[str, dict[str, SheetVersion]] = defaultdict(dict)
+    pages_of: dict[str, dict[str, list[SheetVersion]]] = defaultdict(lambda: defaultdict(list))
     for version in versions:
+        # each page is one a reissue may replace, another set's too (FINAL-O: an addendum to one of two sets of the
+        # same numbers must find the sheet of its own title in either, never the other set's by elimination) ...
+        pages_of[version.sheet][version.document].append(version)
         if (version.sheet, version.document) in others:
             continue
-        by_sheet[version.sheet].setdefault(version.document, version)   # a page repeated in one document is not a version
+        by_sheet[version.sheet].setdefault(version.document, version)   # ... but a page repeated in one document is
+                                                                         # not a version, nor another set's sheet
+    titles = {(s.document, s.page): title_words(s) for s in catalogue.sheets}
 
     contents: dict[tuple[str, int], _Content] = {}
 
@@ -421,13 +427,116 @@ def supersede(catalogue, versions: Sequence[SheetVersion],
             flags.append(f"Sheet {sheet} is in {count} documents with {why} — check which governs; "
                          f"counted from {meanwhile} for now")
             continue
-        replaced = sorted((v for v in distinct if v is not current),
-                          key=lambda v: (v.latest or date.min, kinds.get(v.document) == "addendum", v.document))
-        changes = tuple(dict.fromkeys(c for old in replaced
+        # FINAL-O (REVIEW-FINAL8 H1): the reissue replaces only the sheet it is a version of: of its number, the
+        # pages with its own plan title (`title_words`). A same-numbered sheet of another title is another sheet,
+        # kept and read; base sheets the titles cannot tell apart are all kept, summed and said.
+        mine = titles.get((current.document, current.page), ())
+        who = "addendum" if kinds.get(current.document) == "addendum" else f"{_name(current.document)}'s"
+        bases = [d for d in pages_of[sheet] if d != current.document and (sheet, d) not in copies]
+        matching = {d: [v for v in pages_of[sheet][d] if titles.get((v.document, v.page), ()) == mine] for d in bases}
+        groups: list[list[str]] = []          # the matching documents, one list per version (identical ones together)
+        for d in (d for d in bases if matching[d]):
+            first = matching[d][0]
+            for group in groups:
+                kept = matching[group[0]][0]
+                if alike((d, first.page), (kept.document, kept.page)) and first.latest == kept.latest:
+                    group.append(d)
+                    break
+            else:
+                groups.append([d])
+        everything = "both" if len(bases) == 1 else "all"
+        if not groups:
+            flags.append(f"{who} {sheet} has another title than every other {sheet} "
+                         f"({', '.join(_name(d) for d in bases)}): {everything} counted; check")
+            continue
+        if len(groups) > 1 and not _one_chain([matching[g[0]][0] for g in groups], current):
+            count = _COUNT_WORDS.get(len(groups), str(len(groups)))
+            flags.append(f"{who} {sheet} may replace one of {count} {sheet} sheets "
+                         f"({', '.join(_name(g[0]) for g in groups)}): {'both' if len(groups) == 2 else 'all'} "
+                         f"counted; check")
+            continue
+        # FINAL-O (REVIEW-FINAL8 H2): a reissue with fewer pages than its base replaces only the base pages its text
+        # matches best; a page it does not match is kept, counted and said
+        reissued = _runs(pages_of[sheet][current.document], alike)
+        replaced = []
+        for d in (d for group in groups for d in group):
+            runs = _runs(matching[d], alike)
+            taken = _matched(reissued, runs, content)
+            replaced += [v for i in sorted(taken) for v in runs[i]]
+            if len(taken) == len(runs):
+                continue
+            head = (f"{'addendum' if who == 'addendum' else _name(current.document)} reissues {sheet} "
+                    f"({_plural(len(pages_of[sheet][current.document]), 'page')}); base has "
+                    f"{_plural(len(matching[d]), 'page')} ({_name(d)})")
+            left = [v.page for i, run in enumerate(runs) if i not in taken for v in run]
+            flags.append(f"{head}: unmatched page{'s' if len(left) > 1 else ''} kept "
+                         f"({', '.join(f'p.{p}' for p in left)}), counted; check" if taken
+                         else f"{head}: no page matched best, every page kept and counted; check")
+        if not replaced:
+            continue
+        first_of = list({v.document: v for v in reversed(replaced)}.values())[::-1]
+        first_of.sort(key=lambda v: (v.latest or date.min, kinds.get(v.document) == "addendum", v.document))
+        changes = tuple(dict.fromkeys(c for old in first_of
                                       for c in _changes(sheet, content(current), content(old), reading)))
+        replaced.sort(key=lambda v: (v.latest or date.min, kinds.get(v.document) == "addendum", v.document, v.page))
         supersessions.append(Supersession(sheet, current, tuple(replaced), changes,
-                                          _note(sheet, current, replaced, changes)))
+                                          _note(sheet, current, first_of, changes)))
     return supersessions, flags
+
+
+def _name(relative: str) -> str:
+    return relative.rsplit("/", 1)[-1]
+
+
+def _plural(n: int, word: str) -> str:
+    return f"{n} {word}" if n == 1 else f"{n} {word}s"
+
+
+def _runs(versions: Sequence[SheetVersion], alike: "_Alike") -> list[list[SheetVersion]]:
+    """One document's pages of a number, the pages printed again alike (`_Alike`) together: one plan printed on
+    several pages is one sheet, replaced whole or not at all (never page 1 alone, with page 2 then set aside as its
+    repeat)."""
+    runs: list[list[SheetVersion]] = []
+    for v in versions:
+        for run in runs:
+            if alike((v.document, v.page), (run[0].document, run[0].page)):
+                run.append(v)
+                break
+        else:
+            runs.append([v])
+    return runs
+
+
+def _likeness(a: "_Content", b: "_Content") -> float:
+    """The share of tags and note lines two pages have in common (0 to 1)."""
+    one, two = a.tag_set | a.line_set, b.tag_set | b.line_set
+    return len(one & two) / len(one | two) if one | two else 0.0
+
+
+def _matched(reissued: list[list[SheetVersion]], runs: list[list[SheetVersion]], content) -> set[int]:
+    """Which base runs (`_runs`) a reissue replaces. As many sheets as the base, or more: all of them. Fewer: each
+    reissued sheet replaces the one base sheet its text is most like, and only when that is provable: more like it
+    than any other base sheet left, and like it at all. A tie or no likeness replaces nothing."""
+    if len(reissued) >= len(runs):
+        return set(range(len(runs)))
+    taken: set[int] = set()
+    for run in reissued:
+        new = content(run[0])
+        scores = sorted(((_likeness(new, content(base[0])), i) for i, base in enumerate(runs) if i not in taken),
+                        reverse=True)
+        if scores and scores[0][0] > 0 and (len(scores) == 1 or scores[0][0] > scores[1][0]):
+            taken.add(scores[0][1])
+    return taken
+
+
+def _one_chain(versions: Sequence[SheetVersion], current: SheetVersion) -> bool:
+    """Several base versions of one title are one sheet's earlier issues, provably: each lists every issue of the one
+    before it and more (its revision table), and the reissue lists every issue of them all. Two buildings' sheets
+    issued together carry the same rows and are never a chain."""
+    tables = sorted((frozenset(v.issues) for v in versions), key=len)
+    if not all(tables) or not current.issues:
+        return False
+    return all(a < b for a, b in zip(tables, tables[1:])) and tables[-1] <= frozenset(current.issues)
 
 
 class _Alike:
@@ -454,12 +563,23 @@ class _Alike:
             self.labels[key] = line_labels(record.text or "", self.keys) if record is not None else Counter()
         return self.labels[key]
 
+    def plan_counts(self, key: tuple[str, int]) -> Counter:
+        """The page's labels with the backstop (`plan_labels`: a unit named anywhere counts once)."""
+        record = self.records.get(key)
+        return plan_labels(record.text or "", self.keys, self.label_counts(key)) if record is not None else Counter()
+
     def __call__(self, a: tuple[str, int], b: tuple[str, int]) -> bool:
         return self.content(a).same_as(self.content(b)) and self.label_counts(a) == self.label_counts(b)
 
 
+def typical_places(typicals: Iterable) -> list:
+    """The `typicals` argument of `governing_pages` for typical sheets (reading/devices.py `TypicalSheet`): each
+    one's (document, sheet number), or its number alone when it names no document (a typical given by hand)."""
+    return [(t.document, t.sheet) if getattr(t, "document", None) else t.sheet for t in typicals]
+
+
 def governing_pages(catalogue, supersessions: Sequence[Supersession] = (),
-                    typicals: Iterable[str | None] = ()) -> frozenset[tuple[str, int]]:
+                    typicals: Iterable = ()) -> frozenset[tuple[str, int]]:
     """The drawing pages the readers read, as (document, page): every page with no sheet number, and for each sheet
     number the pages of the document that governs it: the later issue when a supersession decided it. When none
     did, the first document that carries it and isn't a marked-up copy of another (`repeats`), and beside it each
@@ -467,18 +587,28 @@ def governing_pages(catalogue, supersessions: Sequence[Supersession] = (),
     summed, and `supersede` says "check which governs" (REVIEW-FINAL7 F2: an undated reissue that adds a unit
     never loses it). Inside one document a number on several pages with the same text on every page is read on its
     first page (one plan printed again); pages of one number with other text are all read (F7). A typical sheet
-    (one plan standing for several floors) is read on its first page in each document (F3). A sheet of another set
+    (one plan standing for several floors) is read on its first page in each document (F3), and another page of its
+    number beside it only when it shows nothing the first page lacks (FINAL-O, REVIEW-FINAL8 H4: never a page with
+    other units, and never another document's pages because the number is typical in one document). `typicals` are
+    sheet numbers (in every document) or (document, sheet number) pairs (`typical_places`). A sheet of another set
     of drawings with the same numbers (`other_sets`: a second building) is read too, beside the governing one
-    (REVIEW-FINAL6 F3): when in doubt, sum."""
+    (REVIEW-FINAL6 F3): when in doubt, sum. A supersession sets aside exactly the pages it replaces (FINAL-O H1,
+    H2): another building's sheet of the number, or a page the reissue does not match, is read as before."""
     copies = {(_sheet_number(number), document) for number, document in repeats(catalogue)[1]}
     others = {(_sheet_number(number), document) for number, document in other_sets(catalogue)}
     current = {s.sheet: s.current.document for s in supersessions}
-    typical = {_sheet_number(t) for t in typicals if t}
+    # FINAL-O (REVIEW-FINAL8 H1, H2): a supersession sets aside exactly the pages it replaces; every other page of
+    # the number (another building's sheet of another title, a page the reissue does not match) is read as before
+    replaced = {(v.document, v.page) for s in supersessions for v in s.replaced}
+    typical = {(t[0], _sheet_number(t[1])) if isinstance(t, tuple) else (None, _sheet_number(t))
+               for t in typicals if t and (not isinstance(t, tuple) or t[1])}
     texts = {(p.document, p.page): p.text for p in catalogue.pages}
     alike: _Alike | None = None
     keep: set[tuple[str, int]] = set()
     by_number: dict[str, list] = defaultdict(list)
     for sheet in catalogue.sheets:
+        if (sheet.document, sheet.page) in replaced:
+            continue
         if sheet.number:
             by_number[_sheet_number(sheet.number)].append(sheet)
         else:
@@ -486,10 +616,10 @@ def governing_pages(catalogue, supersessions: Sequence[Supersession] = (),
     for number, sheets in by_number.items():
         documents = list(dict.fromkeys(s.document for s in sheets))
         rivals = [d for d in documents if (number, d) not in copies | others]
+        if number in current and current[number] in rivals:
+            rivals = [current[number]] + [d for d in rivals if d != current[number]]
         pages = {d: [(s.document, s.page) for s in sheets if s.document == d] for d in documents}
-        if number in current:
-            governing = [current[number]]
-        elif len(rivals) > 1:
+        if len(rivals) > 1:
             alike = alike or _Alike(catalogue)
             governing = []
             for document in rivals:
@@ -501,7 +631,11 @@ def governing_pages(catalogue, supersessions: Sequence[Supersession] = (),
             if document not in governing and (number, document) not in others:
                 continue
             mine = pages[document]
-            if number in typical or len({texts.get(key, "") for key in mine}) == 1:
+            if len({texts.get(key, "") for key in mine}) == 1:
                 mine = mine[:1]
+            elif (document, number) in typical or (None, number) in typical:
+                alike = alike or _Alike(catalogue)
+                head = alike.plan_counts(mine[0])
+                mine = mine[:1] + [key for key in mine[1:] if alike.plan_counts(key) - head]
             keep.update(mine)
     return frozenset(keep)

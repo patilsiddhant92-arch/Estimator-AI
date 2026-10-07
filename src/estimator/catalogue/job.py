@@ -81,6 +81,31 @@ def _plural(n: int, word: str) -> str:
     return f"{n} {word}" if n == 1 else f"{n} {word}s"
 
 
+TRADE_WORDS = frozenset({"PLAN", "PLANS", "DUCTWORK", "DUCT", "PIPING", "PIPE", "CONTROLS", "CONTROL", "HVAC",
+                         "MECHANICAL", "MECH", "PLUMBING", "AND"})
+
+
+def title_without_number(sheet) -> str:
+    """The title upper-cased, its own sheet number taken out only where a title block prefixes or ends it: as a
+    whole token at the title's start or end ("M-301 MECHANICAL PLAN" is "MECHANICAL PLAN"). A number inside the
+    title names a part of it ("WING MA1 FIRST FLOOR PLAN" on MA1 keeps MA1, REVIEW-FINAL6 F4)."""
+    title = (sheet.title or "").upper().strip()
+    if sheet.number:
+        number = re.escape(sheet.number.upper().strip())
+        title = re.sub(rf"^{number}(?![A-Z0-9])|(?<![A-Z0-9]){number}$", " ", title).strip()
+    return title
+
+
+def title_words(sheet) -> tuple[str, ...]:
+    """The title's words IN ORDER, its own sheet number (`title_without_number`) and the trade and plan words
+    (TRADE_WORDS) taken out ("HVAC DUCTWORK FIRST FLOOR PLAN" and "HVAC PIPING FIRST FLOOR PLAN" are both FIRST
+    FLOOR). In order, never sorted: "BUILDING 1 LEVEL 2" and "BUILDING 2 LEVEL 1" are two places (REVIEW-FINAL6
+    F2). The plan groups (`inventory.plan_groups`) and supersession (`revisions.supersede`: a reissue replaces only
+    the sheet of its number with these same words) both read titles so."""
+    title = re.sub(r"\bL-(\d)", r"L\1", title_without_number(sheet))
+    return tuple(w for w in re.findall(r"[A-Z0-9]+", title) if w not in TRADE_WORDS)
+
+
 COPY_SHARED = 3          # unit tags a marked-up copy's plans must repeat of its original's ...
 COPY_OVERLAP = 0.6       # ... and this share of the original's unit tags (REVIEW-FINAL6 F3, REVIEW-FINAL7 F1)
 COPY_TEXT = 0.9          # the share of the original's words on the shared sheets the copy repeats (REVIEW-FINAL7 F1)
@@ -234,22 +259,27 @@ def repeats(catalogue: Catalogue) -> tuple[list[str], set[tuple[str, str]]]:
             {(number, r.copy) for r in found if r.same for number in r.numbers})
 
 
-def repeated_plans(catalogue) -> dict[str, tuple[str, tuple[int, ...]]]:
-    """Plan sheets printed on several pages of one document with the same text on every page: one plan
-    standing for several floors (26-0193's M-113.00, "LEVEL 13 TO 22", is on 10 pages). Sheet number →
-    (the first document that repeats it, its pages). What is on such a plan is counted once and
-    multiplied (reading/devices.py `typical_sheets`)."""
+def plans_printed_again(catalogue) -> dict[tuple[str, str], tuple[int, ...]]:
+    """(document, sheet number) -> its pages, for each plan sheet printed on several pages of one document with the
+    same text on every page: one plan standing for several floors (a plan "LEVEL 13 TO 22" on 10 pages). Keyed by
+    document and number, never by number alone (REVIEW-FINAL8 H4): the same number in another document, on pages
+    of other text, is another set's sheet and is read page by page."""
     texts = {(p.document, p.page): p.text for p in catalogue.pages}
     by_place: dict[tuple[str, str], list[int]] = defaultdict(list)
     for sheet in catalogue.sheets:
         if sheet.number and "Plans" in sheet.types:
-            by_place[(sheet.number, sheet.document)].append(sheet.page)
+            by_place[(sheet.document, sheet.number)].append(sheet.page)
+    return {place: tuple(sorted(pages)) for place, pages in by_place.items()
+            if len(pages) >= 2 and len({texts.get((place[0], page), "") for page in pages}) == 1}
+
+
+def repeated_plans(catalogue) -> dict[str, tuple[str, tuple[int, ...]]]:
+    """Sheet number -> (the first document that prints it again alike, its pages) (`plans_printed_again`, by
+    number, for the flags). What is on such a plan is counted once and multiplied (reading/devices.py
+    `typical_sheets`, by document and number)."""
     found: dict[str, tuple[str, tuple[int, ...]]] = {}
-    for (number, document), pages in by_place.items():
-        if number in found or len(pages) < 2:
-            continue
-        if len({texts.get((document, page), "") for page in pages}) == 1:
-            found[number] = (document, tuple(sorted(pages)))
+    for (document, number), pages in plans_printed_again(catalogue).items():
+        found.setdefault(number, (document, pages))
     return found
 
 

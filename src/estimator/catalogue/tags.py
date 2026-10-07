@@ -245,6 +245,14 @@ NOTE_WORDS = 12                                    # a line with more words than
 _SPLIT_TAG = re.compile(rf"[{_DASH}][^\S\r\n]*\r?\n[^\S\r\n]*")   # a tag split over two lines: "VAV-" over "3"
 _NUMBERED = re.compile(r"^(.*?)(\d+)$")
 _COUNT_BEFORE = re.compile(r"^\d+\s*[-xX×*]\s*(?=[A-Z])")
+# a count stated after a tag, the line's only other words (FINAL-O, REVIEW-FINAL8 H3, ruled: a stated multiplier is a
+# placement count): "CUH-A (TYP. OF 4)", "CUH-A TYP OF 4", "CUH-A x4", "CUH-A (4)", "CUH-A 4 PLACES"
+STATED_MOST = 50                                   # the most places a stated count reads; more is one place, said
+_HEAD_AND_REST = re.compile(r"^\s*(\S+)\s+(.*?\S)\s*$")
+_STATED = (re.compile(r"^TYP(?:ICAL)?\.?\s*OF\s+(?P<n>[^\s()]+)\.?$", re.I),
+           re.compile(r"^[X×]\s*(?P<n>\d+)$", re.I),
+           re.compile(r"^(?P<n>\d+)\s*(?:PLACES|PLCS?|LOCATIONS)\.?$", re.I))
+_STATED_IN_BRACKETS = re.compile(r"^(?P<n>\d+)$")
 
 
 def is_type_tag(tag: str) -> bool:
@@ -358,11 +366,45 @@ def _line_tally(line: str, keys: Mapping[str, str]) -> Counter:
     return tally
 
 
+def _stated(line: str, keys: Mapping[str, str]) -> tuple[str, int | None] | None:
+    """(the tag, its stated count) of a line that is a tag and a count of its places and nothing else; the count is
+    None when it is not read (not a number, zero, or over STATED_MOST). None when the line is no such line."""
+    found = _HEAD_AND_REST.match(line)
+    if found is None:
+        return None
+    tag = _token_tag(found.group(1), keys)
+    if tag is None:
+        return None
+    rest, bracketed = found.group(2).strip(), False
+    if rest.startswith("(") and rest.endswith(")"):
+        rest, bracketed = rest[1:-1].strip(), True
+    patterns = _STATED + ((_STATED_IN_BRACKETS,) if bracketed else ())
+    match = next((m for m in (p.match(rest) for p in patterns) if m), None)
+    if match is None:
+        return None
+    n = match.group("n")
+    return tag, (int(n) if n.isdigit() and 0 < int(n) <= STATED_MOST else None)
+
+
+def unread_counts(text: str, keys: Mapping[str, str]) -> list[tuple[str, str]]:
+    """(tag, the line) for each line that states a count of a tag's places the reader does not read (over
+    STATED_MOST, zero, or not a number: "CUH-A (TYP. OF 60)", "CUH-A TYP. OF FOUR"); `line_labels` counts such a line
+    as one place, and the counts line says so (FINAL-O H3)."""
+    found = []
+    for line in text.splitlines():
+        stated = _stated(line, keys)
+        if stated is not None and stated[1] is None:
+            found.append((stated[0], " ".join(line.split())))
+    return found
+
+
 def line_labels(text: str, keys: Mapping[str, str]) -> Counter:
     """Each tag's labels in a sheet's text (`label_keys` gives `keys`): a line that is the tag alone, a bubble (a
     prefix alone over its number), a tag split over two lines ("VAV-" over "3"), and the tags of a line that starts
     with a tag (`_line_tally`: "VAV-1 VAV-1 T T", "EF-1 450", "AHU-1 (E)", "VAV-3 450 CFM", "EF-2 ON ROOF",
-    "FCU-4 / FCU-5", "VAV-1 THRU VAV-5"). Never a tag after a word of a note ("TO EUH-1"), nor in a long note."""
+    "FCU-4 / FCU-5", "VAV-1 THRU VAV-5"). Never a tag after a word of a note ("TO EUH-1"), nor in a long note. A tag
+    with a stated count of its places and nothing else ("CUH-A (TYP. OF 4)", "x4", "(4)", "4 PLACES", `_stated`) is
+    that many labels, up to STATED_MOST; a count not read is one (`unread_counts`)."""
     tally: Counter = Counter()
     lines = text.splitlines()
     skip = False
@@ -376,6 +418,10 @@ def line_labels(text: str, keys: Mapping[str, str]) -> Counter:
             skip = tag is not None
         if tag is not None:
             tally[tag] += 1
+            continue
+        stated = _stated(line, keys)
+        if stated is not None:
+            tally[stated[0]] += stated[1] or 1      # "CUH-A (TYP. OF 4)": 4 places (FINAL-O H3)
             continue
         mine = _line_tally(line, keys)
         if n + 1 < len(lines) and _SPLIT_TAG.search(line + "\n"):

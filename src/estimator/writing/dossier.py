@@ -27,12 +27,12 @@ import pymupdf
 
 from estimator.catalogue.job import CONTROLS_DISCIPLINES, document_repeats
 from estimator.catalogue.overview import FOUND, RULED_OUT, STANDARD_CLARIFICATION, STANDARD_EXCLUSION
-from estimator.catalogue.tags import (Equipment, find_tags, label_keys, line_labels, plan_labels, tag_location,
-                                      tag_prefix)
+from estimator.catalogue.tags import (STATED_MOST, Equipment, find_tags, label_keys, line_labels, plan_labels,
+                                      tag_location, tag_prefix, unread_counts)
 from estimator.reading.inventory import (COUNT_CAUSE_WORDS, COUNT_CAUSES_LEAD, TYPE_ON_ONE_SHEET, TYPE_PLACED,
                                         counted_per_place, counting_pages, first_pages, plan_area_doubts, plan_areas,
                                         plan_count, plan_floors, plan_groups, sheet_labels)
-from estimator.reading.revisions import governing_pages
+from estimator.reading.revisions import governing_pages, typical_places
 from estimator.reading.schedules import header_key, quantity_header, vocabulary
 from estimator.reading.sequences import POINTS, SEQUENCE
 from estimator.writing.systems import _paragraphs
@@ -242,7 +242,7 @@ def _counted_pages(catalogue, reading) -> frozenset[tuple[str, int]]:
     one document with the same text on every page, the first page only (the multiplier stands for the rest,
     `inventory.first_pages`); pages of one number with other text are each counted (REVIEW-FINAL6 F6)."""
     governing = governing_pages(catalogue, getattr(reading, "supersessions", ()),
-                                [t.sheet for t in getattr(reading, "typicals", ())])
+                                typical_places(getattr(reading, "typicals", ())))
     repeated = first_pages(catalogue)
     return frozenset((sheet.document, sheet.page) for sheet in catalogue.sheets
                      if (sheet.document, sheet.page) in governing and (sheet.document, sheet.page) not in repeated)
@@ -252,7 +252,7 @@ def _counted_plan_pages(catalogue, reading) -> frozenset[tuple[str, int]]:
     """The pages the counts line reads: the inventory's own (`counting_pages`), so the two count the same sheets; a
     plan sheet in two documents with the same text is two sheets (REVIEW-FINAL5 F7)."""
     return counting_pages(catalogue, governing_pages(catalogue, getattr(reading, "supersessions", ()),
-                                                     [t.sheet for t in getattr(reading, "typicals", ())]))
+                                                     typical_places(getattr(reading, "typicals", ()))))
 
 
 # ---- section 1: the job ---------------------------------------------------------------------------
@@ -855,8 +855,14 @@ def _counts(catalogue, reading, counted_pages: frozenset, multipliers: dict) -> 
     places: dict[tuple[str, str], list] = defaultdict(list)          # (prefix, tag) -> [(sheet, places, floor set)]
     seen_on: dict[tuple[str, str], dict[str, str]] = defaultdict(dict)    # (prefix, tag) -> the sheets showing it
     printed: dict[tuple[str, str], tuple[str, int]] = {}                  # (prefix, tag) -> most places on a sheet
+    unread: dict[str, list] = defaultdict(list)      # prefix -> a stated count of places not read (FINAL-O H3)
     for sheet, key, record, is_plan, is_riser, edge in read:
         label = labels[key]
+        if is_plan:
+            for tag, line in unread_counts(record.text, keys):
+                unread[tag if tag in code_patterns else _prefix(tag)].append(
+                    f"{tag} on {label} reads '{line}': the count beside it is not read (over {STATED_MOST}, or not a "
+                    f"number), counted as one place; check")
         floors = multipliers.get((sheet.document, sheet.number), 1) if sheet.number else 1
         own = floor_sets.get((sheet.document, sheet.number), frozenset()) if sheet.number else frozenset()
         by_family: Counter = Counter()
@@ -913,6 +919,7 @@ def _counts(catalogue, reading, counted_pages: frozenset, multipliers: dict) -> 
         family.notes += _summed_notes(summed[prefix]) + _labelled_often_notes(labelled_often[prefix])
         family.notes += _group_notes(prefix, groups, places, labels, per_place_of)
         family.notes += _doubt_notes(prefix, doubts, places, labels)
+        family.notes += list(dict.fromkeys(unread[prefix]))
         family.notes += [f"{_name(copy)} repeats {_name(original)} (same sheets, same units): read once, "
                          f"{family.placements}; if it is another building, {family.placements + n}; check"
                          for (copy, original), n in extra.get(prefix, {}).items() if n]
