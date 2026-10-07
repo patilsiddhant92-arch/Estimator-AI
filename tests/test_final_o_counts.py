@@ -132,7 +132,6 @@ def test_a_reissue_whose_title_matches_no_base_sheet_replaces_nothing_and_says_s
 
 # ---- H2: a reissue with fewer pages replaces only the pages it matches -----------------------------------------------
 
-@pytest.mark.xfail(strict=True, reason="FINAL-O H2: not fixed yet")
 def test_a_one_page_reissue_of_a_two_page_number_keeps_the_page_it_does_not_match(tmp_path):
     base = [(MECH, 1, "M-101", "HVAC LEVEL 1 PLAN", ["VAV-11", "VAV-12"], ()),
             (MECH, 2, "M-101", "HVAC LEVEL 1 PLAN", ["VAV-15", "VAV-16"], ())]
@@ -153,7 +152,6 @@ def test_a_one_page_reissue_of_a_two_page_number_keeps_the_page_it_does_not_matc
     _same(inventory, dossier, VAV=5)
 
 
-@pytest.mark.xfail(strict=True, reason="FINAL-O H2: not fixed yet")
 def test_a_reissue_that_matches_two_base_pages_equally_replaces_neither(tmp_path):
     catalogue = _job([(MECH, 1, "M-101", "HVAC LEVEL 1 PLAN", ["VAV-11", "VAV-12"], ()),
                       (MECH, 2, "M-101", "HVAC LEVEL 1 PLAN", ["VAV-15", "VAV-16"], ()),
@@ -166,7 +164,6 @@ def test_a_reissue_that_matches_two_base_pages_equally_replaces_neither(tmp_path
     _same(inventory, dossier, VAV=7)
 
 
-@pytest.mark.xfail(strict=True, reason="FINAL-O H2: not fixed yet")
 def test_pages_printed_again_alike_are_replaced_together_and_the_other_page_kept(tmp_path):
     """Pages 1 and 2 alike are one plan printed again: replaced together (never page 1 alone, which would leave
     page 2 set aside as page 1's repeat). Page 3, other text, is kept."""

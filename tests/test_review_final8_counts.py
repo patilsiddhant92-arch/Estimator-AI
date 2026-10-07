@@ -413,26 +413,25 @@ def test_an_addendum_to_one_building_never_drops_another_buildings_sheet_of_the_
     assert min(inventory["VAV"], dossier["VAV"]) >= 5 and min(inventory["AHU"], dossier["AHU"]) >= 2
 
 
-@pytest.mark.xfail(strict=True, reason="REVIEW-FINAL8 H2 (supersession path): M-101 on two pages of one document "
-                   "with other text is two sheets (FINAL-K), but an addendum's one M-101 page replaces both, so "
-                   "page 2's VAV-15 and 16 are never read: VAV 3 where 5 is right, and no flag")
 def test_an_addendum_reissuing_one_page_of_a_number_never_drops_its_other_page(tmp_path):
     case = _addendum_over_the_other_page_of_a_number()
     inventory, dossier, *_rest = read(case, tmp_path)
     assert inventory["VAV"] >= 5 and dossier["VAV"] >= 5
 
 
-def test_guard_the_two_addendum_cases_are_silent_today(tmp_path):
-    """What the two xfails see on b76d9c1: the low count, no reading note and no supersession flag. FINAL-O H1: the
-    first case now counts building B's own M-101 (`test_an_addendum_to_one_building_never_drops_...`, no flag owed:
-    the addendum replaces only the sheet of its own title, provably); only the second is left here."""
-    for case, low in ((_addendum_over_the_other_page_of_a_number(), {"VAV": 3}),):
+def test_guard_the_two_addendum_cases_count_every_unit(tmp_path):
+    """What the two xfails saw on b76d9c1: the low count, no reading note and no supersession flag. FINAL-O fixed
+    both (H1, H2), so this guard pinned the old, wrong count; it now pins the fix: both cases count every unit, and
+    the one-page reissue of a two-page number says which page it kept."""
+    for case, right in ((_addendum_over_another_building(), {"VAV": 5, "AHU": 2}),
+                        (_addendum_over_the_other_page_of_a_number(), {"VAV": 5})):
         inventory, dossier, lines, _counted = read(case, tmp_path)
         catalogue = catalogue_of(case)
         _supersessions, flags = supersede(catalogue, sheet_versions(catalogue))
-        assert all(dossier[f] == inventory[f] == n for f, n in low.items())
-        assert flags == [] and all("Reading notes" not in lines[f] for f in low)
-        assert all(n < truth(case)[f] for f, n in low.items())
+        assert all(dossier[f] == inventory[f] == n for f, n in right.items())
+        assert all(n >= truth(case)[f] for f, n in right.items())
+    assert flags == ["addendum reissues M-101 (1 page); base has 2 pages (Mech.pdf): unmatched page kept (p.2), "
+                     "counted; check"]
 
 
 # ---- CHECK 2: every failing input of REVIEW-FINAL2, 4, 5, 6 and 7, as a table row on b76d9c1 ------------------------

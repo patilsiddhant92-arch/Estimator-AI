@@ -452,7 +452,25 @@ def supersede(catalogue, versions: Sequence[SheetVersion],
                          f"({', '.join(_name(g[0]) for g in groups)}): {'both' if len(groups) == 2 else 'all'} "
                          f"counted; check")
             continue
-        replaced = [v for group in groups for d in group for v in matching[d]]
+        # FINAL-O (REVIEW-FINAL8 H2): a reissue with fewer pages than its base replaces only the base pages its text
+        # matches best; a page it does not match is kept, counted and said
+        reissued = _runs(pages_of[sheet][current.document], alike)
+        replaced = []
+        for d in (d for group in groups for d in group):
+            runs = _runs(matching[d], alike)
+            taken = _matched(reissued, runs, content)
+            replaced += [v for i in sorted(taken) for v in runs[i]]
+            if len(taken) == len(runs):
+                continue
+            head = (f"{'addendum' if who == 'addendum' else _name(current.document)} reissues {sheet} "
+                    f"({_plural(len(pages_of[sheet][current.document]), 'page')}); base has "
+                    f"{_plural(len(matching[d]), 'page')} ({_name(d)})")
+            left = [v.page for i, run in enumerate(runs) if i not in taken for v in run]
+            flags.append(f"{head}: unmatched page{'s' if len(left) > 1 else ''} kept "
+                         f"({', '.join(f'p.{p}' for p in left)}), counted; check" if taken
+                         else f"{head}: no page matched best, every page kept and counted; check")
+        if not replaced:
+            continue
         first_of = list({v.document: v for v in reversed(replaced)}.values())[::-1]
         first_of.sort(key=lambda v: (v.latest or date.min, kinds.get(v.document) == "addendum", v.document))
         changes = tuple(dict.fromkeys(c for old in first_of
@@ -465,6 +483,47 @@ def supersede(catalogue, versions: Sequence[SheetVersion],
 
 def _name(relative: str) -> str:
     return relative.rsplit("/", 1)[-1]
+
+
+def _plural(n: int, word: str) -> str:
+    return f"{n} {word}" if n == 1 else f"{n} {word}s"
+
+
+def _runs(versions: Sequence[SheetVersion], alike: "_Alike") -> list[list[SheetVersion]]:
+    """One document's pages of a number, the pages printed again alike (`_Alike`) together: one plan printed on
+    several pages is one sheet, replaced whole or not at all (never page 1 alone, with page 2 then set aside as its
+    repeat)."""
+    runs: list[list[SheetVersion]] = []
+    for v in versions:
+        for run in runs:
+            if alike((v.document, v.page), (run[0].document, run[0].page)):
+                run.append(v)
+                break
+        else:
+            runs.append([v])
+    return runs
+
+
+def _likeness(a: "_Content", b: "_Content") -> float:
+    """The share of tags and note lines two pages have in common (0 to 1)."""
+    one, two = a.tag_set | a.line_set, b.tag_set | b.line_set
+    return len(one & two) / len(one | two) if one | two else 0.0
+
+
+def _matched(reissued: list[list[SheetVersion]], runs: list[list[SheetVersion]], content) -> set[int]:
+    """Which base runs (`_runs`) a reissue replaces. As many sheets as the base, or more: all of them. Fewer: each
+    reissued sheet replaces the one base sheet its text is most like, and only when that is provable: more like it
+    than any other base sheet left, and like it at all. A tie or no likeness replaces nothing."""
+    if len(reissued) >= len(runs):
+        return set(range(len(runs)))
+    taken: set[int] = set()
+    for run in reissued:
+        new = content(run[0])
+        scores = sorted(((_likeness(new, content(base[0])), i) for i, base in enumerate(runs) if i not in taken),
+                        reverse=True)
+        if scores and scores[0][0] > 0 and (len(scores) == 1 or scores[0][0] > scores[1][0]):
+            taken.add(scores[0][1])
+    return taken
 
 
 def _one_chain(versions: Sequence[SheetVersion], current: SheetVersion) -> bool:
