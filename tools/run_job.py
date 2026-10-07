@@ -152,11 +152,24 @@ def _reason(text: str, system) -> str:
     return ""
 
 
+def _answer_not_newer(answer_path: Path, request_path: Path) -> bool:
+    """True when the answer is not newer than its request. Mirrors the app's own rule in `_answer_is_fresh`
+    (src/bms/ai.py: an answer counts only when its modified time is after the request's); copied here, not imported,
+    because that function also needs the chat transport's record of the last refused answer."""
+    try:
+        return answer_path.stat().st_mtime_ns <= request_path.stat().st_mtime_ns
+    except OSError:
+        return False
+
+
 def waiting_requests(requests: Path, job: str, attempts: dict, text: str = "") -> list:
     """Every request file of this job (by `job`) still present after the run. The estimator deletes a request
-    once it uses the answer, so one whose answer file exists was rejected: it is listed with `rejected` and the
-    reason the run printed (`text`), its answer file is deleted and an attempt counted in `attempts`."""
+    once it uses the answer, so one whose answer file is not newer than the request was rejected: it is listed with
+    `rejected` and the reason the run printed (`text`), its answer file is deleted and an attempt counted in
+    `attempts`. An answer newer than its request was simply not read yet (the run stopped early), so it stays. When
+    the run crashed (`text` holds a Traceback) nothing is judged: no answer is deleted and no attempt counted."""
     waiting = []
+    crashed = "Traceback" in text
     for path in sorted(requests.glob("*.json")):
         try:
             request = _load(path)
@@ -171,7 +184,7 @@ def waiting_requests(requests: Path, job: str, attempts: dict, text: str = "") -
             entry["step"] = request["step"]
         if request.get("previous_problem"):
             entry["problem"] = request["previous_problem"]
-        if answer and answer_path.exists():
+        if not crashed and answer and answer_path.exists() and _answer_not_newer(answer_path, path):
             key = request.get("key")
             try:
                 answer_path.unlink()
