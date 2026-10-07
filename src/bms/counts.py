@@ -8,10 +8,11 @@ Two counts of each tagged family on the plan sheets that show its tags, independ
   cut into overlapping tiles, and the sheet asked of the AI through a `bms.ai` Transport as one question (request
   kind "count_tags") carrying every tile as its own picture and every family's tag pattern on that sheet together.
 
-A family's located count on the plans adds up its tags over all its plan sheets as the inventory counts copies
-(`estimator.reading.inventory.counted_per_place`): a unit's tag is one unit however many sheets show it, a type's tag
-(EBB-A, CUH-A, AC-3.0) counts every place it is labelled, on every sheet. The picture count is the number of
-different tags seen. `cross_check` adds every count that differs from the printed one to
+A family's located count on the plans is counted on each sheet and added up over its plan sheets by the
+inventory's one counting rule (`estimator.reading.inventory.plan_groups`, `plan_count`, `counted_per_place`): sheets
+that show one plan are one group, where a unit's tag counts once and a type's tag (EBB-A, CUH-A, AC-3.0) the most
+places of one sheet; every other sheet adds up (a type's tag on two floor plans is 2). The picture count is the
+number of different tags seen. `cross_check` adds every count that differs from the printed one to
 `Count.others` with its Ref, keeps the highest as `Count.value`, never lowers a count, flags the devices counted from
 a family whose counts disagree, and writes the proof images (a crop of the sheet with the counted tags boxed) and
 their manifest under `<cache>/count-proofs/` for the review page (`load_proofs`, `proofs_for`). Without a transport
@@ -242,6 +243,8 @@ class _Sheet:
     picture: Path | None = None
     located: list | None = None      # (tag, box) on the sheet text; None when the page could not be read
     labels: Counter | None = None    # tag -> the places it is labelled on the sheet text (`located_labels`)
+    evidence: Counter | None = None  # the labels alone, no backstop: which sheets show one plan (`plan_groups`)
+    sheet: object = None             # the catalogue's Sheet
     seen: list | None = None         # (tag, box) on the picture; None when not counted
     counted: frozenset = frozenset() # the patterns the picture's answer counted (others were left out of it)
 
@@ -252,6 +255,7 @@ class _Check:
         self.micro_crops = micro_crops
         self.pictured: dict[tuple[str, int], bool] = {}     # sheet key: mostly picture (`_mostly_picture`)
         self.listed: dict[str, set[str]] = {}               # pattern -> the families' own (expanded) tags
+        self.groups: dict = {}                              # sheet key -> its plan group (`plan_groups`)
         used = [int(m.group(1)) for ref in _refs(job) if (m := re.fullmatch(r"C(\d+)", ref.source_id))]
         self.next_id = max(used, default=0) + 1
 
@@ -295,12 +299,13 @@ class _Check:
                             (sheet.document, sheet.page),
                             f"{sheet.number}, {doc} page {sheet.page}" if sheet.number else f"{doc} page {sheet.page}",
                             (f"{sheet.number} whole sheet, {doc} page {sheet.page} (picture)" if sheet.number
-                             else f"{doc} page {sheet.page} (picture)"))
+                             else f"{doc} page {sheet.page} (picture)"), sheet=sheet)
         if not sheets:
             return self.job
         for key, sheet in sheets.items():
             here = [patterns[f] for f, keys in on_sheet.items() if key in keys]
             self._count_sheet(sheet, here)
+        self.groups = self._plan_groups(list(sheets.values()))
 
         job, entries = self.job, []
         for system, family in families:
@@ -339,20 +344,21 @@ class _Check:
         confident, ambiguous = [], []
         listed = {tag for p in here for tag in self.listed.get(p, ())}
         try:
-            confident, ambiguous, labels, has_text = self._classify(sheet, combined, SHEET_DPI / 72, listed)
+            confident, ambiguous, labels, evidence, has_text = self._classify(sheet, combined, SHEET_DPI / 72,
+                                                                              listed)
             # only the tags the label reader counts are placed: "TO EF-7" is a note, not a box of the count
             confident = [(t, b) for t, b in confident if labels.get(canonical(t))]
             ambiguous = [(t, b, why) for t, b, why in ambiguous if labels.get(canonical(t))]
             sheet.located = ([(t, b) for t, b in confident] + [(t, b) for t, b, _ in ambiguous]) if has_text else None
-            sheet.labels = labels if has_text else None
+            sheet.labels, sheet.evidence = (labels, evidence) if has_text else (None, None)
         except Exception:
-            sheet.located, sheet.labels = None, None
+            sheet.located, sheet.labels, sheet.evidence = None, None, None
             confident, ambiguous, has_text = [], [], False
 
         if (has_text and not confident and not ambiguous and self.transport is not None
                 and self._mostly_picture(sheet.key)):
             # a page mostly picture whose text layer shows no tag: the text is a title block, not a count
-            sheet.located, sheet.labels, has_text = None, None, False
+            sheet.located, sheet.labels, sheet.evidence, has_text = None, None, None, False
 
         if self.transport is not None and sheet.picture is not None:
             results = {}
@@ -417,7 +423,7 @@ class _Check:
     def _classify(self, sheet: _Sheet, pattern: str, default_scale: float, listed=()):
         import pymupdf
         from PIL import Image
-        from bms.counts_text import classify_located_boxes, has_text_layer, located_labels
+        from bms.counts_text import classify_located_boxes, has_text_layer, located_tallies
 
         documents = {d.relative: Path(d.path) for d in self.catalogue.job.documents}
         document, number = sheet.key
@@ -428,9 +434,19 @@ class _Check:
                 with Image.open(sheet.picture) as picture:
                     scale = picture.size[0] / page.rect.width
             if not has_text_layer(page):
-                return [], [], Counter(), False
+                return [], [], Counter(), Counter(), False
             confident, ambiguous = classify_located_boxes(page, pattern, scale)
-            return confident, ambiguous, located_labels(page, pattern, listed), True
+            return (confident, ambiguous, *located_tallies(page, pattern, listed), True)
+
+    def _plan_groups(self, sheets: list[_Sheet]) -> dict:
+        """The inventory's plan groups of the counted sheets (`plan_groups`, the labels alone as evidence); empty
+        when they cannot be made (every sheet is then its own group)."""
+        from estimator.reading.inventory import plan_groups
+
+        try:
+            return plan_groups([(s.sheet, dict(s.evidence or {})) for s in sheets if s.sheet is not None])
+        except Exception:
+            return {}
 
     def _symbols_expected(self, here: list[str], sheet: _Sheet) -> dict[str, int]:
         symbols = {}
@@ -480,7 +496,7 @@ class _Check:
             if not read:
                 continue
             if attr == "located":
-                n = _located_count(read, pattern)
+                n = _located_count(read, pattern, self.groups)
             else:
                 n = len({canonical(t) for s in read for t, _ in s.seen if fits(pattern, t)})
             complete = len(read) == len(sheets)
@@ -558,19 +574,23 @@ class _Check:
         return entries
 
 
-def _located_count(sheets, pattern: str) -> int:
-    """The located count of a pattern's tags over these sheets (`_Sheet.labels`), added up as the inventory counts
-    copies (`estimator.reading.inventory.counted_per_place`): a unit's tag once however many sheets label it, a tag
-    counted at every place (a type's tag: EBB-A on two floor plans is 2, "CUH-A (TYP. OF 4)" is 4) every label on
-    every sheet."""
-    from estimator.reading.inventory import counted_per_place
+def _located_count(sheets, pattern: str, groups: dict | None = None) -> int:
+    """The located count of a pattern's tags over these sheets (`_Sheet.labels`) by the inventory's one counting rule
+    (`estimator.reading.inventory.plan_count`, `counted_per_place`; `groups` from `plan_groups`, every sheet its own
+    group when not given): in each plan group a unit's tag once, a tag counted at every place (a type's tag:
+    "CUH-A (TYP. OF 4)" is 4) the most of one sheet; the groups added up (EBB-A on two floor plans is 2)."""
+    from estimator.reading.inventory import counted_per_place, plan_count
 
-    places: dict[str, list[int]] = {}
+    found: dict[str, list] = {}
     for sheet in sheets:
         for tag, n in (sheet.labels or {}).items():
             if n > 0 and fits(pattern, tag):
-                places.setdefault(canonical(tag), []).append(n)
-    return sum(sum(ns) if counted_per_place(tag, sum(ns), max(ns)) else 1 for tag, ns in places.items())
+                found.setdefault(canonical(tag), []).append((sheet.key, n, frozenset()))
+    total = 0
+    for tag, mine in found.items():
+        per_place = counted_per_place(tag, sum(n for _k, n, _f in mine), max(n for _k, n, _f in mine))
+        total += plan_count(mine, groups or {}, per_place)
+    return total
 
 
 def _refs(job):

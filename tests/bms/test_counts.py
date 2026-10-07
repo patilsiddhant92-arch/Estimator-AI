@@ -789,3 +789,19 @@ def test_an_answer_with_no_asked_pattern_is_refused_and_asked_again(tmp_path):
     chat = NoPatterns(seen, again=False)                     # the chat asks again on a later run
     assert counts.count_tags(picture, pattern, transport=chat) == counts.CountResult(None, ())
     assert len(chat.refused) == 1
+
+
+def test_two_sheets_of_one_plan_count_a_unit_once(tmp_path):
+    """CNT-5: the inventory's plan groups: one floor's plan drawn on two sheets (the same title, the same units) counts
+    each unit once; a type's tag the most places of one sheet."""
+    texts = ((200, 200, FILLER, 10), (300, 400, "EF-1", 14), (900, 300, "EF-2", 14), (1500, 900, "EF-3", 14),
+             (600, 1000, "EBB-A", 14), (800, 1000, "EBB-A", 14))
+    pdf = make_pdf(tmp_path / "job" / "Drawings.pdf", Page(W, H, texts), Page(W, H, texts))
+    text = "\n".join(t for _, _, t, _ in texts)
+    catalogue = _catalogue(pdf, [(1, "M-101", "FIRST FLOOR PLAN", text), (2, "M-201", "FIRST FLOOR PLAN", text)])
+    ef = System("EF", "EF", "EF", "field", (Family("EF", ("EF-1", "EF-2", "EF-3"), Count(3, (Ref("S1", "EF", "M"),))),))
+    ebb = System("EBB", "EBB", "EBB", "field", (Family("EBB", ("EBB-A",), Count(2, (Ref("S2", "EBB", "M"),))),))
+    checked = counts.cross_check(Job("t", (ef, ebb)), catalogue, tmp_path / "cache")
+    for key, value in {"EF": 3, "EBB": 2}.items():
+        count = checked.system(key).families[0].count
+        assert count.value == value and not count.others, (key, count)

@@ -300,6 +300,12 @@ def located_labels(page: pymupdf.Page, pattern: str, listed: Iterable[str] = ())
     places ("CUH-A (TYP. OF 4)" is four), never a tag after a word like TO or SEE. `listed` are the families' own
     tags: one of them that is a unit's tag named anywhere on the page and labelled nowhere counts once (the
     `plan_labels` backstop); a tag the pattern finds that no family lists counts only where it is labelled."""
+    return located_tallies(page, pattern, listed)[0]
+
+
+def located_tallies(page: pymupdf.Page, pattern: str, listed: Iterable[str] = ()) -> tuple[Counter, Counter]:
+    """(`located_labels`, the labels alone without the backstop): the labels alone are the evidence of which plan
+    sheets show one plan (`estimator.reading.inventory.plan_groups`), never the backstop."""
     find = searcher(pattern)
     blocks = _page_lines(page)
     found = {canonical(t) for t in listed if fits(pattern, t)}
@@ -316,7 +322,11 @@ def located_labels(page: pymupdf.Page, pattern: str, listed: Iterable[str] = ())
     own = label_keys(sorted({canonical(t) for t in listed if fits(pattern, t)}, key=natural))
     page_text = "\n".join(line for lines in blocks for line in lines)
     tally = plan_labels(page_text, own, labels) if own else labels
-    return Counter({tag: n for tag, n in tally.items() if n > 0 and fits(pattern, tag)})
+
+    def mine(counter: Counter) -> Counter:
+        return Counter({tag: n for tag, n in counter.items() if n > 0 and fits(pattern, tag)})
+
+    return mine(tally), mine(labels)
 
 
 def located_boxes(page: pymupdf.Page, pattern: str, scale: float) -> list[tuple[str, tuple[int, int, int, int]]]:
