@@ -1170,3 +1170,70 @@ def test_an_indoor_unit_and_its_outdoor_unit_in_two_sequence_sections_are_one_sp
     ledger.add("sequence_match", "SOUTH SPLITS", "ACCU", "Q4", "SOUTH SPLITS", "sequence", SETTLED)
     (split,) = _plan(ledger).systems
     assert split.key == "Split System" and len(split.families) == 2
+
+
+# ---- a reduced count names the count it came from (PLN-3) ---------------------------------------------------------
+
+def _counts_hold(job: Job) -> None:
+    """Every family prints its own value: nothing in `others` is higher (render prints the highest) or equal."""
+    for system in job.systems:
+        for family in system.families:
+            count = family.count
+            assert count.value == count.highest(), (system.key, family.name, count)
+            assert all(o.value != count.value for o in count.others), (system.key, family.name, count)
+
+
+def test_a_rest_block_names_the_count_it_was_reduced_from():
+    # (a) the rest of a contradicted family: 10 per the schedule, 9 per the plans; a group takes EF-1 and EF-2
+    ledger = _ledger()
+    _family(ledger, "AHU", "Air Handling Unit", "AHU-1", 1)
+    count = _family(ledger, "EF", "Exhaust Fan", "EF-1 thru 10", 10)
+    ledger.contradict(count.id, 9, "S2", "EF x9", "plans")
+    ledger.add("group", "AHU-1 Plant", "AHU, EF (EF-1, EF-2)", "S5", "AHU-1 PLANT riser", "risers", SETTLED)
+    job = _plan(ledger)
+    _counts_hold(job)
+    rest = _by_key(job)["EF"].families[0]
+    assert rest.tags[0] == "EF-3" and rest.count.value == 8
+    asked = [q for q in job.questions if "EF" in q and "AHU-1 Plant" in q]
+    assert len(asked) == 1 and "10" in asked[0] and "9" in asked[0] and "8" in asked[0]
+
+    # (b) a link repeating the group's own "HRU-1 x3" is not counted twice: the rest keeps 9 of the 12
+    ledger = _ledger()
+    _family(ledger, "AHU", "Air Handling Unit", "AHU-1", 1)
+    _family(ledger, "HRU", "Heat Recovery Unit", "HRU-1 thru 4", 12)
+    ledger.add("group", "AHU-1 Plant", "AHU, HRU (HRU-1 x3)", "S5", "AHU-1 PLANT riser", "risers", SETTLED)
+    ledger.add("link", "HRU-1 x3", "AHU-1", "S5", "HRU-1 x3 to AHU-1", "plans", SETTLED)
+    ledger.add("link", "RTU-7", "EF-4 x5", "S5", "RTU-7 with EF-4 x5", "plans", SETTLED)     # not about the group
+    job = _plan(ledger)
+    _counts_hold(job)
+    plant, hru = _by_key(job)["AHU-1 Plant"], _by_key(job)["HRU"]
+    assert plant.families[1].count.value == 3
+    assert hru.families[0].count.value in (9, 12)
+    assert any("12" in q and "AHU-1 Plant" in q for q in job.questions)
+
+    # (c) a group's damper family gives up a damper its fan claims: 3 per the schedule, 2 per the plans
+    ledger = _ledger()
+    _family(ledger, "EF", "Exhaust Fan", "EF-1", 1)
+    count = _family(ledger, "MD", "Motorized Damper", "MD-1 thru 3", 3, source="S2")
+    ledger.contradict(count.id, 2, "S5", "MD x2", "plans")
+    ledger.add("group", "Shaft Ventilation", "EF, MD", "S5", "SHAFT VENTILATION", "risers", SETTLED)
+    ledger.add("link", "MD-1", "EF-1", "S2", "MD-1 EF-1", "plans", SETTLED)
+    job = _plan(ledger)
+    _counts_hold(job)
+    (shaft,) = job.systems
+    own = next(f for f in shaft.families if f.tags == ("MD-2", "MD-3"))
+    assert own.count.value == 2
+    asked = [q for q in job.questions if "(MD)" in q and "3" in q]
+    assert len(asked) == 1 and "2" in asked[0]
+
+    # (d) a general-kind block gives up tags: 3 per the schedule, 2 per the plans, one per tag left
+    ledger = _ledger()
+    count = _family(ledger, "P", "Pump", "P-1, SPX-1, SPX-2", 3)
+    ledger.contradict(count.id, 2, "S2", "P x2", "plans")
+    _family(ledger, "SPX", "Sump Pump", "SPX-1, SPX-2", 2)
+    job = _plan(ledger)
+    _counts_hold(job)
+    pump = _by_key(job)["P"].families[0]
+    assert pump.tags == ("P-1",) and pump.count.value == 1
+    asked = [q for q in job.questions if "SPX-1" in q and "general name" in q]
+    assert len(asked) == 1 and "3" in asked[0] and "2 per" in asked[0]
