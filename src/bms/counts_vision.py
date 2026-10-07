@@ -38,7 +38,8 @@ marks, room numbers, and words in the notes, legends and title block. Do not gue
 confidence is left out. An empty list of tags is a correct answer for a pattern the sheet does not show."""
 
 STEP = ("Answer with JSON only, in the schema given: {\"patterns\": [{\"pattern\", \"tiles_examined\", \"tags\": "
-        "[{\"text\", \"count\", \"boxes\": [{\"tile\", \"x\", \"y\", \"width\", \"height\"}]}]}]}, one entry per "
+        "[{\"text\", \"count\", \"boxes\": [{\"tile\", \"x\", \"y\", \"width\", \"height\"}]}], "
+        "\"untagged_symbols\"}]}, one entry per "
         "pattern asked, each with every tile number in tiles_examined.")
 
 _BOX = {
