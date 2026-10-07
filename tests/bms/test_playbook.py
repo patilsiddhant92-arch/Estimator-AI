@@ -96,3 +96,137 @@ def test_public_per_file_loaders():
 
     wording = load_wording(SAMPLE_PLAYBOOK / "wording.json")
     assert wording.verbs
+
+
+# ---- PBK-1: every wording form is checked; PBK-5: a BOM is read through -----------------------------------------
+
+import json  # noqa: E402
+
+from bms.playbook import DEFAULT_ROOT  # noqa: E402
+
+
+def _shipped_copy(tmp_path) -> Path:
+    folder = tmp_path / "pb"
+    folder.mkdir()
+    for name in ("rules.md", "shapes.json", "wording.json"):
+        shutil.copyfile(DEFAULT_ROOT / name, folder / name)
+    return folder
+
+
+def _edit_json(folder: Path, name: str, change) -> None:
+    path = folder / name
+    data = json.loads(path.read_text(encoding="utf-8"))
+    change(data)
+    path.write_text(json.dumps(data, indent=2), encoding="utf-8")
+
+
+def _first_slot(data) -> tuple[dict, str]:
+    shape = data["shapes"][0]
+    slot = next(s for s in shape["line_order"] if "{device}" in shape["wording"][s])
+    return shape, slot
+
+
+def _set_quantity_line(d):
+    d["quantity"]["line"] = " (Qty. {count} Total)"
+
+
+def _set_header_count(d):
+    d["header"]["count"] = "{N}"
+
+
+def _set_unclosed_with_others(d):
+    shape, slot = _first_slot(d)
+    shape["wording"][slot] = "{verb} {device{owner}{qty}"
+
+
+def _set_unclosed_alone(d):
+    shape, slot = _first_slot(d)
+    shape["wording"][slot] = "Interlock with Associated {device Operation"
+
+
+def _set_misspelt_device(d):
+    shape, slot = _first_slot(d)
+    shape["wording"][slot] = "{verb} {devcie}{owner}{qty}"
+
+
+def _set_header_tag(d):
+    d["shapes"][0]["header"] = "Qty ({n}) {name} {tag}"
+
+
+def _set_others_note(d):
+    d["quantity"]["others_note"] = "*Qty. {count}."
+
+
+def _set_bracket_no_space(d):
+    d["owner_brackets"]["Others"] = "(Furnished by Others)"
+
+
+PBK1_EDITS = [
+    ("wording.json", _set_quantity_line, "quantity.line"),
+    ("wording.json", _set_header_count, "header.count"),
+    ("shapes.json", _set_unclosed_with_others, "wording"),
+    ("shapes.json", _set_unclosed_alone, "wording"),
+    ("shapes.json", _set_misspelt_device, "devcie"),
+    ("shapes.json", _set_header_tag, "tag"),
+    ("wording.json", _set_others_note, "others_note"),
+    ("wording.json", _set_bracket_no_space, "owner_brackets"),
+]
+
+
+@pytest.mark.parametrize("name, change, field", PBK1_EDITS, ids=[e[1].__name__ for e in PBK1_EDITS])
+def test_pbk1_a_wrong_wording_form_is_refused_at_load(tmp_path, name, change, field):
+    """PBK-1: each of these edits used to load and lint clean, then crash the render or print wrong client text."""
+    folder = _shipped_copy(tmp_path)
+    _edit_json(folder, name, change)
+    with pytest.raises(PlaybookError) as exc_info:
+        load_playbook(folder)
+    msg = str(exc_info.value)
+    assert name in msg
+    assert field in msg
+
+
+def test_pbk1_more_forms_checked(tmp_path):
+    """A verb on a sub-line slot, a clarification form with no {text}, a causes form with no {causes}, a
+    positional {} and a format spec are all refused."""
+    def under_verb(d):
+        shape = next(s for s in d["shapes"] if s.get("under"))
+        slot = next(iter(shape["under"]))
+        shape["wording"][slot] = "{verb} {device}"
+
+    def no_text(d):
+        d["clarifications"]["confirm"] = "*Confirm"
+
+    def no_causes(d):
+        d["count_causes"]["form"] = "(likely)"
+
+    def positional(d):
+        d["clarifications"]["note"] = "**{text} {}"
+
+    def spec(d):
+        d["quantity"]["line"] = " (Qty. {n:>3} Total)"
+
+    for name, change in (("shapes.json", under_verb), ("wording.json", no_text), ("wording.json", no_causes),
+                         ("wording.json", positional), ("wording.json", spec)):
+        folder = tmp_path / change.__name__
+        folder.mkdir()
+        for file in ("rules.md", "shapes.json", "wording.json"):
+            shutil.copyfile(DEFAULT_ROOT / file, folder / file)
+        _edit_json(folder, name, change)
+        with pytest.raises(PlaybookError, match=name):
+            load_playbook(folder)
+
+
+def test_pbk1_the_shipped_playbook_still_loads():
+    playbook = load_playbook(DEFAULT_ROOT)
+    assert playbook.shapes and playbook.wording.quantity["line"]
+
+
+@pytest.mark.parametrize("name", ["rules.md", "shapes.json", "wording.json"])
+def test_pbk5_a_file_saved_with_a_bom_loads(tmp_path, name):
+    """PBK-5: Windows editors save UTF-8 with a BOM; the loader reads it as the lint does, and no BOM reaches the AI."""
+    folder = _shipped_copy(tmp_path)
+    path = folder / name
+    path.write_bytes(b"\xef\xbb\xbf" + path.read_bytes())
+    playbook = load_playbook(folder)
+    assert "\ufeff" not in playbook.rules_text
+    check_file(path)
