@@ -579,3 +579,19 @@ def test_a_controls_spec_with_no_highlight_article_says_so_without_a_pointer(tmp
     assert "above" not in spec
     assert "No controls spec section found" not in spec
     assert "23 09 93 SEQUENCE OF OPERATIONS, Specs.pdf" in spec
+
+
+def test_the_same_keynote_on_the_same_sheet_of_two_documents_is_given_twice_with_two_sources(tmp_path):
+    """LDG-9: building B's M-101 carries the same note text as building A's; each one is its own fact."""
+    catalogue, reading = _job()
+    other = "Drawings/BuildingB.pdf"
+    catalogue.sheets = catalogue.sheets + (_sheet(1, "M-101", "FIRST FLOOR PLAN", document=other),)
+    text = "PROVIDE A DUCT SMOKE DETECTOR RELAY FOR AHU-9."
+    reading.notes = tuple(reading.notes) + (Note("M-101", DWG, 1, "KEY NOTES", "9", text, True, ""),
+                                            Note("M-101", other, 1, "KEY NOTES", "9", text, True, ""))
+    d = build_dossier(catalogue, reading, tmp_path)
+    part = d.text.split("== 7. NOTES ==")[1].split("--- 7b PLAN SHEET NOTES ---")[0]
+    lines = [ln for ln in part.splitlines() if text in ln]
+    assert len(lines) == 2
+    ids = {re.match(r"\[(S\d+)\]", ln).group(1) for ln in lines}
+    assert len(ids) == 2 and all(sid in d.sources for sid in ids)

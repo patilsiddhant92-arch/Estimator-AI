@@ -1168,7 +1168,7 @@ def _notes_section(catalogue, reading, ids: _Ids) -> list[str]:
     for note in reading.notes:
         if not note.controls:
             continue
-        key = (note.sheet, note.block, note.number, note.text)
+        key = (note.document, note.page, note.sheet, note.block, note.number, note.text)
         if key in seen:
             continue
         seen.add(key)
@@ -1191,7 +1191,7 @@ def _plan_sheet_notes(catalogue, reading, ids: _Ids, given: set) -> list[str]:
     for note in reading.notes:
         if disciplines.get((note.document, note.page)) not in PLAN_NOTE_DISCIPLINES:
             continue
-        key = (note.sheet, note.block, note.number, note.text)
+        key = (note.document, note.page, note.sheet, note.block, note.number, note.text)
         if key in seen:
             continue
         seen.add(key)
