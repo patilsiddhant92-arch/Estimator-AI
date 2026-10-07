@@ -230,6 +230,7 @@ def unlisted_prefixes(texts: Iterable[str], equipment: Equipment) -> Counter:
 DECIMAL_TYPE = re.compile(r"^[A-Z]+-\d+\.\d+$")    # AC-3.0, HRU-4.0: a size, not a unit number
 _TYPE_FORM = re.compile(r"-[A-Z]{1,2}$", re.I)     # CUH-A, EBB-B: a type's tag, no unit number in it
 _LABEL_NOISE = re.compile(r"^\((?:N|NEW)\)\s*|\s*\(?\s*TYP(?:ICAL)?\.?\s*\)?$", re.I)
+_DIGIT_BREAK = re.compile(r"(?<=\d)[\s\-‐‑–—]+(?=\d)")   # the break between two digit groups: "VAV-1-11", "VAV 1 - 11"
 _BUBBLE_HEAD = re.compile(r"\s*[A-Z]{1,6}\s*")
 # beside tags on one line, what is no word of a note: a symbol's letter (T, S), a number (450), (E), TYP, AND.
 _LABEL_FILLER = re.compile(r"\W*(?:[A-Z0-9]|\d+|TYP(?:ICAL)?|NEW|EXIST(?:ING)?|AND)\W*", re.I)
@@ -262,8 +263,10 @@ def is_type_tag(tag: str) -> bool:
 
 
 def label_key(text: str) -> str:
-    """A label's spelling-free key: "VAV-1", "VAV 1", "(N) VAV-1" and "VAV-1 TYP." are all VAV1."""
-    return re.sub(r"[\s\-‐‑–—#]", "", _LABEL_NOISE.sub("", text.strip())).upper()
+    """A label's spelling-free key: "VAV-1", "VAV 1", "(N) VAV-1" and "VAV-1 TYP." are all VAV1. The break between two
+    digit groups stays (VAV-1-11 is VAV1-11, VAV-11-1 is VAV11-1), so two different tags never share a key."""
+    t = _DIGIT_BREAK.sub("|", _LABEL_NOISE.sub("", text.strip()))      # "|" stands for the kept break
+    return re.sub(r"[\s\-‐‑–—#]", "", t).replace("|", "-").upper()
 
 
 def label_keys(tags: Iterable[str]) -> dict[str, str]:
