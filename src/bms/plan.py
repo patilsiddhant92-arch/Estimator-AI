@@ -1180,9 +1180,9 @@ def _exceptions(planner: _Planner, systems: list[System], drafts: list[_Draft]) 
 
 def _unmatched_sections(planner: _Planner, drafts: list[_Draft]) -> list[str]:
     used = {m.id for d in drafts for m in d.matches}
-    sections: dict[str, list[Fact]] = {}
+    sections: dict[str, list[Fact]] = {}        # by section id: a heading can repeat under each system
     for fact in planner.ledger.of_kind("sequence_match"):
-        sections.setdefault(squash(fact.subject).casefold(), []).append(fact)
+        sections.setdefault(fact.source_id, []).append(fact)
     asks, general = [], []
     for facts in sections.values():
         if any(f.id in used for f in facts):
