@@ -9,7 +9,7 @@ import re
 
 from estimator.ledger.facts import Fact
 
-from bms.plan_read import FamilyFacts, Reader, expand, squash
+from bms.plan_read import FamilyFacts, Reader, expand, names_in, squash
 
 _OUTSIDE_BRACKETS = re.compile(r",(?![^()]*\))")
 _MEMBER = re.compile(r"^([^()]*?)\s*\(([^()]*)\)$")
@@ -85,15 +85,23 @@ def parts(reader: Reader, groups: list[Fact]) -> dict[str, list[Claim]]:
 
 
 def stated(reader: Reader, group: Fact) -> dict[str, tuple[int, tuple[Fact, ...]]]:
-    """The unit counts the group fact and the link facts give a tag ("HRU-3 x3"), by tag in capitals: every
-    mention summed, within a fact and across the facts, each fact read once."""
+    """The unit counts the group fact and the link facts about it give a tag ("HRU-3 x3"), by tag in capitals: every
+    mention summed, within a fact and across the facts, each fact read once. A link is about the group when its
+    subject or value names the group or a tag of its members; a link's "TAG xN" that repeats one the group fact
+    itself states is the same units, not more, and is not added again."""
+    named = [squash(group.subject)] + [t for family, tags in members(reader, group) for t in (tags or family.tags)]
+    own = {(m.group(1).upper(), int(m.group(2))) for m in _TAG_TIMES.finditer(squash(group.value))}
     found: dict[str, tuple[int, tuple[Fact, ...]]] = {}
     for fact in (group, *reader.ledger.of_kind("link")):
         text = squash(fact.value) if fact is group else f"{squash(fact.subject)} {squash(fact.value)}"
+        if fact is not group and not names_in(named, text):
+            continue
         for m in _TAG_TIMES.finditer(text):
-            tag = m.group(1).upper()
+            tag, n = m.group(1).upper(), int(m.group(2))
+            if fact is not group and (tag, n) in own:
+                continue
             total, facts = found.get(tag, (0, ()))
-            found[tag] = (total + int(m.group(2)), facts if fact in facts else facts + (fact,))
+            found[tag] = (total + n, facts if fact in facts else facts + (fact,))
     return found
 
 

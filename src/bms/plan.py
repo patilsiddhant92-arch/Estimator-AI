@@ -350,7 +350,7 @@ class _Planner:
                 elif used:
                     count = Count(number, tuple(dict.fromkeys(reader.fact_ref(f) for f in used)))
                 else:
-                    count = Count(number, family.count.sources)
+                    count = _reduced(family.count, number)       # one per tag; _rest asks with both numbers
                 families.append(_Fam(family.name, tags, count, family))
         prefixes = [f.source.prefix for f in families if f.source is not None]
         member_words = " ".join(f"{f.prefix} {f.name}" for f, _ in members(reader, group))
@@ -365,7 +365,8 @@ class _Planner:
         """The family as a system of its own: whole when no group took it; the tags no group listed when groups
         took parts of it, its count the family's less the parts' when both are known and at least one per
         remaining tag is left, else the family's count unchanged (never undershoot). None when groups took it
-        all."""
+        all. A count made smaller here (the rest's, or a part's counted one per tag from the family's count) is
+        asked, naming the family's numbers and each part's, so both numbers are always in front of the estimator."""
         draft = self._single(family)
         if not claims:
             return draft
@@ -373,12 +374,29 @@ class _Planner:
             return None
         taken = {t.upper() for _, tags in claims for t in tags}
         left = tuple(t for t in family.tags if t.upper() not in taken)
+        count = family.count
+        results = [part_count(self.reader, family, tags, group) for group, tags in claims]
+        numbers = [n for n, _ in results]
+        new = None
+        if left and count.value is not None and None not in numbers and count.value - sum(numbers) >= len(left):
+            new = count.value - sum(numbers)
+        from_family = any(n is not None and not used for n, used in results)
+        if count.value is not None and (new is not None or from_family):
+            parts_said = "; ".join(
+                f"“{_group_name(self.reader, group)}” takes {n if n is not None else 'an unknown number'} "
+                f"({tag_words(tags)})" for (group, tags), n in zip(claims, numbers))
+            if not left:
+                rest = ""
+            elif new is not None:
+                rest = f", so the rest ({tag_words(left)}) prints {new}"
+            else:
+                rest = f"; the rest ({tag_words(left)}) keeps {count.value}, as no smaller count is sure"
+            self.questions.append(f"{family.name} ({family.prefix}): {_came_from(count, new or 0)}; {parts_said}"
+                                  f"{rest}. Confirm the counts.")
         if not left:
             return None
-        count = family.count
-        numbers = [part_count(self.reader, family, tags, group)[0] for group, tags in claims]
-        if count.value is not None and None not in numbers and count.value - sum(numbers) >= len(left):
-            count = Count(count.value - sum(numbers), count.sources)
+        if new is not None:
+            count = _reduced(count, new)
         draft.families = [_Fam(family.name, left, count, family)]
         return draft
 
@@ -411,8 +429,8 @@ class _Planner:
             left = tuple(t for t in fam.tags if t not in gone)
             count = fam.count
             if count.value is not None and count.value == len(fam.tags):
-                count = Count(len(left), count.sources, count.others)
-                said = f"its count is {len(left)}, one per tag left"
+                said = f"its count is {len(left)}, one per tag left, from {_came_from(count, len(left))}"
+                count = _reduced(count, len(left))
             else:
                 said = (f"its count of {count.value} is kept as the documents give it; confirm it does not include "
                         "them" if count.value is not None else "its count is not known")
@@ -672,7 +690,7 @@ class _Planner:
         out: list[_Draft] = []
         for draft in drafts:
             if draft.kind != "single":
-                draft.families = self._less_dampers(draft.families, links_of)
+                draft.families = self._less_dampers(draft, links_of, drafts, claims)
             if id(draft) in claims:
                 for prefix, links in claims[id(draft)].items():
                     draft.families.append(self._damper_family(prefix, links))
@@ -731,17 +749,27 @@ class _Planner:
             out.append((Fact(f"{entry.sid}:link", "link", tag, rest, entry.sid, squash(body), "schedules"), named[0]))
         return out
 
-    def _less_dampers(self, families: list[_Fam], links_of: dict[str, list[Fact]]) -> list[_Fam]:
+    def _less_dampers(self, draft: _Draft, links_of: dict[str, list[Fact]], drafts: list[_Draft],
+                      claims: dict) -> list[_Fam]:
+        """A group's damper families less the dampers a fan claims; a count made smaller is asked, with both
+        numbers."""
         kept = []
-        for fam in families:
-            links = links_of.get(fam.source.prefix.upper(), []) if fam.source is not None and not fam.moved else []
+        for fam in draft.families:
+            prefix = fam.source.prefix.upper() if fam.source is not None and not fam.moved else ""
+            links = links_of.get(prefix, []) if prefix else []
             if links and fam.count.value is not None:
                 left = fam.count.value - len(links)
                 if left <= 0:
                     continue
                 claimed = {self.link_tag(l).upper() for l in links}
-                fam = _Fam(fam.name, tuple(t for t in fam.tags if t.upper() not in claimed), Count(left, fam.count.sources),
-                           fam.source)
+                tags = tuple(t for t in fam.tags if t.upper() not in claimed)
+                owners = [d.key for d in drafts if id(d) in claims and prefix in claims[id(d)]]
+                self.questions.append(
+                    f"{fam.name} ({fam.source.prefix}) in {draft.name}: {_came_from(fam.count, left)}; {len(links)} "
+                    f"{'is' if len(links) == 1 else 'are'} planned under {'its' if len(links) == 1 else 'their'} fan "
+                    f"in {', '.join(owners) or 'another block'}, so the {draft.name} block keeps {left}"
+                    f"{f' ({tag_words(tags)})' if tags else ''}. Confirm the count.")
+                fam = _Fam(fam.name, tags, _reduced(fam.count, left), fam.source)
             kept.append(fam)
         return kept
 
@@ -757,9 +785,11 @@ class _Planner:
             left = total - len(links)
             if left <= 0:
                 return None
-            count = Count(left, family.count.sources)
+            count = _reduced(family.count, left)
+            also = _also(family.count, left)
             self.questions.append(
-                f"{family.name} ({draft.key}): {left} of the {total} are linked to no fan; {len(links)} are "
+                f"{family.name} ({draft.key}): {left} of the {total} are linked to no fan"
+                f"{f' (the documents also give {also})' if also else ''}; {len(links)} are "
                 f"under {', '.join(owners)}. Which equipment do the other {left} serve? "
                 f"See {', '.join(sheets) or 'the plans'}.")
         else:
@@ -1006,6 +1036,31 @@ _SPECIFIC_WORDS = 6
 _ACRONYMS = frozenset({"IT", "VRF", "ERV", "RTU", "HPAC", "DDC", "BMS", "VFD", "CO", "NO", "FSD", "MUAF", "DXF", "UH",
                        "EUH", "EDH", "AHU", "VAV"})
 _PLURAL_KINDS = frozenset({"fans", "pumps", "units", "dampers", "devices", "coils", "valves"})
+
+
+def _reduced(count: Count, new: int) -> Count:
+    """A family's count made smaller for one block (a group's part, the rest after the parts, the dampers no fan
+    took): `new` prints, citing the sources of the number it came from. The family's other counts below `new` are
+    kept; those at or above it are whole-family numbers that would print in its place (the highest prints), so they
+    leave `others`; the planner's question names them and the number it came from (`_came_from`)."""
+    return Count(new, count.sources, tuple(o for o in count.others if o.value < new))
+
+
+def _places(refs) -> str:
+    """The sheets the refs are on ("M-501"), else "the documents"."""
+    sheets = list(dict.fromkeys(r.where.split(",")[0].strip() for r in refs if r.where))
+    return " and ".join(sheets) or "the documents"
+
+
+def _also(count: Count, new: int) -> str:
+    """The family's other counts a reduction to `new` takes out of `others` ("9 per M-101"), "" when none."""
+    return ", ".join(f"{o.value} per {_places((o.ref,))}" for o in count.others if o.value >= new)
+
+
+def _came_from(count: Count, new: int) -> str:
+    """The numbers a reduced count came from, as a question says them: "10 per M-501 (also 9 per M-101)"."""
+    also = _also(count, new)
+    return f"{count.value} per {_places(count.sources)}" + (f" (also {also})" if also else "")
 
 
 def _same_name(name: str) -> str:
