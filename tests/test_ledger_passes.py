@@ -365,3 +365,16 @@ def test_plans_and_risers_ask_for_short_names_and_a_note_for_the_reasons():
         assert ("the family's prefix as the note's subject (never \"question\" or \"general\")"
                 in pass_.instructions)
         assert "note" in pass_.kinds
+
+
+def test_an_id_only_written_in_document_text_is_refused_not_a_crash():
+    """A bracketed id inside a document's own words ("per detail [M5]") is in the prompt but is not a source the
+    ledger holds: an answer citing it is refused, and the ledger is left as it was."""
+    ledger = seed(_dossier())
+    before = (dict(ledger.facts), dict(ledger.sources))
+    refused = apply(pass_named("plans"), ledger, _answer(
+        facts=[{"kind": "location", "subject": "VAV", "value": "floor 1", "source_id": "[M5]", "quote": "per detail [M5]"}],
+        contradictions=[{"fact_id": "F1", "value": "2", "source_id": "[M5]", "quote": "per detail [M5]"}]),
+        _known(ledger) | {"M5"})
+    assert len(refused) == 2 and all("[M5]" in r for r in refused)
+    assert (dict(ledger.facts), dict(ledger.sources)) == before
