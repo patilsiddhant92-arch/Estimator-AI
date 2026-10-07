@@ -446,6 +446,29 @@ def _refused(system, dossier, playbook, answer, **kw) -> str:
     return refused.value.reason
 
 
+def _with_no_source_other(system):
+    """The system with a count record the plan check gave without a source (an empty Ref id, bms.counts)."""
+    from bms.counts import NO_SOURCE_QUOTE
+    from bms.model import OtherCount
+    family, *rest = system.families
+    count = dataclasses.replace(family.count, others=family.count.others + (OtherCount(9, Ref("", NO_SOURCE_QUOTE, "")),))
+    return dataclasses.replace(system, families=(dataclasses.replace(family, count=count), *rest))
+
+
+def test_a_count_with_no_source_prints_no_empty_fact_in_the_evidence(job, dossier):
+    system = _with_no_source_other(skeleton(job.system("EF")))
+    text = ai.evidence_for(system, dossier)
+    assert not [line for line in text.splitlines() if line.startswith("[]")]
+    assert "the count before the plan check" not in text
+
+
+def test_a_device_citing_an_empty_source_id_is_refused(job, raw, dossier, playbook):
+    system = _with_no_source_other(skeleton(job.system("EF")))
+    answer = _bad(raw, lambda a: a["devices"][0].update(refs=[{"source_id": "", "quote": "x", "where": "y"}]))
+    reason = _refused(system, dossier, playbook, answer)
+    assert "not in this system's evidence" in reason
+
+
 def test_a_source_id_in_client_text_is_refused_not_rewritten(job, raw, dossier, playbook):
     def change(a):
         a["devices"][2]["assumption"] = {"what": "one damper per fan", "why": "as shown on [S7]"}

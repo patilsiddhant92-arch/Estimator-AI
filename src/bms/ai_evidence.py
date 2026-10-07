@@ -224,7 +224,10 @@ def evidence(system: System, text: str, sources: dict[str, str], sections: dict,
             out.extend(lines)
 
     # 0. what the planner cited that is not a passage of the dossier (ledger facts)
+    # (the plan count check's own records have no source id or carry its record quotes: not facts of the ledger)
+    from bms.counts import LOCATED_QUOTE, NO_SOURCE_QUOTE, SEEN_QUOTE
     facts = [r for r in system_refs(system) if r.source_id.strip("[] ") not in ids_in_text
+             and r.source_id.strip("[] ") and r.quote not in (LOCATED_QUOTE, SEEN_QUOTE, NO_SOURCE_QUOTE)
              and not r.source_id.strip("[] ").startswith(("Q", "I"))]
     if facts:
         out += ["", "Ledger facts the planner cited for this system:"]
