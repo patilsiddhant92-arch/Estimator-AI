@@ -172,8 +172,8 @@ def test_known_sheets_after_a_sheet_word_print_with_no_finding(job):
 def test_r4_a_writers_where_naming_an_issued_id_after_a_sheet_word_prints_no_place(job):
     j = _other_count(job, "Sheet S141, Mechanical.pdf page 3")
     printed = _ef_lines(j)
-    # the count with no place is left out of the quantity note; here that leaves no other count, so no note
-    assert "per M-001" not in printed, printed
+    # (ruling D6, 2026-10-07)
+    assert "*Qty. (2) per M-001; 1 elsewhere in the documents." in printed, printed
     assert not _prints(printed, "S141"), printed
     assert "per ;" not in printed and "per )" not in printed and not re.search(r"\bper\s*$", printed), printed
 

@@ -101,7 +101,7 @@ def test_unknown_count_prints_hashes_and_quantity_unknown(draft):
 def test_confirm_note_and_count_note_for_vrf(draft):
     notes = [l.text for l in draft.lines if l.system_key == "VRF" and l.kind == "note"]
     assert notes == ["*Branch selector count: 2 on the plan picture, 1 on the schedule - to be confirmed",
-                     "*Qty. (2) per M-102; 1 per M-002."]
+                     "*Qty. Branch Selector (2) per M-102; 1 per M-002."]   # (ruling D6, 2026-10-07)
 
 
 def test_front_end_exceptions_and_alternates(draft):
@@ -709,8 +709,9 @@ def test_count_note_places_are_human_labels_never_the_documents():
                           OtherCount(12, Ref("S4", "plan placements 12", counts_line)),
                           OtherCount(9, Ref("S5", "schedule rows 9", counts_line)),
                           OtherCount(2, Ref("S6", "counted on the sheet picture", "pictures of the invented set"))))
-    assert _note(count) == ["*Qty. (16) per Q-100.00; 12 per plan placements; 9 per schedule rows; "
-                            "6 per the riser; 2 per the sheet pictures."]
+    # (ruling D6, 2026-10-07)
+    assert _note(count) == ["*Qty. (16) per Q-100.00; 15 elsewhere in the documents; 12 per plan placements; "
+                            "9 per schedule rows; 6 per the riser; 2 per the sheet pictures."]
 
 
 def test_count_note_reads_the_counts_line_part_that_gives_the_value():
