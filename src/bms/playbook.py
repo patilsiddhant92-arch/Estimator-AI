@@ -82,11 +82,15 @@ class Wording:
     integration_trio: tuple[str, ...]               # the three lines; {what} names the equipment
     integration_depths: tuple[int, ...]
     clarifications: dict[str, str]                  # kind -> "*{text} …"
-    header: dict[str, str]                          # count, unknown_count, tags_joiner
-    quantity: dict[str, str]                        # line, unknown, others_note (unlabelled)
+    header: dict[str, str]                          # count, unknown_count, tags_joiner (generic)
+    quantity: dict[str, str]                        # line, unknown, others_note (unlabelled, per, and, joiner)
     draft: tuple[str, ...] = ()
     count_causes: dict[str, str] = field(default_factory=dict)   # form, joiner and each cause's client words
     alternate_label: str = ""                       # optional "ALT #{k}: {name}" form; "" = the renderer's own
+    # the optional keys below: each one left out keeps the renderer's own words (bms.render), so the text is unchanged
+    quantity_labels: dict[str, str] = field(default_factory=dict)  # quantity.labels: what a count's quote counted
+    assumption: dict = field(default_factory=dict)  # because (text), leads (texts): an assumption's reason words
+    casing: dict = field(default_factory=dict)      # acronyms, small_words, not_plural (texts); acronym_before
 
 
 @dataclass(frozen=True)
@@ -282,6 +286,15 @@ def _form(text, where: str, path: Path, allowed, required=()) -> str:
     return text
 
 
+# wording.json's optional keys (RND-14): bms.render keeps its own words for each one left out
+HEADER_OPTIONAL = ("generic",)                                  # the header of a system with no shape
+QUANTITY_OPTIONAL = ("unlabelled", "per", "and", "joiner")      # the count note's words and joiners
+COUNT_LABEL_KEYS = ("plan_placements", "schedule_rows", "schedule", "riser", "sheet_pictures")   # quantity.labels
+ASSUMPTION_KEYS = ("because", "leads")
+CASING_KEYS = ("acronyms", "small_words", "not_plural", "acronym_before")
+_WORD = re.compile(r"[A-Za-z][A-Za-z0-9]*")
+_LOWER_WORD = re.compile(r"[a-z]+")
+
 # what bms.render fills each form with (its `_fill` / `format` calls)
 HEADER_FIELDS = ("n", "name", "tags")
 LINE_FIELDS = ("verb", "device", "owner", "qty", "what")
@@ -445,19 +458,31 @@ def load_wording(path: Path) -> Wording:
     for kind, form in forms.items():
         _form(form, f"clarifications.{kind}", path, ("text",), required=("text",))
     header = _text_map(data["header"], "header", path)
-    if set(header) != {"count", "unknown_count", "tags_joiner"}:
-        raise PlaybookError(f"{path.name}: header must have exactly count, unknown_count and tags_joiner")
+    if not {"count", "unknown_count", "tags_joiner"} <= set(header) <= {"count", "unknown_count", "tags_joiner",
+                                                                         *HEADER_OPTIONAL}:
+        raise PlaybookError(f"{path.name}: header must have exactly count, unknown_count and tags_joiner "
+                            "(and, optionally, generic)")
     _form(header["count"], "header.count", path, ("n",), required=("n",))
     _form(header["unknown_count"], "header.unknown_count", path, ())
-    quantity = _text_map(data["quantity"], "quantity", path)
-    if not {"line", "unknown", "others_note"} <= set(quantity) <= {"line", "unknown", "others_note", "unlabelled"}:
+    if "generic" in header:               # the header of a system with no shape (bms.render.GENERIC_HEADER)
+        _form(header["generic"], "header.generic", path, HEADER_FIELDS, required=("n",))
+    raw_quantity, labels = data["quantity"], {}
+    if isinstance(raw_quantity, dict) and "labels" in raw_quantity:
+        raw_quantity = dict(raw_quantity)
+        labels = _count_labels(raw_quantity.pop("labels"), path)
+    quantity = _text_map(raw_quantity, "quantity", path)
+    if not {"line", "unknown", "others_note"} <= set(quantity) <= {"line", "unknown", "others_note",
+                                                                    *QUANTITY_OPTIONAL}:
         raise PlaybookError(f"{path.name}: quantity must have exactly line, unknown and others_note "
-                            "(and, optionally, unlabelled)")
+                            "(and, optionally, unlabelled, per, and, joiner and labels)")
     _form(quantity["line"], "quantity.line", path, ("n",), required=("n",))
     _form(quantity["unknown"], "quantity.unknown", path, ())
     _form(quantity["others_note"], "quantity.others_note", path, ("counts",), required=("counts",))
-    if "unlabelled" in quantity:          # a count note's words for a count with no place (bms.render.UNLABELLED)
-        _form(quantity["unlabelled"], "quantity.unlabelled", path, ())
+    for key in QUANTITY_OPTIONAL:         # the count note's words (bms.render.UNLABELLED, COUNT_PER, ...)
+        if key in quantity:
+            _form(quantity[key], f"quantity.{key}", path, ())
+            if key != "unlabelled" and not quantity[key].strip():
+                raise PlaybookError(f"{path.name}: quantity.{key} must not be blank (it joins the count note)")
     causes = _text_map(data["count_causes"], "count_causes", path)
     if set(causes) != set(COUNT_CAUSE_KEYS):
         raise PlaybookError(f"{path.name}: count_causes must have exactly {', '.join(COUNT_CAUSE_KEYS)}")
@@ -468,7 +493,78 @@ def load_wording(path: Path) -> Wording:
     alternate_label = data.get("alternate_label", "")          # optional: the renderer keeps its own form without it
     if not isinstance(alternate_label, str) or (alternate_label and "{k}" not in alternate_label):
         raise PlaybookError(f"{path.name}: alternate_label must be a text holding {{k}}")
-    return Wording(verbs, brackets, lines, tuple(depths), forms, header, quantity, draft, causes, alternate_label)
+    return Wording(verbs, brackets, lines, tuple(depths), forms, header, quantity, draft, causes, alternate_label,
+                   labels, _assumption(data.get("assumption", {}), path), _casing(data.get("casing", {}), path))
+
+
+def _count_labels(raw, path: Path) -> dict[str, str]:
+    """quantity.labels (optional): the count note's words for what a count's quote counted, by kind; a kind left
+    out keeps the renderer's own words (bms.render.COUNT_LABELS)."""
+    labels = _text_map(raw, "quantity.labels", path)
+    extra = sorted(set(labels) - set(COUNT_LABEL_KEYS))
+    if extra:
+        raise PlaybookError(f"{path.name}: quantity.labels: unknown {', '.join(extra)} "
+                            f"(allowed: {', '.join(COUNT_LABEL_KEYS)})")
+    for key, text in labels.items():
+        _form(text, f"quantity.labels.{key}", path, ())
+        if not text.strip():
+            raise PlaybookError(f"{path.name}: quantity.labels.{key} must not be blank")
+    return labels
+
+
+def _assumption(raw, path: Path) -> dict:
+    """assumption (optional): `because`, the words put before an assumption's reason ("<what>, because <why>"), and
+    `leads`, the words a reason may already start with (then nothing is put before it)."""
+    if not isinstance(raw, dict):
+        raise PlaybookError(f"{path.name}: assumption must be an object")
+    extra = sorted(set(raw) - set(ASSUMPTION_KEYS))
+    if extra:
+        raise PlaybookError(f"{path.name}: assumption: unknown {', '.join(extra)} "
+                            f"(allowed: {', '.join(ASSUMPTION_KEYS)})")
+    out: dict = {}
+    if "because" in raw:
+        _form(raw["because"], "assumption.because", path, ())
+        if not raw["because"].strip():
+            raise PlaybookError(f"{path.name}: assumption.because must not be blank")
+        out["because"] = raw["because"]
+    if "leads" in raw:
+        out["leads"] = _strings(raw["leads"], "assumption.leads", path, allow_empty=False)
+        for n, lead in enumerate(out["leads"]):
+            _form(lead, f"assumption.leads[{n}]", path, ())
+    return out
+
+
+def _casing(raw, path: Path) -> dict:
+    """casing (optional): the house casing of names. acronyms: the words printed in their own spelling (BMS,
+    BACnet); small_words: the lower-case joining words left lower case after the first word; not_plural: the
+    lower-case words ending in s that are not plurals; acronym_before: a lower-case word that is also an ordinary
+    word -> the words it must come before to print upper case ("co" before "sensor" -> CO)."""
+    if not isinstance(raw, dict):
+        raise PlaybookError(f"{path.name}: casing must be an object")
+    extra = sorted(set(raw) - set(CASING_KEYS))
+    if extra:
+        raise PlaybookError(f"{path.name}: casing: unknown {', '.join(extra)} (allowed: {', '.join(CASING_KEYS)})")
+    out: dict = {}
+    for key, pattern, kind in (("acronyms", _WORD, "one word of letters and digits"),
+                               ("small_words", _LOWER_WORD, "one lower-case word"),
+                               ("not_plural", _LOWER_WORD, "one lower-case word")):
+        if key in raw:
+            words = _strings(raw[key], f"casing.{key}", path)
+            if not all(pattern.fullmatch(w) for w in words):
+                raise PlaybookError(f"{path.name}: casing.{key}: each entry must be {kind}")
+            out[key] = words
+    if "acronym_before" in raw:
+        before = raw["acronym_before"]
+        if not isinstance(before, dict):
+            raise PlaybookError(f"{path.name}: casing.acronym_before must map a word to the words it comes before")
+        out["acronym_before"] = {}
+        for word, following in before.items():
+            words = _strings(following, f"casing.acronym_before.{word}", path, allow_empty=False)
+            if not _LOWER_WORD.fullmatch(word) or not all(_LOWER_WORD.fullmatch(w) for w in words):
+                raise PlaybookError(f"{path.name}: casing.acronym_before: {word!r} and the words it comes before "
+                                    "must be lower-case words")
+            out["acronym_before"][word] = words
+    return out
 
 
 _load_wording = load_wording
