@@ -19,19 +19,20 @@ dependency without the controller (`jsonschema` and `yaml` are not installed —
 |---|---|---|
 | `src/bms/__init__.py` | package | controller |
 | `src/bms/model.py` | Job model, enumerations, JSON round-trip, JSON Schema, schema check | controller |
-| `src/bms/playbook.py` | Playbook loader and checks, `shape_for` | controller |
+| `src/bms/playbook.py` | Playbook loader and checks, `shape_for`, `strip_comments` (rules.md as the loader reads it: comments out, sample marks kept, line breaks kept), `SAMPLE_PATTERN` (the sample mark as written, spaces or none) | controller |
 | `src/bms/plan.py` | `plan_job` | workstream 2 |
 | `src/bms/validate.py` | `validate` | workstream 3 |
-| `src/bms/render.py` | `render`, `ProposalDraft`, `RenderedLine` | workstream 4 |
-| `src/bms/ai.py` | `write_system`, `rewrite_for_count`, `qc_job`, `revise_system`, `evidence_for`, `evidence_index`, transports | workstream 5 |
+| `src/bms/render.py` | `render`, `ProposalDraft`, `RenderedLine`, `line_form(device, shape, playbook) -> str` (the wording a device's line prints with), `printed_texts(system, shape, playbook, ids) -> [(device id, text)]` (each line a system prints, in print order; the validator's line-length check reads it) | workstream 4 |
+| `src/bms/ai.py` | `write_system`, `rewrite_for_count`, `qc_job`, `revise_system`, `evidence_for`, `evidence_index`, `quote_findings(job, evidence_index, playbook) -> [Finding]` (the QC pass's mechanical quote check alone), `CITES_RULE` (the rule that check reports under), transports | workstream 5 |
 | `src/bms/citations.py` | source ids in client text: `SourceIds` (`scan`, `refusal`, `without_issued`; `source_sheets`, FINAL-J), `job_tags`, `job_ids`, `job_sheets`, `source_sheets`, `tag_tokens`, `plan_refs`, `ref_sheets`, the clarification labels | controller |
+| `src/bms/counts_vision.py` | the whole-sheet picture question and its answer checks, among them `misplaced(answer, rects) -> [str]` (one problem per pattern that counts tags but places no box in a tile sent) and `untagged(answer, patterns) -> {pattern: n}` (each asked pattern's untagged symbols as the answer gives them; a pattern whose entry gives none is left out) | workstream 6 |
 | `src/bms/counts.py` | `count_tags`, `cross_check`, `CountResult`, `Box`, `flag_written_devices`, `publish_proofs` | workstream 6 |
 | `src/bms/review.py` | `review_page`, `load_decisions`, `apply_decisions`; the decisions history: `SavedDecision`, `load_history`, `save_history`, `merge_decisions(history, saved, *, job=None)`, `apply_seen`, `copies_seen`, `held_back`, `unhonored_decisions`, `system_digest`, `accept_families`; `DECISIONS_FILE`, `DECISIONS_HISTORY` | workstream 7 |
 | `tools/measure.py` | `measure`, `MeasureResult`, `LineMatch` | workstream 7 |
 | `src/bms/run.py` | `estimate`, `RunResult` (the orchestration) | controller |
 | `src/bms/status.py` | `check(out, cache) -> Status` (exit code and plain lines), `Status`, `RUN_STATE` (`"run state.json"`) | controller |
 | `src/bms/doctor.py` | `run_doctor` and its checks (Python, dependencies, `.claude/run-job.json` models, Playbook, cache folder) | controller |
-| `src/bms/playbook_lint.py` | `lint_playbook`, `LintProblem`, `referenced_rule_names` | controller |
+| `src/bms/playbook_lint.py` | `lint_playbook`, `LintProblem`, `referenced_rule_names`, `finding_rule_names(folder=None) -> set[str]` (the rule names the code writes as literal texts, the first argument of a Finding), `RUN_LEVEL_RULE_NAMES` (rule names that are the run's own, so rules.md need not hold them: `"decision not honored"`) | controller |
 | `src/bms/__main__.py` | `python -m bms estimate JOB --out OUT [--cache C] [--mode chat\|api]`; `status OUT [--cache C]`; `doctor [--cache C] [--playbook P] [--config F]`; `playbook-lint [ROOT]` | controller |
 | `playbook/rules.md`, `shapes.json`, `wording.json` | the Playbook | workstream 1 (content), controller (format) |
 | `tests/bms/fixtures/sample_job.json`, `sample_playbook/` | the invented test job and minimal Playbook | controller |
@@ -65,7 +66,8 @@ Ref:            source_id: str, quote: str, where: str
                   words; where the place ("M-201, Drawings.pdf page 3").
 OtherCount:     value: int, ref: Ref
 Count:          value: int | None, sources: tuple[Ref] = (), others: tuple[OtherCount] = ()
-                  value is the printed count = the highest any source gives; None = unknown, prints "Qty (##)".
+                  value is the printed count = the highest any source gives; None = no count and no other count
+                  (unknown): "Qty (##)" prints only then.
                   others = every different count with its source (printed in the note). highest() -> int | None.
 Family:         name: str, tags: tuple[str], count: Count
 Assumption:     what: str, why: str
@@ -117,7 +119,10 @@ card (an earlier delete that may be back re-worded) is a `check` (REVIEW-FINAL F
   every object lists all its properties in `required` (fields with defaults too) and has
   `additionalProperties: false`; nullable fields are `anyOf [X, {"type": "null"}]`; enumerations are
   `{"type": "string", "enum": [...]}`; `Device.refs` has `minItems: 1`; nested classes are inlined (no `$ref`);
-  each field carries a `description`.
+  each field of Ref, OtherCount, Count, Family, Assumption, Device, Clarification, Served, System, ScopeException,
+  FrontEnd and Finding carries a `description`; the fields of Job, Header and Decision carry none (the planner and
+  the run build those; no AI step answers them). `System.shape`'s description reads "The Playbook shape name this
+  block follows." and does not mention the `""` case (an untemplated system).
 - `write_system` / `revise_system` answer `json_schema(System)`. `qc_job` answers
   `{"type": "object", "properties": {"findings": {"type": "array", "items": json_schema(Finding)}},
   "required": ["findings"], "additionalProperties": false}`.
@@ -152,6 +157,7 @@ Tech hours; Shapes and wording. The whole file is `Playbook.rules_text`, the cac
 | `wording` | slot → phrase form with `{verb}`, `{device}`, `{owner}`, `{qty}`, `{what}`, exactly the slots of `line_order` |
 | `tech_hours` | `{"per": unit\|hardware_point\|indoor_unit\|panel\|fan\|fixed\|line, "hours": number\|null, "when": [{"if": [slots], "hours": n}]}` |
 | `under` (optional) | sub-line slot → parent slot (earlier in `line_order`); the sub-line prints one level in after its parent, no verb (integration) |
+| `order` (optional) | whole number, 0 or more (not a bool); the block's order in the scope, lower prints first; left out = `DEFAULT_ORDER` (10, the equipment blocks) |
 
 No default lines anywhere: a shape says how a line prints, never that a line exists.
 
@@ -163,6 +169,16 @@ No default lines anywhere: a shape says how a line prints, never that a line exi
 `others_note` with `{counts}`); `count_causes` (`form` with `{causes}`, `joiner`, and the client words of each
 likely cause of a high plan count: `typical`, `labelled_twice`; `bms.playbook.COUNT_CAUSE_KEYS`; the retired
 `same_plan` and `shown_again` were removed in FINAL-H and a file still giving them is refused).
+Optional keys (RND-14; each one left out keeps the renderer's own words, so today's text is the default):
+`alternate_label` (a text holding `{k}`; the renderer's own is "ALT #{k}: {name}"); `header.generic` (the header of
+a system with no shape; fields `{n}`, `{name}`, `{tags}`, `{n}` required); in `quantity`: `unlabelled`, `per`, `and`,
+`joiner` (the count note's words; all but `unlabelled` not blank) and `labels` (what a count's quote counted, by kind:
+`plan_placements`, `schedule_rows`, `schedule`, `riser`, `sheet_pictures`; a kind left out keeps its own words, none
+blank); `assumption` (`because`: the words put before an assumption's reason; `leads`: the words a reason may already
+start with, then nothing is put before it); `casing` (`acronyms`: words printed in their own spelling; `small_words`:
+lower-case joining words left lower case after the first word; `not_plural`: lower-case words ending in s that are
+not plurals; `acronym_before`: a lower-case word that is also an ordinary word → the words it must come before to
+print upper case). An unknown key in `quantity.labels`, `assumption` or `casing` is refused.
 
 ### 3.4 Loader
 
@@ -174,13 +190,20 @@ Playbook: rules_text: str, topics: tuple[str], rules: dict[str, Rule], shapes: d
           .shape_for(system_kind: str, prefixes) -> Shape | None
              first shape (file order) sharing a prefix (compared upper case without dash/space/underscore); else
              first whose kind word appears as whole words in system_kind (plural s/es allowed); else None.
+             The kind word that names the system best wins (PBK-9): one at the end of the name, then the one that
+             starts first of those sharing words, then the longest, then file order; a prefix gives way only to a
+             kind word that says more than the prefix shape's own kind word in the name.
 Rule:     topic, name, text, sample: bool
 Shape:    name, prefixes, kind_words, header, family_names, line_order, slot_kinds: dict, wording: dict,
-          tech_hours: TechHours; .slots_of_kind(kind) -> tuple[str]
+          tech_hours: TechHours, under: dict = {} (sub-line slot -> parent slot), order: int = DEFAULT_ORDER;
+          .slots_of_kind(kind) -> tuple[str]; .parent_of(slot) -> str | None (the slot a sub-line prints under,
+          None for a line of its own)
 TechHours: per, hours: float | None, when: tuple[(tuple[slot], hours)]
 Wording:  verbs, owner_brackets: dict, integration_trio: tuple[str] (3), integration_depths: tuple[int],
-          clarifications: dict, header: dict, quantity: dict, draft: tuple[str], count_causes: dict
-Constants: TECH_HOUR_BASES, SLOT_KINDS, DEFAULT_ROOT, COUNT_CAUSE_KEYS
+          clarifications: dict, header: dict, quantity: dict, draft: tuple[str], count_causes: dict,
+          alternate_label: str = "", quantity_labels: dict = {}, assumption: dict = {}, casing: dict = {}
+          (the last four optional, as §3.3; quantity_labels is `quantity.labels`)
+Constants: TECH_HOUR_BASES, SLOT_KINDS, DEFAULT_ROOT, COUNT_CAUSE_KEYS, DEFAULT_ORDER, SAMPLE_MARK, SAMPLE_PATTERN
 ```
 
 ## 4. The old-app types consumed and produced (imported, never edited)
@@ -188,9 +211,11 @@ Constants: TECH_HOUR_BASES, SLOT_KINDS, DEFAULT_ROOT, COUNT_CAUSE_KEYS
 | Type / function | Module | Used by |
 |---|---|---|
 | `Catalogue` (job, pages, sheets, sections, bid, tags, flags, overview); `catalogue_job(root, cache_dir, workers, documents=None)` | `estimator.catalogue.job` | run, plan, counts |
+| `document_names(relatives) -> {relative path: name}` (a document's file name, or its path in the job folder when another document has the same file name in any case) | `estimator.catalogue.documents` | citations, flags |
+| `sheet_key(number) -> str` (a sheet number as two are compared, D8: "M-101", "M101" and "M 101" are one sheet; the dot between digits is kept; for comparing only, never printed) | `estimator.catalogue.title_block` | catalogue |
 | `JobReading`; `read_job(catalogue, page_opener=None, cache_dir=None, judge=None)` | `estimator.reading.job` | run |
 | `Dossier` (job_name, text, images: tuple[DossierImage], sources: dict id→where, families, device_totals, counts, stats, sections, schedules, sheet_pages: dict 7c id→(document, page)); `build_dossier(catalogue, reading, cache_dir)`; `sheet_pictures(catalogue, cache_dir, keys, what)`; `plan_areas` (re-exported from `estimator.reading.inventory`) | `estimator.writing.dossier` | run, plan, ai, counts |
-| `plan_areas(plans: [(sheet, tags)]) -> {(document, page): area}` (retired, FINAL-G: every sheet its own area); `plan_area_doubts(plans, areas=None) -> [((document, page), (document, page))]` (a hint only); `is_type_tag(tag)`, `counted_per_place(tag, places, most_on_one_sheet, code=False)`; `plan_groups(plans, codes=()) -> {(document, page): group}`, `plan_count(found, groups, per_place) -> int`, `plan_floors(catalogue, typicals=()) -> {(document, number): floors}`, `counting_pages(catalogue, governing) -> pages`, `first_pages(catalogue) -> {(document, page): first page}` (the pages that only repeat an alike number, FINAL-N), `sheet_labels(sheets) -> {(document, page): label}` (FINAL-I, the one counting rule); `placements(catalogue, tags, typicals=(), pages=None) -> {tag: Placements}`; `COUNT_CAUSES_LEAD`, `COUNT_CAUSE_WORDS` (`typical`, `labelled_twice`; `SAME_PLAN` removed, FINAL-H) | `estimator.reading.inventory` | dossier, render |
+| `plan_areas(plans: [(sheet, tags)]) -> {(document, page): area}` (retired, FINAL-G: every sheet its own area); `plan_area_doubts(plans, areas=None) -> [((document, page), (document, page))]` (a hint only); `is_type_tag(tag)`, `counted_per_place(tag, places, most_on_one_sheet, code=False)`; `plan_groups(plans, codes=()) -> {(document, page): group}`, `plan_count(found, groups, per_place) -> int`, `plan_floors(catalogue, typicals=()) -> {(document, number): floors}` (a typical sheet with no number is keyed by (document, page), RD-13), `sheet_floors(floor_sets, sheet) -> frozenset[str]` (the floors a sheet stands for in `plan_floors`, by (document, number) or, with no number, (document, page); empty for one floor), `counting_pages(catalogue, governing) -> pages`, `first_pages(catalogue) -> {(document, page): first page}` (the pages that only repeat an alike number, FINAL-N), `sheet_labels(sheets) -> {(document, page): label}` (FINAL-I, the one counting rule); `placements(catalogue, tags, typicals=(), pages=None) -> {tag: Placements}`; `COUNT_CAUSES_LEAD`, `COUNT_CAUSE_WORDS` (`typical`, `labelled_twice`; `SAME_PLAN` removed, FINAL-H) | `estimator.reading.inventory` | dossier, render |
 | `Ledger` (sources, facts: dict[id, Fact], understanding, complete, stopped_at, job_name, refused; `of_kind`, `about`, `find`, `printed_count`, `to_dict`/`from_dict`/`load`); `Fact` (id, kind, subject, value, source_id, quote, stage, state, contradictions, was_settled); `Contradiction`; `KINDS`; `where_short` | `estimator.ledger.facts` | plan |
 | `read_job(judge, dossier, catalogue, save_to=None, limit=None, pictures=True, picture_cap=24) -> Ledger` (imported as `read_ledger`; the brief's "read_ledger") | `estimator.ledger.run` | run |
 | `ledger_plan`, `count_note`, `place_words` (the old planner, for reference / reuse) | `estimator.ledger.to_plan` | plan (may import) |
@@ -255,7 +280,7 @@ line and `inventory.placements` / `_as_type` (the Evidence Package), so the two 
   is read on its first page in each document, and another page of its number in that document only when it shows
   something the first lacks (`governing_pages`).
 - Typical sheets and floors are keyed by (document, sheet number), never by the number alone (FINAL-O, REVIEW-FINAL8
-  H4): `typical_sheets` gives one `TypicalSheet` per (document, number) with its `document`, `plan_floors` and
+  H4): `typical_sheets(catalogue, reading=None, supersessions=())` gives one `TypicalSheet` per (document, number) with its `document`, `plan_floors` and
   `count_devices` give its floors to that document's sheet only, and `governing_pages` never sets aside another
   document's page of the number because the number is typical in one document. A number printed twice alike in
   Mech.pdf is two floors there; Second Building.pdf's M-101 on two pages of other text is read page by page, once.
@@ -314,7 +339,7 @@ the pages are summed and the estimator is told, with both numbers where there ar
   each reissued page replaces the one base run its tags and note lines are most like, only when it is strictly the
   most like and like it at all. A page it does not match is kept and counted: "addendum reissues M-101 (1 page);
   base has 2 pages (Mech.pdf): unmatched page kept (p.2), counted; check"; a tie replaces nothing ("... no page
-  matched best, every page kept and counted; check"). `Supersession.replaced` lists every replaced page, and
+  matched best, every page kept and counted; check"). `Supersession.floors` (RD-3) holds the floors ("p.1", "p.2", ...) of a base plan printed alike on several pages that a shorter reissue replaces: the reissue stands for them too, unless it already stands for as many (never one floor for three), and `typical_sheets` reads it. `Supersession.replaced` lists every replaced page, and
   `governing_pages` sets aside exactly those (document, page) pairs; every other page of the number is read.
 - The label reader (`catalogue.tags.line_labels`, one reader for the inventory, the dossier and the copy and
   version tests). A label is a line that is the tag alone ("VAV-3", "(VAV-3)", "[VAV-3]", "VAV-3.", "(N) VAV-1",
