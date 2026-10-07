@@ -388,7 +388,7 @@ def load_wording(path: Path) -> Wording:
     if len(lines) != 3 or not isinstance(depths, list) or len(depths) != 3 or any(d not in (1, 2) for d in depths):
         raise PlaybookError(f"{path.name}: integration_trio needs three lines and three depths of 1 or 2")
     for n, line in enumerate(lines):
-        _form(line, f"integration_trio.lines[{n}]", path, LINE_FIELDS)
+        _form(line, f"integration_trio.lines[{n}]", path, ("what",))
     forms = _text_map(data["clarifications"], "clarifications", path)
     if set(forms) != set(CLARIFICATION_KINDS) or not all(f.startswith("*") for f in forms.values()):
         raise PlaybookError(f"{path.name}: clarifications must give a \"*…{{text}}…\" form for each of "
