@@ -885,6 +885,9 @@ class _Planner:
                 if source.plan_only:
                     self.questions.append(f"{label} is seen on the drawings but on no schedule; confirm it exists "
                                           f"(it is in the {system.name} block).")
+                elif fam.tags and fam.count.value is None and self.reader.zero_only(source.prefix):
+                    self.questions.append(f"The schedule gives 0 for {source.prefix} but lists {tag_words(fam.tags)}; "
+                                          f"confirm the count (the {system.name} block reads Qty (##)).")
                 elif source.sequence_only and fam.count.value is None:
                     self.questions.append(f"{label} is named in the sequence of operation but no drawing or schedule "
                                           f"shows it; how many are there? The {system.name} block reads Qty (##).")

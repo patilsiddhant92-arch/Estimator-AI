@@ -135,7 +135,8 @@ class Reader:
         seen: set[tuple[int, str]] = set()
         for value, sid, quote in said:
             n = number(value)
-            if n is not None and (n, squash(sid)) not in seen:
+            # A 0 is no count: it never prints as a known "0" (the count falls to Qty (##) when nothing else gives one).
+            if n and (n, squash(sid)) not in seen:
                 seen.add((n, squash(sid)))
                 out.append((n, (self.ref(sid, quote),)))
         for _, sid, quote in said:
@@ -175,6 +176,14 @@ class Reader:
         if not own and not extra:
             return Count(None)
         return self._count(own, extra)
+
+    def zero_only(self, prefix: str) -> bool:
+        """True when the family's count facts give 0 and no other number (a schedule that says 0 for a family that
+        lists tags): the zero is not printed, and the planner asks."""
+        key = squash(prefix).casefold()
+        facts = [f for f in self.ledger.of_kind("count") if squash(f.subject).casefold() == key]
+        said = [number(v) for f in facts for v in [f.value] + [c.value for c in f.contradictions]]
+        return 0 in said and not any(said_n for said_n in said if said_n)
 
     def _tag_count_facts(self, prefix: str, tags: tuple[str, ...]) -> dict[str, list[tuple[int, tuple[Ref, ...]]]]:
         """The numbers count facts give the family's tags (a subject that is one of its tags, or the prefix, a
