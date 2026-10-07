@@ -354,10 +354,6 @@ def _known(case: Case) -> bool:
         for p in case.plans)
 
 
-@pytest.mark.xfail(strict=True, reason="REVIEW-FINAL8 H1, H2, H4: 62 of 2000 seeds break (a unit or a type on a plan "
-                   "neither side counts, or a count below the distinct tags), every one an addendum reissue (H1, H2) "
-                   "or a typical number of one document read on its first page in another (H4); the minimal inputs "
-                   "are the xfails below")
 def test_the_undercount_invariant_holds_on_2000_invented_plan_sets(tmp_path):
     high, _limits, _n = _run(tmp_path, lambda case: True)
     shown = "\n".join(f"seed {s}: {f} {w}" for s, _h, f, w in high[:20])
@@ -699,10 +695,6 @@ def test_guard_every_line_the_final7_probe_lost_is_a_label_of_each_tag_it_names(
     assert named and all(found.get(t, 0) >= 1 for t in named), (line, found)
 
 
-@pytest.mark.xfail(strict=True, reason="REVIEW-FINAL8 H4 (page set-aside path): M-101 printed twice alike in Mech.pdf "
-                   "makes M-101 a typical number, so Second Building.pdf's M-101, on two pages of other text, is read "
-                   "on its first page only: VAV-25 to 29 are never counted, 6 where 8 distinct tags are on the plans "
-                   "(10 by the floors rule), and the counts line says nothing")
 def test_a_number_printed_again_in_one_document_never_drops_another_documents_other_page(tmp_path):
     inventory, dossier, lines, counted = read(_typical_number_in_another_document(), tmp_path)
     assert inventory["VAV"] >= 8 and dossier["VAV"] >= 8 and counted[1]["VAV"] == 8
@@ -719,9 +711,12 @@ def _typical_number_in_another_document():
                     {mech: ("drawings", "base"), other: ("drawings", "base")})
 
 
-def test_guard_the_h4_case_is_silent_today(tmp_path):
+def test_guard_the_h4_case_counts_every_page_by_its_own_documents_floors(tmp_path):
+    """Pinned b76d9c1's silent low count (6, 6, 3 distinct tags); FINAL-O H4 keys the typical sheet and its floors by
+    (document, sheet number): Mech.pdf's M-101, printed twice alike, is 2 floors (VAV-11, 12: 4); Second Building.pdf's
+    two pages of other text are each read once (1 + 5): 10, the code's own floors rule, every tag named."""
     inventory, dossier, lines, counted = read(_typical_number_in_another_document(), tmp_path)
-    assert (inventory["VAV"], dossier["VAV"], counted[1]["VAV"]) == (6, 6, 3) and "Reading notes" not in lines["VAV"]
+    assert (inventory["VAV"], dossier["VAV"], counted[1]["VAV"]) == (10, 10, 8)
 
 
 # ---- CHECK 2, the rest: inputs the reports give in prose, and the inventory items the Evidence Package prices ------

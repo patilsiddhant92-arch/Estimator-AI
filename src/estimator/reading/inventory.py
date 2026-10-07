@@ -19,7 +19,7 @@ from estimator.catalogue.job import (CONTROLS_DISCIPLINES, TRADE_WORDS, other_se
                                      title_words)
 from estimator.catalogue.tags import (DECIMAL_TYPE, Equipment, is_type_tag, label_key, label_keys, line_labels,
                                       plan_labels, tag_prefix)
-from estimator.reading.revisions import governing_pages
+from estimator.reading.revisions import governing_pages, typical_places
 from estimator.reading.schedules import (BY_EYE, EQUIPMENT, Schedule, header_key, kind_from_title, quantity_header,
                                         vocabulary)
 
@@ -406,7 +406,10 @@ def plan_floors(catalogue, typicals: Sequence = ()) -> dict[tuple[str, str], fro
     listed stands for one floor. Pages of one number with other text are other sheets, each read and counted
     (`counting_pages`), never one plan times its pages (REVIEW-FINAL6 F6). A floor named by digits alone is one
     floor however it is written ("02" and "2", F9)."""
-    named = {t.sheet: frozenset(_floor_name(f) for f in t.floors) for t in typicals if t.sheet and t.floors}
+    # by (document, sheet number) (REVIEW-FINAL8 H4); a typical given with no document (by hand) stands for its
+    # number in every document
+    named = {(getattr(t, "document", None), t.sheet): frozenset(_floor_name(f) for f in t.floors)
+             for t in typicals if t.sheet and t.floors}
     pages: dict[tuple[str, str], list[int]] = defaultdict(list)
     for s in catalogue.sheets:
         if s.number:
@@ -414,8 +417,8 @@ def plan_floors(catalogue, typicals: Sequence = ()) -> dict[tuple[str, str], fro
     alike = _alike_pages(catalogue)
     found: dict[tuple[str, str], frozenset[str]] = {}
     for (document, number), on in pages.items():
-        floors = named.get(number) or (frozenset(f"p.{page}" for page in on) if (document, number) in alike
-                                       else frozenset())
+        floors = (named.get((document, number)) or named.get((None, number))
+                  or (frozenset(f"p.{page}" for page in on) if (document, number) in alike else frozenset()))
         if len(floors) > 1:
             found[(document, number)] = floors
     return found
@@ -548,7 +551,7 @@ def placements(catalogue, tags: Iterable[str], typicals: Sequence = (),
         keys.setdefault(label_key(entry.tag), entry.tag)
     floor_sets = plan_floors(catalogue, typicals)
     if pages is None:
-        pages = governing_pages(catalogue, (), [t.sheet for t in typicals])
+        pages = governing_pages(catalogue, (), typical_places(typicals))
     pages = counting_pages(catalogue, pages)
     sheets = {(s.document, s.page): s for s in catalogue.sheets}
     read: list[tuple] = []

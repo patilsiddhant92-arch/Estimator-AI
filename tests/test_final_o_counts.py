@@ -130,6 +130,23 @@ def test_a_reissue_whose_title_matches_no_base_sheet_replaces_nothing_and_says_s
     _same(inventory, dossier, VAV=4)
 
 
+def test_an_addendum_to_one_of_two_sets_of_the_same_numbers_never_replaces_the_other_by_elimination(tmp_path):
+    """Two buildings issued with the same numbers and titles (`other_sets`: Mech.pdf, with the more text, is read as
+    another set beside Second Building.pdf). An addendum reissues M-101: it may be either building's, so both are
+    kept, summed and flagged; never Second Building's replaced because Mech.pdf's was set aside as another set."""
+    pages = []
+    for n in (1, 2, 3):
+        pages.append((MECH, n, f"M-10{n}", f"HVAC LEVEL {n} PLAN", [f"VAV-1{n}1", f"VAV-1{n}2", "SEE NOTE 4"], ()))
+        pages.append((SECOND, n, f"M-10{n}", f"HVAC LEVEL {n} PLAN", [f"VAV-2{n}1", f"VAV-2{n}2"], ()))
+    pages.append((ADDENDUM, 1, "M-101", "HVAC LEVEL 1 PLAN", ["VAV-111", "VAV-112", "VAV-118"], ()))
+    catalogue = _job(pages, kinds={ADDENDUM: "addendum"})
+    inventory, dossier, flags, supersessions, _lines = _read(catalogue, tmp_path)
+    assert supersessions == []
+    assert flags == ["addendum M-101 may replace one of two M-101 sheets (Mech.pdf, Second Building.pdf): "
+                     "both counted; check"]
+    _same(inventory, dossier, VAV=15)           # 3 + 2 + 2 on M-101, 4 + 4 on M-102 and M-103
+
+
 # ---- H2: a reissue with fewer pages replaces only the pages it matches -----------------------------------------------
 
 def test_a_one_page_reissue_of_a_two_page_number_keeps_the_page_it_does_not_match(tmp_path):
@@ -189,19 +206,17 @@ def _alike_here_other_there():
                  (SECOND, 2, "M-101", "HVAC LEVEL 1 PLAN", [f"VAV-2{k}" for k in range(5, 10)], ())])
 
 
-@pytest.mark.xfail(strict=True, reason="FINAL-O H4: not fixed yet")
 def test_a_number_printed_again_alike_in_one_document_is_typical_there_only(tmp_path):
     catalogue = _alike_here_other_there()
     [typical] = typical_sheets(catalogue)
     assert (typical.document, typical.sheet, typical.floors) == (MECH, "M-101", ("p.1", "p.2"))
-    assert plan_floors(catalogue, [typical]) == {(MECH, "M-101"): frozenset({"p.1", "p.2"})}
+    assert plan_floors(catalogue, [typical]) == {(MECH, "M-101"): frozenset({"P.1", "P.2"})}
     # by sheet number alone too (as the reviewer's path passes it): another document's pages of other text are read
     assert {(SECOND, 1), (SECOND, 2)} <= governing_pages(catalogue, (), ["M-101"])
     inventory, dossier, _flags, _s, _lines = _read(catalogue, tmp_path)
     _same(inventory, dossier, VAV=10)           # 2 x 2 floors + 1 + 5
 
 
-@pytest.mark.xfail(strict=True, reason="FINAL-O H4: not fixed yet")
 def test_a_typical_title_multiplies_its_own_documents_sheet_only(tmp_path):
     catalogue = _job([(MECH, 1, "M-150", "HVAC TYPICAL FLOOR PLAN LEVEL 2 TO 4", ["VAV-11"], ()),
                       (SECOND, 1, "M-150", "BUILDING B HVAC LEVEL 2 PLAN", ["VAV-21", "VAV-22"], ())])
@@ -219,7 +234,6 @@ def test_a_typical_title_multiplies_its_own_documents_sheet_only(tmp_path):
     assert set(plan_floors(both, [given])) == {(MECH, "M-150"), (SECOND, "M-150")}
 
 
-@pytest.mark.xfail(strict=True, reason="FINAL-O H4: not fixed yet")
 def test_the_devices_take_the_floors_of_their_own_documents_sheet(monkeypatch):
     from estimator.reading import devices
     catalogue = _job([(MECH, 1, "M-150", "HVAC TYPICAL FLOOR PLAN LEVEL 2 TO 4", ["VAV-11"], ()),

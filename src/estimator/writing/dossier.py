@@ -32,7 +32,7 @@ from estimator.catalogue.tags import (Equipment, find_tags, label_keys, line_lab
 from estimator.reading.inventory import (COUNT_CAUSE_WORDS, COUNT_CAUSES_LEAD, TYPE_ON_ONE_SHEET, TYPE_PLACED,
                                         counted_per_place, counting_pages, first_pages, plan_area_doubts, plan_areas,
                                         plan_count, plan_floors, plan_groups, sheet_labels)
-from estimator.reading.revisions import governing_pages
+from estimator.reading.revisions import governing_pages, typical_places
 from estimator.reading.schedules import header_key, quantity_header, vocabulary
 from estimator.reading.sequences import POINTS, SEQUENCE
 from estimator.writing.systems import _paragraphs
@@ -242,7 +242,7 @@ def _counted_pages(catalogue, reading) -> frozenset[tuple[str, int]]:
     one document with the same text on every page, the first page only (the multiplier stands for the rest,
     `inventory.first_pages`); pages of one number with other text are each counted (REVIEW-FINAL6 F6)."""
     governing = governing_pages(catalogue, getattr(reading, "supersessions", ()),
-                                [t.sheet for t in getattr(reading, "typicals", ())])
+                                typical_places(getattr(reading, "typicals", ())))
     repeated = first_pages(catalogue)
     return frozenset((sheet.document, sheet.page) for sheet in catalogue.sheets
                      if (sheet.document, sheet.page) in governing and (sheet.document, sheet.page) not in repeated)
@@ -252,7 +252,7 @@ def _counted_plan_pages(catalogue, reading) -> frozenset[tuple[str, int]]:
     """The pages the counts line reads: the inventory's own (`counting_pages`), so the two count the same sheets; a
     plan sheet in two documents with the same text is two sheets (REVIEW-FINAL5 F7)."""
     return counting_pages(catalogue, governing_pages(catalogue, getattr(reading, "supersessions", ()),
-                                                     [t.sheet for t in getattr(reading, "typicals", ())]))
+                                                     typical_places(getattr(reading, "typicals", ()))))
 
 
 # ---- section 1: the job ---------------------------------------------------------------------------

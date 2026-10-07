@@ -31,12 +31,12 @@ from pathlib import Path
 
 import pymupdf
 
-from estimator.catalogue.job import CONTROLS_DISCIPLINES, repeated_plans
+from estimator.catalogue.job import CONTROLS_DISCIPLINES, plans_printed_again
 from estimator.catalogue.pdf import clean_text
 from estimator.catalogue.register import EDGE
 from estimator.catalogue.sheet_types import SHEET_TYPES
 from estimator.reading.pages import unreadable_page
-from estimator.reading.revisions import governing_pages
+from estimator.reading.revisions import governing_pages, typical_places
 
 ASSETS = Path(__file__).resolve().parents[3] / "assets"
 DEVICES = ASSETS / "reading_lists" / "devices.json"
@@ -75,6 +75,8 @@ class TypicalSheet:
     title: str
     floors: tuple[str, ...]   # e.g. ("10", "11", ..., "16")
     note: str                 # "Typical plan M-110.00 → floors 10–16: 7 floors. Check the floor list."
+    document: str | None = None   # the document whose sheet it is (FINAL-O, REVIEW-FINAL8 H4); None: the number in
+                                  # every document (a typical given by hand)
 
 
 @dataclass(frozen=True)
@@ -237,34 +239,44 @@ def typical_sheets(catalogue, reading: DeviceList | None = None) -> list[Typical
     """Plans that stand for several floors, by one rule for both ways a set shows it:
     - a title that says TYPICAL and names a floor range ("10TH-16TH", "LEVEL 13 TO 22"), or
     - one sheet number printed on several pages of one document with the same text on each (26-0193's
-      M-113.00 on 10 pages), whatever its title (`catalogue.job.repeated_plans`).
+      M-113.00 on 10 pages), whatever its title (`catalogue.job.plans_printed_again`).
     Either way the plan is counted once, on its first page, and what is on it is multiplied: by the floors
-    its title names, else by the pages it is printed on."""
+    its title names, else by the pages it is printed on. One typical sheet per (document, sheet number), never
+    per number alone (REVIEW-FINAL8 H4): another document's sheet of the number is typical only if it is so."""
     reading = reading or _default_list()
-    per_floor = repeated_plans(catalogue)
-    pages_by_number: dict[str | None, list] = defaultdict(list)
-    first: dict[str | None, object] = {}
+    per_floor = plans_printed_again(catalogue)
+    pages_by_number: dict[tuple[str, str], list] = defaultdict(list)
+    first: dict[tuple[str, str], object] = {}
+    documents_of: dict[str, set] = defaultdict(set)
     for sheet in catalogue.sheets:
+        if sheet.number:
+            documents_of[sheet.number].add(sheet.document)
         title = sheet.title or ""
         if not _is_plan(sheet, reading):
             continue
         typical = any(p.search(title) for p in reading.typical_words) and reading.floors_named(title)
-        if not (typical or sheet.number in per_floor):
+        if not (typical or (sheet.document, sheet.number) in per_floor):
             continue
-        key = sheet.number or f"{sheet.document} p.{sheet.page}"
+        # by (document, sheet number), never the number alone (REVIEW-FINAL8 H4): another document's sheet of the
+        # same number is its own sheet, typical only when it is so itself
+        key = (sheet.document, sheet.number or f"p.{sheet.page}")
         pages_by_number[key].append(sheet)
         first.setdefault(key, sheet)
     typicals = []
     for key, sheet in first.items():
         name = sheet.number or f"on {sheet.document.rsplit('/', 1)[-1]} page {sheet.page}"
-        document, pages = per_floor.get(sheet.number, (sheet.document, ()))
+        if sheet.number and len(documents_of[sheet.number]) > 1:
+            name += f" ({sheet.document.rsplit('/', 1)[-1]})"
+        pages = per_floor.get((sheet.document, sheet.number), ())
+        document = sheet.document
         where = f"{len(pages)} pages of {document.rsplit('/', 1)[-1]}"
         named = reading.floors_named(sheet.title)
         if named is None:
             typicals.append(TypicalSheet(sheet.number, sheet.title, tuple(f"p.{page}" for page in pages),
                                          f"Plan {name} is on {where} with the same text: one plan for "
                                          f"{len(pages)} floors, though its title names none — what is on it is "
-                                         f"counted once and multiplied by {len(pages)}. Check the floor list."))
+                                         f"counted once and multiplied by {len(pages)}. Check the floor list.",
+                                         sheet.document))
             continue
         low, high = named
         floors = tuple(str(n) for n in range(low, high + 1))
@@ -284,7 +296,7 @@ def typical_sheets(catalogue, reading: DeviceList | None = None) -> list[Typical
         else:
             note += (f" Floor {reading.unlucky_floor} may not exist — check the floor list."
                      if low <= reading.unlucky_floor <= high else " Check the floor list.")
-        typicals.append(TypicalSheet(sheet.number, sheet.title, floors, note))
+        typicals.append(TypicalSheet(sheet.number, sheet.title, floors, note, sheet.document))
     return typicals
 
 
@@ -304,11 +316,12 @@ def count_devices(catalogue, page_opener: PageOpener, legend: Sequence[LegendEnt
     sheet number from one document only, a typical sheet on its first page only."""
     reading = reading or _default_list()
     if pages is None:
-        pages = governing_pages(catalogue, (), [t.sheet for t in typicals])
+        pages = governing_pages(catalogue, (), typical_places(typicals))
     meanings: dict[str, str] = {}
     for entry in legend:
         meanings.setdefault(entry.code, entry.meaning)
-    floors_of = {(t.sheet, t.title): len(t.floors) for t in typicals}
+    # by (document, sheet number, title): another document's sheet of the number never takes these floors (H4)
+    floors_of = {(getattr(t, "document", None), t.sheet, t.title): len(t.floors) for t in typicals}
     counts: list[DeviceCount] = []
     flags: list[str] = []
     searched = 0
@@ -329,7 +342,8 @@ def count_devices(catalogue, page_opener: PageOpener, legend: Sequence[LegendEnt
         for word in words:
             if not word.edge and word.text in reading.labels:
                 tally[word.text] += 1
-        floors = floors_of.get((sheet.number, sheet.title), 1)
+        floors = floors_of.get((sheet.document, sheet.number, sheet.title)) or floors_of.get(
+            (None, sheet.number, sheet.title), 1)
         for label in sorted(tally, key=lambda l: (-tally[l], l)):
             device = reading.labels[label]
             if label in reading.legend_decides and label in meanings:

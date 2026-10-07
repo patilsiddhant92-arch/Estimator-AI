@@ -26,7 +26,7 @@ from pathlib import Path
 from estimator.catalogue.job import other_sets, repeats, title_words
 from estimator.catalogue.pdf import Span, clean_text
 from estimator.catalogue.register import PageRecord
-from estimator.catalogue.tags import Equipment, find_tags, label_keys, line_labels, sheet_number_tags
+from estimator.catalogue.tags import Equipment, find_tags, label_keys, line_labels, plan_labels, sheet_number_tags
 
 ASSETS = Path(__file__).resolve().parents[3] / "assets"
 REVISIONS = ASSETS / "reading_lists" / "revisions.json"
@@ -375,10 +375,13 @@ def supersede(catalogue, versions: Sequence[SheetVersion],
     by_sheet: dict[str, dict[str, SheetVersion]] = defaultdict(dict)
     pages_of: dict[str, dict[str, list[SheetVersion]]] = defaultdict(lambda: defaultdict(list))
     for version in versions:
+        # each page is one a reissue may replace, another set's too (FINAL-O: an addendum to one of two sets of the
+        # same numbers must find the sheet of its own title in either, never the other set's by elimination) ...
+        pages_of[version.sheet][version.document].append(version)
         if (version.sheet, version.document) in others:
             continue
-        by_sheet[version.sheet].setdefault(version.document, version)   # a page repeated in one document is not a version
-        pages_of[version.sheet][version.document].append(version)       # ... but each is a page a reissue may replace
+        by_sheet[version.sheet].setdefault(version.document, version)   # ... but a page repeated in one document is
+                                                                         # not a version, nor another set's sheet
     titles = {(s.document, s.page): title_words(s) for s in catalogue.sheets}
 
     contents: dict[tuple[str, int], _Content] = {}
@@ -560,12 +563,23 @@ class _Alike:
             self.labels[key] = line_labels(record.text or "", self.keys) if record is not None else Counter()
         return self.labels[key]
 
+    def plan_counts(self, key: tuple[str, int]) -> Counter:
+        """The page's labels with the backstop (`plan_labels`: a unit named anywhere counts once)."""
+        record = self.records.get(key)
+        return plan_labels(record.text or "", self.keys, self.label_counts(key)) if record is not None else Counter()
+
     def __call__(self, a: tuple[str, int], b: tuple[str, int]) -> bool:
         return self.content(a).same_as(self.content(b)) and self.label_counts(a) == self.label_counts(b)
 
 
+def typical_places(typicals: Iterable) -> list:
+    """The `typicals` argument of `governing_pages` for typical sheets (reading/devices.py `TypicalSheet`): each
+    one's (document, sheet number), or its number alone when it names no document (a typical given by hand)."""
+    return [(t.document, t.sheet) if getattr(t, "document", None) else t.sheet for t in typicals]
+
+
 def governing_pages(catalogue, supersessions: Sequence[Supersession] = (),
-                    typicals: Iterable[str | None] = ()) -> frozenset[tuple[str, int]]:
+                    typicals: Iterable = ()) -> frozenset[tuple[str, int]]:
     """The drawing pages the readers read, as (document, page): every page with no sheet number, and for each sheet
     number the pages of the document that governs it: the later issue when a supersession decided it. When none
     did, the first document that carries it and isn't a marked-up copy of another (`repeats`), and beside it each
@@ -573,16 +587,21 @@ def governing_pages(catalogue, supersessions: Sequence[Supersession] = (),
     summed, and `supersede` says "check which governs" (REVIEW-FINAL7 F2: an undated reissue that adds a unit
     never loses it). Inside one document a number on several pages with the same text on every page is read on its
     first page (one plan printed again); pages of one number with other text are all read (F7). A typical sheet
-    (one plan standing for several floors) is read on its first page in each document (F3). A sheet of another set
+    (one plan standing for several floors) is read on its first page in each document (F3), and another page of its
+    number beside it only when it shows nothing the first page lacks (FINAL-O, REVIEW-FINAL8 H4: never a page with
+    other units, and never another document's pages because the number is typical in one document). `typicals` are
+    sheet numbers (in every document) or (document, sheet number) pairs (`typical_places`). A sheet of another set
     of drawings with the same numbers (`other_sets`: a second building) is read too, beside the governing one
-    (REVIEW-FINAL6 F3): when in doubt, sum."""
+    (REVIEW-FINAL6 F3): when in doubt, sum. A supersession sets aside exactly the pages it replaces (FINAL-O H1,
+    H2): another building's sheet of the number, or a page the reissue does not match, is read as before."""
     copies = {(_sheet_number(number), document) for number, document in repeats(catalogue)[1]}
     others = {(_sheet_number(number), document) for number, document in other_sets(catalogue)}
     current = {s.sheet: s.current.document for s in supersessions}
     # FINAL-O (REVIEW-FINAL8 H1, H2): a supersession sets aside exactly the pages it replaces; every other page of
     # the number (another building's sheet of another title, a page the reissue does not match) is read as before
     replaced = {(v.document, v.page) for s in supersessions for v in s.replaced}
-    typical = {_sheet_number(t) for t in typicals if t}
+    typical = {(t[0], _sheet_number(t[1])) if isinstance(t, tuple) else (None, _sheet_number(t))
+               for t in typicals if t and (not isinstance(t, tuple) or t[1])}
     texts = {(p.document, p.page): p.text for p in catalogue.pages}
     alike: _Alike | None = None
     keep: set[tuple[str, int]] = set()
@@ -612,7 +631,11 @@ def governing_pages(catalogue, supersessions: Sequence[Supersession] = (),
             if document not in governing and (number, document) not in others:
                 continue
             mine = pages[document]
-            if number in typical or len({texts.get(key, "") for key in mine}) == 1:
+            if len({texts.get(key, "") for key in mine}) == 1:
                 mine = mine[:1]
+            elif (document, number) in typical or (None, number) in typical:
+                alike = alike or _Alike(catalogue)
+                head = alike.plan_counts(mine[0])
+                mine = mine[:1] + [key for key in mine[1:] if alike.plan_counts(key) - head]
             keep.update(mine)
     return frozenset(keep)
