@@ -1506,7 +1506,7 @@ def test_the_writer_prompt_takes_the_playbook_default_and_flags_only_unclear_own
     write = _prompt("write_system.md")
     assert "When the evidence does not say who furnishes, installs or wires a device, follow the Playbook, set flag" \
         not in write
-    assert ('When the evidence names no party, take the Playbook\'s default ("Who owns what by default", "Three '
+    assert ('When the evidence names no party, take the default the Playbook gives ("Who owns what by default", "Three '
             'ownership questions"). Set flag "ownership" (with an assumption saying what you took and why) only in '
             'the cases the Playbook lists under "Unclear ownership is flagged".') in write
 
@@ -1522,4 +1522,4 @@ def test_the_writer_prompt_does_not_invite_a_relay_line_the_playbook_absorbs():
 def test_the_writer_prompts_ownership_flag_is_the_playbooks_unclear_ownership():
     write = _prompt("write_system.md")
     assert '"ownership" (who furnishes, installs or wires is not in the evidence)' not in write
-    assert '"ownership" (the Playbook\'s unclear ownership:' in write
+    assert '"ownership" (unclear ownership as the Playbook lists it:' in write

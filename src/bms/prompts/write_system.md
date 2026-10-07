@@ -32,14 +32,14 @@ You write the system's devices (its scope lines, in print order), its clarificat
 - verb is one of: Furnish and Install, Furnish, Furnish and Wire, Install and Wire, Wire. It says what AME does on the line.
 - furnished_by, installed_by and wired_by are each one of: AME, Unit Mfr., FA, Mechanical Contractor, Electrical Contractor, Others, Owner.
 - Set each party from the evidence: who-does-what sentences, schedule notes and specification passages that say who furnishes, mounts or wires a device (furnished with the unit, shipped loose, by others, by another division). The verb and the parties must not contradict each other or the Playbook's ownership rules.
-- When the evidence names no party, take the Playbook's default ("Who owns what by default", "Three ownership questions"). Set flag "ownership" (with an assumption saying what you took and why) only in the cases the Playbook lists under "Unclear ownership is flagged".
+- When the evidence names no party, take the default the Playbook gives ("Who owns what by default", "Three ownership questions"). Set flag "ownership" (with an assumption saying what you took and why) only in the cases the Playbook lists under "Unclear ownership is flagged".
 
 ## Counts: the higher count prints; never undershoot
 
 - quantity is a count: value, sources, others. value is the number of this line, the highest any source gives. sources are the refs that give that number; others are every different number another source gives, each with its ref.
 - A line that is one per unit of a family carries that family's count, copied whole (value, sources and others).
 - When no source gives the number, value is null (it prints as unknown) and flag is "quantity". Never work out, guess or round a number. When the sources disagree, the higher one is value, every other is in others, and flag is "quantity".
-- flag says why the estimator must look at the line: "quantity" (count unknown or sources disagree), "ownership" (the Playbook's unclear ownership: two parties for one device, split furnishing and installing, in scope and in an exclusion, or a costly device with no party and no default), "assumed" (the line rests on an assumption), "none" otherwise. When more than one applies: quantity first, then ownership, then assumed.
+- flag says why the estimator must look at the line: "quantity" (count unknown or sources disagree), "ownership" (unclear ownership as the Playbook lists it: two parties for one device, split furnishing and installing, in scope and in an exclusion, or a costly device with no party and no default), "assumed" (the line rests on an assumption), "none" otherwise. When more than one applies: quantity first, then ownership, then assumed.
 
 ## Assumptions say what and why
 
