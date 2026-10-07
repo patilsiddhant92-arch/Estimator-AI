@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import json
 import re
+import string
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -214,6 +215,39 @@ def _strings(value, where: str, path: Path, allow_empty: bool = True) -> tuple[s
     return tuple(value)
 
 
+def _form(text, where: str, path: Path, allowed, required=()) -> str:
+    """A wording form checked against what bms.render fills it with: only the placeholders in `allowed`, by name,
+    with no format spec or conversion, every one in `required` present, and every brace closed ("{{" and "}}"
+    print a brace). A typo here would otherwise crash the render or drop words from client text."""
+    if not isinstance(text, str):
+        raise PlaybookError(f"{path.name}: {where} must be a text")
+    try:
+        parts = list(string.Formatter().parse(text))
+    except ValueError as error:
+        raise PlaybookError(f"{path.name}: {where}: a brace is not closed or not doubled ({error}): {text!r}") from None
+    names = set()
+    for _, name, spec, conversion in parts:
+        if name is None:
+            continue
+        if not name or name not in allowed:
+            shown = ", ".join("{" + a + "}" for a in sorted(allowed)) or "none"
+            raise PlaybookError(f"{path.name}: {where}: unknown placeholder {{{name}}} (allowed: {shown}): {text!r}")
+        if spec or conversion:
+            raise PlaybookError(f"{path.name}: {where}: the placeholder {{{name}}} must be plain, with no ! or : "
+                                f"part: {text!r}")
+        names.add(name)
+    missing = [r for r in required if r not in names]
+    if missing:
+        raise PlaybookError(f"{path.name}: {where} must hold " + ", ".join("{" + m + "}" for m in missing)
+                            + f": {text!r}")
+    return text
+
+
+# what bms.render fills each form with (its `_fill` / `format` calls)
+HEADER_FIELDS = ("n", "name", "tags")
+LINE_FIELDS = ("verb", "device", "owner", "qty", "what")
+
+
 def _text_map(value, where: str, path: Path) -> dict[str, str]:
     if not isinstance(value, dict) or not all(isinstance(k, str) and isinstance(v, str) for k, v in value.items()):
         raise PlaybookError(f"{path.name}: {where} must map names to texts")
@@ -259,9 +293,7 @@ def load_shapes(path: Path) -> dict[str, Shape]:
         kind_words = _strings(applies["kind_words"], f"{where}.applies_to.kind_words", path)
         if any(w != w.lower() for w in kind_words):
             raise PlaybookError(f"{path.name}: {where}.applies_to.kind_words must be lower case")
-        header = entry["header"]
-        if not isinstance(header, str) or "{n}" not in header:
-            raise PlaybookError(f"{path.name}: {where}.header must be a text with {{n}}")
+        header = _form(entry["header"], f"{where}.header", path, HEADER_FIELDS, required=("n",))
         family_names = _strings(entry["family_names"], f"{where}.family_names", path, allow_empty=False)
         line_order = _strings(entry["line_order"], f"{where}.line_order", path, allow_empty=False)
         if len(set(line_order)) != len(line_order):
@@ -275,6 +307,10 @@ def load_shapes(path: Path) -> dict[str, Shape]:
         if bad:
             raise PlaybookError(f"{path.name}: {where}.slot_kinds: {', '.join(bad)} not one of {SLOT_KINDS}")
         under = _under(entry.get("under", {}), where, path, line_order)
+        for slot, form in wording.items():
+            # a sub-line prints with no verb, one level in under its parent
+            allowed = tuple(f for f in LINE_FIELDS if f != "verb" or slot not in under)
+            _form(form, f"{where}.wording.{slot}", path, allowed)
         order = entry.get("order", DEFAULT_ORDER)
         if isinstance(order, bool) or not isinstance(order, int) or order < 0:
             raise PlaybookError(f"{path.name}: {where}.order must be a whole number, 0 or more")
@@ -340,6 +376,10 @@ def load_wording(path: Path) -> Wording:
     wanted = set(PARTIES) - {"AME"}
     if set(brackets) != wanted:
         raise PlaybookError(f"{path.name}: owner_brackets must name exactly {sorted(wanted)}")
+    for party, bracket in brackets.items():
+        if not bracket.startswith(" ("):
+            raise PlaybookError(f"{path.name}: owner_brackets.{party} must start with \" (\" (it prints right after "
+                                f"the device): {bracket!r}")
     trio = data["integration_trio"]
     if not isinstance(trio, dict) or set(trio) != {"lines", "depths"}:
         raise PlaybookError(f"{path.name}: integration_trio must have exactly lines and depths")
@@ -347,20 +387,30 @@ def load_wording(path: Path) -> Wording:
     depths = trio["depths"]
     if len(lines) != 3 or not isinstance(depths, list) or len(depths) != 3 or any(d not in (1, 2) for d in depths):
         raise PlaybookError(f"{path.name}: integration_trio needs three lines and three depths of 1 or 2")
+    for n, line in enumerate(lines):
+        _form(line, f"integration_trio.lines[{n}]", path, ("what",))
     forms = _text_map(data["clarifications"], "clarifications", path)
-    if set(forms) != set(CLARIFICATION_KINDS) or not all(f.startswith("*") and "{text}" in f for f in forms.values()):
+    if set(forms) != set(CLARIFICATION_KINDS) or not all(f.startswith("*") for f in forms.values()):
         raise PlaybookError(f"{path.name}: clarifications must give a \"*…{{text}}…\" form for each of "
                             f"{list(CLARIFICATION_KINDS)}")
+    for kind, form in forms.items():
+        _form(form, f"clarifications.{kind}", path, ("text",), required=("text",))
     header = _text_map(data["header"], "header", path)
     if set(header) != {"count", "unknown_count", "tags_joiner"}:
         raise PlaybookError(f"{path.name}: header must have exactly count, unknown_count and tags_joiner")
+    _form(header["count"], "header.count", path, ("n",), required=("n",))
+    _form(header["unknown_count"], "header.unknown_count", path, ())
     quantity = _text_map(data["quantity"], "quantity", path)
     if set(quantity) != {"line", "unknown", "others_note"}:
         raise PlaybookError(f"{path.name}: quantity must have exactly line, unknown and others_note")
+    _form(quantity["line"], "quantity.line", path, ("n",), required=("n",))
+    _form(quantity["unknown"], "quantity.unknown", path, ())
+    _form(quantity["others_note"], "quantity.others_note", path, ("counts",), required=("counts",))
     causes = _text_map(data["count_causes"], "count_causes", path)
     if set(causes) != set(COUNT_CAUSE_KEYS):
         raise PlaybookError(f"{path.name}: count_causes must have exactly {', '.join(COUNT_CAUSE_KEYS)}")
-    if "{causes}" not in causes["form"] or not all(causes[k].strip() for k in COUNT_CAUSE_KEYS if k != "joiner"):
+    _form(causes["form"], "count_causes.form", path, ("causes",), required=("causes",))
+    if not all(causes[k].strip() for k in COUNT_CAUSE_KEYS if k != "joiner"):
         raise PlaybookError(f"{path.name}: count_causes: the form must hold {{causes}} and every cause needs its words")
     draft = _strings(data.get("$draft", []), "$draft", path)
     return Wording(verbs, brackets, lines, tuple(depths), forms, header, quantity, draft, causes)
@@ -374,7 +424,7 @@ _load_wording = load_wording
 def _read(path: Path) -> str:
     path = Path(path)
     try:
-        return path.read_text(encoding="utf-8")
+        return path.read_text(encoding="utf-8-sig")      # a BOM (Windows editors) is read through, never kept
     except UnicodeDecodeError as error:
         raise PlaybookError(f"{path.name}: not valid UTF-8 text ({error})") from None
     except OSError as error:
