@@ -32,6 +32,7 @@ from bms.playbook import DEFAULT_ORDER, Playbook, Shape
 SEQUENCE_ONLY_ORDER = 20            # a block whose count prints "Qty (##)": after the equipment (shapes.json "order")
 GENERIC_FORM = "{verb} {device}{owner}{qty}"       # a system or a slot with no shape
 GENERIC_HEADER = "Qty ({n}) {name} {tags}"         # a system with no shape
+ALTERNATE_LABEL = "ALT #{k}: {name}"               # an alternate's label (wording.json "alternate_label" when set)
 _AFTER_LINES = ("confirm", "assumed", "per_drawings", "note")      # the order of the "*" lines
 _REASON_LEADS = ("as ", "since ", "given that ", "because ")       # a reason that already carries its own lead word
 
@@ -99,7 +100,8 @@ def render(job: Job, playbook: Playbook) -> ProposalDraft:
     - Blocks print in the Playbook's block order (`block_order`: the shape's `order`, Global Points first; a block
       whose count prints "Qty (##)" after the equipment blocks), the plan's own order kept within one order number.
     - Base systems become `scope.blocks`; `alternate` "add" / "deduct" systems go into `scope.add_alternates` /
-      `scope.deduct_alternates`; `job.exceptions` become `scope.named_exceptions`; `job.front_end` the FrontEnd.
+      `scope.deduct_alternates`, each labelled "ALT #k: <name>" (adds and deducts numbered apart);
+      `job.exceptions` become `scope.named_exceptions`; `job.front_end` the FrontEnd.
     - A system with no shape is rendered in the generic form "{verb} {device}{owner}{qty}" in device order.
     - Never adds a line that is not a field of the Job (nothing internal reaches the client document).
     """
@@ -115,20 +117,18 @@ def render(job: Job, playbook: Playbook) -> ProposalDraft:
     ids = SourceIds.of_job(job)
     front = _front_end(job.front_end, playbook, lines, ids)
     base: list[Block] = []
-    adds: list[Alternate] = []
-    deducts: list[Alternate] = []
+    alternates: dict[str, list[tuple[Block, ...]]] = {"add": [], "deduct": []}
     after: dict[str, list[RenderedLine]] = {"add": [], "deduct": []}      # print order: base, add alternates, deducts
     for system in sorted(job.systems, key=lambda s: block_order(s, playbook)):      # stable: the plan's order kept
         printed: list[RenderedLine] = []
         blocks = _system_blocks(system, playbook, printed, ids)
-        if system.alternate == "add" and blocks:
-            adds.append(Alternate(blocks=blocks))
-        elif system.alternate == "deduct" and blocks:
-            deducts.append(Alternate(blocks=blocks))
+        if system.alternate in alternates and blocks:
+            alternates[system.alternate].append(blocks)
         elif system.alternate == "base":
             base.extend(blocks)
         (lines if system.alternate == "base" else after[system.alternate]).extend(printed)
     lines += after["add"] + after["deduct"]
+    adds, deducts = (_alternates(alternates[side], playbook) for side in ("add", "deduct"))
     exceptions = []
     for x in job.exceptions:
         if not x.text.strip():
@@ -153,6 +153,14 @@ def render(job: Job, playbook: Playbook) -> ProposalDraft:
     return ProposalDraft(scope=scope, lines=tuple(lines))
 
 
+def _alternates(found: list[tuple[Block, ...]], playbook: Playbook) -> list[Alternate]:
+    """One side's alternates in print order, numbered from 1 ("ALT #1: Duct Heaters DH-1, 2"): the name is the first
+    header with its "Qty (...)" taken off, as the old app labelled them; adds and deducts are numbered apart."""
+    form = playbook.wording.alternate_label or ALTERNATE_LABEL
+    return [Alternate(label=_fill(form, k=str(k), name=re.sub(r"^\s*Qty\s*\([^)]*\)\s*", "", blocks[0].header)),
+                      blocks=blocks) for k, blocks in enumerate(found, start=1)]
+
+
 # ---- text helpers ----------------------------------------------------------------------------------------------
 
 class _Blank(dict):
@@ -169,24 +177,43 @@ def _trim(text: str) -> str:
     return _squash(text).rstrip(" .;")
 
 
-ACRONYMS = {a.lower(): a for a in ("BMS", "VFD", "DDC", "CO", "NO", "ERV", "RTU", "IT", "HPAC", "SCR", "UUKL", "FA",
-                                   "BACnet")}
-_SMALL_WORDS = {"a", "an", "and", "as", "at", "b", "between", "but", "by", "for", "from", "in", "into", "nor", "of",
-                "on", "or", "per", "the", "thru", "to", "vs", "w", "with", "within"}
+ACRONYMS = {a.lower(): a for a in ("BMS", "VFD", "DDC", "ERV", "RTU", "HPAC", "SCR", "UUKL", "BACnet")}
+# NO, IT, CO and FA are also ordinary words ("no", "it", "co-located"): an upper-case word is kept as written, and a
+# lower-case (or capitalised) "co" / "it" / "fa" becomes CO / IT / FA only before the words that name its thing
+_ACRONYM_BEFORE = {"co": ("CO", {"sensor", "sensors", "detector", "detectors", "detection", "monitor", "monitoring"}),
+                   "it": ("IT", {"room", "rooms", "closet", "closets", "rack", "racks"}),
+                   "fa": ("FA", {"relay", "relays", "panel", "panels", "interface", "shutdown", "alarm", "alarms",
+                                 "system", "interlock", "interlocks"})}
+_NEXT_WORDS = re.compile(r"[A-Za-z]+")
+_LIST_WORDS = {"and", "or", "no", "fa", "co", "it"}   # passed over to the thing a short list names ("co and no sensors")
+_SMALL_WORDS = {"a", "an", "and", "as", "at", "b", "between", "but", "by", "for", "from", "in", "into", "it", "nor",
+                "of", "on", "or", "per", "the", "thru", "to", "vs", "w", "with", "within"}
 
 
 def _title(text: str) -> str:
-    """A name as house lines read: each lower-case word capitalised (small joining words after the first left
-    alone), the house acronyms in their own spelling (BMS, VFD, CO, BACnet ...); a word already capitalised is kept."""
+    """A name as house lines read: each lower-case word capitalised (small joining words after the first, and the
+    part after a hyphen, left alone), the house acronyms in their own spelling (BMS, VFD, BACnet ...); a word already
+    capitalised is kept. An acronym that is also a word prints as the source writes it, except "co" / "it" / "fa"
+    before the thing they name ("co sensor" -> "CO Sensor", "it room" -> "IT Room", "fa relay" -> "FA Relay", "co2" ->
+    "CO2"); "no" never."""
+    text = text or ""
+
     def word(match: re.Match) -> str:
         w = match.group(0)
         canon = ACRONYMS.get(w.lower())
         if canon:
             return canon
-        if w.islower() and (match.start() == 0 or w not in _SMALL_WORDS):
+        after_hyphen = match.start() > 0 and text[match.start() - 1] == "-"
+        context = _ACRONYM_BEFORE.get(w.lower())
+        if context and not w.isupper() and not after_hyphen:
+            following = next((n.lower() for n in _NEXT_WORDS.findall(text, match.end())
+                              if n.lower() not in _LIST_WORDS), "")
+            if following in context[1] or (w.lower() == "co" and text[match.end():match.end() + 1] == "2"):
+                return context[0]
+        if w.islower() and not after_hyphen and (match.start() == 0 or w not in _SMALL_WORDS):
             return w[0].upper() + w[1:]
         return w
-    return re.sub(r"[A-Za-z]+(?:'[a-z]+)?", word, text or "")
+    return re.sub(r"[A-Za-z]+(?:'[a-z]+)?", word, text)
 
 
 _NOT_PLURAL = {"points", "series", "status", "controls", "stairs", "chassis"}
@@ -221,14 +248,15 @@ def _owner(device: Device, playbook: Playbook) -> str:
 
 
 def _reason(assumption, ids: SourceIds) -> str:
-    """"<what>, because <why>": the label off first, then the safety net (`SourceIds.without_issued`)."""
+    """"<what>, because <why>": the label off first, then the safety net (`SourceIds.without_issued`). Both are
+    checked once cleaned: a what that is only its label, or a why that is only issued ids, is no assumption."""
     what = _trim(strip_label("assumed", ids.without_issued(strip_label("assumed", assumption.what))))
     why = _trim(ids.without_issued(assumption.why))
-    if not _trim(assumption.what) or not _squash(assumption.why):
+    if not what or not why:
         raise RenderError(f"an assumption needs both what and why (got what={assumption.what!r}, "
                           f"why={assumption.why!r})")
     lead = "" if why.lower().startswith(_REASON_LEADS) else "because "
-    return f"{what}, {lead}{why}" if why else what
+    return f"{what}, {lead}{why}"
 
 
 # ---- places (a count note's, built by code) and the source-id safety net (bms.citations decides both) ----------
@@ -314,7 +342,8 @@ def _count_part(count: Count, ids: SourceIds, causes: str = "") -> str:
     """One count's part of the quantity note: "(N) per <label>; M per <label>; K and J per <label>": the printed
     (highest) count first, then each other count with its label, highest first, equal values from one label
     folded, at most MAX_COUNT_CLAUSES clauses; a count with no label is left out (never "per the documents");
-    "" when no other count has a label. `causes` (`_count_causes`) prints after the "plan placements" label."""
+    "" when no other count has a label. `causes` (`_count_causes`) prints after the "plan placements" label, or after
+    the printed count's sheet when the plan placements give that count too."""
     n = _printed(count)
     if n is None:
         return ""
@@ -338,7 +367,10 @@ def _count_part(count: Count, ids: SourceIds, causes: str = "") -> str:
 
     others = "; ".join(f"{' and '.join(str(v) for v in sorted(values, reverse=True))} per {shown(label)}"
                        for label, values in clauses)
-    return f"({n}) per {shown(head)}; {others}" if head else f"({n}); {others}"
+    first = shown(head)
+    if causes and head != PLACEMENTS_LABEL and PLACEMENTS_LABEL in heads:
+        first = f"{head} {causes}"               # the plan placements give the printed count too: their causes stay
+    return f"({n}) per {first}; {others}" if head else f"({n}); {others}"
 
 
 def _count_note(counts: list[Count], playbook: Playbook, ids: SourceIds) -> str:
@@ -372,22 +404,24 @@ def _plain(text: str) -> str:
     return _squash(text or "").rstrip(" .").lower()
 
 
-def _fixed_texts(playbook: Playbook) -> tuple[dict[str, str], dict[str, str]]:
+def _fixed_texts(playbook: Playbook, shape: Shape | None) -> tuple[dict[str, str], dict[str, str]]:
     """The house lines that print as written with no verb: (by their plain words, by their slot). The lines are the
-    integration trio's lines with no placeholder and every shape wording with none ("Map Available Points Via Mfr.
-    Provided BMS Interface", the mfr. rep line); the slots are the integration slots whose wording is such a line
-    (map_points, rep_assist, vfd_map_points, vfd_rep_assist)."""
+    integration trio's lines with no placeholder and the block's OWN shape's wordings with none ("Map Available Points
+    Via Mfr. Provided BMS Interface", the mfr. rep line): another shape's fixed wording is an ordinary name here, so
+    a device named like it keeps its verb and owner. The slots are every shape's integration slots whose wording is
+    such a line (map_points, rep_assist, vfd_map_points, vfd_rep_assist)."""
     lines: dict[str, str] = {}
     slots: dict[str, str] = {}
     for line in playbook.wording.integration_trio:
         if not _PLACEHOLDER.search(line):
             lines.setdefault(_plain(line), line)
-    for shape in playbook.shapes.values():
-        for slot, wording in shape.wording.items():
+    for one in playbook.shapes.values():
+        for slot, wording in one.wording.items():
             if _PLACEHOLDER.search(wording):
                 continue
-            lines.setdefault(_plain(wording), wording)
-            if shape.slot_kinds.get(slot) == "integration":
+            if shape is not None and one.name == shape.name:
+                lines.setdefault(_plain(wording), wording)
+            if one.slot_kinds.get(slot) == "integration":
                 slots.setdefault(slot, wording)
     return lines, slots
 
@@ -401,7 +435,7 @@ def _slot_form(shape: Shape | None, slot: str) -> str:
 def line_form(device: Device, shape: Shape | None, playbook: Playbook) -> str:
     """The wording a device's line prints with: its slot's wording in the shape (else the generic form), a fixed
     integration slot's house line in a block whose shape lacks it, or a house line printed as written."""
-    house_lines, house_slots = _fixed_texts(playbook)
+    house_lines, house_slots = _fixed_texts(playbook, shape)
     form = _slot_form(shape, device.slot)
     if form == GENERIC_FORM and device.slot in house_slots:
         form = house_slots[device.slot]          # a fixed integration slot in a block whose shape lacks it
@@ -443,6 +477,7 @@ def _device_lines(devices, shape: Shape | None, system: System | None, playbook:
     ranked = sorted(range(len(devices)), key=key)
     what = _title(system.name) if system is not None and system.control == "integration" else ""
     quantity_words = playbook.wording.quantity
+    house_lines, _ = _fixed_texts(playbook, shape)
     out: list[_Printed] = []
     for i in ranked:
         device = devices[i]
@@ -450,6 +485,7 @@ def _device_lines(devices, shape: Shape | None, system: System | None, playbook:
         number = _printed(device.quantity)
         owner = _owner(device, playbook)
         form = line_form(device, shape, playbook)
+        fixed = house_lines.get(_plain(device.name))     # a house line printed as written (line_form chose it)
         qty = ""
         if "{qty}" in form:
             if number is None:
@@ -458,6 +494,8 @@ def _device_lines(devices, shape: Shape | None, system: System | None, playbook:
                 qty = quantity_words["line"].format(n=number)
         if _PLACEHOLDER.search(form):
             text = _fill(form, verb=device.verb, device=_title(device.name), owner=owner, qty=qty, what=what)
+        elif fixed is not None and owner and fixed not in playbook.wording.integration_trio:
+            text = _squash(form + owner)             # a shape's house line another party furnishes keeps its bracket
         else:
             text = form
         verb = device.verb if "{verb}" in form else None

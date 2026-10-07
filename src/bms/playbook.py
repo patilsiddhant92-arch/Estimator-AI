@@ -83,6 +83,7 @@ class Wording:
     quantity: dict[str, str]                        # line, unknown, others_note
     draft: tuple[str, ...] = ()
     count_causes: dict[str, str] = field(default_factory=dict)   # form, joiner and each cause's client words
+    alternate_label: str = ""                       # optional "ALT #{k}: {name}" form; "" = the renderer's own
 
 
 @dataclass(frozen=True)
@@ -413,7 +414,10 @@ def load_wording(path: Path) -> Wording:
     if not all(causes[k].strip() for k in COUNT_CAUSE_KEYS if k != "joiner"):
         raise PlaybookError(f"{path.name}: count_causes: the form must hold {{causes}} and every cause needs its words")
     draft = _strings(data.get("$draft", []), "$draft", path)
-    return Wording(verbs, brackets, lines, tuple(depths), forms, header, quantity, draft, causes)
+    alternate_label = data.get("alternate_label", "")          # optional: the renderer keeps its own form without it
+    if not isinstance(alternate_label, str) or (alternate_label and "{k}" not in alternate_label):
+        raise PlaybookError(f"{path.name}: alternate_label must be a text holding {{k}}")
+    return Wording(verbs, brackets, lines, tuple(depths), forms, header, quantity, draft, causes, alternate_label)
 
 
 _load_wording = load_wording
