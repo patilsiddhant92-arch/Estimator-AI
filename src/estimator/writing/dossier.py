@@ -27,7 +27,8 @@ import pymupdf
 
 from estimator.catalogue.job import CONTROLS_DISCIPLINES, document_repeats
 from estimator.catalogue.overview import FOUND, RULED_OUT, STANDARD_CLARIFICATION, STANDARD_EXCLUSION
-from estimator.catalogue.tags import Equipment, find_tags, label_keys, line_labels, tag_location, tag_prefix
+from estimator.catalogue.tags import (Equipment, find_tags, label_keys, line_labels, plan_labels, tag_location,
+                                      tag_prefix)
 from estimator.reading.inventory import (COUNT_CAUSE_WORDS, COUNT_CAUSES_LEAD, TYPE_ON_ONE_SHEET, TYPE_PLACED,
                                         counted_per_place, counting_pages, first_pages, plan_area_doubts, plan_areas,
                                         plan_count, plan_floors, plan_groups, sheet_labels)
@@ -747,7 +748,7 @@ class _Family:
     causes: list = field(default_factory=list)      # those causes' keys (COUNT_CAUSE_WORDS), for the line's head
 
 
-def _counts(catalogue, reading, counted: frozenset, multipliers: dict) -> dict[str, _Family]:
+def _counts(catalogue, reading, counted_pages: frozenset, multipliers: dict) -> dict[str, _Family]:
     equipment = Equipment.load()
     type_titles = vocabulary().type_titles
     families: dict[str, _Family] = defaultdict(_Family)
@@ -796,7 +797,7 @@ def _counts(catalogue, reading, counted: frozenset, multipliers: dict) -> dict[s
     for sheet in catalogue.sheets:
         key = (sheet.document, sheet.page)
         record = records.get(key)
-        if key not in counted or record is None or sheet.discipline not in CONTROLS_DISCIPLINES:
+        if key not in counted_pages or record is None or sheet.discipline not in CONTROLS_DISCIPLINES:
             continue
         is_plan = "Plans" in sheet.types
         is_riser = bool(_RISER.search(sheet.title or ""))
@@ -810,24 +811,33 @@ def _counts(catalogue, reading, counted: frozenset, multipliers: dict) -> dict[s
     title_block = {tag for tag, n in in_edge.items() if n >= max(2, len(read) / 2)}
     keys = label_keys(sorted((t for t in valid if t not in exclude), key=_natural))
 
-    def tally_of(key, record, edge) -> Counter:
-        """A sheet's tags as the inventory reads them (`line_labels`: a tag in a note is no placement, REVIEW-FINAL6
-        F7), less a schedule printed on the sheet and the title block's own text. Those two are taken off the tags
-        named anywhere on the sheet, never off the labels alone: the count is the lower of the labels and the
-        mentions less them, so a row written on one line (no label) never takes a label away. A type code counts
-        wherever its pattern stands."""
+    def tallies_of(key, record, edge, plan: bool = True) -> tuple[Counter, Counter]:
+        """A sheet's tags as the inventory reads them, as (the count's tally, the labels' tally). The labels'
+        (`line_labels`: a tag in a note is no placement, REVIEW-FINAL6 F7) is the plan groups' evidence; the count's
+        is, on a plan, `plan_labels` (a unit named anywhere counts at least once, REVIEW-FINAL7 F4). Each less a
+        schedule printed on the sheet and the title block's own text. Those two are taken off the tags named
+        anywhere on the sheet, never off the labels alone: the count is the lower of the labels and the mentions
+        less them, so a row written on one line (no label) never takes a label away. A type code counts wherever
+        its pattern stands."""
         labels = line_labels(record.text, keys)
         anywhere = Counter(tag for tag in find_tags(record.text, equipment, exclude) if tag in valid)
         taken = Counter(on_page.get(key, Counter()))       # a schedule on a plan sheet names each unit once more
         taken.update({tag: n for tag, n in edge.items() if tag in title_block})
-        tally = Counter({tag: min(n, max(n, anywhere[tag]) - taken[tag]) for tag, n in labels.items()})
-        for code, pattern in code_patterns.items():
-            tally[code] = len(pattern.findall(record.text)) - on_page.get(key, Counter())[code]
-        return Counter({tag: n for tag, n in tally.items() if n > 0})
+        codes = {code: len(pattern.findall(record.text)) - on_page.get(key, Counter())[code]
+                 for code, pattern in code_patterns.items()}
+
+        def less(found: Counter) -> Counter:
+            tally = Counter({tag: min(n, max(n, anywhere[tag]) - taken[tag]) for tag, n in found.items()})
+            for code, n in codes.items():
+                tally[code] = n
+            return Counter({tag: n for tag, n in tally.items() if n > 0})
+
+        return less(plan_labels(record.text, keys, labels) if plan else labels), less(labels)
 
     tallies: dict[tuple[str, int], Counter] = {}
+    evidence: dict[tuple[str, int], Counter] = {}       # the labels alone: which plans are one plan group
     for sheet, key, record, is_plan, is_riser, edge in read:
-        tallies[key] = tally_of(key, record, edge)
+        tallies[key], evidence[key] = tallies_of(key, record, edge, is_plan)
     # Lead ruling (FINAL-I), the one counting rule shared with the inventory (`plan_groups`, `plan_count`): plan
     # sheets are one plan group only when they are in one document, their titles have the same words with a floor
     # among them, and they repeat each other's unit tags. In a group a unit's tag counts once and a type's tag (EBB-A,
@@ -835,8 +845,11 @@ def _counts(catalogue, reading, counted: frozenset, multipliers: dict) -> dict[s
     # stands for (every floor once). Every other sheet is its own group, and the groups add up: when in doubt the
     # sheets are summed, the higher count, and the counts line names what may be counted twice.
     plans = [(sheet, tallies[key]) for sheet, key, _r, is_plan, *_ in read if is_plan]
-    groups = plan_groups(plans, code_patterns)
-    doubts = [(a, b) for a, b in plan_area_doubts(plans, plan_areas(plans)) if b not in groups.get(a, ())]
+    # the labels alone are the groups' evidence: the backstop (`plan_labels`) never joins two plans (FINAL-N)
+    labelled_plans = [(sheet, evidence[key]) for sheet, key, _r, is_plan, *_ in read if is_plan]
+    groups = plan_groups(labelled_plans, code_patterns)
+    doubts = [(a, b) for a, b in plan_area_doubts(labelled_plans, plan_areas(labelled_plans))
+              if b not in groups.get(a, ())]
     labels = sheet_labels(sheet for sheet, *_ in read)
     floor_sets = plan_floors(catalogue, getattr(reading, "typicals", ()))
     places: dict[tuple[str, str], list] = defaultdict(list)          # (prefix, tag) -> [(sheet, places, floor set)]
@@ -885,7 +898,7 @@ def _counts(catalogue, reading, counted: frozenset, multipliers: dict) -> dict[s
             summed[prefix].append((tag, [labels[group[0]] for group in on], count))
         if most >= 2:
             labelled_often[prefix].append((tag, printed[(prefix, tag)][0], most))
-    extra = _copy_counts(catalogue, read, tally_of, code_patterns, per_place_of)
+    extra = _copy_counts(catalogue, read, tallies_of, code_patterns, per_place_of)
     for prefix, family in families.items():
         family.notes, family.causes = _placement_causes(prefix, family, seen_on, printed, placed, each_place[prefix],
                                                         typed, counted)
@@ -906,7 +919,7 @@ def _counts(catalogue, reading, counted: frozenset, multipliers: dict) -> dict[s
     return families
 
 
-def _copy_counts(catalogue, read: list, tally_of, code_patterns: dict, per_place_of: dict
+def _copy_counts(catalogue, read: list, tallies_of, code_patterns: dict, per_place_of: dict
                  ) -> dict[str, dict[tuple[str, str], int]]:
     """prefix -> (copy, original) -> what the plans of a marked-up copy (`document_repeats`, same units; read once,
     never counted) would add if it were another building: its plan pages counted by the one rule, on their own
@@ -918,13 +931,15 @@ def _copy_counts(catalogue, read: list, tally_of, code_patterns: dict, per_place
     edge_of = {key: edge for _sheet, key, _r, _p, _riser, edge in read}
     found: dict[str, dict[tuple[str, str], int]] = defaultdict(lambda: defaultdict(int))
     for r in copies:
-        plans = []
+        plans, labelled = [], []
         for sheet in catalogue.sheets:
             key = (sheet.document, sheet.page)
             if (sheet.document == r.copy and sheet.number in r.numbers and "Plans" in sheet.types
                     and sheet.discipline in CONTROLS_DISCIPLINES and key in records):
-                plans.append((sheet, tally_of(key, records[key], edge_of.get(key, Counter()))))
-        groups = plan_groups(plans, code_patterns)
+                tally, labels = tallies_of(key, records[key], edge_of.get(key, Counter()))
+                plans.append((sheet, tally))
+                labelled.append((sheet, labels))
+        groups = plan_groups(labelled, code_patterns)
         entries: dict[tuple[str, str], list] = defaultdict(list)
         for sheet, tally in plans:
             for tag, n in tally.items():

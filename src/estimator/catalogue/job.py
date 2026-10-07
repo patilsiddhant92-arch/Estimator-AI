@@ -1,6 +1,7 @@
 """One job, catalogued: every stage of build step 3, and the flags an estimator should look at."""
 from __future__ import annotations
 
+import re
 from collections import Counter, defaultdict
 from dataclasses import dataclass, field, replace
 from pathlib import Path
@@ -12,7 +13,7 @@ from estimator.catalogue.qualify import BidCheck, check_bid
 from estimator.catalogue.register import PageRecord, register_job
 from estimator.catalogue.sheet_types import Sheet, classify_sheet, discipline_from_filename
 from estimator.catalogue.spec_sections import SpecSection, index_sections
-from estimator.catalogue.tags import TagEntry, index_tags, is_type_tag, label_keys, line_labels
+from estimator.catalogue.tags import TagEntry, index_tags, is_type_tag, label_keys, plan_labels
 from estimator.catalogue.title_block import read_drawing_index, read_title_block
 
 
@@ -81,7 +82,8 @@ def _plural(n: int, word: str) -> str:
 
 
 COPY_SHARED = 3          # unit tags a marked-up copy's plans must repeat of its original's ...
-COPY_OVERLAP = 0.6       # ... and this share of the smaller document's unit tags (REVIEW-FINAL6 F3)
+COPY_OVERLAP = 0.6       # ... and this share of the original's unit tags (REVIEW-FINAL6 F3, REVIEW-FINAL7 F1)
+COPY_TEXT = 0.9          # the share of the original's words on the shared sheets the copy repeats (REVIEW-FINAL7 F1)
 
 
 @dataclass(frozen=True)
@@ -92,6 +94,7 @@ class DocumentRepeat:
     numbers: frozenset[str]     # the sheet numbers it repeats
     same: bool                  # True: a marked-up copy (the same units on its plans), read once; False: another set
                                 # of drawings (a second building issued with the same sheet numbers), read and summed
+    why: str = ""               # another set: why it is no marked-up copy, in words ("not their units")
 
 
 def _issue(documents: dict, relative: str) -> tuple | None:
@@ -106,24 +109,65 @@ def _issue(documents: dict, relative: str) -> tuple | None:
 
 
 def _plan_units(catalogue, document: str, numbers: frozenset[str], keys: dict[str, str]) -> set[str]:
-    """The unit tags (`is_type_tag` false) labelled (`line_labels`) on the document's plan sheets of these numbers."""
+    """The unit tags (`is_type_tag` false) on the document's plan sheets of these numbers, as the counts read them
+    (`plan_labels`: labelled, or named anywhere on the plan)."""
     texts = {(p.document, p.page): p.text for p in catalogue.pages}
     units: set[str] = set()
     for sheet in catalogue.sheets:
         if sheet.document == document and sheet.number in numbers and "Plans" in sheet.types:
-            units |= {tag for tag in line_labels(texts.get((sheet.document, sheet.page), ""), keys)
+            units |= {tag for tag in plan_labels(texts.get((sheet.document, sheet.page)) or "", keys)
                       if not is_type_tag(tag)}
     return units
 
 
+def _words(catalogue, document: str, numbers: frozenset[str]) -> Counter:
+    """The words (letters and digits, upper case) on the document's sheets of these numbers."""
+    pages = {(s.document, s.page) for s in catalogue.sheets if s.document == document and s.number in numbers}
+    words: Counter = Counter()
+    for p in catalogue.pages:
+        if (p.document, p.page) in pages:
+            words.update(re.findall(r"[A-Z0-9]+", (p.text or "").upper()))
+    return words
+
+
+def _plan_titles(catalogue, document: str, numbers: frozenset[str]) -> dict[str, set[str]]:
+    titles: dict[str, set[str]] = defaultdict(set)
+    for s in catalogue.sheets:
+        if s.document == document and s.number in numbers and "Plans" in s.types:
+            titles[s.number].add(" ".join((s.title or "").upper().split()))
+    return titles
+
+
+def _not_a_copy(catalogue, original: str, copy: str, shared: frozenset[str], keys: dict[str, str]) -> str:
+    """Why `copy` is no marked-up copy of `original` ("" when it is one). A marked-up copy only adds clouds and text:
+    its plans show no unit tag the original lacks (the original is the superset), at least COPY_SHARED of the
+    original's unit tags and COPY_OVERLAP of them; the same plan titles on the shared numbers (BUILDING B is never a
+    copy of BUILDING A); and COPY_TEXT of the original's words on the shared sheets (REVIEW-FINAL7 F1, F5)."""
+    a, b = _plan_units(catalogue, original, shared, keys), _plan_units(catalogue, copy, shared, keys)
+    if b - a:
+        return f"shows unit tags {_name(original)} does not"
+    if len(b) < COPY_SHARED or len(b) < COPY_OVERLAP * len(a):
+        return "not their units"
+    titles_a, titles_b = _plan_titles(catalogue, original, shared), _plan_titles(catalogue, copy, shared)
+    if any(titles_a[number] != titles_b[number] for number in set(titles_a) & set(titles_b)):
+        return "not their plan titles"
+    words_a, words_b = _words(catalogue, original, shared), _words(catalogue, copy, shared)
+    total = sum(words_a.values())
+    if total and sum((words_a & words_b).values()) < COPY_TEXT * total:
+        return "not their text"
+    return ""
+
+
 def document_repeats(catalogue) -> list[DocumentRepeat]:
     """Each document that repeats most of another's sheet numbers, and whether it is a marked-up copy. Sheet numbers
-    alone never make a copy (REVIEW-FINAL6 F3): a copy only adds clouds and text, so its plans show the same unit
-    tags as the original's (at least COPY_SHARED of them, COPY_OVERLAP of the smaller set's). One that shows other
-    units, of the same issue, is another set of drawings (a second building issued with the same numbers): read and
-    summed. An addendum or a duplicate file is neither, nor is a later issue with other units: supersession decides.
-    Two documents never each claim the other: a document claimed as a copy is never an original, and an original is
-    never claimed."""
+    alone never make a copy (REVIEW-FINAL6 F3), nor do shared tags (REVIEW-FINAL7 F1): a copy is one only when all
+    of `_not_a_copy`'s tests hold, so a reduction is made only where it is provably safe. Any other document of the
+    same issue is another set of drawings (a second building issued with the same numbers): read and summed, and
+    said. Two documents of other issues (another revision label, an addendum, a duplicate file) are never copy and
+    original: supersession decides between them, by their dates, and says when it cannot (F2). Of two documents the
+    same size, the original is the one whose plans show the more units, then the one with less text (a copy adds
+    markups), then the one whose name does not say it is marked up. Two documents never each claim the other: a
+    document claimed as a copy is never an original, and an original is never claimed."""
     numbers: dict[str, set[str]] = defaultdict(set)
     for sheet in catalogue.sheets:
         if sheet.number:
@@ -132,17 +176,15 @@ def document_repeats(catalogue) -> list[DocumentRepeat]:
     text = Counter()
     for p in catalogue.pages:
         text[p.document] += len(p.text or "")
-    # the larger set first; of two the same size, the original is the one with less text (a copy adds markups), then
-    # the one whose name does not say it is marked up
     by_size = sorted(numbers, key=lambda d: (-len(numbers[d]), text[d], "MARK" in _name(d).upper(), d))
     keys: dict[str, str] | None = None
     found: list[DocumentRepeat] = []
     claimed: set[str] = set()
     originals: set[str] = set()
     for original in by_size:
-        if original in claimed:
-            continue
         for copy in by_size:
+            if original in claimed:
+                break
             if copy == original or copy in claimed or copy in originals or not numbers[copy]:
                 continue
             if len(numbers[copy]) > len(numbers[original]):
@@ -151,16 +193,20 @@ def document_repeats(catalogue) -> list[DocumentRepeat]:
             if not (len(numbers[copy]) >= 3 and len(shared) / len(numbers[copy]) >= 0.8):
                 continue
             issues = _issue(documents, original), _issue(documents, copy)
-            if None in issues:
+            if None in issues or issues[0] != issues[1]:
                 continue
             if keys is None:
                 keys = label_keys(t.tag for t in getattr(catalogue, "tags", ()))
-            a, b = _plan_units(catalogue, original, shared, keys), _plan_units(catalogue, copy, shared, keys)
-            common = len(a & b)
-            same = common >= COPY_SHARED and common >= COPY_OVERLAP * min(len(a), len(b))
-            if not same and issues[0] != issues[1]:
-                continue
-            found.append(DocumentRepeat(copy, original, shared, same))
+            why = _not_a_copy(catalogue, original, copy, shared, keys)
+            if (why and len(numbers[copy]) == len(numbers[original]) and original not in originals
+                    and not _not_a_copy(catalogue, copy, original, shared, keys)):
+                # the other way round: the document taken for the original is the marked-up copy (its plans show
+                # fewer units than the other's, or its text is the other's plus markups)
+                found.append(DocumentRepeat(original, copy, shared, True))
+                claimed.add(original)
+                originals.add(copy)
+                break
+            found.append(DocumentRepeat(copy, original, shared, not why, why))
             claimed.add(copy)
             originals.add(original)
     return found
@@ -175,8 +221,8 @@ def other_sets(catalogue) -> set[tuple[str, str]]:
 def _repeat_line(r: DocumentRepeat) -> str:
     if r.same:
         return f"{_name(r.copy)} repeats {len(r.numbers)} sheets of {_name(r.original)} — probably a marked-up copy"
-    return (f"{_name(r.copy)} repeats {len(r.numbers)} sheets of {_name(r.original)} but not their units — read as "
-            f"another set of drawings and counted; check whether it is a marked-up copy")
+    return (f"{_name(r.copy)} repeats {len(r.numbers)} sheets of {_name(r.original)} but {r.why or 'not their units'}"
+            f" — read as another set of drawings and counted; check whether it is a marked-up copy")
 
 
 def repeats(catalogue: Catalogue) -> tuple[list[str], set[tuple[str, str]]]:

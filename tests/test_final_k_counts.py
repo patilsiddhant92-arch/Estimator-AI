@@ -141,8 +141,10 @@ def test_a_line_of_tags_alone_is_each_tag_labelled_and_a_note_is_none():
     from estimator.catalogue.tags import label_keys, line_labels   # FINAL-K: the one label reader
     keys = label_keys(["VAV-1", "VAV-2", "EF-1"])
     assert line_labels("VAV-1  VAV-2\nTO EF-1\nEF-1 (TYP)\nVAV\n1", keys) == {"VAV-1": 2, "VAV-2": 1, "EF-1": 1}
-    # symbols beside a tag on its line are no note; a word is
-    assert line_labels("VAV-1 VAV-1 T T\nEF-1 450\nVAV-2 ABOVE\nVAV-2 500 CFM", keys) == {"VAV-1": 2, "EF-1": 1}
+    # symbols beside a tag on its line are no note; FINAL-N (REVIEW-FINAL7 F4, the lead's ruling): words after a tag
+    # that starts its line are no note either ("VAV-2 ABOVE", "VAV-2 500 CFM" are labels; was no label)
+    assert line_labels("VAV-1 VAV-1 T T\nEF-1 450\nVAV-2 ABOVE\nVAV-2 500 CFM", keys) == {"VAV-1": 2, "EF-1": 1,
+                                                                                           "VAV-2": 2}
 
 
 # ---- F8: listed twice on the schedules -----------------------------------------------------------------------------

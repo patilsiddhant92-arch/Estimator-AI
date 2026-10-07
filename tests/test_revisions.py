@@ -118,8 +118,12 @@ def test_with_no_dates_and_two_base_documents_it_asks():
     catalogue = _catalogue((BASE, 1, "M-201", "OLD PLAN TEXT HERE", ()), (OTHER, 1, "M-201", "NEW PLAN TEXT HERE", ()))
     supersessions, flags = supersede(catalogue, sheet_versions(catalogue))
     assert supersessions == []
+    # FINAL-N (REVIEW-FINAL7 F2): two versions nothing orders are both read and summed, never the first alone (an
+    # undated reissue that adds a unit would lose it); the flag says so (was "counted from Mech.pdf for now")
     assert flags == ["Sheet M-201 is in two documents with no dates to order them — check which governs; "
-                     "counted from Mech.pdf for now"]
+                     "counted from Mech.pdf and Mech reissue.pdf, summed, for now"]
+    from estimator.reading.revisions import governing_pages
+    assert {(BASE, 1), (OTHER, 1)} <= governing_pages(catalogue)
 
 
 def test_pages_repeated_in_one_document_are_not_versions():
@@ -196,8 +200,9 @@ def test_two_different_sets_at_the_same_date_still_ask():
     catalogue = _catalogue((BASE, 1, "M-201", "OLD PLAN TEXT HERE", table), (OTHER, 1, "M-201", "NEW PLAN TEXT HERE", table),
                            (OTHER, 2, "M-301", "ANOTHER SHEET", table), (OTHER, 3, "M-302", "AND ANOTHER", table))
     _, flags = supersede(catalogue, sheet_versions(catalogue))
+    # FINAL-N (REVIEW-FINAL7 F2): both versions are read and summed until the estimator says which governs
     assert flags == ["Sheet M-201 is in two documents with the same date (02/12/25) — check which governs; "
-                     "counted from Mech.pdf for now"]
+                     "counted from Mech.pdf and Mech reissue.pdf, summed, for now"]
 
 
 # ---- two-digit years and far-future dates (review finding 8) ----------------------------------
@@ -289,10 +294,12 @@ def test_the_governing_pages_skip_a_marked_up_copy_and_repeats_inside_one_docume
              for n, number in enumerate(("M-201", "M-202", "M-203"), 1)]
     pages += [(BASE, n, number, f"PLAN {number}{units if number != 'M-204' else ''}", ())
               for n, number in enumerate(("M-201", "M-202", "M-203", "M-204"), 1)]
-    pages += [(BASE, 5, "M-204", "PLAN M-204", ()),               # the same page again: read once
+    # FINAL-N (REVIEW-FINAL7 F7): a page of one number is set aside only when EVERY page of that number is alike;
+    # here page 6 has other text, so pages 4, 5 and 6 are all read (was: page 5, the same as page 4, read once)
+    pages += [(BASE, 5, "M-204", "PLAN M-204", ()),               # the same page again, beside another: read
               (BASE, 6, "M-204", "PLAN M-204 PART 2", ()),        # the same number, other text: read too
               (BASE, 7, "M-110", "TYPICAL FLOOR 10", ()), (BASE, 8, "M-110", "TYPICAL FLOOR 11", ())]
     tags = tuple(TagEntry(f"VAV-{n}", "", (), ("M-201",), 7) for n in (1, 2, 3))
     catalogue = replace(_catalogue(*pages), tags=tags)
     assert governing_pages(catalogue, (), typicals=["M-110"]) == {
-        (BASE, 1), (BASE, 2), (BASE, 3), (BASE, 4), (BASE, 6), (BASE, 7)}
+        (BASE, 1), (BASE, 2), (BASE, 3), (BASE, 4), (BASE, 5), (BASE, 6), (BASE, 7)}

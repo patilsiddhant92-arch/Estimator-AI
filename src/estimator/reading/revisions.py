@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import json
 import re
-from collections import defaultdict
+from collections import Counter, defaultdict
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from datetime import date, timedelta
@@ -26,7 +26,7 @@ from pathlib import Path
 from estimator.catalogue.job import other_sets, repeats
 from estimator.catalogue.pdf import Span, clean_text
 from estimator.catalogue.register import PageRecord
-from estimator.catalogue.tags import Equipment, find_tags, sheet_number_tags
+from estimator.catalogue.tags import Equipment, find_tags, label_keys, line_labels, sheet_number_tags
 
 ASSETS = Path(__file__).resolve().parents[3] / "assets"
 REVISIONS = ASSETS / "reading_lists" / "revisions.json"
@@ -386,6 +386,7 @@ def supersede(catalogue, versions: Sequence[SheetVersion],
             contents[key] = _content(records.get(key), key in schedules, exclude, reading)
         return contents[key]
 
+    alike = _Alike(catalogue, reading)
     supersessions, flags = [], []
     for sheet in sorted(by_sheet, key=_natural):
         in_documents = list(by_sheet[sheet].values())
@@ -396,8 +397,11 @@ def supersede(catalogue, versions: Sequence[SheetVersion],
             continue    # the only rival is a marked-up copy of the same set: nothing to decide
         distinct: list[SheetVersion] = []
         for version in in_documents:
-            # The same text at the same issue (a marked-up copy of the set) is one version, not two.
+            # The same text at the same issue (a marked-up copy of the set) is one version, not two; the same labels
+            # too, each as often (`_Alike`, as `governing_pages` reads them).
             if not any(content(version).same_as(content(kept))
+                       and alike.label_counts((version.document, version.page))
+                       == alike.label_counts((kept.document, kept.page))
                        and (version.latest is None or kept.latest is None or version.latest == kept.latest)
                        for kept in distinct):
                 distinct.append(version)
@@ -411,7 +415,9 @@ def supersede(catalogue, versions: Sequence[SheetVersion],
             dates = {v.latest for v in distinct}
             why = (f"the same date ({_short(next(iter(dates)))})" if len(dates) == 1 and None not in dates
                    else "no dates to order them")
-            meanwhile = rivals[0].document.rsplit("/", 1)[-1]
+            # `governing_pages` reads each version nothing orders and sums them (REVIEW-FINAL7 F2)
+            read = [v.document.rsplit("/", 1)[-1] for v in distinct if (v.sheet, v.document) not in copies]
+            meanwhile = _and(read) + (", summed," if len(read) > 1 else "")
             flags.append(f"Sheet {sheet} is in {count} documents with {why} — check which governs; "
                          f"counted from {meanwhile} for now")
             continue
@@ -424,13 +430,44 @@ def supersede(catalogue, versions: Sequence[SheetVersion],
     return supersessions, flags
 
 
+class _Alike:
+    """Whether two pages show one version of a sheet: the same tags and note lines (`_Content.same_as`) and the
+    same labels, each as often (`line_labels`: a type drawn 3 times is not one drawn 4 times)."""
+
+    def __init__(self, catalogue, reading: Revisions | None = None):
+        self.reading = reading or Revisions.load()
+        self.records = {(p.document, p.page): p for p in catalogue.pages}
+        self.schedules = {(s.document, s.page) for s in catalogue.sheets if "Schedules" in s.types}
+        self.exclude = sheet_number_tags((s.number for s in catalogue.sheets), _equipment())
+        self.keys = label_keys(t.tag for t in getattr(catalogue, "tags", ()))
+        self.contents: dict[tuple[str, int], _Content] = {}
+        self.labels: dict[tuple[str, int], Counter] = {}
+
+    def content(self, key: tuple[str, int]) -> _Content:
+        if key not in self.contents:
+            self.contents[key] = _content(self.records.get(key), key in self.schedules, self.exclude, self.reading)
+        return self.contents[key]
+
+    def label_counts(self, key: tuple[str, int]) -> Counter:
+        if key not in self.labels:
+            record = self.records.get(key)
+            self.labels[key] = line_labels(record.text or "", self.keys) if record is not None else Counter()
+        return self.labels[key]
+
+    def __call__(self, a: tuple[str, int], b: tuple[str, int]) -> bool:
+        return self.content(a).same_as(self.content(b)) and self.label_counts(a) == self.label_counts(b)
+
+
 def governing_pages(catalogue, supersessions: Sequence[Supersession] = (),
                     typicals: Iterable[str | None] = ()) -> frozenset[tuple[str, int]]:
-    """The drawing pages the readers read, as (document, page): every page with no sheet number,
-    and for each sheet number the pages of the one document that governs it — the later issue
-    when a supersession decided it, else the first document that carries it and isn't a marked-up
-    copy of another (`repeats`). Inside that document a page repeated with the same text is read
-    once, and a typical sheet (one plan standing for several floors) only on its first page. A sheet of another set
+    """The drawing pages the readers read, as (document, page): every page with no sheet number, and for each sheet
+    number the pages of the document that governs it: the later issue when a supersession decided it. When none
+    did, the first document that carries it and isn't a marked-up copy of another (`repeats`), and beside it each
+    other such document whose pages are another version (`_Alike`): two versions nothing orders are both read and
+    summed, and `supersede` says "check which governs" (REVIEW-FINAL7 F2: an undated reissue that adds a unit
+    never loses it). Inside one document a number on several pages with the same text on every page is read on its
+    first page (one plan printed again); pages of one number with other text are all read (F7). A typical sheet
+    (one plan standing for several floors) is read on its first page in each document (F3). A sheet of another set
     of drawings with the same numbers (`other_sets`: a second building) is read too, beside the governing one
     (REVIEW-FINAL6 F3): when in doubt, sum."""
     copies = {(_sheet_number(number), document) for number, document in repeats(catalogue)[1]}
@@ -438,6 +475,7 @@ def governing_pages(catalogue, supersessions: Sequence[Supersession] = (),
     current = {s.sheet: s.current.document for s in supersessions}
     typical = {_sheet_number(t) for t in typicals if t}
     texts = {(p.document, p.page): p.text for p in catalogue.pages}
+    alike: _Alike | None = None
     keep: set[tuple[str, int]] = set()
     by_number: dict[str, list] = defaultdict(list)
     for sheet in catalogue.sheets:
@@ -447,16 +485,23 @@ def governing_pages(catalogue, supersessions: Sequence[Supersession] = (),
             keep.add((sheet.document, sheet.page))
     for number, sheets in by_number.items():
         documents = list(dict.fromkeys(s.document for s in sheets))
-        governing = current.get(number) or next((d for d in documents if (number, d) not in copies | others),
-                                                documents[0])
-        own = [s for s in sheets if s.document == governing or (number, s.document) in others]
-        if number in typical:
-            own = own[:1]
-        read: set[tuple[str, str]] = set()
-        for sheet in own:
-            text = texts.get((sheet.document, sheet.page), "")
-            if (sheet.document, text) in read:
+        rivals = [d for d in documents if (number, d) not in copies | others]
+        pages = {d: [(s.document, s.page) for s in sheets if s.document == d] for d in documents}
+        if number in current:
+            governing = [current[number]]
+        elif len(rivals) > 1:
+            alike = alike or _Alike(catalogue)
+            governing = []
+            for document in rivals:
+                if not any(all(any(alike(a, b) for b in pages[kept]) for a in pages[document]) for kept in governing):
+                    governing.append(document)
+        else:
+            governing = rivals[:1] or documents[:1]
+        for document in documents:
+            if document not in governing and (number, document) not in others:
                 continue
-            read.add((sheet.document, text))
-            keep.add((sheet.document, sheet.page))
+            mine = pages[document]
+            if number in typical or len({texts.get(key, "") for key in mine}) == 1:
+                mine = mine[:1]
+            keep.update(mine)
     return frozenset(keep)

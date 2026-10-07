@@ -287,13 +287,14 @@ def test_a_type_row_is_counted_from_its_placements_on_the_plans_times_the_floors
     # made it a type and M-101's two labels counted twice).
     assert (got["EUH-1"].category, got["EUH-1"].quantity) == ("CONFIRMED", 12)
     assert not got["EUH-1"].reason.startswith("A type") and "counted 12 times on the plans" in got["EUH-1"].reason
-    # RTU-1 is labelled once on one plan ("RTU-1 ABOVE" is a note): one unit.
-    assert (got["RTU-1"].category, got["RTU-1"].quantity) == ("CONFIRMED", 1)
+    # RTU-1 is labelled on M-100 ("RTU-1 ABOVE": FINAL-N, REVIEW-FINAL7 F4, a tag that starts a line is a label
+    # whatever words follow) and on M-101: once on each plan, which add up (when in doubt sum: was 1).
+    assert (got["RTU-1"].category, got["RTU-1"].quantity) == ("CONFIRMED", 2)
     # AHU-1 is labelled four times, three at most on one sheet (by its symbol and its thermostats): a unit's tag,
     # once on each of the CELLAR and LEVEL 01 plans, which add up (FINAL-I, when in doubt sum: was 1).
     assert (got["AHU-1"].category, got["AHU-1"].quantity) == ("CONFIRMED", 2)
     scheduled = {t.prefix: t.scheduled for t in totals}
-    assert scheduled == {"AC": 12, "GCF": 4, "EUH": 12, "RTU": 1, "AHU": 2}
+    assert scheduled == {"AC": 12, "GCF": 4, "EUH": 12, "RTU": 2, "AHU": 2}   # RTU 2: FINAL-N, as above
 
 
 def test_a_schedules_quantity_column_gives_a_types_count():
