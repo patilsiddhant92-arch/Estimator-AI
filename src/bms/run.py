@@ -66,7 +66,7 @@ from bms.playbook import load_playbook
 from bms.citations import SourceIds
 from bms.render import RenderError, render
 from bms.status import RUN_STATE
-from bms.review import (DECISIONS_FILE, DECISIONS_HISTORY, SavedDecision, _matches_nothing, accept_families,
+from bms.review import (DECISIONS_FILE, DECISIONS_HISTORY, SavedDecision, _matches_nothing, _target, accept_families,
                         apply_decisions, apply_seen, copies_seen, held_back, keep_deleted, load_decisions, load_history,
                         merge_decisions, review_page, save_history, system_digest, unhonored_decisions)
 from bms.validate import RULE, validate
@@ -199,11 +199,32 @@ def _carry_new_counts(before: System, after: System, rewritten: System, typed: f
     return rewritten if devices == rewritten.devices else dataclasses.replace(rewritten, devices=devices)
 
 
+def _reapplied(job: Job, base: System, rewritten: System, decisions: list[Decision],
+               copies: dict[Decision, int]) -> System:
+    """The count rewrite of `base` (the written system with only its count changes) with the system's line
+    decisions (changes and deletes) applied again (RUN-2). The rewrite keeps every written line's id and words, but
+    may give a line the new count, so a decision whose saved line (`was`) the rewrite no longer has word for word is
+    applied to the line of the rewrite with the id of the line it named in `base`."""
+    ids = {device.id for device in rewritten.devices}
+    on = job.with_system(rewritten)
+    shown_on = job.with_system(base)
+    again = []
+    for decision in decisions:
+        if _matches_nothing(on, decision):
+            line = _target(shown_on, decision)
+            if line is not None and line.id in ids:
+                now = next(device for device in rewritten.devices if device.id == line.id)
+                decision = dataclasses.replace(decision, device_id=line.id, was=now)
+        again.append(decision)
+    return apply_seen(on, again, copies).system(rewritten.key)
+
+
 def _count_note(decisions: tuple[Decision, ...] | list[Decision], key: str) -> str:
-    """The count change, by family name. No device id: the writer must not renumber from one."""
+    """The count changes, by family name; nothing else, so the rewrite's question changes only with them (RUN-2).
+    No device id: the writer must not renumber from one."""
     lines = ["The estimator's count decisions for this system:"]
     for decision in decisions:
-        if decision.system_key != key or not decision.family_name:
+        if not _counts_changed([decision], key):
             continue
         value = decision.count.value if decision.count is not None else None
         suffix = f" to {value}" if value is not None else ""
@@ -519,7 +540,8 @@ def _estimate(job_folder: Path, out: Path, cache: Path, mode: Mode, known: dict)
         stop = _save_history(out, history, job_file)
         if stop is not None:
             return stop
-        known["decisions"] = len(history)
+    # always, so a start-over (both files deleted) counts from 0 again and its first save is no lost history
+    known["decisions"] = len(history)
     decisions = [entry.decision for entry in history]
     latest = max((entry.round for entry in history), default=0)
     decided_from = job
@@ -536,9 +558,17 @@ def _estimate(job_folder: Path, out: Path, cache: Path, mode: Mode, known: dict)
             # a line the answer left at the old count still gets the new one; a line whose count the estimator
             # typed keeps it (AI-1)
             typed = _typed_counts(decisions, key, decided_from)
+            # asked from the written system with only the count changes applied, so the question (its cache key)
+            # depends on the count change alone: a later rename, delete or accept never asks the writer again
+            # (RUN-2). The rewrite keeps the written lines' ids and words, so the system's line decisions are
+            # applied to it again after (`_reapplied`), then the deletes by their saved line as before.
+            counts = [d for d in decisions if _counts_changed([d], key)]
+            base = apply_decisions(decided_from, counts).system(key)
             asked = ai.rewrite_for_count(
-                system, f"{evidence[key]}\n\n{_count_note(decisions, key)}", playbook, transport,
+                base, f"{evidence[key]}\n\n{_count_note(decisions, key)}", playbook, transport,
                 tags=job_tags(job), ids=issued(job), sheets=sheets(job), source_sheets=source(job))
+            asked = _reapplied(job, base, asked, [d for d in decisions if d.system_key == key
+                                                  and d.device_id is not None and d.action != "accept"], copies)
             rewritten = flag_written_devices(_carry_new_counts(decided_from.system(key), system, asked, typed))
             standing = _standing_accepts(history, key, decided_from)    # accepted after it saw the new count
             if standing:
