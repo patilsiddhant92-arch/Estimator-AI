@@ -70,6 +70,7 @@ from bms.review import (DECISIONS_FILE, DECISIONS_HISTORY, SavedDecision, _match
 from bms.validate import RULE, validate
 
 Mode = Literal["chat", "api"]
+ROOT = Path(__file__).resolve().parents[2]      # the app's own folder (the git tree)
 MODES = ("chat", "api")
 Status = Literal["waiting", "done"]
 
@@ -299,6 +300,16 @@ def _decisions_saved_before(out: Path) -> int:
     return value if isinstance(value, int) and not isinstance(value, bool) and value > 0 else 0
 
 
+def _check_folders_outside_repo(out: Path, cache: Path) -> None:
+    """Job files must stay out of the git tree: an output or cache folder inside the app's folder is refused unless
+    it is under its out/ folder. Nothing is written before this check."""
+    for folder in (Path(out), Path(cache)):
+        found = folder.resolve()
+        if found.is_relative_to(ROOT) and not found.is_relative_to(ROOT / "out"):
+            raise ValueError(f"Stopped: the folder {found} is inside the app's folder; job files must stay out of "
+                             f"the repository. Use a folder under out/ or outside the app.")
+
+
 def estimate(job_folder: Path, out: Path, cache: Path, mode: Mode = "chat") -> RunResult:
     """Run the rebuilt estimate on one job folder. `cache` is where reading is kept and where the chat requests go
     (`cache/judge-chat`); `mode` "chat" or "api" for every AI question (the reading passes too). Its first act is a
@@ -309,6 +320,7 @@ def estimate(job_folder: Path, out: Path, cache: Path, mode: Mode = "chat") -> R
     if mode not in MODES:
         raise ValueError(f"the mode must be chat or api, not {mode!r}")
     job_folder, out, cache = Path(job_folder), Path(out), Path(cache)
+    _check_folders_outside_repo(out, cache)
     out.mkdir(parents=True, exist_ok=True)
     # the quote and the job name once _estimate knows them; how many decisions the history held at the last save
     known: dict = {"decisions": _decisions_saved_before(out)}
