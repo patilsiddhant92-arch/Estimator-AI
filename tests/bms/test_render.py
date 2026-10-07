@@ -756,3 +756,37 @@ def test_a_single_unit_header_reads_singular(shape, name, tags, n, header):
     slot = "oa_temperature" if shape == "Global Points" else "controller"
     s = system([device(slot=slot, qty=n)], name=name, shape=shape, families=(Family(name, tags, Count(value=n)),))
     assert texts(render(_repo_job(s), pb), "EF")[0] == header
+
+
+def test_a_line_whose_quantity_differs_from_the_block_count_is_priced_from_the_book(tmp_path):
+    from openpyxl import load_workbook
+    from estimator.__main__ import ALIASES, PRICE_BOOK, WORKUP_TEMPLATE
+    from estimator.price_sheet.price_book import PriceBook
+    from estimator.price_sheet.write import write_price_sheet
+    pb = load_playbook(ROOT / "playbook")
+    sensor = device(id="EF.d2", slot="space_temp", name="Space Temperature Sensor", qty=6)
+    out = render(_repo_job(system([device(id="EF.d1", qty=2), sensor])), pb)
+    line = next(l.text for l in out.lines if l.device_id == "EF.d2")
+    assert "(Qty. 6 Total)" in line and "–" not in line
+    path = write_price_sheet(out.scope, WORKUP_TEMPLATE, PriceBook.load(PRICE_BOOK, ALIASES), tmp_path / "s.xlsx")
+    ws = load_workbook(path)["Price Sheet 1"]
+    row = next(r for r in range(6, 397) if "Space Temperature Sensor" in str(ws.cell(r, 4).value or ""))
+    assert ws.cell(row, 3).value == 6
+    assert ws.cell(row, 5).value == 142.0 and ws.cell(row, 8).value is None
+
+
+def test_a_line_whose_quantity_differs_from_the_block_count_is_priced_from_the_book(tmp_path):
+    from openpyxl import load_workbook
+    from estimator.__main__ import ALIASES, PRICE_BOOK, WORKUP_TEMPLATE
+    from estimator.price_sheet.price_book import PriceBook
+    from estimator.price_sheet.write import write_price_sheet
+    pb = load_playbook(ROOT / "playbook")
+    sensor = device(id="EF.d2", slot="space_temp", name="Space Temperature Sensor", qty=6)
+    out = render(_repo_job(system([device(id="EF.d1", qty=2), sensor])), pb)
+    line = next(l.text for l in out.lines if l.device_id == "EF.d2")
+    assert "(Qty. 6 Total)" in line and "–" not in line
+    path = write_price_sheet(out.scope, WORKUP_TEMPLATE, PriceBook.load(PRICE_BOOK, ALIASES), tmp_path / "s.xlsx")
+    ws = load_workbook(path)["Price Sheet 1"]
+    row = next(r for r in range(6, 397) if "Space Temperature Sensor" in str(ws.cell(r, 4).value or ""))
+    assert ws.cell(row, 3).value == 6
+    assert ws.cell(row, 5).value == 142.0 and ws.cell(row, 8).value is None
