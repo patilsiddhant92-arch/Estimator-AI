@@ -34,7 +34,8 @@ review list repeats it.
 
 ## 1. The job ledger
 
-One file per job, `out/<job>/ledger.json`, and a "Job ledger" tab in the Evidence Package.
+One file per job, `<quote> Ledger.json` in the run's output folder (`estimate --out`), and a "Job ledger" tab in
+the Evidence Package.
 
 ### 1.1 A fact
 
@@ -71,20 +72,19 @@ They are printed in order at the top of the Evidence Package under "How the job 
 
 ### 1.3 Seeding from the readers
 
-Before the first AI pass, code writes the ledger's seed from what the readers already extract:
+Before the first AI pass, code writes the ledger's seed (`ledger/seed.py`) from the dossier the readers made.
+Every seed fact cites the dossier line it comes from:
 
-| Reader | Seed facts |
+| Dossier line | Seed facts |
 |---|---|
-| `reading/schedules.py` | one `family` per tag prefix, one `count` per schedule QUANTITY column, provider notes as `provider` |
-| `catalogue/tags.py`, `reading/inventory.py` | `unit` per distinct tag, `location` per plan placement |
-| `reading/devices.py` | `device` counts per sheet, with the sheet's units |
-| `reading/sequences.py` | one `sequence_match` candidate per lettered or numbered heading, value = the heading text |
-| `catalogue/overview.py` (Spec overview) | `provider` and `front_end` candidates from the controls spec |
-| `writing/systems.py` groupings | `group` candidates from `assets/system_groups.json` |
+| section 5, each family's equipment counts line | one `family` (its kind's name, `added`: the schedules pass settles it); one `count`: the QUANTITY column total, else the schedule rows, `settled`; when no schedule counts it, the plan placements, else the distinct tags, `added`; one `unit` holding the line's whole tag list ("VAV-1 thru 12"), `added` |
+| section 6, each device label's line | one `device` per label, its total in all, `added` |
+| the sequence's section marks (`--- [Qn] heading ---`) | one `sequence_match` per section, value empty, `added`, for the sequence pass to match |
 
-Seed facts are `settled` when the reader is certain (a schedule row's own QUANTITY cell), else
-`added` for the pass that owns them to confirm. The AI starts every pass from evidence, not a
-blank page.
+The seed writes no `location`, `provider`, `front_end`, `link` or `group` fact: the passes add those from the
+documents. A counts line's other numbers (plan placements, riser, distinct tags) stay in the count's quote, and
+the planner reads them from it (`bms.plan_read.counts_clauses`): the highest prints. A dossier line the seed
+cannot read is listed under `refused["seed"]`, never dropped in silence.
 
 ### 1.4 Printing a contradicted count
 
@@ -123,10 +123,15 @@ fact's value is read as a contradiction, and the answer's log says so.
 | 6 Sequence | sequence of operation, points list | sequence_match per section to a settled system | a system the sequence names that no drawing shows, only when the section states a count |
 | 7 Spec | the controls spec, the Spec overview's findings | manufacturer, front-end mode, warranty, training, services | — |
 
-**Splitting.** A pass whose documents exceed the request limit is split by sheet (plans) or by
-section (sequence); the ledger is carried between splits and the split answers are merged by
-fact id. **Skipping.** A pass with no documents is skipped, and `understanding[pass]` says
-"nothing to read: no <kind> sheets in this job".
+**Splitting.** A pass whose documents exceed the request limit (`SPLIT_LIMIT`) is cut into parts
+(`ledger/run.py` `_parts`), asked and applied in turn; the ledger is carried between parts, each part's
+facts are applied as it answers, and `understanding[pass]` keeps every part's paragraph. Text with sequence
+sections is cut only where a section starts, so each part after the first begins with its section's
+`--- [Qn] heading ---` line; a section longer than a part is cut at line ends with that line at the head of
+every piece. Any other text (the plans pass's too) is cut at line ends. **Skipping.** A pass with nothing to
+read is skipped, and `understanding[pass]` says "nothing to read: no <pass title> in this job". A section that
+holds only the dossier's placeholder line ("(No schedules read from the drawings.)") is nothing to read; beside a
+section with something in it the placeholder is kept.
 
 **Chat mode.** Each pass is a request in the requests folder, answered in chat and cached,
 exactly as the judge's questions are today. A job is seven pass requests plus one write request
@@ -203,7 +208,7 @@ Unit tests, on small hand-made ledgers and dossiers, no job data:
   has the row at the top;
 - a scope line with a fact id the ledger lacks, or a count the ledger lacks, is refused;
 - a pass with no documents is skipped and says so;
-- a long plans pass is split by sheet and merged by fact id.
+- a long pass is split and each part applied in turn; a long sequence is split at its section marks.
 
 Then the usual quick gate: the Learn jobs in chat mode, reading the seven understanding
 paragraphs against how the estimator would describe those jobs, and the scoreboard not going

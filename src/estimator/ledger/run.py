@@ -1,7 +1,8 @@
 """The reading run (design 2026-09-29 §2): seed the ledger, then ask each pass in the estimator's order through the
 judge, carrying the ledger between them. A pass with nothing to read is skipped and says so. A pass too long for one
-request is cut at line ends and its parts asked and applied in turn. The run stops at the first pass with no
-answer (in chat mode, the request is waiting), because every later pass reads this one's understanding.
+request is cut into parts (a sequence only where a section starts, `_parts`), asked and applied in turn. The run
+stops at the first pass with no answer (in chat mode, the request is waiting), because every later pass reads this
+one's understanding.
 
 The plans and risers passes also see the sheets they read as whole-sheet pictures (their `picture_types`), the
 sheets with the most device labels first, up to a cap; the sheets left out are named in the prompt."""
@@ -14,9 +15,44 @@ from pathlib import Path
 from estimator.catalogue.documents import document_names
 from estimator.ledger.passes import LEDGER_PROMPT, PASSES, apply, documents, prompt, schema
 from estimator.ledger.seed import dossier_sections, seed, sheet_text_sheets
-from estimator.writing.dossier import sheet_pictures
+from estimator.writing.dossier import SECTION_MARK, sheet_pictures
 
 PICTURE_CAP = 24        # whole-sheet pictures sent with one pass
+
+# a sequence section's own line, "--- [Q3] SUPPLY FAN ---" (the dossier's SECTION_MARK)
+_SECTION_LINE = re.compile("^" + re.escape(SECTION_MARK).replace(re.escape("{qid}"), r"Q\d+")
+                           .replace(re.escape("{heading}"), ".*") + "$")
+
+
+def _parts(text: str, limit: int) -> list[str]:
+    """A pass's text in parts of at most `limit` characters. Text with sequence sections (`_SECTION_LINE`) is cut
+    only where a section starts, so each part after the first begins with a section's own line and every
+    paragraph is asked under its section (LDG-14); a section longer than a part is cut at line ends, each piece
+    after the first starting again with the section's line. Any other text is cut at line ends (`_chunks`)."""
+    from estimator.writing import whole_job as wj
+    if len(text) <= limit:
+        return [text]
+    blocks: list[str] = [""]
+    for line in text.splitlines(keepends=True):
+        if _SECTION_LINE.match(line.rstrip("\r\n")):
+            blocks.append("")
+        blocks[-1] += line
+    if len(blocks) == 1:
+        return wj._chunks(text, limit)
+    parts: list[str] = []
+    for n, block in enumerate(blocks):
+        cut = len(block) > limit
+        if cut and n > 0:                           # one section longer than a part: its line heads every piece
+            mark = block.splitlines(keepends=True)[0]
+            pieces = [mark + piece for piece in wj._chunks(block[len(mark):], max(limit - len(mark), 1000))]
+        else:
+            pieces = wj._chunks(block, limit) if cut else [block]
+        for piece in pieces:
+            if parts and not cut and len(parts[-1]) + len(piece) <= limit:
+                parts[-1] += piece
+            else:
+                parts.append(piece)
+    return [part for part in parts if part.strip()]
 
 
 def _label_count(devices: str, number: str) -> int:
@@ -86,7 +122,7 @@ def read_job(judge, dossier, catalogue, save_to: Path | None = None, limit: int 
             ledger.understanding[pass_.name] = f"nothing to read: no {pass_.title} in this job"
             save()
             continue
-        parts = wj._chunks(text, limit) if len(text) > limit else [text]
+        parts = _parts(text, limit)
         pass_images = images if pass_.with_images else []
         refused: list[str] = []
         understood: list[str] = []

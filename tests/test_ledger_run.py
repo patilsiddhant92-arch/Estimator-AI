@@ -1,6 +1,7 @@
 """The runner: the ledger is seeded, each pass asked in order, long passes split, empty passes skipped, and the
 run stops at the first pass with no answer."""
 import json
+import re
 from types import SimpleNamespace
 
 from estimator.ledger.facts import SETTLED
@@ -177,3 +178,36 @@ def test_a_pass_whose_sections_hold_only_a_placeholder_is_not_asked(tmp_path):
     assert ledger.understanding["sequence"] == ("nothing to read: no Sequence of operation and points list in "
                                                 "this job")
     assert ledger.complete is True
+
+
+def test_a_long_sequence_is_split_at_its_section_marks(tmp_path):
+    # LDG-14: a part never begins mid-section without its "--- [Qn] heading ---" line
+    blocks = "".join(f"--- [Q{n}] SYSTEM {n} ---\n" + "".join(f"[S{n}] The fan {n} shall run, step {k}.\n" for k in range(12))
+                     for n in range(1, 7))
+    text = _dossier().text.split("== 2. SEQUENCE OF OPERATION ==\n", 1)
+    text = text[0] + "== 2. SEQUENCE OF OPERATION ==\n" + blocks + "\n== 3." + text[1].split("\n== 3.", 1)[1]
+    client = FakeClient(*[_reply("ok") for _ in range(20)])
+    judge = Judge(tmp_path / "cache", model="test-model", client=client)
+    read_job(judge, _dossier(text=text), CATALOGUE, limit=1000)
+    head = "The documents for this pass, each paragraph with its source id:\n"
+    parts = [str(c["messages"][0]["content"] if isinstance(c["messages"][0]["content"], str)
+                 else c["messages"][0]["content"][0]["text"]).split(head, 1)[1]
+             for c in client.calls if "This is the Sequence of operation" in str(c["messages"][0]["content"])]
+    assert len(parts) > 1
+    assert parts[0].startswith("== 2. SEQUENCE OF OPERATION ==\n--- [Q1] SYSTEM 1 ---")
+    for part in parts[1:]:
+        assert re.match(r"--- \[Q\d+\] SYSTEM \d+ ---\n", part), part[:80]
+    joined = "".join(parts)
+    for n in range(1, 7):                       # every section once, whole
+        assert joined.count(f"--- [Q{n}] SYSTEM {n} ---") == 1
+        assert all(f"[S{n}] The fan {n} shall run, step {k}." in joined for k in range(12))
+
+
+def test_a_sequence_section_longer_than_a_part_keeps_its_line_on_every_piece():
+    from estimator.ledger.run import _parts
+    text = ("== 2. SEQUENCE OF OPERATION ==\n--- [Q1] SHORT ---\n[S1] One line.\n--- [Q2] LONG ---\n"
+            + "".join(f"[S2] The chiller plant shall stage, step {k}.\n" for k in range(80)))
+    parts = _parts(text, 1000)
+    assert len(parts) > 2 and parts[0].startswith("== 2. SEQUENCE OF OPERATION ==\n--- [Q1] SHORT ---")
+    assert all(part.startswith("--- [Q2] LONG ---\n") for part in parts[1:])
+    assert all(f"step {k}." in "".join(parts) for k in range(80))
