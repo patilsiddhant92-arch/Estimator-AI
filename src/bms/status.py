@@ -24,6 +24,7 @@ from __future__ import annotations
 import html
 import json
 import re
+import time
 from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
@@ -64,14 +65,18 @@ def _bytes(path: Path) -> tuple[bytes | None, str]:
 
 
 def _json(path: Path) -> tuple[object, str]:
-    """The file's value and "", or None and a plain reason."""
-    raw, problem = _bytes(path)
-    if raw is None:
-        return None, problem
-    try:
-        return json.loads(raw.decode("utf-8-sig")), ""
-    except (UnicodeDecodeError, ValueError):
-        return None, "it is not whole JSON (it may be half-written; run status again)"
+    """The file's value and "", or None and a plain reason. A file that is locked or half-written is looked at again
+    (3 looks, 100 ms apart) before it is given up on."""
+    for look in range(3):
+        raw, problem = _bytes(path)
+        if raw is not None:
+            try:
+                return json.loads(raw.decode("utf-8-sig")), ""
+            except (UnicodeDecodeError, ValueError):
+                problem = "it is not whole JSON (it may be half-written; run status again)"
+        if look < 2 and path.exists():
+            time.sleep(0.1)
+    return None, problem
 
 
 def _dict(path: Path) -> tuple[dict, str]:
