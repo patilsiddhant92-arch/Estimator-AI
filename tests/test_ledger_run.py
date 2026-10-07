@@ -130,3 +130,50 @@ def test_an_addendum_reissue_is_pictured_from_its_own_page_not_the_superseded_on
     client = FakeClient(*[_reply("ok") for _ in range(8)])
     read_job(Judge(tmp_path / "cache", model="test-model", client=client), dossier, catalogue)
     assert rendered == [(addendum, 4)]
+
+
+EMPTY_TEXT = """JOB DOSSIER — 26-9999
+Everything controls-relevant.
+
+== 1. JOB ==
+[S1] 26-9999 Example HS. Controls: new BACnet system.
+
+== 2. SEQUENCE OF OPERATION ==
+(No sequence of operation found in the documents.)
+
+== 3. POINTS LISTS ==
+(No points list found in the documents.)
+
+== 4. SCHEDULES ==
+(No schedules read from the drawings.)
+
+== 5. EQUIPMENT COUNTS ==
+(No equipment tags counted.)
+
+== 6. DEVICES ON PLANS ==
+(No device labels counted on the plans.)
+
+== 7. NOTES ==
+(No notes that add controls scope.)
+
+== 8. CONTROLS SPEC HIGHLIGHTS ==
+(No controls spec section found.)
+"""
+
+
+def test_a_pass_whose_sections_hold_only_a_placeholder_is_not_asked(tmp_path):
+    # LDG-12: "(No schedules read from the drawings.)" is no document: the pass has nothing to read
+    client = FakeClient(_reply("spec"))
+    judge = Judge(tmp_path / "cache", model="test-model", client=client)
+    ledger = read_job(judge, _dossier(text=EMPTY_TEXT, counts={}, sections={}, families=(), device_totals={}),
+                      CATALOGUE)
+    asked = [c["messages"][0]["content"] for c in client.calls]
+    names = [next(line for line in (t if isinstance(t, str) else t[0]["text"]).splitlines() if line.startswith("This is the "))
+             for t in asked]
+    # only the spec pass is asked: it reads the job section too (the bid check, the makers), which has lines
+    assert names == ["This is the Controls specification pass (spec)."]
+    assert ledger.understanding["schedules"] == "nothing to read: no Schedules in this job"
+    assert ledger.understanding["plans"] == "nothing to read: no Plans in this job"
+    assert ledger.understanding["sequence"] == ("nothing to read: no Sequence of operation and points list in "
+                                                "this job")
+    assert ledger.complete is True
