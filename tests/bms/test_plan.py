@@ -100,6 +100,15 @@ def test_the_higher_count_prints_and_every_other_count_is_kept_with_its_source()
     assert family.count.highest() == 4
 
 
+def test_a_zero_count_with_tags_is_not_printed_as_zero():
+    ledger = _ledger()
+    _family(ledger, "EF", "Exhaust Fan", "EF-1, EF-2", 0)
+    job = _plan(ledger)
+    value = job.systems[0].families[0].count.value
+    assert value is None or value >= 2
+    assert any("gives 0 for EF" in q and "EF-1" in q for q in job.questions)
+
+
 def test_a_count_given_as_text_still_counts():
     ledger = _ledger()
     count = _family(ledger, "EF", "Exhaust Fan", "EF-1", " 5")
