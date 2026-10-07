@@ -442,7 +442,10 @@ def test_a_vrf_group_is_one_system_with_indoor_condensing_and_branch_selector_fa
     assert (rest_cu.tags, rest_cu.count.value) == (("CU-5", "CU-6"), 2)
     assert (rest_ac.tags, rest_ac.count.value) == (("AC-9",), 1)
     assert rest_ac.name == "Indoor Unit"                              # a long description takes the role word
-    assert job.questions == ()
+    # each reduced rest names the count it was reduced from (PLN-3): one question per family, both numbers
+    cu_q, ac_q = job.questions
+    assert cu_q.startswith("Condensing Unit (CU): 6 per M-601;") and "prints 2" in cu_q
+    assert "Indoor Unit (AC): 5 per M-601;" in ac_q and "prints 1" in ac_q
 
 
 def test_type_tags_with_no_stated_count_are_unknown_and_asked_and_the_rest_never_undershoots():
