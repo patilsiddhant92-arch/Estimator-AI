@@ -90,8 +90,8 @@ class OtherCount(_Model):
 
 @dataclass(frozen=True)
 class Count(_Model):
-    """A quantity. `value` is the printed count, the highest any source gives (never undershoot); None is unknown
-    and prints "Qty (##)". `sources` back `value`; `others` are every different count, each with its source."""
+    """A quantity. `value` is the printed count, the highest any source gives (never undershoot); "Qty (##)" prints
+    only when it is None and no other count is known (`highest()` is what prints). `sources` back `value`; `others` are every different count, each with its source."""
     value: int | None = field(**_doc('The printed count (the highest found); null when unknown ("Qty (##)").'))
     sources: tuple[Ref, ...] = field(default=(), **_doc("The citations that give the printed count."))
     others: tuple[OtherCount, ...] = field(default=(), **_doc("Every other, different count, with its source."))

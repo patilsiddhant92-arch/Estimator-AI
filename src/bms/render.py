@@ -261,7 +261,7 @@ def _reason(assumption, ids: SourceIds) -> str:
 
 # ---- places (a count note's, built by code) and the source-id safety net (bms.citations decides both) ----------
 
-MAX_COUNT_CLAUSES = 5                            # the printed count's clause and at most four others
+UNLABELLED = "elsewhere in the documents"       # a count with no place (wording.json quantity.unlabelled, optional)
 # what a count's quote says it counted: (pattern on the quote, lower case; its number when it gives one, the label)
 _COUNT_LABELS = (
     (re.compile(r"plan placements\s*(\d+)?"), "plan placements"),
@@ -338,12 +338,12 @@ def _count_causes(count: Count, playbook: Playbook) -> str:
     return _fill(words["form"], causes=words["joiner"].join(words[key] for key in keys))
 
 
-def _count_part(count: Count, ids: SourceIds, causes: str = "") -> str:
+def _count_part(count: Count, ids: SourceIds, causes: str = "", unlabelled: str = UNLABELLED) -> str:
     """One count's part of the quantity note: "(N) per <label>; M per <label>; K and J per <label>": the printed
-    (highest) count first, then each other count with its label, highest first, equal values from one label
-    folded, at most MAX_COUNT_CLAUSES clauses; a count with no label is left out (never "per the documents");
-    "" when no other count has a label. `causes` (`_count_causes`) prints after the "plan placements" label, or after
-    the printed count's sheet when the plan placements give that count too."""
+    (highest) count first, then every other count with its label, highest first, equal values from one label
+    folded, none dropped (estimator ruling D6); a count with no label still prints, with the plain `unlabelled`
+    words ("15 elsewhere in the documents", never "per the documents"); "" when there is no other count. `causes` (`_count_causes`) prints after
+    the "plan placements" label, or after the printed count's sheet when the plan placements give that count too."""
     n = _printed(count)
     if n is None:
         return ""
@@ -351,33 +351,44 @@ def _count_part(count: Count, ids: SourceIds, causes: str = "") -> str:
     entries += [(o.value, o.ref) for o in count.others]
     heads = [label for label in (_count_label(v, r, ids) for v, r in entries if v == n) if label]
     head = next((label for label in heads if SHEET.fullmatch(label)), heads[0] if heads else "")
-    folded: dict[str, list[int]] = {}
+    folded: dict[str, list[int]] = {}            # label ("" for no label) -> its values
     for value, ref in entries:
-        label = _count_label(value, ref, ids) if value != n else ""
-        if label:
-            values = folded.setdefault(label, [])
-            if value not in values:
-                values.append(value)
+        if value is None or value == n:
+            continue
+        values = folded.setdefault(_count_label(value, ref, ids), [])
+        if value not in values:
+            values.append(value)
     if not folded:
         return ""
-    clauses = sorted(folded.items(), key=lambda item: -max(item[1]))[:MAX_COUNT_CLAUSES - 1]
+    clauses = sorted(folded.items(), key=lambda item: -max(item[1]))
 
     def shown(label: str) -> str:
         return f"{label} {causes}" if causes and label == PLACEMENTS_LABEL else label
 
-    others = "; ".join(f"{' and '.join(str(v) for v in sorted(values, reverse=True))} per {shown(label)}"
-                       for label, values in clauses)
+    def clause(label: str, values: list[int]) -> str:
+        numbers = " and ".join(str(v) for v in sorted(values, reverse=True))
+        return f"{numbers} per {shown(label)}" if label else f"{numbers} {unlabelled}"
+
+    others = "; ".join(clause(label, values) for label, values in clauses)
     first = shown(head)
     if causes and head != PLACEMENTS_LABEL and PLACEMENTS_LABEL in heads:
         first = f"{head} {causes}"               # the plan placements give the printed count too: their causes stay
     return f"({n}) per {first}; {others}" if head else f"({n}); {others}"
 
 
-def _count_note(counts: list[Count], playbook: Playbook, ids: SourceIds) -> str:
-    """The block's one quantity note naming every other count in the documents ("" when there is none). It goes
-    through the safety net every other client text goes through (`SourceIds.without_issued`): an issued id that
-    reached a place is taken out, token only."""
-    parts = list(dict.fromkeys(p for p in (_count_part(c, ids, _count_causes(c, playbook)) for c in counts) if p))
+def _count_note(counts: list[Count], playbook: Playbook, ids: SourceIds, names: list[str] | None = None) -> str:
+    """The block's one quantity note naming every other count in the documents ("" when there is none). `names`
+    gives, count by count, the family name its part opens with ("" for none: a block with one family, a device).
+    It goes through the safety net every other client text goes through (`SourceIds.without_issued`): an issued id
+    that reached a place is taken out, token only."""
+    unlabelled = playbook.wording.quantity.get("unlabelled", UNLABELLED)
+    names = list(names or []) + [""] * (len(counts) - len(names or []))
+    seen: dict[str, str] = {}                    # a part -> the family name it opens with; a repeat prints once
+    for count, name in zip(counts, names):       # (a device often carries its family's count: the family's wins)
+        part = _count_part(count, ids, _count_causes(count, playbook), unlabelled)
+        if part and part not in seen:
+            seen[part] = name
+    parts = [f"{name} {part}" if name else part for part, name in seen.items()]
     if not parts:
         return ""
     # made of places the where checks gave (`SourceIds.sheet`, `place`), so it is read as a where is: a source sheet
@@ -507,7 +518,7 @@ def _device_lines(devices, shape: Shape | None, system: System | None, playbook:
 # ---- the "*" clarifications --------------------------------------------------------------------------------------
 
 def _notes(clarifications: tuple[Clarification, ...], devices, counts: list[Count],
-           playbook: Playbook, ids: SourceIds) -> list[str]:
+           playbook: Playbook, ids: SourceIds, names: list[str] | None = None) -> list[str]:
     """One "*" line per kind, after the lines: confirm, assumed (every assumption with its why), per drawings, the
     note line; then the one quantity note naming every other count. A text's own leading label is not printed
     twice, an issued source id left in a stale text never prints (the token alone is taken out: no sentence is
@@ -525,7 +536,7 @@ def _notes(clarifications: tuple[Clarification, ...], devices, counts: list[Coun
         unique = list(dict.fromkeys(texts[kind]))
         if unique:
             out.append(_fill(playbook.wording.clarifications[kind], text="; ".join(unique)))
-    note = _count_note(counts, playbook, ids)
+    note = _count_note(counts, playbook, ids, names)
     if note:
         out.append(note)
     return out
@@ -608,8 +619,10 @@ def _system_blocks(system: System, playbook: Playbook, out: list[RenderedLine],
     reference = {n for n in (_printed(f.count) for f in families) if n is not None}
     pending = not families or any(_printed(f.count) is None for f in families)     # "Qty (##)": nothing is priced
     printed = _device_lines(_named(system.devices, ids), shape, system, playbook, reference)
+    named = len(system.families) > 1             # more than one family: each family's part names its family
     notes = _notes(system.clarifications, system.devices,
-                   [f.count for f in system.families] + [d.quantity for d in system.devices], playbook, ids)
+                   [f.count for f in system.families] + [d.quantity for d in system.devices], playbook, ids,
+                   [_title(f.name) if named else "" for f in system.families])
     try:                                 # every field checked: a blank line, a negative quantity or tech hours
         items = _items(printed, pending) + [Item(kind="note", runs=(Run(text=n),)) for n in notes]
         last = len(headers) - 1

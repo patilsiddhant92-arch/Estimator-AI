@@ -84,3 +84,21 @@ def test_align_pairs_rows_in_order():
 
 def test_align_ignores_markers_spacing_and_case():
     assert align(["o  Furnish UPS", "44.  *Qty (1) EF-9"], ["o\xa0\xa0 furnish ups", "45.\xa0\xa0 *qty (1) ef-9 "]) == [(0, 0), (1, 1)]
+
+
+def test_a_line_whose_quantity_is_still_to_fill_in_a_counted_block_is_flagged(small_job, workup_template,
+                                                                              price_book, tmp_path):
+    """RND-2: a "(Qty. ##)" line under a block with a known count is not priced, and says so."""
+    import openpyxl
+    from estimator.price_sheet.write import QUANTITY_PENDING, write_price_sheet
+    from estimator.scope import Item, Run
+    block = Block(header="Qty (2) Exhaust Fan EF-9", items=(
+        Item(kind="line", runs=(Run(text="Furnish and Install Space Temperature Sensor (Qty. ##)"),)),))
+    job = small_job.model_copy(update={"blocks": small_job.blocks + (block,)})
+    wb = openpyxl.load_workbook(str(write_price_sheet(job, workup_template, price_book, tmp_path / "line.xlsx")))
+    ws = wb["Price Sheet 1"]
+    row = next(r for r in range(6, 60) if "(Qty. ##)" in (ws.cell(r, 4).value or ""))
+    assert ws.cell(row, 8).value == QUANTITY_PENDING
+    assert (ws.cell(row, 3).value, ws.cell(row, 5).value) == (None, None)
+    assert QUANTITY_PENDING in wb["Summary"]["B34"].value
+    assert "1 line has no quantity yet" in wb["Summary"]["B34"].value
