@@ -466,7 +466,9 @@ def test_only_plan_sheets_of_the_controls_disciplines_are_counted(tmp_path):
     assert {p["sheet"] for p in counts.load_proofs(cache)} == {"M-101, Drawings.pdf page 2"}
 
 
-def test_the_count_is_of_different_tags_over_every_plan_sheet(tmp_path):
+def test_a_unit_on_two_floor_plans_adds_up_as_the_inventory_counts(tmp_path):
+    """CNT-5: two plans of two floors are two plan groups, so EF-2 shown on both counts on each (the inventory's
+    `placements` gives the same 4 on these sheets)."""
     first = ((200, 200, FILLER, 10), (300, 400, "EF-1", 14), (900, 300, "EF-2", 14))
     second = ((200, 200, FILLER, 10), (300, 400, "EF-2", 14), (900, 300, "EF-5", 14))   # EF-2 shown again
     pdf = make_pdf(tmp_path / "job" / "Drawings.pdf", Page(W, H, first), Page(W, H, second))
@@ -474,9 +476,9 @@ def test_the_count_is_of_different_tags_over_every_plan_sheet(tmp_path):
                                  (2, "M-102", "SECOND FLOOR PLAN", "EF-2 EF-5")])
     checked = counts.cross_check(_sample_job(), catalogue, tmp_path / "cache")
     ef = _family(checked, "EF", "Exhaust Fan").count
-    assert ef.value == 3 and ef.sources[1].where == ("M-101, Drawings.pdf page 1; M-102, Drawings.pdf page 2")
-    assert ef.others == ()                                                 # agrees with the planner's 3
-    assert [r.source_id for r in ef.sources] == ["S6", "C1"]
+    assert ef.value == 4 and ef.sources[0].where == ("M-101, Drawings.pdf page 1; M-102, Drawings.pdf page 2")
+    assert [r.source_id for r in ef.sources] == ["C1"] and ef.sources[0].quote == counts.LOCATED_QUOTE
+    assert [(o.value, o.ref.source_id) for o in ef.others] == [(3, "S6")]   # the planner's 3, kept as another count
 
 
 # ---- cross_check with vision ----------------------------------------------------------------------------------
@@ -656,8 +658,8 @@ def test_family_patterns_match_the_family_s_real_tags_and_no_bare_part(shared):
     assert not fits(family_pattern(["EUH-1, 2"], {"EUH": 2}), "EUH-3")      # shared prefix: the own tags only
 
 
-def test_the_located_text_count_uses_the_expanded_tags(tmp_path):
-    from bms.counts_text import fits
+def test_the_located_count_uses_the_expanded_tags_and_asks_no_picture_when_every_tag_reads_cleanly(tmp_path):
+    from bms.counts_text import family_pattern, fits, prefix_owners
 
     texts = ((200, 200, FILLER, 10), (300, 300, "TXF-B", 14), (500, 300, "SPXF-A", 14), (700, 300, "SPXF-C", 14),
              (300, 500, "B", 14), (500, 500, "2", 14), (700, 500, "EUH-2", 14), (900, 500, "CAC-1.5", 14),
@@ -675,10 +677,10 @@ def test_the_located_text_count_uses_the_expanded_tags(tmp_path):
         assert any(r.quote == "located on the sheet text" and count.value == value for r in count.sources), \
             (key, count)
     assert counts.proofs_for(cache, "SPXF", "SPXF")[0]["located_tags"] == ["SPXF-A", "SPXF-C"]
-    [asked] = vision.asked                                       # the vision count asks the same patterns
-    assert len(asked["extra"]["patterns"]) == len(LETTER_FAMILIES)
-    for pattern in asked["extra"]["patterns"]:
-        assert not any(fits(pattern, bare) for bare in ("B", "C", "2"))
+    assert vision.asked == []                     # every tag reads cleanly and no count is known: nothing to ask
+    for key, (written, _) in LETTER_FAMILIES.items():
+        pattern = family_pattern([written], prefix_owners([w] for w, _ in LETTER_FAMILIES.values()))
+        assert not any(fits(pattern, bare) for bare in ("B", "C", "2")), key
 
 
 # ---- a tag is never found inside a longer tag (CNT-3) -------------------------------------------------------------

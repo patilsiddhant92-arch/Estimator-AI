@@ -578,7 +578,9 @@ def _located_count(sheets, pattern: str, groups: dict | None = None) -> int:
     """The located count of a pattern's tags over these sheets (`_Sheet.labels`) by the inventory's one counting rule
     (`estimator.reading.inventory.plan_count`, `counted_per_place`; `groups` from `plan_groups`, every sheet its own
     group when not given): in each plan group a unit's tag once, a tag counted at every place (a type's tag:
-    "CUH-A (TYP. OF 4)" is 4) the most of one sheet; the groups added up (EBB-A on two floor plans is 2)."""
+    "CUH-A (TYP. OF 4)" is 4) the most of one sheet; the groups added up (EBB-A on two floor plans is 2). The
+    located count does not multiply by a typical sheet's floors: a typical plan can read lower than the planner's
+    count, and then it is a cross-check other, never the printed count."""
     from estimator.reading.inventory import counted_per_place, plan_count
 
     found: dict[str, list] = {}
