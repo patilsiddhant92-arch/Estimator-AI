@@ -869,16 +869,40 @@ def _all_refs(system: System) -> list[Ref]:
     return refs
 
 
+def _sent_index(evidence: str) -> dict[str, str]:
+    """Every source id of the evidence one system was sent -> its text there (a sequence section: its heading and
+    the paragraphs under it), for the intake's quote check."""
+    from estimator.writing.dossier import sections_in
+    return ai_evidence.index(evidence, {}, dict(sections_in(evidence)))
+
+
+def _quote_problem(ref: dict, index: Mapping[str, str]) -> str | None:
+    """A ref whose quote is not in its source's text as the evidence gave it (a picture, the plan count check's own
+    record and an id the evidence does not carry aside: the id check refuses that one)."""
+    from bms.counts import LOCATED_QUOTE, NO_SOURCE_QUOTE, SEEN_QUOTE
+    sid = str(ref.get("source_id", "")).strip().strip("[]")
+    quote = ref.get("quote", "")
+    if quote in (LOCATED_QUOTE, SEEN_QUOTE, NO_SOURCE_QUOTE) or sid not in index or re.fullmatch(r"I\d+", sid):
+        return None
+    if quote_in(quote, index[sid]):
+        return None
+    return f"quotes “{quote}” from {sid}, but {sid} does not say that (quote the exact words of the source)"
+
+
 def _check_system(answer, skeleton: System, shape: Shape | None, known: frozenset[str],
                   keep: Sequence[Device] = (), originals: Sequence[Device] = (),
                   changes: list[str] | None = None, tags: Sequence[str] = (),
                   ids: Sequence[str] = (), sheets: Sequence[str] = (),
-                  source_sheets: Sequence[str] = ()) -> tuple[System | None, list[str]]:
+                  source_sheets: Sequence[str] = (),
+                  index: Mapping[str, str] | None = None) -> tuple[System | None, list[str]]:
     """A System answer made usable, or the problems that stop it: the skeleton's fields win; untouched devices
     (`keep`) are put back as they were; labels come off the client texts (`_normalise`, each change added to
     `changes`) and a client text that prints a source id is refused;
-    every device cites the evidence; slots fit the shape; a known count is 1 or more; at most one clarification;
+    every device cites the evidence, and so does every source and other count of its quantity (the plan count
+    check's record given without a source aside); with `index` (the evidence sent, `_sent_index`) every quote of
+    a device is in its source; slots fit the shape; a known count is 1 or more; at most one clarification;
     every assumption says what and why; device ids unique and of this system."""
+    from bms.counts import NO_SOURCE_QUOTE
     if not isinstance(answer, dict):
         return None, ["the answer is not a JSON object"]
     answer = {"no_scope_reason": None, **answer, **_skeleton_dict(skeleton)}   # an answer without the field: null
@@ -906,6 +930,17 @@ def _check_system(answer, skeleton: System, shape: Shape | None, known: frozense
             problems.append(f"{label} cites {ids}, not in this system's evidence (cite the ids the evidence gives)")
         else:
             device["refs"] = good
+        quantity = [*device["quantity"]["sources"], *(o["ref"] for o in device["quantity"]["others"])]
+        unknown = [sid for r in quantity
+                   if (sid := str(r["source_id"]).strip().strip("[]")) not in known
+                   and not (not sid and r["quote"] == NO_SOURCE_QUOTE)]
+        if unknown:
+            named = ", ".join(dict.fromkeys(sid or "an empty id" for sid in unknown))
+            problems.append(f"{label}'s quantity cites {named}, not in this system's evidence (cite the ids the "
+                            "evidence gives)")
+        if index is not None:
+            misquoted = [_quote_problem(r, index) for r in [*device["refs"], *quantity]]
+            problems += [f"{label} {p}" for p in dict.fromkeys(misquoted) if p]
         if not str(device["name"]).strip():
             problems.append(f"{label} has no name")
         if shape is not None and device["slot"] not in shape.line_order:
@@ -1094,8 +1129,9 @@ def write_system(system: System, evidence: str, playbook: Playbook, transport: T
 
     Also: the pictures the evidence names are attached; a ref to an id the evidence does not carry is dropped when
     the device has another, and a device with none, a slot outside the shape, a count of 0 or below, more than one
-    clarification or an assumption without its what or why refuses the answer (the chat asks again with the reason;
-    the API is asked once more). A leading label ("Confirm", "Assumed:", "Quantity per") is cleaned on intake, never
+    clarification, an assumption without its what or why, a quantity source or other count citing an id the
+    evidence lacks, or a quote its source in the evidence does not hold refuses the answer (the chat asks again
+    with the reason; the API is asked once more). A leading label ("Confirm", "Assumed:", "Quantity per") is cleaned on intake, never
     refused: it comes off an assumption or a clarification (a per-drawings clarification keeps its discipline word,
     "plumbing"; one left empty is dropped); each change goes to the run's `intake.json` beside the cache. A source id
     in client text is never rewritten: a text that prints an issued id (`ids`, every source id of the job, which the
@@ -1113,7 +1149,7 @@ def write_system(system: System, evidence: str, playbook: Playbook, transport: T
     known = ai_evidence.cited_ids(evidence) | _ref_ids(ai_evidence.system_refs(system))
     return _ask_system(transport, system.name, playbook, "write_system", _write_prompt(system, shape, evidence),
                        {"step": "write", "plan_key": system.key, "images": listing}, images, system, shape, known,
-                       tags=tags, ids=ids, sheets=sheets, source_sheets=source_sheets)
+                       tags=tags, ids=ids, sheets=sheets, source_sheets=source_sheets, evidence=evidence)
 
 
 def rewrite_for_count(system: System, evidence: str, playbook: Playbook, transport: Transport, *,
@@ -1135,21 +1171,23 @@ def rewrite_for_count(system: System, evidence: str, playbook: Playbook, transpo
     return _ask_system(transport, system.name, playbook, "write_system", prompt,
                        {"step": "decide", "plan_key": system.key, "images": listing}, images, system, shape, known,
                        system.devices, system.devices, tags=tags, ids=ids, sheets=sheets,
-                       source_sheets=source_sheets)
+                       source_sheets=source_sheets, evidence=evidence)
 
 
 def _ask_system(transport, name: str, playbook: Playbook, step: str, prompt: str, extra: dict,
                 images: Sequence[Path], system: System, shape: Shape | None, known: frozenset[str],
                 keep: Sequence[Device] = (), originals: Sequence[Device] = (), tags: Sequence[str] = (),
-                ids: Sequence[str] = (), sheets: Sequence[str] = (), source_sheets: Sequence[str] = ()) -> System:
-    """One WRITE_SYSTEM question checked by `_check_system`; what the intake cleaned in the used answer goes to
-    the transport's intake log."""
+                ids: Sequence[str] = (), sheets: Sequence[str] = (), source_sheets: Sequence[str] = (),
+                evidence: str = "") -> System:
+    """One WRITE_SYSTEM question checked by `_check_system`, every quote against the `evidence` sent; what the
+    intake cleaned in the used answer goes to the transport's intake log."""
     changes: list[str] = []
+    index = _sent_index(evidence)
 
     def check(answer):
         changes.clear()                     # only the used answer's changes are logged
         return _check_system(answer, system, shape, known, keep, originals, changes, tags, ids, sheets,
-                             source_sheets)
+                             source_sheets, index)
 
     written = _ask_checked(transport, WRITE_SYSTEM, name, playbook.rules_text, _instructions(step), prompt,
                            json_schema(System), extra, images, check)
@@ -1174,11 +1212,12 @@ def revise_system(system: System, findings: Sequence[Finding], evidence: str, pl
     named = {f.device_id for f in mine if f.device_id}
     whole = any(f.device_id is None for f in mine)
     keep = () if whole else tuple(d for d in system.devices if d.id not in named)
-    known = (ai_evidence.cited_ids(evidence) | _ref_ids(_all_refs(system)))
+    # the evidence and the planner's refs only: an id the earlier answer wrote is no evidence of itself
+    known = ai_evidence.cited_ids(evidence) | _ref_ids(ai_evidence.system_refs(system))
     return _ask_system(transport, f"{system.name} (revise)", playbook, "revise_system",
                        _revise_prompt(system, mine, shape, evidence),
                        {"step": "revise", "plan_key": system.key, "images": listing}, images, system, shape, known,
-                       keep, system.devices, tags, ids, sheets, source_sheets)
+                       keep, system.devices, tags, ids, sheets, source_sheets, evidence)
 
 
 # ---- QC -------------------------------------------------------------------------------------------------------------
@@ -1217,13 +1256,19 @@ def quote_in(quote: str, source: str) -> bool:
     return True
 
 
-def _ref_problem(ref: Ref, index: Mapping[str, str]) -> str | None:
+def _ref_problem(ref: Ref, index: Mapping[str, str], planned: frozenset[str] = frozenset()) -> str | None:
+    """What is wrong with one Ref of the written job, or None. `planned` is the ids the planner cited (its refs):
+    a ledger fact (F) not in the dossier's text is this job's only when the planner gave it."""
     from bms.counts import LOCATED_QUOTE, NO_SOURCE_QUOTE, SEEN_QUOTE
     if ref.quote in (LOCATED_QUOTE, SEEN_QUOTE, NO_SOURCE_QUOTE):
         return None                 # the plan count check's own record (bms.counts), not words of a document
     sid = str(ref.source_id).strip().strip("[]")
-    if sid.startswith(("F", "I")) and sid not in index or re.fullmatch(r"I\d+", sid):
-        return None                 # a ledger fact or a picture: its words are not in the dossier's text
+    if re.fullmatch(r"I\d+", sid) and sid in index:
+        return None                 # a picture of this job: its words are not in the dossier's text
+    if sid.startswith("F") and sid not in index:
+        if sid in planned:
+            return None             # a ledger fact the planner cited: its words are the quote given with it
+        return f"cites {sid}, which is no ledger fact the planner gave"
     if sid not in index:
         return f"cites {sid}, which is not among this job's sources"
     if not quote_in(ref.quote, index[sid]):
@@ -1238,18 +1283,24 @@ QUOTE_FIX = ("Quote the exact words of the source that call for it, or cite the 
 def _quote_findings(job: Job, index: Mapping[str, str], rule: str) -> list[Finding]:
     """The mechanical check: every Ref's source is this job's and holds its quote."""
     out: list[Finding] = []
+    # the planner's refs: of each system for its own lines, of the whole job for the front end and the exceptions
+    planned_job = frozenset(_ref_ids([*(r for s in job.systems for r in ai_evidence.system_refs(s)),
+                                      *(r for e in job.exceptions for r in e.refs)]))
+    planned = planned_job
 
     def check(system_key: str, device_id: str | None, refs) -> None:
-        problems = list(dict.fromkeys(p for r in refs if (p := _ref_problem(r, index))))
+        problems = list(dict.fromkeys(p for r in refs if (p := _ref_problem(r, index, planned))))
         if problems:
             what = f"{device_id or 'The block'} " + "; ".join(problems) + "."
             out.append(Finding(rule, system_key, device_id, "must_fix", what, QUOTE_FIX))
 
     for system in job.systems:
+        planned = frozenset(_ref_ids(ai_evidence.system_refs(system)))
         check(system.key, None, ai_evidence.system_refs(system))
         for device in system.devices:
             check(system.key, device.id, [*device.refs, *device.quantity.sources,
                                           *(o.ref for o in device.quantity.others)])
+    planned = planned_job
     if job.front_end is not None:
         for device in job.front_end.devices:
             check("", device.id, [*device.refs, *device.quantity.sources, *(o.ref for o in device.quantity.others)])
@@ -1361,8 +1412,8 @@ def qc_job(job: Job, evidence_index: Mapping[str, str], playbook: Playbook, tran
     `device_id` name what it is about. Raises NoAnswer as `write_system`.
 
     First a mechanical check: every Ref of the job cites a source of this job whose text holds its quote (a picture
-    or a ledger fact aside); each device (or block) that fails is a must_fix finding under the Playbook's first
-    evidence and citations rule. Then the reviewer, told those findings, gets the job and the text of every source
+    of this job, or a ledger fact the planner cited, aside); each device (or block) that fails is a must_fix
+    finding under the Playbook's first evidence and citations rule. Then the reviewer, told those findings, gets the job and the text of every source
     it cites (extra step "qc"; the schema's rule and system_key allow only the Playbook's rule names and the job's
     keys). Every part is asked before NoAnswer is raised. A finding naming a device the job lacks keeps the finding,
     its device_id null and the id named in `what`."""
