@@ -46,7 +46,7 @@ def read_job(catalogue, page_opener=None, cache_dir: Path | None = None, judge=N
     sheet whose schedules are pictures is read by eye, its pictures kept in the cache's schedule-images folder."""
     versions = sheet_versions(catalogue)
     supersessions, revision_flags = supersede(catalogue, versions)
-    typicals = typical_sheets(catalogue)
+    typicals = typical_sheets(catalogue, supersessions=supersessions)   # a reissue keeps the floors it replaces
     pages = governing_pages(catalogue, supersessions, typical_places(typicals))
     page_flags: list[str] = []
     opener = page_opener or PageOpener(catalogue, cache_dir)

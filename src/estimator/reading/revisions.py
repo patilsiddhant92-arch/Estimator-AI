@@ -23,7 +23,7 @@ from datetime import date, timedelta
 from functools import lru_cache
 from pathlib import Path
 
-from estimator.catalogue.job import other_sets, repeats, title_words
+from estimator.catalogue.job import other_sets, plans_printed_again, repeats, title_words
 from estimator.catalogue.pdf import Span, clean_text
 from estimator.catalogue.register import PageRecord
 from estimator.catalogue.tags import Equipment, find_tags, label_keys, line_labels, plan_labels, sheet_number_tags
@@ -69,6 +69,8 @@ class Supersession:
     replaced: tuple[SheetVersion, ...]
     changes: tuple[Change, ...]
     note: str
+    floors: tuple[str, ...] = ()   # RD-3: the floors of a base plan printed alike on several pages that a shorter
+                                   # reissue replaces ("p.1", "p.2", "p.3"): the reissue stands for them too
 
 
 @dataclass(frozen=True)
@@ -383,6 +385,8 @@ def supersede(catalogue, versions: Sequence[SheetVersion],
         by_sheet[version.sheet].setdefault(version.document, version)   # ... but a page repeated in one document is
                                                                          # not a version, nor another set's sheet
     titles = {(s.document, s.page): title_words(s) for s in catalogue.sheets}
+    numbers = {(s.document, s.page): s.number for s in catalogue.sheets}
+    printed = plans_printed_again(catalogue)
 
     contents: dict[tuple[str, int], _Content] = {}
 
@@ -458,11 +462,22 @@ def supersede(catalogue, versions: Sequence[SheetVersion],
         # FINAL-O (REVIEW-FINAL8 H2): a reissue with fewer pages than its base replaces only the base pages its text
         # matches best; a page it does not match is kept, counted and said
         reissued = _runs(pages_of[sheet][current.document], alike)
-        replaced = []
+        longest = max(len(run) for run in reissued)
+        replaced, floors = [], ()
         for d in (d for group in groups for d in group):
             runs = _runs(matching[d], alike)
             taken = _matched(reissued, runs, content)
             replaced += [v for i in sorted(taken) for v in runs[i]]
+            # RD-3: a base plan printed alike on several pages stands for that many floors (`plans_printed_again`); a
+            # reissue on fewer pages replaces it whole and keeps its floors, never one floor for three; said
+            for i in sorted(taken):
+                on = printed.get((d, numbers.get((d, runs[i][0].page))), ())
+                if len(on) > longest and sorted(v.page for v in runs[i]) == list(on):
+                    floors = max(floors, tuple(f"p.{page}" for page in on), key=len)
+                    flags.append(f"{'addendum' if who == 'addendum' else _name(current.document)} reissues {sheet} "
+                                 f"({_plural(len(pages_of[sheet][current.document]), 'page')}); base prints it on "
+                                 f"{len(on)} pages ({_name(d)}), one plan for {len(on)} floors: floors kept "
+                                 f"×{len(on)}; check")
             if len(taken) == len(runs):
                 continue
             head = (f"{'addendum' if who == 'addendum' else _name(current.document)} reissues {sheet} "
@@ -480,7 +495,7 @@ def supersede(catalogue, versions: Sequence[SheetVersion],
                                       for c in _changes(sheet, content(current), content(old), reading)))
         replaced.sort(key=lambda v: (v.latest or date.min, kinds.get(v.document) == "addendum", v.document, v.page))
         supersessions.append(Supersession(sheet, current, tuple(replaced), changes,
-                                          _note(sheet, current, first_of, changes)))
+                                          _note(sheet, current, first_of, changes), floors))
     return supersessions, flags
 
 
