@@ -16,8 +16,8 @@ from collections.abc import Collection, Iterable, Sequence
 from dataclasses import dataclass, field, replace
 
 from estimator.catalogue.job import CONTROLS_DISCIPLINES, other_sets, repeats
-from estimator.catalogue.tags import (_DECIMAL_TYPE, Equipment, is_type_tag, label_key, label_keys, line_labels,
-                                      tag_prefix)
+from estimator.catalogue.tags import (DECIMAL_TYPE, Equipment, is_type_tag, label_key, label_keys, line_labels,
+                                      plan_labels, tag_prefix)
 from estimator.reading.revisions import governing_pages
 from estimator.reading.schedules import (BY_EYE, EQUIPMENT, Schedule, header_key, kind_from_title, quantity_header,
                                         vocabulary)
@@ -357,8 +357,10 @@ def _title_tokens(sheet) -> tuple[str, ...]:
 def _one_plan(a, a_tags, b, b_tags, codes: Collection[str]) -> bool:
     """Two plan sheets show one plan: the same document, the same title words (`_title_tokens`) with a floor among
     them (so BASEMENT 1 and BASEMENT 2, BLDG. A and BLDG. B, TOWERS 1 AND 2 and 3 AND 4 never are), and at least
-    AREA_SHARED unit tags repeated, AREA_OVERLAP of the smaller sheet's (a type's tag is never evidence)."""
-    if a.document != b.document:
+    AREA_SHARED unit tags repeated, AREA_OVERLAP of the smaller sheet's (a type's tag is never evidence). Two pages
+    of one sheet number never are: alike on every page they are one plan for several floors (`plan_floors`), else
+    each page is its own sheet, counted (REVIEW-FINAL7 F7: pages 1 and 3 alike, page 2 other, are three sheets)."""
+    if a.document != b.document or (a.number and a.number == b.number):
         return False
     words = _title_tokens(a)
     if not words or words != _title_tokens(b) or not any(_FLOOR_TOKEN.match(w) for w in words):
@@ -571,10 +573,13 @@ def placements(catalogue, tags: Iterable[str], typicals: Sequence = (),
             read.append((sheet, record, riser))
     labels = sheet_labels(sheet for sheet, _r, _riser in read)
     tallies: dict[tuple[str, int], dict[str, int]] = {}
+    evidence: dict[tuple[str, int], dict[str, int]] = {}
     for sheet, record, riser in read:
-        tallies[(sheet.document, sheet.page)] = line_labels(record.text, keys)   # the one label reader (F7)
-    plans = [(sheet, tallies[(sheet.document, sheet.page)]) for sheet, _r, riser in read if not riser]
-    groups = plan_groups(plans)
+        # the one label reader (F7); on a plan, a unit named anywhere counts at least once (REVIEW-FINAL7 F4), and
+        # the labels alone are the plan groups' evidence (the backstop never joins two plans)
+        labelled = evidence[(sheet.document, sheet.page)] = line_labels(record.text, keys)
+        tallies[(sheet.document, sheet.page)] = labelled if riser else plan_labels(record.text, keys, labelled)
+    groups = plan_groups([(sheet, evidence[(sheet.document, sheet.page)]) for sheet, _r, riser in read if not riser])
     found: dict[str, list] = defaultdict(list)            # tag -> [((document, page), labels, floors)]
     on_plans: dict[str, dict[str, int]] = defaultdict(dict)
     floors: dict[str, dict[str, int]] = defaultdict(dict)
@@ -621,7 +626,7 @@ def _as_type(tag: str, kind: str, schedule: Schedule, row, placed: Placements | 
     if getattr(row, "shares", 1) > 1:
         return None      # the row lists several tags ("A THRU C"): the tags are the count, one unit each
     as_type = False
-    if _DECIMAL_TYPE.match(tag):
+    if DECIMAL_TYPE.match(tag):
         why, as_type = f"its tag has a decimal size, {tag}", True
     elif column:
         why, as_type = f"the schedule has a {column} column", True
