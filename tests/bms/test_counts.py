@@ -466,7 +466,9 @@ def test_only_plan_sheets_of_the_controls_disciplines_are_counted(tmp_path):
     assert {p["sheet"] for p in counts.load_proofs(cache)} == {"M-101, Drawings.pdf page 2"}
 
 
-def test_the_count_is_of_different_tags_over_every_plan_sheet(tmp_path):
+def test_a_unit_on_two_floor_plans_adds_up_as_the_inventory_counts(tmp_path):
+    """CNT-5: two plans of two floors are two plan groups, so EF-2 shown on both counts on each (the inventory's
+    `placements` gives the same 4 on these sheets)."""
     first = ((200, 200, FILLER, 10), (300, 400, "EF-1", 14), (900, 300, "EF-2", 14))
     second = ((200, 200, FILLER, 10), (300, 400, "EF-2", 14), (900, 300, "EF-5", 14))   # EF-2 shown again
     pdf = make_pdf(tmp_path / "job" / "Drawings.pdf", Page(W, H, first), Page(W, H, second))
@@ -474,9 +476,9 @@ def test_the_count_is_of_different_tags_over_every_plan_sheet(tmp_path):
                                  (2, "M-102", "SECOND FLOOR PLAN", "EF-2 EF-5")])
     checked = counts.cross_check(_sample_job(), catalogue, tmp_path / "cache")
     ef = _family(checked, "EF", "Exhaust Fan").count
-    assert ef.value == 3 and ef.sources[1].where == ("M-101, Drawings.pdf page 1; M-102, Drawings.pdf page 2")
-    assert ef.others == ()                                                 # agrees with the planner's 3
-    assert [r.source_id for r in ef.sources] == ["S6", "C1"]
+    assert ef.value == 4 and ef.sources[0].where == ("M-101, Drawings.pdf page 1; M-102, Drawings.pdf page 2")
+    assert [r.source_id for r in ef.sources] == ["C1"] and ef.sources[0].quote == counts.LOCATED_QUOTE
+    assert [(o.value, o.ref.source_id) for o in ef.others] == [(3, "S6")]   # the planner's 3, kept as another count
 
 
 # ---- cross_check with vision ----------------------------------------------------------------------------------
@@ -656,8 +658,8 @@ def test_family_patterns_match_the_family_s_real_tags_and_no_bare_part(shared):
     assert not fits(family_pattern(["EUH-1, 2"], {"EUH": 2}), "EUH-3")      # shared prefix: the own tags only
 
 
-def test_the_located_text_count_uses_the_expanded_tags(tmp_path):
-    from bms.counts_text import fits
+def test_the_located_count_uses_the_expanded_tags_and_asks_no_picture_when_every_tag_reads_cleanly(tmp_path):
+    from bms.counts_text import family_pattern, fits, prefix_owners
 
     texts = ((200, 200, FILLER, 10), (300, 300, "TXF-B", 14), (500, 300, "SPXF-A", 14), (700, 300, "SPXF-C", 14),
              (300, 500, "B", 14), (500, 500, "2", 14), (700, 500, "EUH-2", 14), (900, 500, "CAC-1.5", 14),
@@ -675,10 +677,10 @@ def test_the_located_text_count_uses_the_expanded_tags(tmp_path):
         assert any(r.quote == "located on the sheet text" and count.value == value for r in count.sources), \
             (key, count)
     assert counts.proofs_for(cache, "SPXF", "SPXF")[0]["located_tags"] == ["SPXF-A", "SPXF-C"]
-    [asked] = vision.asked                                       # the vision count asks the same patterns
-    assert len(asked["extra"]["patterns"]) == len(LETTER_FAMILIES)
-    for pattern in asked["extra"]["patterns"]:
-        assert not any(fits(pattern, bare) for bare in ("B", "C", "2"))
+    assert vision.asked == []                     # every tag reads cleanly and no count is known: nothing to ask
+    for key, (written, _) in LETTER_FAMILIES.items():
+        pattern = family_pattern([written], prefix_owners([w] for w, _ in LETTER_FAMILIES.values()))
+        assert not any(fits(pattern, bare) for bare in ("B", "C", "2")), key
 
 
 # ---- a tag is never found inside a longer tag (CNT-3) -------------------------------------------------------------
@@ -714,3 +716,94 @@ def test_a_tag_followed_by_a_dash_or_dot_and_more_is_a_longer_tag():
     assert cac.search("SEE CAC-1.") and cac.search("CAC-1, CAC-2")      # a full stop or comma ends the tag
     vav = searcher(family_pattern(["VAV-1"], {"VAV": 2}))
     assert vav.search("VAV-1-01") is None and vav.search("VAV-10") is None and vav.search("XVAV-1") is None
+
+
+# ---- CNT-5: the located count reads labels by the planner's rules -------------------------------------------------
+
+def test_the_located_count_reads_labels_as_the_planner_does(tmp_path):
+    """A 7-word label line, a THRU range, a stated count of places, a tag after TO (no label), and a type's tag on
+    two floor plans (the sheets add up)."""
+    first = ((200, 200, FILLER, 10), (300, 400, "EF-2 ON ROOF ABOVE CORRIDOR SECOND FLOOR", 14),
+             (300, 500, "VAV-1 THRU VAV-5", 14), (300, 600, "CUH-A (TYP. OF 4)", 14),
+             (300, 700, "EXHAUST DUCT TO EF-7", 14), (900, 300, "EBB-A", 14))
+    second = ((200, 200, FILLER, 10), (900, 300, "EBB-A", 14))
+    pdf = make_pdf(tmp_path / "job" / "Drawings.pdf", Page(W, H, first), Page(W, H, second))
+    catalogue = _catalogue(pdf, [(1, "M-101", "FIRST FLOOR PLAN", "\n".join(t for _, _, t, _ in first)),
+                                 (2, "M-102", "SECOND FLOOR PLAN", "\n".join(t for _, _, t, _ in second))])
+
+    def system(key, tags, value):
+        return System(key, key, key, "field", (Family(key, tags, Count(value, (Ref(f"S{key}", key, "M-001"),))),))
+
+    job = Job("t", (system("EF", ("EF-2",), 1), system("VAV", ("VAV-1",), 5), system("CUH", ("CUH-A",), 4),
+                    system("EBB", ("EBB-A",), 2)))
+    checked = counts.cross_check(job, catalogue, tmp_path / "cache")
+    for key, value in {"EF": 1, "VAV": 5, "CUH": 4, "EBB": 2}.items():
+        count = checked.system(key).families[0].count
+        assert count.value == value, (key, count)
+        assert not any(o.ref.quote == counts.LOCATED_QUOTE for o in count.others), (key, count)
+        assert any(r.quote == counts.LOCATED_QUOTE for r in count.sources), (key, count)
+
+
+# ---- CNT-7: an answer that answers no asked pattern ---------------------------------------------------------------
+
+def _ef_pattern():
+    from bms.counts_text import family_pattern
+
+    pattern = family_pattern(["EF-1", "EF-2"], {"EF": 1})
+    assert "–" in pattern                                    # the pattern carries the Unicode dashes
+    return pattern
+
+
+class PlainDashes(Refusable):
+    """Echoes each asked pattern with its Unicode dashes typed as plain "-"."""
+
+    def ask(self, *args, **kwargs):
+        answer = super().ask(*args, **kwargs)
+        for entry in answer["patterns"]:
+            entry["pattern"] = re.sub("[‐‑–—]", "-", entry["pattern"])
+        return answer
+
+
+class NoPatterns(Refusable):
+    """Answers the first question with no pattern at all, then as FakeVision does."""
+
+    def ask(self, *args, **kwargs):
+        answer = super().ask(*args, **kwargs)
+        return {"patterns": []} if len(self.asked) == 1 else answer
+
+
+def test_a_pattern_echoed_with_plain_dashes_is_the_asked_pattern(tmp_path):
+    picture = _blank_picture(tmp_path / "p.png", (800, 600))
+    seen = [("EF-1", 10, 10, 40, 20), ("EF-2", 300, 300, 40, 20)]
+    api = PlainDashes(seen, again=True)
+    result = counts.count_tags(picture, _ef_pattern(), transport=api)
+    assert result.value == 2 and api.refused == []
+
+
+def test_an_answer_with_no_asked_pattern_is_refused_and_asked_again(tmp_path):
+    picture = _blank_picture(tmp_path / "p.png", (800, 600))
+    seen = [("EF-1", 10, 10, 40, 20), ("EF-2", 300, 300, 40, 20)]
+    pattern = _ef_pattern()
+    api = NoPatterns(seen, again=True)
+    result = counts.count_tags(picture, pattern, transport=api)
+    assert api.refused and "left out" in api.refused[0]
+    assert result.value == 2 and len(api.asked) == 2
+    chat = NoPatterns(seen, again=False)                     # the chat asks again on a later run
+    assert counts.count_tags(picture, pattern, transport=chat) == counts.CountResult(None, ())
+    assert len(chat.refused) == 1
+
+
+def test_two_sheets_of_one_plan_count_a_unit_once(tmp_path):
+    """CNT-5: the inventory's plan groups: one floor's plan drawn on two sheets (the same title, the same units) counts
+    each unit once; a type's tag the most places of one sheet."""
+    texts = ((200, 200, FILLER, 10), (300, 400, "EF-1", 14), (900, 300, "EF-2", 14), (1500, 900, "EF-3", 14),
+             (600, 1000, "EBB-A", 14), (800, 1000, "EBB-A", 14))
+    pdf = make_pdf(tmp_path / "job" / "Drawings.pdf", Page(W, H, texts), Page(W, H, texts))
+    text = "\n".join(t for _, _, t, _ in texts)
+    catalogue = _catalogue(pdf, [(1, "M-101", "FIRST FLOOR PLAN", text), (2, "M-201", "FIRST FLOOR PLAN", text)])
+    ef = System("EF", "EF", "EF", "field", (Family("EF", ("EF-1", "EF-2", "EF-3"), Count(3, (Ref("S1", "EF", "M"),))),))
+    ebb = System("EBB", "EBB", "EBB", "field", (Family("EBB", ("EBB-A",), Count(2, (Ref("S2", "EBB", "M"),))),))
+    checked = counts.cross_check(Job("t", (ef, ebb)), catalogue, tmp_path / "cache")
+    for key, value in {"EF": 3, "EBB": 2}.items():
+        count = checked.system(key).families[0].count
+        assert count.value == value and not count.others, (key, count)

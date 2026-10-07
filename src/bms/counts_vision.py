@@ -262,8 +262,9 @@ def read_answer(answer: dict, rects: list[tuple[int, int, int, int]]
 
 
 def _loose(pattern: str) -> str:
-    """A pattern as compared across the answer: re-escaped text (doubled backslashes) and spacing do not matter."""
-    return re.sub(r"\\+", r"\\", pattern).replace(" ", "")
+    """A pattern as compared across the answer: re-escaped text (doubled backslashes), spacing and the kind of dash
+    (a pattern's "‐‑–—" echoed as plain "-") do not matter."""
+    return re.sub("[‐‑–—]", "-", re.sub(r"\\+", r"\\", pattern)).replace(" ", "")
 
 
 def answered(answer: dict, patterns: list[str]) -> set[str]:
@@ -281,7 +282,8 @@ def ask_sheet(transport, picture: Path, patterns: list[str], name: str = "",
     None when there is no usable answer (waiting for the chat, a transport failure, an answer that breaks the
     schema, an answer whose tiles_examined leaves out a tile, an answer whose counted tags have no box in their tile).
     A pattern the answer leaves out is not counted: it is not among the listed patterns. An answer that breaks the
-    schema, did not examine every tile or placed no box in a tile (`misplaced`) is refused through
+    schema, did not examine every tile, placed no box in a tile (`misplaced`) or has an entry for no asked pattern
+    (`answered`) is refused through
     the transport's `refuse` (the chat asks again on a later run, the API once more now, with the reason). A
     question that will not be answered on this run without waiting (refused `max_attempts` times, or refused
     again on the API's retry) gives None and its reason is added to the transport's `count_stops` list, which
@@ -311,7 +313,14 @@ def ask_sheet(transport, picture: Path, patterns: list[str], name: str = "",
         if problems:
             return None, problems
         found = read_answer(answer, rects)
-        return (None, ["the answer breaks the schema"]) if found is None else ((found, answered(answer, patterns)), [])
+        if found is None:
+            return None, ["the answer breaks the schema"]
+        listed = answered(answer, patterns)
+        if not listed:
+            # an answer with an entry for no asked pattern counts nothing: refused, never taken as no count
+            return None, [f"pattern {p}: left out of the answer (give one entry per pattern asked, its pattern "
+                          "text exactly as asked)" for p in patterns]
+        return (found, listed), []
 
     prompt_text = prompt(picture, size, rects, patterns, is_crops=is_crops, symbols_expected=symbols_expected)
     extra = {

@@ -415,3 +415,19 @@ def test_a_vector_plan_with_no_tags_is_not_asked(tmp_path):
     checked = counts.cross_check(job, cat, tmp_path / "cache", transport=transport)
     assert transport.asked == []
     assert checked.system("EF").families[0].count.value is None
+
+
+# ---- CNT-4: a tag and the number below it are not one longer tag ---------------------------------------------------
+
+def test_a_tag_over_a_number_line_is_not_joined_into_a_longer_tag(tmp_path):
+    texts = (
+        (100, 100, FILLER, 10),
+        (300, 300, "EF-1\n450 CFM", 14),                    # a tag over its airflow: EF-1, never EF-1-450
+        (700, 300, "EF-2\n12", 14),                         # a tag over a bare number: EF-2, never EF-2-12
+        (300, 600, "VAV", 14),                              # a bubble: VAV over 1 is VAV-1
+        (300, 615, "1", 14),
+    )
+    pdf = make_pdf(tmp_path / "stacked.pdf", Page(W, H, texts))
+    with pymupdf.open(pdf) as doc:
+        assert sorted({t for t, _ in located_boxes(doc[0], r"EF-\d+(?:-\d+)*", scale=1.0)}) == ["EF-1", "EF-2"]
+        assert {t for t, _ in located_boxes(doc[0], r"VAV-\d+", scale=1.0)} == {"VAV-1"}
