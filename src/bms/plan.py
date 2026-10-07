@@ -33,7 +33,7 @@ from estimator.writing.dossier import Dossier, sections_in
 from bms import ai_evidence
 from bms.citations import without_ledger_brackets
 from bms.model import Count, Family, FrontEnd, Job, Ref, ScopeException, Served, System
-from bms.plan_groups import family_of_tag, members, part_count, parts, split_apart
+from bms.plan_groups import family_of_tag, members, part_count, parts, split_apart, unread
 from bms.plan_read import NO_KIND, FamilyFacts, Reader, naming, names_in, squash, tag_words
 from bms.playbook import Playbook, Shape
 
@@ -277,7 +277,12 @@ class _Planner:
                     "so each is planned as its own system; confirm they are separate systems.")
                 continue
             kept.append(group)
-        claims_of = parts(reader, kept)
+            for piece in unread(reader, group):
+                self.questions.append(
+                    f"The documents group “{piece}” with “{_group_name(reader, group)}”, but no equipment family "
+                    "of the documents is named by it, so it is in no block of this plan. What is it, and is it "
+                    "part of this system?")
+        claims_of = parts(reader, kept, self.questions)
         drafts: list[_Draft] = []
         placed: set[str] = set()
         no_kind: list[tuple[FamilyFacts, FamilyFacts]] = []
