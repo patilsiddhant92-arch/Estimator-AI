@@ -67,7 +67,13 @@ def _cache(args: argparse.Namespace) -> Path:
 
 def _estimate(args: argparse.Namespace) -> int:
     from bms.run import estimate
-    result = estimate(args.job, args.out, _cache(args), args.mode)
+    try:
+        result = estimate(args.job, args.out, _cache(args), args.mode)
+    except ValueError as error:
+        if not str(error).startswith("Stopped:"):
+            raise
+        print(error)
+        return 1
     for line in result.messages:
         print(line)
     if result.status == "waiting":
