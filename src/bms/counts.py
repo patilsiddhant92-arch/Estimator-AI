@@ -38,6 +38,7 @@ LOCATED_QUOTE = "located on the sheet text"
 SEEN_QUOTE = "counted on the sheet picture"
 NO_SOURCE_QUOTE = "the count before the plan check, given without a source"
 PLAN_TYPE = "Plans"
+PICTURE_PLAN = 0.5    # pictures covering this much of a plan sheet make it a picture (a scan, a raster plan)
 __all__ = ["Box", "CountResult", "count_tags", "count_sheet", "cross_check", "load_proofs", "proofs_for", "publish_proofs",
            "COUNT_TAGS", "TILE", "LOCATED_QUOTE", "SEEN_QUOTE", "PROOFS_FOLDER"]
 
@@ -243,6 +244,7 @@ class _Check:
     def __init__(self, job, catalogue, cache: Path, transport, micro_crops: bool = True) -> None:
         self.job, self.catalogue, self.cache, self.transport = job, catalogue, cache, transport
         self.micro_crops = micro_crops
+        self.pictured: dict[tuple[str, int], bool] = {}     # sheet key: mostly picture (`_mostly_picture`)
         used = [int(m.group(1)) for ref in _refs(job) if (m := re.fullmatch(r"C(\d+)", ref.source_id))]
         self.next_id = max(used, default=0) + 1
 
@@ -262,13 +264,22 @@ class _Check:
         plans = [s for s in getattr(self.catalogue, "sheets", ()) or ()
                  if PLAN_TYPE in (s.types or ()) and s.discipline in CONTROLS_DISCIPLINES
                  and (s.document, s.page) in records]
+        # with a transport, a plan whose text names no family's tag is still asked when its page is mostly
+        # picture (a raster plan under a vector title block): its tags are only in the picture
+        finds = [searcher(pattern) for pattern in patterns.values()]
+        pictured = set()
+        if self.transport is not None:
+            pictured = {(s.document, s.page) for s in plans
+                        if not any(f.search(records[(s.document, s.page)].text or "") for f in finds)
+                        and self._mostly_picture((s.document, s.page))}
         on_sheet: dict[tuple[str, str], list[tuple[str, int]]] = {}
         sheets: dict[tuple[str, int], _Sheet] = {}
         for (key, name), pattern in patterns.items():
             find = searcher(pattern)
             for sheet in plans:
                 text = records[(sheet.document, sheet.page)].text or ""
-                if find.search(text) or (self.transport is not None and len(text.strip()) < 50):
+                if (find.search(text) or (self.transport is not None and len(text.strip()) < 50)
+                        or (sheet.document, sheet.page) in pictured):
                     on_sheet.setdefault((key, name), []).append((sheet.document, sheet.page))
                     if (sheet.document, sheet.page) not in sheets:
                         doc = _name(sheet.document)
@@ -325,36 +336,65 @@ class _Check:
             sheet.located = None
             confident, ambiguous, has_text = [], [], False
 
+        if (has_text and not confident and not ambiguous and self.transport is not None
+                and self._mostly_picture(sheet.key)):
+            # a page mostly picture whose text layer shows no tag: the text is a title block, not a count
+            sheet.located, has_text = None, False
+
         if self.transport is not None and sheet.picture is not None:
-            if self.micro_crops and has_text:
+            results = {}
+            if not (self.micro_crops and has_text):
+                results = count_sheet(sheet.picture, here, transport=self.transport)
+            else:
                 symbols_expected = self._symbols_expected(here, sheet)
-                amb_boxes = [b for _, b, _ in ambiguous]
-                if amb_boxes:
-                    crops = cut_micro_crops(sheet.picture, amb_boxes)
-                    results = count_sheet(sheet.picture, here, transport=self.transport,
-                                          crops=crops, symbols_expected=symbols_expected)
-                    if results and all(r.value is not None for r in results.values()):
-                        merged_results = {}
-                        for p in here:
-                            if p not in results:
-                                continue
-                            r = results[p]
-                            c_boxes = [(t, b) for t, b in confident if fits(p, t)]
-                            all_boxes = _distinct([*[(b.text, (b.x, b.y, b.width, b.height)) for b in r.boxes],
-                                                   *c_boxes])
-                            merged_results[p] = CountResult(len(all_boxes), tuple(all_boxes))
-                        results = merged_results
-                elif symbols_expected or self._schedule_disagrees(here, sheet):
+                if symbols_expected or self._schedule_disagrees(here, sheet):
+                    # the text is short of the schedule or disagrees with it: the whole sheet is asked, whatever
+                    # is ambiguous, so the picture count is independent of the text
                     results = count_sheet(sheet.picture, here, transport=self.transport,
                                           symbols_expected=symbols_expected)
-                else:
-                    results = {}
-            else:
-                results = count_sheet(sheet.picture, here, transport=self.transport)
+                elif ambiguous:
+                    self._confirm(sheet, here, confident, ambiguous, cut_micro_crops)
 
             if results and all(r.value is not None for r in results.values()):
                 sheet.counted = frozenset(results)
                 sheet.seen = [(b.text, (b.x, b.y, b.width, b.height)) for r in results.values() for b in r.boxes]
+
+    def _confirm(self, sheet: _Sheet, here: list[str], confident, ambiguous, cut_micro_crops) -> None:
+        """Ask micro-crops around the ambiguous text boxes, and keep in the located count only the ambiguous tags
+        the crops read (a pattern the answer leaves out, or no usable answer, keeps them all). The crops' answer is
+        a check of the sheet text, never a count on the sheet picture: `sheet.seen` is left as it is."""
+        try:
+            crops = cut_micro_crops(sheet.picture, [b for _, b, _ in ambiguous])
+            results = count_sheet(sheet.picture, here, transport=self.transport, crops=crops)
+        except Exception:
+            return
+        if not results or any(r.value is None for r in results.values()):
+            return
+        kept = []
+        for tag, box, _why in ambiguous:
+            asked = [p for p in here if fits(p, tag) and p in results]
+            read = {canonical(b.text) for p in asked for b in results[p].boxes}
+            if not asked or canonical(tag) in read:
+                kept.append((tag, box))
+        sheet.located = [(t, b) for t, b in confident] + kept
+
+    def _mostly_picture(self, key: tuple[str, int]) -> bool:
+        """Whether pictures cover at least PICTURE_PLAN of the page (`dossier._picture_boxes`, overlapping ones
+        merged, logos and stamps left out). False when the page cannot be read."""
+        import pymupdf
+        from estimator.writing.dossier import _picture_boxes
+
+        cache = self.pictured
+        if key not in cache:
+            try:
+                documents = {d.relative: Path(d.path) for d in self.catalogue.job.documents}
+                with pymupdf.open(str(documents[key[0]])) as pdf:
+                    page = pdf[key[1] - 1]
+                    area = abs(page.rect)
+                    cache[key] = area > 0 and sum(abs(b) for b in _picture_boxes(page)) >= PICTURE_PLAN * area
+            except Exception:
+                cache[key] = False
+        return cache[key]
 
     def _classify(self, sheet: _Sheet, pattern: str, default_scale: float):
         import pymupdf
