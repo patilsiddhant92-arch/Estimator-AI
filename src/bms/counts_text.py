@@ -56,6 +56,20 @@ def family_tags(tags: Sequence[str]) -> list[str]:
     return out
 
 
+def bare_prefixes(tags: Sequence[str]) -> list[str]:
+    """The tags of a family whose tags are a prefix alone ("AHU": a schedule that names its units only by their
+    kind), in canonical spelling; `family_tags` leaves them out, as they are no whole tag. Empty when the family has
+    a whole tag (a word beside its tags, "THRU", is never a prefix)."""
+    if family_tags(tags):
+        return []
+    out: list[str] = []
+    for tag in tags or ():
+        name = canonical(str(tag))
+        if re.fullmatch(r"[A-Z]{2,8}", name) and name not in out:
+            out.append(name)
+    return out
+
+
 def _spelled(tag: str) -> str:
     """One tag as a pattern allowing any dash, a space or nothing before the first numbered part, any dash or a
     space before a later one (VAV-1-01 is never "VAV-101"), a dash before a lettered part ("TXF-B", never
@@ -83,7 +97,9 @@ def family_pattern(tags: Sequence[str], prefix_owners: dict[str, int]) -> str | 
     """The pattern of one family's tags (a Python regular expression over the tag as printed), built from the
     family's expanded tags (`family_tags`): any tag of a prefix only this family has in the job, numbered or
     lettered as the family's own are — so a unit the plans show but the schedule left out still counts — and
-    otherwise the family's own tags only. Never a bare letter or number. None when the family has no tags."""
+    otherwise the family's own tags only. A tag that is the prefix alone ("AHU", `bare_prefixes`) and only this
+    family has is any numbered or lettered tag of it (AHU-1, AHU-B), never the bare word. Never a bare letter or
+    number. None when the family has no tags."""
     alternatives: list[str] = []
     generic: dict[str, set[str]] = {}            # prefix -> the kinds of its first part: "number", "letter"
     for tag in family_tags(tags):
@@ -97,6 +113,11 @@ def family_pattern(tags: Sequence[str], prefix_owners: dict[str, int]) -> str | 
             alternative = _spelled(tag)
         if alternative not in alternatives:
             alternatives.append(alternative)
+    for prefix in bare_prefixes(tags):
+        if prefix_owners.get(prefix, 0) == 1:
+            generic.setdefault(prefix, set()).update({"number", "letter"})
+            if prefix not in alternatives:
+                alternatives.append(prefix)
     alternatives = [_generic(a, "number" in generic[a], "letter" in generic[a]) if a in generic else a
                     for a in alternatives]
     if not alternatives:
@@ -105,10 +126,12 @@ def family_pattern(tags: Sequence[str], prefix_owners: dict[str, int]) -> str | 
 
 
 def prefix_owners(families_tags: Iterable[Sequence[str]]) -> dict[str, int]:
-    """How many families of the job have each tag prefix (over each family's expanded tags)."""
+    """How many families of the job have each tag prefix (over each family's expanded tags and its tags that are a
+    prefix alone, `bare_prefixes`)."""
     owners: dict[str, int] = {}
     for tags in families_tags:
-        for prefix in {tag_prefix(canonical(t)) for t in family_tags(tags)}:
+        tags = list(tags or ())
+        for prefix in {tag_prefix(canonical(t)) for t in family_tags(tags)} | set(bare_prefixes(tags)):
             owners[prefix] = owners.get(prefix, 0) + 1
     return owners
 

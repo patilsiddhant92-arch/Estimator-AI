@@ -431,3 +431,62 @@ def test_a_tag_over_a_number_line_is_not_joined_into_a_longer_tag(tmp_path):
     with pymupdf.open(pdf) as doc:
         assert sorted({t for t, _ in located_boxes(doc[0], r"EF-\d+(?:-\d+)*", scale=1.0)}) == ["EF-1", "EF-2"]
         assert {t for t, _ in located_boxes(doc[0], r"VAV-\d+", scale=1.0)} == {"VAV-1"}
+
+
+# ---- CNT-9: the picture count is told no expected number; untagged symbols are their own count -------------------
+
+def _ef1_sheet(tmp_path):
+    texts = ((100, 100, FILLER, 10), (300, 300, "EF-1", 14))
+    pdf = make_pdf(tmp_path / "job" / "Drawings.pdf", Page(W, H, texts))
+    return _catalogue(pdf, [(1, "M-101", "FIRST FLOOR PLAN", "\n".join(t for _, _, t, _ in texts))])
+
+
+def _ef1_job(value):
+    return Job(name="26-9999", systems=(
+        System(key="EF", name="Exhaust Fan", shape="Exhaust Fan", control="none",
+               families=(Family(name="Exhaust Fan", tags=("EF-1",), count=Count(value)),)),
+    ))
+
+
+def test_the_whole_sheet_question_holds_no_expected_number(tmp_path):
+    asked = []
+    for value in (3, 30):
+        transport = MockTransport()
+        counts.cross_check(_ef1_job(value), _ef1_sheet(tmp_path / str(value)), tmp_path / str(value) / "cache",
+                           transport=transport)
+        [question] = transport.asked
+        assert not question["extra"].get("is_crops") and len(question["extra"]["tiles"]) > 1
+        asked.append(question)
+    prompts = [q["prompt"].replace(Path(q["extra"]["picture"]).name, "PICTURE") for q in asked]
+    assert prompts[0] == prompts[1]                          # the schedule's count never reaches the question
+    assert {k: v for k, v in asked[0]["extra"].items() if k != "picture"} == \
+        {k: v for k, v in asked[1]["extra"].items() if k != "picture"}
+    assert "symbols_expected" not in asked[0]["extra"]
+    assert "expect" not in asked[0]["prompt"].lower()
+    assert "untagged" in asked[0]["prompt"].lower()          # a neutral instruction to report them, if any
+
+
+def test_untagged_symbols_are_their_own_count_in_the_proof(tmp_path):
+    from bms.counts_text import family_pattern
+
+    pattern = family_pattern(["EF-1"], {"EF": 1})
+    transport = MockTransport(answer_tags=[("EF-1", 620, 620, 80, 30)], untagged_counts={pattern: 2})
+    cache = tmp_path / "cache"
+    checked = counts.cross_check(_ef1_job(3), _ef1_sheet(tmp_path), cache, transport=transport)
+    assert len(transport.asked) == 1 and "untagged_symbols" in json.dumps(transport.asked[0]["schema"])
+    [proof] = counts.proofs_for(cache, "EF", "Exhaust Fan")
+    assert proof["vision"] == 1 and proof["vision_tags"] == ["EF-1"]
+    assert proof["vision_untagged"] == 2                      # its own count, beside the tag count
+    count = checked.system("EF").families[0].count
+    assert count.value == 3
+    seen = [o.value for o in count.others if o.ref.quote == counts.SEEN_QUOTE]
+    assert seen == [1]                                        # never added to the tags counted on the picture
+
+
+def test_count_sheet_reads_untagged_symbols_into_the_result(tmp_path):
+    picture = tmp_path / "p.png"
+    Image.new("RGB", (800, 600), "white").save(picture)
+    transport = MockTransport(answer_tags=[("EF-1", 10, 10, 40, 20)], untagged_counts={"EF-[0-9]+": 4})
+    result = counts.count_sheet(picture, ["EF-[0-9]+"], transport=transport)["EF-[0-9]+"]
+    assert result.value == 1 and result.untagged == 4
+    assert counts.count_tags(picture, "EF-[0-9]+", transport=MockTransport()).untagged == 0

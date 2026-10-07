@@ -38,7 +38,8 @@ marks, room numbers, and words in the notes, legends and title block. Do not gue
 confidence is left out. An empty list of tags is a correct answer for a pattern the sheet does not show."""
 
 STEP = ("Answer with JSON only, in the schema given: {\"patterns\": [{\"pattern\", \"tiles_examined\", \"tags\": "
-        "[{\"text\", \"count\", \"boxes\": [{\"tile\", \"x\", \"y\", \"width\", \"height\"}]}]}]}, one entry per "
+        "[{\"text\", \"count\", \"boxes\": [{\"tile\", \"x\", \"y\", \"width\", \"height\"}]}], "
+        "\"untagged_symbols\"}]}, one entry per "
         "pattern asked, each with every tile number in tiles_examined.")
 
 _BOX = {
@@ -88,7 +89,8 @@ SCHEMA = {
                     },
                     "untagged_symbols": {
                         "type": "integer",
-                        "description": "Count of untagged symbols matching this equipment type.",
+                        "description": "How many symbols of this pattern's equipment the sheet draws with no "
+                                       "tag beside them (0 when none); never listed in tags.",
                     },
                 },
                 "required": ["pattern", "tiles_examined", "tags"],
@@ -163,8 +165,7 @@ def cut_micro_crops(picture: Path, boxes: Sequence[tuple[int, int, int, int]],
 
 
 def prompt(picture: Path, size: tuple[int, int], rects: list[tuple[int, int, int, int]],
-           patterns: list[str], is_crops: bool = False,
-           symbols_expected: dict[str, int] | None = None) -> str:
+           patterns: list[str], is_crops: bool = False) -> str:
     kind = "micro-crop picture" if is_crops else "overlapping tile"
     lines = [f"Sheet picture {picture.name} ({size[0]} x {size[1]} pixels), sent as {len(rects)} {kind}(s), "
              f"one picture each, in this order (each image's place on the whole sheet):"]
@@ -173,10 +174,10 @@ def prompt(picture: Path, size: tuple[int, int], rects: list[tuple[int, int, int
     lines.append("Count the tags fully matching each of these Python regular expressions (one entry per pattern in "
                  "the answer, in this order):")
     lines += [f"Pattern {n}: {pattern}" for n, pattern in enumerate(patterns, start=1)]
-    if symbols_expected:
-        lines.append("For equipment where the schedule specifies a count, also count any matching symbols appearing on the drawing without an explicit tag:")
-        for pat, exp_cnt in symbols_expected.items():
-            lines.append(f"  Pattern {pat}: expect approximately {exp_cnt} untagged symbol(s).")
+    if not is_crops:
+        # a neutral question: the schedule's count is never said, so the picture count stays independent of it
+        lines.append("For each pattern, also give untagged_symbols: how many symbols of that equipment the sheet draws "
+                     "with no tag beside them (0 when none). They are not tags: never list them in tags.")
     item = "crop" if is_crops else "tile"
     items = "micro-crops" if is_crops else "tiles"
     lines.append(f"For each tag give its text, how many places show it, and a box per place: the image number and the "
@@ -261,6 +262,14 @@ def read_answer(answer: dict, rects: list[tuple[int, int, int, int]]
     return found
 
 
+def untagged(answer: dict, patterns: list[str]) -> dict[str, int]:
+    """Each asked pattern's untagged symbols as the answer gives them (`untagged_symbols`, matched to the asked
+    pattern as `answered` does); a pattern whose entry gives none is left out. Their own count, never a tag."""
+    given = {_loose(str(entry.get("pattern", ""))): entry.get("untagged_symbols")
+             for entry in answer.get("patterns", ()) if isinstance(entry, dict)}
+    return {p: n for p in patterns if isinstance(n := given.get(_loose(p)), int) and n >= 0}
+
+
 def _loose(pattern: str) -> str:
     """A pattern as compared across the answer: re-escaped text (doubled backslashes), spacing and the kind of dash
     (a pattern's "‐‑–—" echoed as plain "-") do not matter."""
@@ -274,11 +283,11 @@ def answered(answer: dict, patterns: list[str]) -> set[str]:
 
 
 def ask_sheet(transport, picture: Path, patterns: list[str], name: str = "",
-              crops: list[tuple[tuple[int, int, int, int], Path]] | None = None,
-              symbols_expected: dict[str, int] | None = None
-              ) -> tuple[list[tuple[str, tuple[int, int, int, int]]], set[str]] | None:
+              crops: list[tuple[tuple[int, int, int, int], Path]] | None = None
+              ) -> tuple[list[tuple[str, tuple[int, int, int, int]]], set[str], dict[str, int]] | None:
     """The sheet's one count question: every tile or micro-crop of the picture as its own image, every pattern asked together;
-    (the found tags (of every pattern) in the whole picture's pixels, the patterns the answer has an entry for), or
+    (the found tags (of every pattern) in the whole picture's pixels, the patterns the answer has an entry for,
+    each pattern's untagged symbols as the answer gives them (`untagged`)), or
     None when there is no usable answer (waiting for the chat, a transport failure, an answer that breaks the
     schema, an answer whose tiles_examined leaves out a tile, an answer whose counted tags have no box in their tile).
     A pattern the answer leaves out is not counted: it is not among the listed patterns. An answer that breaks the
@@ -320,17 +329,15 @@ def ask_sheet(transport, picture: Path, patterns: list[str], name: str = "",
             # an answer with an entry for no asked pattern counts nothing: refused, never taken as no count
             return None, [f"pattern {p}: left out of the answer (give one entry per pattern asked, its pattern "
                           "text exactly as asked)" for p in patterns]
-        return (found, listed), []
+        return (found, listed, untagged(answer, sorted(listed))), []
 
-    prompt_text = prompt(picture, size, rects, patterns, is_crops=is_crops, symbols_expected=symbols_expected)
+    prompt_text = prompt(picture, size, rects, patterns, is_crops=is_crops)
     extra = {
         "step": "count", "picture": str(picture), "tiles": [list(r) for r in rects],
         "patterns": patterns,
     }
     if is_crops:
         extra["is_crops"] = True
-    if symbols_expected:
-        extra["symbols_expected"] = symbols_expected
 
     try:
         return _ask_checked(transport, COUNT_KIND, name or f"Count tags {picture.stem}", INSTRUCTIONS, STEP,
