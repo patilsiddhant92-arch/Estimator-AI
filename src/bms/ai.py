@@ -858,7 +858,8 @@ def _revise_prompt(system: System, findings: Sequence[Finding], shape: Shape | N
 
 
 def _ref_ids(refs) -> set[str]:
-    return {str(r.source_id).strip().strip("[]") for r in refs}
+    """The source ids the refs cite; an empty id (a count record given without a source) is no id."""
+    return {sid for sid in (str(r.source_id).strip().strip("[]") for r in refs) if sid}
 
 
 def _all_refs(system: System) -> list[Ref]:
