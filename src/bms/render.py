@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import datetime as dt
 import re
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 
 from estimator.price_sheet.write import PriceSheetError, check_fit
 from estimator.scope import Alternate, Block, Item, Run
@@ -31,10 +31,13 @@ from bms.playbook import DEFAULT_ORDER, Playbook, Shape
 
 SEQUENCE_ONLY_ORDER = 20            # a block whose count prints "Qty (##)": after the equipment (shapes.json "order")
 GENERIC_FORM = "{verb} {device}{owner}{qty}"       # a system or a slot with no shape
-GENERIC_HEADER = "Qty ({n}) {name} {tags}"         # a system with no shape
+GENERIC_HEADER = "Qty ({n}) {name} {tags}"         # a system with no shape (wording.json "header.generic" when set)
 ALTERNATE_LABEL = "ALT #{k}: {name}"               # an alternate's label (wording.json "alternate_label" when set)
 _AFTER_LINES = ("confirm", "assumed", "per_drawings", "note")      # the order of the "*" lines
-_REASON_LEADS = ("as ", "since ", "given that ", "because ")       # a reason that already carries its own lead word
+# an assumption's reason: the words put before it, and the lead words a reason may already carry (then none is put)
+# (wording.json "assumption.because" / "assumption.leads" when set)
+BECAUSE = "because "
+_REASON_LEADS = ("as ", "since ", "given that ", "because ")
 
 assert set(_AFTER_LINES) == set(CLARIFICATION_KINDS)
 
@@ -177,6 +180,8 @@ def _trim(text: str) -> str:
     return _squash(text).rstrip(" .;")
 
 
+# the house casing of names; wording.json "casing" (acronyms, small_words, not_plural, acronym_before) replaces a list
+# it sets, the others stay as here
 ACRONYMS = {a.lower(): a for a in ("BMS", "VFD", "DDC", "ERV", "RTU", "HPAC", "SCR", "UUKL", "BACnet")}
 # NO, IT, CO and FA are also ordinary words ("no", "it", "co-located"): an upper-case word is kept as written, and a
 # lower-case (or capitalised) "co" / "it" / "fa" becomes CO / IT / FA only before the words that name its thing
@@ -185,12 +190,39 @@ _ACRONYM_BEFORE = {"co": ("CO", {"sensor", "sensors", "detector", "detectors", "
                    "fa": ("FA", {"relay", "relays", "panel", "panels", "interface", "shutdown", "alarm", "alarms",
                                  "system", "interlock", "interlocks"})}
 _NEXT_WORDS = re.compile(r"[A-Za-z]+")
-_LIST_WORDS = {"and", "or", "no", "fa", "co", "it"}   # passed over to the thing a short list names ("co and no sensors")
+_LIST_BASE = {"and", "or", "no"}     # with the _ACRONYM_BEFORE words: passed over to the thing a short list names
+_LIST_WORDS = _LIST_BASE | set(_ACRONYM_BEFORE)       # ("co and no sensors")
 _SMALL_WORDS = {"a", "an", "and", "as", "at", "b", "between", "but", "by", "for", "from", "in", "into", "it", "nor",
                 "of", "on", "or", "per", "the", "thru", "to", "vs", "w", "with", "within"}
+_NOT_PLURAL = {"points", "series", "status", "controls", "stairs", "chassis"}
 
 
-def _title(text: str) -> str:
+@dataclass(frozen=True)
+class _Casing:
+    """The casing lists one render uses: the Playbook's where it sets them, else the renderer's own."""
+    acronyms: dict
+    before: dict
+    listed: frozenset
+    small: frozenset
+    not_plural: frozenset
+
+
+_HOUSE_CASING = _Casing(ACRONYMS, _ACRONYM_BEFORE, frozenset(_LIST_WORDS), frozenset(_SMALL_WORDS),
+                        frozenset(_NOT_PLURAL))
+
+
+def _casing(playbook: Playbook) -> _Casing:
+    words = playbook.wording.casing
+    if not words:
+        return _HOUSE_CASING
+    acronyms = {a.lower(): a for a in words["acronyms"]} if "acronyms" in words else ACRONYMS
+    before = ({w: (w.upper(), set(f)) for w, f in words["acronym_before"].items()} if "acronym_before" in words
+              else _ACRONYM_BEFORE)
+    return _Casing(acronyms, before, frozenset(_LIST_BASE | set(before)),
+                   frozenset(words.get("small_words", _SMALL_WORDS)), frozenset(words.get("not_plural", _NOT_PLURAL)))
+
+
+def _title(text: str, casing: _Casing = _HOUSE_CASING) -> str:
     """A name as house lines read: each lower-case word capitalised (small joining words after the first, and the
     part after a hyphen, left alone), the house acronyms in their own spelling (BMS, VFD, BACnet ...); a word already
     capitalised is kept. An acronym that is also a word prints as the source writes it, except "co" / "it" / "fa"
@@ -200,28 +232,25 @@ def _title(text: str) -> str:
 
     def word(match: re.Match) -> str:
         w = match.group(0)
-        canon = ACRONYMS.get(w.lower())
+        canon = casing.acronyms.get(w.lower())
         if canon:
             return canon
         after_hyphen = match.start() > 0 and text[match.start() - 1] == "-"
-        context = _ACRONYM_BEFORE.get(w.lower())
+        context = casing.before.get(w.lower())
         if context and not w.isupper() and not after_hyphen:
             following = next((n.lower() for n in _NEXT_WORDS.findall(text, match.end())
-                              if n.lower() not in _LIST_WORDS), "")
+                              if n.lower() not in casing.listed), "")
             if following in context[1] or (w.lower() == "co" and text[match.end():match.end() + 1] == "2"):
                 return context[0]
-        if w.islower() and not after_hyphen and (match.start() == 0 or w not in _SMALL_WORDS):
+        if w.islower() and not after_hyphen and (match.start() == 0 or w not in casing.small):
             return w[0].upper() + w[1:]
         return w
     return re.sub(r"[A-Za-z]+(?:'[a-z]+)?", word, text)
 
 
-_NOT_PLURAL = {"points", "series", "status", "controls", "stairs", "chassis"}
-
-
-def _singular_word(word: str) -> str:
+def _singular_word(word: str, not_plural=_NOT_PLURAL) -> str:
     lower = word.lower()
-    if lower in _NOT_PLURAL or lower.endswith(("ss", "us", "is", "as")) or not lower.endswith("s") or len(word) < 3:
+    if lower in not_plural or lower.endswith(("ss", "us", "is", "as")) or not lower.endswith("s") or len(word) < 3:
         return word
     if lower.endswith("ies") and len(word) > 4:
         return word[:-3] + ("Y" if word[-3].isupper() else "y")
@@ -230,12 +259,13 @@ def _singular_word(word: str) -> str:
     return word[:-1]
 
 
-def _singular(text: str) -> str:
-    """The text with its last word singular ("Exhaust Fans" -> "Exhaust Fan"); punctuation after it kept."""
+def _singular(text: str, not_plural=_NOT_PLURAL) -> str:
+    """The text with its last word singular ("Exhaust Fans" -> "Exhaust Fan"); punctuation after it kept; a word in
+    `not_plural` ("Points") is kept."""
     found = re.search(r"([A-Za-z]+)([^A-Za-z]*)$", text)
     if not found:
         return text
-    return text[:found.start(1)] + _singular_word(found.group(1)) + found.group(2)
+    return text[:found.start(1)] + _singular_word(found.group(1), not_plural) + found.group(2)
 
 
 def _printed(count: Count) -> int | None:
@@ -247,29 +277,40 @@ def _owner(device: Device, playbook: Playbook) -> str:
     return "" if device.furnished_by == "AME" else playbook.wording.owner_brackets.get(device.furnished_by, "")
 
 
-def _reason(assumption, ids: SourceIds) -> str:
+def _reason(assumption, ids: SourceIds, playbook: Playbook) -> str:
     """"<what>, because <why>": the label off first, then the safety net (`SourceIds.without_issued`). Both are
-    checked once cleaned: a what that is only its label, or a why that is only issued ids, is no assumption."""
+    checked once cleaned: a what that is only its label, or a why that is only issued ids, is no assumption. The
+    words before the why are the Playbook's `assumption.because` (else BECAUSE); a why that already starts with one
+    of `assumption.leads` (else _REASON_LEADS) or with those words gets none."""
     what = _trim(strip_label("assumed", ids.without_issued(strip_label("assumed", assumption.what))))
     why = _trim(ids.without_issued(assumption.why))
     if not what or not why:
         raise RenderError(f"an assumption needs both what and why (got what={assumption.what!r}, "
                           f"why={assumption.why!r})")
-    lead = "" if why.lower().startswith(_REASON_LEADS) else "because "
+    words = playbook.wording.assumption
+    because = words.get("because", BECAUSE)
+    leads = tuple(lead.lower() for lead in (*words.get("leads", _REASON_LEADS), because))
+    lead = "" if why.lower().startswith(leads) else because
     return f"{what}, {lead}{why}"
 
 
 # ---- places (a count note's, built by code) and the source-id safety net (bms.citations decides both) ----------
 
 UNLABELLED = "elsewhere in the documents"       # a count with no place (wording.json quantity.unlabelled, optional)
-# what a count's quote says it counted: (pattern on the quote, lower case; its number when it gives one, the label)
+# the count note's joiners: "(N) per <label>; M and K per <label>" (wording.json quantity.per / and / joiner, optional)
+COUNT_PER, COUNT_AND, COUNT_JOINER = " per ", " and ", "; "
+# what a count's quote counted, in the note's words (wording.json quantity.labels replaces a label it sets)
+COUNT_LABELS = {"plan_placements": "plan placements", "schedule_rows": "schedule rows", "schedule": "the schedule",
+                "riser": "the riser", "sheet_pictures": "the sheet pictures"}
+# what a count's quote says it counted: (pattern on the quote, lower case; its number when it gives one, the label's
+# key in COUNT_LABELS)
 _COUNT_LABELS = (
-    (re.compile(r"plan placements\s*(\d+)?"), "plan placements"),
-    (re.compile(r"schedule rows\s*(\d+)?"), "schedule rows"),
-    (re.compile(r"quantity column total\s*(\d+)?"), "the schedule"),
-    (re.compile(r"\briser\b\s*(\d+)?"), "the riser"),
-    (re.compile(r"sheet pictures?|\bpicture\b()"), "the sheet pictures"),
-    (re.compile(r"\bschedule\b(?!\s+rows)()"), "the schedule"),
+    (re.compile(r"plan placements\s*(\d+)?"), "plan_placements"),
+    (re.compile(r"schedule rows\s*(\d+)?"), "schedule_rows"),
+    (re.compile(r"quantity column total\s*(\d+)?"), "schedule"),
+    (re.compile(r"\briser\b\s*(\d+)?"), "riser"),
+    (re.compile(r"sheet pictures?|\bpicture\b()"), "sheet_pictures"),
+    (re.compile(r"\bschedule\b(?!\s+rows)()"), "schedule"),
 )
 
 
@@ -294,21 +335,21 @@ def _header_count(count: Count, playbook: Playbook) -> str:
     return words["unknown_count"] if n is None else words["count"].format(n=n)
 
 
-def _count_label(value: int, ref, ids: SourceIds) -> str:
+def _count_label(value: int, ref, ids: SourceIds, labels: dict = COUNT_LABELS) -> str:
     """Where a count is, as a person says it: the sheet number its ref names ("M-100.00"); else what its quote
-    counted ("plan placements", "schedule rows", "the schedule", "the riser", "the sheet pictures"), the part of a
-    counts line that gives this value; else a schedule or section name; else "" (the clause is left out). A source
-    id is never a place (`SourceIds.place`)."""
+    counted ("plan placements", "schedule rows", "the schedule", "the riser", "the sheet pictures": `labels`), the
+    part of a counts line that gives this value; else a schedule or section name; else "" (the clause is left out).
+    A source id is never a place (`SourceIds.place`)."""
     sheet = ids.sheet(ref.where)
     if sheet:
         return sheet
     quote = (ref.quote or "").lower()
     found = []
-    for pattern, label in _COUNT_LABELS:
+    for pattern, key in _COUNT_LABELS:
         match = pattern.search(quote)
         if match:
             number = match.group(1) if match.lastindex else None
-            found.append((label, int(number) if number else None))
+            found.append((labels[key], int(number) if number else None))
     exact = [label for label, number in found if number == value]
     if exact:
         return exact[0]
@@ -320,7 +361,24 @@ def _count_label(value: int, ref, ids: SourceIds) -> str:
     return ids.place(ref.where)
 
 
-PLACEMENTS_LABEL = "plan placements"
+PLACEMENTS_LABEL = COUNT_LABELS["plan_placements"]
+
+
+@dataclass(frozen=True)
+class _CountWords:
+    """The count note's words one render uses: the Playbook's `quantity` keys where it sets them, else the
+    renderer's own."""
+    unlabelled: str = UNLABELLED
+    per: str = COUNT_PER
+    both: str = COUNT_AND
+    joiner: str = COUNT_JOINER
+    labels: dict = field(default_factory=lambda: dict(COUNT_LABELS))
+
+
+def _count_words(playbook: Playbook) -> _CountWords:
+    q = playbook.wording.quantity
+    return _CountWords(q.get("unlabelled", UNLABELLED), q.get("per", COUNT_PER), q.get("and", COUNT_AND),
+                       q.get("joiner", COUNT_JOINER), {**COUNT_LABELS, **playbook.wording.quantity_labels})
 
 
 def _count_causes(count: Count, playbook: Playbook) -> str:
@@ -338,24 +396,26 @@ def _count_causes(count: Count, playbook: Playbook) -> str:
     return _fill(words["form"], causes=words["joiner"].join(words[key] for key in keys))
 
 
-def _count_part(count: Count, ids: SourceIds, causes: str = "", unlabelled: str = UNLABELLED) -> str:
+def _count_part(count: Count, ids: SourceIds, causes: str = "", words: _CountWords = _CountWords()) -> str:
     """One count's part of the quantity note: "(N) per <label>; M per <label>; K and J per <label>": the printed
     (highest) count first, then every other count with its label, highest first, equal values from one label
     folded, none dropped (estimator ruling D6); a count with no label still prints, with the plain `unlabelled`
     words ("15 elsewhere in the documents", never "per the documents"); "" when there is no other count. `causes` (`_count_causes`) prints after
-    the "plan placements" label, or after the printed count's sheet when the plan placements give that count too."""
+    the "plan placements" label, or after the printed count's sheet when the plan placements give that count too.
+    `words` gives the labels and the joiners (" per ", " and ", "; ") and the unlabelled words."""
     n = _printed(count)
     if n is None:
         return ""
     entries = [(count.value, r) for r in count.sources] if count.value is not None else []
     entries += [(o.value, o.ref) for o in count.others]
-    heads = [label for label in (_count_label(v, r, ids) for v, r in entries if v == n) if label]
+    labels, placements = words.labels, words.labels["plan_placements"]
+    heads = [label for label in (_count_label(v, r, ids, labels) for v, r in entries if v == n) if label]
     head = next((label for label in heads if SHEET.fullmatch(label)), heads[0] if heads else "")
     folded: dict[str, list[int]] = {}            # label ("" for no label) -> its values
     for value, ref in entries:
         if value is None or value == n:
             continue
-        values = folded.setdefault(_count_label(value, ref, ids), [])
+        values = folded.setdefault(_count_label(value, ref, ids, labels), [])
         if value not in values:
             values.append(value)
     if not folded:
@@ -363,17 +423,17 @@ def _count_part(count: Count, ids: SourceIds, causes: str = "", unlabelled: str 
     clauses = sorted(folded.items(), key=lambda item: -max(item[1]))
 
     def shown(label: str) -> str:
-        return f"{label} {causes}" if causes and label == PLACEMENTS_LABEL else label
+        return f"{label} {causes}" if causes and label == placements else label
 
     def clause(label: str, values: list[int]) -> str:
-        numbers = " and ".join(str(v) for v in sorted(values, reverse=True))
-        return f"{numbers} per {shown(label)}" if label else f"{numbers} {unlabelled}"
+        numbers = words.both.join(str(v) for v in sorted(values, reverse=True))
+        return f"{numbers}{words.per}{shown(label)}" if label else f"{numbers} {words.unlabelled}"
 
-    others = "; ".join(clause(label, values) for label, values in clauses)
+    others = words.joiner.join(clause(label, values) for label, values in clauses)
     first = shown(head)
-    if causes and head != PLACEMENTS_LABEL and PLACEMENTS_LABEL in heads:
+    if causes and head != placements and placements in heads:
         first = f"{head} {causes}"               # the plan placements give the printed count too: their causes stay
-    return f"({n}) per {first}; {others}" if head else f"({n}); {others}"
+    return f"({n}){words.per}{first}{words.joiner}{others}" if head else f"({n}){words.joiner}{others}"
 
 
 def _count_note(counts: list[Count], playbook: Playbook, ids: SourceIds, names: list[str] | None = None) -> str:
@@ -381,11 +441,11 @@ def _count_note(counts: list[Count], playbook: Playbook, ids: SourceIds, names: 
     gives, count by count, the family name its part opens with ("" for none: a block with one family, a device).
     It goes through the safety net every other client text goes through (`SourceIds.without_issued`): an issued id
     that reached a place is taken out, token only."""
-    unlabelled = playbook.wording.quantity.get("unlabelled", UNLABELLED)
+    words = _count_words(playbook)
     names = list(names or []) + [""] * (len(counts) - len(names or []))
     seen: dict[str, str] = {}                    # a part -> the family name it opens with; a repeat prints once
     for count, name in zip(counts, names):       # (a device often carries its family's count: the family's wins)
-        part = _count_part(count, ids, _count_causes(count, playbook), unlabelled)
+        part = _count_part(count, ids, _count_causes(count, playbook), words)
         if part and part not in seen:
             seen[part] = name
     parts = [f"{name} {part}" if name else part for part, name in seen.items()]
@@ -393,7 +453,8 @@ def _count_note(counts: list[Count], playbook: Playbook, ids: SourceIds, names: 
         return ""
     # made of places the where checks gave (`SourceIds.sheet`, `place`), so it is read as a where is: a source sheet
     # a where names stays, as the validator's where check keeps it (FINAL-J)
-    return ids.without_issued(_fill(playbook.wording.quantity["others_note"], counts="; ".join(parts)), place=True)
+    return ids.without_issued(_fill(playbook.wording.quantity["others_note"], counts=words.joiner.join(parts)),
+                              place=True)
 
 
 # ---- one line --------------------------------------------------------------------------------------------------
@@ -486,7 +547,8 @@ def _device_lines(devices, shape: Shape | None, system: System | None, playbook:
         return found
 
     ranked = sorted(range(len(devices)), key=key)
-    what = _title(system.name) if system is not None and system.control == "integration" else ""
+    casing = _casing(playbook)
+    what = _title(system.name, casing) if system is not None and system.control == "integration" else ""
     quantity_words = playbook.wording.quantity
     house_lines, _ = _fixed_texts(playbook, shape)
     out: list[_Printed] = []
@@ -504,7 +566,7 @@ def _device_lines(devices, shape: Shape | None, system: System | None, playbook:
             elif number not in reference:
                 qty = quantity_words["line"].format(n=number)
         if _PLACEHOLDER.search(form):
-            text = _fill(form, verb=device.verb, device=_title(device.name), owner=owner, qty=qty, what=what)
+            text = _fill(form, verb=device.verb, device=_title(device.name, casing), owner=owner, qty=qty, what=what)
         elif fixed is not None and owner and fixed not in playbook.wording.integration_trio:
             text = _squash(form + owner)             # a shape's house line another party furnishes keeps its bracket
         else:
@@ -530,7 +592,7 @@ def _notes(clarifications: tuple[Clarification, ...], devices, counts: list[Coun
             texts[c.kind].append(text)
     for device in devices:
         if device.assumption is not None:
-            texts["assumed"].append(_reason(device.assumption, ids))
+            texts["assumed"].append(_reason(device.assumption, ids, playbook))
     out = []
     for kind in _AFTER_LINES:
         unique = list(dict.fromkeys(texts[kind]))
@@ -558,11 +620,12 @@ def _header_text(form: str, name: str, tags: tuple[str, ...], count: Count, play
     kind word before the tags reads singular, as house headers do ("Qty (1) Exhaust Fan EF-1")."""
     joiner = playbook.wording.header["tags_joiner"]
     shown = joiner.join(part.strip() for part in tag_list(list(tags)).split(", ")) if tags else ""
-    n, name = _header_count(count, playbook), _title(name)
+    casing = _casing(playbook)
+    n, name = _header_count(count, playbook), _title(name, casing)
     if len(tags) != 1 and _printed(count) != 1:
         return _fill(form, n=n, name=name, tags=shown)
     kind, marker, rest = form.partition("{tags}")
-    kind_text = _singular(_squash(kind.format_map(_Blank(n=n, name=name))))
+    kind_text = _singular(_squash(kind.format_map(_Blank(n=n, name=name))), casing.not_plural)
     return _fill(kind_text.replace("{", "{{").replace("}", "}}") + " " + marker + rest, tags=shown)
 
 
@@ -608,7 +671,7 @@ def _system_blocks(system: System, playbook: Playbook, out: list[RenderedLine],
         out.append(RenderedLine(system.key, None, "note", left_out_text(system), None, None))
         return ()
     shape = _shape_of(system, playbook)
-    form = shape.header if shape is not None else GENERIC_HEADER
+    form = shape.header if shape is not None else playbook.wording.header.get("generic", GENERIC_HEADER)
     families = _header_families(system)
     if len(families) <= 1:
         family = families[0] if families else None
@@ -622,7 +685,7 @@ def _system_blocks(system: System, playbook: Playbook, out: list[RenderedLine],
     named = len(system.families) > 1             # more than one family: each family's part names its family
     notes = _notes(system.clarifications, system.devices,
                    [f.count for f in system.families] + [d.quantity for d in system.devices], playbook, ids,
-                   [_title(f.name) if named else "" for f in system.families])
+                   [_title(f.name, _casing(playbook)) if named else "" for f in system.families])
     try:                                 # every field checked: a blank line, a negative quantity or tech hours
         items = _items(printed, pending) + [Item(kind="note", runs=(Run(text=n),)) for n in notes]
         last = len(headers) - 1
