@@ -150,7 +150,7 @@ Work top to bottom. Items on one line share a root cause or the same lines of co
   the count note lists EVERY other count (no five-clause cap; an unlabelled count still prints, e.g. "15
   elsewhere in the documents"), still on its own "*" line. RND-5 to be fixed that way.
 - D2: the Playbook wins; rewrite the named tests to the Playbook's words.
-- D3: open (not answered).
+- D3 (ruled 2026-10-07): the integration trio is standard practice and always comes together when controls are by others: comm wiring, map points, and the rep-assist sub-line "AME requires mfr. Rep to assist in integration, cost to be incurred by mech contractor". The rep-assist sub-line is owned by the mechanical contractor under an AME parent: integration sub-lines are exempt from the parent-ownership match; every other sub-line matches its parent.
 - D4: fix the docs: lint accepts a named list of run-level rule names; rules.md untouched.
 - D5: accepted; show the estimator the new prompt wording when done.
 - D7: fix the docs (USER-GUIDE and the stop message), no contract change.
