@@ -1,0 +1,172 @@
+MECHANICAL DRAWING QA INSTRUCTION
+Cross-Check and Quantity Verification Rules (with Examples)
+PURPOSE
+This instruction defines how to read, cross-check, and report quantities from a mechanical drawing set for HVAC controls estimation. These rules apply to all mechanical projects.
+
+RULE 1 — PRIMARY SOURCE
+The equipment schedule is the primary source of truth for all equipment quantities and types. Sheets within the mechanical drawing set (floor plans, duct plans, pipe plans, riser diagrams, network/control diagrams, etc.) are used to verify and support the schedule, where they exist. The schedule is not automatically overridden by any other sheet. If a conflict exists, it is flagged for the estimator to resolve.
+
+Example:
+Schedule shows 10 variable air volume units. A floor plan shows 10, and the air riser shows 10. You treat 10 as confirmed. If a riser showed 11, you would not change the quantity to 11; you would flag the riser as a discrepancy.
+
+RULE 2 — CROSS-CHECK REQUIREMENT
+For every equipment type identified in the schedule, verify its presence and quantity across all relevant sheet types that are actually present in the drawing set.
+
+This may include, as applicable:
+
+Floor plan / duct plan sheets
+
+Pipe plan sheets
+
+Air riser sheets
+
+Water riser sheets
+
+Network / control diagram sheets
+
+Only sheet types that exist in the set are used for cross‑checking. Agreement is required between the schedule and the available supporting sheets before an item is treated as fully confirmed.
+
+Example:
+If the set has a schedule, a duct plan, and an air riser, but no water riser, you cross‑check against the three sheets that exist. You do not require water riser agreement because that sheet type is not present.
+
+RULE 3 — REPORTING CATEGORIES
+After cross-checking, report every equipment item under one of the following categories.
+
+CONFIRMED
+Schedule and all applicable supporting sheets agree. Include in the price.
+
+Example:
+Schedule shows 3 exhaust fans. Duct plan shows 3. Riser (if present) shows 3. There are no extras elsewhere. You report: “Exhaust fans — confirmed quantity 3.”
+
+DISCREPANCY
+A supporting sheet shows a different quantity, different identity, or different arrangement than the schedule. Identify the sheet where the discrepancy exists. Do not assume the supporting sheet is correct. Flag for estimator review before pricing.
+
+Example:
+Schedule lists 3 exhaust fans. Duct plan shows 3. Air riser shows 5. You report: “Exhaust fans — discrepancy: air riser shows additional units not listed in schedule. Needs clarification.”
+
+EXTRA — NOT IN SCHEDULE
+Equipment appears on any sheet but is not listed in the schedule. Flag it, identify the source sheet, and do not include in the price until the estimator confirms.
+
+Example:
+Schedule lists 3 exhaust fans. Air riser shows those 3 plus several more fans under different descriptions. The extra fans are not in the schedule. You report all extras as “Extra equipment — shown on riser only — not in schedule.”
+
+MISSING — NOT ON DRAWINGS
+Equipment is listed in the schedule but does not appear on any sheet in the set. Flag it and confirm whether it should be priced.
+
+Example:
+Schedule shows a make‑up air unit. No floor plan, riser, or network diagram shows this unit. You report: “Make‑up air unit — listed in schedule but not shown anywhere in drawings. Missing — needs confirmation before pricing.”
+
+ORPHANED ITEM
+Equipment appears in only one place across the entire drawing set with no supporting reference elsewhere. Flag it as unclear scope and do not price until confirmed.
+
+Example:
+A unit appears only in a note block on one sheet and is not in the schedule, not in plans, and not in risers. You report: “Unit referenced in note only — no schedule or diagram support — orphaned item.”
+
+CONFLICT
+The same equipment appears in more than one place with different quantities or descriptions. State both versions and escalate for clarification before pricing.
+
+Example:
+One sheet describes a system as variable‑volume, another shows it as constant‑volume, while the schedule only lists the count. You report: “System description conflict between sheets — flow type inconsistent — clarify before final scope.”
+
+EXISTING / REMOVAL / REUSE
+Equipment marked as existing to remain, work to be removed, or reuse. Do not count as new work. Confirm demolition scope separately.
+
+Example:
+A pump is clearly tagged to be removed, and the schedule lists only the new replacement pump. You count only the new pump for pricing and report removal as demolition scope, not new work.
+
+RULE 4 — FLAG FORMAT
+Every flag must state:
+
+Equipment type
+
+Source sheet where the issue was found
+
+Category from Rule 3
+
+Action required: Confirm with engineer / Include pending confirmation / Exclude pending confirmation
+
+Example:
+“Equipment type: exhaust fan; Source sheet: riser diagram; Category: EXTRA — NOT IN SCHEDULE; Action: Confirm with engineer before including in price.”
+
+RULE 5 — FINAL REPORT TO ESTIMATOR
+At the end of every drawing review, provide:
+
+Confirmed items with quantities
+
+All discrepancies with source sheet reference
+
+All extras found outside the schedule
+
+All missing items from the schedule
+
+All orphaned or conflicting items
+
+All existing, removal, or reuse items
+
+No item should be left unclassified. Every item must fall into one category.
+
+Example:
+Your summary might read:
+
+“All variable air volume units — confirmed.”
+
+“Fan system — discrepancy between schedule and riser, clarification required.”
+
+“Additional fans on riser — extra, not in schedule.”
+
+“Make‑up air unit — missing on drawings, listed in schedule.”
+
+RULE 6 — WHAT NOT TO DO
+
+Do not treat any single supporting sheet type as automatically superior to the schedule.
+
+Do not skip a sheet type that exists in the set because it appears to match at a glance.
+
+Do not include extra or orphaned items in the price without estimator confirmation.
+
+Do not mix confirmed and flagged items in the same quantity count.
+
+Example:
+If a riser suggests more equipment than the schedule, you do not silently increase the quantity. You keep the schedule quantity as the working baseline and flag the riser difference for review.
+
+RULE 7 — DUPLICATE TAG / DUPLICATE ROW ON SCHEDULE (mandatory flag)
+
+The same equipment tag appearing more than once on an equipment schedule is a drawing error until the engineer proves otherwise. It is never a silent qty = 1 and never a silent qty = 2.
+
+What counts as a duplicate:
+- Same tag string listed two or more times in the same schedule table (adjacent columns, stacked rows, or repeated schedule blocks on the same sheet or across schedule sheets).
+- Same tag with identical or conflicting performance data listed twice.
+- OCR / extract showing the same tag twice must be verified geometrically on the PDF (two text instances ≠ one instance with a bad extract). If the PDF truly has two listings → flag.
+
+What you do NOT do:
+- Collapse two schedule rows of the same tag into qty 1 without a DISCREPANCY flag.
+- Price qty 2 because the tag appears twice without engineer confirmation that two physical units exist.
+- Assume the second listing is a harmless title/header repeat without checking (headers are not unit rows; unit rows are).
+
+Category: DISCREPANCY (schedule self-conflict) — also report under CONFLICT when the two rows carry different data or when plan qty cannot reconcile.
+
+Flag format example:
+“Equipment type: FCU-7-1; Source sheet: M-002 Fan Coil Unit Schedule; Category: DISCREPANCY — DUPLICATE TAG ON SCHEDULE (tag listed 2×); Action: Confirm with engineer — working qty pending; do not silently use 1 or 2.”
+
+Working qty until confirmed: keep schedule identity as the tag family, set working_qty status to PENDING / DISCREPANCY, and list both occurrences with sheet refs. Never bury the double listing.
+
+RULE 8 — TYPICAL / TYPE-ONLY SCHEDULE (locate on plans)
+
+When the schedule defines types, sizes, or CFM ranges but does not list individual unit tags or a total unit count (e.g. VAV Types A–H, “similar for CAV”), the schedule is still primary for type and path notes. Quantity is obtained by locating and counting units on floor plans (and risers if present), then classifying:
+
+- Plan count agrees with any stated total on schedule → CONFIRMED
+- No schedule total → working qty = plan count, category CONFIRMED (plan locate) with note “typical schedule — qty from plans”
+- Plan count disagrees with a stated schedule total → DISCREPANCY (schedule baseline if total stated; flag plan)
+- Plan count missing units that notes imply → MISSING / DISCREPANCY as applicable
+- **Neither schedule nor plans/risers establish a count** → not CONFIRMED; working qty PENDING; category ORPHANED or MISSING baseline; flag for estimator — do not invent Qty (N)
+
+Do not skip the entire family because the schedule has no tag list. That is a process failure.
+
+RULE 9 — PAIRED SYSTEMS (connect-the-dots)
+
+When a schedule lists an indoor unit and a matching outdoor/remote unit (CRAC + CU, AC + ACCU, AHU + remote condenser, etc.), they are one system for takeoff and SOW. Omitting the outdoor/condensing tag after harvesting the indoor tag is a process failure. Complete schedule → piping/refrigerant → controls → plans for the pair before writing the SOW block.
+
+- Indoor present, outdoor family absent → DISCREPANCY — PAIRED SYSTEM INCOMPLETE
+- Indoor qty ≠ outdoor qty → DISCREPANCY (or CONFLICT if descriptions also differ); state both counts; do not silently pick one
+- Both present and counts match → CONFIRMED as a pair
+
