@@ -14,3 +14,15 @@
 - Waiting on Siddhant's review. No rerun until then.
 - New HarkPro flow (built beside the app, app untouched): doctrine/ (Master Template as lines.json: 39 families, 438 lines; rulings.md R1-R18; conflicts.md C1-C36), harkpro/ coverage gate, 4-tab Evidence, run-to-run diff, CLI. On Job 2a v2 the gate fails as it should: 4 of the 5 known misses are flagged (the 5th, the radiator interlock, is printed), plus the EF thermostat, the leak and float ruling breaks, and a thermostat count gap. Independent QC critic agent in progress.
 - Independent QC critic (harkpro/qc, qc_prompts/): reads the evidence log next to the scope; critic → writer → resolve rounds until no must-fix is open; the rest become estimator questions. Job 2a proof: 19 threads, 3 rounds, 15 fixed, 4 estimator questions; all 8 known misses raised. Not blind (the rulings encode these cases), so a blind test on Job 3 is next. Gap: schedule notes sit in the ledger only as ids, not text.
+
+## 2026-10-09 (evening)
+- Job 2a and 2b final scopes delivered (coverage PASS, no must-fix in QC; PRICE PENDING lines because the price-book alias file is empty).
+- Job 4 run end to end. Then a comparison against another AI's proposal and three rounds of estimator feedback.
+- Round 3:
+  - unit-scheduled devices are AME's;
+  - the EF block lists every end device;
+  - damper actuators are Furnish and Install with a flag;
+  - ERV conflict flagged;
+  - pump controller added.
+- HarkPro evidence prints the quotes inline, with no ids (ba00c5a; 54 tests pass). Rulings R19-R22 added.
+- Learnings are in `learnings.md`; the session log is in `sessions/2026-10-09.md`.

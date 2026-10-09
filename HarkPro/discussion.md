@@ -9,6 +9,8 @@
 
 - 2026-10-09: AME is the mechanical contractor's sub. Any controls item or sensor the documents give to the mechanical contractor is AME's scope. Example: an EF space thermostat "by mechanical contractor" becomes "Furnish and Install Space Thermostat", not an exception. To be coded (the current EXCEPTION printing is wrong for this case).
 
+- 2026-10-09 (Job 4): when AME provides the controls, the control devices on the unit schedule are AME's (R19). Damper actuators are Furnish and Install when the damper shows on the plans, control diagram or sequence, flagged if the schedule disagrees (R20). Every block lists all its end devices (R21). The evidence prints the proof, not ids (R22).
+
 ## Open, for the estimator
 0. EF thermostat: does AME also wire it to the fan or starter, or furnish and install it only?
 1. New-system opening sentence: keep the template's "...to provide Automated Temperature Controls system." or reword it?
@@ -29,3 +31,5 @@
   - playbook/rules.md 466-472: named exceptions list INTEGRAL / LINE-VOLTAGE THERMOSTAT; one BMS word in the schedule notes means priced
   - assets/gem/BMS_DDC_GEM_v3.2.txt Q1: "Mechanical Contractor / MC → MC furnishes it"
 - Rules that support "schedule notes are mostly for the OEM": rules.md 105-108 (a generic "provide" with no party named is not AME), 248-262 (packaged unit: the manufacturer owns the device unless a schedule/sequence/plan note gives it to the controls contractor; nothing inside the unit is a line). No explicit rule says "schedule notes address the manufacturer".
+9. Job 4: 20 estimator questions in the job's question list. The biggest are integrator eligibility, off-hours work, and smoke detector wiring vs the house exclusion.
+10. The app's own Evidence Package still prints source ids. Fixing it means changing Claude's code; OK?

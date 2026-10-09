@@ -74,3 +74,21 @@ Status as of 2026-10-09. "Fixed*" = fixed in the uncommitted patch, awaiting rev
 | Lutron Vive integration for occupied standby | Front-end line (round-2 front-end writer; verify on rerun) |
 | Rule clashes (rules.md 78-84, 122-124, 466-472; GEM v3.2 Q1) | Rewrite to the MC-controls ruling |
 | Systemic | Coverage gate: every controls-relevant ledger fact must end as a line, an exception, a clarification, or a dismissal with a reason |
+
+## Job 4 (found 2026-10-09; app not changed, so these were worked around in the output)
+| Bug | Notes |
+|---|---|
+| A seed count that a pass contradicted still prints | The writer and planner keep the seed values (AHU, ERV, FCU) |
+| One source id carries different text in the write evidence and the quote index | Correct quotes are rejected |
+| The control schematic and details are left out of the write evidence | AHU devices were missed |
+| EF schedule notes are not read | The damper with actuator and end switch is missed |
+| A system is named after its sequence heading | "Sequence Of Operation - ..." |
+| The planner's own plan-image citation is rejected | Same as the known plan-image bug |
+| Plan counts double-count units drawn on both the duct and the piping sheets | |
+| "(E) RH COIL" is read as a humidity sensor | |
+| The front end repeats the "Seamlessly Tie in" line | |
+| A standalone FCU is flagged as packaged | False "integration lines missing" must-fix findings |
+| The playbook defaults unit-schedule devices to the unit manufacturer | Conflicts with R19 |
+| "Wire Damper Actuator" is used when the schedule lists the damper with the unit | Conflicts with R20 |
+| A block can print as interlock only | Conflicts with R21 |
+| The Evidence Package shows source and line ids, not quotes | Conflicts with R22. HarkPro's evidence is fixed; the app's is not |
