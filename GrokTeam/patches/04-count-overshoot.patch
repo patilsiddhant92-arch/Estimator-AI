@@ -1,31 +1,351 @@
 diff --git a/src/bms/counts.py b/src/bms/counts.py
-index 9d18ab7..03bde93 100644
+index 9d18ab7..7238f97 100644
 --- a/src/bms/counts.py
 +++ b/src/bms/counts.py
-@@ -592,8 +592,9 @@ class _Check:
- def _located_count(sheets, pattern: str, groups: dict | None = None) -> int:
+@@ -20,6 +20,8 @@ it does the located-text count only.
+ """
+ from __future__ import annotations
+ 
++import contextlib
++import contextvars
+ import dataclasses
+ import re
+ from collections import Counter
+@@ -130,13 +132,29 @@ def cross_check(job: "Job", catalogue: "Catalogue", cache: Path, *, transport=No
+     number; they are never added to the count. Families whose sheets cannot be pictured or counted are left as they
+     are.
+     Pure apart from the picture cache under `cache`. Never lowers a count, never raises; running it twice changes
+-    nothing more."""
++    nothing more. Inside `scheduled_quantities(...)`, the schedule rows' quantities cap and anchor the counts."""
+     try:
+-        return _Check(job, catalogue, Path(cache), transport, micro_crops=True).run()
++        return _Check(job, catalogue, Path(cache), transport, micro_crops=True, scheduled=_SCHEDULED.get()).run()
+     except Exception:
+         return job
+ 
+ 
++# the schedule rows' quantities for the cross-check (`ledger_schedule_quantities`, patch 08's `schedule_qty` facts):
++# set around the call by `bms.run`, so `cross_check` keeps its contract signature and the callers that wrap it
++_SCHEDULED: contextvars.ContextVar = contextvars.ContextVar("scheduled_quantities", default=None)
++
++
++@contextlib.contextmanager
++def scheduled_quantities(scheduled: dict[str, int] | None):
++    """`with scheduled_quantities(ledger_schedule_quantities(ledger)): cross_check(...)`: each scheduled tag's QTY
++    caps and anchors its located and seen counts (`family_schedule`)."""
++    token = _SCHEDULED.set(dict(scheduled or {}))
++    try:
++        yield
++    finally:
++        _SCHEDULED.reset(token)
++
++
+ def family_sources(family: Family) -> set[str]:
+     """The source ids (plain, "[C3]" is "C3") of a family's count: the sources of the printed count and of every
+     disagreeing count. Empty ids are left out."""
+@@ -255,11 +273,15 @@ class _Sheet:
+     seen: list | None = None         # (tag, box) on the picture; None when not counted
+     counted: frozenset = frozenset() # the patterns the picture's answer counted (others were left out of it)
+     untagged: dict = dataclasses.field(default_factory=dict)  # pattern -> symbols the picture shows with no tag
++    marks: dict = dataclasses.field(default_factory=dict)     # canonical tag -> its state here (`sheet_marks`)
++    reasons: dict = dataclasses.field(default_factory=dict)   # canonical tag -> why it has that state (`mark_reasons`)
+ 
+ 
+ class _Check:
+-    def __init__(self, job, catalogue, cache: Path, transport, micro_crops: bool = True) -> None:
++    def __init__(self, job, catalogue, cache: Path, transport, micro_crops: bool = True,
++                 scheduled: dict[str, int] | None = None) -> None:
+         self.job, self.catalogue, self.cache, self.transport = job, catalogue, cache, transport
++        self.scheduled = dict(scheduled or {})              # canonical tag -> its schedule row's QTY
+         self.micro_crops = micro_crops
+         self.pictured: dict[tuple[str, int], bool] = {}     # sheet key: mostly picture (`_mostly_picture`)
+         self.listed: dict[str, set[str]] = {}               # pattern -> the families' own (expanded) tags
+@@ -315,6 +337,7 @@ class _Check:
+         for key, sheet in sheets.items():
+             here = [patterns[f] for f, keys in on_sheet.items() if key in keys]
+             self._count_sheet(sheet, here)
++            sheet.marks, sheet.reasons = sheet_marks(records[key].text or ""), mark_reasons(records[key].text or "")
+         self.groups = self._plan_groups(list(sheets.values()))
+ 
+         job, entries, asked = self.job, [], []
+@@ -330,6 +353,9 @@ class _Check:
+             entries += self._proofs(system.key, family.name, pattern, [sheets[k] for k in keys], ids)
+             merged = next(f for f in new_system.families if f.name == family.name)
+             asked.append(_untagged_question(merged, pattern, [sheets[k] for k in keys]))
++            asked += demolition_questions(merged, pattern, [sheets[k] for k in keys])
++            asked += cap_questions(pattern, [sheets[k] for k in keys], family_schedule(merged, pattern, self.scheduled),
++                                   self.groups)
+         self._save_proofs(entries)
+         asked = [q for q in asked if q]
+         if asked:
+@@ -509,10 +535,13 @@ class _Check:
+             read = [s for s in sheets if getattr(s, attr) is not None and (attr == "located" or pattern in s.counted)]
+             if not read:
+                 continue
++            schedule = family_schedule(family, pattern, self.scheduled)
+             if attr == "located":
+-                n = _located_count(read, pattern, self.groups)
++                n = _located_count(read, pattern, self.groups, schedule)
+             else:
+-                n = len({canonical(t) for s in read for t, _ in s.seen if fits(pattern, t)})
++                # each unit seen counts its schedule quantity once, on however many sheets (provisional ruling R3)
++                n = sum(schedule.get(t, 1) for t in {canonical(t) for s in read for t, _ in s.seen
++                                                     if fits(pattern, t) and counts_as_new(s, canonical(t))})
+             complete = len(read) == len(sheets)
+             if not complete and (family.count.value is None or n <= family.count.value):
+                 continue      # some sheets unread: only a count above the printed one says anything
+@@ -589,11 +618,61 @@ class _Check:
+         return entries
+ 
+ 
+-def _located_count(sheets, pattern: str, groups: dict | None = None) -> int:
++def ledger_schedule_quantities(ledger) -> dict[str, int]:
++    """canonical tag -> the QTY its schedule row gives (the ledger's `schedule_qty` facts, seeded from the schedule
++    rows by `estimator.ledger.seed.schedule_row_facts`, patch 08). Empty when no schedule has a qty column. The
++    highest where a tag is scheduled twice."""
++    found: dict[str, int] = {}
++    for fact in ledger.of_kind("schedule_qty") if ledger is not None else ():
++        try:
++            value = int(fact.value)
++        except (TypeError, ValueError):
++            continue
++        if value > 0:
++            tag = canonical(fact.subject)
++            found[tag] = max(found.get(tag, 0), value)
++    return found
++
++
++def family_schedule(family: Family, pattern: str, scheduled: dict[str, int]) -> dict[str, int]:
++    """The schedule quantities that cap and anchor one family's counts: the schedule rows' QTY cells for the tags
++    that fit its pattern (`ledger_schedule_quantities`); only when the schedule gives none of them (no qty column)
++    the "QTY n" its count quote states (`schedule_quantities`)."""
++    mine = {tag: n for tag, n in (scheduled or {}).items() if fits(pattern, tag)}
++    return mine or schedule_quantities(family)
++
++
++def schedule_quantities(family: Family) -> dict[str, int]:
++    """Each unit tag (canonical) the documents give a quantity of its own -> that quantity (provisional ruling R3,
++    GrokTeam/discussion.md: the schedule count wins). Read only where it is said: a family of one unit tag whose
++    count comes from a document source (not this check's own located or seen count) quoting that tag with a stated
++    quantity ("EF-3 ... QTY 2") equal to the count. A family's representative tag with a total ("VAV-1", 5) says
++    nothing per tag. Every other tag is 1 (missing from the map)."""
++    tags = family_tags(family.tags)
++    value = family.count.value
++    if len(tags) != 1 or value is None or value < 1:
++        return {}
++    tag = canonical(tags[0])
++    for ref in family.count.sources:
++        if ref.quote in (LOCATED_QUOTE, SEEN_QUOTE):
++            continue
++        said = _STATED_QTY.search(ref.quote)
++        if said and int(said.group(1)) == value and tag in {canonical(t) for t in _TAG_WORDS.findall(ref.quote)}:
++            return {tag: value}
++    return {}
++
++
++_STATED_QTY = re.compile(r"\bQTY\.?\s*[:=]?\s*\(?(\d+)\)?", re.I)
++_TAG_WORDS = re.compile(r"\b[A-Z]{1,6}-[A-Z0-9.\-]*[0-9A-Z]\b")
++
++
++def _located_count(sheets, pattern: str, groups: dict | None = None, schedule: dict[str, int] | None = None) -> int:
      """The located count of a pattern's tags over these sheets (`_Sheet.labels`) by the inventory's one counting rule
      (`estimator.reading.inventory.plan_count`, `counted_per_place`; `groups` from `plan_groups`, every sheet its own
 -    group when not given): in each plan group a unit's tag once, a tag counted at every place (a type's tag:
 -    "CUH-A (TYP. OF 4)" is 4) the most of one sheet; the groups added up (EBB-A on two floor plans is 2). The
 +    group when not given): a unit's tag once over all the sheets, never once per plan group (a riser label on every
 +    floor, a phase or roof plan reusing the tags); a tag counted at every place (a type's tag: "CUH-A (TYP. OF 4)"
-+    is 4) the most of one sheet in each group, the groups added up (EBB-A on two floor plans is 2). The
++    is 4) the most of one sheet in each group, the groups added up (EBB-A on two floor plans is 2). `schedule`
++    (`schedule_quantities`) gives a unit tag's scheduled quantity (EF-3, QTY 2, on three plans is 2). The
      located count does not multiply by a typical sheet's floors: a typical plan can read lower than the planner's
      count, and then it is a cross-check other, never the printed count."""
      from estimator.reading.inventory import counted_per_place, plan_count
-@@ -606,6 +607,11 @@ def _located_count(sheets, pattern: str, groups: dict | None = None) -> int:
+@@ -601,15 +680,184 @@ def _located_count(sheets, pattern: str, groups: dict | None = None) -> int:
+     found: dict[str, list] = {}
+     for sheet in sheets:
+         for tag, n in (sheet.labels or {}).items():
+-            if n > 0 and fits(pattern, tag):
++            # new work only: a tag being demolished or existing to remain is not one more unit (`counts_as_new`)
++            if n > 0 and fits(pattern, tag) and counts_as_new(sheet, canonical(tag)):
+                 found.setdefault(canonical(tag), []).append((sheet.key, n, frozenset()))
      total = 0
      for tag, mine in found.items():
          per_place = counted_per_place(tag, sum(n for _k, n, _f in mine), max(n for _k, n, _f in mine))
+-        total += plan_count(mine, groups or {}, per_place)
 +        if not per_place:
-+            # one unit's tag: once over every sheet it is on, whatever group each sheet is in (a riser label on every
-+            # floor, a phase or roof plan reusing the tags are that unit again; rule R1, `is_type_tag`)
-+            total += 1
++            # one unit's tag: its schedule quantity once over every sheet it is on, whatever group each sheet is in (a
++            # riser label on every floor, a phase or roof plan reusing the tags are that unit again; rule R1,
++            # `is_type_tag`; provisional ruling R3: the schedule count wins, 1 when the schedule gives none)
++            total += (schedule or {}).get(tag, 1)
 +            continue
-         total += plan_count(mine, groups or {}, per_place)
++        placed = plan_count(mine, groups or {}, per_place)
++        # the schedule caps a tag it gives a quantity for: never more than scheduled, whatever the plans show
++        total += min(placed, schedule[tag]) if schedule and tag in schedule else placed
      return total
  
+ 
++# ---- new work, existing to remain, existing to be removed ----------------------------------------------------------
++# A tag on a plan is one of: new work (counted), existing to remain (not new work; its tie-in lines stay where the
++# sequence names it, never counted as a new unit) or existing to be removed (out). "(E)" alone is existing, usually
++# to remain, never a demolition mark: only "(ER)", "(D)", a REMOVE / "EXISTING TO BE REMOVED" keynote tied to the tag
++# (on its line), or a demolition sheet (DEMOLITION in the title, or the MD-x / MD### series) removes it. A tag drawn
++# dashed only (a mark the sheet text cannot carry; given by the picture) is unknown: still counted, and asked.
++NEW, EXISTING, REMOVED, UNKNOWN = "new", "existing", "removed", "unknown"
++_DEMOLITION_TITLE = re.compile(r"\b(?:DEMO|DEMOLITION)\b", re.I)        # never DEMONSTRATION
++_DEMOLITION_NUMBER = re.compile(r"MD[-.]?\d{1,3}(?:\.\d{1,2})?[A-Z]?", re.I)  # the whole number: MD-1, MD101, MD-2.1
++_MARKED_TAG = re.compile(r"\(\s*(ER|D|E)\s*\)\s*([A-Z]{1,6}-[A-Z0-9.\-]*[0-9A-Z])", re.I)
++_LINE_TAG = re.compile(r"\b[A-Z]{1,6}-[A-Z0-9.\-]*[0-9A-Z]\b")
++_REMOVE_KEYNOTE = re.compile(r"\bREMOVE[DS]?\b|\bTO\s+BE\s+REMOVED\b|\bDEMOLISH(?:ED)?\b", re.I)
++_TO_REMAIN = re.compile(r"\bTO\s+REMAIN\b", re.I)
++_EXISTING_WORD = re.compile(r"\bEXIST(?:ING|\.)?|\(\s*E\s*\)", re.I)
++
++
++def demolition_sheet(sheet) -> bool:
++    """A catalogue Sheet that is a demolition plan, read from its title block only (`Sheet.number`, `Sheet.title`,
++    never the plan's text, where "MD-1" is a motorized damper's tag and "DEMO LAB" a room): the whole word DEMO or
++    DEMOLITION in the title, or a sheet number that is all MD-x / MD### ("MD-1", "MD101")."""
++    if sheet is None:
++        return False
++    return bool(_DEMOLITION_TITLE.search(getattr(sheet, "title", "") or "")
++                or _DEMOLITION_NUMBER.fullmatch((getattr(sheet, "number", "") or "").strip()))
++
++
++def tag_state(label: str, keynote: str = "", demolition: bool = False) -> str:
++    """One tag's state from its label ("(ER) EF-4", "(E) AHU-9", "EF-3"), the keynote tied to it and whether the
++    sheet is a demolition plan."""
++    mark = re.match(r"^\s*\(\s*(ER|D|E)\s*\)", label or "", re.I)
++    if mark and mark.group(1).upper() in ("ER", "D"):
++        return REMOVED
++    if _REMOVE_KEYNOTE.search(keynote or "") and not _TO_REMAIN.search(keynote or ""):
++        return REMOVED
++    if mark:
++        return EXISTING
++    return REMOVED if demolition else NEW
++
++
++def sheet_marks(text: str) -> dict[str, str]:
++    """canonical tag -> its state on one sheet's text, for the tags the text marks: "(D)" / "(ER)" / "(E)" before the
++    tag, or a remove keynote on the tag's line. Tags the text does not mark are left out (new, or removed on a
++    demolition sheet: `counts_as_new`)."""
++    return {tag: state for tag, (state, _why) in _read_marks(text).items()}
++
++
++def mark_reasons(text: str) -> dict[str, str]:
++    """canonical tag -> why the sheet text gives it its state: 'marked "(D)"', 'a remove keynote: "..."'."""
++    return {tag: why for tag, (_state, why) in _read_marks(text).items()}
++
++
++def _read_marks(text: str) -> dict[str, tuple[str, str]]:
++    marks: dict[str, tuple[str, str]] = {}
++    for line in (text or "").splitlines():
++        line = " ".join(line.split())
++        for found in _MARKED_TAG.finditer(line):
++            tag = canonical(found.group(2))
++            state = tag_state(found.group(0), line)
++            prefix = f"({found.group(1).upper()})"
++            why = (f'marked "{prefix}" with a remove keynote: "{line}"'
++                   if state == REMOVED and prefix == "(E)" else f'marked "{prefix}"')
++            if marks.get(tag, ("",))[0] != REMOVED:
++                marks[tag] = (state, why)
++        # an unmarked tag is removed only by a keynote that says the existing item goes ("EXISTING EF-2 TO BE
++        # REMOVED"): a bare REMOVE on a new-work plan ("REMOVE AND REPLACE FILTERS, AHU-1") never drops a unit
++        if _REMOVE_KEYNOTE.search(line) and _EXISTING_WORD.search(line) and not _TO_REMAIN.search(line):
++            for tag in _LINE_TAG.findall(line):
++                if marks.get(canonical(tag), ("",))[0] != REMOVED:
++                    marks[canonical(tag)] = (REMOVED, f'a remove keynote: "{line}"')
++    return marks
++
++
++def _state(sheet, tag: str) -> str:
++    return (getattr(sheet, "marks", None) or {}).get(tag) or (
++        REMOVED if demolition_sheet(getattr(sheet, "sheet", None)) else NEW)
++
++
++def counts_as_new(sheet, tag: str) -> bool:
++    """Whether a (canonical) tag on this sheet counts as new work: new, or unknown (dashed only: kept, and asked)."""
++    return _state(sheet, tag) in (NEW, UNKNOWN)
++
++
++# a new-work floor plan, told apart by the catalogue's Sheet (read from the title block: `Sheet.types` from the
++# title by assets/reading_lists/sheet_types.json, and `Sheet.title`): a "Plans" sheet that is no other drawing kind
++# and whose title is not an enlarged or partial plan of one room
++_NOT_FLOOR_TYPES = frozenset({"Schedules", "Details", "Air riser", "Water riser", "Network riser", "Control diagrams",
++                              "Diagrams", "Sections and elevations", "Demolition"})
++_ENLARGED = re.compile(r"\bENLARGE(?:D|MENT)\b|\bPARTIAL\b|\bBLOW[- ]?UP\b|\bDETAILS?\b|\bSECTIONS?\b|\bRISERS?\b|"
++                       r"\b(?:MECHANICAL|MECH\.?|EQUIPMENT|ELECTRICAL|FAN|BOILER|PUMP|CHILLER|AHU)\s+ROOMS?\b", re.I)
++
++
++def floor_plan_sheet(sheet) -> bool:
++    """Whether a catalogue Sheet is a new-work floor plan (or roof plan): types include "Plans" and none of the other
++    drawing kinds, the title is no enlarged / partial / room plan, and it is no demolition sheet."""
++    if sheet is None:
++        return False
++    types = set(getattr(sheet, "types", ()) or ())
++    return ("Plans" in types and not types & _NOT_FLOOR_TYPES and not demolition_sheet(sheet)
++            and not _ENLARGED.search(getattr(sheet, "title", "") or ""))
++
++
++def cap_questions(pattern: str, sheets: list[_Sheet], schedule: dict[str, int], groups: dict | None = None) -> list[str]:
++    """One question per scheduled tag the schedule cap lowers, when the extra placements are on different new-work
++    floor plans ("AHU-9: 3 new placements on sheets M-1, M-2, M-3; schedule qty 1; ..."): the floors it is on
++    (one per plan group, `plan_groups`) outnumber its schedule quantity. Repeats on enlarged plans, details, risers,
++    sections or demolition sheets, or on one plan group, are capped silently."""
++    asks = []
++    for tag, qty in sorted((schedule or {}).items()):
++        floors: dict = {}                  # plan group (or the sheet) -> the sheet's number
++        for sheet in sheets:
++            if not any(canonical(t) == tag and n > 0 for t, n in (sheet.labels or {}).items()):
++                continue
++            if not fits(pattern, tag) or not counts_as_new(sheet, tag) or not floor_plan_sheet(sheet.sheet):
++                continue
++            group = (groups or {}).get(sheet.key) or sheet.key
++            floors.setdefault(group, sheet.sheet.number or sheet.place)
++        if len(floors) > qty:
++            asks.append(f"{tag}: {len(floors)} new placements on sheets {', '.join(floors.values())}; schedule qty "
++                        f"{qty}; counted {qty}. Confirm the schedule quantity.")
++    return asks
++
++
++def _scheduled(family: Family, tag: str) -> bool:
++    return any(ref.quote not in (LOCATED_QUOTE, SEEN_QUOTE)
++               and tag in {canonical(t) for t in _TAG_WORDS.findall(ref.quote or "")} for ref in family.count.sources)
++
++
++def demolition_questions(family: Family, pattern: str, sheets: list[_Sheet]) -> list[str]:
++    """The plain-words questions a family's tags raise by their state, each naming the sheets and the reason: a tag
++    shown only as removed ("AHU-9 appears only on demolition sheet MD-1"; "EF-4 appears only as removed: on X-901,
++    marked "(ER)"") is not counted and asked about; a tag drawn dashed only that no schedule lists ("EF-9 appears
++    only drawn dashed, on sheet X-901") is counted and asked about (never dropped silently)."""
++    states: dict[str, list[tuple[str, str, str]]] = {}       # tag -> (state, sheet number, reason)
++    for sheet in sheets:
++        where = sheet.sheet.number if sheet.sheet is not None and getattr(sheet.sheet, "number", "") else sheet.place
++        for tag, n in (sheet.labels or {}).items():
++            if n > 0 and fits(pattern, tag):
++                key = canonical(tag)
++                state = _state(sheet, key)
++                why = (sheet.reasons or {}).get(key) or (
++                    "demolition sheet" if state == REMOVED else "drawn dashed" if state == UNKNOWN else "")
++                states.setdefault(key, []).append((state, where, why))
++    asks = []
++    for tag, seen in states.items():
++        if all(s == REMOVED for s, _w, _y in seen):
++            demo = list(dict.fromkeys(w for _s, w, y in seen if y == "demolition sheet"))
++            marked = list(dict.fromkeys(f"on {w}, {y}" for _s, w, y in seen if y != "demolition sheet"))
++            parts = ([f"on demolition sheet{'s' if len(demo) > 1 else ''} {', '.join(demo)}"] if demo else [])
++            if marked:
++                parts.append(f"as removed: {'; '.join(marked)}")
++            asks.append(f"{tag} appears only {' and '.join(parts)}; it is not counted as new work. "
++                        f"Confirm it is not new.")
++        elif any(s == UNKNOWN for s, _w, _y in seen) and not _scheduled(family, tag):
++            dashed = list(dict.fromkeys(w for s, w, _y in seen if s == UNKNOWN))
++            asks.append(f"{tag} appears only drawn dashed, on sheet{'s' if len(dashed) > 1 else ''} "
++                        f"{', '.join(dashed)}, and no schedule lists it; it is counted for now. Confirm whether "
++                        f"it is new, existing to remain or removed.")
++    return asks
++
++
+ def _untagged_question(family: Family, pattern: str, sheets: list[_Sheet]) -> str | None:
+     """One plain-words question for a family whose sheet pictures show symbols with no tag (the whole-sheet answer's
+     `untagged_symbols`, never a micro-crop's): every such sheet and its number, the count left as it is. None when no
 diff --git a/src/bms/counts_text.py b/src/bms/counts_text.py
 index 836042d..321d29d 100644
 --- a/src/bms/counts_text.py
@@ -80,3 +400,19 @@ index 836042d..321d29d 100644
                      for a in alternatives]
      if not alternatives:
          return None
+diff --git a/src/bms/run.py b/src/bms/run.py
+index ddee767..93c61a9 100644
+--- a/src/bms/run.py
++++ b/src/bms/run.py
+@@ -466,7 +466,10 @@ def _estimate(job_folder: Path, out: Path, cache: Path, mode: Mode, known: dict)
+         source_sheets=source_sheets(ledger.sources, getattr(dossier, "sources", None) or {}))
+     transport = (ai.ChatTransport(cache, job=dossier.job_name) if mode == "chat" else ai.ApiTransport(cache))
+     asked = transport.waiting
+-    job = cross_check(job, catalogue, cache, transport=transport)
++    # the schedule rows' QTY cells cap and anchor the plan counts (patch 08's `schedule_qty` facts)
++    from bms.counts import ledger_schedule_quantities, scheduled_quantities
++    with scheduled_quantities(ledger_schedule_quantities(ledger)):
++        job = cross_check(job, catalogue, cache, transport=transport)
+     job_file = out / f"{quote} Job.json"
+ 
+     def save(current: Job) -> None:

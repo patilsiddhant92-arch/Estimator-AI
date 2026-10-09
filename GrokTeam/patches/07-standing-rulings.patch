@@ -1,0 +1,252 @@
+diff --git a/src/bms/rulings.py b/src/bms/rulings.py
+new file mode 100644
+index 0000000..58d4afc
+--- /dev/null
++++ b/src/bms/rulings.py
+@@ -0,0 +1,210 @@
++"""The estimator's standing and provisional rulings on a written system (GrokTeam/discussion.md), applied by code
++after the writer so they hold whatever the answer says. Pure: the system, its evidence and the Playbook in, the
++system out. Every line added cites this job (a family count's source or an evidence passage); none is added when
++nothing can be cited.
++
++- DOCUMENTED_DEFAULTS, the only exceptions to "No standard or fallback lines", one table: Q1 (standing) VRF
++  Communication Wiring is AME's on a VRF system; R1 (final, Siddhant Q4 / R11) every VAV gets "Furnish DDC
++  Controller to the Factory for Installation", quantity = the VAV count. Each prints unless the writer wrote that
++  slot or a document gives the item to someone else (the entry's own override check).
++- R6 (provisional): a Motorized Dampers block's actuator with no named furnisher is "Wire Damper Actuator
++  (Furnished by Others)"; a damper block the writer left with no actuator line gets that line.
++- Q2 (standing): the VRF central controller is OEM / vendor scope (no AME line); the VRF remote controller is the
++  Master Template's programmable thermostat, furnished by the unit manufacturer, installed and wired by AME.
++- Q7 (standing): "w/ End Switch" prints only where a cited document calls for one.
++- Q11 (standing, read narrowly): a control device (a sensor, detector, thermostat, switch, transmitter and the
++  like: the refrigerant leak detector is the ruling's case) the documents say to "provide", with no party, is
++  AME-furnished. Never a damper, a louver or equipment: an unnamed "provide" there is the trade's, not AME's.
++"""
++from __future__ import annotations
++
++import dataclasses
++import re
++from dataclasses import dataclass
++
++from bms import ai_evidence
++from bms.model import Count, Device, Ref, System
++from bms.playbook import Playbook
++
++VRF_SHAPE = "VRF System"
++DAMPER_SHAPE = "Motorized Dampers"
++DAMPER_ACTUATOR = "Damper Actuator"
++END_SWITCH = " w/ End Switch"
++
++# a party named for the item: "by others", "furnished by the controls contractor", "furnished with unit", "by div 26"
++_PARTY = re.compile(
++    r"\b(?:by|furnished\s+by|provided\s+by|supplied\s+by|furnished\s+with|provided\s+with|comes?\s+with)\s+"
++    r"(?:the\s+)?(?:others|unit|equipment|vrf|damper|mech\w*|elec\w*|controls?|div(?:ision)?\.?\s*\d+|owner|ame|"
++    r"mfr|manufacturer|factory|tc|mc|ec|gc|bms)\b", re.I)
++_END_SWITCH = re.compile(r"\bend\s+switch", re.I)
++_END_SWITCH_WORDS = re.compile(r"\s*\bw/\s*(?:\(\d\)\s*)?end\s+switch(?:es)?\b", re.I)
++# the VAV's controls given to a party other than AME / the controls contractor
++_CONTROLS_ELSEWHERE = re.compile(
++    r"\b(?:controls?|controllers?|ddc)\b[^.\n]{0,60}?\bby\s+(?!ame\b|(?:the\s+)?controls?\s+contractor\b)\S", re.I)
++_CENTRAL = re.compile(r"\bcentral\s+controll?er\b", re.I)
++_REMOTE = re.compile(r"\bremote\s+controll?er\b", re.I)
++# the VRF's control or communication wiring given to a party other than AME / the controls contractor
++_COMM_ELSEWHERE = re.compile(
++    r"\b(?:control|communication|comm\.?)\s+wiring\b[^.\n]{0,60}?\bby\s+(?!ame\b|(?:the\s+)?controls?\s+contractor\b)"
++    r"\S", re.I)
++
++
++@dataclass(frozen=True)
++class DocumentedDefault:
++    """A line the estimator ruled prints without a document calling for it (an exception to "No standard or
++    fallback lines"). `shape` is the system family (a Playbook shape name), `slot` and `line` the template line as it
++    prints (`template_id`, HarkPro/doctrine/lines.json), `name` and the parties the Device's, `qty` "one per system"
++    or "family count" (the sum of the block's family counts), `override` a document giving the item to someone else,
++    `citation` the ruling in GrokTeam/discussion.md."""
++    shape: str
++    slot: str
++    line: str
++    template_id: str
++    name: str
++    verb: str
++    furnished_by: str
++    installed_by: str
++    wired_by: str
++    qty: str
++    override: re.Pattern
++    citation: str
++
++
++DOCUMENTED_DEFAULTS: tuple[DocumentedDefault, ...] = (
++    DocumentedDefault(
++        "VRF System", "vrf_comm_wiring", "VRF Communication Wiring", "vrf_system.05", "VRF Communication Wiring",
++        "Furnish and Install", "AME", "AME", "AME", "one per system", _COMM_ELSEWHERE,
++        "GrokTeam/discussion.md, 2026-10-09 14:43 IST, standing ruling Q1 (Siddhant): VRF communication wiring is "
++        "AME's by default on VRF systems"),
++    DocumentedDefault(
++        "VAV / Fan VAV", "controller", "Furnish DDC Controller to the Factory for Installation", "vav.01",
++        "DDC Controller to the Factory for Installation", "Furnish", "AME", "Unit Mfr.", "Unit Mfr.", "family count",
++        _CONTROLS_ELSEWHERE,
++        "GrokTeam/discussion.md, 2026-10-09 14:50 IST, final ruling R1 (Siddhant Q4 / R11): every VAV gets the factory DDC "
++        "controller, quantity = the VAV count, even when no document names one"),
++)
++
++
++def _documented_defaults(system: System, devices: list[Device], evidence: str) -> list[Device]:
++    """Every DOCUMENTED_DEFAULTS entry of the system's family, unless the slot is written or a document (the
++    evidence, or the family's own cited rows) gives the item to someone else. Cites the family count's source."""
++    out = list(devices)
++    family_refs = _family_refs(system)
++    for n, default in enumerate(DOCUMENTED_DEFAULTS, 1):
++        if system.shape != default.shape or any(d.slot == default.slot for d in out) or not family_refs:
++            continue
++        if default.override.search(evidence or "") or any(default.override.search(r.quote) for r in family_refs):
++            continue
++        if default.qty == "one per system":
++            quantity = Count(1, tuple(family_refs[:1]))
++        else:
++            counted = [f.count for f in system.families if f.count.value is not None and f.count.sources]
++            if not counted:
++                continue
++            quantity = Count(sum(c.value for c in counted), tuple(r for c in counted for r in c.sources))
++        out.append(Device(f"{system.key}.dd{n}", default.slot, default.name, default.verb, default.furnished_by,
++                          default.installed_by, default.wired_by, quantity, tuple(family_refs[:1])))
++    return out
++
++
++_PROVIDE = re.compile(r"\bprovide[ds]?\b", re.I)
++# control devices an unnamed "provide" gives to AME (Q11), and what it never gives (dampers, louvers, equipment)
++_CONTROL_DEVICE = re.compile(
++    r"\b(?:sensors?|detectors?|detection|thermostats?|t'?stats?|switch(?:es)?|transmitters?|transducers?|"
++    r"humidistats?|stats?|relays?|monitors?)\b", re.I)
++_NOT_CONTROL_DEVICE = re.compile(
++    r"\b(?:dampers?|louvers?|louvres?|fans?|pumps?|units?|heaters?|boilers?|chillers?|coils?|valves?|"
++    r"curtains?|panels?|equipment)\b", re.I)
++
++
++def passages(evidence: str) -> list[Ref]:
++    """The evidence's entries as citations: (source id, the entry's words, its place)."""
++    return [Ref(e.sid, e.body.strip(), e.place) for e in ai_evidence.parse(evidence) if e.sid and e.place
++            and e.body.strip()]
++
++
++def _quotes(device: Device) -> str:
++    return " ".join(r.quote for r in device.refs)
++
++
++def _naming(refs: list[Ref], tags: list[str]) -> list[Ref]:
++    return [r for r in refs if any(re.search(rf"(?<![A-Za-z0-9]){re.escape(t)}(?![A-Za-z0-9])", r.quote, re.I)
++                                   for t in tags)]
++
++
++def _family_refs(system: System) -> list[Ref]:
++    return [r for f in system.families for r in f.count.sources if r.source_id and r.quote and r.where]
++
++
++def _end_switches(devices: list[Device]) -> list[Device]:
++    """Q7: an end switch only where a cited document calls for one."""
++    out = []
++    for d in devices:
++        if _END_SWITCH.search(f"{d.name} {d.slot.replace('_', ' ')}") and not _END_SWITCH.search(_quotes(d)):
++            if d.slot == "end_switch_status":
++                continue
++            d = dataclasses.replace(d, name=_END_SWITCH_WORDS.sub("", d.name).strip())
++        out.append(d)
++    return out
++
++
++def _vrf_controllers(devices: list[Device]) -> list[Device]:
++    """Q2: the central controller is the OEM's (no AME line); the remote controller is the template's programmable
++    thermostat (Unit Mfr. furnishes, AME installs and wires)."""
++    out = []
++    for d in devices:
++        if d.slot == "central_controller" or _CENTRAL.search(d.name):
++            continue
++        if _REMOTE.search(d.name):
++            d = dataclasses.replace(d, slot="thermostat", name="Programmable Thermostat", verb="Install and Wire",
++                                    furnished_by="Unit Mfr.", installed_by="AME", wired_by="AME")
++        out.append(d)
++    return out
++
++
++def _damper_actuators(system: System, devices: list[Device], evidence: str) -> list[Device]:
++    """R6 (with Q7 for the added line): an actuator no cited document gives a furnisher prints as Wire ...
++    (Furnished by Others)."""
++    out = [dataclasses.replace(d, verb="Wire", furnished_by="Others", installed_by="Others", wired_by="AME")
++           if d.slot == "damper_actuator" and not _PARTY.search(_quotes(d)) else d for d in devices]
++    if any(d.slot == "damper_actuator" for d in out):
++        return out
++    tags = [t for f in system.families for t in f.tags if t.strip()]
++    family_refs = _family_refs(system)
++    cite = list(dict.fromkeys([*family_refs, *_naming(passages(evidence), tags)]))
++    value = next((f.count.value for f in system.families if f.count.value is not None), None)
++    if not cite or value is None or any(_PARTY.search(r.quote) for r in cite):
++        return out          # nothing to cite, no count, or the documents name the furnisher: the writer's to say
++    name = DAMPER_ACTUATOR + (END_SWITCH if any(_END_SWITCH.search(r.quote) for r in cite) else "")
++    sources = tuple(r for f in system.families for r in f.count.sources) or tuple(cite[:1])
++    return [Device(f"{system.key}.r6", "damper_actuator", name, "Wire", "Others", "Others", "AME",
++                   Count(value, sources), tuple(cite)), *out]
++
++
++def _provided_control_devices(devices: list[Device]) -> list[Device]:
++    """Q11, narrowly: a control device whose cited quote says "provide" and names no party is AME-furnished (and
++    installed and wired). A damper, louver or piece of equipment never is, whatever the quote says."""
++    out = []
++    for d in devices:
++        quotes = _quotes(d)
++        if (_CONTROL_DEVICE.search(d.name) and not _NOT_CONTROL_DEVICE.search(d.name) and _PROVIDE.search(quotes)
++                and not _PARTY.search(quotes) and d.furnished_by != "AME"):
++            d = dataclasses.replace(d, verb="Furnish and Install", furnished_by="AME", installed_by="AME",
++                                    wired_by="AME")
++        out.append(d)
++    return out
++
++
++def apply_rulings(system: System, evidence: str, playbook: Playbook) -> System:
++    """The written system with the rulings applied (see the module's list); unchanged when none applies."""
++    devices = list(system.devices)
++    devices = _end_switches(devices)
++    if system.shape == VRF_SHAPE:
++        devices = _vrf_controllers(devices)
++    if system.shape == DAMPER_SHAPE:
++        devices = _damper_actuators(system, devices, evidence)
++    devices = _provided_control_devices(devices)
++    devices = _documented_defaults(system, devices, evidence)
++    if tuple(devices) == system.devices:
++        return system
++    return dataclasses.replace(system, devices=tuple(devices))
+diff --git a/src/bms/run.py b/src/bms/run.py
+index ddee767..c5031e7 100644
+--- a/src/bms/run.py
++++ b/src/bms/run.py
+@@ -62,6 +62,7 @@ from bms.counts import counted_from, cross_check, flag_written_devices, publish_
+ from bms.evidence import write_evidence
+ from bms.model import Decision, Device, Finding, Header, Job, ModelError, System
+ from bms.plan import plan_job
++from bms.rulings import apply_rulings
+ from bms.playbook import load_playbook
+ from bms.citations import SourceIds
+ from bms.render import RenderError, render
+@@ -508,9 +509,11 @@ def _estimate(job_folder: Path, out: Path, cache: Path, mode: Mode, known: dict)
+     pending: list[str] = []
+     for system in job.systems:
+         try:
+-            job = job.with_system(flag_written_devices(
++            # the estimator's rulings hold whatever the answer says (bms.rulings)
++            job = job.with_system(flag_written_devices(apply_rulings(
+                 ai.write_system(system, evidence[system.key], playbook, transport, tags=job_tags(job),
+-                                ids=issued(job), sheets=sheets(job), source_sheets=source(job))))
++                                ids=issued(job), sheets=sheets(job), source_sheets=source(job)),
++                evidence[system.key], playbook)))
+         except ai.NoAnswer as missing:
+             pending.append(_not_answered(system.name, missing))
+     save(job)
+@@ -573,7 +576,8 @@ def _estimate(job_folder: Path, out: Path, cache: Path, mode: Mode, known: dict)
+                 tags=job_tags(job), ids=issued(job), sheets=sheets(job), source_sheets=source(job))
+             asked = _reapplied(job, base, asked, [d for d in decisions if d.system_key == key
+                                                   and d.device_id is not None and d.action != "accept"], copies)
+-            rewritten = flag_written_devices(_carry_new_counts(decided_from.system(key), system, asked, typed))
++            rewritten = flag_written_devices(apply_rulings(
++                _carry_new_counts(decided_from.system(key), system, asked, typed), evidence[key], playbook))
+             standing = _standing_accepts(history, key, decided_from)    # accepted after it saw the new count
+             if standing:
+                 rewritten = apply_decisions(job.with_system(rewritten), standing).system(key)

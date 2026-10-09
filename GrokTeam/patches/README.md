@@ -1,16 +1,27 @@
 # Builder patches, 2026-10-09 (test job run follow-ups)
 
-Proposed fixes for six app bugs found on the 2026-10-09 test run. **Not applied to `src/` and not committed.**
-Each patch is a unified diff against `src/` at `grok/work` @167c3b2 (src unchanged at @49a237d). Each one applies alone, and all six apply
-together (patches 02, 05 and 06 touch `src/bms/plan.py`; 02 and 05 touch `src/bms/render.py`; all in separate
-hunks).
+Proposed fixes for six app bugs found on the 2026-10-09 test run, plus patch 07 for the estimator's rulings and
+patch 08 for B-02 (schedule rows become ledger facts).
+**Not applied to `src/` and not committed.** Each patch is a unified diff against `src/` at `grok/work` (src
+unchanged at @e99d7b9). Each one applies alone, and all eight apply together. Patches 02, 05 and 06 touch
+`src/bms/plan.py`, and 02 and 05 touch `src/bms/render.py`, in separate hunks. Patch 07 adds `src/bms/rulings.py`
+and hooks it into `src/bms/run.py`. Patch 08 touches `src/estimator/` only (reading/schedules.py,
+ledger/facts.py, ledger/passes.py, ledger/seed.py). The planned room-sensor patch (6c) is now numbered 09.
+**Dependency: 04 and 08 land together.** Patch 04's schedule cap reads 08's `schedule_qty` facts. 04 still applies
+alone (separate files), but its four schedule_qty tests then fail (`Ledger.add` rejects the kind), so `verify.sh`
+applies 08 before 04's "after" run. The combined run applies 01 to 08 in order, and they apply cleanly.
+
+Rulings come from `GrokTeam/discussion.md`. **FINAL** means Siddhant ruled: R1 (Q4 / R11) and the standing Q1, Q2,
+Q7 and Q11. **PROVISIONAL** means the lead adopted it and Siddhant has not ruled yet: R2 through R6. Every test
+docstring says which. R3 (CNT-5) and R5 (condensate pumps) are on the items Siddhant asked to hold. They are coded
+as provisional and need his ruling before they land.
 Every fixture is invented, with generic tags and no real project data.
 
 How to verify (uses a throwaway worktree and never touches the real `src/`):
 
-    PY=/path/to/python3.13 GrokTeam/patches/verify.sh /tmp/gt-verify   # per-patch before/after, then all together
-    cd /tmp/gt-verify && PYTHONPATH=src $PY -m pytest -q -m "not slow" tests   # existing suite on the patched tree
-    git -C <repo> worktree remove --force /tmp/gt-verify
+    PY=/path/to/python3.13 GrokTeam/patches/verify.sh /tmp/gt-builder-verify   # per-patch, then all together
+    cd /tmp/gt-builder-verify && PYTHONPATH=src $PY -m pytest -q -m "not slow" tests   # existing suite, patched
+    git -C <repo> worktree remove --force /tmp/gt-builder-verify
 
 The tests are in `GrokTeam/tests/` (their `conftest.py` puts the tree's own `src/` first on `sys.path`).
 Run them with `python -m pytest GrokTeam/tests`.
@@ -20,13 +31,15 @@ Run them with `python -m pytest GrokTeam/tests`.
 | # | Patch | Test file | Clean src | With the patch alone |
 |---|-------|-----------|-----------|----------------------|
 | 1 | `01-validate-no-bms-integration.patch` | `test_01_validate_no_bms.py` | 3 failed, 3 passed | 6 passed |
-| 2 | `02-plan-front-end-unresolved.patch` | `test_02_plan_front_end_unresolved.py` | 5 failed, 2 passed | 7 passed |
+| 2 | `02-plan-front-end-unresolved.patch` | `test_02_plan_front_end_unresolved.py` | 6 failed, 3 passed | 9 passed |
 | 3 | `03-ai-evidence-key-sources.patch` | `test_03_ai_evidence_budget.py` | 3 failed, 3 passed | 6 passed |
-| 4 | `04-count-overshoot.patch` | `test_04_count_overshoot.py` | 5 failed, 9 passed | 14 passed |
+| 4 | `04-count-overshoot.patch` (+ 08) | `test_04_count_overshoot.py` | 44 failed, 11 passed | 55 passed (04 alone: 4 failed, 51 passed) |
 | 5 | `05-omitted-systems-as-exceptions.patch` | `test_05_omitted_systems_as_exceptions.py` | 4 failed, 4 passed | 8 passed |
-| 6 | `06-schedule-only-questions.patch` | `test_06_schedule_only_template_lines.py` | 2 failed, 11 passed, 14 xfailed | 13 passed, 14 xfailed |
+| 6 | `06-schedule-only-questions.patch` | `test_06_schedule_only_template_lines.py` | 3 failed, 14 passed, 18 xfailed | 17 passed, 18 xfailed |
+| 7 | `07-standing-rulings.patch` | `test_07_standing_rulings.py` | 23 failed | 23 passed |
+| 8 | `08-schedule-reader.patch` | `test_08_schedule_reader.py` | 10 failed, 2 passed | 12 passed |
 
-With all six applied, GrokTeam/tests gives 54 passed and 14 xfailed. On clean src, the tests that pass are the negative or
+With all eight applied, GrokTeam/tests gives 136 passed and 18 xfailed. On clean src, the tests that pass are the negative or
 regression cases. They pass both before and after their patch. The tests that fail on clean src are the bug cases.
 
 ## The bugs and the fixes
@@ -56,7 +69,13 @@ regression cases. They pass both before and after their patch. The tests that fa
   - The price sheet has no front-end heading row.
   - `read_scope` reads a proposal with no front-end heading back as `pending`. A stray line still raises
     "sits outside any block".
-- **Tests.** Plan gives `front_end is None`. The question is kept and assumes nothing. Render, price sheet and
+- **PROVISIONAL R2.** When nothing shows a BMS or a front end (no `front_end` fact and no `integration` fact), the
+  scope prints standalone and the planner adds ONE question, word for word: "No BMS or front end is shown in the
+  documents; confirm standalone controls." (`plan.STANDALONE_QUESTION`). When a front_end fact shows a BMS but not
+  its mode, the new-or-existing question stays, without the "assumes a new system" wording.
+- **Tests.** Plan gives `front_end is None`. R2: exactly one standalone question and no other front-end question.
+  R2 negative: a BMS fact without its mode asks new-or-existing and not the standalone question. R2 regression
+  guard: the standalone blocks still print. Render, price sheet and
   written docx have no front-end heading or line. Negative cases: a sourced mode is still used; the docx reads back.
 
 ### 3. ai_evidence.py `NOTES_LIMIT` / `SPEC_LIMIT`: 12,000-character cut drops key sources
@@ -90,6 +109,83 @@ regression cases. They pass both before and after their patch. The tests that fa
   2. VAV-1 and VAV-2 on one sheet count 2. A type tag EBB-A on two plans counts 2. A scheduled AHU-9X or AHU-9Y
   still fits and counts 2. AHU-1, AHU-9, AHU-4 (unscheduled, own prefix) and "AHU 12" still fit.
 - As instructed, there is no "same tag twice on one sheet counts 2" case (R1: a repeated tag is one unit).
+- **PROVISIONAL R3: the schedule count wins.** A unit tag shown on several plans counts its schedule quantity once
+  over all sheets: 1 when the schedule lists it once, 2 when the schedule says QTY 2. The new
+  `counts.schedule_quantities(family)` reads a per-tag quantity only where it is stated: a family of one unit tag
+  whose count comes from a document source that quotes that tag with a stated "QTY n" equal to the count. A
+  representative tag with a total ("VAV-1" standing for 5 boxes) gives nothing per tag. A first version without the
+  QTY check broke main test `test_the_located_count_reads_labels_as_the_planner_does` (VAV-1 x 5), so the check
+  was added. `_located_count(..., schedule)` and the picture count both use it. Type tags are unchanged.
+  Tests: QTY 2 on three plans gives 2; listed once on three plans gives 1; a type tag ignores the map;
+  `schedule_quantities` for a one-unit family, a many-unit family, this check's own located count and a
+  representative tag.
+  **What R3 means for CNT-5** (`tests/bms/test_counts.py::test_a_unit_on_two_floor_plans_adds_up_as_the_inventory_counts`):
+  its EF-2 is on two floor plans and its schedule lists EF-2 once, so R3 counts it once. The located count is 3
+  (EF-1, EF-2, EF-5), equal to the planner's 3, so `ef.value == 4` fails on purpose. The proposed edit is
+  `ef.value == 3`, with the located ref added beside S6 and no "other" count. Siddhant asked to hold the CNT-5
+  change, so this is provisional.
+- **1b: demolition filter (new work, existing to remain, existing to be removed).** A plan tag is in one of three
+  states. New work counts. Existing to remain is not counted as a new unit, and its tie-in lines stay where the
+  sequence names it. Existing to be removed is out. Per the lead's correction, `(E)` alone means existing (usually
+  to remain) and is never a demolition mark. A tag is removed only by `(ER)`, `(D)`, a REMOVE / EXISTING TO BE
+  REMOVED keynote on the tag's line, or a demolition sheet (DEMOLITION or DEMO in the title, or numbered MD-x /
+  MD###). `(E)` on a demolition sheet is still existing. A bare REMOVE note on a new-work plan ("REMOVE AND REPLACE
+  FILTERS AT AHU-9") never drops a unit: an unmarked tag needs EXISTING or (E) on the same line as the remove words.
+  New in `counts.py`: `tag_state`, `sheet_marks` (reads the marks from the sheet text into `_Sheet.marks`),
+  `demolition_sheet`, `counts_as_new` and `demolition_questions`. `_located_count` and the picture count skip any
+  tag that is not new work. `demolition_questions` asks about a tag shown only as removed (counted 0). It also asks
+  about a tag drawn dashed only that no schedule lists: that one is still counted and asked, never dropped silently.
+  The **schedule cap**: a tag the schedule gives a quantity for never counts above that quantity, type tags
+  included.
+  Tests: (1) a type tag on a new plan and on its demolition plan counts 1 (a type tag, so this is the filter at work
+  and not R3), and the MD series is a demolition sheet whatever its title; (2) a tag only on MD-101 counts 0 with one
+  question, and `(D)`, `(ER)`, an EXISTING ... TO BE REMOVED keynote and `(E)` + REMOVE all mark it removed;
+  `(ER)` counts as removed (positive); negative: `(E) AHU-9` with no remove keynote is EXISTING (also on a
+  demolition sheet), not counted, and not asked as removed; negative: a bare REMOVE note marks nothing; (3)
+  REGRESSION GUARD: an existing unit the sequence names is still planned with its sequence refs; (4) 3 placements
+  vs schedule QTY 1 gives 1, and the negative with no quantity keeps 3 (REGRESSION GUARD); (5) a dashed-only EF-9
+  with no schedule is counted 1 and asked, and the negative (EF-9 on the schedule) is not asked.
+  Limits: the sheet text carries no line style, so "dashed" comes only from a picture or fixture mark
+  (`_Sheet.marks[tag] = UNKNOWN`), and nothing sets it from a drawing yet (logged as KL-01 in `GrokTeam/bugs.md`).
+- **1b follow-ups (this round).**
+  - **The cap reads the schedule_qty facts (needs 08).** `run.py` calls `cross_check` inside
+    `with counts.scheduled_quantities(counts.ledger_schedule_quantities(ledger)):` (tag -> the schedule row's
+    QTY; a context variable read by `cross_check`). This keeps `cross_check`'s signature, which
+    `tests/bms/test_contracts.py` pins, and which `test_run_review_detect2` wraps by monkeypatching `run.cross_check`.
+    A first version added a `scheduled=` parameter and broke both tests, so it was reworked.
+    `family_schedule` takes those for the tags that fit the family. Only when the schedule gives none of them (no
+    qty column, so the seed wrote no `schedule_qty`) does it fall back to the count quote's "QTY n"
+    (`schedule_quantities`). Tests: facts are read per tag; schedule_qty 1 wins over a quote's "QTY 5" (3
+    placements give 1); a unit tag with schedule_qty 2 on 3 plans gives 2; the fallback with no qty column (maker
+    facts only) uses "EF-3 QTY 2"; the run.py wiring is in place, and `cross_check` hands the quantities
+    to the check inside the context and none outside it.
+  - **Questions name the sheet and the reason.** "AHU-9 appears only on demolition sheet MD-101; ...", "...
+    demolition sheets MD-1, MD-2", 'EF-4 appears only as removed: on X-901, marked "(ER)"', the remove keynote
+    quoted, and "EF-9 appears only drawn dashed, on sheet X-901, and no schedule lists it; ...". The reasons come
+    from `mark_reasons` (stored in `_Sheet.reasons`). The text is asserted in the tests.
+  - **MD comes only from the sheet-number field.** `demolition_sheet` reads only the catalogue Sheet (title block:
+    `number`, `title`), never the plan text. The whole number must be MD-x / MD### (`fullmatch`; "MD-2.1" and
+    "MD101" are fine, "MD-1 MOTORIZED DAMPER" is not), and MD in a title means nothing. Negative: a new plan M-101
+    carrying MD-1 motorized damper tags marks nothing, counts MD-1 and EF-3 as new, and asks nothing.
+  - **DEMO is a whole word, title only.** `\b(?:DEMO|DEMOLITION)\b` on `Sheet.title`. Negatives: DEMONSTRATION
+    ROOM and a DEMO LAB room tag in the plan text mark nothing, and a "DEMONSTRATION ROOM FIT-OUT PLAN" title is
+    not demolition. Positives: "DEMO PLAN" and "... DEMOLITION PLAN".
+  - **Cap question.** When the cap lowers a count and the extra placements are on different new-work floor plans:
+    "AHU-9: 3 new placements on sheets M-1, M-2, M-3; schedule qty 1; counted 1. Confirm the schedule quantity."
+    (`cap_questions`, raised in `_Check.run` beside the demolition questions). Floors are counted one per plan
+    group (`plan_groups`), so two parts of one floor plan are one floor. Repeats on enlarged plans, details,
+    risers, sections or demolition sheets are capped silently.
+    **How a floor plan is told apart (`floor_plan_sheet`):** from the catalogue's Sheet, which comes from the title
+    block. `Sheet.types` is set by `estimator.catalogue.sheet_types.classify_sheet`, which runs
+    `assets/reading_lists/sheet_types.json` over the title. A floor plan has "Plans" and none of Schedules, Details,
+    Air/Water/Network riser, Control diagrams, Diagrams, Sections and elevations or Demolition. It is also no
+    `demolition_sheet`, and its title matches no ENLARGED / ENLARGEMENT / PARTIAL / BLOW-UP / DETAIL / SECTION /
+    RISER / "MECHANICAL ROOM" (or equipment, fan, boiler, pump, chiller, AHU room). Enlarged plans have no type of
+    their own in sheet_types.json (they are "Plans"), so the title words are what separate them. A sheet the
+    catalogue cannot name is never a floor plan (silent).
+    Tests: (a) AHU-9 on 3 new floor plans with qty 1 counts 1 and asks, text asserted; (b) negative: floor plan
+    plus "ENLARGED MECHANICAL ROOM PLAN" with qty 1 counts 1 and asks nothing. Further negatives: details, riser,
+    sections, demolition and partial plans (parametrized); floors within the qty; two sheets of one plan group.
 
 ### 5. Omitted systems do not print as exceptions
 - **Bug (plan).** `Job.exceptions` came only from the ledger's "exception" notes. A system with no controls in the
@@ -112,9 +208,11 @@ regression cases. They pass both before and after their patch. The tests that fa
 ### 6. Schedule-only job (no sequence of operation, no BMS)
 Owner rulings 2026-10-09 apply here. The Master Template is the ideal-case checklist only (rules.md "Template is
 the ideal case", "No standard or fallback lines"), so **nothing prints by default** and HarkPro C11-C16 are
-ignored. The original 6a ("required template lines always print") was reversed by the owner and replaced.
+ignored. The two documented exceptions, Q1 and final R1, are added after the writer by patch 07 (section 7), never
+by the planner. The original 6a ("required template lines always print") was reversed by the owner and replaced.
 
-The fixture is an invented schedule-only ledger: IDU, VAV, UH, EF, ACU and MD families, plus RLD for 6d. It has
+The fixture is an invented schedule-only ledger: IDU, VAV, UH, EF, ACU and MD families, plus WM (R4), RLD (Q11)
+and CP (R5). It has
 no sequence, no `front_end` fact and no BMS. Line wording is read from `HarkPro/doctrine/lines.json`, read-only.
 
 - **REGRESSION GUARD** marks a test that already passes on current code. It pins behaviour and is not a bug proof.
@@ -138,34 +236,52 @@ no sequence, no `front_end` fact and no BMS. Line wording is read from `HarkPro/
   sources: a curated per-shape `checklist` in the app's Playbook (owner-approved, from lines.json
   `required: true`), or reading lines.json directly, which couples the app to HarkPro. The question form would be
   "<tags>: the documents do not show <device>; is it in scope?". The owner has to choose the source and keep the
-  list short. The VAV DDC controller (R11) is not asserted.
+  list short. The VAV DDC controller is final ruling R1, a documented default in patch 07 (test_07).
 - *Negative: a supported template device raises no question.* REGRESSION GUARD.
 
-**6b (revision 2): who furnishes a damper actuator is open.** No wording and no furnisher is asserted. "Wire
-Motorized Damper (Furnished by Others)" is acceptable, and the forced actuator-wording test was dropped.
-- *The documents are silent on who furnishes the actuators, so the planner asks.* **Patched**
-  (`plan._unplaced_questions`). It asks "…who does? No damper line is printed until this is answered" when all of
-  these hold:
-  - the block is damper-only (not fire or smoke);
-  - no provider fact names the block;
-  - there is no sequence passage;
-  - no other question already names its tags.
-- *Negative: documents silent, so no damper line prints.* Passes before and after.
-- *Negative: a provider fact names the furnisher, so no question.* Passes before and after.
+**6b (PROVISIONAL R6): an actuator with no named furnisher prints and is not asked about.** R6 reverses
+revision 2 ("documents silent: a question, no line"). Patch 06 no longer asks the damper question. Patch 07 prints
+`Wire Damper Actuator (Furnished by Others)` (test_07). Planner tests: documents silent raise no actuator question
+(REGRESSION GUARD); a named furnisher raises none (REGRESSION GUARD).
 
-**6c.** *A humidity sensor drawn next to a dehumidifier attaches to the dehumidifier, and its negative (a sensor
-next to a VAV stays with the VAV).* Both are xfail(strict). Design note: the counts read tag text only. Nothing
-attaches untagged symbols to units by drawing position. The proposed `bms.counts.attach_symbols(symbols, units)`
-would use the nearest tagged unit on the same sheet, within a distance limit, and ask when two units are about the
-same distance away. It needs the symbol boxes from the vision pass (`counts_vision`). That is too big to patch
-cleanly here.
+**6c (reworked): a room sensor belongs to the unit that serves its room, never to the nearest tag.**
+- **Finding: the link does not exist today.**
+  - The schedule reader (`src/estimator/reading/schedules.py`) keeps tags and rows. It has no area-served, room or
+    serves field.
+  - The ledger kinds (`src/estimator/ledger/facts.py:13`, `KINDS`) include `location` (the plans pass, free-text
+    floors, zones and rooms, `passes.py:63`) and `link` (served unit <- serving unit, for dampers and risers,
+    `passes.py:78`). There is no area-served kind.
+  - `plan.py` `_SERVES` (line 69) and `Served` tie duct heaters only. Location facts are used only for naming
+    (`plan.py:375`) and heater ties (`plan.py:683`).
+  - The counts read tags only.
+- **Proposed.** A ledger kind `area_served` (subject the unit tag, value the schedule cell). Patch 08 now delivers
+  this kind, seeded from the schedule row; its test moved to test_08. Still proposed, as patch 09:
+  `bms.counts.assign_room_sensors(sensors, area_served, units)`, which returns (sensor id -> unit tag, questions).
+  Rooms match on their number when they have one, with leading zeros and case ignored ("Lounge 907" ==
+  "LOUNGE 0907"). The name is only a fallback. Never by drawing distance and never by duct colour. The tests give
+  the link as fixture data.
+- **Tests, all strict xfail with no patch:**
+  - (a) a CO2 sensor in LOUNGE 9 goes to AC-9-1, scheduled for LOUNGE 9, though a VAV tag is nearer;
+  - (b) a sensor in OFFICE 9A stays with VAV-9-2;
+  - (c) a room no unit serves gives one confirm question and never the nearest tag;
+  - (d) a tie (AC-9-1 "Lobby & Lounge" and VAV-9 "Lounge") goes to neither, with one confirm question naming
+    both;
+  - (e) a number match ignores leading zeros and case;
+  - (f) "Studio" 0907 vs "Media Studio" 0407 never match.
+  Tests (a) to (f) use `raises=ImportError`. Every tag and room in them is invented.
 
-**6d.** *Equipment with no template family (an invented refrigerant leak detector, RLD) raises a question.*
-**Patched** (`plan._unplaced_questions`). It asks only when there is no sequence passage and no other question
-already names the system. A first, broader version flooded 28 existing plan tests with duplicate questions. It asks "No Master Template family fits … is it in AME's scope? If not, it is a named
-exception." The system is still planned in the generic form. Negatives (pass before and after): it is still
-planned, and a family with a shape raises no such question. With patch 05, if the writer then leaves it with no
-lines, it prints as an exception with its quantity.
+**6d (PROVISIONAL R4): equipment with no template family is never dropped silently.** **Patched**
+(`plan._unplaced_questions`). It asks "No template family fits <system> (<tags>); is it in AME's scope? If not, it
+is a named exception", only when there is no sequence passage and no other question already names the system. The
+fixture is now an invented water meter (WM). A refrigerant leak detector is not asked about (standing Q11: AME
+furnishes it; REGRESSION GUARD). Negatives: it is still planned; a family with a shape raises no such question.
+
+**R5 (PROVISIONAL): a stand-alone condensate pump.** **Patched** (`plan._unplaced_questions`). The planner asks
+only when a document (a ledger fact or a dossier text naming the pump's tag or prefix) shows an alarm or interlock
+for it. Positives: "CP-21 HIGH WATER ALARM TO BMS" and "CP-21 INTERLOCK WITH AC-21 SHUTDOWN". Negatives
+(REGRESSION GUARDs): no alarm gives no question; an alarm on another unit gives no question. This restores main
+`test_final_b::test_condensate_pumps_with_no_split_units_are_left_as_they_are`. Siddhant asked to hold the
+condensate change, so this is provisional.
 
 **6e.** *A printed line that hits a house exclusion (gas detection) is flagged.* xfail(strict). Design note: the
 app has no house-exclusion list. The owner has to provide one (proposed: a `wording.json`
@@ -183,11 +299,11 @@ positive has a negative where the item goes to someone else.
 - (i) VRF thermostat by the unit maker. The `_vrf_job` fixture is a no-BMS VRF with control `field` (AME installs
   and wires the maker's thermostats), not `integration`.
   - A detail note that names the indoor unit reaches the VRF evidence. REGRESSION GUARD.
-  - **Finding:** a bare detail-sheet note ("T'STAT PROVIDED BY UNIT MFGR.") names no tag and no system phrase, so
+  - **Finding:** a bare detail-sheet note ("T-STAT SUPPLIED BY UNIT MFR.") names no tag and no system phrase, so
     `ai_evidence` never gives it to the writer. This is the likely root cause. xfail(strict). Design note: give a
     detail-sheet note that names a device word of the shape's slots (thermostat or t'stat, transformer, damper)
     to each system whose shape has that slot, under a budget like patch 03's.
-  - Both wordings ("T'STAT PROVIDED BY UNIT MFGR.", "THERMOSTAT FURNISHED BY EQUIPMENT MANUFACTURER") give one
+  - Both wordings ("T-STAT SUPPLIED BY UNIT MFR.", "THERMOSTAT FURNISHED BY EQUIPMENT MANUFACTURER") give one
     Install and Wire thermostat line furnished by the Unit Mfr., with quantity = N indoor units. xfail(strict).
   - "THERMOSTAT BY OTHERS" names only the furnisher. It must give a planner question about install and wire, never
     a silent drop, and no AME-furnished thermostat line. xfail(strict).
@@ -213,38 +329,134 @@ positive has a negative where the item goes to someone else.
 Side observation (not patched): in the 6a fixture, the planner gives `IDU` (named "VRF Indoor Unit") the
 `VRF System` shape but control `field`, not `integration`. Estimator QA may want to check this.
 
+### 7. Rulings on the written system (`07-standing-rulings.patch`, new `src/bms/rulings.py`)
+`apply_rulings(system, evidence, playbook)` is pure. `bms.run` calls it on every written system and on every
+count rewrite, before `flag_written_devices`. An estimator's delete of a ruling line stays deleted: line ids are
+fixed (`<key>.dd<n>`, `<key>.r6`) and `keep_deleted` matches by content after a rewrite.
+- **`DOCUMENTED_DEFAULTS`: one table, exactly two entries,** the only exceptions to "No standard or fallback lines".
+  Each entry holds the system family (shape), the template line and its lines.json id, the parties, a quantity
+  rule, its own override check (a document gives the item to someone else) and a citation to discussion.md:
+  - Q1 (standing): VRF System, "VRF Communication Wiring" (vrf_system.05), AME, one per system. The override is
+    control or communication wiring "by" anyone but AME or the controls contractor.
+  - R1 (FINAL, Q4 / R11, 14:50 IST): VAV / Fan VAV, "Furnish DDC Controller to the Factory for Installation"
+    (vav.01), furnished by AME and installed and wired by the Unit Mfr. Its quantity is the VAV family count. The
+    override is controls or a controller "by" anyone but AME or the controls contractor. The old provisional R1
+    question is removed.
+  - A default is added only when the writer left that slot empty, the override does not match, and a family count
+    source can be cited.
+- **R6 (PROVISIONAL), Motorized Dampers blocks only.** A written actuator whose cited quotes name no party becomes
+  Wire / Others / Others / AME. A block the writer left with no actuator line gets "Wire Damper Actuator (Furnished
+  by Others)", citing the family count and the evidence passages that name its tags. It gets no line when a cited
+  passage names a furnisher.
+- **Q2 (standing), VRF.** A central-controller line is removed (OEM / vendor scope). A remote-controller line
+  becomes "Install and Wire Programmable Thermostat (Furnished by Unit Mfr.)".
+- **Q7 (standing).** "w/ End Switch" stays only when a cited quote says end switch. An `end_switch_status` line
+  without one is dropped. The R6 line gets "w/ End Switch" only when its citations call for one.
+- **Q11 (standing, read narrowly).** A line whose cited quote says "provide" and names no party becomes Furnish
+  and Install, AME, only for a control device: a sensor, detector (the ruling's leak detector), thermostat, switch,
+  transmitter and the like. Never for a damper, a louver or equipment (fan, pump, unit, valve, panel...), even one
+  whose name carries a device word ("Condensate Pump w/ Float Switch").
+- **Tests** (23, all failing on clean src and passing with 07):
+  - a guard that the table holds exactly the Q1 and R1 entries, each citing discussion.md;
+  - R1 (a): 3 VAVs print the line with Qty 3; (b) "CONTROLS BY VAV MANUFACTURER" and "VAV BOX CONTROLS BY OTHERS"
+    print no default; (c) no non-VAV system gets it; no doubling;
+  - R6: documents silent print the Wire line; a guessed AME actuator becomes Wire by Others; a named furnisher is
+    left alone;
+  - Q1: a VRF system gets it; (a) no non-VRF system does; (b) "CONTROL WIRING BY VRF MANUFACTURER" and "VRF
+    COMMUNICATION WIRING BY DIV 26" print no AME default;
+  - Q2: central controller removed; remote controller becomes the thermostat; a correct thermostat is unchanged;
+  - Q7: the positive, the negative and a kept end switch;
+  - Q11: the leak-detector positive and a negative ("FURNISHED BY VRF MANUFACTURER"); a sensor positive
+    ("PROVIDE SPACE TEMPERATURE SENSOR"); negatives "PROVIDE MOTORIZED DAMPER", "PROVIDE LOUVER" and
+    "PROVIDE CONDENSATE PUMP W/ FLOAT SWITCH" do not become AME scope.
+- **Wording choice for Siddhant (R6).** Patch 07 prints "Wire Damper Actuator (Furnished by Others)", the Master
+  Template's device name (motorized_dampers.01, "Damper Actuator") under the Wire verb. The Proposal's own form is
+  "Wire Motorized Damper ... (Furnished by Others)". Both carry the same ownership. Which device name prints is
+  Siddhant's call; it is one constant (`rulings.DAMPER_ACTUATOR`) and the two R6 / Q7 printed-text asserts in
+  test_07.
+
+### 8. B-02: schedule rows become ledger facts (`08-schedule-reader.patch`)
+- **Where it is lost.** `estimator.reading.schedules` does read the rows (tag, cells, manufacturer). But a
+  "CONTROLS BY / NOTES" column was not taken as the remarks column (only a header that *is* NOTES or REMARKS
+  counted), so the controls owner in it was lost. The drawing's revision block (MARK | DATE | DESCRIPTION) came back
+  as an untitled schedule. The dossier prints every row, but `estimator.ledger.seed` read only the count lines
+  (section 5), so no scheduled tag got a fact of its own.
+- **Fix.**
+  - `reading/schedules.py`: a remarks column is any header with a notes word in it, or CONTROLS BY / FURNISHED BY.
+    A table keyed by MARK whose other headers are DATE / DESCRIPTION / REVISION / BY and the like, with no tagged
+    rows, is a revision block and is dropped.
+  - `ledger/facts.py`: new seed-only kinds `schedule_qty`, `maker` and `area_served` (`SCHEDULE_KINDS`). The AI
+    passes keep their kinds (`PASS_KINDS`), so `passes.schema()` is byte-identical and cached pass answers stay
+    valid.
+  - `ledger/seed.py`: `schedule_row_facts` reads the dossier's section 4 and writes one fact per scheduled unit
+    tag, citing the row's own line. A QTY column gives `schedule_qty`, a manufacturer column gives `maker`, and
+    AREA SERVED / SERVES / ROOM / LOCATION gives `area_served`. The owner becomes a `provider` fact (ADDED, for the
+    schedules pass to confirm). It is read from a CONTROLS BY / NOTES / REMARKS cell that names a party ("DDC BY
+    UNIT MFR"), or from the schedule note a "SEE NOTE n" cell points to, citing that note. No column means no
+    fact. A remarks cell naming no party ("PROVIDE WITH DISCONNECT") gives no owner, and rows without a unit tag
+    (types, revision rows) give nothing.
+- **Tests** (invented PDF page: AHU-1..AHU-3 with TAG, QTY, MANUFACTURER, MODEL, AREA SERVED, CONTROLS BY / NOTES,
+  a note 1, and a revision block). The reader reads the rows (REGRESSION GUARD). The revision block is not a
+  schedule. CONTROLS BY / NOTES is the remarks column. Then the facts: qty, maker, area served, the owner from the
+  cell and from note 1, and every fact cites its row or note. Negatives: a party-less remarks cell gives no owner
+  (REGRESSION GUARD), no QTY column gives no qty facts, and revision rows give no facts. Finally, the kinds exist
+  and the AI pass enum is unchanged.
+- **Effect on the planner.** The planner already reads `provider` facts named by a unit: one that says the unit
+  maker (`_MAKER`) makes the unit's control `packaged`. That is B-02's "unit-furnished owner". The new kinds are
+  not read by the planner yet. The count anchor (`schedule_qty` into `counts.schedule_quantities`) and room
+  sensors (patch 09) are the next steps.
+
 ## Existing suite (`tests/`, `-m "not slow"`, on this Linux box)
 - **Clean src (baseline):** 9 failed, 3735 passed, 10 skipped. The failures are environmental and not caused by
   these patches: 5 chat tests in `test_ai.py`, the Windows resource-code test in `test_review_final3.py`,
   `test_assets.py::test_running_on_the_project_python`, and 2 `test_main.py` file tests.
-- **Patches 01-05 applied:** 13 failed, 3731 passed.
-  - 2 failures are intentional (listed below).
-  - 3 are `tests/test_revert_audit*.py`. These are flaky. Rerunning them on **clean** src fails a different 1-2 of
-    them each time (subprocess and git timing).
-  - The rest are the baseline set. One `test_ai` chat test passed in this run, so it is flaky too.
-- **All six applied (final):** 15 failed, 3729 passed, 10 skipped.
-  - The 4 intentional contradictions listed below.
-  - 3 flaky tests, each also seen failing on **clean** src on rerun: `test_status_review.py::
-    test_every_normal_exit_writes_the_state_whole_and_status_agrees`, `test_revert_audit.py::
-    test_a_tools_change_is_reverted_too` and `test_revert_audit_review.py::
-    test_a_test_file_saved_with_a_utf8_bom_is_audited`.
-  - The 8 remaining are baseline environmental failures.
-  - No other existing test changed result.
+- **All eight applied (this round, after the step-1 follow-ups):** 17 failed, 3727 passed, 10 skipped, 19
+  deselected. These are the 5 intentional contradictions plus environmental failures that also fail on a clean
+  tree: 5 `test_ai` chat tests, `test_review_final3`, `test_assets`, 2 `test_main` and 3 `test_revert_audit*`.
+  `test_status_review::test_every_normal_exit...` flaked once (it failed on clean src and passed with the patches
+  on rerun). `test_contracts::test_signature[cross_check]` and `test_run_review_detect2` pass again after the
+  context-variable rework.
+- **All seven applied (previous round):** 17 failed, 3727 passed, 10 skipped, 19 deselected.
+  - The 5 intentional contradictions listed below.
+  - 3 flaky `test_revert_audit*` tests, which also fail on clean src on rerun.
+  - The 9 baseline environmental failures. `test_ai::test_every_cleanup_is_logged_beside_the_cache` also fails on
+    clean src here.
+  - `test_final_b` condensate passes again (R5).
 
 ## Existing tests these patches intentionally contradict (they need the owner's decision; we cannot edit tests/)
 
-1. `tests/bms/test_plan.py::test_an_existing_system_is_named_and_a_missing_mode_is_asked` asserts
-   `job.front_end.mode == "new-system"` when no mode fact exists. That is bug 2 itself. With patch 02,
-   `front_end` is None and the question is kept, so the test's last assertion still holds. Proposed edit:
-   `assert job.front_end is None`.
-2. `tests/bms/test_counts.py::test_a_unit_on_two_floor_plans_adds_up_as_the_inventory_counts` (CNT-5) asserts
-   that EF-2, drawn on two floor plans, counts 2. That is the per-sheet overshoot from bug 4. With patch 04 it is 3
-   (EF-1, EF-2, EF-5). This test follows the FINAL-I "groups summed" lead ruling. Rule R1 and the owner's steer
-   ("a repeated tag is one unit") say otherwise. **The owner should confirm that R1 supersedes CNT-5 / FINAL-I for
-   unit tags** before this patch lands. The estimator-side `inventory.plan_count` / `_as_type` (the Evidence
-   Package) still sums groups. A follow-up patch would align it.
+1. `tests/bms/test_plan.py::test_an_existing_system_is_named_and_a_missing_mode_is_asked` (patch 02, R2). It
+   asserts `job.front_end.mode == "new-system"` and a "new or extends" question for an empty ledger. With patch 02
+   the front end is None, and under R2 the empty ledger gets the standalone question. Proposed edit:
+   `assert job.front_end is None` and `plan.STANDALONE_QUESTION in job.questions`.
+2. `tests/bms/test_counts.py::test_a_unit_on_two_floor_plans_adds_up_as_the_inventory_counts` (CNT-5; patch 04,
+   PROVISIONAL R3). See section 4. Proposed: `ef.value == 3`. On hold for Siddhant.
+3. `tests/bms/test_plan.py::test_a_plan_only_split_unit_keeps_its_existence_question_in_the_block` (patch 06, R4).
+   The test's sample Playbook has no Split shape, so the block also gets "No template family fits". The repo
+   Playbook has a Split shape.
+4. `tests/bms/test_review_final.py::test_a_delete_saved_with_a_family_count_change_stays_deleted` (patch 07, FINAL
+   R1). The deleted sensor stays deleted, which is the test's point. The VAV block now also carries the R1 line
+   "DDC Controller to the Factory for Installation", so `devices == []` fails. Proposed: assert that no sensor line
+   is left.
+5. `tests/bms/test_final_fixes.py::test_a_delete_saved_after_a_change_and_a_count_change_stays_deleted` (patch
+   07, FINAL R1). Same cause: `VAV.dd2`, the R1 controller, is left. Same proposed edit.
+
+No longer contradicted: `tests/bms/test_final_b.py::test_condensate_pumps_with_no_split_units_are_left_as_they_are`
+(R5 asks only on an alarm or interlock).
 
 ## Open doubts
+- Cap question: the floor-plan test is a title word list. A floor plan titled e.g. "LEVEL 2 MECHANICAL ROOM AND
+  CORRIDOR PLAN" would be taken as enlarged (silent cap). A plan group from `plan_groups` with typical floors (one
+  sheet for many floors) counts as one floor.
+- 1b: a dashed-only tag that no schedule lists stays counted and asked. Under "an undercount is the worst failure"
+  it is never dropped, but if it really is existing, the count overshoots by one until the estimator answers.
+  Which way to lean is Siddhant's call. A removed-only tag counts 0 and is asked.
+- 1b: a tag on a demolition sheet with no mark at all counts as removed. Demolition plans sometimes show existing
+  equipment to remain without "(E)" or TO REMAIN. That is still safe for the count (0 new) but could ask a "shown
+  only as removed" question about a unit that stays. The planner keeps its system either way.
+- 08: the owner words (`seed._OWNER_WORDS` plus the schedules vocabulary's controls phrases) are a first cut; a
+  remarks cell such as "FACTORY MOUNTED DISCONNECT" is not an owner, but "FACTORY MOUNTED CONTROLS" is.
+- 08 leaves the revision-block rule in code, not in `assets/reading_lists/schedules.json` (assets are out of bounds).
 - Bug 1 and bug 2 use one signal: `Job.front_end is None` means no source names a BMS. That covers both "the
   documents say nothing" and "the extraction missed it". The front-end question on Review.html is the safety net.
 - Bug 2 adds the `"pending"` mode to `estimator.scope.FrontEnd`, which the old estimator path shares. The reader
@@ -253,13 +465,3 @@ Side observation (not patched): in the 6a fixture, the planner gives `IDU` (name
   prompt. A hard ceiling (for example 3x the limit) could be added if that shows up.
 - Bug 5: if the AI writer later writes lines for a control-`none` system, it would show as both a block and a plan
   exception. Validate could flag that.
-
-## Existing tests these patches intentionally contradict (continued, patch 06)
-3. `tests/bms/test_plan.py::test_a_plan_only_split_unit_keeps_its_existence_question_in_the_block` asserts the
-   exact question list. With the test **sample** Playbook, which has no Split shape, the "Split System (AC-1)"
-   block now also gets the 6d "No Master Template family fits" question. The repo Playbook has a Split System
-   shape.
-4. `tests/bms/test_final_b.py::test_condensate_pumps_with_no_split_units_are_left_as_they_are` asserts that no
-   question names CP-21. A stand-alone condensate pump has no shape in either Playbook, so 6d asks about it. R4
-   gives the condensate pump a tie-in line under split, VRF or CRAC blocks. The owner should decide whether a
-   stand-alone pump should be asked about (as patched) or left alone (as the test says).

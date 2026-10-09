@@ -1,8 +1,17 @@
 diff --git a/src/bms/plan.py b/src/bms/plan.py
-index 448f730..83422b5 100644
+index 448f730..6a4db6b 100644
 --- a/src/bms/plan.py
 +++ b/src/bms/plan.py
-@@ -1390,15 +1390,18 @@ def _with_served(systems: list[System], drafts: list[_Draft]) -> list[System]:
+@@ -42,6 +42,8 @@ _GLOBAL_WORDS = re.compile(r"\bglobal\b|\bsystem\s+points\b|\bbuilding[\s-]*wide
+ SPLIT_SYSTEM = "Split System"
+ VRF_SYSTEM = "VRF System"
+ DUCT_HEATERS = "Duct Heaters"
++# provisional ruling R2 (GrokTeam/discussion.md): no BMS or front end shown -> standalone scope and this one question
++STANDALONE_QUESTION = "No BMS or front end is shown in the documents; confirm standalone controls."
+ 
+ # The words that tell a kind of equipment; the Playbook's shapes come first wherever they say it.
+ SPLIT_PREFIXES = frozenset({"CU", "ACCU", "AC", "CAC", "OU", "ODU", "SS", "IU"})
+@@ -1390,15 +1392,22 @@ def _with_served(systems: list[System], drafts: list[_Draft]) -> list[System]:
      return [replace(s, serves=tuple(serves[id(d)])) if id(d) in serves else s for s, d in zip(systems, drafts)]
  
  
@@ -16,15 +25,20 @@ index 448f730..83422b5 100644
      mode = next((m for m in by("mode") if m in ("new-system", "extend-existing")), "")
      existing = next((n for n in by("existing_name") if n), None)
      if not mode:
-         planner.questions.append("The documents do not say whether the BMS is new or extends an existing one; "
+-        planner.questions.append("The documents do not say whether the BMS is new or extends an existing one; "
 -                                 "which is it? The plan assumes a new system.")
 -        mode = "new-system"
-+                                 "which is it? No front end is printed until this is answered.")
++        if not facts and not planner.ledger.of_kind("integration"):
++            # nothing shows a BMS or a front end: the scope prints standalone, one question (provisional ruling R2)
++            planner.questions.append(STANDALONE_QUESTION)
++        else:
++            planner.questions.append("The documents do not say whether the BMS is new or extends an existing one; "
++                                     "which is it? No front end is printed until this is answered.")
 +        return None
      return FrontEnd(mode=mode, existing_system_name=existing if mode == "extend-existing" else None)
  
  
-@@ -1451,7 +1454,8 @@ def plan_job(ledger: Ledger, catalogue: Catalogue, dossier: Dossier, playbook: P
+@@ -1451,7 +1460,8 @@ def plan_job(ledger: Ledger, catalogue: Catalogue, dossier: Dossier, playbook: P
        branch-selector families; dampers linked to a fan are under that fan's system (not a system of their own);
        duct heaters in one place.
      - A system the documents name but AME does not do goes to `Job.exceptions`; open questions to `Job.questions`.

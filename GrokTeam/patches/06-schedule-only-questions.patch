@@ -1,41 +1,74 @@
 diff --git a/src/bms/plan.py b/src/bms/plan.py
-index 448f730..1019fee 100644
+index 448f730..ff21ae4 100644
 --- a/src/bms/plan.py
 +++ b/src/bms/plan.py
-@@ -1402,6 +1402,32 @@ def _front_end(planner: _Planner) -> FrontEnd:
+@@ -27,7 +27,7 @@ import re
+ from dataclasses import dataclass, field, replace
+ 
+ from estimator.catalogue.job import Catalogue
+-from estimator.ledger.facts import Fact, Ledger
++from estimator.ledger.facts import KINDS, Fact, Ledger
+ from estimator.writing.dossier import Dossier, sections_in
+ 
+ from bms import ai_evidence
+@@ -1402,6 +1402,56 @@ def _front_end(planner: _Planner) -> FrontEnd:
      return FrontEnd(mode=mode, existing_system_name=existing if mode == "extend-existing" else None)
  
  
++_ALARM_WORDS = re.compile(r"\balarms?\b|\binterlock", re.I)
++_LEAK_DETECTOR = re.compile(r"\bleak\s+detect", re.I)
++
++
++def _documents(planner: _Planner) -> list[str]:
++    """Every text the documents give the planner: each ledger fact (subject, value, quote) and each dossier
++    source's text."""
++    facts = [f for kind in KINDS for f in planner.ledger.of_kind(kind)]
++    return [f"{f.subject} {f.value} {f.quote}" for f in facts] + list(planner.texts().values())
++
++
++def _says(texts: list[str], words: re.Pattern, names: list[str]) -> bool:
++    """A text says `words` about the system: it names one of `names` (a tag or prefix, whole)."""
++    def about(text: str) -> bool:
++        return any(re.search(rf"(?<![A-Za-z0-9]){re.escape(n)}(?![A-Za-z0-9])", text, re.I) for n in names if n)
++    return any(words.search(t) and about(t) for t in texts)
++
++
 +def _unplaced_questions(planner: _Planner, systems: list[System], drafts: list[_Draft]) -> None:
-+    """Questions for what a schedule-only job would otherwise leave to a guess ("Template is the ideal case"): a
-+    system no Playbook shape fits, and a damper-only block whose actuators no provider fact gives to anyone. Only
-+    when nothing else speaks for the system (no sequence passage) and no question already names it."""
++    """Questions for what the documents leave open (rules.md "Template is the ideal case"); the provisional rulings
++    are GrokTeam/discussion.md's:
++    - R4: a system no Playbook shape fits: "no template family fits", asked whether it is AME's (a refrigerant leak
++      detector excepted: Q11, AME furnishes it);
++    - R5: a stand-alone condensate pump: asked only when a document shows an alarm or interlock for it.
++    A damper's actuator with no named furnisher is no question (R6: it prints Wire ... (Furnished by Others)); a VAV's
++    DDC controller is no question (final ruling R1 / Q4-R11: every VAV gets it, `bms.rulings`).
++    R4 and R5 only when nothing else speaks for the system (no sequence passage) and no question already names it."""
++    texts = _documents(planner)
++
 +    def asked(names: list[str]) -> bool:
 +        return any(any(n and n.upper() in q.upper() for n in names) for q in planner.questions)
 +
 +    for system, draft in zip(systems, drafts):
-+        if system.sequence_refs or not system.families:
++        if not system.families:
 +            continue
 +        tags = [t for f in system.families for t in f.tags if t.strip()]
 +        shown = ", ".join(tags) if tags else "no tags"
-+        if asked(tags or [system.name]):
++        names = [*tags, *draft.prefixes]
++        if system.sequence_refs or asked(tags or [system.name]):
 +            continue
-+        if not system.shape:
++        if _all_condensate(draft):
++            if _says(texts, _ALARM_WORDS, names):
++                planner.questions.append(f"The documents show an alarm or interlock for {system.name} ({shown}); is "
++                                         "its wiring AME's? It is planned with no line until this is answered.")
++        elif not system.shape and not any(_LEAK_DETECTOR.search(f.name) for f in system.families):
 +            # planned in the generic form, never dropped silently: is it AME's at all?
-+            planner.questions.append(f"No Master Template family fits {system.name} ({shown}); is it in AME's "
-+                                     "scope? If not, it is a named exception.")
-+        elif all("damper" in f.name.lower() and not re.search(r"fire|smoke", f.name, re.I)
-+                 for f in system.families) and not any(
-+                     any(d is draft for d in _named(drafts, f.subject)) for f in planner.ledger.of_kind("provider")):
-+            # who furnishes the actuators is the documents' to say: asked, never guessed
-+            planner.questions.append(f"The documents do not say who furnishes the damper actuators of {system.name} "
-+                                     f"({shown}); who does? No damper line is printed until this is answered.")
++            planner.questions.append(f"No template family fits {system.name} ({shown}); is it in AME's scope? "
++                                     "If not, it is a named exception.")
 +
 +
  def _exceptions(planner: _Planner, systems: list[System], drafts: list[_Draft]) -> tuple[ScopeException, ...]:
      out = []
      for fact in planner.ledger.of_kind("note"):
-@@ -1470,6 +1496,7 @@ def plan_job(ledger: Ledger, catalogue: Catalogue, dossier: Dossier, playbook: P
+@@ -1470,6 +1520,7 @@ def plan_job(ledger: Ledger, catalogue: Catalogue, dossier: Dossier, playbook: P
      keys: set[str] = set()
      systems = _with_served([planner.system(d, keys, drafts) for d in drafts], drafts)
      planner.family_questions(systems, drafts)

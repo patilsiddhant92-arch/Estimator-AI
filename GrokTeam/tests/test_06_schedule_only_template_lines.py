@@ -7,8 +7,10 @@ as data).
 Owner ruling 2026-10-09: the Master Template is the ideal-case checklist only (rules.md "Template is the ideal
 case", "No standard or fallback lines"): nothing prints by default. Tests marked REGRESSION GUARD pass on current
 code; they pin the behaviour, they are not bug proofs. Parts with a design note and no patch (6a's planner
-question, 6c, 6e) are xfail(strict=True). 6b's and 6d's planner questions have a patch
-(`06-schedule-only-questions.patch`).
+question, 6c, 6e) are xfail(strict=True) with the error they expect. Patch 06 (`06-schedule-only-questions.patch`)
+carries the planner side of PROVISIONAL rulings R4 (no template family fits), R5 (condensate pumps) and R6 (no
+actuator question); the printed lines of R6, Q1, Q2, Q7, Q11 and final R1 are patch 07's (test_07). Rulings are
+GrokTeam/discussion.md's.
 """
 import json
 import re
@@ -102,7 +104,8 @@ def test_6a_a_supported_template_device_prints_with_its_schedule_quantity_and_ow
 
 def test_6a_no_template_line_prints_by_default_on_a_schedule_only_job():
     """REGRESSION GUARD (negative, passes on current code): the planner writes no line of its own, and a line with
-    no citation from this job cannot be made at all."""
+    no citation from this job cannot be made at all. (The two documented defaults, Q1 and final R1, are added
+    after the writer by `bms.rulings.DOCUMENTED_DEFAULTS`, never by the planner: test_07.)"""
     job = _job()
     assert all(not s.devices for s in job.systems)
     with pytest.raises(ModelError):
@@ -133,8 +136,9 @@ def test_6a_a_supported_template_device_raises_no_question():
     assert not _asks_about(job, "UH-1", "Thermostat"), job.questions
 
 
-# ---- 6b (revision 2): who furnishes a damper actuator is open; documents silent -> a question, no line ----------
-# No wording or furnisher is asserted ('Wire Motorized Damper (Furnished by Others)' is acceptable).
+# ---- 6b (PROVISIONAL ruling R6): an actuator with no named furnisher prints, it is not a question --------------
+# R6 (GrokTeam/discussion.md): "Wire Damper Actuator (Furnished by Others)" prints (bms.rulings, test_07); the
+# planner asks nothing about it. Replaces revision 2 ("documents silent -> a question, no line").
 
 def _damper_job(provider=None):
     ledger = _schedule_only_ledger()
@@ -143,63 +147,166 @@ def _damper_job(provider=None):
     return plan_job(ledger, None, _dossier(), PLAYBOOK)
 
 
-def test_6b_documents_silent_on_who_furnishes_the_actuator_raise_a_question():
+def test_6b_r6_documents_silent_on_the_actuator_furnisher_raise_no_question():
+    """REGRESSION GUARD (passes on current code) for PROVISIONAL ruling R6: the line prints instead (test_07)."""
     job = _damper_job()
-    asks = [q for q in job.questions if "MD-1" in q and "actuator" in q.lower()]
-    assert len(asks) == 1, job.questions
+    assert not [q for q in job.questions if "MD-1" in q and "actuator" in q.lower()], job.questions
 
 
-def test_6b_documents_silent_print_no_damper_line():
-    """Negative (passes before and after): the planner writes no damper line of its own."""
-    job = dataclasses.replace(_damper_job(), header=_header())
-    assert not [t for t, _q in _printed(job) if "damper" in t.lower()]
-
-
-def test_6b_documents_naming_the_furnisher_raise_no_actuator_question():
-    """Negative (passes before and after): a provider fact names who furnishes the dampers' controls."""
+def test_6b_r6_documents_naming_the_furnisher_raise_no_actuator_question():
+    """REGRESSION GUARD (negative, passes on current code) for PROVISIONAL ruling R6."""
     job = _damper_job("damper actuators furnished and installed by controls contractor")
     assert not [q for q in job.questions if "MD-1" in q and "actuator" in q.lower()], job.questions
 
 
-# ---- 6c: a sensor symbol attaches to the unit it is drawn next to ------------------------------------------------
+# ---- 6c (reworked): a room sensor belongs to the unit that serves its room, never the nearest tag -----------------
+# Finding: no schedule "Area Served" / "Room" / "Serves" link exists today. The schedule reader
+# (estimator/reading/schedules.py) keeps tags and rows, no area-served field; the ledger kinds
+# (estimator/ledger/facts.py KINDS) have "location" (the plans pass: free-text floors, zones, rooms) and "link"
+# (served unit <- serving unit: dampers to fans, risers), no area served; plan.py `_SERVES` / `Served` tie duct
+# heaters only. Patch 08 adds the ledger kind "area_served" (subject the unit tag, value the schedule cell, seeded
+# from the schedule row); still proposed (patch 09): `bms.counts.assign_room_sensors(sensors, area_served, units)` -> (sensor id -> unit tag, questions).
+# The link is given here as fixture data; it is never inferred from duct colour or drawing distance.
+# Rooms match on their number when there is one (leading zeros and case ignored), the name only as a fallback.
 
-def _attach(symbols, units):
-    from bms.counts import attach_symbols                # proposed; does not exist yet
-    return attach_symbols(symbols, units)
-
-
-@pytest.mark.xfail(strict=True, raises=ImportError, reason="6c design note: no symbol-to-unit attachment by drawing position exists "
-                                       "(counts read tags only)")
-def test_6c_a_humidity_sensor_next_to_a_dehumidifier_attaches_to_it():
-    units = [("DH-1", (100, 100)), ("VAV-1", (400, 120))]               # same floor plan, invented positions
-    assert _attach([("TH", (110, 105))], units) == {"TH@110,105": "DH-1"}
-
-
-@pytest.mark.xfail(strict=True, raises=ImportError, reason="6c design note: negative partner of the attachment test (same API)")
-def test_6c_a_sensor_next_to_a_vav_stays_with_the_vav():
-    units = [("DH-1", (100, 100)), ("VAV-1", (400, 120))]
-    assert _attach([("TH", (395, 118))], units) == {"TH@395,118": "VAV-1"}
+def _assign(sensors, area_served, units):
+    from bms.counts import assign_room_sensors           # proposed; does not exist yet (after the fixture is built)
+    return assign_room_sensors(sensors, area_served, units)
 
 
-# ---- 6d: equipment with no template family is never dropped silently (patched) -----------------------------------
+# invented positions: each VAV tag is drawn nearer the sensor than the unit serving the room
+UNITS = {"AC-9-1": (900, 900), "VAV-9-2": (110, 105), "VAV-9": (120, 100)}
 
+
+# (The 'area_served' ledger kind itself is now delivered by patch 08, tested in test_08_schedule_reader.py;
+# the room-to-unit assignment below stays a strict xfail until patch 09.)
+
+
+@pytest.mark.xfail(strict=True, raises=ImportError, reason="6c design note: no room-to-unit assignment exists "
+                                                           "(counts read tags only)")
+def test_6c_a_co2_sensor_goes_to_the_unit_scheduled_to_serve_its_room_not_the_nearer_vav():
+    """(a) positive."""
+    served = {"AC-9-1": "LOUNGE 9", "VAV-9-2": "OFFICE 9A"}
+    assigned, questions = _assign([("CO2-1", "LOUNGE 9", (100, 100))], served, UNITS)
+    assert assigned == {"CO2-1": "AC-9-1"} and not questions
+
+
+@pytest.mark.xfail(strict=True, raises=ImportError, reason="6c design note: same proposed step")
+def test_6c_a_sensor_in_a_room_a_vav_is_scheduled_to_serve_stays_with_that_vav():
+    """(b) negative partner."""
+    served = {"AC-9-1": "LOUNGE 9", "VAV-9-2": "OFFICE 9A"}
+    assigned, _questions = _assign([("TS-1", "OFFICE 9A", (100, 100))], served, UNITS)
+    assert assigned == {"TS-1": "VAV-9-2"}
+
+
+@pytest.mark.xfail(strict=True, raises=ImportError, reason="6c design note: same proposed step")
+def test_6c_a_sensor_in_a_room_no_unit_serves_is_a_confirm_question_never_the_nearest_tag():
+    """(c) no unit is shown serving the room: asked, never the nearest tag."""
+    served = {"AC-9-1": "LOUNGE 9", "VAV-9-2": "OFFICE 9A"}
+    assigned, questions = _assign([("CO2-2", "STORAGE 9C", (100, 100))], served, UNITS)
+    assert "CO2-2" not in assigned
+    asks = [q for q in questions if "CO2-2" in q and "STORAGE 9C" in q and "confirm" in q.lower()]
+    assert len(asks) == 1 and "VAV-9-2" not in asks[0], questions
+
+
+@pytest.mark.xfail(strict=True, raises=ImportError, reason="6c design note: same proposed step")
+def test_6c_a_room_two_units_list_goes_to_neither_and_names_both():
+    """(d) a tie: both schedules list the sensor's room."""
+    served = {"AC-9-1": "Lobby & Lounge", "VAV-9": "Lounge"}
+    assigned, questions = _assign([("CO2-3", "LOUNGE", (100, 100))], served, UNITS)
+    assert "CO2-3" not in assigned
+    asks = [q for q in questions if "CO2-3" in q and "AC-9-1" in q and "VAV-9" in q and "confirm" in q.lower()]
+    assert len(asks) == 1, questions
+
+
+@pytest.mark.xfail(strict=True, raises=ImportError, reason="6c design note: same proposed step")
+def test_6c_a_room_number_matches_with_leading_zeros_and_case_ignored():
+    """(e) "Lounge 907" == "LOUNGE 0907": the number keys the match."""
+    served = {"AC-7-1": "LOUNGE 0907", "VAV-7-2": "OFFICE 0912"}
+    assigned, questions = _assign([("CO2-4", "Lounge 907", (100, 100))], served, {"AC-7-1": (900, 900),
+                                                                                  "VAV-7-2": (100, 101)})
+    assert assigned == {"CO2-4": "AC-7-1"} and not questions
+
+
+@pytest.mark.xfail(strict=True, raises=ImportError, reason="6c design note: same proposed step")
+def test_6c_the_same_word_on_another_floor_is_no_match():
+    """(f) negative: "Studio" room 0907 and "Media Studio" room 0407 are different rooms; a name-only fuzzy match
+    must not tie them across floors."""
+    served = {"AC-7-1": "STUDIO 0907", "AC-8-1": "MEDIA STUDIO 0407"}
+    assigned, questions = _assign([("CO2-5", "STUDIO 0907", (100, 100))], served, {"AC-7-1": (900, 900),
+                                                                                   "AC-8-1": (100, 101)})
+    assert assigned == {"CO2-5": "AC-7-1"} and not questions
+    assigned, questions = _assign([("CO2-6", "STUDIO 0907", (100, 100))], {"AC-8-1": "MEDIA STUDIO 0407"},
+                                  {"AC-8-1": (100, 101)})
+    assert "CO2-6" not in assigned and [q for q in questions if "CO2-6" in q]
+
+
+# ---- 6d (PROVISIONAL ruling R4): equipment with no template family is never dropped silently (patched) ----------
+
+UNMATCHED = (("WM", "Water Meter", "WM-1, WM-2", 2),)
 LEAK = (("RLD", "Refrigerant Leak Detector", "RLD-1, RLD-2", 2),)
 
 
-def test_6d_an_unmatched_family_raises_a_question():
-    job = _job(LEAK)
-    asks = [q for q in job.questions if "RLD-1" in q and "Master Template" in q]
+def test_6d_r4_an_unmatched_family_asks_no_template_family_fits():
+    """PROVISIONAL ruling R4 (GrokTeam/discussion.md)."""
+    job = _job(UNMATCHED)
+    asks = [q for q in job.questions if "WM-1" in q and "no template family fits" in q.lower()]
     assert len(asks) == 1, job.questions
 
 
-def test_6d_the_unmatched_family_is_still_planned_never_dropped():          # negative: before and after
+def test_6d_r4_the_unmatched_family_is_still_planned_never_dropped():
+    """PROVISIONAL R4, negative (passes before and after)."""
+    job = _job(UNMATCHED)
+    assert any("WM-1" in f.tags for s in job.systems for f in s.families)
+
+
+def test_6d_r4_a_family_with_a_template_shape_raises_no_such_question():
+    """PROVISIONAL R4, negative (passes before and after)."""
+    job = _job()
+    assert not [q for q in job.questions if "template family" in q.lower()], job.questions
+
+
+def test_6d_q11_a_refrigerant_leak_detector_is_not_asked_whether_it_is_ames():
+    """Standing ruling Q11 (discussion.md: AME furnishes the leak detector), so R4's scope question is not asked;
+    the AME line is bms.rulings' (test_07). REGRESSION GUARD on current code, kept by patch 06."""
     job = _job(LEAK)
+    assert not [q for q in job.questions if "RLD-1" in q], job.questions
     assert any("RLD-1" in f.tags for s in job.systems for f in s.families)
 
 
-def test_6d_a_family_with_a_template_shape_raises_no_such_question():      # negative: before and after
-    job = _job()
-    assert not [q for q in job.questions if "Master Template" in q], job.questions
+# ---- R5 (PROVISIONAL): a stand-alone condensate pump is asked about only when a document shows an alarm/interlock -
+
+PUMP = (("CP", "Condensate Pump", "CP-21", 1),)
+
+
+def _pump_job(note=None):
+    ledger = _schedule_only_ledger(PUMP)
+    if note:
+        ledger.add("note", "CP", note, "S5", note, "schedules", SETTLED)
+    return plan_job(ledger, None, _dossier(), PLAYBOOK)
+
+
+def test_r5_a_pump_with_a_high_water_alarm_is_asked_about():
+    """PROVISIONAL ruling R5, positive."""
+    asks = [q for q in _pump_job("CP-21 HIGH WATER ALARM TO BMS").questions if "CP-21" in q and "alarm" in q.lower()]
+    assert len(asks) == 1
+
+
+def test_r5_a_pump_interlocked_with_its_unit_is_asked_about():
+    """PROVISIONAL ruling R5, positive (second wording)."""
+    assert [q for q in _pump_job("CP-21 INTERLOCK WITH AC-21 SHUTDOWN").questions if "CP-21" in q]
+
+
+def test_r5_a_pump_with_no_alarm_or_interlock_is_not_asked_about():
+    """REGRESSION GUARD (negative, passes on current code) for PROVISIONAL R5; also restores main test_final_b."""
+    assert not [q for q in _pump_job().questions if "CP-21" in q]
+
+
+def test_r5_an_alarm_on_another_unit_does_not_make_the_pump_a_question():
+    """REGRESSION GUARD (negative) for PROVISIONAL R5: the alarm must be the pump's."""
+    ledger = _schedule_only_ledger(PUMP)
+    ledger.add("note", "EF", "EF-1 FAILURE ALARM TO BMS", "S5", "EF-1 failure alarm", "schedules", SETTLED)
+    assert not [q for q in plan_job(ledger, None, _dossier(), PLAYBOOK).questions if "CP-21" in q]
 
 
 # ---- 6e: a printed line that hits a house exclusion is flagged ---------------------------------------------------
@@ -244,8 +351,8 @@ def _vrf_job(n=3):
 
 
 VRF_DOSSIER = ("== 7. NOTES ==\n--- M-601, Invented.pdf page 9 ---\n"
-               "[N1] VRF INDOOR UNIT WALL MOUNTING DETAIL. T'STAT PROVIDED BY UNIT MFGR.\n")
-VRF_DOSSIER_BARE = "== 7. NOTES ==\n--- M-601, Invented.pdf page 9 ---\n[N1] T'STAT PROVIDED BY UNIT MFGR.\n"
+               "[N1] VRF INDOOR UNIT WALL MOUNTING DETAIL. T-STAT SUPPLIED BY UNIT MFR.\n")
+VRF_DOSSIER_BARE = "== 7. NOTES ==\n--- M-601, Invented.pdf page 9 ---\n[N1] T-STAT SUPPLIED BY UNIT MFR.\n"
 
 
 def test_6f_i_a_vrf_detail_note_naming_the_indoor_unit_reaches_its_evidence():
@@ -255,7 +362,7 @@ def test_6f_i_a_vrf_detail_note_naming_the_indoor_unit_reaches_its_evidence():
     assert "N1" in ai_evidence.cited_ids(ai_evidence.evidence(vrf, VRF_DOSSIER, {}, {}, ()))
 
 
-@pytest.mark.xfail(strict=True, raises=AssertionError, reason="6f design note: a bare detail-sheet note ('T'STAT PROVIDED BY UNIT MFGR.') "
+@pytest.mark.xfail(strict=True, raises=AssertionError, reason="6f design note: a bare detail-sheet note ('T-STAT SUPPLIED BY UNIT MFR.') "
                                        "names no tag or system phrase, so `ai_evidence` never gives it to the writer")
 def test_6f_i_a_bare_tstat_note_on_the_vrf_detail_sheet_reaches_the_vrf_evidence():
     from bms import ai_evidence
@@ -263,7 +370,7 @@ def test_6f_i_a_bare_tstat_note_on_the_vrf_detail_sheet_reaches_the_vrf_evidence
     assert "N1" in ai_evidence.cited_ids(ai_evidence.evidence(vrf, VRF_DOSSIER_BARE, {}, {}, ()))
 
 
-TSTAT_NOTES = ("T'STAT PROVIDED BY UNIT MFGR.", "THERMOSTAT FURNISHED BY EQUIPMENT MANUFACTURER")
+TSTAT_NOTES = ("T-STAT SUPPLIED BY UNIT MFR.", "THERMOSTAT FURNISHED BY EQUIPMENT MANUFACTURER")
 
 
 def _vrf_note(text):
