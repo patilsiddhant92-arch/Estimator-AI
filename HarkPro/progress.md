@@ -12,3 +12,4 @@
 - Job 2a rerun on the fixed code: VAV 15 (field DDC, 45 h), AC 2, CP 2, BIPO 2 as Add Alternate #1, EF left out. Price sheet total incl. tax $15,687.66, 10 PRICE PENDING lines.
 - Round 2 fixes: front end, add alternate from the schedule title, automatic EXCEPTION lines, opening wording. 26 new tests; no new failures (tests/bms 1,874 pass; tests/ 2,062 pass).
 - Waiting on Siddhant's review. No rerun until then.
+- New HarkPro flow (built beside the app, app untouched): doctrine/ (Master Template as lines.json: 39 families, 438 lines; rulings.md R1-R18; conflicts.md C1-C36), harkpro/ coverage gate, 4-tab Evidence, run-to-run diff, CLI. On Job 2a v2 the gate fails as it should: 4 of the 5 known misses are flagged (the 5th, the radiator interlock, is printed), plus the EF thermostat, the leak and float ruling breaks, and a thermostat count gap. Independent QC critic agent in progress.

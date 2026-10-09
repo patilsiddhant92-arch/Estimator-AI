@@ -1,0 +1,18 @@
+{
+ "$schema_version": "1.0",
+ "families": [
+  {"id": "front_end", "family": "Front End", "aliases": [], "tech_hours": null, "lines": [
+    {"id": "front_end.14", "text": "Seamlessly Tie in to the Existing {existing_bms} BMS", "verb": "note"},
+    {"id": "front_end.21", "text": "Interface Lighting Control System (By Others) With Front End BMS Via Manufacturer Provided BMS Interface", "verb": "integration"}]},
+  {"id": "packaged_unit", "family": "Packaged Unit", "aliases": ["RTU"], "lines": [
+    {"id": "packaged_unit.01", "text": "Furnish and Install Leak Sensor", "verb": "furnish_install"},
+    {"id": "packaged_unit.02", "text": "Furnish and Install Local RAM Module", "verb": "furnish_install"}]},
+  {"id": "occupancy_sensors", "family": "Occupancy Sensors", "aliases": ["OS"], "lines": [
+    {"id": "occupancy_sensors.01", "text": "Furnish and Install Occupancy Sensor", "verb": "furnish_install"}]},
+  {"id": "exhaust_fan", "family": "Exhaust Fans", "aliases": ["EF"], "lines": [
+    {"id": "exhaust_fan.09", "text": "Furnish and Install Space Thermostat", "verb": "furnish_install"}]},
+  {"id": "vav", "family": "VAV / Fan VAV", "aliases": ["VAV"], "lines": [
+    {"id": "vav.02", "text": "Furnish and Install Space Temperature Sensor", "verb": "furnish_install"},
+    {"id": "vav.03", "text": "Furnish and Install Space Temperature / Humidity Sensor", "verb": "furnish_install"}]}
+ ]
+}

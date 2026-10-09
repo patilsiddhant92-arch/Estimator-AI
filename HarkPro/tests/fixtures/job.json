@@ -1,0 +1,38 @@
+{
+ "name": "sample-clinic",
+ "systems": [
+  {"key": "RTU", "name": "Rooftop Unit", "shape": "Packaged Unit", "control": "integration",
+   "families": [{"name": "Rooftop Unit", "tags": ["RTU-1", "RTU-2"], "count": {"value": 2, "sources": [], "others": [], "basis": "schedule"}},
+                {"name": "Motorized Damper", "tags": [], "count": {"value": 2, "sources": [], "others": []}}],
+   "sequence_refs": [],
+   "devices": [
+    {"id": "RTU.d1", "slot": "comm_wiring", "name": "BMS Communication Wiring to RTU Factory Controls", "verb": "Furnish", "furnished_by": "AME", "installed_by": "AME", "wired_by": "AME", "quantity": {"value": 2, "sources": [], "others": []}, "refs": [{"source_id": "S3", "quote": "BACNET INTERFACE BY UNIT MFR.", "where": "M-401"}], "assumption": null, "flag": "none"},
+    {"id": "RTU.d2", "slot": "leak", "name": "Leak Sensor", "verb": "Furnish and Install", "furnished_by": "AME", "installed_by": "AME", "wired_by": "AME", "quantity": {"value": 2, "sources": [], "others": []}, "refs": [{"source_id": "S8", "quote": "DRIP PAN LEAK DETECTOR WIRE TO BMS.", "where": "M-501"}], "assumption": null, "flag": "none"},
+    {"id": "RTU.d3", "slot": "other_device", "name": "Motorized Damper Actuator", "verb": "Furnish and Install", "furnished_by": "AME", "installed_by": "AME", "wired_by": "AME", "quantity": {"value": 2, "sources": [], "others": []}, "refs": [{"source_id": "S4", "quote": "MOTORIZED DAMPER ACTUATORS SHALL BE PROVIDED BY ATC CONTRACTOR.", "where": "M-101"}], "assumption": {"what": "one damper actuator per unit", "why": "the plan shows dampers without tags"}, "flag": "quantity"}
+   ],
+   "clarifications": [{"kind": "confirm", "text": "RTU integration priced with AME as the BMS vendor"}],
+   "tech_hours": 4.0, "alternate": "base", "no_scope_reason": null, "serves": []},
+  {"key": "VAV", "name": "VAV Box", "shape": "VAV / Fan VAV", "control": "field",
+   "families": [{"name": "VAV Box", "tags": ["VAV-1", "VAV-2", "VAV-3"], "count": {"value": 3, "sources": [], "others": []}}],
+   "sequence_refs": [],
+   "devices": [
+    {"id": "VAV.d1", "slot": "controller", "name": "DDC Controller to the Factory for Installation", "verb": "Furnish", "furnished_by": "AME", "installed_by": "Unit Mfr.", "wired_by": "Unit Mfr.", "quantity": {"value": 3, "sources": [], "others": []}, "refs": [{"source_id": "S10", "quote": "Unit controls by: BMS CONNECTION TO MONITOR STATUS OF ALL VAVS.", "where": "M-402"}], "assumption": null, "flag": "none"},
+    {"id": "VAV.d2", "slot": "space_sensor", "name": "Space Temperature Sensor", "verb": "Furnish and Install", "furnished_by": "AME", "installed_by": "AME", "wired_by": "AME", "quantity": {"value": 3, "sources": [], "others": []}, "refs": [{"source_id": "S7", "quote": "T (Thermostat / temperature sensor): 4 in all", "where": ""}], "assumption": null, "flag": "none"},
+    {"id": "VAV.d3", "slot": "other_interlock", "name": "Perimeter Radiation", "verb": "Furnish and Install", "furnished_by": "AME", "installed_by": "AME", "wired_by": "AME", "quantity": {"value": 3, "sources": [], "others": []}, "refs": [{"source_id": "S5", "quote": "RADIATOR CONTROL VALVES SHALL BE INTERLOCKED WITH THE ZONE THERMOSTAT FOR EACH VAV.", "where": "M-201"}], "assumption": null, "flag": "none"}
+   ],
+   "clarifications": [], "tech_hours": 9.0, "alternate": "base", "no_scope_reason": null, "serves": []},
+  {"key": "EF", "name": "Exhaust Fan", "shape": "Exhaust Fan", "control": "field",
+   "families": [{"name": "Exhaust Fan", "tags": ["EF-1"], "count": {"value": 1, "sources": [], "others": []}}],
+   "sequence_refs": [], "devices": [], "clarifications": [], "tech_hours": null, "alternate": "base",
+   "no_scope_reason": "EF-1 runs on a wall thermostat the fan schedule gives to the mechanical contractor.", "serves": []},
+  {"key": "GR", "name": "GR", "shape": "none", "control": "none",
+   "families": [{"name": "GR", "tags": [], "count": {"value": 4, "sources": [], "others": []}}],
+   "sequence_refs": [], "devices": [], "clarifications": [], "tech_hours": null, "alternate": "base",
+   "no_scope_reason": "Air device (diffuser/register/grille), no BMS controls scope.", "serves": []}
+ ],
+ "front_end": {"mode": "extend-existing", "existing_system_name": null, "devices": [], "clarifications": [], "tech_hours": null},
+ "exceptions": [],
+ "questions": [],
+ "header": {"quote_number": "00-0000", "reference": "Sample Clinic", "mep_engineer": "[MEP engineer]", "based_on": ["M-001 Thru M-601"], "date": "2026-10-09", "to": "All Bidders"},
+ "source_sheets": []
+}
