@@ -19,3 +19,13 @@
 6. When to merge: hark/evidence-ui (7e27873) and the hark/fix-all patch into main.
 7. Proposal clarifications (*Confirm / *Assumed) print as long internal paragraphs under each system. Proposed fix: one short client-facing line per item in the proposal, with the reasoning kept in the Evidence Package.
 8. An empty "DEDUCT ALTERNATES: ALT #:" prints when there are none.
+
+## 2026-10-09: controls items by the mechanical contractor, and schedule notes
+- AC drip-pan leak detector: change to the Master Template line "Furnish and Install Leak Sensor". The documents only say it is wired to a local A/V alarm panel; no MC furnishing is stated. Integral refrigerant leak detection stays a client note: "**Refrigeration Leak Detection system is coming with the unit per equipment schedule".
+- Condensate pump: change to the Master Template line "Tie-in Condensate Pump Float Switch (Furnished by Mfr.)". The schedule note ("PROVIDE FLOAT OPERATED HIGH WATER ALARM...") is a pump-manufacturer note; the detail says "WIRE TO BMS".
+- App rules that conflict with the new ruling or with the Master Template (to update after review):
+  - playbook/rules.md 78-84: default ownership, MC owns "unit-mounted safeties not assigned to the controls contractor"
+  - playbook/rules.md 122-124: "(Furnished by Mechanical Contractor)" for condensate pumps and float switches; the Master Template says "(Furnished by Mfr.)"
+  - playbook/rules.md 466-472: named exceptions list INTEGRAL / LINE-VOLTAGE THERMOSTAT; one BMS word in the schedule notes means priced
+  - assets/gem/BMS_DDC_GEM_v3.2.txt Q1: "Mechanical Contractor / MC → MC furnishes it"
+- Rules that support "schedule notes are mostly for the OEM": rules.md 105-108 (a generic "provide" with no party named is not AME), 248-262 (packaged unit: the manufacturer owns the device unless a schedule/sequence/plan note gives it to the controls contractor; nothing inside the unit is a line). No explicit rule says "schedule notes address the manufacturer".
