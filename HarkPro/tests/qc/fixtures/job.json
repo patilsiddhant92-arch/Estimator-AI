@@ -1,0 +1,14 @@
+{"name": "sample-office",
+ "systems": [
+  {"key": "RTU", "name": "Rooftop Unit", "shape": "Packaged Unit", "control": "integration", "alternate": "base",
+   "families": [{"name": "Rooftop Unit", "tags": ["RTU-1", "RTU-2"], "count": {"value": 2, "sources": [], "others": []}}],
+   "sequence_refs": [], "clarifications": [], "tech_hours": null, "no_scope_reason": null, "serves": [],
+   "devices": [
+    {"id": "RTU.d1", "slot": "comm_wiring", "name": "BMS Communication Wiring to RTU Factory Controls", "verb": "Furnish", "furnished_by": "AME", "installed_by": "AME", "wired_by": "AME", "quantity": {"value": 2, "sources": [], "others": []}, "refs": [{"source_id": "S2", "quote": "BACNET INTERFACE BY UNIT MFR.", "where": "M-401"}], "assumption": null, "flag": "none"},
+    {"id": "RTU.d2", "slot": "leak", "name": "Leak Detector", "verb": "Wire", "furnished_by": "Mechanical Contractor", "installed_by": "Mechanical Contractor", "wired_by": "AME", "quantity": {"value": 2, "sources": [], "others": []}, "refs": [{"source_id": "S3", "quote": "DRIP PAN LEAK DETECTOR", "where": "M-501"}], "assumption": null, "flag": "none"}]},
+  {"key": "EF", "name": "Exhaust Fan", "shape": "Exhaust Fan", "control": "field", "alternate": "base",
+   "families": [{"name": "Exhaust Fan", "tags": ["EF-1"], "count": {"value": 1, "sources": [], "others": []}}],
+   "sequence_refs": [], "clarifications": [], "tech_hours": null, "serves": [], "devices": [],
+   "no_scope_reason": "the fan runs on a thermostat by the mechanical contractor"}],
+ "front_end": {"mode": "new-system", "existing_system_name": null, "devices": [], "clarifications": [], "tech_hours": null},
+ "exceptions": [], "questions": []}

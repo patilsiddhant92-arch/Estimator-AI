@@ -1,0 +1,11 @@
+{"version": 1, "job_name": "sample-office",
+ "sources": {"S1": "equipment counts for RTU (schedules and plans)", "S2": "RTU SCHEDULE notes, M-401, Drawings.pdf page 5",
+             "S3": "M-501, Drawings.pdf page 6 (sheet text)", "S4": "EXHAUST FAN SCHEDULE notes, M-401, Drawings.pdf page 5",
+             "S5": "M-401, Drawings.pdf page 5 (sheet text)"},
+ "facts": [
+  {"id": "F1", "kind": "family", "subject": "RTU", "value": "Rooftop Unit", "source_id": "S1", "quote": "RTU (Rooftop Unit): schedule rows 2; distinct tags 2"},
+  {"id": "F2", "kind": "provider", "subject": "RTU", "value": "BACNET INTERFACE BY UNIT MFR.", "source_id": "S2", "quote": "BACNET INTERFACE BY UNIT MFR."},
+  {"id": "F3", "kind": "device", "subject": "drip pan leak detector", "value": "one per RTU", "source_id": "S3", "quote": "DRIP PAN LEAK DETECTOR WIRED TO LOCAL ALARM PANEL AND BMS."},
+  {"id": "F4", "kind": "provider", "subject": "EF", "value": "MC to provide thermostat", "source_id": "S4", "quote": "MECHANICAL CONTRACTOR TO PROVIDE WALL THERMOSTAT FOR STORAGE ROOM FAN."},
+  {"id": "F5", "kind": "note", "subject": "ductwork", "value": "seal ductwork", "source_id": "S5", "quote": "SEAL ALL DUCT JOINTS AIRTIGHT."}
+ ]}
