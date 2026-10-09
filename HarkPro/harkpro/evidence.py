@@ -116,6 +116,21 @@ class _Cites:
         return sid
 
 
+def _evidence(ledger: dict, refs, limit: int = 4) -> str:
+    """The proof itself, readable without chasing ids: one line per citation, 'Where: "quote"'."""
+    out = []
+    for r in refs or []:
+        quote = " ".join(str(r.get("quote") or "").split())
+        where = appio.where(ledger, str(r.get("source_id", "")).strip("[]")) or r.get("where", "") or ""
+        if not quote and not where:
+            continue
+        text = f'{where}: \u201c{quote}\u201d' if quote else where
+        if text not in out:
+            out.append(text)
+    more = len(out) - limit
+    return "\n".join(out[:limit] + ([f"(+{more} more)"] if more > 0 else []))
+
+
 def _tag_run(tags: list[str]) -> str:
     """"VAV-1 thru VAV-15" for a long run of tags, else the tags joined."""
     return f"{tags[0]} thru {tags[-1]}" if len(tags) > 4 else ", ".join(tags)
@@ -182,15 +197,17 @@ def build(job: dict, ledger: dict, coverage=None, printed: dict[str, str] | None
                           "furnished": line.furnished_by, "installed": line.installed_by, "wired": line.wired_by,
                           "qty": line.quantity, "unit": unit, "ext": ext, "mark": mark, "colour": colour,
                           "sheet": _sheet_of(ledger, line.refs), "sources": ", ".join(s for s in sids if s),
+                          "evidence": _evidence(ledger, line.refs),
                           "alternate": alternate})
             if line.flag != "none":
                 shown = notes is not None and line.assumption      # the *Assumed note on Scope carries the why
                 questions.append({"severity": "Check", "kind": f"Line flag: {line.flag}", "block": key,
-                                  "about": f"{line.id} (Scope #{n})",
+                                  "about": f"Scope #{n}: {line.text}",
                                   "what": (f"{line.flag} to confirm (the reason is in the block's *Assumed note)"
                                            if shown else line.assumption or f"{line.flag} to confirm"),
                                   "fix": "Confirm or change the line on review.",
-                                  "sources": ", ".join(s for s in sids if s)})
+                                  "sources": ", ".join(s for s in sids if s),
+                                  "evidence": _evidence(ledger, line.refs)})
         texts = (notes or {}).get(key, []) if notes is not None else [_note_text(c) for c in block_notes]
         for text in texts:
             mark, colour = mark_of(text)
@@ -213,7 +230,9 @@ def build(job: dict, ledger: dict, coverage=None, printed: dict[str, str] | None
                               "what": f"{f.subject} = {f.value}. Missing: "
                                       + ", ".join(LABELS.get(c, c) for c in f.uncovered),
                               "fix": (f"Add a line ({sug})" if sug else "Add a line, an exception, a clarification "
-                                      "or dismiss it with a reason."), "sources": sid})
+                                      "or dismiss it with a reason."), "sources": sid,
+                              "evidence": _evidence(ledger, [{"source_id": f.source_id, "quote": f.quote,
+                                                              "where": f.citation}])})
         for g in coverage.count_gaps:
             fact = next((f for f in coverage.facts if f.fact_id == g["fact_id"]), None)
             sid = cites.add(fact.source_id, fact.quote, fact.citation, g["fact_id"]) if fact else ""
@@ -221,12 +240,16 @@ def build(job: dict, ledger: dict, coverage=None, printed: dict[str, str] | None
                               "kind": f"Count gap ({g.get('ruling', '')})", "block": ", ".join(
                 sorted({i.split('.')[0] for i in g["lines"]})), "about": f"{g['fact_id']} vs {', '.join(g['lines'])}",
                 "what": f"{g['label']}: the documents count {g['fact_count']}, the proposal prints {g['printed']}.",
-                "fix": "Confirm the count; the higher count prints unless a ruling says otherwise.", "sources": sid})
+                "fix": "Confirm the count; the higher count prints unless a ruling says otherwise.", "sources": sid,
+                "evidence": _evidence(ledger, [{"source_id": fact.source_id, "quote": fact.quote,
+                                                "where": fact.citation}]) if fact else ""})
         for rf in coverage.rulings:
             scope_n = next((r["n"] for r in scope if r["type"] == "line" and r["id"] == rf.line_id), None)
             questions.append({"severity": "Must fix" if rf.severity == "must_fix" else "Check",
                               "kind": f"Against ruling {rf.ruling}", "block": rf.line_id.split(".")[0],
-                              "about": f"{rf.line_id}" + (f" (Scope #{scope_n})" if scope_n else ""),
+                              "about": (f"Scope #{scope_n}: " + next((r["text"] for r in scope if r["type"] == "line"
+                                                                       and r["id"] == rf.line_id), ""))
+                              if scope_n else rf.line_id,
                               "what": rf.what, "fix": rf.fix, "sources": ""})
     for q in job.get("questions") or []:
         questions.append({"severity": "Check", "kind": "Question", "block": "", "about": "",
@@ -244,7 +267,8 @@ def build(job: dict, ledger: dict, coverage=None, printed: dict[str, str] | None
             questions.append({"severity": "Check", "kind": "Sources disagree", "block": f.get("subject", ""),
                               "about": f["id"], "what": f"{f.get('subject')}: {f.get('value')} vs {c.get('value')} "
                               f"({c.get('stage')})", "fix": "The higher count prints; confirm.",
-                              "sources": ", ".join(x for x in (s1, s2) if x)})
+                              "sources": ", ".join(x for x in (s1, s2) if x),
+                              "evidence": _evidence(ledger, [f, c])})
     order = {"Must fix": 0, "Check": 1}
     questions.sort(key=lambda q: order.get(q["severity"], 2))
     header = job.get("header") or {}
@@ -327,8 +351,8 @@ def write(path, job: dict, ledger: dict, coverage=None, printed=None, prices=Non
     # 2. Scope
     ws = wb.create_sheet("Scope")
     heads = ["#", "Block / line", "Alt", "Verb", "Furnished by", "Installed by", "Wired by", "Qty", "Tech hrs",
-             "Unit price", "Ext. price", "Mark", "Source sheet", "Source ids", "Line id"]
-    _table(ws, heads, [5, 62, 7, 19, 15, 15, 15, 6, 8, 15, 12, 10, 18, 14, 10])
+             "Unit price", "Ext. price", "Mark", "Evidence (where it says so, word for word)"]
+    _table(ws, heads, [5, 62, 7, 19, 15, 15, 15, 6, 8, 15, 12, 10, 100])
     for row in data["scope"]:
         if row["type"] == "block":
             ws.append(["", row["text"], row["alternate"], "", "", "", "", row["qty"], row["hours"]])
@@ -337,8 +361,7 @@ def write(path, job: dict, ledger: dict, coverage=None, printed=None, prices=Non
                 cell.fill, cell.font = BLOCK_FILL, BOLD
         elif row["type"] == "line":
             ws.append([row["n"], row["text"], row["alternate"], row["verb"], row["furnished"], row["installed"],
-                       row["wired"], row["qty"], None, row["unit"], row["ext"], row["mark"], row["sheet"],
-                       row["sources"], row["id"]])
+                       row["wired"], row["qty"], None, row["unit"], row["ext"], row["mark"], row["evidence"]])
             rr = ws.max_row
             for col in (10, 11):
                 ws.cell(rr, col).number_format = '"$"#,##0.00'
@@ -352,16 +375,16 @@ def write(path, job: dict, ledger: dict, coverage=None, printed=None, prices=Non
             rr = ws.max_row
             _colour(ws.cell(rr, 2), row["colour"])
             _colour(ws.cell(rr, 12), row["colour"], True)
-    _finish(ws, len(heads), {2})
+    _finish(ws, len(heads), {2, 13})
     _recolour(ws, data["scope"])
 
     # 3. Questions & Flags
     ws = wb.create_sheet("Questions & Flags")
-    heads = ["#", "Severity", "Kind", "Block", "About", "What", "Suggested fix", "Source ids"]
-    _table(ws, heads, [5, 10, 26, 10, 18, 70, 48, 14])
+    heads = ["#", "Severity", "Kind", "Block", "About", "What", "Suggested fix", "Evidence"]
+    _table(ws, heads, [5, 10, 26, 10, 40, 70, 48, 80])
     for i, q in enumerate(data["questions"], 1):
-        ws.append([i, q["severity"], q["kind"], q["block"], q["about"], q["what"], q["fix"], q["sources"]])
-    _finish(ws, len(heads), {3, 6, 7})
+        ws.append([i, q["severity"], q["kind"], q["block"], q["about"], q["what"], q["fix"], q.get("evidence", "")])
+    _finish(ws, len(heads), {3, 5, 6, 7, 8})
     for rr in range(2, ws.max_row + 1):
         if ws.cell(rr, 2).value == "Must fix":
             _colour(ws.cell(rr, 2), RED, True)
@@ -370,12 +393,13 @@ def write(path, job: dict, ledger: dict, coverage=None, printed=None, prices=Non
 
     # 4. Sources
     ws = wb.create_sheet("Sources")
-    heads = ["Source id", "Sheet", "Document page", "Quote", "Used by"]
-    _table(ws, heads, [10, 14, 36, 90, 26])
-    for src in sorted(data["sources"], key=lambda x: (_id_key(x["id"]), x["quote"])):
+    heads = ["Sheet", "Document page", "Quote", "Proves (Scope line)"]
+    _table(ws, heads, [14, 36, 90, 60])
+    num = {r["id"]: f'#{r["n"]} {r["text"]}' for r in data["scope"] if r["type"] == "line"}
+    for src in sorted(data["sources"], key=lambda x: (appio.split_where(x["where"])[0], x["quote"])):
         sheet, doc = appio.split_where(src["where"])
-        ws.append([src["id"], sheet, doc, src["quote"], ", ".join(src["used"])])
-    _finish(ws, len(heads), {3, 4, 5})
+        ws.append([sheet, doc, src["quote"], "\n".join(num.get(u, u) for u in src["used"])])
+    _finish(ws, len(heads), {2, 3, 4})
 
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)

@@ -160,3 +160,24 @@ heading when there are no deducts.
 ### R18. Price book gaps
 **PENDING estimator** (`HarkPro/discussion.md:17`, open item 4; DOC-11..14): unpriced items; OAT $50 vs $100;
 16 UIO controller $1,000 vs $1,100; markup 15% vs 5%; tax NJ vs NY.
+
+### R19. Unit-scheduled control devices are AME's
+**DECIDED by the estimator, 2026-10-09 (Job 4).** When AME provides the controls (including a controller furnished
+to the unit manufacturer for factory install), the control devices on the unit schedule (temperature and enthalpy
+sensors, freezestat, drain pan level sensor, filter switch) are AME's: Furnish and Install, or furnish to the factory
+for installation and wire. Do not print "Install and Wire ... (Furnished by Unit Mfr.)" unless the documents clearly
+give the device to the unit manufacturer. When unsure, keep AME's and flag it.
+
+### R20. Damper actuators are Furnish and Install
+**DECIDED by the estimator, 2026-10-09 (Job 4).** A damper shown on the plans, control diagram or sequence gets
+"Furnish and Install ... Damper Actuator" by AME, even when the equipment schedule lists the damper or actuator with
+the unit. Add the *Confirm flag when the schedule says otherwise. "Wire Damper Actuator" is rare.
+
+### R21. Every system block lists all its end devices
+**DECIDED by the estimator, 2026-10-09 (Job 4).** A block is never just "Interlock with ..." when the sequence or
+control diagram gives it points. Example: exhaust fans list start/stop and status, VFD control, VFD fault and the
+damper actuator in the EF block, even when the points land on the AHU controller (that goes in a note).
+
+### R22. The evidence prints the proof, not ids
+**DECIDED by the estimator, 2026-10-09.** Evidence sheets show, on every scope line, where the documents say it,
+word for word (sheet, page, quote). The estimator never has to follow source ids or line ids.
