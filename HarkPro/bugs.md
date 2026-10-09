@@ -63,3 +63,14 @@ Status as of 2026-10-09. "Fixed*" = fixed in the uncommitted patch, awaiting rev
 | Colour-coded markers | `**` client note = red EE0000 (house, per Master Template); `*Confirm` = orange ED7D31; `*Assumed` = blue 2F5597. Mockup sent 2026-10-09, awaiting review |
 | Empty "DEDUCT ALTERNATES: ALT #:" | Drop when there are no deducts |
 | Controls by mechanical = AME scope | EF thermostat "by MC" → "Furnish and Install Space Thermostat" (wiring scope TBD) |
+
+## Pipeline: scope misses on Job 2a (found in review 2026-10-09; the facts WERE in the ledger, so they were dropped between ledger and scope)
+| Miss | Fix |
+|---|---|
+| Local alarm panel for leak detectors / condensate overflow | "Furnish and Install Local RAM Module" (Master Template) |
+| Motorized dampers shown on plans with no tags | Count every damper actuator; trace ducts to assign to equipment; if not assignable, print as its own block, never assume 1 per unit |
+| Radiator control valve interlock with each VAV zone thermostat (wired separately) | Interlock wiring line per zone |
+| Occupancy sensors (19 on the controls plan; thermostat with integral occupancy by HVAC contractor) | AME line, or flag AME vs electrical ownership |
+| Lutron Vive integration for occupied standby | Front-end line (round-2 front-end writer; verify on rerun) |
+| Rule clashes (rules.md 78-84, 122-124, 466-472; GEM v3.2 Q1) | Rewrite to the MC-controls ruling |
+| Systemic | Coverage gate: every controls-relevant ledger fact must end as a line, an exception, a clarification, or a dismissal with a reason |
