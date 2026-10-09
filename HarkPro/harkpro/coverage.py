@@ -43,13 +43,16 @@ _TIMES = re.compile(r"(?:×|(?<![0-9A-Za-z])x)\s*(\d{1,3})\b")
 WEAK_REASON = re.compile(r"could not be read|not (?:be )?read|held as a question|unreadable|to be confirmed", re.I)
 # rulings R2 (HarkPro/doctrine/rulings.md): controls items the documents give to the mechanical contractor are AME's
 R2_REASON = re.compile(r"mechanical contractor|\bMC\b|HVAC contractor", re.I)
+# MC work that is not controls stays the MC's (R2 "Not covered"): a dismissal that names only such work stands
+NON_CONTROLS = re.compile(r"\bpiping\b|\bpipe\b|valve bod(?:y|ies)|\bductwork\b|\bduct\b|insulation|plumbing|"
+                          r"rigging|\bwells?\b|refrigerant piping|power wiring|line voltage", re.I)
 
 
 def reason_problem(reason: str) -> str:
     """Why a left-out reason is not a dismissal, or "" when it stands."""
     if WEAK_REASON.search(reason or ""):
         return "the reason only says the documents were not read or the item is a question"
-    if R2_REASON.search(reason or ""):
+    if R2_REASON.search(reason or "") and not NON_CONTROLS.search(reason or ""):
         return "rulings R2: controls items the documents give to the mechanical contractor are AME's scope"
     return ""
 
@@ -97,10 +100,16 @@ def _same_passage(a: str, b: str) -> bool:
     a, b = " ".join(str(a).casefold().split()), " ".join(str(b).casefold().split())
     if not a or not b:
         return False
-    if a in b or b in a:
+    if a == b:
         return True
     ta, tb = set(re.findall(r"[a-z0-9]+", a)), set(re.findall(r"[a-z0-9]+", b))
-    return len(ta & tb) / max(1, min(len(ta), len(tb))) >= 0.6
+    short = min(len(ta), len(tb))
+    if short < 4:          # two- or three-word quotes ("by MC", "see plans") match far too much
+        return False
+    if a in b or b in a:
+        return True
+    # most of the shorter quote's words AND a fair share of the longer one's, so a short quote cannot cover a long one
+    return len(ta & tb) / short >= 0.8 and len(ta & tb) / max(len(ta), len(tb)) >= 0.5
 
 
 def _system_keys(system: dict) -> set[str]:
@@ -286,7 +295,9 @@ def ruling_flags(job: dict, printed: dict[str, str] | None = None, library: Libr
     out = []
     for line in appio.job_lines(job, printed):
         found = concepts(f"{line.text} {line.name}")
-        mc = "Mechanical Contractor" in (line.furnished_by, line.installed_by) or bool(
+        # only a controls device FURNISHED by the MC breaks R2; "(Installed by Mechanical Contractor)" on a valve
+        # or well AME furnishes is the template's own wording and stands
+        mc = line.furnished_by == "Mechanical Contractor" or bool(
             re.search(r"furnished by mechanical contractor", line.text, re.I))
         if mc and "high_water" in found:
             out.append(RulingFlag("R4", line.id, line.text, "a condensate pump float / high water alarm is printed "

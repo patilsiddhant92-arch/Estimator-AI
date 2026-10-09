@@ -1,0 +1,11 @@
+# Response to the outside review of HarkPro (2026-10-09)
+
+| Finding | Verdict | What changed |
+|---|---|---|
+| Tag ranges ("VAV-01 thru 03") pick up only the first tag | **Real.** The fallback range regex had no `re.I` while the text is upper-cased, so it only worked when the app's `header_tags` was importable. A full-prefix range ("VAV-14-01 THRU VAV-14-15") also failed. | `appio._RUN` is case-insensitive and accepts the repeated prefix. Tests: `tests/test_review_fixes.py`. |
+| Counts take the highest, not the schedule count (R1) | **Real.** `appio._qty` and `qc/scope._qty` took `max(value, others)`. | Both return the count's own value (the schedule count). Other counts are left to the discrepancy flags. |
+| MC items correctly left to the MC are rejected | **Partly real.** Any dismissal that mentioned the MC was rejected, and `(Installed by Mechanical Contractor)` on an AME-furnished valve was flagged. | A dismissal that names non-controls work (piping, valve bodies, ductwork, wells, power wiring) stands. Only a controls device *furnished* by the MC is flagged under R2. |
+| Coverage matching is lenient | **Real.** A quote of two or three words could "cover" a long fact, and 60% overlap of the shorter quote was enough. | Quotes under 4 words must match exactly. Otherwise 80% of the shorter quote **and** 50% of the longer one must match. |
+| Fix patch not ready (58 files, unpushed base, "by MC" exceptions) | **Agreed.** It is a local review patch, not for merging. Its base branch `hark/evidence-ui` was never pushed. The auto-exception printing of "by mechanical contractor" contradicts R2 and has to change before any merge. | No change to app code (user rule). Noted here and in `bugs.md`. |
+| Pushed to `main` without review; your email; no AI co-author | Pushing `HarkPro/` to `main` was approved by the estimator on 2026-10-09 (HarkPro/ only). | From this commit on: author `Hark (AI)` plus a `Co-authored-by` trailer. A review branch/PR can be used instead if the estimator prefers. |
+| `rulings.md` says the rulings override `AGENTS.md` and conflict with `playbook/rules.md` | True as written. The rulings came from the estimator in his chat with Hark. Every clash is listed in `doctrine/conflicts.md`. | The estimator should confirm R1-R11. Until then, read them as proposed. |

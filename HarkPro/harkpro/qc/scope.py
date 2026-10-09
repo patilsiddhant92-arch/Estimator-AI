@@ -17,9 +17,9 @@ FE = "FE"
 def _qty(count) -> int | None:
     if not isinstance(count, dict):
         return None
-    values = [count.get("value")] + [o.get("value") for o in count.get("others") or [] if isinstance(o, dict)]
-    numbers = [v for v in values if isinstance(v, int) and not isinstance(v, bool)]
-    return max(numbers) if numbers else None
+    # ruling R1: the schedule count (the count's own value) prints; the others are discrepancy flags, never a max
+    value = count.get("value")
+    return value if isinstance(value, int) and not isinstance(value, bool) else None
 
 
 def printed(device: dict) -> str:
