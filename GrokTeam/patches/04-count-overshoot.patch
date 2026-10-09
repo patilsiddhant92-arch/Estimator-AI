@@ -1,0 +1,82 @@
+diff --git a/src/bms/counts.py b/src/bms/counts.py
+index 9d18ab7..03bde93 100644
+--- a/src/bms/counts.py
++++ b/src/bms/counts.py
+@@ -592,8 +592,9 @@ class _Check:
+ def _located_count(sheets, pattern: str, groups: dict | None = None) -> int:
+     """The located count of a pattern's tags over these sheets (`_Sheet.labels`) by the inventory's one counting rule
+     (`estimator.reading.inventory.plan_count`, `counted_per_place`; `groups` from `plan_groups`, every sheet its own
+-    group when not given): in each plan group a unit's tag once, a tag counted at every place (a type's tag:
+-    "CUH-A (TYP. OF 4)" is 4) the most of one sheet; the groups added up (EBB-A on two floor plans is 2). The
++    group when not given): a unit's tag once over all the sheets, never once per plan group (a riser label on every
++    floor, a phase or roof plan reusing the tags); a tag counted at every place (a type's tag: "CUH-A (TYP. OF 4)"
++    is 4) the most of one sheet in each group, the groups added up (EBB-A on two floor plans is 2). The
+     located count does not multiply by a typical sheet's floors: a typical plan can read lower than the planner's
+     count, and then it is a cross-check other, never the printed count."""
+     from estimator.reading.inventory import counted_per_place, plan_count
+@@ -606,6 +607,11 @@ def _located_count(sheets, pattern: str, groups: dict | None = None) -> int:
+     total = 0
+     for tag, mine in found.items():
+         per_place = counted_per_place(tag, sum(n for _k, n, _f in mine), max(n for _k, n, _f in mine))
++        if not per_place:
++            # one unit's tag: once over every sheet it is on, whatever group each sheet is in (a riser label on every
++            # floor, a phase or roof plan reusing the tags are that unit again; rule R1, `is_type_tag`)
++            total += 1
++            continue
+         total += plan_count(mine, groups or {}, per_place)
+     return total
+ 
+diff --git a/src/bms/counts_text.py b/src/bms/counts_text.py
+index 836042d..321d29d 100644
+--- a/src/bms/counts_text.py
++++ b/src/bms/counts_text.py
+@@ -33,6 +33,7 @@ def natural(tag: str) -> list:
+ 
+ 
+ NUMBER = r"\d+(?:\.\d+)?[A-Z]?"     # a numbered tag part: 1, 12, 3A, 1.5, 3.0
++PLAIN_NUMBER = r"\d+(?:\.\d+)?"    # one with no letter suffix: 1, 12, 1.5 (never 3A)
+ LETTERS = r"[A-Z]{1,2}"             # a lettered tag part: A, B, AB
+ 
+ 
+@@ -85,11 +86,13 @@ def _spelled(tag: str) -> str:
+     return spelled
+ 
+ 
+-def _generic(prefix: str, numbers: bool = True, letters: bool = False) -> str:
+-    """Any tag of a prefix: numbered (EF-1, EF 12, EF-3A, VAV-2-01, CAC-1.5) and, when the family letters its tags,
+-    lettered (TXF-B, SPXF-A)."""
+-    heads = ([f"(?:[{DASHES}] ?| ?){NUMBER}"] if numbers else []) + ([f"[{DASHES}] ?{LETTERS}"] if letters else [])
+-    part = f"(?:{NUMBER}|{LETTERS})" if letters else NUMBER
++def _generic(prefix: str, numbers: bool = True, letters: bool = False, suffix: bool = True) -> str:
++    """Any tag of a prefix: numbered (EF-1, EF 12, VAV-2-01, CAC-1.5; with a letter suffix, EF-3A, only when
++    `suffix`: the family's own tags carry one, so a room label named after a unit is no unit) and, when the
++    family letters its tags, lettered (TXF-B, SPXF-A)."""
++    number = NUMBER if suffix else PLAIN_NUMBER
++    heads = ([f"(?:[{DASHES}] ?| ?){number}"] if numbers else []) + ([f"[{DASHES}] ?{LETTERS}"] if letters else [])
++    part = f"(?:{number}|{LETTERS})" if letters else number
+     return rf"{re.escape(prefix)}(?:{'|'.join(heads)})(?:[{DASHES}]{part})*"
+ 
+ 
+@@ -108,6 +111,8 @@ def family_pattern(tags: Sequence[str], prefix_owners: dict[str, int]) -> str |
+         rest = name[len(prefix) + 1:]
+         if "_" not in name and rest and prefix_owners.get(prefix, 0) == 1 and re.fullmatch(r"[A-Z]{2,8}", prefix):
+             generic.setdefault(prefix, set()).add("number" if rest[0].isdigit() else "letter")
++            if re.search(r"\d[A-Z]", rest):           # a numbered part with a letter suffix (3A, 12-1B)
++                generic[prefix].add("suffix")
+             alternative = prefix                 # placeholder, replaced once every tag's kind is known
+         else:
+             alternative = _spelled(tag)
+@@ -115,10 +120,11 @@ def family_pattern(tags: Sequence[str], prefix_owners: dict[str, int]) -> str |
+             alternatives.append(alternative)
+     for prefix in bare_prefixes(tags):
+         if prefix_owners.get(prefix, 0) == 1:
+-            generic.setdefault(prefix, set()).update({"number", "letter"})
++            generic.setdefault(prefix, set()).update({"number", "letter", "suffix"})   # nothing known: any tag
+             if prefix not in alternatives:
+                 alternatives.append(prefix)
+-    alternatives = [_generic(a, "number" in generic[a], "letter" in generic[a]) if a in generic else a
++    alternatives = [_generic(a, "number" in generic[a], "letter" in generic[a], "suffix" in generic[a])
++                    if a in generic else a
+                     for a in alternatives]
+     if not alternatives:
+         return None

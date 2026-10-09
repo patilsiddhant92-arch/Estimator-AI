@@ -1,0 +1,169 @@
+diff --git a/src/bms/plan.py b/src/bms/plan.py
+index 448f730..83422b5 100644
+--- a/src/bms/plan.py
++++ b/src/bms/plan.py
+@@ -1390,15 +1390,18 @@ def _with_served(systems: list[System], drafts: list[_Draft]) -> list[System]:
+     return [replace(s, serves=tuple(serves[id(d)])) if id(d) in serves else s for s, d in zip(systems, drafts)]
+ 
+ 
+-def _front_end(planner: _Planner) -> FrontEnd:
++def _front_end(planner: _Planner) -> FrontEnd | None:
++    """The front end from the ledger's front_end facts; None (unresolved) when no fact gives its mode: no front end
++    is chosen without a source (the proposal prints no front-end line, `render._front_end`) and the estimator is
++    asked."""
+     facts = planner.ledger.of_kind("front_end")
+     by = lambda subject: [squash(f.value) for f in facts if squash(f.subject).casefold() == subject]  # noqa: E731
+     mode = next((m for m in by("mode") if m in ("new-system", "extend-existing")), "")
+     existing = next((n for n in by("existing_name") if n), None)
+     if not mode:
+         planner.questions.append("The documents do not say whether the BMS is new or extends an existing one; "
+-                                 "which is it? The plan assumes a new system.")
+-        mode = "new-system"
++                                 "which is it? No front end is printed until this is answered.")
++        return None
+     return FrontEnd(mode=mode, existing_system_name=existing if mode == "extend-existing" else None)
+ 
+ 
+@@ -1451,7 +1454,8 @@ def plan_job(ledger: Ledger, catalogue: Catalogue, dossier: Dossier, playbook: P
+       branch-selector families; dampers linked to a fan are under that fan's system (not a system of their own);
+       duct heaters in one place.
+     - A system the documents name but AME does not do goes to `Job.exceptions`; open questions to `Job.questions`.
+-    - `Job.front_end` is set (mode from the ledger's front_end facts); `Job.header` stays None (the run sets it).
++    - `Job.front_end` is set from the ledger's front_end facts, None (unresolved, asked) when none gives the mode;
++      `Job.header` stays None (the run sets it).
+     - Every Ref's `source_id` is a ledger / dossier source id ("S41", "I2", "Q7", "F17"), its `quote` the exact
+       words, its `where` the place (`ledger.sources[source_id]`, shortened by `estimator.ledger.facts.where_short`).
+     - Pure: the same ledger, catalogue, dossier and Playbook give the same Job. No AI call.
+diff --git a/src/bms/render.py b/src/bms/render.py
+index e4f1bc6..a8d0740 100644
+--- a/src/bms/render.py
++++ b/src/bms/render.py
+@@ -731,7 +731,8 @@ def _traced(key: str, printed: list[_Printed], notes: list[str]) -> list[Rendere
+ def _front_end(front: FrontEnd | None, playbook: Playbook, out: list[RenderedLine],
+                ids: SourceIds) -> ScopeFrontEnd:
+     if front is None:
+-        return ScopeFrontEnd(mode="new-system")
++        # unresolved (no source gives the mode, `plan._front_end`): neither template front end is printed
++        return ScopeFrontEnd(mode="pending")
+     printed = _device_lines(_named(front.devices, ids), None, None, playbook, {1})
+     notes = _notes(front.clarifications, front.devices, [d.quantity for d in front.devices], playbook, ids)
+     out += _traced("", printed, notes)
+diff --git a/src/estimator/price_sheet/rows.py b/src/estimator/price_sheet/rows.py
+index e51b7ba..db706df 100644
+--- a/src/estimator/price_sheet/rows.py
++++ b/src/estimator/price_sheet/rows.py
+@@ -42,8 +42,9 @@ def sheet_plan(job: Job) -> list[Sheet]:
+     numbers = iter(range(1, 10_000))
+     base = [
+         Row(layout.scope_heading(job), hours=job.front_end.tech_hours, ref=("front_end",)),
+-        Row(f"{layout.FRONT_END_HEADING_MARKER}  {layout.front_end_heading(job.front_end)}"),
+     ]
++    if job.front_end.mode != "pending":         # no source chose the front end: no heading row
++        base.append(Row(f"{layout.FRONT_END_HEADING_MARKER}  {layout.front_end_heading(job.front_end)}"))
+     markers = layout.FRONT_END_LINE_MARKER[job.front_end.mode]
+     for j, item in enumerate(job.front_end.items):
+         base.append(_item_row(item, markers, ("front_end", "items", j)))
+diff --git a/src/estimator/proposal/layout.py b/src/estimator/proposal/layout.py
+index 520eddd..c139e69 100644
+--- a/src/estimator/proposal/layout.py
++++ b/src/estimator/proposal/layout.py
+@@ -27,7 +27,7 @@ EXISTING_NAME_COLOUR = "FF0000"   # the template types the existing system's nam
+ 
+ # The lists the template defines.
+ BLOCK_LINE_LIST = 12              # o ➢ ▪ • at levels 4-8; indents 1800, 2160, 2520, 2880, 3240
+-FRONT_END_LIST = {"new-system": 11, "extend-existing": 10}
++FRONT_END_LIST = {"new-system": 11, "extend-existing": 10, "pending": 11}
+ OUTLINE_STYLE = "PR2"             # numbered 1., 2., 3. by the template's outline list
+ 
+ # Where Word starts depth-1 text, and how far each deeper level steps in (twips).
+@@ -74,7 +74,8 @@ def front_end_line(mode: str, depth: int) -> ParagraphFormat:
+ 
+ # What Word draws in front of each kind of line — written into the price sheet as text.
+ BLOCK_LINE_MARKER = {1: "o", 2: "➢", 3: "▪", 4: "•", 5: "◦"}
+-FRONT_END_LINE_MARKER = {"new-system": {1: "o", 2: "▪"}, "extend-existing": {1: "•", 2: "o"}}
++FRONT_END_LINE_MARKER = {"new-system": {1: "o", 2: "▪"}, "extend-existing": {1: "•", 2: "o"},
++                         "pending": {1: "o", 2: "▪"}}
+ FRONT_END_HEADING_MARKER = "•"
+ 
+ 
+@@ -85,4 +86,6 @@ def scope_heading(job: Job) -> str:
+ def front_end_heading(front_end: FrontEnd) -> str:
+     if front_end.mode == "new-system":
+         return NEW_SYSTEM_HEADING
++    if front_end.mode == "pending":
++        return ""                       # no source chose the front end: nothing prints
+     return f"{EXISTING_SYSTEM_HEADING} {front_end.existing_system_name} BMS"
+diff --git a/src/estimator/proposal/read.py b/src/estimator/proposal/read.py
+index 3f3deb5..6ac16ec 100644
+--- a/src/estimator/proposal/read.py
++++ b/src/estimator/proposal/read.py
+@@ -147,15 +147,22 @@ def read_scope(document: DocxDocument):
+     _refuse_hidden_text(paragraphs[start])
+     _refuse_hidden_text(paragraphs[start + 1])
+     suffix = squash(paragraphs[start].text)[len(layout.SCOPE_HEADING):].strip()
+-    mode, existing = _front_end_mode(squash(paragraphs[start + 1].text))
++    following = paragraphs[start + 1]
++    first = start + 2
++    section = "front end"
++    if (_is_block_header(following) or squash(following.text).upper().startswith(layout.ADD_ALTERNATES)) and not \
++            squash(following.text).startswith((layout.NEW_SYSTEM_HEADING, layout.EXISTING_SYSTEM_HEADING)):
++        # no front-end heading: the front end was pending (no source chose it), nothing of it printed
++        mode, existing, first, section = "pending", None, start + 1, "blocks"
++    else:
++        mode, existing = _front_end_mode(squash(following.text))
+ 
+     front_end_items: list[Item] = []
+     blocks: list[dict] = []
+     alternates: dict[str, list[dict]] = {"add": [], "deduct": []}
+-    section = "front end"
+     items: list[Item] | None = None
+     previous_depth = 0   # the first line of a block, or of the front end, is at most depth 1
+-    for paragraph in paragraphs[start + 2 : end]:
++    for paragraph in paragraphs[first : end]:
+         _refuse_hidden_text(paragraph)
+         text = squash(paragraph.text)
+         if text.upper().startswith(layout.ADD_ALTERNATES):
+diff --git a/src/estimator/proposal/write.py b/src/estimator/proposal/write.py
+index f97a4a1..9da6eb4 100644
+--- a/src/estimator/proposal/write.py
++++ b/src/estimator/proposal/write.py
+@@ -255,8 +255,13 @@ def _keep_front_end(document: DocxDocument, job: Job) -> Paragraph:
+     new_heading = _paragraph(document, layout.NEW_SYSTEM_HEADING)
+     existing_heading = _paragraph(document, layout.EXISTING_SYSTEM_HEADING)
+     add_heading = _paragraph(document, layout.ADD_ALTERNATES)
+-    if job.front_end.mode == "new-system":
++    if job.front_end.mode in ("new-system", "pending"):
+         _delete_between(new_heading, add_heading)
++        if job.front_end.mode == "pending":
++            # no source chose the front end: its heading goes too, the scope starts right under SCOPE OF WORK
++            before = Paragraph(new_heading._p.getprevious(), new_heading._parent)
++            new_heading._p.getparent().remove(new_heading._p)
++            return before
+         return new_heading
+     _delete_from_until(openings[0], openings[1])
+     _delete_between(existing_heading, add_heading)
+diff --git a/src/estimator/scope.py b/src/estimator/scope.py
+index 3b9740d..bbff219 100644
+--- a/src/estimator/scope.py
++++ b/src/estimator/scope.py
+@@ -76,7 +76,8 @@ class Block(_Model):
+ class FrontEnd(_Model):
+     """The front-end block. `mode` picks which of the template's two openings is used."""
+ 
+-    mode: Literal["new-system", "extend-existing"]
++    # "pending": the documents do not say yet; the proposal prints no front-end heading or line (owner ruling)
++    mode: Literal["new-system", "extend-existing", "pending"]
+     existing_system_name: str | None = None
+     items: tuple[Item, ...] = ()
+     tech_hours: float | None = Field(default=None, ge=0)
+@@ -85,8 +86,8 @@ class FrontEnd(_Model):
+     def _check(self) -> "FrontEnd":
+         if self.mode == "extend-existing" and not (self.existing_system_name or "").strip():
+             raise ValueError("extending an existing BMS needs the existing system's name")
+-        if self.mode == "new-system" and self.existing_system_name is not None:
+-            raise ValueError("a new system has no existing system name")
++        if self.mode in ("new-system", "pending") and self.existing_system_name is not None:
++            raise ValueError(f"a {self.mode} front end has no existing system name")
+         if any(item.depth > 2 for item in self.items):
+             raise ValueError("a front-end line can be at most two levels deep — the template's front-end lists have two")
+         return self

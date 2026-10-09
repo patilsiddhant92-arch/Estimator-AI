@@ -1,0 +1,70 @@
+diff --git a/src/bms/ai_evidence.py b/src/bms/ai_evidence.py
+index 8278246..0581afb 100644
+--- a/src/bms/ai_evidence.py
++++ b/src/bms/ai_evidence.py
+@@ -16,6 +16,9 @@ from dataclasses import dataclass
+ from bms.model import Ref, System
+ 
+ JOB, SEQUENCE, POINTS, SCHEDULES, COUNTS, DEVICES, NOTES, SPEC = 1, 2, 3, 4, 5, 6, 7, 8
++# The two budgets below hold back only the passages that name the system by a general phrase or (spec) by an
++# integration word: a passage the planner cited or one naming the system's own tag is always given whole, first in
++# the budget, so a key source is never cut behind pages of general text (`evidence`, its `block`'s `keep`)
+ NOTES_LIMIT = 12_000            # characters of notes naming the system, in one system's evidence
+ SPEC_LIMIT = 12_000             # characters of controls spec passages, in one system's evidence
+ RANGE_LIMIT = 200               # a tag range longer than this is not expanded
+@@ -201,13 +204,19 @@ def evidence(system: System, text: str, sources: dict[str, str], sections: dict,
+     out = [f"Evidence for {system.name} (system {system.key}), from this job's documents only. Each passage starts "
+            "with its source id in square brackets; cite a passage by that id."]
+ 
+-    def block(title: str, chosen: Iterable[Entry], limit: int | None = None) -> None:
++    def block(title: str, chosen: Iterable[Entry], limit: int | None = None, keep=None) -> None:
++        """The passages under a title, in dossier order. With a limit, those `keep` says are key (cited, or naming
++        the system's own tag) are always given whole and count first against it; the rest fill what is left."""
++        chosen = list(chosen)
+         lines: list[str] = []
+         used, left, place = 0, 0, None
++        key = {id(e) for e in chosen if keep is not None and e.sid and e.sid not in given and keep(e)}
++        if limit is not None:
++            used = sum(len(e.text) for e in chosen if id(e) in key)
+         for entry in chosen:
+             if entry.sid and entry.sid in given:
+                 continue
+-            if limit is not None and entry.sid and used + len(entry.text) > limit:
++            if limit is not None and entry.sid and id(entry) not in key and used + len(entry.text) > limit:
+                 left += 1
+                 continue
+             if entry.place and entry.place != place and entry.part in (SEQUENCE, POINTS, NOTES, SPEC):
+@@ -216,7 +225,8 @@ def evidence(system: System, text: str, sources: dict[str, str], sections: dict,
+             lines.append(entry.text)
+             if entry.sid:
+                 given.add(entry.sid)
+-                used += len(entry.text)
++                if id(entry) not in key:
++                    used += len(entry.text)
+         if left:
+             lines.append(f"({left} more passages name it; not given here, cut at {limit:,} characters)")
+         if any(_ENTRY.match(line) for line in lines):
+@@ -276,9 +286,12 @@ def evidence(system: System, text: str, sources: dict[str, str], sections: dict,
+             devices.append(entry)
+     block("Devices counted on the plan sheets it is on:", devices)
+ 
+-    # 5. the notes naming it
++    # 5. the notes naming it (cited ones and those naming its own tag first, never cut)
++    def key_passage(e: Entry) -> bool:
++        return e.sid in cited or about.names_tag(e.body) or about.type_row(e.body)
++
+     block("Notes that name it:", [e for e in by_part.get(NOTES, []) if e.sid and (e.sid in cited or about.names(e.body))],
+-          NOTES_LIMIT)
++          NOTES_LIMIT, key_passage)
+ 
+     # 6. the controls specification passages about it (and about integration, for an integrated system)
+     integrated = system.control in ("integration", "packaged")
+@@ -286,7 +299,7 @@ def evidence(system: System, text: str, sources: dict[str, str], sections: dict,
+           [e for e in by_part.get(SPEC, []) if e.sid and (e.sid in cited or about.names(e.body)
+                                                           or (integrated and _INTEGRATION_WORDS.search(e.body)
+                                                               and not _names_another(e.body, about, elsewhere)))],
+-          SPEC_LIMIT)
++          SPEC_LIMIT, key_passage)
+ 
+     # 7. who does what, for the whole job (ownership), and the job part's passages naming it
+     block("Who does what (whole job) and the job's own passages about it:",

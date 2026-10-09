@@ -1,0 +1,21 @@
+diff --git a/src/bms/validate.py b/src/bms/validate.py
+index c560c1a..6c7c7f2 100644
+--- a/src/bms/validate.py
++++ b/src/bms/validate.py
+@@ -225,9 +225,13 @@ def _packaged(system, shape, job, playbook) -> Iterator[Hit]:
+     if factory_vrf or shape is None or not system.devices:
+         return
+     drive = _has_drive(system, shape)
+-    for slot in shape.slots_of_kind("integration"):
+-        if _is_drive_slot(slot) and not drive:
+-            continue
++    wanted = [s for s in shape.slots_of_kind("integration") if drive or not _is_drive_slot(s)]
++    if job.front_end is None and not any(d.slot in wanted for d in system.devices):
++        # no source names a BMS (the planner leaves the front end unset, `plan._front_end`) and the block has no
++        # integration line: nothing to integrate into, so no integration line is asked for (owner ruling
++        # 2026-10-09: with no BMS the integration lines are dropped). A block with some of them keeps the rule.
++        return
++    for slot in wanted:
+         n = sum(1 for d in system.devices if d.slot == slot)
+         if n != 1:
+             yield (None, "must_fix", f"The '{slot}' integration line is {'missing' if n == 0 else f'there {n} times'}",

@@ -1,0 +1,45 @@
+diff --git a/src/bms/plan.py b/src/bms/plan.py
+index 448f730..1019fee 100644
+--- a/src/bms/plan.py
++++ b/src/bms/plan.py
+@@ -1402,6 +1402,32 @@ def _front_end(planner: _Planner) -> FrontEnd:
+     return FrontEnd(mode=mode, existing_system_name=existing if mode == "extend-existing" else None)
+ 
+ 
++def _unplaced_questions(planner: _Planner, systems: list[System], drafts: list[_Draft]) -> None:
++    """Questions for what a schedule-only job would otherwise leave to a guess ("Template is the ideal case"): a
++    system no Playbook shape fits, and a damper-only block whose actuators no provider fact gives to anyone. Only
++    when nothing else speaks for the system (no sequence passage) and no question already names it."""
++    def asked(names: list[str]) -> bool:
++        return any(any(n and n.upper() in q.upper() for n in names) for q in planner.questions)
++
++    for system, draft in zip(systems, drafts):
++        if system.sequence_refs or not system.families:
++            continue
++        tags = [t for f in system.families for t in f.tags if t.strip()]
++        shown = ", ".join(tags) if tags else "no tags"
++        if asked(tags or [system.name]):
++            continue
++        if not system.shape:
++            # planned in the generic form, never dropped silently: is it AME's at all?
++            planner.questions.append(f"No Master Template family fits {system.name} ({shown}); is it in AME's "
++                                     "scope? If not, it is a named exception.")
++        elif all("damper" in f.name.lower() and not re.search(r"fire|smoke", f.name, re.I)
++                 for f in system.families) and not any(
++                     any(d is draft for d in _named(drafts, f.subject)) for f in planner.ledger.of_kind("provider")):
++            # who furnishes the actuators is the documents' to say: asked, never guessed
++            planner.questions.append(f"The documents do not say who furnishes the damper actuators of {system.name} "
++                                     f"({shown}); who does? No damper line is printed until this is answered.")
++
++
+ def _exceptions(planner: _Planner, systems: list[System], drafts: list[_Draft]) -> tuple[ScopeException, ...]:
+     out = []
+     for fact in planner.ledger.of_kind("note"):
+@@ -1470,6 +1496,7 @@ def plan_job(ledger: Ledger, catalogue: Catalogue, dossier: Dossier, playbook: P
+     keys: set[str] = set()
+     systems = _with_served([planner.system(d, keys, drafts) for d in drafts], drafts)
+     planner.family_questions(systems, drafts)
++    _unplaced_questions(planner, systems, drafts)
+     planner.added_tags()
+     planner.lost(drafts)
+     front_end = _front_end(planner)

@@ -1,0 +1,72 @@
+diff --git a/src/bms/plan.py b/src/bms/plan.py
+index 448f730..92f1a5f 100644
+--- a/src/bms/plan.py
++++ b/src/bms/plan.py
+@@ -1413,6 +1413,18 @@ def _exceptions(planner: _Planner, systems: list[System], drafts: list[_Draft])
+         named = _named(drafts, text)
+         key = next((s.key for s, d in zip(systems, drafts) if named and d is named[0]), "")
+         out.append(ScopeException(system_key=key, text=text, refs=(planner.reader.fact_ref(fact),)))
++    # a system with no controls in the contract (control "none", `_Planner._control`) is a named exception too,
++    # with the provider fact that says so as its source, unless a note's exception already names it
++    from bms.render import omitted_exception_text
++    named_keys = {x.system_key for x in out if x.system_key}
++    for system, draft in zip(systems, drafts):
++        if system.control != "none" or system.key in named_keys:
++            continue
++        facts = [f for f in planner.ledger.of_kind("provider") if _NO_CONTROLS.search(squash(f.value))
++                 and any(d is draft for d in _named(drafts, f.subject))]
++        reason = squash(facts[0].value) if facts else None
++        out.append(ScopeException(system_key=system.key, text=omitted_exception_text(system, reason),
++                                  refs=tuple(planner.reader.fact_ref(f) for f in facts[:1])))
+     return tuple(out)
+ 
+ 
+diff --git a/src/bms/render.py b/src/bms/render.py
+index e4f1bc6..17f6b8c 100644
+--- a/src/bms/render.py
++++ b/src/bms/render.py
+@@ -27,6 +27,7 @@ from estimator.writing.write import tag_list
+ 
+ from bms.citations import SHEET, SourceIds, clarification_text, squash as _squash, strip_label
+ from bms.model import CLARIFICATION_KINDS, Clarification, Count, Device, FrontEnd, Job, System
++from bms.model import ScopeException as ScopeExceptionModel
+ from bms.playbook import DEFAULT_ORDER, Playbook, Shape
+ 
+ SEQUENCE_ONLY_ORDER = 20            # a block whose count prints "Qty (##)": after the equipment (shapes.json "order")
+@@ -132,8 +133,13 @@ def render(job: Job, playbook: Playbook) -> ProposalDraft:
+         (lines if system.alternate == "base" else after[system.alternate]).extend(printed)
+     lines += after["add"] + after["deduct"]
+     adds, deducts = (_alternates(alternates[side], playbook) for side in ("add", "deduct"))
++    # a system the job names but left with no lines is a named exception (rules.md "Named exceptions"), unless an
++    # exception already names it (the plan's, `plan._exceptions`)
++    excepted = {x.system_key for x in job.exceptions if x.system_key}
++    omitted = [ScopeExceptionModel(s.key, omitted_exception_text(s, s.no_scope_reason))
++               for s in job.systems if not s.devices and s.key not in excepted]
+     exceptions = []
+-    for x in job.exceptions:
++    for x in (*job.exceptions, *omitted):
+         if not x.text.strip():
+             continue
+         text = ids.without_issued(x.text).strip()
+@@ -648,6 +654,21 @@ def _header_text(form: str, name: str, tags: tuple[str, ...], count: Count, play
+ 
+ 
+ LEFT_OUT = "{name}: left out, no lines written"
++EXCEPTION_FORM = "EXCEPTION TO ANY WORK WITH {n} {tags}"      # rules.md "Named exceptions"
++
++
++def omitted_exception_text(system: System, reason: str | None = None) -> str:
++    """The named exception of a system the job names but AME does no work on, in the estimator's form (rules.md
++    "Named exceptions"): "EXCEPTION TO ANY WORK WITH Qty (n) <tags> - <reason>". The count is the families' printed
++    counts added up ("Qty (##)" when one is unknown); the tags as written, else the system's name; the reason the
++    given words (the writer's no_scope_reason or the source's), upper case, left off when there are none: no
++    reason wording of its own (R15 is pending)."""
++    counts = [f.count.highest() for f in system.families]
++    n = "Qty (##)" if not counts or any(c is None for c in counts) else f"Qty ({sum(counts)})"
++    tags = [t.strip() for f in system.families for t in f.tags if t.strip()]
++    text = EXCEPTION_FORM.format(n=n, tags=", ".join(dict.fromkeys(tags)) or system.name.upper())
++    reason = _squash(reason or "").rstrip(" .;")
++    return f"{text} - {reason.upper()}" if reason else text
+ 
+ 
+ def left_out_text(system: System) -> str:
