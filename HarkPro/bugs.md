@@ -55,3 +55,11 @@ Status as of 2026-10-09. "Fixed*" = fixed in the uncommitted patch, awaiting rev
 | Vision cache reuse | Next run must freshly inspect every tile |
 | Pre-existing test failures | 11-12 fail on clean 7e27873 too: 5 test_ai chat, python pin, Windows file locking, Windows resource code, flaky normal-exit, flaky revert-audit |
 | Two real tags left in docstrings in the patch | Redacted in this copy; to clean in source |
+
+## Pipeline (queued, fix after mockup review)
+| Item | Plan |
+|---|---|
+| Proposal clarifications too long | One short client-facing line per "*" item; full reasoning stays in the Evidence Package |
+| Colour-coded markers | `**` client note = red EE0000 (house, per Master Template); `*Confirm` = orange ED7D31; `*Assumed` = blue 2F5597. Mockup sent 2026-10-09, awaiting review |
+| Empty "DEDUCT ALTERNATES: ALT #:" | Drop when there are no deducts |
+| Controls by mechanical = AME scope | EF thermostat "by MC" → "Furnish and Install Space Thermostat" (wiring scope TBD) |
