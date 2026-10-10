@@ -356,13 +356,19 @@ def _vrf(system, shape, job, playbook) -> Iterator[Hit]:
 
 
 def _count_problems(count: Count, label: str) -> Iterator[tuple[str, str]]:
+    """A count whose `value` is not the highest it holds. The highest prints (estimator rulings D9, VAL-18, and L2 of
+    2026-10-10: the schedule's count does not take its place), so `value` is the highest whenever any count exists
+    (None only when none does), and every other count is in `others` with its source: the proposal's "*Qty." note
+    names each one with its place (`render._count_part`). The finding says the numbers it is about and what prints."""
     top = count.highest()
     if count.value is None and top is not None:     # estimator ruling D9: None only when no count exists (VAL-18)
-        yield (f"{label} prints 'Qty (##)' but a source gives {top}",
-               f"Set the count to {top}, the highest, and name the other in the note.")
+        yield (f"{label} carries no number, but a source gives {top}. The proposal prints {top}, the highest.",
+               f"Set the count to {top}, the highest, with its source. Keep every other count with its source.")
     if count.value is not None and top is not None and count.value < top:
-        yield (f"{label} prints {count.value} but another source gives {top}",
-               f"Print the higher count, {top}, and name the other in the note.")
+        yield (f"{label} carries {count.value}, but another source gives {top}. The proposal prints {top}, the "
+               "highest.",
+               f"Set the count to {top}, the highest, with its source. Keep {count.value} as another count, with "
+               "its source.")
 
 
 def _higher(system, shape, job, playbook) -> Iterator[Hit]:

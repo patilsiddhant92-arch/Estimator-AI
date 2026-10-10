@@ -232,14 +232,17 @@ def _question_html(q: _Question, extra: bool, proofs: dict[str, list[str]] | Non
     if q.level == "device" and q.device:
         data["count"] = q.device.quantity.to_dict()
     del_label = "Delete this system" if q.level == "system" else "Delete"
-    hint = {"device": "Type a number to set the count, ## for not known, or new words to rename the line.",
-            "family": "Type a number to set the count, or ## for not known.",
+    hint = {"device": "Type the new count here: a whole number (5 or 5 units), or ## for not known. To rename the "
+                      "line, type the new name in the name box.",
+            "family": "Type the new count: a whole number (5 or 5 units), or ## for not known.",
             "system": "A note for the writer; it is recorded but does not edit the job."}[q.level]
     delete = f'<button type="button" data-act="delete">{del_label}</button>' if can_delete else ""
     selects = ""
     if q.level == "device" and q.device:
         d = q.device
-        selects = ('<div class="fields">' + _select("verb", VERBS, d.verb)
+        selects = (f'<label class="namebox">Line name <input type="text" class="newname" data-field="name" '
+                   f'value="{_e(d.name)}" aria-label="Line name"></label>'
+                   '<div class="fields">' + _select("verb", VERBS, d.verb)
                    + _select("furnished_by", PARTIES, d.furnished_by)
                    + _select("installed_by", PARTIES, d.installed_by) + _select("wired_by", PARTIES, d.wired_by)
                    + "</div>")
@@ -259,15 +262,57 @@ def _question_html(q: _Question, extra: bool, proofs: dict[str, list[str]] | Non
           '<button type="button" data-act="change">Change</button>' + delete
         + '<span class="state"></span></div>'
         + f'<div class="changebox" hidden><input type="text" class="newtext" placeholder="{_e(hint)}" '
-          f'aria-label="{_e(hint)}"><div class="hint">{_e(hint)}</div>{selects}</div></div>')
+          f'aria-label="{_e(hint)}"><div class="hint">{_e(hint)}</div><p class="msg" aria-live="polite"></p>'
+          f'{selects}</div></div>')
 
 
-_SCRIPT_CORE = r"""
+# ---- a count typed in Change -------------------------------------------------------------------------------------
+# What the estimator types in the count box of Change. It starts with a whole number, in digits or in words ("2",
+# "5 units", "2 ea", "two"); the words after it are only said. A number joined to more is no count ("24V", "2nd",
+# "2.5", "1,000", "10-12", "3/4", "2-way valve"). "##" ("unknown", "not known", "Qty (##)") says the count is not
+# known. The page (`parseNumber` in `_SCRIPT_CORE`) and `_typed_count` read the same two patterns, so both sides
+# read one text alike. Anything else holds no count: the page says so (`decisionProblem`), and the decision keeps
+# the words.
+NUMBER_WORDS = ("zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten", "eleven",
+                "twelve", "thirteen", "fourteen", "fifteen", "sixteen", "seventeen", "eighteen", "nineteen", "twenty")
+UNKNOWN_COUNT_PATTERN = r"^(?:##|unknown|not known|qty \(##\))$"
+LEADING_COUNT_PATTERN = (r"^\s*\(?\s*([0-9]+|" + "|".join(NUMBER_WORDS) + r")"
+                         r"(?![A-Za-z0-9_]|[.,][0-9]|[-–/][A-Za-z0-9])")      # a hyphen, an en dash or a slash
+_UNKNOWN_COUNT = re.compile(UNKNOWN_COUNT_PATTERN, re.IGNORECASE)
+_LEADING_COUNT = re.compile(LEADING_COUNT_PATTERN, re.IGNORECASE)
+
+
+def _typed_count(text: str) -> tuple[str, int | None]:
+    """What a count typed in Change says: ("number", n) for a whole number, ("number", None) for "not known",
+    ("words", None) for text with no count in it, ("none", None) for no text. The page reads it the same way
+    (`parseNumber`)."""
+    said = (text or "").strip()
+    if not said:
+        return ("none", None)
+    if _UNKNOWN_COUNT.match(said):
+        return ("number", None)
+    found = _LEADING_COUNT.match(said)
+    if found is None:
+        return ("words", None)
+    word = found.group(1).lower()
+    return ("number", int(word) if word.isdigit() else NUMBER_WORDS.index(word))
+
+
+# The page's decision code: pure functions of a question and the estimator's answer on it, so a test runs them in
+# node. A count typed with words ("2 units") sets the quantity and keeps the line's name; a new name has its own box
+# on a line's card. Text with no count in it changes nothing and says so (`explainChange`, `decisionProblem`).
+_SCRIPT_CORE_SOURCE = r"""
+var NUMBER_WORDS = __NUMBER_WORDS__;
+var UNKNOWN_COUNT = new RegExp(__UNKNOWN_COUNT__, "i");
+var LEADING_COUNT = new RegExp(__LEADING_COUNT__, "i");
 function parseNumber(text) {
   var t = String(text || "").trim();
-  if (/^\d+$/.test(t)) return {kind: "number", value: parseInt(t, 10)};
-  if (/^(##|unknown|not known|qty \(##\))$/i.test(t)) return {kind: "number", value: null};
-  return {kind: t ? "words" : "none", value: t};
+  if (!t) return {kind: "none", value: ""};
+  if (UNKNOWN_COUNT.test(t)) return {kind: "number", value: null};
+  var found = LEADING_COUNT.exec(t);
+  if (!found) return {kind: "words", value: t};
+  var word = found[1].toLowerCase();
+  return {kind: "number", value: /^[0-9]+$/.test(word) ? parseInt(word, 10) : NUMBER_WORDS.indexOf(word)};
 }
 function buildDecision(q, state) {
   if (!state || !state.action) return null;
@@ -276,17 +321,21 @@ function buildDecision(q, state) {
            reason: "", was: (q.level === "device" && q.device) ? JSON.parse(JSON.stringify(q.device)) : null};
   if (state.action === "change") {
     var parsed = parseNumber(state.text);
+    var f = state.fields || {};
+    var name = String(f.name || "").trim();
     d.reason = String(state.text || "").trim();
     if (q.level === "device" && q.device) {
       var dev = JSON.parse(JSON.stringify(q.device));
+      if (!d.reason && name && name !== dev.name) d.reason = "renamed to " + name;
+      // A count typed with words ("2 units") sets the quantity and keeps the name; the name box renames the line.
       if (parsed.kind === "number") { dev.quantity.value = parsed.value; dev.quantity.others = []; }
-      else if (parsed.kind === "words") dev.name = parsed.value;
-      var f = state.fields || {};
+      if (name) dev.name = name;
       ["verb", "furnished_by", "installed_by", "wired_by"].forEach(function (k) { if (f[k]) dev[k] = f[k]; });
-      dev.flag = "none";
+      if (parsed.kind !== "words") dev.flag = "none";      // words with no count settle nothing
       d.device = dev;
     } else if (q.level === "family" && q.count) {
-      // A typed count settles the dispute (no other counts left); words alone are no count change.
+      // A typed count settles the dispute (no other counts left); words with no count change nothing, and the
+      // page says so (decisionProblem).
       if (parsed.kind === "number") {
         var c = JSON.parse(JSON.stringify(q.count));
         c.value = parsed.value;
@@ -297,7 +346,35 @@ function buildDecision(q, state) {
   }
   return d;
 }
+var COUNT_HELP = "a whole number, for example 5 or 5 units, or ## for not known";
+function explainChange(q, state) {
+  // {ok, text}: what the answer will do, or why it cannot. Only a Change on a line or a count has a problem; a
+  // note on the system is free text.
+  if (!state || state.action !== "change" || q.level === "system") return {ok: true, text: ""};
+  var said = String(state.text || "").trim(), parsed = parseNumber(said);
+  var name = String((state.fields || {}).name || "").trim();
+  var renamed = q.level === "device" && q.device && name && name !== q.device.name;
+  if (parsed.kind === "words") {
+    return {ok: false, text: "I cannot read a count from \"" + said + "\". Type " + COUNT_HELP + "." +
+            (q.level === "device" ? " To rename the line, use the name box." : "")};
+  }
+  if (parsed.kind === "none") {
+    if (renamed) return {ok: true, text: "The line will be renamed to " + name + ". The count stays."};
+    if (q.level === "device") return {ok: true, text: ""};
+    return {ok: false, text: "Type the new count: " + COUNT_HELP + "."};
+  }
+  var counted = parsed.value === null ? "The count will print as Qty (##), not known." :
+                "The count will be " + parsed.value + ".";
+  return {ok: true, text: counted + (renamed ? " The line will be renamed to " + name + "." : "")};
+}
+function decisionProblem(q, state) {
+  var said = explainChange(q, state);
+  return said.ok ? "" : said.text;
+}
 """
+_SCRIPT_CORE = (_SCRIPT_CORE_SOURCE.replace("__NUMBER_WORDS__", json.dumps(list(NUMBER_WORDS)))
+                .replace("__UNKNOWN_COUNT__", json.dumps(UNKNOWN_COUNT_PATTERN))
+                .replace("__LEADING_COUNT__", json.dumps(LEADING_COUNT_PATTERN)))
 
 _SCRIPT_PAGE = r"""
 var questions = {}, states = {};
@@ -315,6 +392,14 @@ function refresh(id) {
   el.classList.toggle("answered", !!s.action);
   var n = Object.keys(states).filter(function (k) { return states[k] && states[k].action; }).length;
   document.getElementById("answered").textContent = n;
+  explain(id);
+}
+function explain(id) {
+  // what a Change will do, or why it cannot be read, in plain words under the box (decisionProblem)
+  var el = document.getElementById(id), said = explainChange(questions[id], states[id] || {});
+  var box = el.querySelector(".msg");
+  box.textContent = said.text;
+  box.classList.toggle("bad", !said.ok);
 }
 function readFields(el) {
   var f = {};
@@ -342,17 +427,36 @@ document.addEventListener("input", function (ev) {
   if (el && states[el.id] && states[el.id].action === "change") {
     states[el.id].text = el.querySelector(".newtext").value;
     states[el.id].fields = readFields(el);
+    explain(el.id);
   }
 });
 document.addEventListener("change", function (ev) {
   var el = ev.target.closest(".q");
-  if (el && states[el.id] && states[el.id].action === "change") states[el.id].fields = readFields(el);
+  if (el && states[el.id] && states[el.id].action === "change") {
+    states[el.id].fields = readFields(el);
+    explain(el.id);
+  }
 });
 document.getElementById("showall").addEventListener("click", function () {
   var on = document.body.classList.toggle("all");
   this.textContent = on ? "Show only the top questions" : "Show all questions";
 });
 document.getElementById("save").addEventListener("click", function () {
+  // Nothing is saved while an answer cannot be read: it stays on the page, with its message, until it is fixed.
+  var unread = Object.keys(questions).filter(function (id) { return decisionProblem(questions[id], states[id]); });
+  if (unread.length) {
+    var saved = document.getElementById("saved");
+    saved.classList.add("bad");
+    saved.textContent = "Not saved: " + unread.length + " answer(s) have a Change I cannot read. Fix the red " +
+      "message on each one, or press Change again to take that answer back, then save again.";
+    var first = document.getElementById(unread[0]);
+    if (first.offsetParent === null) {
+      document.body.classList.add("all");
+      document.getElementById("showall").textContent = "Show only the top questions";
+    }
+    first.scrollIntoView();
+    return;
+  }
   var out = [];
   Object.keys(questions).forEach(function (id) {
     var d = buildDecision(questions[id], states[id]);
@@ -365,6 +469,7 @@ document.getElementById("save").addEventListener("click", function () {
   document.body.appendChild(a);
   a.click();
   setTimeout(function () { URL.revokeObjectURL(a.href); a.remove(); }, 500);
+  document.getElementById("saved").classList.remove("bad");
   document.getElementById("saved").textContent = out.length + " decision(s) downloaded as decisions.json. " +
     "Save that file into the out folder next to this page, then run the estimate again.";
 });
@@ -389,7 +494,9 @@ h1{font-size:18px;margin:0 0 4px}main{max-width:900px;margin:0 auto;padding:16px
 button{font:inherit;padding:4px 12px;border:1px solid var(--line);border-radius:6px;background:var(--card);color:var(--ink);cursor:pointer}
 button.on{background:var(--acc);color:#fff;border-color:var(--acc)}.q.answered{border-left:3px solid var(--ok);padding-left:8px}
 .changebox{margin-top:6px}.changebox input[type=text]{width:100%;padding:5px}.fields{display:flex;gap:10px;flex-wrap:wrap;margin-top:6px}
-.fields label{font-size:13px}.state{color:var(--ok);font-size:13px}#saved{color:var(--ok);margin-top:6px}
+.fields label{font-size:13px}.state{color:var(--ok);font-size:13px}#saved{color:var(--ok);margin-top:6px}#saved.bad{color:var(--bad);font-weight:600}
+.msg{margin:4px 0;font-size:13px;color:var(--mute)}.msg.bad{color:var(--bad);font-weight:600}
+.namebox{display:block;margin-top:6px;font-size:13px}
 button.primary{background:var(--acc);color:#fff;border-color:var(--acc)}
 @media (max-width:600px){main{padding:8px}.card{padding:10px}}
 """
@@ -458,15 +565,25 @@ the same line replaces the earlier one.</div><div id="saved"></div></header>
 
 def _changes_nothing(decision: Decision) -> str | None:
     """A plain reason when the decision could change nothing (so it is a mistake, not an answer), else None. A
-    change of a device carries the new `device`; a change of a family carries a `count` or words (`reason`: the page
-    saves a words-only family change with no count); a family cannot be deleted and belongs to a system."""
+    change of a device carries the new `device`; a change of a family carries a `count`, or words with a count in
+    them (`reason`, read as the page reads a count typed in Change, `_typed_count`: an older page saved "5 units" as
+    words only, and `_apply_one` applies it); a family cannot be deleted and belongs to a system. Words with no
+    count in them change nothing: the page no longer saves them (it says so, `decisionProblem`), so one here came from
+    an older page or a hand edit, and the run stops in words rather than lose it."""
     if decision.family_name is not None:
         if decision.system_key == "":
             return f"the family {decision.family_name!r} belongs to a system, but system_key is empty"
         if decision.action == "delete":
             return f"a family count cannot be deleted ({decision.family_name!r}); change its count instead"
-        if decision.action == "change" and decision.count is None and not decision.reason.strip():
-            return f"a change of the {decision.family_name!r} count has no count and no words, so it changes nothing"
+        if decision.action == "change" and decision.count is None:
+            said = decision.reason.strip()
+            if not said:
+                return (f"a change of the {decision.family_name!r} count has no count and no words, so it changes "
+                        "nothing")
+            if _typed_count(said)[0] == "words":
+                return (f"a change of the {decision.family_name!r} count says {said!r}, but no whole number can be "
+                        "read from it, so it changes nothing. Change that count on the review page again: type a "
+                        "whole number (for example 5 or 5 units, or ## for not known) and save decisions.json again")
     elif decision.device_id is not None and decision.action == "change" and decision.device is None:
         return f"a change of device {decision.device_id!r} has no device, so it changes nothing"
     return None
@@ -502,7 +619,8 @@ def load_decisions(out_dir: Path) -> list[Decision]:
 class SavedDecision:
     """One decision kept in the run's history: the save it came from (`round`, 1 for the first) and whether it took
     effect on some run (it matched a line and was applied). `saved` is the decision as decisions.json had it when
-    the run rebased it onto an earlier change (`merge_decisions`); None when `decision` is that decision.
+    the run rebased it onto an earlier change or gave a words-only family change its count (`merge_decisions`); None
+    when `decision` is that decision.
     `settled` is a digest of the decision's system in the final job of the last run that reached the end
     (`system_digest`); None before such a run. A different digest now: the system was asked again since.
     `copies` is, for a device delete, how many lines with the deleted content the written job had when the
@@ -635,8 +753,9 @@ def merge_decisions(history: Sequence[SavedDecision], saved: Sequence[Decision],
     line the writer wrote: change X to Y, then delete Y, is kept as delete X; change X to Y, then Y to Z, as change X
     to Z. So every kept decision names a line of the written job; a newer answer on the line a rebased decision now
     names replaces it too. `job` is the written job: a line whose content only one of its lines has is the same
-    line whatever id the page showed (`_same_line`). Pure."""
-    history = list(history)
+    line whatever id the page showed (`_same_line`). A family change saved as words only (an older page) whose words
+    hold a whole number ("5 units") is kept with that count (`_with_typed_count`). Pure."""
+    history = [_with_typed_count(entry, job) for entry in history]
     saved = list(saved)
     if not saved:
         return history
@@ -648,13 +767,29 @@ def merge_decisions(history: Sequence[SavedDecision], saved: Sequence[Decision],
     for d in saved:
         base = _changed_into(carried, d)
         if base is None:
-            new.append(SavedDecision(d, latest + 1, copies=_seen(job, d)))
+            new.append(_with_typed_count(SavedDecision(d, latest + 1, copies=_seen(job, d)), job))
             continue
         carried.remove(base)
         old = base.decision
         rebased = dataclasses.replace(d, device_id=old.device_id, was=old.was)
         new.append(SavedDecision(rebased, latest + 1, saved=d, copies=_seen(job, rebased)))
     return [*carried, *new]
+
+
+def _with_typed_count(entry: SavedDecision, job: Job | None) -> SavedDecision:
+    """`entry`, when its decision is a family change that carries words and no count (an older page saved "5 units"
+    so), with the count its words say set on the family's own count, as `_new_count` and the page build a typed
+    count; the decision as saved stays on record (`saved`). Every reader of a decision's count (the run's count
+    rewrite too) then sees it. Unchanged when the words hold no number, when `job` is not given or has not that family,
+    or when the decision already has a count."""
+    d = entry.decision
+    if job is None or d.family_name is None or d.action != "change" or d.count is not None:
+        return entry
+    family = _family(job, d.system_key, d.family_name)
+    if family is None or (count := _new_count(d, family)) is None:
+        return entry
+    return dataclasses.replace(entry, decision=dataclasses.replace(d, count=count),
+                               saved=d if entry.saved is None else entry.saved)
 
 
 def _replaces(d: Decision, h: SavedDecision, job: Job | None) -> bool:
@@ -739,8 +874,9 @@ def apply_decisions(job: Job, decisions: Sequence[Decision]) -> Job:
     """The job with the decisions applied, in order: accept clears the device's flag, or, for a family, the
     quantity flags of the devices counted from that family (shared sources, `counts.counted_from`) whose own count
     is known; delete removes the device (or the system, when no device or family is
-    named); change replaces the device (same id) or the family's Count. A decision naming a system or device the
-    job no longer has is skipped. Pure. System key "" names the front end's devices.
+    named); change replaces the device (same id) or the family's Count (a family change that carries words and no
+    count sets the number the words start with: "5 units" is 5; words with no number change nothing). A decision
+    naming a system or device the job no longer has is skipped. Pure. System key "" names the front end's devices.
 
     A device delete whose id no longer holds its line is applied to a line with the same content only when as many
     copies of it are left as the estimator saw (`apply_seen`, with `copies_seen` of the history; when not known, see
@@ -810,14 +946,32 @@ def _apply_one(job: Job, d: Decision, seen: int | None = None,
             devices = tuple(dataclasses.replace(dev, flag="none") if _accept_clears(dev, family, system, names)
                             else dev for dev in system.devices)
             return job.with_system(dataclasses.replace(system, devices=devices))
-        if d.action != "change" or d.count is None:
+        if d.action != "change":
             return job
-        families = tuple(dataclasses.replace(f, count=d.count) if f.name == d.family_name else f
-                         for f in system.families)
+        families = tuple(_with_new_count(f, d) for f in system.families)
+        if families == system.families:
+            return job
         return job.with_system(dataclasses.replace(system, families=families))
     if d.action == "delete":
         return dataclasses.replace(job, systems=tuple(s for s in job.systems if s.key != d.system_key))
     return job
+
+
+def _new_count(d: Decision, family: Family) -> Count | None:
+    """The count a family change gives `family`: the decision's own `count`; else, for a change that carries words
+    only (an older page, a hand edit), the number the words start with (`_typed_count`), set on the family's own
+    count: its sources stay, the other counts go, as the page builds a typed count (a typed count settles the
+    dispute). None when the decision holds no count (words with no number in them): nothing is applied."""
+    if d.count is not None:
+        return d.count
+    kind, value = _typed_count(d.reason)
+    return dataclasses.replace(family.count, value=value, others=()) if kind == "number" else None
+
+
+def _with_new_count(family: Family, d: Decision) -> Family:
+    """`family` with the count a family change gives it, when the change is about it (by name) and holds a count."""
+    count = _new_count(d, family) if family.name == d.family_name else None
+    return family if count is None else dataclasses.replace(family, count=count)
 
 
 def _accept_clears(device: Device, family: Family, system: System | None = None,
@@ -853,7 +1007,9 @@ def unhonored_decisions(before: Job, decisions: Sequence[Decision], after: Job, 
     whose system (or family) `before` does not have at all is not applied: a check (severity "check") saying so,
     unless it is a delete or a system delete among `decisions` took that system out. A decision without `was` that named nothing the earlier job had is skipped, as
     `apply_decisions` skips it. A delete `apply_decisions` holds back
-    (`copies`: the number of copies of the line differs from what the estimator saw) could not be applied either."""
+    (`copies`: the number of copies of the line differs from what the estimator saw) could not be applied either.
+    A family change that carries words and no count, whose words hold no whole number ("only the roof units"), is
+    applied by nothing: a check (severity "check") says so and how to answer it again (`_holds_no_count`)."""
     copies = copies or {}
     expected = apply_seen(before, decisions, copies)
     accepted = _accepted_families(decisions)
@@ -903,6 +1059,8 @@ def _unhonored(before: Job, decision: Decision, after: Job, expected: Job | None
         fix = _GONE_DELETE if decision.action == "delete" and still is None else _GONE_OTHER
         return Finding("decision not honored", decision.system_key, still.id if still else None,
                        "must_fix", f"decision could not be applied: {decision.action} {subject}", fix)
+    if _holds_no_count(decision):
+        return _no_count_card(decision, subject)
     if not _decision_holds(before, decision, after, expected, accepted.get(decision.system_key, frozenset())):
         device_id = decision.device_id
         target = _target(before, decision)
@@ -916,6 +1074,24 @@ def _unhonored(before: Job, decision: Decision, after: Job, expected: Job | None
                        f"decision not honored: {decision.action} {subject}",
                        "The estimator's decision stands. The last write undid it.")
     return None
+
+
+def _holds_no_count(decision: Decision) -> bool:
+    """True for a family change that carries words and no count, and whose words hold none (`_typed_count`): from an
+    older page or a hand edit, it was kept in the history and nothing applies it (`_new_count`)."""
+    return (decision.family_name is not None and decision.action == "change" and decision.count is None
+            and _typed_count(decision.reason)[0] == "words")
+
+
+def _no_count_card(decision: Decision, subject: str) -> Finding:
+    """The check (severity "check", as `_lost_card`: the estimator is never left with a card they cannot clear) for a
+    saved family change whose words hold no count (`_holds_no_count`). About the count (no line): a new answer on
+    that count replaces it."""
+    return Finding("decision not honored", decision.system_key, None, "check",
+                   f"this saved decision (change {subject}) says {decision.reason.strip()!r}, which holds no whole "
+                   "number; it is not applied",
+                   "Change that count again on its card: type a whole number, for example 5 or 5 units, or ## for not "
+                   "known. Then save again.")
 
 
 def _lost_its_system(before: Job, decision: Decision, deleted: frozenset[str]) -> bool:

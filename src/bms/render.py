@@ -26,7 +26,7 @@ from estimator.reading.inventory import COUNT_CAUSE_WORDS, COUNT_CAUSES_LEAD
 from estimator.writing.write import tag_list
 
 from bms.citations import SHEET, SourceIds, clarification_text, squash as _squash, strip_label
-from bms.model import CLARIFICATION_KINDS, Clarification, Count, Device, FrontEnd, Job, System
+from bms.model import CLARIFICATION_KINDS, Clarification, Count, Device, FrontEnd, Job, Ref, System
 from bms.playbook import DEFAULT_ORDER, Playbook, Shape
 
 SEQUENCE_ONLY_ORDER = 20            # a block whose count prints "Qty (##)": after the equipment (shapes.json "order")
@@ -269,8 +269,22 @@ def _singular(text: str, not_plural=_NOT_PLURAL) -> str:
 
 
 def _printed(count: Count) -> int | None:
-    """The count that prints: the highest any source gives (never undershoot), None when none is known."""
+    """The count that prints: the highest any source gives (never undershoot), None when none is known. Estimator
+    ruling L2 (2026-10-10; the schedule's count does not take its place): every other count that differs is named,
+    with its place, in the block's "*Qty." note (`_count_part`), so none is silent."""
     return count.highest()
+
+
+_NO_PLACE = Ref("", "", "")      # the place of a count that cites no source (printed as `unlabelled` says)
+
+
+def _own_entries(count: Count) -> list[tuple[int, Ref]]:
+    """The count's own `value`, once for each source that backs it. A `value` with no source is one entry with no
+    place, so when another count is higher (the highest prints) the lower `value` is still named in the note, never
+    dropped. [] when `value` is unknown."""
+    if count.value is None:
+        return []
+    return [(count.value, r) for r in count.sources] or [(count.value, _NO_PLACE)]
 
 
 def _owner(device: Device, playbook: Playbook) -> str:
@@ -406,7 +420,7 @@ def _count_part(count: Count, ids: SourceIds, causes: str = "", words: _CountWor
     n = _printed(count)
     if n is None:
         return ""
-    entries = [(count.value, r) for r in count.sources] if count.value is not None else []
+    entries = _own_entries(count)
     entries += [(o.value, o.ref) for o in count.others]
     labels, placements = words.labels, words.labels["plan_placements"]
     heads = [label for label in (_count_label(v, r, ids, labels) for v, r in entries if v == n) if label]
@@ -443,12 +457,18 @@ def _count_note(counts: list[Count], playbook: Playbook, ids: SourceIds, names: 
     that reached a place is taken out, token only."""
     words = _count_words(playbook)
     names = list(names or []) + [""] * (len(counts) - len(names or []))
-    seen: dict[str, str] = {}                    # a part -> the family name it opens with; a repeat prints once
+    seen: dict[str, list[str]] = {}              # a part -> the family names it opens with; a repeat prints once
     for count, name in zip(counts, names):       # (a device often carries its family's count: the family's wins)
         part = _count_part(count, ids, _count_causes(count, playbook), words)
-        if part and part not in seen:
-            seen[part] = name
-    parts = [f"{name} {part}" if name else part for part, name in seen.items()]
+        if not part:
+            continue
+        under = seen.setdefault(part, [])
+        # a line that carries a family's count adds nothing; a second family that reads the same numbers from the
+        # same places is a count of its own, and prints under its own name (none dropped)
+        if name in under or (not name and under):
+            continue
+        under.append(name)
+    parts = [f"{name} {part}" if name else part for part, under in seen.items() for name in under]
     if not parts:
         return ""
     # made of places the where checks gave (`SourceIds.sheet`, `place`), so it is read as a where is: a source sheet
