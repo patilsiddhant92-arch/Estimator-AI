@@ -36,7 +36,7 @@ from estimator.reading.inventory import (COUNT_CAUSE_WORDS, COUNT_CAUSES_LEAD, T
                                         plan_count, plan_floors, plan_groups, sheet_floors,
                                         sheet_labels)
 from estimator.reading.revisions import governing_pages, typical_places
-from estimator.reading.schedules import header_key, quantity_header, vocabulary
+from estimator.reading.schedules import expand_tags, header_key, quantity_header, vocabulary
 from estimator.reading.sequences import POINTS, SEQUENCE
 from estimator.writing.systems import _paragraphs
 from estimator.writing.write import tag_list
@@ -695,7 +695,9 @@ def _schedules_section(catalogue, reading, ids: _Ids, images: dict, why: dict, i
         sid = ids.new(f"{schedule.sheet + ' ' if schedule.sheet else ''}{schedule.title}, "
                       f"{_name(schedule.document)} page {schedule.page}")
         extras = []
-        if schedule.type_only:
+        if schedule.passive:
+            extras.append("air-device types (diffusers, grilles, louvers), passive: not equipment, no controller")
+        elif schedule.type_only:
             extras.append("type rows, no unit tags")
         if schedule.from_text:
             extras.append("counted from the sheet's text; the table couldn't be read")
@@ -793,8 +795,8 @@ def _counts(catalogue, reading, counted_pages: frozenset, multipliers: dict) -> 
                     typed.add(row.tag)
             else:
                 key = _type_code(schedule, row)
-                if key is None or type_titles.search(schedule.title):
-                    continue
+                if key is None or type_titles.search(schedule.title) or schedule.passive:
+                    continue         # an air device's type code (CD, RG, LRD-A) is no equipment family (HP 20)
                 codes.add(key)
                 on_page[(schedule.document, schedule.page)][key] += 1
             if row.existing:
@@ -809,8 +811,12 @@ def _counts(catalogue, reading, counted_pages: frozenset, multipliers: dict) -> 
             counted_rows.add(id(row.cells))
             if n is not None:
                 family.quantity = (family.quantity or 0) + n
-    valid = {t.tag for t in catalogue.tags} | {t for f in families.values() for t in f.scheduled}
-    exclude = frozenset(tag for s in catalogue.sheets if s.number for tag in find_tags(s.number, equipment))
+    # an air device's code read as a tag (B1 is B-1, the boiler's, on a schedule sheet; SD-1 a smoke damper's) is no unit
+    # of any family on the plans (HP 3): only a unit a non-air-device schedule lists keeps its tag
+    air_codes = {tag for schedule in reading.schedules if schedule.passive and schedule.headers for row in schedule.rows
+                 for tag in expand_tags(row.cells.get(schedule.headers[0], ""), equipment)}
+    valid = ({t.tag for t in catalogue.tags} - air_codes) | {t for f in families.values() for t in f.scheduled}
+    exclude =frozenset(tag for s in catalogue.sheets if s.number for tag in find_tags(s.number, equipment))
     records = {(p.document, p.page): p for p in catalogue.pages}
     code_patterns = {code: re.compile(rf"(?<![A-Za-z0-9\-]){re.escape(code)}(?![A-Za-z0-9])") for code in codes}
     read: list[tuple] = []
