@@ -14,7 +14,7 @@ import pytest
 
 from bms import ai, counts, plan, render, review, run, validate
 from bms.model import (ALTERNATES, CLARIFICATION_KINDS, CONTROLS, FLAGS, PARTIES, VERBS, Count, Decision, Device,
-                       Finding, Job, ModelError, Ref, Served, System, json_schema, schema_errors)
+                       Finding, Job, ModelError, OtherCount, Ref, Served, System, json_schema, schema_errors)
 from bms.playbook import Playbook, PlaybookError, load_playbook
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -126,6 +126,22 @@ def test_a_duct_heater_block_lists_the_units_it_serves():
     assert System.from_dict(old).serves == ()                     # a Job saved before the field still loads
 
 
+def test_a_count_may_carry_the_sum_of_the_sheets_of_one_floor_and_area():
+    """Ruling L1: `added_up` is the plain sum of the sheets of one floor and area, kept when it is above the printed
+    count. It is no count that prints (`highest()` ignores it); a "*" note names both numbers."""
+    ref = Ref("D7", "CUH-A (TYP. OF 4)", "M-101, Drawings.pdf page 3")
+    count = Count(4, (ref,), (), OtherCount(8, ref))
+    assert count.to_dict()["added_up"] == {"value": 8, "ref": ref.to_dict()}
+    assert Count.from_dict(json.loads(json.dumps(count.to_dict()))) == count
+    assert Count(4, (ref,)).added_up is None and Count(4, (ref,)).to_dict()["added_up"] is None
+    assert count.highest() == 4
+    assert Count(4, (ref,), (OtherCount(6, ref),), OtherCount(8, ref)).highest() == 6
+    old = {k: v for k, v in count.to_dict().items() if k != "added_up"}
+    assert Count.from_dict(old).added_up is None                  # a Job saved before the field still loads
+    with pytest.raises(ModelError, match="added_up"):
+        Count.from_dict({**count.to_dict(), "added_up": 8})
+
+
 def test_finding_and_decision_round_trip():
     finding = Finding("Packaged units", "RTU", "RTU.d1", "must_fix", "what", "fix")
     assert Finding.from_dict(finding.to_dict()) == finding
@@ -169,6 +185,28 @@ def test_system_schema_is_strict_for_structured_outputs():
     count = device["properties"]["quantity"]["properties"]["value"]
     assert {"type": "null"} in count["anyOf"]
     json.dumps(schema)
+
+
+def test_the_schema_takes_added_up_as_an_other_count_or_null(raw):
+    schema = json_schema(System)
+    counts = [schema["properties"]["families"]["items"]["properties"]["count"],
+              schema["properties"]["devices"]["items"]["properties"]["quantity"]]
+    for count in counts:
+        assert list(count["properties"]) == ["value", "sources", "others", "added_up"]
+        assert count["required"] == ["value", "sources", "others", "added_up"]      # every property is required
+        prop = count["properties"]["added_up"]
+        assert {"type": "null"} in prop["anyOf"] and "ruling L1" in prop["description"]
+        (other,) = [option for option in prop["anyOf"] if option.get("type") == "object"]
+        assert list(other["properties"]) == ["value", "ref"]
+    system = copy.deepcopy(raw["systems"][1])
+    count = system["families"][0]["count"]
+    assert count["added_up"] is None and schema_errors(system, schema) == []
+    count["added_up"] = {"value": 9, "ref": {"source_id": "D7", "quote": "q", "where": "M-101"}}
+    assert schema_errors(system, schema) == []
+    count["added_up"] = 9
+    assert any("added_up" in e for e in schema_errors(system, schema))
+    del count["added_up"]
+    assert any("missing added_up" in e for e in schema_errors(system, schema))
 
 
 def test_schema_errors_catch_bad_answers(raw):

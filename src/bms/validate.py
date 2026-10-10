@@ -359,7 +359,9 @@ def _count_problems(count: Count, label: str) -> Iterator[tuple[str, str]]:
     """A count whose `value` is not the highest it holds. The highest prints (estimator rulings D9, VAL-18, and L2 of
     2026-10-10: the schedule's count does not take its place), so `value` is the highest whenever any count exists
     (None only when none does), and every other count is in `others` with its source: the proposal's "*Qty." note
-    names each one with its place (`render._count_part`). The finding says the numbers it is about and what prints."""
+    names each one with its place (`render._count_part`). The finding says the numbers it is about and what prints.
+    The sum ruling L1 keeps apart (`Count.added_up`) is no count that prints, so it is never read here: it raises no
+    finding, however far above `value` it is."""
     top = count.highest()
     if count.value is None and top is not None:     # estimator ruling D9: None only when no count exists (VAL-18)
         yield (f"{label} carries no number, but a source gives {top}. The proposal prints {top}, the highest.",

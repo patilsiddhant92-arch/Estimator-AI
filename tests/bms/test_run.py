@@ -79,8 +79,8 @@ def _system_answer(request: dict) -> dict:
     key = request.get("plan_key") or "X"
     device = {"id": f"{key}.d1", "slot": _first_slot(prompt), "name": "Space Temperature Sensor",
               "verb": "Furnish and Install", "furnished_by": "AME", "installed_by": "AME", "wired_by": "AME",
-              "quantity": {"value": None, "sources": [], "others": []}, "refs": [ref], "assumption": None,
-              "flag": "quantity"}
+              "quantity": {"value": None, "sources": [], "others": [], "added_up": None}, "refs": [ref],
+              "assumption": None, "flag": "quantity"}
     return {"key": key, "name": "answered", "shape": "", "control": "none", "families": [], "sequence_refs": [],
             "devices": [device], "clarifications": [{"kind": "per_drawings", "text": "Quantity as per drawings"}],
             "tech_hours": None, "alternate": "base"}
@@ -711,8 +711,8 @@ class FakeAnthropicClient:
             slot = _first_slot(prompt)
             device = {"id": f"{key}.d1", "slot": slot, "name": "Space Temperature Sensor",
                       "verb": "Furnish and Install", "furnished_by": "AME", "installed_by": "AME", "wired_by": "AME",
-                      "quantity": {"value": None, "sources": [], "others": []}, "refs": [ref], "assumption": None,
-                      "flag": "none"}
+                      "quantity": {"value": None, "sources": [], "others": [], "added_up": None}, "refs": [ref],
+                      "assumption": None, "flag": "none"}
             answer = {"key": key, "name": "answered", "shape": "", "control": "none", "families": [], "sequence_refs": [],
                       "devices": [device], "clarifications": [{"kind": "per_drawings", "text": "Quantity as per drawings"}],
                       "tech_hours": None, "alternate": "base"}
@@ -773,14 +773,15 @@ def test_api_mode_prompt_caching_and_refusal_retry(tmp_path):
     bad_answer = {"key": "VAV", "name": "VAV", "shape": "", "control": "none", "families": [], "sequence_refs": [],
                   "devices": [{"id": "VAV.d1", "slot": "controller", "name": "Sensor", "verb": "Furnish",
                                "furnished_by": "AME", "installed_by": "AME", "wired_by": "AME",
-                               "quantity": {"value": 0, "sources": [], "others": []},
+                               "quantity": {"value": 0, "sources": [], "others": [], "added_up": None},
                                "refs": [{"source_id": "S1", "quote": "quote", "where": "where"}],
                                "assumption": None, "flag": "none"}],
                   "clarifications": [], "tech_hours": None, "alternate": "base"}
 
     # Client returns bad answer on first call, good answer on retry
     good_answer = dict(bad_answer, devices=[dict(bad_answer["devices"][0],
-                                                 quantity={"value": 1, "sources": [], "others": []})])
+                                                 quantity={"value": 1, "sources": [], "others": [],
+                                                           "added_up": None})])
     client = FakeAnthropicClient()
     # Mock responses for client: 1 bad then 1 good
     responses = [_ApiResponse(json.dumps(bad_answer)), _ApiResponse(json.dumps(good_answer))]

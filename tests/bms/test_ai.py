@@ -1448,7 +1448,7 @@ def test_a_chat_answer_file_fills_only_a_missing_late_field(tmp_path):
 def _invented_quantity(answer):
     answer["devices"][2]["quantity"] = {"value": 7, "sources": [{"source_id": "F999", "quote": "x", "where": "y"}],
                                         "others": [{"value": 9, "ref": {"source_id": "I999", "quote": "x",
-                                                                        "where": "y"}}]}
+                                                                        "where": "y"}}], "added_up": None}
 
 
 def test_a_quantity_citing_ids_the_evidence_lacks_is_refused(job, raw, dossier, playbook):
@@ -1567,7 +1567,7 @@ def test_a_count_rewrite_takes_only_the_answers_number_never_its_sources_or_its_
                                                   *system.devices[1:]))
     answer = copy.deepcopy(raw["systems"][1])
     answer["devices"][0]["quantity"] = {"value": 5, "sources": [{"source_id": "S999", "quote": "x", "where": "y"}],
-                                        "others": []}
+                                        "others": [], "added_up": None}
     answer["devices"][0]["flag"] = "none"
     answer["devices"][1]["flag"] = "quantity"
     answer["devices"][1]["quantity"]["value"] = 2          # a line citing no source takes only a family's count
@@ -1627,7 +1627,7 @@ def test_the_writer_prompts_ownership_flag_is_the_playbooks_unclear_ownership():
 
 _NEW_LINE = {"id": "EF.d2", "slot": "interlock", "name": "Exhaust Fan Interlock", "verb": "Furnish",
              "furnished_by": "AME", "installed_by": "AME", "wired_by": "AME",
-             "quantity": {"value": None, "sources": [], "others": []},
+             "quantity": {"value": None, "sources": [], "others": [], "added_up": None},
              "refs": [{"source_id": "Q2", "quote": "exhaust fans shall start and stop on the BMS schedule",
                        "where": "23 09 93, Specs.pdf page 10"}],
              "assumption": None, "flag": "quantity"}

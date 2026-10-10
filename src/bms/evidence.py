@@ -3,7 +3,8 @@ the spec overview and the reading tabs, from `estimator.evidence.workbook.write_
 edited) with the new Job right after the bid check:
 
 - "Scope lines": per system, every device with its printed line, slot, verb, who furnishes / installs / wires it,
-  its quantity and the other counts, every citation (source id, where: sheet / spec section / page, and the quote),
+  its quantity and the other counts (and the sum of the sheets of one floor and area when ruling L1 left it above
+  the printed count: `Count.added_up`), every citation (source id, where: sheet / spec section / page, and the quote),
   its assumption (what and why) and its flag; the family counts and the block's clarification too.
 - "Findings": every finding of the validators and the QC left open (rule, system, device, severity, what, fix).
 
@@ -21,7 +22,7 @@ from estimator.evidence.workbook import _table
 from estimator.evidence.workbook import write_evidence as write_old_evidence
 
 from bms.model import Count, Device, Finding, Job, Ref
-from bms.render import left_out_text
+from bms.render import COUNT_ADDED_UP, left_out_text
 
 SCOPE_TAB, FINDINGS_TAB = "Scope lines", "Findings"
 SCOPE_HEADINGS = ["System", "Device id", "Kind", "Printed line", "Slot", "Device", "Verb", "Furnished by",
@@ -45,8 +46,14 @@ def _quantity(count: Count) -> str:
 
 
 def _others(count: Count) -> str | None:
-    """Every other count with its whole citation: source id, where and quote."""
-    return "\n".join(f"{o.value} per {_ref(o.ref)}" for o in count.others) or None
+    """Every other count with its whole citation: source id, where and quote. Last, the sum ruling L1 left out of the
+    count when it is above the number printed (`Count.added_up`), worded as the proposal's note words it: it is no
+    count that prints, and it is named beside the printed one."""
+    lines = [f"{o.value} per {_ref(o.ref)}" for o in count.others]
+    up, top = count.added_up, count.highest()
+    if up is not None and top is not None and up.value > top:
+        lines.append(f"{COUNT_ADDED_UP.format(n=up.value)}, per {_ref(up.ref)}")
+    return "\n".join(lines) or None
 
 
 def _device_row(system: str, device: Device, printed: dict[str, str]) -> list:

@@ -65,10 +65,22 @@ Ref:            source_id: str, quote: str, where: str
                   source_id is a dossier / ledger id without brackets ("S41", "I2", "Q7", "F17"); quote the exact
                   words; where the place ("M-201, Drawings.pdf page 3").
 OtherCount:     value: int, ref: Ref
-Count:          value: int | None, sources: tuple[Ref] = (), others: tuple[OtherCount] = ()
+Count:          value: int | None, sources: tuple[Ref] = (), others: tuple[OtherCount] = (),
+                added_up: OtherCount | None = None
                   value is the printed count = the highest any source gives; None = no count and no other count
                   (unknown): "Qty (##)" prints only then.
                   others = every different count with its source (printed in the note). highest() -> int | None.
+                  added_up (ruling L1, 2026-10-10) = the plain sum over the plan sheets of one floor and area (the
+                  higher of the counts the sheets state and the scheduled units, each with its citation: the first
+                  sheet line that states a count, or the family's equipment counts line); kept only while it is
+                  above the printed count.
+                  It is no count that prints: highest() ignores it, so it is never one of the others, and the
+                  validator's count rules read value, others and highest() only. A "*" note names both numbers
+                  (§5, render). The planner sets it on a family (`plan_read.Reader.family`); `cross_check` keeps it
+                  while it is above the new printed count; a count the estimator types settles it (None, as the
+                  other counts); a line's own `added_up` never prints (the sum is the planner's). A Job saved
+                  before the field loads it as None; the AI step's schema lists it like every property (null when
+                  none).
 Family:         name: str, tags: tuple[str], count: Count
 Assumption:     what: str, why: str
 Device:         id: str, slot: str, name: str, verb: Verb, furnished_by: Party, installed_by: Party,
@@ -215,7 +227,7 @@ Constants: TECH_HOUR_BASES, SLOT_KINDS, DEFAULT_ROOT, COUNT_CAUSE_KEYS, DEFAULT_
 | `sheet_key(number) -> str` (a sheet number as two are compared, D8: "M-101", "M101" and "M 101" are one sheet; the dot between digits is kept; for comparing only, never printed) | `estimator.catalogue.title_block` | catalogue |
 | `JobReading`; `read_job(catalogue, page_opener=None, cache_dir=None, judge=None)` | `estimator.reading.job` | run |
 | `Dossier` (job_name, text, images: tuple[DossierImage], sources: dict id→where, families, device_totals, counts, stats, sections, schedules, sheet_pages: dict 7c id→(document, page)); `build_dossier(catalogue, reading, cache_dir)`; `sheet_pictures(catalogue, cache_dir, keys, what)`; `plan_areas` (re-exported from `estimator.reading.inventory`) | `estimator.writing.dossier` | run, plan, ai, counts |
-| `plan_areas(plans: [(sheet, tags)]) -> {(document, page): area}` (retired, FINAL-G: every sheet its own area); `plan_area_doubts(plans, areas=None) -> [((document, page), (document, page))]` (a hint only); `is_type_tag(tag)`, `counted_per_place(tag, places, most_on_one_sheet, code=False)`; `plan_groups(plans, codes=()) -> {(document, page): group}`, `plan_count(found, groups, per_place) -> int`, `plan_floors(catalogue, typicals=()) -> {(document, number): floors}` (a typical sheet with no number is keyed by (document, page), RD-13), `sheet_floors(floor_sets, sheet) -> frozenset[str]` (the floors a sheet stands for in `plan_floors`, by (document, number) or, with no number, (document, page); empty for one floor), `counting_pages(catalogue, governing) -> pages`, `first_pages(catalogue) -> {(document, page): first page}` (the pages that only repeat an alike number, FINAL-N), `sheet_labels(sheets) -> {(document, page): label}` (FINAL-I, the one counting rule); `placements(catalogue, tags, typicals=(), pages=None) -> {tag: Placements}`; `COUNT_CAUSES_LEAD`, `COUNT_CAUSE_WORDS` (`typical`, `labelled_twice`; `SAME_PLAN` removed, FINAL-H) | `estimator.reading.inventory` | dossier, render |
+| `plan_areas(plans: [(sheet, tags)]) -> {(document, page): area}` (retired, FINAL-G: every sheet its own area); `plan_area_doubts(plans, areas=None) -> [((document, page), (document, page))]` (a hint only); `is_type_tag(tag)`, `counted_per_place(tag, places, most_on_one_sheet, code=False)`; `plan_groups(plans, codes=()) -> {(document, page): group}` (a group is the tuple of its sheets' (document, page); ruling L1: sheets of one document that show the same floor and area for other trades are one group, `_same_floor_and_area`, with no tag evidence), `plan_count(found, groups, per_place) -> int`, `plan_floors(catalogue, typicals=()) -> {(document, number): floors}` (a typical sheet with no number is keyed by (document, page), RD-13), `sheet_floors(floor_sets, sheet) -> frozenset[str]` (the floors a sheet stands for in `plan_floors`, by (document, number) or, with no number, (document, page); empty for one floor), `counting_pages(catalogue, governing) -> pages`, `first_pages(catalogue) -> {(document, page): first page}` (the pages that only repeat an alike number, FINAL-N), `sheet_labels(sheets) -> {(document, page): label}` (FINAL-I, the one counting rule); `placements(catalogue, tags, typicals=(), pages=None) -> {tag: Placements}` (ruling L1: `Placements.count` and, where the rule made it lower than the sheets add up to, `summed`, `each_place`, `each_place_summed` and `same_plan` (the sheets of each group of 2 or more that show the tag), `same_plan_note(counted, summed)` giving both numbers; `InventoryItem.summed` and `FamilyTotal.summed` likewise, set only when above the count); `COUNT_CAUSES_LEAD`, `COUNT_CAUSE_WORDS` (`typical`, `labelled_twice`; `SAME_PLAN` removed, FINAL-H) | `estimator.reading.inventory` | dossier, render |
 | `Ledger` (sources, facts: dict[id, Fact], understanding, complete, stopped_at, job_name, refused; `of_kind`, `about`, `find`, `printed_count`, `to_dict`/`from_dict`/`load`); `Fact` (id, kind, subject, value, source_id, quote, stage, state, contradictions, was_settled); `Contradiction`; `KINDS`; `where_short` | `estimator.ledger.facts` | plan |
 | `read_job(judge, dossier, catalogue, save_to=None, limit=None, pictures=True, picture_cap=24) -> Ledger` (imported as `read_ledger`; the brief's "read_ledger") | `estimator.ledger.run` | run |
 | `ledger_plan`, `count_note`, `place_words` (the old planner, for reference / reuse) | `estimator.ledger.to_plan` | plan (may import) |
@@ -234,9 +246,11 @@ Constants: TECH_HOUR_BASES, SLOT_KINDS, DEFAULT_ROOT, COUNT_CAUSE_KEYS, DEFAULT_
 ### Workstream 2 — `bms.plan`
 `plan_job(ledger: Ledger, catalogue: Catalogue, dossier: Dossier, playbook: Playbook) -> Job` — the skeleton:
 systems with key, name, shape (`playbook.shape_for`, or ""), control, families (tags, Count with highest value,
-sources, others), sequence_refs, alternate; devices / clarifications empty, tech_hours None. VRF/split groups one
-system (indoor, condensing, branch-selector families); dampers linked to a fan under that fan; duct heaters in one
-place; exceptions and questions filled; front_end set; header left None. Pure, no AI.
+sources, others, and `added_up`: the sum over the sheets of one floor and area (the stated counts, or the dossier's
+family total), ruling L1, set only while above the printed count; `plan_read.Reader.family`), sequence_refs,
+alternate; devices / clarifications empty, tech_hours None. VRF/split groups one system (indoor, condensing,
+branch-selector families); dampers linked to a fan under that fan; duct heaters in one place; exceptions and
+questions filled; front_end set; header left None. Pure, no AI.
 
 ### Workstream 3 — `bms.validate`
 `validate(job: Job, playbook: Playbook) -> list[Finding]` — one small function per Playbook rule, on fields only;
@@ -254,25 +268,45 @@ rows"). When a quote of the count is an equipment counts line that names why the
 `typical`, `labelled_twice` (the words of `COUNT_CAUSE_WORDS` after `COUNT_CAUSES_LEAD`; the retired "same plan
 as" and "shown again" causes could not fire since FINAL-G and were removed in FINAL-H). Only the cause's kind is read: its
 tags, sheets and the estimator's hints never print.
+A count that carries `added_up` above its printed count (ruling L1) ends its part of the note with the sum, in the
+renderer's own words (`COUNT_ADDED_UP`): "*Qty. (6) per M-101; 9 if every sheet of the same floor and area is added
+up." It comes after every other count of the part and makes a part of a count with no other count. Only a family's
+count names it: a line's own `added_up` prints none, and a line that carries its family's count adds no second part.
+The header and every line keep the printed count, the highest (ruling L2): the sum is never printed as the count.
 
-Plan counting, lead ruling FINAL-I (the final rule; conservative: when in doubt the sheets are SUMMED, since an
-overcount is named for the estimator and an undercount is invisible). One rule serves the dossier's equipment counts
-line and `inventory.placements` / `_as_type` (the Evidence Package), so the two always agree: `plan_groups`,
-`plan_count`, `plan_floors`, `counting_pages`, `sheet_labels` in `estimator.reading.inventory`.
+Plan counting, lead rulings FINAL-I and L1 (L1 of 2026-10-10 is the final rule: plan sheets of one floor and area are
+not added together; conservative: every other sheet is SUMMED, since an overcount is named for the estimator and an
+undercount is invisible). One rule serves the dossier's equipment counts line, `inventory.placements` / `_as_type`
+(the Evidence Package) and the planner's reading of the counts the sheets state after a tag
+(`plan_read.Reader._stated_on_plans`), so they always agree: `plan_groups`, `plan_count`, `plan_floors`,
+`counting_pages`, `sheet_labels` in `estimator.reading.inventory`.
 - Sheets are keyed by (document, page), never by sheet number. A plan sheet whose number is in another document of
   the same issue with exactly the same text (not an addendum, a duplicate file or a marked-up copy, `repeats`) is
   counted too (two identical buildings, REVIEW-FINAL5 F7); a number counted from two documents is printed with its
   document's name ("M-101 (Second Building.pdf)").
-- Plan sheets are one plan group only when ALL hold: the same document; two different sheet numbers (two pages of
-  one number are never one group: alike on every page they are one plan for several floors, else each page is its
-  own sheet, REVIEW-FINAL7 F7); the same title words IN THE SAME ORDER (`catalogue.job.title_words`, since FINAL-K:
-  "BUILDING 1 LEVEL 2" and "BUILDING 2 LEVEL 1" are two places, REVIEW-FINAL6 F2) once the sheet number and the
-  trade and plan words (PLAN, PLANS, DUCTWORK, DUCT, PIPING, PIPE, CONTROLS, CONTROL, HVAC, MECHANICAL, MECH,
-  PLUMBING, AND, punctuation) are taken out, with a floor word left (FLOOR, LEVEL, an ordinal, a number, BASEMENT,
-  ROOF, TYPICAL ...); and at least AREA_SHARED (3) unit tags repeated, AREA_OVERLAP (0.6) of the smaller sheet's.
-  The evidence is the labels alone (`line_labels`, never the backstop), and a type's tag, or a unit's tag labelled
+- Plan sheets are one plan group (`inventory._one_plan`) when they are in the same document, are two different sheet
+  numbers (two pages of one number are never one group: alike on every page they are one plan for several floors,
+  else each page is its own sheet, REVIEW-FINAL7 F7), and EITHER
+  (1) ruling L1, no tag evidence: they show the same floor and area for other trades (`_same_floor_and_area`). Their
+  titles name the same one floor (`_area_read`: "1ST FLOOR", "FIRST FLOOR" and "LEVEL 1" are floor 1; a title naming
+  several floors, or an enlarged or partial plan, names none), the same parts of it (TOWER A, EAST WING, ZONE 2) and
+  the same other words in order (KITCHEN, DEMOLITION, NEW WORK), and different trades: the discipline words a title
+  holds (`PLAN_DISCIPLINE_WORDS` less `GENERIC_PLAN_WORDS`: PIPING, DUCTWORK, CONTROLS, ZONING ...), two words for one
+  trade read as one (`TRADE_SYNONYMS`: DUCT is DUCTWORK, BAS is CONTROLS), so HVAC, MECHANICAL and PLAN name no trade.
+  Two sheets of one trade with one title could be two halves of a floor or two buildings, so they are not this; a
+  floor and area that has two of them (its "twins": (document, floor and parts, other words) on 2 or more sheets of
+  one trade) is too uncertain to say which of them another trade's sheet shows, so none of its sheets is grouped by
+  this test. A twin that states no count or tag still makes a twin, since the planner gives `plan_groups` every plan
+  sheet of the dossier (`plan_read.Reader._plan_groups`, no tag evidence), not only those that state a count; or
+  (2) as in FINAL-I: the same title words IN THE SAME ORDER (`catalogue.job.title_words`, since FINAL-K: "BUILDING 1
+  LEVEL 2" and "BUILDING 2 LEVEL 1" are two places, REVIEW-FINAL6 F2) once the sheet number and the trade and plan
+  words (`TRADE_WORDS`: PLAN, PLANS, DUCTWORK, DUCT, PIPING, PIPE, CONTROLS, CONTROL, HVAC, MECHANICAL, MECH, PLUMBING,
+  AND, punctuation) are taken out, with a floor word left (FLOOR, LEVEL, an ordinal, a number, BASEMENT, ROOF,
+  TYPICAL ...); and at least AREA_SHARED (3) unit tags repeated, AREA_OVERLAP (0.6) of the smaller sheet's. The
+  evidence is the labels alone (`line_labels`, never the backstop), and a type's tag, or a unit's tag labelled
   TYPE_ON_ONE_SHEET (4) or more times on the sheet, is never evidence. BASEMENT 1 / 2, BLDG. A / B, SUITE 3 / 4,
   TOWERS 1 AND 2 / 3 AND 4, 1000 / 2000 never group.
+  Sheets one test joins are one group; every other sheet is a group of its own.
 - Pages printed again: a sheet number on 2 or more pages of ONE document is set aside to its first page only when
   every page of that number in that document has the same text (`inventory.first_pages`, `_alike_pages`; one plan
   standing for one floor per page, `plan_floors` multiplies it by its pages). Pages of one number with other text
@@ -289,9 +323,25 @@ line and `inventory.placements` / `_as_type` (the Evidence Package), so the two 
   TYPE_ON_ONE_SHEET on one sheet, labels as drawn) the most labels of one sheet of the group; each times the floors
   the group's sheets stand for, every floor once (typical floors 2-5 and 2-5 are 4 floors; 2-5 and 6-10 are 9).
   The groups, and every sheet in no group, are summed.
+- Both numbers, never only the lower (ruling L1: a count that is too low is the worst error). Where the rule made a
+  count lower than the sheets add up to with every sheet its own plan, `Placements` keeps both (`count` and
+  `summed`, `each_place` and `each_place_summed`, `same_plan` naming the sheets of each group of 2 or more that show
+  the tag), and `InventoryItem.summed` and `FamilyTotal.summed` keep the higher one, set only when above the count;
+  the item's reason, the family's flag and the dossier's counts line say both ("M-101 and M-201 show one floor and
+  area, so each counts as one plan, not added: 1 counted, 2 if the sheets were added up"). The planner reads the
+  counts the sheets state after a tag ("CUH-A (TYP. OF 4)", "x4", "4 PLACES") by the same groups
+  (`plan_read.Reader._stated_on_plans`): for each tag the most stated on one sheet of a group, added over the groups
+  and the tags (a dossier line that is no plan sheet's text is a group of its own). When that is lower than the sum
+  over every line, `plan_read.AddedUp` (`counted`, `summed`, `sheets`, `refs`) is `FamilyFacts.added_up`, and the
+  planner asks once with both numbers (`_Planner.added_up_counts`). The planner reads the scheduled units' sum too:
+  the dossier's family total for the prefix (`Dossier.families`, `FamilyTotal.summed`; `Reader._total_sum`), cited by
+  the family's equipment counts line in the words of the total's flag that says both numbers. The Job keeps the
+  higher of the two sums as `Count.added_up` (§2.2) when it is above the printed count, so the proposal's quantity
+  note names it beside the printed count (§5, render). A part of a family another block takes (`plan._reduced`) is a
+  number of its own and carries no `added_up`.
 - The line's "Reading notes" (the estimator's and the writers' hints, never a client cause): each group of 2+
-  sheets ("M-101 and M-201 counted as one plan: same floor title, same units; check"); each pair that MAY show one
-  plan but is not a group (`plan_area_doubts`: "M-101 and C-101 may show one plan; both are counted, the higher
+  sheets ("M-101 and M-201 counted as one plan, 4 (8 if they are two places): same floor and area; check"); each
+  pair that MAY show one plan but is not a group (`plan_area_doubts`: "M-101 and C-101 may show one plan; both are counted, the higher
   count ..."); each numbered tag counted on 2+ plans, at most three ("EBB-1 is on 10 plans (M-101, M-102, M-103 …),
   counted on each, 10: likely a type used on each plan; if it is one unit shown on several plans, it is 1 ..."); each
   unit's tag labelled 2 or 3 times on one sheet ("FCU-1 3 times on M-101, counted as one unit: if it is a typical
@@ -417,8 +467,9 @@ tuple[Box], untagged: int | None = None)` (`untagged`: the symbols the answer se
 never in `value`), `Box(x, y, width, height, text)`; never raises on an unreadable picture.
 `cross_check(job: Job, catalogue: Catalogue, cache: Path) -> Job` — adds a differing vision count to the family's
 `Count.others` (Ref: picture id, "counted on the sheet picture", the sheet), keeps the highest as `value`, never
-lowers a count. Symbols a whole-sheet picture shows with no tag become one `Job.questions` entry per family (the
-sheets and their numbers), never part of the count. The app ships with text counts if vision is not ready:
+lowers a count. A family's `Count.added_up` (ruling L1) is kept while it is above the new printed count and dropped
+when the plans reach it. Symbols a whole-sheet picture shows with no tag become one `Job.questions` entry per family
+(the sheets and their numbers), never part of the count. The app ships with text counts if vision is not ready:
 `cross_check` may then return `job` unchanged.
 Patterns (2026-10-04): a family's patterns are built from its expanded tags (`expand_tags`: "SPXF-A, B, C" is three
 tags), match lettered, numbered and dotted tags (TXF-B, EUH-2, CAC-1.5) and never a bare letter or number; the
@@ -430,7 +481,10 @@ does not cover every tile sent is refused and asked again like a bad answer.
 self-contained file; at most about 15 ranked questions; Accept / Change / Delete; decisions saved as
 `decisions.json` = list of `Decision.to_dict()`); `load_decisions(out_dir: Path) -> list[Decision]` ([] when
 missing; ModelError when malformed); `apply_decisions(job: Job, decisions: Sequence[Decision]) -> Job` (pure).
-The decisions history: the page saves only its own answers, so the run keeps every save in
+A family whose Count has an `added_up` above the printed count gets a card like one with other counts (ruling L1:
+the card's note and the page name both numbers, the sum under "If every sheet of the same floor and area is added
+up"); a count typed in Change settles the sum with the other counts (`added_up` None), on the page and in
+`apply_decisions`. The decisions history: the page saves only its own answers, so the run keeps every save in
 `out/decisions history.json` (`DECISIONS_HISTORY`), a list of `SavedDecision(decision, round, took_effect=False,
 saved=None, settled=None, copies=None)`; `round` is the save it came from (1 for the first). `load_history(out_dir)`
 ([] when missing; ModelError naming the file when malformed); `save_history(out_dir, entries)` (written whole to a
@@ -461,8 +515,10 @@ final list of rule names in the commit message.
 Integration (2026-10-04): `cross_check` gets the run's transport and the run waits at "count" while vision tiles
 are unanswered (the counts are part of the write prompts); `publish_proofs` copies the count proofs into
 `out/count-proofs/` for the review page; the Evidence Package is `bms.evidence.write_evidence` (the old workbook
-plus "Scope lines" and "Findings"); a QC must_fix the revise round left unchanged stays open; `tools/run_job.py`
-runs `python -m bms` by default (`--app estimator` for the old app).
+plus "Scope lines" and "Findings"; its "Other counts" cell names each other count and, last, a Count's `added_up`
+above the printed count: "9 if every sheet of the same floor and area is added up, per <ref>"); a QC must_fix the
+revise round left unchanged stays open; `tools/run_job.py` runs `python -m bms` by default (`--app estimator` for the
+old app).
 
 `estimate(job_folder: Path, out: Path, cache: Path, mode: "chat"|"api" = "chat") -> RunResult`, in order:
 `catalogue_job` → `estimator.reading.job.read_job` → `job_header` → `build_dossier` → `Judge` +

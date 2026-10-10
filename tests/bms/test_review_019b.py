@@ -74,7 +74,7 @@ def test_a_family_accept_with_an_assumed_counted_line_gives_no_must_fix_through_
     [family] = vav["families"]
     assert family["count"]["others"]                                  # the invented plan disputes the count
     source = family["count"]["sources"][0]
-    count = {"value": family["count"]["value"], "others": [],
+    count = {"value": family["count"]["value"], "others": [], "added_up": None,
              "sources": [{"source_id": source["source_id"], "quote": "schedule rows", "where": "invented"}]}
 
     def plant():

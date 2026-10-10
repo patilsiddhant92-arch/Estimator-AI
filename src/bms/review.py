@@ -149,11 +149,17 @@ def _questions(job: Job, findings: Sequence[Finding]) -> list[_Question]:
     for key, devices, families in scopes:
         for family in families:
             count = family.count
-            if count.others or count.value is None:
-                why = ("The sources give different counts; the highest prints." if count.others
-                       else "No source gives a count; it prints as Qty (##).")
+            if count.others or count.value is None or _adds_up(count):
+                why = []
+                if count.others:
+                    why.append("The sources give different counts; the highest prints.")
+                elif count.value is None:
+                    why.append("No source gives a count; it prints as Qty (##).")
+                if _adds_up(count):          # ruling L1: the sheets of one floor and area count once; both numbers
+                    why.append("The sheets of one floor and area are counted once, not added up: "
+                               f"{count.highest()} prints, {count.added_up.value} if every sheet is added up.")
                 add(system_key=key, rank=RANK_FLAGGED, title=f"How many {family.name} units?",
-                    level="family", family_name=family.name, notes=(why,), count=count, refs=count.sources)
+                    level="family", family_name=family.name, notes=tuple(why), count=count, refs=count.sources)
         for device in devices:
             counted = bool(device.quantity.others)
             if device.flag != "none" or counted:
@@ -172,6 +178,13 @@ def _questions(job: Job, findings: Sequence[Finding]) -> list[_Question]:
                     notes=(f"Assumed: {device.assumption.what}", f"Why: {device.assumption.why}"),
                     count=device.quantity, refs=device.refs, device=device)
     return out
+
+
+def _adds_up(count: Count) -> bool:
+    """Ruling L1: the count has a sum of the sheets of one floor and area (`Count.added_up`) above the number that
+    prints. The sum is no count that prints; the card and the page name both numbers."""
+    up, top = count.added_up, count.highest()
+    return up is not None and top is not None and up.value > top
 
 
 def _device_title(device: Device) -> str:
@@ -213,6 +226,9 @@ def _count_html(count: Count, proofs: dict[str, list[str]] | None = None) -> str
     if count.others:
         parts.append('<div class="others">The other counts:</div><ul>'
                      + "".join(_ref_html(o.ref, f"{o.value}: ", proofs) for o in count.others) + "</ul>")
+    if _adds_up(count):
+        parts.append('<div class="others">If every sheet of the same floor and area is added up:</div><ul>'
+                     + _ref_html(count.added_up.ref, f"{count.added_up.value}: ", proofs) + "</ul>")
     parts.append("</div>")
     return "".join(parts)
 
@@ -328,7 +344,11 @@ function buildDecision(q, state) {
       var dev = JSON.parse(JSON.stringify(q.device));
       if (!d.reason && name && name !== dev.name) d.reason = "renamed to " + name;
       // A count typed with words ("2 units") sets the quantity and keeps the name; the name box renames the line.
-      if (parsed.kind === "number") { dev.quantity.value = parsed.value; dev.quantity.others = []; }
+      if (parsed.kind === "number") {
+        dev.quantity.value = parsed.value;
+        dev.quantity.others = [];
+        if (dev.quantity.added_up) dev.quantity.added_up = null;      // a typed count settles the sum as well
+      }
       if (name) dev.name = name;
       ["verb", "furnished_by", "installed_by", "wired_by"].forEach(function (k) { if (f[k]) dev[k] = f[k]; });
       if (parsed.kind !== "words") dev.flag = "none";      // words with no count settle nothing
@@ -340,6 +360,7 @@ function buildDecision(q, state) {
         var c = JSON.parse(JSON.stringify(q.count));
         c.value = parsed.value;
         c.others = [];
+        if (c.added_up) c.added_up = null;      // ... and the sum of the sheets of one floor and area
         d.count = c;
       }
     }
@@ -825,7 +846,7 @@ def _read_count_name(d: Decision, line: Device | None = None) -> Decision:
         return d
     word = found.group(1).lower()
     count = dataclasses.replace(d.device.quantity, value=int(word) if word.isdigit() else NUMBER_WORDS.index(word),
-                                others=())
+                                others=(), added_up=None)
     return dataclasses.replace(d, device=dataclasses.replace(d.device, name=own.name, quantity=count))
 
 
@@ -999,12 +1020,13 @@ def _apply_one(job: Job, d: Decision, seen: int | None = None,
 def _new_count(d: Decision, family: Family) -> Count | None:
     """The count a family change gives `family`: the decision's own `count`; else, for a change that carries words
     only (an older page, a hand edit), the number the words start with (`_typed_count`), set on the family's own
-    count: its sources stay, the other counts go, as the page builds a typed count (a typed count settles the
-    dispute). None when the decision holds no count (words with no number in them): nothing is applied."""
+    count: its sources stay, the other counts and the sum of the sheets of one floor and area (`Count.added_up`) go, as
+    the page builds a typed count (a typed count settles the dispute). None when the decision holds no count (words
+    with no number in them): nothing is applied."""
     if d.count is not None:
         return d.count
     kind, value = _typed_count(d.reason)
-    return dataclasses.replace(family.count, value=value, others=()) if kind == "number" else None
+    return dataclasses.replace(family.count, value=value, others=(), added_up=None) if kind == "number" else None
 
 
 def _with_new_count(family: Family, d: Decision) -> Family:
