@@ -1033,6 +1033,18 @@ class _Planner:
                 self.questions.append(f"{head}; counted {family.count.value}, confirm the count includes "
                                       f"{', '.join(family.added)}.")
 
+    # -- counts ruling L1 made lower than the plan sheets add up to
+
+    def added_up_counts(self) -> None:
+        """Each family whose stated counts on the plan sheets of one floor and area ruling L1 counted once, and whose
+        printed count is below what those sheets add up to, is asked once, naming both numbers: a drop from the sum is
+        never silent."""
+        for fact in self.reader.family_facts():
+            family = self.reader.family(fact)
+            up = family.added_up
+            if up is not None and (family.count.value is None or family.count.value < up.summed):
+                self.questions.append(f"{family.name} ({family.prefix}): {up.note()}; confirm the count.")
+
     # -- the invariant: nothing the ledger holds is dropped
 
     def lost(self, drafts: list[_Draft]) -> None:
@@ -1471,6 +1483,7 @@ def plan_job(ledger: Ledger, catalogue: Catalogue, dossier: Dossier, playbook: P
     systems = _with_served([planner.system(d, keys, drafts) for d in drafts], drafts)
     planner.family_questions(systems, drafts)
     planner.added_tags()
+    planner.added_up_counts()
     planner.lost(drafts)
     front_end = _front_end(planner)
     questions = own + planner.questions + _unmatched_sections(planner, drafts)

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, replace
+from functools import lru_cache
 
 from estimator.catalogue.tags import STATED_MOST
 from estimator.ledger.facts import Fact, Ledger, where_short
@@ -124,6 +125,25 @@ def short_name(value, fallback: str = "") -> str:
 
 
 @dataclass(frozen=True)
+class AddedUp:
+    """Ruling L1: the counts stated after a family's tags on the dossier's plan sheets ("CUH-A (TYP. OF 4)") are not
+    added over sheets that show one floor and area. They count `counted`; added up the sheets give `summed`, which is
+    above it. `sheets` are the places of each group of 2 or more such sheets that state a count."""
+    counted: int
+    summed: int
+    sheets: tuple[tuple[str, ...], ...] = ()
+
+    def note(self) -> str:
+        """The plain words for the drop, both numbers: "M-101 and M-201 show one floor and area, so the counts stated
+        for its tags on them count once, not added: 4 counted, 8 if the sheets were added up"."""
+        numbers = f"{self.counted} counted, {self.summed} if the sheets were added up"
+        if not self.sheets:
+            return f"the counts stated for its tags on sheets of one floor and area count once, not added: {numbers}"
+        shows = "; ".join(f"{_names(group)} show one floor and area" for group in self.sheets)
+        return f"{shows}, so the counts stated for its tags on them count once, not added: {numbers}"
+
+
+@dataclass(frozen=True)
 class FamilyFacts:
     """One family of the ledger as the planner reads it."""
     fact: Fact
@@ -137,6 +157,49 @@ class FamilyFacts:
     listed: int = 0                        # how many tags the fact's own list gives
     was: int | None = None                 # the count before those tags raised it
     added_refs: tuple[Ref, ...] = ()       # where the added tags are
+    added_up: AddedUp | None = None        # ruling L1 lowered the stated counts on the plan sheets: both numbers
+
+
+@dataclass(frozen=True)
+class _PlanSheet:
+    """A plan sheet as one dossier line of its own text (7c) names it, in the shape `inventory.plan_groups` reads."""
+    document: str
+    page: int
+    number: str | None
+    title: str
+
+
+_SHEET_TEXT = "(sheet text)"          # how the dossier's source for a sheet's own text (7c) ends
+_COUNTS_SOURCE = "equipment counts for "     # how the dossier's source for a family's equipment counts line begins
+_PLACE = re.compile(r"^(?:(?P<number>[^,]+), )?(?P<document>.+?) page (?P<page>\d+)$")
+
+
+@lru_cache(maxsize=1)
+def _sheet_types():
+    from estimator.catalogue.sheet_types import SheetTypes
+
+    return SheetTypes.load()
+
+
+def _plan_sheet(where: str, text: str) -> _PlanSheet | None:
+    """The plan sheet a dossier line of sheet text gives: `where` is its place ("M-101, Drawings.pdf page 3"), `text`
+    the line after its id ("M-101, Drawings.pdf page 3 LEVEL 2 PIPING PLAN: ..."); the title is the words between the
+    place and the colon. None when the line does not begin with its place, or the title is no plan's (`types_of`)."""
+    from estimator.catalogue.sheet_types import types_of
+
+    place = _PLACE.match(where)
+    if place is None or not text.startswith(where):
+        return None
+    title = text[len(where):].split(":", 1)[0].strip()
+    if not title or "Plans" not in types_of(title, _sheet_types()):
+        return None
+    return _PlanSheet(place.group("document"), int(place.group("page")), place.group("number"), title)
+
+
+def _names(places) -> str:
+    """"M-101", "M-101 and M-201", "M-101, M-201 and M-301"."""
+    places = list(places)
+    return places[0] if len(places) == 1 else ", ".join(places[:-1]) + f" and {places[-1]}"
 
 
 class Reader:
@@ -145,6 +208,8 @@ class Reader:
         self.dossier_sources = dict(dossier_sources or {})
         self.dossier_text = str(dossier_text or "")
         self._families: dict[str, FamilyFacts] = {}
+        self._plans: dict[str, _PlanSheet] | None = None
+        self._groups: dict | None = None
 
     # refs
     def where(self, source_id: str, depth: int = 0) -> str:
@@ -208,22 +273,29 @@ class Reader:
     def family_count(self, prefix: str, tags: tuple[str, ...]) -> Count:
         """The family's count from every source that gives one (the highest prints; never undershoot): each count
         fact about the prefix (its value, contradictions and counts-line clauses), the count facts about its tags
-        (each tag's highest, summed over the tags), and the "TAG ×N" counts on the dossier's sheets (summed over
-        sheets and tags)."""
+        (each tag's highest, summed over the tags), and the "TAG ×N" counts on the dossier's sheets (ruling L1: each
+        tag's highest over the sheets of one floor and area, summed over the floors and areas and the tags)."""
+        return self._family_count(prefix, tags)[0]
+
+    def _family_count(self, prefix: str, tags: tuple[str, ...]) -> tuple[Count, AddedUp | None]:
+        """`family_count` and, when ruling L1 made the stated counts on the plan sheets lower than the sheets add up
+        to, both numbers (`AddedUp`)."""
         key = squash(prefix).casefold()
         own = [f for f in self.ledger.of_kind("count") if squash(f.subject).casefold() == key]
         extra = []
+        added_up = None
         by_tag = self._tag_count_facts(prefix, tags)
         if by_tag:
             total = sum(max(n for n, _ in entries) for entries in by_tag.values())
             refs = _unique([r for entries in by_tag.values() for _, rs in entries for r in rs])
             extra.append((total, tuple(refs)))
-        on_sheets = self._tag_times_on_sheets(tags)
-        if on_sheets:
-            extra.append((sum(n for n, _ in on_sheets), tuple(_unique([r for _, r in on_sheets]))))
+        stated = self._stated_on_plans(tags)
+        if stated is not None:
+            counted, refs, added_up = stated
+            extra.append((counted, refs))
         if not own and not extra:
-            return Count(None)
-        return self._count(own, extra)
+            return Count(None), None
+        return self._count(own, extra), added_up
 
     def zero_only(self, prefix: str) -> bool:
         """True when the family's count facts give 0 and no other number (a schedule that says 0 for a family that
@@ -248,25 +320,91 @@ class Reader:
                     found.setdefault(subject.upper(), []).extend(entries)
         return found
 
-    def _tag_times_on_sheets(self, tags: tuple[str, ...]) -> list[tuple[int, Ref]]:
-        """Each count the dossier's text states after one of the family's tags ("TAG ×N", "TAG xN", "TAGxN",
-        "TAG (TYP. OF N)", "TAG (N)", "TAG N PLACES": TIMES_AFTER), with its ref (the source line's id, the words
-        as printed). Only tags with a dash are looked for."""
+    def _tag_times_on_sheets(self, tags: tuple[str, ...]) -> list[tuple[str, dict[str, int], Ref]]:
+        """Each dossier line that states a count after one of the family's tags ("TAG ×N", "TAG xN", "TAGxN",
+        "TAG (TYP. OF N)", "TAG (N)", "TAG N PLACES": TIMES_AFTER): (its source id, the count stated for each tag on
+        it in capitals, summed over the line, its ref: the source line's id, the words as printed). Only tags with a
+        dash are looked for. The dossier's own equipment counts lines are not read: their reading notes name a type
+        tag's placements ("CUH-A 4 places, 4 on M-101"), which TIMES_AFTER also reads as a stated count, and those
+        placements are the plan sheets' counts again, not more units (the counts line's `plan placements` clause is
+        read from the count facts: `counts_clauses`)."""
         wanted = [t for t in tags if "-" in t]
         if not wanted or not self.dossier_text:
             return []
         names = "|".join(re.escape(t) for t in sorted(wanted, key=len, reverse=True))
-        pattern = re.compile(rf"(?<![A-Za-z0-9\-])(?:{names})(?:{TIMES_AFTER}|{GLUED_TIMES})", re.I)
-        found: list[tuple[int, Ref]] = []
+        pattern = re.compile(rf"(?<![A-Za-z0-9\-])({names})(?:{TIMES_AFTER}|{GLUED_TIMES})", re.I)
+        found: list[tuple[str, dict[str, int], Ref]] = []
         for line in self.dossier_text.splitlines():
             head = _SOURCE_LINE.match(line)
-            if not head:
+            if not head or self.dossier_sources.get(head.group(1), "").startswith(_COUNTS_SOURCE):
                 continue
-            said = [m for m in pattern.finditer(head.group(2)) if stated_number(m) is not None]
+            said = [m for m in pattern.finditer(head.group(2)) if stated_number(m, 2) is not None]
             if said:
+                per_tag: dict[str, int] = {}
+                for m in said:
+                    per_tag[m.group(1).upper()] = per_tag.get(m.group(1).upper(), 0) + stated_number(m, 2)
                 quote = " ... ".join(squash(m.group(0)) for m in said)
-                found.append((sum(stated_number(m) for m in said), self.ref(head.group(1), quote)))
+                found.append((head.group(1), per_tag, self.ref(head.group(1), quote)))
         return found
+
+    # -- ruling L1: the plan sheets of the dossier, and which of them show one floor and area
+
+    def _plan_sheets(self) -> dict[str, _PlanSheet]:
+        """Source id -> the plan sheet whose own text (7c) a dossier line gives: a line whose source ends "(sheet text)"
+        and whose words begin with that source's place, then its title (`_plan_sheet`). Every such sheet, whether or not
+        it states a count, because two sheets of one trade and one title make their floor too uncertain to group
+        (`inventory.plan_groups`)."""
+        if self._plans is None:
+            found: dict[str, _PlanSheet] = {}
+            for line in self.dossier_text.splitlines():
+                head = _SOURCE_LINE.match(line)
+                source = self.dossier_sources.get(head.group(1), "") if head else ""
+                if head and source.endswith(_SHEET_TEXT):
+                    sheet = _plan_sheet(where_short(source), head.group(2))
+                    if sheet is not None:
+                        found[head.group(1)] = sheet
+            self._plans = found
+        return self._plans
+
+    def _plan_groups(self) -> dict:
+        """(document, page) -> its plan group, over every plan sheet of the dossier (`inventory.plan_groups`, no tag
+        evidence: only the same floor and area for other trades, ruling L1, groups them)."""
+        if self._groups is None:
+            from estimator.reading.inventory import plan_groups
+
+            sheets = {(s.document, s.page): s for s in self._plan_sheets().values()}
+            self._groups = plan_groups([(sheet, {}) for sheet in sheets.values()])
+        return self._groups
+
+    def _stated_on_plans(self, tags: tuple[str, ...]) -> tuple[int, tuple[Ref, ...], AddedUp | None] | None:
+        """The counts the dossier states after the family's tags (`_tag_times_on_sheets`) by ruling L1: for each tag the
+        most stated on one sheet of a group of sheets that show one floor and area, added over the groups and the tags
+        (a line that is no plan sheet's text is a group of its own); (the count, the refs of every line that states
+        one, both numbers when the rule made the count lower than the lines add up to). None when none states one."""
+        lines = self._tag_times_on_sheets(tags)
+        if not lines:
+            return None
+        plans, groups = self._plan_sheets(), self._plan_groups()
+
+        def group_of(source_id: str):
+            sheet = plans.get(source_id)
+            return groups.get((sheet.document, sheet.page), ((sheet.document, sheet.page),)) if sheet else (source_id,)
+
+        most: dict[tuple, dict[str, int]] = {}
+        places: dict[tuple, list[str]] = {}
+        for source_id, per_tag, _ref in lines:
+            slot = most.setdefault(group_of(source_id), {})
+            for tag, n in per_tag.items():
+                slot[tag] = max(slot.get(tag, 0), n)
+            if source_id in plans:
+                sheet = plans[source_id]
+                places.setdefault(group_of(source_id), []).append(
+                    sheet.number or where_short(self.dossier_sources[source_id]))
+        counted = sum(n for slot in most.values() for n in slot.values())
+        summed = sum(n for _id, per_tag, _ref in lines for n in per_tag.values())
+        same = tuple(tuple(dict.fromkeys(names)) for names in places.values() if len(set(names)) >= 2)
+        refs = tuple(_unique([ref for _id, _per_tag, ref in lines]))
+        return counted, refs, AddedUp(counted, summed, same) if summed > counted else None
 
     # families
     def family_facts(self) -> list[Fact]:
@@ -288,7 +426,7 @@ class Reader:
         added, added_refs = self._added_tags(unit, listed)
         tags = listed + added
         count_fact = self.ledger.find("count", prefix)
-        count = self.family_count(prefix, tags)
+        count, added_up = self._family_count(prefix, tags)
         was = count.value
         if added and count.value is not None and count.value < len(tags):
             # one per tag (never undershoot): the old number is kept beside it, and the planner asks with both
@@ -299,7 +437,7 @@ class Reader:
         sequence_only = count_fact is None and fact.stage == "sequence"
         plan_only = not sequence_only and (count_fact is None or not count_fact.was_settled)
         found = FamilyFacts(fact, prefix, short_name(fact.value, prefix), tags, count, plan_only, sequence_only,
-                            added, len(listed), was, added_refs)
+                            added, len(listed), was, added_refs, added_up)
         self._families[prefix.casefold()] = found
         return found
 
