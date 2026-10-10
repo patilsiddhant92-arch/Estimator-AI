@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from estimator.reading.devices import DeviceCount, LegendEntry, TypicalSheet, count_devices, read_legend, typical_sheets
-from estimator.reading.inventory import FamilyTotal, InventoryItem, build_inventory
+from estimator.reading.inventory import FamilyTotal, InventoryItem, air_outlet_notes, build_inventory
 from estimator.reading.keynotes import Note, read_notes
 from estimator.reading.pages import PageOpener
 from estimator.reading.revisions import (SheetVersion, Supersession, governing_pages, sheet_versions, supersede,
@@ -55,6 +55,8 @@ def read_job(catalogue, page_opener=None, cache_dir: Path | None = None, judge=N
             if judge is not None else None
         schedules = read_schedules(catalogue, opener, pages, page_flags, judge, images)
         items, totals, inventory_flags = build_inventory(catalogue, schedules, typicals, pages)
+        # a plan tag that an air outlet schedule lists as a code stays out of the dossier's units: said here too
+        page_flags += air_outlet_notes(catalogue, schedules, typicals, pages).values()
         legend = read_legend(catalogue, opener, flags=page_flags)
         devices, device_flags = count_devices(catalogue, opener, legend, typicals, pages=pages)
     finally:

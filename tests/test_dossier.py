@@ -802,3 +802,107 @@ def test_a_schedule_only_prefix_that_is_a_sheet_number_is_no_plan_tag(tmp_path):
     catalogue = _catalogue([_doc(DWG, "drawings", 1)], pages, sheets, tags=())
     d = build_dossier(catalogue, _reading(), tmp_path)
     assert d.counts["P"]["distinct_tags"] == 1 and "Tags: P-1." in _counts_line(d, "P")
+
+
+# --- a plan tag left out as an air outlet's code is named, with both numbers: a count is never lowered in silence ---------
+
+_OUTLET_SHEET = "AIR OUTLET SCHEDULE (M-601)"
+
+
+def test_a_plan_tag_left_out_as_an_air_outlet_code_is_named_in_the_counts_line_with_both_numbers(tmp_path):
+    """B-1 and B-2 on the plan are listed as the codes B1 and B2 by the air outlet schedule, so they stay out of the units
+    (HP 3). The counts line says which, where they are listed and both numbers: the labels, and what counting them as
+    units would give by the one counting rule (B-1, drawn 4 times on a sheet, is a type: 4; B-2, drawn twice, one unit: 1).
+    B-5, which no schedule lists, stays a unit."""
+    catalogue = _plan_job("\n".join(["B-1"] * 4 + ["B-2"] * 2 + ["B-5"]), "AIR OUTLET SCHEDULE B1 B2 B3 B4")
+    outlets = _outlet_schedule(True, "AIR OUTLET SCHEDULE", ("B1", "B2", "B3", "B4"))
+    d = build_dossier(catalogue, _reading([outlets]), tmp_path)
+    line = _counts_line(d, "B")
+    assert (f"B-1, B-2 on the plans (6 labels) are listed as air-outlet codes on {_OUTLET_SHEET}: not counted as units, "
+            "0 counted, 5 if counted as units; check") in line
+    assert d.counts["B"]["distinct_tags"] == 1 and d.counts["B"]["plan_placements"] == 1       # B-5 alone, as before
+    assert "Tags: B-5." in line
+
+
+def test_one_air_outlet_code_on_the_plans_is_named_in_the_singular(tmp_path):
+    catalogue = _plan_job("\n".join(["SD-1"] * 6), "AIR OUTLET SCHEDULE SD-1 SD-2")
+    outlets = _outlet_schedule(True, "AIR OUTLET SCHEDULE", ("SD-1", "SD-2"))
+    d = build_dossier(catalogue, _reading([outlets]), tmp_path)
+    assert (f"SD-1 on the plans (6 labels) is listed as an air-outlet code on {_OUTLET_SHEET}: not counted as a unit, "
+            "0 counted, 6 if counted as units; check") in _counts_line(d, "SD")
+
+
+def test_a_family_only_air_outlet_codes_made_still_has_its_counts_line_note_and_stays_no_family(tmp_path):
+    """No other unit of the prefix B at all: the drop stays (no count, so no family and no system), but the line is printed
+    under the prefix, with the note."""
+    catalogue = _plan_job("B-1\nB-2", "AIR OUTLET SCHEDULE B1 B2 B3 B4")
+    outlets = _outlet_schedule(True, "AIR OUTLET SCHEDULE", ("B1", "B2", "B3", "B4"))
+    d = build_dossier(catalogue, _reading([outlets]), tmp_path)
+    assert "B" not in d.counts
+    line = _counts_line(d, "B")
+    assert (f"B-1, B-2 on the plans (2 labels) are listed as air-outlet codes on {_OUTLET_SHEET}: not counted as units, "
+            "0 counted, 2 if counted as units; check") in line
+    assert "plan placements 0" in line and "Tags:" not in line
+
+
+def test_an_air_outlet_code_on_no_plan_needs_no_note(tmp_path):
+    catalogue = _plan_job("EF-9", "AIR OUTLET SCHEDULE B1 B2 B3 B4")
+    outlets = _outlet_schedule(True, "AIR OUTLET SCHEDULE", ("B1", "B2", "B3", "B4"))
+    d = build_dossier(catalogue, _reading([outlets]), tmp_path)
+    assert "air-outlet code" not in d.text and "B" not in d.counts
+    assert not any("] B (" in line for line in d.text.splitlines())
+
+
+def test_a_tag_a_unit_schedule_lists_as_well_is_kept_and_only_the_other_codes_are_noted(tmp_path):
+    """B-1 and B-2 are on a boiler schedule too, so they stay and need no note; B-3, listed as an air outlet's code only,
+    is left out and named."""
+    boilers = _schedule("BOILER SCHEDULE", [_row("B-1", {"TAG": "B-1"}), _row("B-2", {"TAG": "B-2"})], page=3)
+    pages = [_page(DWG, 1, "B-1\nB-2\nB-3", large=True), _page(DWG, 2, "AIR OUTLET SCHEDULE B1 B2 B3 B4", large=True),
+             _page(DWG, 3, "BOILER SCHEDULE B-1 B-2", large=True)]
+    sheets = [_sheet(1, "M-101", "HVAC BOILER PLAN"), _sheet(2, "M-601", "SCHEDULES", types=("Schedules",)),
+              _sheet(3, "M-602", "SCHEDULES", types=("Schedules",))]
+    catalogue = _catalogue([_doc(DWG, "drawings", 3)], pages, sheets, tags=[_tag(f"B-{n}") for n in range(1, 5)])
+    outlets = _outlet_schedule(True, "AIR OUTLET SCHEDULE", ("B1", "B2", "B3", "B4"))
+    d = build_dossier(catalogue, _reading([outlets, boilers]), tmp_path)
+    line = _counts_line(d, "B")
+    assert d.counts["B"]["plan_placements"] == 2 and "Tags: B-1, 2." in line
+    assert (f"B-3 on the plans (1 label) is listed as an air-outlet code on {_OUTLET_SHEET}: not counted as a unit, "
+            "0 counted, 1 if counted as units; check") in line
+    assert "B-1, B-2 on the plans" not in line and "B-1 on the plans" not in line
+
+
+def test_the_number_if_counted_as_units_counts_the_floors_of_a_typical_plan(tmp_path):
+    title = "TYPICAL 2ND-5TH FLOOR PLAN"
+    pages = [_page(DWG, 1, "AIR OUTLET SCHEDULE SD-1 SD-2", large=True), _page(DWG, 2, "SD-1", large=True)]
+    sheets = [_sheet(1, "M-601", "SCHEDULES", types=("Schedules",)), _sheet(2, None, title)]
+    tags = index_tags(pages, {(s.document, s.page): s for s in sheets})
+    catalogue = _catalogue([_doc(DWG, "drawings", 2)], pages, sheets, tags=tags)
+    reading = _reading([_outlet_schedule(True, "AIR OUTLET SCHEDULE", ("SD-1", "SD-2"), page=1)],
+                       typicals=[TypicalSheet(None, title, ("2", "3", "4", "5"), "", DWG)])
+    d = build_dossier(catalogue, reading, None)
+    assert (f"SD-1 on the plans (1 label) is listed as an air-outlet code on {_OUTLET_SHEET}: not counted as a unit, "
+            "0 counted, 4 if counted as units; check") in _counts_line(d, "SD")
+
+
+def test_the_tags_named_are_the_first_three_and_the_rest_are_counted(tmp_path):
+    catalogue = _plan_job("\n".join(f"B-{n}" for n in range(1, 6)), "AIR OUTLET SCHEDULE B1 B2 B3 B4 B5 B6")
+    outlets = _outlet_schedule(True, "AIR OUTLET SCHEDULE", tuple(f"B{n}" for n in range(1, 7)))
+    d = build_dossier(catalogue, _reading([outlets]), tmp_path)
+    assert (f"B-1, B-2, B-3 and 2 more on the plans (5 labels) are listed as air-outlet codes on {_OUTLET_SHEET}: not "
+            "counted as units, 0 counted, 5 if counted as units; check") in _counts_line(d, "B")
+
+
+def test_each_schedule_that_lists_the_code_is_named(tmp_path):
+    catalogue = _plan_job("SD-1\nSD-1", "AIR OUTLET SCHEDULE SD-1 SD-2 GRILLE SCHEDULE SD-1")
+    first = _outlet_schedule(True, "AIR OUTLET SCHEDULE", ("SD-1", "SD-2"))
+    second = _outlet_schedule(True, "GRILLE SCHEDULE", ("SD-1",), page=3)
+    d = build_dossier(catalogue, _reading([first, second]), tmp_path)
+    assert (f"SD-1 on the plans (2 labels) is listed as an air-outlet code on {_OUTLET_SHEET} and GRILLE SCHEDULE (M-601): "
+            "not counted as a unit, 0 counted, 1 if counted as units; check") in _counts_line(d, "SD")
+
+
+def test_a_schedule_whose_title_says_nothing_is_named_by_its_sheet(tmp_path):
+    catalogue = _plan_job("SD-1\nSD-1", "AIR OUTLET SCHEDULE SD-1 SD-2")
+    d = build_dossier(catalogue, _reading([_outlet_schedule(True, codes=("SD-1", "SD-2"))]), tmp_path)
+    assert ("SD-1 on the plans (2 labels) is listed as an air-outlet code on the schedule on M-601: not counted as a "
+            "unit, 0 counted, 1 if counted as units; check") in _counts_line(d, "SD")

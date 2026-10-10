@@ -28,8 +28,8 @@ from estimator.catalogue.job import (CONTROLS_DISCIPLINES, GENERIC_PLAN_WORDS, P
 from estimator.catalogue.tags import (DECIMAL_TYPE, Equipment, is_type_tag, label_key, label_keys, line_labels,
                                       plan_labels, tag_prefix)
 from estimator.reading.revisions import governing_pages, typical_places
-from estimator.reading.schedules import (BY_EYE, EQUIPMENT, Schedule, header_key, kind_from_title, quantity_header,
-                                        vocabulary)
+from estimator.reading.schedules import (BY_EYE, EQUIPMENT, Schedule, expand_tags, header_key, kind_from_title,
+                                        quantity_header, vocabulary)
 
 ON_PLANS = "CONFIRMED-on-plans"   # a tag series the trade plans show, on no readable schedule: priced, "check"
 ON_PLANS_WHY = "not on a readable schedule — counted from the plans, check"
@@ -738,6 +738,67 @@ def placements(catalogue, tags: Iterable[str], typicals: Sequence = (),
                           same_plan(mine))
 
     return {tag: placed(tag) for tag in set(on_plans) | set(on_risers)}
+
+
+# ---- a plan tag an air outlet schedule lists as a code: left out of the dossier's units, and said -------------------
+
+NAMED_TAGS = 3         # the tags a reading note names; the others are counted ("and 4 more")
+
+
+def _listing(schedule: Schedule) -> str:
+    """A schedule as a note names it: its title and its sheet ("AIR OUTLET SCHEDULE (M-601)"), or only its sheet ("the
+    schedule on M-601") when its title says nothing (none was found, or it is the bare word SCHEDULE)."""
+    if kind_from_title(schedule.title) == EQUIPMENT:
+        return f"the schedule on {_place(schedule)}"
+    return f"{schedule.title} ({_place(schedule)})"
+
+
+def air_outlet_codes(schedules: Iterable[Schedule], equipment: Equipment | None = None) -> dict[str, list[str]]:
+    """Every tag a schedule of passive air devices (`Schedule.passive`) lists as a code in its key column -> the
+    schedules that list it (`_listing`), in order. B1 reads as B-1, a boiler's tag, and SD-1 is a smoke damper's: the
+    dossier leaves such a plan tag out of its units (HP 3) unless a unit schedule lists it too."""
+    equipment = equipment or Equipment.load()
+    found: dict[str, list[str]] = {}
+    for schedule in schedules:
+        if not (schedule.passive and schedule.headers):
+            continue
+        name = _listing(schedule)
+        for row in schedule.rows:
+            for tag in expand_tags(row.cells.get(schedule.headers[0], ""), equipment):
+                if name not in found.setdefault(tag, []):
+                    found[tag].append(name)
+    return found
+
+
+def air_outlet_notes(catalogue, schedules: Iterable[Schedule], typicals: Sequence = (),
+                     pages: Collection[tuple[str, int]] | None = None) -> dict[str, str]:
+    """prefix -> the reading note for the plan tags of that prefix that an air outlet schedule lists as codes
+    (`air_outlet_codes`) and no unit schedule lists: the dossier leaves them out of its units, so a count is lowered,
+    and the note names the tags, the schedules and both numbers: the labels on the counted plan sheets
+    (`Placements.drawn`), and what counting the tags as units would give by the one counting rule (`Placements.count`:
+    floors, plan groups, types). A tag labelled on no plan is no note. Never in a client cause's words. The one text of
+    the dossier's counts line and of the reading flags (`read_job`)."""
+    schedules = list(schedules)
+    listed = air_outlet_codes(schedules)
+    scheduled = {row.tag for s in schedules for row in s.rows if row.tag and not row.existing}
+    lost = sorted((tag for tag in listed if tag not in scheduled), key=_natural)
+    if not lost:
+        return {}
+    found = placements(catalogue, lost, typicals, pages)
+    notes: dict[str, str] = {}
+    for prefix in dict.fromkeys(tag_prefix(tag) for tag in lost):
+        tags = [tag for tag in lost if tag_prefix(tag) == prefix and tag in found and found[tag].drawn]
+        if not tags:
+            continue
+        labels = sum(found[tag].drawn for tag in tags)
+        counted = sum(found[tag].count for tag in tags)
+        named = ", ".join(tags[:NAMED_TAGS]) + (f" and {len(tags) - NAMED_TAGS} more" if len(tags) > NAMED_TAGS else "")
+        where = _names(dict.fromkeys(name for tag in tags for name in listed[tag]))
+        several = len(tags) > 1
+        are, codes, units = ("are", "air-outlet codes", "units") if several else ("is", "an air-outlet code", "a unit")
+        notes[prefix] = (f"{named} on the plans ({labels} label{'' if labels == 1 else 's'}) {are} listed as {codes} on "
+                         f"{where}: not counted as {units}, 0 counted, {counted} if counted as units; check")
+    return notes
 
 
 def _count_in(cell: str | None) -> int | None:
