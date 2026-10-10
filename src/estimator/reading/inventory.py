@@ -970,7 +970,10 @@ def build_inventory(catalogue, schedules: list[Schedule], typicals: Sequence = (
                                            "confirm"))
             elif on_drawings:
                 plans = placed.get(tag)
-                lowered = plans is not None and plans.summed > plans.count     # ruling L1: both numbers
+                # a series row ("VAV-1 THRU VAV-4", `shares` above 1): its tags are the count, one unit each, whatever
+                # the plans draw, so no "N counted, M if the sheets were added up" is said of it
+                series = getattr(first_row[tag][1], "shares", 1) > 1
+                lowered = not series and plans is not None and plans.summed > plans.count     # ruling L1: both numbers
                 said = f" — {plans.same_plan_note(plans.count, plans.summed)}" if lowered else ""
                 items.append(InventoryItem(tag, kind, "CONFIRMED", 1, label, seen,
                                            f"On the schedule ({where}) and on {_sheets(len(on_drawings))} "

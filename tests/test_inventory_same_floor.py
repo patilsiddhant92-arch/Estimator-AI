@@ -244,6 +244,25 @@ def test_a_type_drawn_for_two_trades_of_a_floor_says_both_numbers_in_its_row():
     assert (totals[0].scheduled, totals[0].summed) == (4, 8)
 
 
+def test_a_series_row_is_one_unit_a_tag_and_gets_no_plan_sum_note():
+    # "VAV-1 THRU VAV-4": the tags are the count, one unit each, whatever the plans draw (`shares` above 1): "1 counted,
+    # 2 if the sheets were added up" would say the plans decide a count they do not decide
+    tags = [f"VAV-{n}" for n in range(1, 5)]
+    four = "\n".join(tags)
+    catalogue = _catalogue([SCHEDULES, _plan("M-201", "LEVEL 4 HVAC DUCTWORK PLAN", four),
+                            _plan("M-301", "LEVEL 4 HVAC ZONING PLAN", four)])
+    series = Schedule(DOC, 1, "M-601", "VAV SCHEDULE", ("TAG",),
+                      tuple(ScheduleRow(tag, {"TAG": "VAV-1 THRU VAV-4"}, None, None, shares=4) for tag in tags),
+                      False, (), ())
+    items, totals, _flags = build_inventory(catalogue, [series])
+    assert [(i.tag, i.category, i.quantity, i.summed, i.action) for i in items] == [
+        (t, "CONFIRMED", 1, None, "") for t in tags]
+    assert not any("added up" in i.reason or "one floor and area" in i.reason for i in items)
+    [total] = totals
+    assert (total.scheduled, total.summed) == (4, None)
+    assert not any("one floor and area" in f or "added up" in f for f in total.flags)
+
+
 def test_a_unit_drawn_on_two_floors_each_for_two_trades_is_two_and_says_four():
     catalogue = _catalogue([SCHEDULES, _plan("M-201", "LEVEL 4 HVAC DUCTWORK PLAN", "VAV-1"),
                             _plan("M-301", "LEVEL 4 HVAC ZONING PLAN", "VAV-1"),
