@@ -30,13 +30,13 @@ from estimator.catalogue.documents import document_names
 from estimator.catalogue.job import CONTROLS_DISCIPLINES, document_repeats
 from estimator.catalogue.overview import FOUND, RULED_OUT, STANDARD_CLARIFICATION, STANDARD_EXCLUSION
 from estimator.catalogue.tags import (STATED_MOST, Equipment, find_tags, label_keys, line_labels, plan_labels,
-                                      tag_location, tag_prefix, unread_counts)
+                                      sheet_number_tags, tag_location, tag_prefix, unread_counts)
 from estimator.reading.inventory import (COUNT_CAUSE_WORDS, COUNT_CAUSES_LEAD, TYPE_ON_ONE_SHEET, TYPE_PLACED,
                                         counted_per_place, counting_pages, first_pages, plan_area_doubts, plan_areas,
                                         plan_count, plan_floors, plan_groups, sheet_floors,
                                         sheet_labels)
 from estimator.reading.revisions import governing_pages, typical_places
-from estimator.reading.schedules import header_key, quantity_header, vocabulary
+from estimator.reading.schedules import expand_tags, header_key, quantity_header, vocabulary
 from estimator.reading.sequences import POINTS, SEQUENCE
 from estimator.writing.systems import _paragraphs
 from estimator.writing.write import tag_list
@@ -695,7 +695,9 @@ def _schedules_section(catalogue, reading, ids: _Ids, images: dict, why: dict, i
         sid = ids.new(f"{schedule.sheet + ' ' if schedule.sheet else ''}{schedule.title}, "
                       f"{_name(schedule.document)} page {schedule.page}")
         extras = []
-        if schedule.type_only:
+        if schedule.passive:
+            extras.append("air-device types (diffusers, grilles, louvers), passive: not equipment, no controller")
+        elif schedule.type_only:
             extras.append("type rows, no unit tags")
         if schedule.from_text:
             extras.append("counted from the sheet's text; the table couldn't be read")
@@ -768,6 +770,27 @@ class _Family:
     causes: list = field(default_factory=list)      # those causes' keys (COUNT_CAUSE_WORDS), for the line's head
 
 
+def _unindexed_plan_tags(plan_sheets: list[tuple], equipment: Equipment, sheet_numbers: frozenset[str]) -> set[str]:
+    """The plan tags the catalogue's tag index (`index_tags`) leaves out. A tag of a schedule-only prefix (B, P, IU, SS: also
+    an air outlet's code, a model number ...) is in the index only when a schedule sheet names it, so a boiler B-1 on the
+    plans whose schedule is not among the documents is not. Read here from the text of the counted plan and riser sheets,
+    the job's own sheet numbers left out (P-101 is a sheet, not a pump)."""
+    return {tag for _sheet, _key, record, *_ in plan_sheets
+            for tag in find_tags(record.text, equipment, sheet_numbers) if tag_prefix(tag) in equipment.schedule_only}
+
+
+def _unlisted_notes(prefix: str, family: _Family, equipment: Equipment) -> list[str]:
+    """The reading note for the tags of a schedule-only prefix that are on the plans and in no schedule read: what they are
+    is not confirmed, since the prefix is also used for other things (an air outlet's code among them), but they are counted
+    as units: a count that is too low is the worst error. Never in a client cause's words."""
+    tags = sorted(family.on_plans - family.scheduled, key=_natural) if prefix in equipment.schedule_only else []
+    if not tags:
+        return []
+    named = ", ".join(tags[:CAUSE_EXAMPLES]) + (f" and {len(tags) - CAUSE_EXAMPLES} more" if len(tags) > CAUSE_EXAMPLES else "")
+    return [f"{named} on the plans and in no schedule read: the kind of unit is not confirmed (the prefix {prefix} is also used "
+            f"for other things), counted as {'units' if len(tags) > 1 else 'a unit'}; check"]
+
+
 def _counts(catalogue, reading, counted_pages: frozenset, multipliers: dict) -> dict[str, _Family]:
     equipment = Equipment.load()
     type_titles = vocabulary().type_titles
@@ -793,8 +816,8 @@ def _counts(catalogue, reading, counted_pages: frozenset, multipliers: dict) -> 
                     typed.add(row.tag)
             else:
                 key = _type_code(schedule, row)
-                if key is None or type_titles.search(schedule.title):
-                    continue
+                if key is None or type_titles.search(schedule.title) or schedule.passive:
+                    continue         # an air device's type code (CD, RG, LRD-A) is no equipment family (HP 20)
                 codes.add(key)
                 on_page[(schedule.document, schedule.page)][key] += 1
             if row.existing:
@@ -809,11 +832,13 @@ def _counts(catalogue, reading, counted_pages: frozenset, multipliers: dict) -> 
             counted_rows.add(id(row.cells))
             if n is not None:
                 family.quantity = (family.quantity or 0) + n
-    valid = {t.tag for t in catalogue.tags} | {t for f in families.values() for t in f.scheduled}
+    # an air device's code read as a tag (B1 is B-1, the boiler's, on a schedule sheet; SD-1 a smoke damper's) is no unit
+    # of any family on the plans (HP 3): only a unit a non-air-device schedule lists keeps its tag
+    air_codes = {tag for schedule in reading.schedules if schedule.passive and schedule.headers for row in schedule.rows
+                 for tag in expand_tags(row.cells.get(schedule.headers[0], ""), equipment)}
     exclude = frozenset(tag for s in catalogue.sheets if s.number for tag in find_tags(s.number, equipment))
     records = {(p.document, p.page): p for p in catalogue.pages}
-    code_patterns = {code: re.compile(rf"(?<![A-Za-z0-9\-]){re.escape(code)}(?![A-Za-z0-9])") for code in codes}
-    read: list[tuple] = []
+    plan_sheets: list[tuple] = []
     for sheet in catalogue.sheets:
         key = (sheet.document, sheet.page)
         record = records.get(key)
@@ -822,9 +847,18 @@ def _counts(catalogue, reading, counted_pages: frozenset, multipliers: dict) -> 
         is_plan = "Plans" in sheet.types
         is_riser = bool(_RISER.search(sheet.title or ""))
         if is_plan or is_riser:
-            edge = Counter(tag for tag in find_tags("\n".join(s.text for s in record.edge_spans), equipment, exclude)
-                           if tag in valid)
-            read.append((sheet, key, record, is_plan, is_riser, edge))
+            plan_sheets.append((sheet, key, record, is_plan, is_riser))
+    # A plan tag is left out of the units only when an air outlet schedule of this job lists it as an air outlet's code
+    # (`air_codes`), and even then a unit schedule that lists it keeps it. Every other plan tag stays: the tag index leaves
+    # out a B-1 that no schedule sheet names (`_unindexed_plan_tags`), and the counts line says its kind is not confirmed.
+    unindexed = _unindexed_plan_tags(plan_sheets, equipment,
+                                     sheet_number_tags((s.number for s in catalogue.sheets), equipment))
+    valid = (({t.tag for t in catalogue.tags} | unindexed) - air_codes) | {t for f in families.values() for t in f.scheduled}
+    code_patterns = {code: re.compile(rf"(?<![A-Za-z0-9\-]){re.escape(code)}(?![A-Za-z0-9])") for code in codes}
+    read: list[tuple] = [
+        (sheet, key, record, is_plan, is_riser,
+         Counter(tag for tag in find_tags("\n".join(s.text for s in record.edge_spans), equipment, exclude) if tag in valid))
+        for sheet, key, record, is_plan, is_riser in plan_sheets]
     # A tag in the title-block strip of most of these sheets is the title block's own text (a project or
     # phone number that looks like a tag), not a unit: its words there aren't counted.
     in_edge = Counter(tag for *_, edge in read for tag in edge)
@@ -944,6 +978,7 @@ def _counts(catalogue, reading, counted_pages: frozenset, multipliers: dict) -> 
         family.notes += [f"{_name(copy)} repeats {_name(original)} (same sheets, same units): read once, "
                          f"{family.placements}; if it is another building, {family.placements + n}; check"
                          for (copy, original), n in extra.get(prefix, {}).items() if n]
+        family.notes += _unlisted_notes(prefix, family, equipment)
     return families
 
 

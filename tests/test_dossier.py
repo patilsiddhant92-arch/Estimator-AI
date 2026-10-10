@@ -11,7 +11,7 @@ from estimator.catalogue.pdf import Span
 from estimator.catalogue.register import PageRecord
 from estimator.catalogue.sheet_types import Sheet
 from estimator.catalogue.spec_sections import SpecSection
-from estimator.catalogue.tags import TagEntry
+from estimator.catalogue.tags import TagEntry, index_tags
 from estimator.reading.devices import DeviceCount, TypicalSheet
 from estimator.reading.inventory import FamilyTotal
 from estimator.reading.keynotes import Note
@@ -682,3 +682,123 @@ def test_a_numberless_typical_plans_units_are_counted_times_its_floors_in_the_co
     reading = _reading(typicals=[TypicalSheet(None, title, ("2", "3", "4", "5"), "", DWG)])
     d = build_dossier(catalogue, reading, None)
     assert d.counts["FCU"]["plan_placements"] == 4
+
+
+# --- a schedule of air devices lists types, never units, families or systems (HP 3, HP 20) ----------------------
+
+def _outlet_schedule(passive, title="Schedule (no title found)", codes=("B1", "B2", "CD"), page=2):
+    """An air outlet schedule as the reader gives it: its type codes as rows with no unit tag."""
+    rows = [_row(None, {"DESIGNATION": code, "DESCRIPTION": "DIFFUSER"}) for code in codes]
+    return Schedule(DWG, page, "M-601", title, ("DESIGNATION", "DESCRIPTION"), tuple(rows), True, (), (), passive=passive)
+
+
+def _outlet_job():
+    plan ="\n".join(["B-1"] * 5 + ["B-2"] * 3 + ["CD"] * 4)
+    pages = [_page(DWG, 1, plan, large=True), _page(DWG, 2, "AIR OUTLET SCHEDULE B1 B2 CD", large=True)]
+    sheets = [_sheet(1, "M-101", "HVAC FIRST FLOOR PLAN"), _sheet(2, "M-601", "SCHEDULES", types=("Schedules",))]
+    return _catalogue([_doc(DWG, "drawings", 2)], pages, sheets, tags=[_tag("B-1"), _tag("B-2")])
+
+
+def test_an_air_device_schedules_codes_never_become_families(tmp_path):
+    """B1 and B2 are no boilers, CD no equipment: their labels on the plans make no family, so no system."""
+    d = build_dossier(_outlet_job(), _reading([_outlet_schedule(True)]), tmp_path / "passive")
+    assert "B" not in d.counts and "CD" not in d.counts
+    line = next(line for line in d.text.splitlines() if "Schedule (no title found)" in line and "M-601" in line)
+    assert "passive" in line and "not equipment" in line
+    assert "type rows, no unit tags" not in line
+    # the same schedule without the mark is what the dossier did before: the codes become families
+    control = build_dossier(_outlet_job(), _reading([_outlet_schedule(False)]), tmp_path / "plain")
+    assert "CD" in control.counts and "B" in control.counts
+    assert "type rows, no unit tags" in next(line for line in control.text.splitlines() if "M-601" in line and "(3 rows" in line)
+
+
+def test_a_boiler_schedule_keeps_its_boilers_beside_an_air_outlet_schedule_that_reads_b1(tmp_path):
+    """A job with both: the codes B1 to B4 of the air outlets never remove the boilers B-1 and B-2 of their schedule."""
+    boilers = _schedule("BOILER SCHEDULE", [_row("B-1", {"TAG": "B-1"}), _row("B-2", {"TAG": "B-2"})], page=3)
+    pages = [_page(DWG, 1, "B-1\nB-2", large=True), _page(DWG, 2, "AIR OUTLET SCHEDULE B1 B2 B3 B4", large=True),
+             _page(DWG, 3, "BOILER SCHEDULE B-1 B-2", large=True)]
+    sheets = [_sheet(1, "M-101", "HVAC BOILER PLAN"), _sheet(2, "M-601", "SCHEDULES", types=("Schedules",)),
+              _sheet(3, "M-602", "SCHEDULES", types=("Schedules",))]
+    catalogue = _catalogue([_doc(DWG, "drawings", 3)], pages, sheets, tags=[_tag(f"B-{n}") for n in range(1, 5)])
+    outlets = _outlet_schedule(True, "AIR OUTLET SCHEDULE", ("B1", "B2", "B3", "B4"))
+    d = build_dossier(catalogue, _reading([outlets, boilers]), tmp_path)
+    assert d.counts["B"]["schedule_rows"] == 2
+    assert d.counts["B"]["distinct_tags"] == 2          # B-3 and B-4 are air outlets
+    assert d.counts["B"]["plan_placements"] == 2        # the boilers on their plan are still counted
+    assert "Tags: B-1, 2." in d.text
+
+
+def test_a_type_code_of_an_air_device_schedule_with_a_quantity_column_is_no_family(tmp_path):
+    catalogue, reading = _job()
+    reading.schedules += (Schedule(DWG, 3, "M-601", "SCHEDULE", ("TAG", "QTY"), (_row(None, {"TAG": "LD", "QTY": "40"}),),
+                                   True, (), (), passive=True),)
+    d = build_dossier(catalogue, reading, tmp_path)
+    assert "LD" not in d.counts
+
+
+# --- a plan tag is left out of the units only when an air outlet schedule lists it as an air outlet's code -----------
+
+def _plan_job(plan_text, schedule_text=None):
+    """A job as the catalogue reads it: its tag index comes from the pages' text (`index_tags`), which keeps a tag of a
+    schedule-only prefix (B, P, IU, SS) only when a schedule sheet names it."""
+    pages = [_page(DWG, 1, plan_text, large=True)]
+    sheets = [_sheet(1, "M-101", "HVAC BOILER PLAN")]
+    if schedule_text is not None:
+        pages.append(_page(DWG, 2, schedule_text, large=True))
+        sheets.append(_sheet(2, "M-601", "SCHEDULES", types=("Schedules",)))
+    tags = index_tags(pages, {(s.document, s.page): s for s in sheets})
+    return _catalogue([_doc(DWG, "drawings", len(pages))], pages, sheets, tags=tags)
+
+
+def _counts_line(d, prefix):
+    return next(line for line in d.text.splitlines() if f"] {prefix} (" in line)
+
+
+def test_a_plan_tag_that_no_schedule_lists_stays_a_unit_and_its_kind_is_said_not_confirmed(tmp_path):
+    """B-1 and B-2 on a plan, in no schedule at all: the tag index leaves a B tag out (B is also an air outlet's code), but
+    the plan's boilers are never dropped. They are counted, and the counts line says their kind is not confirmed."""
+    catalogue = _plan_job("B-1\nB-2\nEF-9")
+    assert not any(t.tag in ("B-1", "B-2") for t in catalogue.tags)       # the premise: the index leaves them out
+    d = build_dossier(catalogue, _reading(), tmp_path)
+    assert d.counts["B"] == {"schedule_rows": 0, "quantity_column": None, "plan_placements": 2, "riser": None,
+                             "distinct_tags": 2}
+    line = _counts_line(d, "B")
+    assert "Tags: B-1, 2." in line
+    assert "B-1, B-2 on the plans and in no schedule read: the kind of unit is not confirmed" in line and "check" in line
+    # a tag whose prefix no other use shares needs no note: its kind is known from its prefix
+    assert d.counts["EF"]["plan_placements"] == 1 and "not confirmed" not in _counts_line(d, "EF")
+
+
+def test_a_plan_tag_that_an_air_outlet_schedule_does_not_list_stays_when_the_ones_it_lists_are_left_out(tmp_path):
+    """The air outlet schedule lists B1 to B4: B-1 and B-2 on the plan are outlets and are left out. B-5, which no schedule
+    lists, stays a unit with the note."""
+    catalogue = _plan_job("\n".join(["B-1"] * 4 + ["B-2"] * 2 + ["B-5"]), "AIR OUTLET SCHEDULE B1 B2 B3 B4")
+    outlets = _outlet_schedule(True, "AIR OUTLET SCHEDULE", ("B1", "B2", "B3", "B4"))
+    d = build_dossier(catalogue, _reading([outlets]), tmp_path)
+    assert d.counts["B"]["distinct_tags"] == 1 and d.counts["B"]["plan_placements"] == 1
+    line = _counts_line(d, "B")
+    assert "Tags: B-5." in line and "B-5 on the plans and in no schedule read: the kind of unit is not confirmed" in line
+
+
+def test_a_plan_tag_an_air_outlet_schedule_lists_is_left_out_with_no_unit_to_note(tmp_path):
+    catalogue = _plan_job("B-1\nB-2", "AIR OUTLET SCHEDULE B1 B2 B3 B4")
+    outlets = _outlet_schedule(True, "AIR OUTLET SCHEDULE", ("B1", "B2", "B3", "B4"))
+    d = build_dossier(catalogue, _reading([outlets]), tmp_path)
+    assert "B" not in d.counts
+
+
+def test_a_plan_tag_a_unit_schedule_lists_needs_no_note_of_its_kind(tmp_path):
+    boilers = _schedule("BOILER SCHEDULE", [_row("B-1", {"TAG": "B-1"}), _row("B-2", {"TAG": "B-2"})], page=2)
+    catalogue = _plan_job("B-1\nB-2", "BOILER SCHEDULE B-1 B-2")
+    d = build_dossier(catalogue, _reading([boilers]), tmp_path)
+    assert d.counts["B"]["schedule_rows"] == 2 and d.counts["B"]["plan_placements"] == 2
+    assert "not confirmed" not in _counts_line(d, "B")
+
+
+def test_a_schedule_only_prefix_that_is_a_sheet_number_is_no_plan_tag(tmp_path):
+    """The plumbing sheet P-101 names itself in its title block: that is no pump."""
+    pages = [_page(DWG, 1, "P-101\nP-1", large=True)]
+    sheets = [_sheet(1, "P-101", "PLUMBING PLAN", discipline="Plumbing")]
+    catalogue = _catalogue([_doc(DWG, "drawings", 1)], pages, sheets, tags=())
+    d = build_dossier(catalogue, _reading(), tmp_path)
+    assert d.counts["P"]["distinct_tags"] == 1 and "Tags: P-1." in _counts_line(d, "P")
