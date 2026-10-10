@@ -328,6 +328,29 @@ def test_eight_boxes_on_three_plans_of_one_floor_count_eight_and_the_next_floor_
     assert "M-102 and M-202 counted as one plan, 8 (16 if they are two places)" in line
 
 
+@pytest.mark.parametrize("text, said", [
+    ("EF-1\nEF-2", "a unit's tag is counted once for each floor and area, however often the plan labels it"),
+    ("EBB-A\nEBB-A", "a type's tag counts the most labels of one sheet of each floor and area, however often the plan "
+                     "labels it"),
+    ("EBB-A\nEBB-A\nEBB-1\nEBB-1", "a type's tag counts the most labels of one sheet of each floor and area, a unit's "
+                                   "tag once for each floor and area, however often the plan labels it"),
+])
+def test_the_counts_lines_notes_say_floor_and_area_not_the_earlier_rules_words(tmp_path, text, said):
+    from estimator.writing.dossier import build_dossier
+    from test_dossier_plan_areas import DWG, _catalogue as dossier_catalogue, _line, _page, _reading
+    from test_dossier_plan_areas import _sheet as dossier_sheet
+
+    pages = [_page(DWG, 1, text), _page(DWG, 2, text)]
+    sheets = [dossier_sheet(1, "M-101", "LEVEL 4 HVAC DUCTWORK PLAN"), dossier_sheet(2, "M-201", "LEVEL 4 HVAC PIPING PLAN")]
+    tags = sorted(set(text.split("\n")))
+    d = build_dossier(dossier_catalogue(pages, sheets, tags), _reading(), tmp_path)
+    prefix = tags[0].split("-")[0]
+    notes = _line(prefix, d).split("Reading notes:", 1)[1]
+    assert "M-101 and M-201 counted as one plan, " in notes and "): same floor and area; check" in notes
+    assert f"the labels on the plan sheets add up to {2 * len(text.split(chr(10)))}; {said}" in notes
+    assert "same floor title" not in notes and "same units" not in notes and "on each plan" not in notes
+
+
 def test_the_family_flag_reaches_the_dossiers_counts_line_with_both_numbers(tmp_path):
     from types import SimpleNamespace
 

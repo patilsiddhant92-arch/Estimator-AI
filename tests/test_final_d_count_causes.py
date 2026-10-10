@@ -22,6 +22,10 @@ def test_a_type_tag_once_on_each_of_two_floors_is_a_typical_unit_on_each_plan(tm
     assert "likely: a typical unit at each place" in line
     assert "shown again" not in line and "one unit's tag on several plans" not in line
     assert "check the schedule's quantity" in line
+    # ruling L1: the note counts sheets (two sheets can be one floor and area), so it says "sheets", never "plans"
+    assert ("CUH-A on 2 different sheets (M-101, M-102), a type's tag — likely a typical unit placed on each floor "
+            "or area they show: check the schedule's quantity") in line
+    assert "different plans" not in line
     (note,) = _note(_family_count(catalogue, reading, "CUH", tmp_path), "Cabinet Unit Heater", ("CUH-A",))
     assert "(2) per plan placements (likely a typical unit at each place)" in note
     assert "drawn on two plan sheets" not in note
