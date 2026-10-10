@@ -101,9 +101,11 @@ def test_a_no_kind_code_whose_count_the_owner_took_says_the_owner_count_includes
     ledger.add("count", "GI-4", 9, "S1", f"GI-4 ({NO_KIND}): schedule rows 1", "seed", SETTLED)
     job = _plan(ledger)
     (asked,) = [q for q in job.questions if "GI-4" in q]
-    assert "not already in" not in asked
-    assert "The GI count (9) is taken from GI-4's own count, so it already includes GI-4" in asked
+    # the estimator's count ruling (2026-10-09): the GI schedule's 3 stays; GI-4's own 9 is a DISCREPANCY beside it
+    assert "DISCREPANCY: GI-4's own count gives 9; the GI count stays 3, the schedule's." in asked
     assert "Confirm" in asked
+    gi = next(f for s in job.systems for f in s.families if f.name == "Grease Interceptor" and "GI-1" in f.tags)
+    assert gi.count.value == 3 and 9 in {o.value for o in gi.count.others}
 
 
 # ---- F6: condensate pumps joined to a split block on their numbers alone name the other equipment they may serve

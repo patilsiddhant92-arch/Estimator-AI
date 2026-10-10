@@ -7,8 +7,9 @@ A device line carries at least one citation from this job.
 
 ## Counts and quantities
 
-### Higher count prints
-The highest count any source gives prints; every other count is named in the note.
+### The schedule count prints
+The schedule's count prints when a schedule gives one; every other count is a flag named in the note. With no
+schedule the highest count prints, flagged.
 
 ## Clarifications and assumptions
 
@@ -22,6 +23,15 @@ An assumption says what is assumed and why.
 
 ### Packaged units
 A packaged unit's points are not furnished by AME; AME integrates through the manufacturer's interface.
+
+### VAV boxes are field DDC
+A VAV box is field DDC: a factory-installed controller is the DDC controller AME furnishes to the factory.
+
+### VAV boxes on the manufacturer's controls
+A VAV box takes the integration lines only when its controls are the manufacturer's own and the BMS integrates them.
+
+### VAV zone radiation interlock
+Radiation tied to a VAV zone is written in its own block when it has tags of its own, else in the VAV block.
 
 ## Shipped-loose devices
 
@@ -90,8 +100,8 @@ The integration lines cover the points monitored through the unit's interface.
 
 ## Counts and assumptions in client words
 
-### Never undershoot
-A count is never lower than any source of this job gives.
+### Never change a count silently
+A count is never raised or lowered without its flag.
 
 ### Assumption wording has no source ids
 An assumption's words name the document by its title, never by its source id.
@@ -104,3 +114,7 @@ Client text carries no internal flag words, prices, source ids or reasoning word
 
 ### Line form
 A printed line is one short line of at most 160 characters.
+
+### Front end mode
+The front end is a new system or a tie-in to an existing one; an existing system the documents do not name prints
+"[existing BMS name]" and is flagged.

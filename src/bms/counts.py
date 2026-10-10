@@ -11,10 +11,12 @@ Two counts of each tagged family on the plan sheets that show its tags, independ
 A family's located count on the plans is counted on each sheet and added up over its plan sheets by the
 inventory's one counting rule (`estimator.reading.inventory.plan_groups`, `plan_count`, `counted_per_place`): sheets
 that show one plan are one group, where a unit's tag counts once and a type's tag (EBB-A, CUH-A, AC-3.0) the most
-places of one sheet; every other sheet adds up (a type's tag on two floor plans is 2). The picture count is the
-number of different tags seen. `cross_check` adds every count that differs from the printed one to
-`Count.others` with its Ref, keeps the highest as `Count.value`, never lowers a count, flags the devices counted from
-a family whose counts disagree, and writes the proof images (a crop of the sheet with the counted tags boxed) and
+places of one sheet, each times the floors a typical sheet stands for (PLAN-1); every other sheet adds up (a type's
+tag on two floor plans is 2). The picture count counts the places the picture shows each tag by the same rule
+(PLAN-2). `cross_check` adds every count that differs from the printed one to `Count.others` with its Ref; a count
+the schedule gives (`Count.basis` "schedule") stays the printed one and every other count is a DISCREPANCY flag
+(the estimator's count ruling, 2026-10-09); with no schedule it keeps the highest as `Count.value` (a CONFLICT
+flag), never lowering a count. It flags the devices counted from a family whose counts disagree, and writes the proof images (a crop of the sheet with the counted tags boxed) and
 their manifest under `<cache>/count-proofs/` for the review page (`load_proofs`, `proofs_for`). Without a transport
 it does the located-text count only.
 """
@@ -65,6 +67,8 @@ class CountResult:
     boxes: tuple[Box, ...]    # one per counted tag (len(boxes) == value when value is not None)
     untagged: int | None = None   # symbols of the equipment drawn with no tag, as the answer gives them (its own
                                   # count, never in `value`); None when the answer gives none
+    places: tuple[Box, ...] = ()  # one per place a tag is drawn (a tag seen twice where tiles overlap is one place):
+                                  # what the picture count counts (PLAN-2), the boxes above being one per tag
 
 
 def count_tags(image_path: Path, tag_pattern: str, *, transport=None) -> CountResult:
@@ -79,7 +83,8 @@ def count_tags(image_path: Path, tag_pattern: str, *, transport=None) -> CountRe
     Contract: never raises for an unreadable picture, a bad pattern, no transport or an unusable answer (returns
     `CountResult(None, ())`). The caller (`cross_check`) compares `value` with the family's Count: a different value
     is added to `Count.others` with a Ref (`source_id` the count's id, `quote` "counted on the sheet picture", `where`
-    the sheet), the printed value becomes the higher, and the devices of that family get flag "quantity".
+    the sheet), the printed value stays the schedule's when a schedule gives it and else becomes the higher, and
+    the devices of that family get flag "quantity".
     """
     return count_sheet(image_path, [tag_pattern], transport=transport).get(tag_pattern, CountResult(None, ()))
 
@@ -107,8 +112,9 @@ def count_sheet(image_path: Path, tag_patterns, *, transport=None,
         for pattern in patterns:
             if pattern not in listed:
                 continue          # the answer leaves this pattern out: no vision count for it
-            boxes = _distinct([(text, box) for text, box in found if fits(pattern, text)])
-            results[pattern] = CountResult(len(boxes), tuple(boxes), untagged.get(pattern))
+            mine = [(text, box) for text, box in found if fits(pattern, text)]
+            boxes = _distinct(mine)
+            results[pattern] = CountResult(len(boxes), tuple(boxes), untagged.get(pattern), tuple(_placements(mine)))
         return results
     except Exception:
         return unknown
@@ -122,15 +128,17 @@ def cross_check(job: "Job", catalogue: "Catalogue", cache: Path, *, transport=No
     twice: located on the sheet text, and — with a `transport` — by `count_tags` on the picture (one vision pass per
     sheet for every family on it). Each count different from `Count.value` is added to `Count.others` with its Ref
     (`source_id` "C<n>", quote "located on the sheet text" or "counted on the sheet picture", `where` the sheets);
-    a count equal to it is added to `sources`; `Count.value` becomes the highest (an unknown count takes the plan
-    count when it found a tag; a plan count of 0 leaves it unknown), the earlier count moving to `others` with its sources; and the system's devices whose quantity was
+    a count equal to it is added to `sources`; a count the schedule gives stays `Count.value` (a different plan
+    count is a DISCREPANCY in `others`, never raising or lowering it); with no schedule `Count.value` becomes the
+    highest (an unknown count takes the plan count when it found a tag; a plan count of 0 leaves it unknown), the
+    earlier count moving to `others` with its sources; and the system's devices whose quantity was
     counted from the family's sources get flag "quantity" when the counts disagree. Proof images and their manifest
     go under `<cache>/count-proofs/`. A family whose whole-sheet pictures show symbols drawn with no tag
     (`CountResult.untagged` above 0) gets one plain-words question in `Job.questions` naming every such sheet and its
     number; they are never added to the count. Families whose sheets cannot be pictured or counted are left as they
     are.
-    Pure apart from the picture cache under `cache`. Never lowers a count, never raises; running it twice changes
-    nothing more."""
+    Pure apart from the picture cache under `cache`. Never changes a schedule's count, never lowers a count, never
+    raises; running it twice changes nothing more."""
     try:
         return _Check(job, catalogue, Path(cache), transport, micro_crops=True).run()
     except Exception:
@@ -162,20 +170,32 @@ def disputed_families(system: System) -> list[Family]:
 
 
 def flag_written_devices(system: System) -> System:
-    """Flag devices the writer just created when a family's counts disagree.
+    """Flag devices the writer just created when a family's counts disagree, and carry a schedule's count basis
+    onto the lines counted from it.
 
     `cross_check` flags devices that already exist and were counted from the family's sources. A planned system
-    has no devices yet, so the run calls this after `write_system`. A family with no `others` changes nothing.
-    A device counted from such a family (`counted_from`: its quantity cites one of that family's sources, or one
-    of the disagreeing counts) gets flag "quantity" unless it is already flagged. Sources match by source id
-    ("[C3]" is "C3"), not by the whole citation: a trimmed quote still cites the count. Pure."""
+    has no devices yet, so the run calls this after `write_system`. A device counted from a family whose counts
+    disagree (`counted_from`: its quantity cites one of that family's sources, or one of the disagreeing counts)
+    gets flag "quantity" unless it is already flagged. Sources match by source id ("[C3]" is "C3"), not by the
+    whole citation: a trimmed quote still cites the count. A device counted from a family the schedule gives
+    (`Count.basis` "schedule") whose quantity is the family's printed count takes that basis too, so the line
+    prints the schedule's count and not a higher other count the writer copied beside it (the estimator's count
+    ruling, 2026-10-09). Pure."""
     disputed = disputed_families(system)
-    if not disputed:
+    scheduled = [f for f in system.families if f.count.basis == "schedule" and f.count.value is not None]
+    if not disputed and not scheduled:
         return system
-    devices = tuple(
-        dataclasses.replace(device, flag="quantity")
-        if device.flag == "none" and any(counted_from(device, family) for family in disputed) else device
-        for device in system.devices)
+
+    def fixed(device: Device) -> Device:
+        if device.flag == "none" and any(counted_from(device, family) for family in disputed):
+            device = dataclasses.replace(device, flag="quantity")
+        quantity = device.quantity
+        if quantity.basis != "schedule" and any(quantity.value == f.count.value and counted_from(device, f)
+                                                for f in scheduled):
+            device = dataclasses.replace(device, quantity=dataclasses.replace(quantity, basis="schedule"))
+        return device
+
+    devices = tuple(fixed(device) for device in system.devices)
     return system if devices == system.devices else dataclasses.replace(system, devices=devices)
 
 
@@ -238,6 +258,25 @@ def _distinct(found) -> list[Box]:
     return [Box(*first[tag], tag) for tag in sorted(first, key=natural)]
 
 
+def _placements(found) -> list[Box]:
+    """One box per place a tag is drawn (top to bottom, left to right): the same tag's boxes that overlap by half
+    the smaller one are one place (a tag in the overlap of two tiles is answered on both)."""
+    kept: list[Box] = []
+    for text, (x, y, w, h) in sorted(found, key=lambda f: (f[1][1], f[1][0])):
+        tag = canonical(text)
+        if not any(b.text == tag and _overlap((x, y, w, h), (b.x, b.y, b.width, b.height)) for b in kept):
+            kept.append(Box(x, y, w, h, tag))
+    return kept
+
+
+def _overlap(a, b) -> bool:
+    ax, ay, aw, ah = a
+    bx, by, bw, bh = b
+    width = min(ax + aw, bx + bw) - max(ax, bx)
+    height = min(ay + ah, by + bh) - max(ay, by)
+    return width > 0 and height > 0 and width * height * 2 >= min(aw * ah, bw * bh)
+
+
 def _name(document: str) -> str:
     return document.rsplit("/", 1)[-1]
 
@@ -255,6 +294,7 @@ class _Sheet:
     seen: list | None = None         # (tag, box) on the picture; None when not counted
     counted: frozenset = frozenset() # the patterns the picture's answer counted (others were left out of it)
     untagged: dict = dataclasses.field(default_factory=dict)  # pattern -> symbols the picture shows with no tag
+    floors: frozenset = frozenset()  # the floors a typical sheet stands for (`plan_floors`); empty for one floor
 
 
 class _Check:
@@ -312,7 +352,10 @@ class _Check:
         if not sheets:
             self._save_proofs([])
             return self.job
+        floor_sets = self._floor_sets()
         for key, sheet in sheets.items():
+            if sheet.sheet is not None:
+                sheet.floors = _sheet_floors(floor_sets, sheet.sheet)
             here = [patterns[f] for f, keys in on_sheet.items() if key in keys]
             self._count_sheet(sheet, here)
         self.groups = self._plan_groups(list(sheets.values()))
@@ -396,7 +439,9 @@ class _Check:
 
             if results and all(r.value is not None for r in results.values()):
                 sheet.counted = frozenset(results)
-                sheet.seen = [(b.text, (b.x, b.y, b.width, b.height)) for r in results.values() for b in r.boxes]
+                # every place a tag is drawn, not one box per tag: a type's tag at six places is six (PLAN-2)
+                sheet.seen = [(b.text, (b.x, b.y, b.width, b.height)) for r in results.values()
+                              for b in (r.places or r.boxes)]
                 sheet.untagged = {p: r.untagged for p, r in results.items() if r.untagged is not None}
 
     def _confirm(self, sheet: _Sheet, here: list[str], confident, ambiguous, cut_micro_crops) -> None:
@@ -459,6 +504,18 @@ class _Check:
             confident, ambiguous = classify_located_boxes(page, pattern, scale)
             return (confident, ambiguous, *located_tallies(page, pattern, listed), True)
 
+    def _floor_sets(self) -> dict:
+        """The floors each typical plan stands for, as the inventory and the dossier read them
+        (`estimator.reading.inventory.plan_floors` over `estimator.reading.devices.typical_sheets`): a typical
+        sheet's located count is its labels times its floors (PLAN-1). Empty when they cannot be read."""
+        from estimator.reading.devices import typical_sheets
+        from estimator.reading.inventory import plan_floors
+
+        try:
+            return plan_floors(self.catalogue, typical_sheets(self.catalogue))
+        except Exception:
+            return {}
+
     def _plan_groups(self, sheets: list[_Sheet]) -> dict:
         """The inventory's plan groups of the counted sheets (`plan_groups`, the labels alone as evidence); empty
         when they cannot be made (every sheet is then its own group)."""
@@ -512,7 +569,7 @@ class _Check:
             if attr == "located":
                 n = _located_count(read, pattern, self.groups)
             else:
-                n = len({canonical(t) for s in read for t, _ in s.seen if fits(pattern, t)})
+                n = _seen_count(read, pattern, self.groups)
             complete = len(read) == len(sheets)
             if not complete and (family.count.value is None or n <= family.count.value):
                 continue      # some sheets unread: only a count above the printed one says anything
@@ -530,6 +587,11 @@ class _Check:
         return dataclasses.replace(system, families=families, devices=devices), ids
 
     def _merge(self, count: Count, counted) -> tuple[Count, dict[str, str], bool]:
+        """The family's Count with the plan counts merged in (the estimator's count ruling, 2026-10-09). A count the
+        schedule gives (`basis` "schedule") is the working count and never changes: a plan count that agrees is
+        one more source (confirmed), a different one is kept in `others` as a DISCREPANCY flag. With no schedule
+        the highest prints, the earlier count moving to `others` (a CONFLICT flag); an unknown count takes the plan
+        count when it found a tag (a plan count of 0 leaves it unknown)."""
         value, sources, others = count.value, list(count.sources), list(count.others)
         ids: dict[str, str] = {}
         disagree = False
@@ -548,14 +610,14 @@ class _Check:
                 value, sources = n, [ref]
             elif n == value:
                 sources.append(ref)
-            elif n < value:
-                others.append(OtherCount(n, ref))
+            elif n < value or count.basis == "schedule":
+                others.append(OtherCount(n, ref))     # the schedule's count stays: the plans' is a DISCREPANCY
                 disagree = True
             else:
                 others += [OtherCount(value, s) for s in sources] or [OtherCount(value, Ref("", NO_SOURCE_QUOTE, ""))]
                 value, sources = n, [ref]
                 disagree = True
-        return Count(value, tuple(sources), tuple(others)), ids, disagree
+        return Count(value, tuple(sources), tuple(others), count.basis), ids, disagree
 
     # -- the proof images
 
@@ -579,7 +641,7 @@ class _Check:
                 "picture": str(sheet.picture) if sheet.picture else None,
                 "proof": str(proof) if proof else None,
                 "located_text": _located_count([sheet], pattern) if sheet.located is not None else None,
-                "vision": len(seen) if counted else None,
+                "vision": _seen_count([sheet], pattern) if counted else None,
                 "located_tags": [b.text for b in located], "vision_tags": [b.text for b in seen],
                 "located_boxes": [dataclasses.asdict(b) for b in located],
                 "vision_boxes": [dataclasses.asdict(b) for b in seen],
@@ -593,21 +655,51 @@ def _located_count(sheets, pattern: str, groups: dict | None = None) -> int:
     """The located count of a pattern's tags over these sheets (`_Sheet.labels`) by the inventory's one counting rule
     (`estimator.reading.inventory.plan_count`, `counted_per_place`; `groups` from `plan_groups`, every sheet its own
     group when not given): in each plan group a unit's tag once, a tag counted at every place (a type's tag:
-    "CUH-A (TYP. OF 4)" is 4) the most of one sheet; the groups added up (EBB-A on two floor plans is 2). The
-    located count does not multiply by a typical sheet's floors: a typical plan can read lower than the planner's
-    count, and then it is a cross-check other, never the printed count."""
+    "CUH-A (TYP. OF 4)" is 4) the most of one sheet, each times the floors the group's sheets stand for
+    (`_Sheet.floors`: a typical plan of floors 2 to 10 is 9 floors, PLAN-1); the groups added up (EBB-A on two
+    floor plans is 2)."""
+    return _tally_count([(sheet, sheet.labels or {}) for sheet in sheets], pattern, groups)
+
+
+def _seen_count(sheets, pattern: str, groups: dict | None = None) -> int:
+    """The picture count of a pattern's tags over these sheets by the same counting rule as `_located_count`, from
+    each sheet's placements on its picture (`_Sheet.seen`: one box per place a tag is drawn, PLAN-2): a type's tag
+    drawn at six places is six, a unit's tag once in each plan group, a typical sheet times its floors."""
+    tallies = []
+    for sheet in sheets:
+        tally: Counter = Counter()
+        for tag, _box in sheet.seen or ():
+            tally[canonical(tag)] += 1
+        tallies.append((sheet, tally))
+    return _tally_count(tallies, pattern, groups)
+
+
+def _tally_count(tallies, pattern: str, groups: dict | None = None) -> int:
+    """The one counting rule over (sheet, its tags with their places) pairs (`_located_count`, `_seen_count`)."""
     from estimator.reading.inventory import counted_per_place, plan_count
 
     found: dict[str, list] = {}
-    for sheet in sheets:
-        for tag, n in (sheet.labels or {}).items():
+    for sheet, labels in tallies:
+        floors = frozenset(getattr(sheet, "floors", None) or ())
+        for tag, n in labels.items():
             if n > 0 and fits(pattern, tag):
-                found.setdefault(canonical(tag), []).append((sheet.key, n, frozenset()))
+                found.setdefault(canonical(tag), []).append((sheet.key, n, floors))
     total = 0
     for tag, mine in found.items():
         per_place = counted_per_place(tag, sum(n for _k, n, _f in mine), max(n for _k, n, _f in mine))
         total += plan_count(mine, groups or {}, per_place)
     return total
+
+
+def _sheet_floors(floor_sets: dict, sheet) -> frozenset:
+    """The floors a catalogue sheet stands for in `plan_floors` (`estimator.reading.inventory.sheet_floors`);
+    empty for one floor or when it cannot be read."""
+    from estimator.reading.inventory import sheet_floors
+
+    try:
+        return frozenset(sheet_floors(floor_sets, sheet))
+    except Exception:
+        return frozenset()
 
 
 def _untagged_question(family: Family, pattern: str, sheets: list[_Sheet]) -> str | None:
@@ -620,7 +712,7 @@ def _untagged_question(family: Family, pattern: str, sheets: list[_Sheet]) -> st
         return None
     (first, n), rest = seen[0], seen[1:]
     more = f" (and {', '.join(f'{m} on {where}' for where, m in rest)})" if rest else ""
-    value = family.count.highest()
+    value = family.count.printed()
     counted = f"the count of {value}" if value is not None else "the count"
     return (f"The sheet picture of {first} shows {n} {family.name} {'symbol' if n == 1 else 'symbols'} with no "
             f"tag{more}; {counted} does not include them. Confirm whether they are more units.")

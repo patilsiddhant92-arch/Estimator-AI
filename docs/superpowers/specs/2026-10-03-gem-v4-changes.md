@@ -74,7 +74,7 @@ Status: DONE. Commit `27fe997` on `step-5-follow-ups`, not pushed.
 | SENSOR NAMING — COMBO VS SPLIT | SENSOR NAMING — COMBINED OR SEPARATE | reworded |
 | FILTER DP SWITCHES | same | same |
 | CONSOLIDATING IDENTICAL SCOPE LINES | same | same |
-| QUANTITY DETAILING | same, plus SYSTEMS NAMED ONLY IN THE SEQUENCE | Refined by practice rule CONTRADICTED COUNTS: the higher count prints, flagged, with both counts named. The new sub-section is from SYSTEMS NAMED ONLY IN THE SEQUENCE: base bid, "Qty (##)", "*Quantity per plumbing drawings". |
+| QUANTITY DETAILING | same, plus SYSTEMS NAMED ONLY IN THE SEQUENCE | Refined by practice rule CONTRADICTED COUNTS: the higher count prints, flagged, with both counts named. The new sub-section is from SYSTEMS NAMED ONLY IN THE SEQUENCE: base bid, "Qty (##)", "*Quantity per plumbing drawings". (superseded 2026-10-09: the schedule's count prints, a different count is a DISCREPANCY flag; the higher prints only with no schedule) |
 | SOW FORMAT — STANDARD | same | reworded ("flags always on the same line" became "the flag stays with the device's own line") |
 | SYSTEM EXPLANATION | SYSTEM EXPLANATION | reworded |
 | OPTION: SEQUENCE HARDWARE HIGHLIGHT | none | dropped (chat mechanics) |

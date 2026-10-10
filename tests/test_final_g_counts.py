@@ -67,23 +67,25 @@ def test_type_tags_on_a_floor_drawn_twice_add_up_and_the_line_names_the_two_shee
     assert d.counts["VAV"]["plan_placements"] == 3
     line = _line("EBB", d)
     assert "same plan as" not in line and "may show one plan" not in line
-    assert ("M-101 and M-201 counted as one plan, 8 (16 if they are two places): same floor title, same units; "
-            "check") in line                                     # FINAL-K: both counts (REVIEW-FINAL6 F5)
+    assert ("M-101 and M-201 counted as one plan, 8 (16 if they are two places): "
+            "one floor's plans of other trades (ductwork, piping, zoning, controls); check") in line                                     # FINAL-K: both counts (REVIEW-FINAL6 F5)
     assert "may show one plan" not in _line("VAV", d)
 
 
 def test_a_numbered_tag_placed_at_many_places_counts_every_place(tmp_path):
     """FCU-1 at five places on each of two sheets of one floor: a numbered type (the inventory's rule, 3 places and
-    4 on one sheet), so every place counts (10, the higher count) and the cause is named; before, merged (5)."""
+    4 on one sheet), so every place of a sheet counts and the cause is named. READ-2 (2026-10-09, replaces FINAL-G's
+    10): the floor's ductwork and its piping and controls plan are one set of placements, the most of one sheet, 5,
+    and the line names the two sheets counted as one plan with the sum beside it."""
     text = "\n".join(["FCU-1"] * 5)
     pages = [_page(DWG, 1, text), _page(DWG, 2, text)]
     sheets = [_sheet(1, "M-101", "HVAC DUCTWORK FIRST FLOOR PLAN"),
               _sheet(2, "M-201", "HVAC PIPING AND CONTROLS FIRST FLOOR PLAN")]
     d = build_dossier(_catalogue(pages, sheets, ["FCU-1"]), _reading(), tmp_path)
-    assert d.counts["FCU"]["plan_placements"] == 10
+    assert d.counts["FCU"]["plan_placements"] == 5
     line = _line("FCU", d)
     assert "likely a typical unit placed at each place" in line
-    assert "M-101 and M-201 may show one plan" in line
+    assert "M-101 and M-201 counted as one plan, 5 (10 if they are two places)" in line
 
 
 def test_a_unit_tag_on_a_typical_floor_drawn_twice_counts_once_per_floor(tmp_path):

@@ -249,11 +249,23 @@ _COUNT_BEFORE = re.compile(r"^\d+\s*[-xX×*]\s*(?=[A-Z])")
 # a count stated after a tag, the line's only other words (FINAL-O, REVIEW-FINAL8 H3, ruled: a stated multiplier is a
 # placement count): "CUH-A (TYP. OF 4)", "CUH-A TYP OF 4", "CUH-A x4", "CUH-A (4)", "CUH-A 4 PLACES"
 STATED_MOST = 50                                   # the most places a stated count reads; more is one place, said
-_HEAD_AND_REST = re.compile(r"^\s*(\S+)\s+(.*?\S)\s*$")
-_STATED = (re.compile(r"^TYP(?:ICAL)?\.?\s*OF\s+(?P<n>[^\s()]+)\.?$", re.I),
+_HEAD_AND_REST = re.compile(r"^\s*(\S+?)(?:\s*[,;]\s*|\s+[-‐‑–—]\s+|\s+)(.*?\S)\s*$")
+# the count words after a tag, each a whole rest of the line (PLAN-4): "TYP. OF 4", "TYP OF 4 PLACES", "TYP. 4",
+# "TYP. (4)", "x4", "×4", "4 PLACES", "4 TOTAL", "4X", "QTY 4", "QTY.: 4", "QUANTITY 4"; in brackets, "(4)" too
+_PLACES_WORD = r"(?:\s*(?:PLACES|PLCS?|LOCATIONS|LOCS?|TOTAL)\.?)?"
+_STATED = (re.compile(rf"^TYP(?:ICAL)?\.?\s*OF\s+(?P<n>[^\s()]+?)\.?{_PLACES_WORD}$", re.I),
+           re.compile(rf"^TYP(?:ICAL)?\.?,?\s*\(?\s*(?P<n>\d+)\s*\)?\.?{_PLACES_WORD}$", re.I),
            re.compile(r"^[X×]\s*(?P<n>\d+)$", re.I),
-           re.compile(r"^(?P<n>\d+)\s*(?:PLACES|PLCS?|LOCATIONS)\.?$", re.I))
+           re.compile(r"^(?P<n>\d+)\s*(?:PLACES|PLCS?|LOCATIONS|LOCS?|TOTAL|X|×)\.?$", re.I),
+           re.compile(rf"^(?:QTY|QUANTITY)\.?\s*[:=]?\s*(?P<n>\d+){_PLACES_WORD}$", re.I))
 _STATED_IN_BRACKETS = re.compile(r"^(?P<n>\d+)$")
+# after a bracketed count, what may follow on the line and still leave it a label: a rating ("300W", "450 CFM")
+_AFTER_COUNT = re.compile(r"^(?:\s+\d+(?:\.\d+)?\s*[A-Z]{0,4}\.?){1,2}$", re.I)
+# a count before the tag (PLAN-4): "(4) CUH-A", "4x CUH-A", "4 x CUH-A", "4X CUH-A", "4×CUH-A". A dash is no count
+# ("2-VAV-4" is one VAV-4, FINAL-N: `_COUNT_BEFORE` reads the tag after it once)
+_COUNT_FIRST = re.compile(r"^\s*(?:\(\s*(?P<a>\d+)\s*\)\s*|(?P<b>\d+)\s*[xX×*]\s*)(?P<tag>\S+)\s*$")
+# a count glued to the tag (PLAN-5): "CUH-A(4)", "CUH-A (4)" is the bracket form above; "CUH-Ax4" (a small x only)
+_GLUED_COUNT = (re.compile(r"^(?P<tag>.+?)\(\s*(?P<n>\d+)\s*\)$"), re.compile(r"^(?P<tag>.+?[A-Za-z0-9])x(?P<n>\d+)$"))
 
 
 def is_type_tag(tag: str) -> bool:
@@ -369,24 +381,63 @@ def _line_tally(line: str, keys: Mapping[str, str]) -> Counter:
     return tally
 
 
+def _count_words(rest: str) -> tuple[bool, int | None]:
+    """(whether `rest` is a stated count of places, its number): one of `_STATED`, in brackets or not (in brackets
+    "(4)" too), a rating after a bracketed count allowed ("(TYP. OF 4) 300W"). The number is None when it is not
+    read (not a number, zero, or over STATED_MOST)."""
+    rest = rest.strip()
+    candidates = [(rest, False)]
+    if rest.startswith("("):
+        close = rest.find(")")
+        if close > 0 and (close == len(rest) - 1 or _AFTER_COUNT.match(rest[close + 1:])):
+            candidates.insert(0, (rest[1:close].strip(), True))
+    for words, bracketed in candidates:
+        patterns = _STATED + ((_STATED_IN_BRACKETS,) if bracketed else ())
+        match = next((m for m in (p.match(words) for p in patterns) if m), None)
+        if match is not None:
+            n = match.group("n")
+            return True, (int(n) if n.isdigit() and 0 < int(n) <= STATED_MOST else None)
+    return False, None
+
+
+def _read(n: str) -> int | None:
+    return int(n) if n.isdigit() and 0 < int(n) <= STATED_MOST else None
+
+
 def _stated(line: str, keys: Mapping[str, str]) -> tuple[str, int | None] | None:
     """(the tag, its stated count) of a line that is a tag and a count of its places and nothing else; the count is
-    None when it is not read (not a number, zero, or over STATED_MOST). None when the line is no such line."""
+    None when it is not read (not a number, zero, or over STATED_MOST). None when the line is no such line. The
+    count may follow the tag ("CUH-A (TYP. OF 4 PLACES)", "CUH-A, TYP. OF 4", "CUH-A QTY 4": `_count_words`),
+    come before it ("(4) CUH-A", "4x CUH-A", "4-CUH-A") or be glued to it ("CUH-A(4)", "CUH-Ax4")."""
+    first = _COUNT_FIRST.match(line)
+    if first is not None:
+        tag = _key_tag(_bare(first.group("tag")), keys)
+        if tag is not None:
+            return tag, _read(first.group("a") or first.group("b"))
+    whole = line.strip()
+    if _key_tag(whole, keys) is None:
+        for glued in _GLUED_COUNT:
+            match = glued.match(whole)
+            tag = _key_tag(match.group("tag"), keys) if match is not None else None
+            if tag is not None:
+                return tag, _read(match.group("n"))
     found = _HEAD_AND_REST.match(line)
     if found is None:
         return None
     tag = _token_tag(found.group(1), keys)
     if tag is None:
         return None
-    rest, bracketed = found.group(2).strip(), False
-    if rest.startswith("(") and rest.endswith(")"):
-        rest, bracketed = rest[1:-1].strip(), True
-    patterns = _STATED + ((_STATED_IN_BRACKETS,) if bracketed else ())
-    match = next((m for m in (p.match(rest) for p in patterns) if m), None)
-    if match is None:
-        return None
-    n = match.group("n")
-    return tag, (int(n) if n.isdigit() and 0 < int(n) <= STATED_MOST else None)
+    stated, n = _count_words(found.group(2))
+    return (tag, n) if stated else None
+
+
+def _lone_count(line: str) -> tuple[bool, int | None]:
+    """A line that is a stated count alone, the line under a tag ("CUH-A" over "(TYP. OF 4)"): only a TYP, QTY or
+    bracketed form, never a bare number."""
+    rest = line.strip()
+    if not rest or (not rest.startswith("(") and not re.match(r"^(?:TYP|QTY|QUANTITY)", rest, re.I)):
+        return False, None
+    return _count_words(rest)
 
 
 def unread_counts(text: str, keys: Mapping[str, str]) -> list[tuple[str, str]]:
@@ -420,6 +471,11 @@ def line_labels(text: str, keys: Mapping[str, str]) -> Counter:
             tag = _key_tag(line + lines[n + 1], keys)      # a tag bubble: "VAV" over "5-7"
             skip = tag is not None
         if tag is not None:
+            below = _lone_count(lines[n + 1]) if n + 1 < len(lines) and not skip else (False, None)
+            if below[0]:
+                tally[tag] += below[1] or 1     # "CUH-A" over "(TYP. OF 4)": the count is the line under it
+                skip = True
+                continue
             tally[tag] += 1
             continue
         stated = _stated(line, keys)

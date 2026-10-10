@@ -18,7 +18,7 @@ from bms.playbook import Playbook, Shape
 
 RULE = {
     "cites": "Every line cites this job",
-    "higher": "Higher count prints",
+    "higher": "The schedule count prints",
     "one_note": "One clarification per block",
     "assumption": "Every assumption says why",
     "packaged": "Packaged units",
@@ -26,7 +26,7 @@ RULE = {
     "damper": "Dampers under their fan",
     "heater": "Duct heaters in one place",
     "vrf": "VRF and split as one block",
-    "unknown": "Never undershoot",
+    "unknown": "Never change a count silently",
     "owner": "Every line carries its ownership",
     "once": "One system one block",
     "sequence": "Systems named only in the sequence",
@@ -36,9 +36,10 @@ RULE = {
     "ids": "Assumption wording has no source ids",
     "long_note": "One clarification per block",
     "long_assumption": "Every assumption says why",
-    "header_under": "Never undershoot",
+    "header_under": "Never change a count silently",
     "long_line": "Line form",
     "client_words": "Words the client never sees",
+    "front_end": "Front end mode",
 }
 
 LONG_TEXT = 220                       # a clarification or an assumption longer than this is a check
@@ -137,24 +138,30 @@ def _owners(system, shape, job, playbook) -> Iterator[Hit]:
             yield (d.id, "must_fix", f"{d.name} does not say who it is {', '.join(missing)}",
                    "Give the party that furnishes, installs and wires it.")
         else:
-            yield from _verb(d, shape)
+            yield from _verb(d, shape, playbook)
 
 
-def _prints_verb(device: Device, shape: Shape | None) -> bool:
+def _prints_verb(device: Device, shape: Shape | None, playbook: Playbook | None = None) -> bool:
     """The line prints its verb: not an integration line (the house trio, whose rep line is the mechanical
-    contractor's) and not a slot whose wording carries no {verb} ("VRF Communication Wiring", "Interlock with ...")."""
-    if shape is None or device.slot not in shape.slot_kinds:
-        return True
-    if shape.slot_kinds[device.slot] == "integration":
+    contractor's) and not a line whose wording carries no {verb} ("VRF Communication Wiring", "Interlock with ...").
+    The wording is the renderer's own (`render.line_form`): in a block with no shape, or a shape that lacks the
+    slot, a fixed integration slot or a house line ("AME requires mfr. Rep to assist in integration ...") prints
+    as written, with no verb, so it is no verb's to check (CORE-4, ruling D3)."""
+    if shape is not None and shape.slot_kinds.get(device.slot) == "integration":
         return False
-    return "{verb}" in shape.wording.get(device.slot, "{verb}")
+    if playbook is None:
+        if shape is None or device.slot not in shape.slot_kinds:
+            return True
+        return "{verb}" in shape.wording.get(device.slot, "{verb}")
+    from bms.render import line_form          # imported here, as in `_unknown`
+    return "{verb}" in line_form(device, shape, playbook)
 
 
-def _verb(d: Device, shape: Shape | None) -> Iterator[Hit]:
+def _verb(d: Device, shape: Shape | None, playbook: Playbook | None = None) -> Iterator[Hit]:
     """rules.md "Verb from the three answers": the verb follows from who furnishes, installs and wires (VAL-10).
     Furnish alone is a hardwired signal, so any AME furnishing fits it; Furnish and Wire is written for every valve
     "without exception" ("Verbs by device type"), so AME installing does not break it."""
-    if not _prints_verb(d, shape):
+    if not _prints_verb(d, shape, playbook):
         return
     f, i, w = (p == "AME" for p in (d.furnished_by, d.installed_by, d.wired_by))
     ok = {"Furnish and Install": f and i, "Furnish and Wire": f and w, "Furnish": f,
@@ -180,16 +187,38 @@ def _slots(system, shape, job, playbook) -> Iterator[Hit]:
                    "Move it to a slot of the shape or delete it.")
 
 
+def _owners_of(device: Device) -> tuple[str, str, str]:
+    return (device.furnished_by, device.installed_by, device.wired_by)
+
+
 def _sublines(system, shape, job, playbook) -> Iterator[Hit]:
-    """A device of a sub-line slot (the shape's `under`) prints under its parent's line: the parent must be there."""
+    """A device of a sub-line slot (the shape's `under`) prints under its parent's line: the parent must be there,
+    and the sub-line carries the parent line's ownership (rules.md "Sub-lines under their parent"; VAL-11 /
+    CORE-2): the parent is the nearest device of the parent slot listed before it (else the last one listed), as
+    the renderer places it. An integration sub-line (the rep-assist line under Map Available Points, owned by the
+    mechanical contractor) is exempt (ruling D3)."""
     if shape is None or not shape.under:
         return
-    slots = {d.slot for d in system.devices}
-    for d in system.devices:
+    devices = list(system.devices)
+    slots = {d.slot for d in devices}
+    for n, d in enumerate(devices):
         parent = shape.under.get(d.slot)
-        if parent is not None and parent not in slots:
+        if parent is None:
+            continue
+        if parent not in slots:
             yield (d.id, "must_fix", f"{d.name} prints under the '{parent}' line, which this block does not have",
                    f"Add the '{parent}' line the evidence calls for, or move this device to a line of its own.")
+            continue
+        if shape.slot_kinds.get(d.slot) == "integration":
+            continue
+        before = [p for p in devices[:n] if p.slot == parent]
+        anywhere = [p for p in devices if p.slot == parent and p is not d]
+        line = (before or anywhere or [None])[-1]
+        if line is not None and _owners_of(line) != _owners_of(d):
+            yield (d.id, "must_fix", f"{d.name} prints under {line.name} but its ownership "
+                   f"({', '.join(_owners_of(d))}) is not its parent line's ({', '.join(_owners_of(line))})",
+                   f"Give it the ownership of {line.name} (furnished, installed and wired by), or, when another "
+                   "party owns it, write it as a line of its own.")
 
 
 def _packaged(system, shape, job, playbook) -> Iterator[Hit]:
@@ -356,13 +385,17 @@ def _vrf(system, shape, job, playbook) -> Iterator[Hit]:
 
 
 def _count_problems(count: Count, label: str) -> Iterator[tuple[str, str]]:
+    """The estimator's count ruling (2026-10-09): a count the schedule gives prints as it is, its other counts
+    being flags beside it. With no schedule the highest prints (D9), and None only when no count exists (VAL-18)."""
+    if count.basis == "schedule":
+        return
     top = count.highest()
     if count.value is None and top is not None:     # estimator ruling D9: None only when no count exists (VAL-18)
         yield (f"{label} prints 'Qty (##)' but a source gives {top}",
-               f"Set the count to {top}, the highest, and name the other in the note.")
+               f"Set the count to {top}, the highest (no schedule gives it), and name the other in the note.")
     if count.value is not None and top is not None and count.value < top:
-        yield (f"{label} prints {count.value} but another source gives {top}",
-               f"Print the higher count, {top}, and name the other in the note.")
+        yield (f"{label} prints {count.value} but another source gives {top} and no schedule gives the count",
+               f"Print the higher count, {top}, flagged, and name the other in the note.")
 
 
 def _higher(system, shape, job, playbook) -> Iterator[Hit]:
@@ -388,17 +421,22 @@ def _unknown(system, shape, job, playbook) -> Iterator[Hit]:
     # the estimate stack (render, the price sheet) cannot import.
     from bms.render import line_form
     for d in system.devices:
-        if d.quantity.highest() is None and "{qty}" in line_form(d, shape, playbook):
+        if d.quantity.printed() is None and "{qty}" in line_form(d, shape, playbook):
             yield (d.id, "check", f"{d.name}: its quantity is unknown and the block carries no clarification",
                    "Give the count from the evidence, or add one 'per drawings' or 'confirm' clarification to the "
                    "block.")
 
 
 def _one_note(system, shape, job, playbook) -> Iterator[Hit]:
-    if len(system.clarifications) > 1:
-        kinds = ", ".join(c.kind for c in system.clarifications)
-        yield (None, "must_fix", f"The block has {len(system.clarifications)} clarifications ({kinds})",
-               "Keep one '*' clarification per block and merge or drop the rest.")
+    """rules.md "One clarification per block", as amended by ruling D1: at most one "*" clarification of each
+    kind (confirm, assumed, per drawings, note); a block may carry one of several kinds (CORE-3)."""
+    kinds: dict[str, int] = {}
+    for c in system.clarifications:
+        kinds[c.kind] = kinds.get(c.kind, 0) + 1
+    for kind, n in kinds.items():
+        if n > 1:
+            yield (None, "must_fix", f"The block has {n} '{kind}' clarifications",
+                   f"Keep one '{kind}' clarification per block: join its items with '; ' in that one.")
 
 
 def _assumption(system, shape, job, playbook) -> Iterator[Hit]:
@@ -546,11 +584,11 @@ def _header_under(system, shape, job, playbook) -> Iterator[Hit]:
     families = [f for f in system.families if "damper" not in f.name.lower()] or list(system.families)
     if len(families) != 1 or families[0].count.others:
         return
-    header = families[0].count.highest()
+    header = families[0].count.printed()
     if header is None:
         return
     for d in system.devices:
-        n = d.quantity.highest()
+        n = d.quantity.printed()
         if n is None or n <= header:
             continue
         if _one_per_unit(d.slot):
@@ -571,11 +609,11 @@ def _family_under(system, shape, job, playbook) -> Iterator[Hit]:
     count. A device of unknown count is not this check's."""
     from bms.counts import counted_from
     for d in system.devices:
-        n = d.quantity.highest()
+        n = d.quantity.printed()
         if n is None:
             continue
         for f in system.families:
-            header = f.count.highest()
+            header = f.count.printed()
             if header is not None and n < header and counted_from(d, f):
                 yield (d.id, "check", f"{d.name}: device quantity {n} is counted from the {f.name} count but is "
                        f"lower than it ({header})", f"Carry the {f.name} count of {header} on the line, or cite the "
@@ -590,6 +628,24 @@ _SYSTEM_RULES: tuple[tuple[str, Callable], ...] = (
     ("ids", _ids), ("long_note", _long_note), ("long_assumption", _long_assumption), ("header_under", _header_under),
     ("header_under", _family_under), ("long_line", _long_line), ("client_words", _client_words),
 )
+
+def _front_end_mode(fe) -> Iterator[Hit]:
+    """rules.md "Front end mode": a tie-in to an existing BMS the documents do not name prints "[existing BMS name]"
+    and asks the client to confirm the vendor (`render.existing_system_name`); a check, since only the documents or
+    the client can name it (CORE-1). A new system with a name: the name does not print; a check that the mode is
+    right."""
+    from bms.render import EXISTING_PLACEHOLDER, existing_name_given
+    name = (fe.existing_system_name or "").strip()
+    if fe.mode == "extend-existing" and not existing_name_given(name):
+        given = f" (given as '{name}')" if name else ""
+        yield (None, "check", f"The front end ties in to an existing BMS the documents do not name{given}: the "
+               f"proposal prints {EXISTING_PLACEHOLDER} and asks the client to confirm the vendor",
+               "Name the existing BMS when a document names it; otherwise confirm the vendor with the client.")
+    elif fe.mode == "new-system" and name:
+        yield (None, "check", f"The front end is a new system but names an existing BMS ('{name}'), which does "
+               "not print", "If the job ties in to that existing BMS, set the front end to extend the existing "
+               "system; otherwise clear the name.")
+
 
 _FRONT_END_RULES = ("cites", "owner", "assumption", "one_note", "ids", "long_note", "long_assumption", "long_line",
                     "client_words")
@@ -607,6 +663,8 @@ def validate(job: Job, playbook: Playbook) -> list[Finding]:
 
     fe = job.front_end
     if fe is not None:
+        for hit in _front_end_mode(fe):
+            add(-1, "", {}, "front_end", hit)
         order = {d.id: n for n, d in enumerate(fe.devices)}
         pseudo = System("", "Front end", "", "none", (), devices=fe.devices, clarifications=fe.clarifications)
         for rule, check in _SYSTEM_RULES:

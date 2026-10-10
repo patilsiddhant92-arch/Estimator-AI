@@ -20,7 +20,7 @@ from openpyxl.styles import Alignment
 from estimator.evidence.workbook import _table
 from estimator.evidence.workbook import write_evidence as write_old_evidence
 
-from bms.model import Count, Device, Finding, Job, Ref
+from bms.model import CONFLICT, DISCREPANCY, Count, Device, Finding, Job, Ref
 from bms.render import left_out_text
 
 SCOPE_TAB, FINDINGS_TAB = "Scope lines", "Findings"
@@ -39,9 +39,31 @@ def _refs(refs: Sequence[Ref]) -> str:
 
 
 def _quantity(count: Count) -> str:
-    """The number the proposal prints (`Count.highest()`, estimator ruling D9)."""
-    n = count.highest()
+    """The number the proposal prints (`Count.printed()`, the estimator's count ruling 2026-10-09: the schedule's
+    when a schedule gives it, else the highest)."""
+    n = count.printed()
     return "Qty (##), not known" if n is None else str(n)
+
+
+def quantity(count: Count) -> int | None:
+    """The number the proposal prints (`Count.printed()`, the estimator's count ruling 2026-10-09: the schedule's
+    when a schedule gives it, else the highest); None when not known. (Ported from the evidence-ui redesign.)"""
+    return count.printed()
+
+
+def count_flag(count: Count) -> str | None:
+    """The Quantity rules flag of a count, in the estimator's words: None when one count is known or every source
+    agrees; "DISCREPANCY: the schedule's N prints; M per <where> ..." when a schedule gives it and another source
+    differs; "CONFLICT: no schedule; the highest, N, prints; M per <where> ..." when no schedule gives it.
+    (Ported from the evidence-ui redesign; there is no Counts tab on rebuild to show it.)"""
+    flag = count.flag()
+    if not flag:
+        return None
+    others = "; ".join(f"{o.value} per {o.ref.where or o.ref.source_id}" for o in count.others)
+    printed = count.printed()
+    if flag == DISCREPANCY:
+        return f"{DISCREPANCY}: the schedule's {printed} prints; {others}. Confirm with the engineer"
+    return f"{CONFLICT}: no schedule gives the count; the highest, {printed}, prints; {others}. Confirm the count"
 
 
 def _others(count: Count) -> str | None:

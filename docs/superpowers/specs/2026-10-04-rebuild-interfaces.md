@@ -65,10 +65,15 @@ Ref:            source_id: str, quote: str, where: str
                   source_id is a dossier / ledger id without brackets ("S41", "I2", "Q7", "F17"); quote the exact
                   words; where the place ("M-201, Drawings.pdf page 3").
 OtherCount:     value: int, ref: Ref
-Count:          value: int | None, sources: tuple[Ref] = (), others: tuple[OtherCount] = ()
-                  value is the printed count = the highest any source gives; None = no count and no other count
-                  (unknown): "Qty (##)" prints only then.
-                  others = every different count with its source (printed in the note). highest() -> int | None.
+Count:          value: int | None, sources: tuple[Ref] = (), others: tuple[OtherCount] = (),
+                  basis: "highest" | "schedule" = "highest"   (the estimator's count ruling, 2026-10-09)
+                  basis "schedule": value is the equipment schedule's quantity, the working count; every other
+                  count is a DISCREPANCY flag beside it and never changes it. basis "highest": no schedule gives
+                  it; value is the highest any source gives (others a CONFLICT flag). None = no count and no other
+                  count (unknown): "Qty (##)" prints only then.
+                  others = every different count with its source (printed in the note). printed() -> int | None
+                  (what prints: value with a schedule, else highest()); highest() -> int | None; flag() -> "" |
+                  "DISCREPANCY" | "CONFLICT".
 Family:         name: str, tags: tuple[str], count: Count
 Assumption:     what: str, why: str
 Device:         id: str, slot: str, name: str, verb: Verb, furnished_by: Party, installed_by: Party,
@@ -88,7 +93,12 @@ System:         key: str, name: str, shape: str, control: Control, families: tup
                   block its own entry, so its writer leaves the heaters to the heater block.
 ScopeException: system_key: str, text: str, refs: tuple[Ref] = ()        # design §4.2 "Exception" (renamed: builtin)
 FrontEnd:       mode: FrontEndMode, existing_system_name: str | None = None, devices: tuple[Device] = (),
-                clarifications: tuple[Clarification] = (), tech_hours: float | None = None
+                clarifications: tuple[Clarification] = (), tech_hours: float | None = None,
+                lines: tuple[str] = (), notes: tuple[str] = (), refs: tuple[Ref] = ()
+                  lines / notes / refs (the planner's): the spec pass's front-end lines and client notes and their
+                  citations; `bms.ai.write_front_end` writes the devices and the clarification from them (one
+                  WRITE_SYSTEM request, plan_key "front-end", device ids "front-end.d<n>"), and a must_fix finding
+                  about the front end (`bms.ai.is_front_end_finding`) reaches `bms.ai.revise_front_end`.
 Header:         quote_number: str, reference: str, mep_engineer: str, based_on: tuple[str], date: str (ISO),
                 to: str = "All Bidders"                                     # mirrors estimator.scope.Header
 Job:            name: str, systems: tuple[System] = (), front_end: FrontEnd | None = None,
@@ -375,7 +385,8 @@ evidence_for(system: System, dossier: Dossier) -> str
 evidence_index(dossier: Dossier) -> dict[str, str]
 write_system(system: System, evidence: str, playbook: Playbook, transport: Transport, *, tags: Sequence[str] = (), ids: Sequence[str] = (), sheets: Sequence[str] = (), source_sheets: Sequence[str] = ()) -> System
 qc_job(job: Job, evidence_index: Mapping[str, str], playbook: Playbook, transport: Transport) -> list[Finding]
-revise_system(system: System, findings: Sequence[Finding], evidence: str, playbook: Playbook, transport, *, tags: Sequence[str] = (), ids: Sequence[str] = (), sheets: Sequence[str] = (), source_sheets: Sequence[str] = ()) -> System
+revise_system(system: System, findings: Sequence[Finding], evidence: str, playbook: Playbook, transport, *, tags: Sequence[str] = (), ids: Sequence[str] = (), sheets: Sequence[str] = (), source_sheets: Sequence[str] = (), estimators: Sequence[str] = (), deleted: Sequence[Device] = (), counts_decided: bool = False) -> System
+# revise_system corrections (RUN-11): a whole-block must_fix count finding lets the answer correct a family count, checked against the evidence and the count ruling: a "schedule" count stays "schedule" (a corrected schedule reading, never a plan DISCREPANCY made the working count); a "highest" count may become "schedule" by citing the schedule; `run.revise_corrections` adds a check card naming the printed counts
 rewrite_for_count(system: System, evidence: str, playbook: Playbook, transport: Transport, *, tags: Sequence[str] = (), ids: Sequence[str] = (), sheets: Sequence[str] = (), source_sheets: Sequence[str] = ()) -> System
 # rewrite_for_count: asked only when an estimator's decision changed a family count; the devices already written are named in the prompt by their words and kept (by content and id); a device decision never comes here
 # tags (optional): every tag of the job (bms.citations.job_tags). A tag protects only the form it is written in (bms.citations.tag_tokens): "F1", "C2", "AHU-S1" (as S1) and a range "F1-F4" protect those tokens; "S-1", "EF-S-1" and "F-1 thru F-4" protect nothing, since their plain forms are issued ids of the job
@@ -416,8 +427,11 @@ it (e.g. naming a revise request), keeping the old app working.
 tuple[Box], untagged: int | None = None)` (`untagged`: the symbols the answer sees drawn with no tag, its own count,
 never in `value`), `Box(x, y, width, height, text)`; never raises on an unreadable picture.
 `cross_check(job: Job, catalogue: Catalogue, cache: Path) -> Job` — adds a differing vision count to the family's
-`Count.others` (Ref: picture id, "counted on the sheet picture", the sheet), keeps the highest as `value`, never
-lowers a count. Symbols a whole-sheet picture shows with no tag become one `Job.questions` entry per family (the
+`Count.others` (Ref: picture id, "counted on the sheet picture", the sheet); a count the schedule gives
+(`basis` "schedule") keeps its value and the differing count is a DISCREPANCY; with no schedule it keeps the highest
+as `value`, never lowering a count. `CountResult.places` (default ()) holds one box per place a tag is drawn: the
+picture count counts places by the inventory's counting rule (PLAN-2), the located count multiplies a typical
+sheet's tags by its floors (PLAN-1). Symbols a whole-sheet picture shows with no tag become one `Job.questions` entry per family (the
 sheets and their numbers), never part of the count. The app ships with text counts if vision is not ready:
 `cross_check` may then return `job` unchanged.
 Patterns (2026-10-04): a family's patterns are built from its expanded tags (`expand_tags`: "SPXF-A, B, C" is three
@@ -508,7 +522,7 @@ got, with the same exit codes as `estimate` (0 done, 2 waiting, 1 stopped, not f
   question; refs on every device. Load with `Job.from_dict(json.load(...))`.
 - `tests/bms/fixtures/sample_playbook/` — a minimal Playbook in the real format whose shapes (Rooftop Unit, Exhaust
   Fan, VRF System, Duct Heater, Unit Heater) cover every slot the fixture uses, and rules named: Every line cites
-  this job, Higher count prints, One clarification per block, Every assumption says why, Packaged units,
+  this job, The schedule count prints, One clarification per block, Every assumption says why, Packaged units,
   Shipped-loose devices, Dampers under their fan, Duct heaters in one place, VRF and split as one block.
   Workstreams test against it, not against `playbook/` (which workstream 1 is changing).
 

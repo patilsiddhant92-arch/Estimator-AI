@@ -155,7 +155,7 @@ def test_a_line_order_text_is_not_walked_letter_by_letter(tmp_path):
 def test_a_missing_rules_file_is_one_problem(tmp_path):
     root = _copy(tmp_path)
     (root / "rules.md").unlink()
-    problems = lint_playbook(root, known_rule_names={"Every line cites this job", "Never undershoot"})
+    problems = lint_playbook(root, known_rule_names={"Every line cites this job", "Never change a count silently"})
     assert len(problems) == 1 and "not found" in problems[0].message, problems
 
 

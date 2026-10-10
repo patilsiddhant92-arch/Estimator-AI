@@ -73,14 +73,25 @@ def test_a_unit_named_only_in_notes_on_a_plan_counts_once_on_both_sides_and_a_ty
 
 
 def test_the_backstop_never_joins_two_plans_into_one_group_and_the_sum_is_said(tmp_path):
-    """A ductwork plan labels VAV-1 to 3; its piping plan labels VAV-1 and names VAV-2 and 3 in notes. The labels
-    alone are the plan groups' evidence, so the backstop's names never make the two one plan: summed (each named
-    unit once on each plan, 6; 1c45bed 4), and the counts line names the tags counted on each plan."""
+    """A plan labels VAV-1 to 3; another plan of the same title labels VAV-1 and names VAV-2 and 3 in notes. The
+    labels alone are the plan groups' evidence, so the backstop's names never make the two one plan: summed (each
+    named unit once on each plan, 6; 1c45bed 4), and the counts line names the tags counted on each plan. (Two plans
+    of one floor for two trades, ductwork and piping, are one plan since READ-2: see the test below.)"""
     pages = [_page(DWG, 1, _lines("VAV-1", "VAV-2", "VAV-3")), _page(DWG, 2, _lines("VAV-1", "TO VAV-2", "TO VAV-3"))]
-    sheets = [_sheet(1, "M-101", "HVAC DUCTWORK FIRST FLOOR PLAN"), _sheet(2, "M-201", "HVAC PIPING FIRST FLOOR PLAN")]
+    sheets = [_sheet(1, "M-101", "HVAC FIRST FLOOR PLAN"), _sheet(2, "M-201", "HVAC FIRST FLOOR PLAN")]
     d = build_dossier(_catalogue(pages, sheets, ["VAV-1", "VAV-2", "VAV-3"]), _reading(), tmp_path)
     assert d.counts["VAV"]["plan_placements"] == 6
     assert "VAV-2 is on 2 plans" in _line("VAV", d) and "counted on each" in _line("VAV", d)
+
+
+def test_a_floors_ductwork_and_piping_plans_are_one_set_of_placements(tmp_path):
+    """READ-2 (2026-10-09): the ductwork plan and the piping plan of one floor are one floor's plans of two trades:
+    a unit named on both counts once (3, never 6), and the counts line names the two as one plan with the sum."""
+    pages = [_page(DWG, 1, _lines("VAV-1", "VAV-2", "VAV-3")), _page(DWG, 2, _lines("VAV-1", "TO VAV-2", "TO VAV-3"))]
+    sheets = [_sheet(1, "M-101", "HVAC DUCTWORK FIRST FLOOR PLAN"), _sheet(2, "M-201", "HVAC PIPING FIRST FLOOR PLAN")]
+    d = build_dossier(_catalogue(pages, sheets, ["VAV-1", "VAV-2", "VAV-3"]), _reading(), tmp_path)
+    assert d.counts["VAV"]["plan_placements"] == 3
+    assert "M-101 and M-201 counted as one plan, 3 (6 if they are two places)" in _line("VAV", d)
 
 
 # ---- F1 / F2 / F5: the copy test -----------------------------------------------------------------------------------

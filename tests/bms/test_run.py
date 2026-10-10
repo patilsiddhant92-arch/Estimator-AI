@@ -69,7 +69,9 @@ def _evidence_ref(prompt: str) -> dict:
 
 
 def _first_slot(prompt: str) -> str:
-    found = re.search(r"^- ([a-z0-9_]+) \((?:device|point)\)", prompt, re.M)
+    """The shape's first device or point slot that prints its device's name (a slot with a fixed house line, such as
+    the VAV controller's "Furnish DDC Controller to the Factory for Installation", prints no name)."""
+    found = re.search(r"^- ([a-z0-9_]+) \((?:device|point)\): [^\n]*\{device\}", prompt, re.M)
     return found.group(1) if found else "controller"
 
 

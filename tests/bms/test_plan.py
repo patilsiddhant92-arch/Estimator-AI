@@ -71,7 +71,7 @@ def test_one_system_per_family_with_shape_count_and_sequence():
     assert (ef.key, ef.name, ef.shape, ef.control, ef.alternate) == ("EF", "Exhaust Fan", "Exhaust Fan", "field", "base")
     (family,) = ef.families
     assert family.name == "Exhaust Fan" and family.tags == ("EF-1", "EF-2", "EF-3")
-    assert family.count == Count(3, (Ref("S3", "EF rows 3", "M-501, Drawings.pdf page 6"),))
+    assert family.count == Count(3, (Ref("S3", "EF rows 3", "M-501, Drawings.pdf page 6"),), basis="schedule")
     assert ef.sequence_refs == (Ref("Q1", "EXHAUST FANS", "sequence section “EXHAUST FANS”, Specs.pdf page 40"),)
     assert ef.devices == () and ef.clarifications == () and ef.tech_hours is None
     assert job.questions == ()
@@ -86,18 +86,32 @@ def test_an_unknown_kind_has_no_shape():
     assert gly.shape == ""
 
 
-def test_the_higher_count_prints_and_every_other_count_is_kept_with_its_source():
+def test_the_schedule_count_prints_and_every_other_count_is_a_discrepancy_kept_with_its_source():
+    # the estimator's count ruling (2026-10-09): the schedule is the working count; the plans' 4 and the riser's 2
+    # verify it and are DISCREPANCY flags beside it, never raising or lowering it
     ledger = _ledger()
     count = _family(ledger, "EF", "Exhaust Fan", "EF-1 thru 3", 3)
     ledger.contradict(count.id, 4, "S2", "EF-1 EF-2 EF-3 EF-4", "plans")
     ledger.contradict(count.id, 2, "S5", "EF x2", "risers")
     (ef,) = _plan(ledger).systems
     family = ef.families[0]
-    assert family.count.value == 4
-    assert family.count.sources == (Ref("S2", "EF-1 EF-2 EF-3 EF-4", "M-101, Drawings.pdf page 2"),)
-    assert family.count.others == (OtherCount(3, Ref("S3", "EF rows 3", "M-501, Drawings.pdf page 6")),
+    assert family.count.value == 3 == family.count.printed() and family.count.basis == "schedule"
+    assert family.count.sources == (Ref("S3", "EF rows 3", "M-501, Drawings.pdf page 6"),)
+    assert family.count.others == (OtherCount(4, Ref("S2", "EF-1 EF-2 EF-3 EF-4", "M-101, Drawings.pdf page 2")),
                                    OtherCount(2, Ref("S5", "EF x2", "M-601, Drawings.pdf page 9")))
+    assert family.count.flag() == "DISCREPANCY"
     assert family.count.highest() == 4
+
+
+def test_with_no_schedule_the_highest_count_prints_flagged_as_a_conflict():
+    ledger = _ledger()
+    count = _family(ledger, "EF", "Exhaust Fan", "EF-1 thru 3", 3, source="S2", state="added", stage="plans")
+    ledger.contradict(count.id, 4, "S5", "EF x4", "risers")
+    family = _plan(ledger).systems[0].families[0]
+    assert family.count.value == 4 == family.count.printed() and family.count.basis == "highest"
+    assert family.count.sources == (Ref("S5", "EF x4", "M-601, Drawings.pdf page 9"),)
+    assert family.count.others == (OtherCount(3, Ref("S2", "EF rows 3", "M-101, Drawings.pdf page 2")),)
+    assert family.count.flag() == "CONFLICT"
 
 
 def test_a_zero_count_with_tags_is_not_printed_as_zero():
@@ -748,7 +762,7 @@ def test_the_leftover_damper_count_cites_only_the_familys_count():
     ledger.add("link", "MD-1", "EF-1", "S2", "MD-1 at EF-1", "plans", SETTLED)
     ledger.add("location", "MD-2", "corridor", "S5", "MD-2 corridor", "plans", SETTLED)
     md = _by_key(_plan(ledger))["MD"]
-    assert md.families[0].count == Count(2, (Ref("S2", "MD rows 3", "M-101, Drawings.pdf page 2"),))
+    assert md.families[0].count == Count(2, (Ref("S2", "MD rows 3", "M-101, Drawings.pdf page 2"),), basis="schedule")
 
 
 def test_a_damper_linked_to_a_fan_in_a_group_joins_the_group_and_a_fire_damper_never_moves():
@@ -1004,14 +1018,15 @@ def test_an_empty_family_name_falls_back_to_its_prefix(value):
     assert gly.name == "GLY"
 
 
-# ---- the higher count wins: every source of a count is read (never undershoot) -------------------------------------
+# ---- every source of a count is read; the schedule's count is the working one, the rest flag it (count ruling) -----
 
 _COUNTS_LINE = ("UHX (Unit Heater): schedule rows 2; QUANTITY column total —; distinct tags 2; plan placements 31 "
                 "(M-101 20; M-102 11); riser —")
 
 
-def test_plan_placements_in_the_counts_line_beat_the_schedule_rows():
-    # the seed's count fact holds the schedule rows (types); the plans place 31 units: 31 prints
+def test_plan_placements_in_the_counts_line_are_a_discrepancy_beside_the_schedule_rows():
+    # the seed's count fact holds the schedule rows of two unit tags; the plans place 31: the schedule's 2 is the
+    # working count and the 31 a DISCREPANCY beside it (never silently raised to 31)
     ledger = _ledger()
     ledger.add("family", "UHX", "Unit Heater", "S1", _COUNTS_LINE, "seed", SETTLED)
     ledger.add("unit", "UHX", "UHX-1, 2", "S1", "Tags: UHX-1, 2", "seed", SETTLED)
@@ -1019,9 +1034,23 @@ def test_plan_placements_in_the_counts_line_beat_the_schedule_rows():
     (uhx,) = _plan(ledger).systems
     count = uhx.families[0].count
     where = "equipment counts for FAN"
-    assert count.value == 31
-    assert count.sources == (Ref("S1", "plan placements 31", where),)
-    assert count.others == (OtherCount(2, Ref("S1", _COUNTS_LINE, where)),)
+    assert count.value == 2 and count.basis == "schedule"
+    assert count.sources == (Ref("S1", _COUNTS_LINE, where),)
+    assert count.others == (OtherCount(31, Ref("S1", "plan placements 31", where)),)
+    assert count.flag() == "DISCREPANCY"
+
+
+def test_plan_placements_of_a_type_schedule_with_no_quantity_print():
+    # Quantity rules R8: a schedule of types (UHX-A, UHX-B) with no QUANTITY column gives no unit count; the
+    # plans' placements are the quantity
+    line = _COUNTS_LINE.replace("distinct tags 2", "distinct tags 2")
+    ledger = _ledger()
+    ledger.add("family", "UHX", "Unit Heater", "S1", line, "seed", SETTLED)
+    ledger.add("unit", "UHX", "UHX-A, UHX-B", "S1", "Tags: UHX-A, UHX-B", "seed", SETTLED)
+    ledger.add("count", "UHX", 2, "S1", line, "seed", SETTLED)
+    count = _plan(ledger).systems[0].families[0].count
+    assert count.value == 31 and count.basis == "highest"
+    assert count.sources == (Ref("S1", "plan placements 31", "equipment counts for FAN"),)
 
 
 def test_a_riser_or_quantity_column_in_the_counts_line_counts_too():
@@ -1030,8 +1059,9 @@ def test_a_riser_or_quantity_column_in_the_counts_line_counts_too():
     ledger.add("family", "ZF", "Fan", "S1", line, "seed", SETTLED)
     ledger.add("count", "ZF", 6, "S1", line, "seed", SETTLED)
     count = _plan(ledger).systems[0].families[0].count
-    assert count.value == 8 and count.sources[0].quote == "riser 8"
-    assert {o.value for o in count.others} == {6, 1}
+    assert count.value == 6 and count.basis == "schedule" and count.sources[0].quote == line   # the QUANTITY column
+    assert {o.value for o in count.others} == {8, 1}
+    assert next(o for o in count.others if o.value == 8).ref.quote == "riser 8"
 
 
 def test_a_later_count_fact_of_the_same_family_is_read():
@@ -1039,8 +1069,8 @@ def test_a_later_count_fact_of_the_same_family_is_read():
     _family(ledger, "UHX", "Unit Heater", "UHX-1, 2", 2)
     ledger.add("count", "UHX", 14, "S2", "UHX-1 UHX-2 (14 placed)", "plans", "added")
     count = _plan(ledger).systems[0].families[0].count
-    assert count.value == 14 and count.sources == (Ref("S2", "UHX-1 UHX-2 (14 placed)", "M-101, Drawings.pdf page 2"),)
-    assert count.others == (OtherCount(2, Ref("S3", "UHX rows 2", "M-501, Drawings.pdf page 6")),)
+    assert count.value == 2 and count.sources == (Ref("S3", "UHX rows 2", "M-501, Drawings.pdf page 6"),)
+    assert count.others == (OtherCount(14, Ref("S2", "UHX-1 UHX-2 (14 placed)", "M-101, Drawings.pdf page 2")),)
 
 
 def test_a_count_fact_about_a_tag_counts_for_its_family():
@@ -1068,17 +1098,21 @@ def test_a_tag_times_count_on_a_sheet_of_the_dossier_counts():
     assert count.others == (OtherCount(2, Ref("S3", "GX rows 2", "M-501, Drawings.pdf page 6")),)
 
 
-def test_schedule_rows_of_types_make_a_groups_part_unknown_when_the_plans_place_more():
-    # rows 2 = tags 2 looked like unit tags; the plans place 31, so the tags are types: the part is asked, not 1
+def test_schedule_rows_of_unit_tags_give_a_groups_part_one_per_tag_and_keep_the_discrepancy():
+    # rows 2 = tags 2 of unit tags: the schedule's count; the plans place 31, a DISCREPANCY each part keeps
     ledger = _ledger()
     ledger.add("family", "UHX", "Unit Heater", "S1", _COUNTS_LINE, "seed", SETTLED)
     ledger.add("unit", "UHX", "UHX-1, 2", "S1", "Tags: UHX-1, 2", "seed", SETTLED)
     ledger.add("count", "UHX", 2, "S1", _COUNTS_LINE, "seed", SETTLED)
     _family(ledger, "BS", "Branch Selector", "BS-1", 1, source="S5")
     ledger.add("group", "VRF-Z", "BS, UHX (UHX-1)", "S5", "VRF-Z riser", "risers", SETTLED)
-    vrf, rest = _plan(ledger).systems
-    assert vrf.families[0].tags == ("UHX-1",) and vrf.families[0].count.value is None
-    assert rest.families[0].tags == ("UHX-2",) and rest.families[0].count.value == 31
+    job = _plan(ledger)
+    vrf, rest = job.systems
+    assert vrf.families[0].tags == ("UHX-1",) and vrf.families[0].count.value == 1
+    assert rest.families[0].tags == ("UHX-2",) and rest.families[0].count.value == 1
+    assert all(31 in {o.value for o in f.count.others} and f.count.flag() == "DISCREPANCY"
+               for f in (vrf.families[0], rest.families[0]))
+    assert any("31" in q and "UHX-2" in q for q in job.questions)
 
 
 # ---- planner fixes: the dossier's no-kind name, families of one name, a generic kind, split pairs -------------------
@@ -1178,11 +1212,14 @@ def test_an_indoor_unit_and_its_outdoor_unit_in_two_sequence_sections_are_one_sp
 # ---- a reduced count names the count it came from (PLN-3) ---------------------------------------------------------
 
 def _counts_hold(job: Job) -> None:
-    """Every family prints its own value: nothing in `others` is higher (render prints the highest) or equal."""
+    """Every family prints its own value (`printed`): with no schedule nothing in `others` is higher (the highest
+    prints); nothing in `others` is equal."""
     for system in job.systems:
         for family in system.families:
             count = family.count
-            assert count.value == count.highest(), (system.key, family.name, count)
+            assert count.value == count.printed(), (system.key, family.name, count)
+            if count.basis != "schedule":
+                assert count.value == count.highest(), (system.key, family.name, count)
             assert all(o.value != count.value for o in count.others), (system.key, family.name, count)
 
 
@@ -1255,10 +1292,22 @@ def test_tags_a_later_pass_adds_to_a_family_are_kept():
     (ef,) = job.systems
     (family,) = ef.families
     assert family.tags == ("EF-1", "EF-2", "EF-3", "EF-4")
-    assert family.count.value >= 4
-    assert 3 in {o.value for o in family.count.others}             # the old number is kept with its source
+    assert family.count.value == 3 and family.count.basis == "schedule"     # the schedule's count is kept
+    assert 4 in {o.value for o in family.count.others}             # one per tag: a DISCREPANCY beside it
     asked = [q for q in job.questions if "EF-4" in q]
-    assert len(asked) == 1 and "counted 4" in asked[0] and "lists 3" in asked[0]
+    assert len(asked) == 1 and "DISCREPANCY" in asked[0] and "lists 3" in asked[0] and "stays 3" in asked[0]
+
+
+def test_tags_a_later_pass_adds_to_a_family_with_no_schedule_raise_its_count():
+    ledger = _ledger()
+    _family(ledger, "EF", "Exhaust Fan", "EF-1 thru 3", 3, source="S2", state="added", stage="plans")
+    unit = ledger.find("unit", "EF")
+    ledger.contradict(unit.id, "EF-1 thru 4", "S5", "EF-1 EF-2 EF-3 EF-4", "risers")
+    job = _plan(ledger)
+    _counts_hold(job)
+    family = job.systems[0].families[0]
+    assert family.count.value == 4 and 3 in {o.value for o in family.count.others}
+    assert any("counted 4" in q and "EF-4" in q for q in job.questions)
 
 
 def test_a_shorter_schedule_tag_list_keeps_the_seeds_plan_tags_in_the_plan():

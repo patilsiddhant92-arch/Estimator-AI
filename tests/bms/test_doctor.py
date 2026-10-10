@@ -173,7 +173,7 @@ def test_check_playbook_catches_missing_rules_against_prompts(tmp_path):
     # should report it missing vs validators/prompts
     rules = tmp_path / "playbook" / "rules.md"
     text = rules.read_text(encoding="utf-8")
-    cut = "### Never undershoot\nA count is never lower than any source of this job gives.\n"
+    cut = "### Never change a count silently\nA count is never raised or lowered without its flag.\n"
     assert cut in text
     rules.write_text(text.replace(cut, ""), encoding="utf-8")
     res = check_playbook(playbook_dir=tmp_path / "playbook")

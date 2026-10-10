@@ -18,7 +18,10 @@ that read the job.
 3. The Master Template sets only the shape of a block: the header form, the order of lines, the wording form of a
    line. Never its content.
 4. Ownership is the estimator's responsibility: every line carries Furnish / Install / Wire and who does each.
-5. Higher count prints, flagged, with every count named. Never undershoot; unknown is "Qty (##)".
+5. The schedule count prints (the estimator's ruling, 2026-10-09, replacing "higher count prints"): the equipment
+   schedule's count is the working count; plan, riser and picture counts verify it, and a difference is a flag
+   (DISCREPANCY; CONFLICT where no schedule gives the count, when the highest prints) with every count named. Never
+   change a count silently; unknown is "Qty (##)".
 6. One "*" clarification per block; every assumption says what and why.
 7. The estimator's practice rules (packaged units, shipped-loose devices, dampers under their fan, duct heaters in
    one place, VRF and split as one block, integration lines, UUKL, residential equipment) carry over unchanged in

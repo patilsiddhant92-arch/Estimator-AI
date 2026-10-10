@@ -38,7 +38,7 @@
       "applies_to": {"prefixes": ["VAV", "FPB", "FPV", "FPT", "CAV"], "kind_words": ["vav"]},
       "header": "Qty ({n}) {name} {tags}",
       "family_names": ["VAV"],
-      "line_order": ["controller", "space_sensor", "fan_enable", "discharge_temperature", "hot_water_valve", "electric_heat_enable", "electric_heat_scr", "power_loop", "transformer", "other_device", "other_point", "fire_alarm", "other_valve", "other_install_and_wire", "other_wire", "other_interlock", "other_wiring", "vfd_comm_wiring", "vfd_map_points", "vfd_rep_assist", "comm_wiring", "map_points", "rep_assist"],
+      "line_order": ["controller", "space_sensor", "fan_enable", "discharge_temperature", "hot_water_valve", "electric_heat_enable", "electric_heat_scr", "power_loop", "transformer", "transformer_with_unit", "other_device", "other_point", "fire_alarm", "other_valve", "other_install_and_wire", "other_wire", "other_interlock", "other_wiring", "vfd_comm_wiring", "vfd_map_points", "vfd_rep_assist", "comm_wiring", "map_points", "rep_assist"],
       "slot_kinds": {
         "controller": "device",
         "space_sensor": "device",
@@ -49,6 +49,7 @@
         "electric_heat_scr": "point",
         "power_loop": "wiring",
         "transformer": "device",
+        "transformer_with_unit": "device",
         "other_device": "device",
         "other_point": "point",
         "fire_alarm": "device",
@@ -65,7 +66,7 @@
         "rep_assist": "integration"
       },
       "wording": {
-        "controller": "{verb} {device}{owner}{qty}",
+        "controller": "Furnish DDC Controller to the Factory for Installation{qty}",
         "space_sensor": "{verb} {device}{owner}{qty}",
         "fan_enable": "{verb} {device}{owner}{qty}",
         "discharge_temperature": "{verb} {device}{owner}{qty}",
@@ -74,6 +75,7 @@
         "electric_heat_scr": "{verb} {device}{owner}{qty}",
         "power_loop": "Run 24V Power Loop to VAVs",
         "transformer": "{verb} {device}{owner}{qty}",
+        "transformer_with_unit": "24V VAV Transformer is Coming with the Unit",
         "other_device": "{verb} {device}{owner}{qty}",
         "other_point": "{verb} {device}{owner}{qty}",
         "fire_alarm": "{verb} {device}{owner}{qty}",

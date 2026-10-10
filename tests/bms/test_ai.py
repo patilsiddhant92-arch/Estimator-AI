@@ -1106,7 +1106,7 @@ def test_a_shapeless_system_takes_any_slot(job, raw, dossier, playbook):
 def test_revise_without_must_fix_returns_the_system_unasked(job, playbook):
     transport = FakeTransport()
     system = job.system("EF")
-    findings = [Finding("Higher count prints", "EF", "EF.d1", "check", "w", "f"),
+    findings = [Finding("The schedule count prints", "EF", "EF.d1", "check", "w", "f"),
                 Finding("Packaged units", "RTU", "RTU.d1", "must_fix", "w", "f")]
     assert ai.revise_system(system, findings, "evidence", playbook, transport) is system
     assert transport.asked == []
@@ -1231,7 +1231,7 @@ def test_the_prompts_keep_duct_heaters_in_one_place():
 def test_qc_asks_once_with_the_rule_names_and_checks_the_quotes(job, dossier, playbook):
     index = ai.evidence_index(dossier)
     answer = {"findings": [
-        Finding("Higher count prints", "VRF", "VRF.d2", "check", "the map line has no count", "give it").to_dict(),
+        Finding("The schedule count prints", "VRF", "VRF.d2", "check", "the map line has no count", "give it").to_dict(),
         Finding("Packaged units", "RTU", "RTU.d9", "must_fix", "a device the job lacks", "x").to_dict()]}
     transport = FakeTransport(answer)
     findings = ai.qc_job(job, index, playbook, transport)
@@ -1241,7 +1241,7 @@ def test_qc_asks_once_with_the_rule_names_and_checks_the_quotes(job, dossier, pl
     assert items["properties"]["rule"]["enum"] == list(playbook.rules)
     assert schema_errors(answer, asked["schema"]) == []
     assert "S7" in asked["prompt"] and "MD-1 interlocked with EF-1" in asked["prompt"]
-    assert findings[0] == Finding("Higher count prints", "VRF", "VRF.d2", "check", "the map line has no count",
+    assert findings[0] == Finding("The schedule count prints", "VRF", "VRF.d2", "check", "the map line has no count",
                                   "give it")
     assert findings[1].device_id is None and "RTU.d9" in findings[1].what
     assert len(findings) == 2                       # every quote of the fixture is in its source

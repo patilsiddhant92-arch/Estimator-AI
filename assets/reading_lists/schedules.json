@@ -2,6 +2,8 @@
   "about": "How equipment schedules are read off the drawing sheets (build step 4). Header words are compared after squashing spaces, ignoring case and a trailing full stop or colon. Patterns are regular expressions, matched ignoring case. Extend this file, never the code.",
   "tag_headers": ["UNIT NO", "UNIT NUMBER", "UNIT TAG", "UNIT MARK", "UNIT DESIGNATION", "TAG", "TAG NO", "EQUIPMENT TAG",
                   "EQUIP TAG", "EQUIPMENT NO", "MARK", "MARK NO", "DESIGNATION", "SYMBOL NO"],
+  "tag_header_pattern_about": "A key-column header the exact list above misses (\"UNIT\", \"AC UNIT\", \"PUMP NO.\", \"FAN NO.\", \"AC UNIT NO.\"), matched on the squashed upper-case header with its trailing stop taken off. A column so headed is the tag column only when most of its cells below are unit tags (READ-5).",
+  "tag_header_pattern": "^(?:[A-Z][A-Z/&]*\\s+){0,3}(?:UNIT|TAG|MARK|NO|NUMBER|DESIGNATION|SYMBOL)$",
   "type_headers": ["TYPE", "UNIT TYPE", "BOX TYPE", "FIXTURE TYPE", "DIFFUSER TYPE"],
   "manufacturer_headers": ["MANUFACTURER", "MANUFACTURERS", "MFR", "MFG", "MAKE", "BASIS OF DESIGN"],
   "model_headers": ["MODEL", "MODEL NO", "MODEL NUMBER", "MFR MODEL", "MODEL #"],
@@ -30,5 +32,8 @@
   "type_list_titles": ["\\bGRILLES?\\b", "\\bREGISTERS?\\b", "\\bDIFFUSERS?\\b", "\\bLOUVERS?\\b", "\\bAIR (?:DEVICES?|OUTLETS?|INLETS?)\\b", "\\bAIR TERMINALS?\\b(?!\\s+UNITS?)",
                        "\\bFIXTURES?\\b", "\\bDOORS?\\b", "\\bHARDWARE\\b", "\\bFINISH(?:ES)?\\b", "\\bLIGHT(?:ING)?\\b",
                        "\\bLUMINAIRES?\\b", "\\bSILENCERS?\\b", "\\bATTENUATORS?\\b"],
+  "air_device_words_about": "Words that say a schedule lists passive air devices (diffusers, registers, grilles, louvers, air outlets, silencers) by type: in its title, its basis-of-design line, a band row of its key column, or most of its description cells. Such a schedule's codes (B1, CD, LRD-A) are never units or controls systems, whatever their prefix (READ-3).",
+  "air_device_words": ["\\bGRILLES?\\b", "\\bREGISTERS?\\b", "\\bDIFFUSERS?\\b", "\\bLOUVERS?\\b", "\\bAIR (?:DEVICES?|OUTLETS?|INLETS?|DISTRIBUTION)\\b",
+                       "\\bAIR TERMINALS?\\b(?!\\s+UNITS?)", "\\bSILENCERS?\\b", "\\bATTENUATORS?\\b"],
   "pairs":[["SS", "CU"], ["IU", "CU"], ["FCU", "CU"], ["CRAC", "ACCU"], ["AC", "CU"], ["HP", "ACCU"]]
 }

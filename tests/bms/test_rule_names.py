@@ -109,7 +109,7 @@ def _unknown():
 
 def _one_note():
     return job(sysm("EF", "Exhaust Fan", [dev("EF.d1", "controller")],
-                    clarifications=(Clarification("note", "One."), Clarification("confirm", "Two."))))
+                    clarifications=(Clarification("note", "One."), Clarification("note", "Two."))))
 
 
 def _assumption():
@@ -158,12 +158,17 @@ def _client_words():
                     clarifications=(Clarification("note", "Invented PENDING"),)))
 
 
+def _front_end():
+    from bms.model import FrontEnd
+    return Job(name="Invented job", systems=(), front_end=FrontEnd("extend-existing", None))
+
+
 TRIGGERS = {"cites": _cites, "owner": _owner, "slot": _slot, "subline": _subline, "packaged": _packaged,
             "loose": _loose, "damper": _damper, "heater": _heater, "vrf": _vrf, "higher": _higher,
             "unknown": _unknown, "one_note": _one_note, "assumption": _assumption, "sequence": _sequence,
             "once": _once, "left_out": _left_out, "ids": _ids, "long_note": _long_note,
             "long_assumption": _long_assumption, "header_under": _header_under, "long_line": _long_line,
-            "client_words": _client_words}
+            "client_words": _client_words, "front_end": _front_end}
 
 
 def test_every_check_has_a_trigger():
@@ -199,6 +204,8 @@ def test_a_subline_with_its_parent_is_clean():
 # wordings a slot with no {verb} and no "under" may have.
 OWN_VERB_TEXT = {
     "Run 24V Power Loop to VAVs",
+    "Furnish DDC Controller to the Factory for Installation{qty}",
+    "24V VAV Transformer is Coming with the Unit",
     "Interlock with {device}{owner}",
     "Interlock with Associated {device} Operation",
     "Interlock wiring to {device}{owner}",

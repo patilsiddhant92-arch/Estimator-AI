@@ -56,15 +56,17 @@ def test_a_floor_drawn_on_a_ductwork_and_a_piping_plan_is_one_group_and_a_type_c
     assert d.counts["EBB"]["plan_placements"] == 4
     for prefix, one, apart in (("VAV", 3, 6), ("EBB", 4, 8)):
         line = _line(prefix, d)
-        assert (f"M-101 and M-201 counted as one plan, {one} ({apart} if they are two places): same floor title, "
-                "same units; check") in _notes(line)                # FINAL-K: both counts (REVIEW-FINAL6 F5)
+        assert (f"M-101 and M-201 counted as one plan, {one} ({apart} if they are two places): "
+                "one floor's plans of other trades (ductwork, piping, zoning, controls); check") in _notes(line)                # FINAL-K: both counts (REVIEW-FINAL6 F5)
         assert "same plan as" not in line and "may show one plan" not in line
 
 
 def test_one_title_with_too_few_unit_tags_in_common_is_two_plans(tmp_path):
-    """The same title, but only two unit tags repeated: too little to be one plan, so the sheets add up (4)."""
+    """The same title, but only two unit tags repeated: too little to be one plan, so the sheets add up (4). (A
+    floor's plan and its CONTROLS plan are one floor's plans of two trades since READ-2, one plan whatever their tags:
+    the test reads two sheets of one title.)"""
     pages = [_page(DWG, 1, _lines("VAV-1", "VAV-2")), _page(DWG, 2, _lines("VAV-1", "VAV-2"))]
-    sheets = [_sheet(1, "M-101", "HVAC FIRST FLOOR PLAN"), _sheet(2, "M-201", "CONTROLS FIRST FLOOR PLAN")]
+    sheets = [_sheet(1, "M-101", "HVAC FIRST FLOOR PLAN"), _sheet(2, "M-201", "HVAC FIRST FLOOR PLAN")]
     d = build_dossier(_catalogue(pages, sheets, ["VAV-1", "VAV-2"]), _reading(), tmp_path)
     assert d.counts["VAV"]["plan_placements"] == 4
     assert "M-101 and M-201 may show one plan" in _line("VAV", d)

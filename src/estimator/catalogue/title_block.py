@@ -27,6 +27,8 @@ MIN_TITLE_SIZE = 12       # points: titles measured 15–25 pt; labels, names an
 LABEL_SIZE = 12           # labels ("DRAWING TITLE:", "SCALE", "Drawing No.:") are smaller than this
 TITLE_REACH = 0.18        # how far above the number, as a fraction of the sheet's height, a title can start
 COLUMN_SLACK = 0.06       # how far left of the number's column a title line can begin
+CENTRED_REACH = 0.18      # a line centred in the title strip (READ-1) may begin this far left of the number, when it
+                          # runs on past the number's left edge: it sits in the number's column, not beside it
 SAME_SIZE = 0.9           # title lines are within 10% of the title's largest line
 MAX_TITLE_CHARS = 90      # a longer line is a paragraph — a disclaimer or a note — not a title line
 _TITLE_LABEL = re.compile(r"^(?:SHEET\s*(?:TITLE|NAME)|DRAWING\s*TITLE|TITLE)\s*:?$", re.I)
@@ -195,12 +197,22 @@ def _title_by_label(spans: Sequence[Span], number: Span) -> str | None:
     return None
 
 
+def _in_column(span: Span, number: Span) -> bool:
+    """A line sits in the sheet number's column: it begins at most COLUMN_SLACK left of the number, or it is a
+    centred title line that begins further left (up to CENTRED_REACH) and runs on past the number's left edge (READ-1:
+    "MECHANICAL SCHEDULES SHEET" centred over a "1 OF 2" line and the number to its right). A line of a column
+    beside the number's ends before the number begins, so it is never taken."""
+    if number.x0 - COLUMN_SLACK <= span.x0 <= number.x1:
+        return True
+    return number.x0 - CENTRED_REACH <= span.x0 < number.x0 - COLUMN_SLACK and span.x1 > number.x0
+
+
 def _title_above(spans: Sequence[Span], number: Span) -> str | None:
-    """With no label, the title is the largest text directly above the sheet number, in its column."""
+    """With no label, the title is the largest text directly above the sheet number, in its column (`_in_column`)."""
     above = [s for s in spans
              if s is not number
              and s.y1 <= number.y0 + 0.005 and s.y0 >= number.y0 - TITLE_REACH
-             and number.x0 - COLUMN_SLACK <= s.x0 <= number.x1
+             and _in_column(s, number)
              and MIN_TITLE_SIZE <= s.size <= number.size
              and len(s.text) <= MAX_TITLE_CHARS
              and not _NOT_TITLE.search(s.text)

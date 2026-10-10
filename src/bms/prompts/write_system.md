@@ -34,11 +34,12 @@ You write the system's devices (its scope lines, in print order), its clarificat
 - Set each party from the evidence: who-does-what sentences, schedule notes and specification passages that say who furnishes, mounts or wires a device (furnished with the unit, shipped loose, by others, by another division). The verb and the parties must not contradict each other or the Playbook's ownership rules.
 - When the evidence names no party, take the default the Playbook gives ("Who owns what by default", "Three ownership questions"). Set flag "ownership" (with an assumption saying what you took and why) only in the cases the Playbook lists under "Unclear ownership is flagged".
 
-## Counts: the higher count prints; never undershoot
+## Counts: the schedule count prints; never change a count silently
 
-- quantity is a count: value, sources, others. value is the number of this line, the highest any source gives. sources are the refs that give that number; others are every different number another source gives, each with its ref.
-- A line that is one per unit of a family carries that family's count, copied whole (value, sources and others).
-- When no source gives the number, value is null (it prints as unknown) and flag is "quantity". Never work out, guess or round a number. When the sources disagree, the higher one is value, every other is in others, and flag is "quantity".
+- quantity is a count: value, sources, others, basis. value is the number of this line: the equipment schedule's quantity when a schedule gives it (basis "schedule"), else the highest any source gives (basis "highest"). sources are the refs that give that number; others are every different number another source gives, each with its ref.
+- With a schedule, a plan, riser or picture count that differs never raises or lowers value: it is a DISCREPANCY kept in others, and flag is "quantity". With no schedule the higher count is value, every other is in others (a CONFLICT), and flag is "quantity".
+- A line that is one per unit of a family carries that family's count, copied whole (value, sources, others and basis).
+- When no source gives the number, value is null (it prints as unknown), basis is "highest" and flag is "quantity". Never work out, guess or round a number.
 - flag says why the estimator must look at the line: "quantity" (count unknown or sources disagree), "ownership" (unclear ownership as the Playbook lists it: two parties for one device, split furnishing and installing, in scope and in an exclusion, or a costly device with no party and no default), "assumed" (the line rests on an assumption), "none" otherwise. When more than one applies: quantity first, then ownership, then assumed.
 
 ## Assumptions say what and why
@@ -55,7 +56,7 @@ You write the system's devices (its scope lines, in print order), its clarificat
 
 ## One clarification per block
 
-- clarifications holds at most one item; an answer with more is refused.
+- clarifications holds at most one item of each kind (one confirm, one assumed, one per_drawings, one note); several items of one kind are joined in that kind's one text with "; ". An answer with two of one kind is refused.
 - kind: confirm (something the client or the estimator must confirm), assumed (the block rests on a stated assumption), per_drawings (a quantity or extent as per the drawings), note (a plain note for the client).
 - text: plain words for the client that clarify the scope, at most about 40 words. List the items; do not narrate how you found them. Never estimating hints, tech hours, prices, confidence or source ids (name the document in words instead). When the counts disagree, it names the count carried and every other count with its place.
 - Never start the text with a label ("Confirm", "Assumed:", "Note:", "Quantity"): the kind is the label and the renderer prints it. For per_drawings the text is the discipline word only ("plumbing", "electrical").
@@ -66,6 +67,14 @@ You write the system's devices (its scope lines, in print order), its clarificat
 - When the evidence calls for no line the BMS does on this system (for example the unit is on its own controls and the documents ask nothing of the BMS, or the controls are not in contract), answer with an empty devices list and say why in no_scope_reason: one plain sentence for the estimator, naming the document in words, no source ids. Tech hours are then null.
 - Otherwise no_scope_reason is null.
 - A unit with factory controls (an ECM fan, a fan with its own speed control) is not a field-controlled unit: write only the lines its evidence calls for, never integration or VFD lines it does not have.
+
+## VAV boxes
+
+- A block of the VAV / Fan VAV shape is field DDC unless the planner set its control to packaged: follow the Playbook's "VAV boxes are field DDC". A note that the boxes ship with a factory-installed, factory-mounted or open protocol controller (card) is AME's DDC controller furnished to the factory for installation: write it in the controller slot (verb Furnish; furnished by AME, installed by Unit Mfr., wired by Unit Mfr.; the slot prints the house line as written), never the integration lines and never Furnish and Install DDC Controller.
+- Then each line the evidence calls for, in the shape's order: the space sensor in the form the sequence declares (temperature; temperature / humidity; temperature / humidity / CO2; temperature / CO2: a zone the sequence or plans give a CO2 sensor for demand control ventilation takes a CO2 form, each form its own device with its own count), the fan enable only for a fan powered box, the discharge air temperature sensor on every reheat box, the reheat valve or electric heat enable or SCR control, and the 24V power line the documents decide (power loop, transformer, or transformer coming with the unit).
+- The integration slots (comm_wiring, map_points, rep_assist) are for a VAV block only when the planner set its control to packaged (the documents give the box controls to the manufacturer and say the BMS integrates them); follow "VAV boxes on the manufacturer's controls".
+- Radiation tied to the VAV zone: follow "VAV zone radiation interlock".
+- Tech hours: the shape's rule, 3 hours per cooling-only box and 4 per box with a hot water valve.
 
 ## Duct heaters in one place
 

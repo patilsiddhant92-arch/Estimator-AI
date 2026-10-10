@@ -267,7 +267,14 @@ def test_vrf_comm_wiring_twice_and_split_blocks(job):
 def test_a_lower_count_is_must_fix(job):
     bad = Family("Rooftop Unit", ("RTU-1",), Count(1, (), (OtherCount(2, REF),)))
     j = edit(job, "RTU", families=(bad,))
-    assert ("Higher count prints", "RTU", None, "must_fix") in rules(validate(j, PB))
+    assert ("The schedule count prints", "RTU", None, "must_fix") in rules(validate(j, PB))
+
+
+def test_a_schedule_count_below_another_count_is_no_finding(job):
+    """The estimator's count ruling (2026-10-09): the schedule's 1 prints; the other 2 is a DISCREPANCY flag."""
+    kept = Family("Rooftop Unit", ("RTU-1",), Count(1, (REF,), (OtherCount(2, REF),), basis="schedule"))
+    j = edit(job, "RTU", families=(kept,))
+    assert not [r for r in rules(validate(j, PB)) if r[0] == RULE["higher"] and r[1] == "RTU"]
 
 
 def test_unknown_count_needs_a_clarification(job):
@@ -278,8 +285,9 @@ def test_unknown_count_needs_a_clarification(job):
 
 
 def test_two_clarifications_in_a_block(job):
+    # ruling D1 (CORE-3): one clarification of each kind; two kinds are fine, two of one kind are not
     j = edit(job, "CUH", clarifications=(Clarification("confirm", "x"), Clarification("per_drawings", "y")))
-    assert ("One clarification per block", "CUH", None, "must_fix") in rules(validate(j, PB))
+    assert ("One clarification per block", "CUH", None, "must_fix") not in rules(validate(j, PB))
     j2 = edit(job, "CUH", clarifications=(Clarification("note", "x"), Clarification("note", "y")))
     assert ("One clarification per block", "CUH", None, "must_fix") in rules(validate(j2, PB))
 
@@ -477,7 +485,7 @@ def test_a_long_clarification_or_assumption_is_a_check(job):
 
 
 def test_a_one_per_unit_line_above_the_header_count_is_must_fix_and_any_other_line_a_check(job):
-    """VAL-9, rules "Never undershoot" and "Line quantity" ("Identical lines for several units are one line with the
+    """VAL-9, rules "Never change a count silently" and "Line quantity" ("Identical lines for several units are one line with the
     total"): a controller or a start/stop line is one per unit, so its quantity above the header count means the
     header undershoots (must_fix); a damper line may total several per unit, so above the header is a check."""
     j = edit_device(job, "EF", "EF.d1", quantity=Count(9))
@@ -498,7 +506,7 @@ def test_three_fans_with_six_damper_actuators_is_no_must_fix(job):
 
 
 def test_an_unknown_printed_count_with_a_known_other_is_must_fix(job):
-    """VAL-18, rules "Higher count prints" and "Never undershoot" (estimator ruling D9: a count's value is the highest
+    """VAL-18, rules "The schedule count prints" and "Never change a count silently" (estimator ruling D9: a count's value is the highest
     whenever any count exists; None only when no count exists at all)."""
     fam = Family("Exhaust Fan", ("EF-1",), Count(None, (), (OtherCount(5, REF),)))
     found = [f for f in validate(edit(job, "EF", families=(fam,)), PB) if f.rule == RULE["higher"]]
@@ -535,10 +543,10 @@ def test_a_line_counted_from_a_family_below_its_printed_count_is_a_check(job):
     s = job.system("EF")
     family = s.families[0]
     j = edit(job, "EF", families=(dc.replace(family, count=dc.replace(family.count, value=5)),))
-    got = rules(validate(j, PB), "Never undershoot")
-    assert got == [("Never undershoot", "EF", "EF.d1", "check")]
+    got = rules(validate(j, PB), "Never change a count silently")
+    assert got == [("Never change a count silently", "EF", "EF.d1", "check")]
     j = edit_device(j, "EF", "EF.d1", quantity=dc.replace(s.devices[0].quantity, value=5))
-    assert rules(validate(j, PB), "Never undershoot") == []
+    assert rules(validate(j, PB), "Never change a count silently") == []
 
 
 # ---- VAL-6, VAL-7, VAL-13, VAL-15 ------------------------------------------------------------------------------

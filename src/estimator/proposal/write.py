@@ -9,6 +9,8 @@ nothing-internal-reaches-the-client guarantee).
 """
 from __future__ import annotations
 
+import re
+
 import copy
 import datetime as dt
 from pathlib import Path
@@ -260,8 +262,23 @@ def _keep_front_end(document: DocxDocument, job: Job) -> Paragraph:
         return new_heading
     _delete_from_until(openings[0], openings[1])
     _delete_between(existing_heading, add_heading)
-    _set_existing_name(existing_heading, job.front_end.existing_system_name)
+    name = _bare_system_name(job.front_end.existing_system_name)
+    _set_existing_name(existing_heading, name)
+    # the opening's red placeholder is the existing system's name too ("...an extension of the existing <name> BMS
+    # system."): never the template's sample words
+    _set_existing_name(openings[1], name)
     return existing_heading
+
+
+_BMS_TAIL = re.compile(r"(?:\s+(?:BMS|BAS|EMS)(?:\s+system)?|\s+system)\s*$", re.I)
+
+
+def _bare_system_name(name: str | None) -> str:
+    """The existing system's name without a trailing "BMS" / "BMS system" / "system": the template says "BMS" after
+    it ("the Existing Metasys BMS"), so "Metasys BMS" does not print "BMS BMS". A name that is only those words stays."""
+    text = " ".join(str(name or "").split())
+    bare = _BMS_TAIL.sub("", text).strip()
+    return bare or text
 
 
 def _set_scope_suffix(document: DocxDocument, suffix: str) -> None:

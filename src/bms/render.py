@@ -26,7 +26,7 @@ from estimator.reading.inventory import COUNT_CAUSE_WORDS, COUNT_CAUSES_LEAD
 from estimator.writing.write import tag_list
 
 from bms.citations import SHEET, SourceIds, clarification_text, squash as _squash, strip_label
-from bms.model import CLARIFICATION_KINDS, Clarification, Count, Device, FrontEnd, Job, System
+from bms.model import CLARIFICATION_KINDS, Clarification, Count, Device, FrontEnd, Job, ScopeException, System
 from bms.playbook import DEFAULT_ORDER, Playbook, Shape
 
 SEQUENCE_ONLY_ORDER = 20            # a block whose count prints "Qty (##)": after the equipment (shapes.json "order")
@@ -96,9 +96,11 @@ def render(job: Job, playbook: Playbook) -> ProposalDraft:
       rewritten; an issued source id left in a stale text is taken out, token only, as in every client text); the block's Counts with `others` get one quantity note (`others_note`) naming the
       other counts by sheet number, never a file name.
     - A damper family linked under a fan (a system with other, non-damper families) prints no header of its own;
-      each other family prints its own header, its count the highest the documents give.
-    - A system with no devices prints nothing in the proposal: it is one `note` line in `lines` ("left out, no
-      lines written", with the writer's reason) for the Evidence Package only.
+      each other family prints its own header, its count as `Count.printed` gives it (the schedule's, else the
+      highest the documents give).
+    - A system with no devices prints no block: it is one `note` line in `lines` ("left out, no lines written",
+      with the writer's reason) for the Evidence Package, and, when it has equipment the documents list (tags or a
+      schedule count), a named exception in the Playbook's form (`scope_exceptions`, rules.md "Named exceptions").
     - `job.header` must be set (the run sets it): it becomes `scope.header` (`date` parsed from ISO).
     - Blocks print in the Playbook's block order (`block_order`: the shape's `order`, Global Points first; a block
       whose count prints "Qty (##)" after the equipment blocks), the plan's own order kept within one order number.
@@ -133,7 +135,7 @@ def render(job: Job, playbook: Playbook) -> ProposalDraft:
     lines += after["add"] + after["deduct"]
     adds, deducts = (_alternates(alternates[side], playbook) for side in ("add", "deduct"))
     exceptions = []
-    for x in job.exceptions:
+    for x in scope_exceptions(job):
         if not x.text.strip():
             continue
         text = ids.without_issued(x.text).strip()
@@ -269,8 +271,9 @@ def _singular(text: str, not_plural=_NOT_PLURAL) -> str:
 
 
 def _printed(count: Count) -> int | None:
-    """The count that prints: the highest any source gives (never undershoot), None when none is known."""
-    return count.highest()
+    """The count that prints (`Count.printed`, the estimator's count ruling): the schedule's when a schedule gives
+    it, else the highest any source gives; None when none is known."""
+    return count.printed()
 
 
 def _owner(device: Device, playbook: Playbook) -> str:
@@ -398,7 +401,7 @@ def _count_causes(count: Count, playbook: Playbook) -> str:
 
 def _count_part(count: Count, ids: SourceIds, causes: str = "", words: _CountWords = _CountWords()) -> str:
     """One count's part of the quantity note: "(N) per <label>; M per <label>; K and J per <label>": the printed
-    (highest) count first, then every other count with its label, highest first, equal values from one label
+    count (`Count.printed`) first, then every other count with its label, highest first, equal values from one label
     folded, none dropped (estimator ruling D6); a count with no label still prints, with the plain `unlabelled`
     words ("15 elsewhere in the documents", never "per the documents"); "" when there is no other count. `causes` (`_count_causes`) prints after
     the "plan placements" label, or after the printed count's sheet when the plan placements give that count too.
@@ -647,6 +650,87 @@ def _header_text(form: str, name: str, tags: tuple[str, ...], count: Count, play
     return _fill(kind_text.replace("{", "{{").replace("}", "}}") + " " + marker + rest, tags=shown)
 
 
+# rules.md "Named exceptions": "EXCEPTION TO ANY WORK WITH Qty (n) <tags> - <reason>" (the Master Template's own
+# exception lines are in capitals: "EXCEPTION TO AUTO DIALER (...)")
+EXCEPTION_FORM = "EXCEPTION TO ANY WORK WITH {equipment} - {reason}"
+NO_WORK_REASON = "NO BMS WORK IN THE CONTRACT DOCUMENTS"
+_PARTIES = (
+    (re.compile(r"\bmechanical\s+contractor\b|\bM\.?C\.?(?![A-Za-z])|\bhvac\s+contractor\b|\bdivision\s+23\b", re.I),
+     "MECHANICAL CONTRACTOR"),
+    (re.compile(r"\belectrical\s+contractor\b|\bdivision\s+26\b", re.I), "ELECTRICAL CONTRACTOR"),
+    (re.compile(r"\bunit\s+(?:mfr|manufacturer)\b|\bmanufacturer\b|\bfactory\b|\boem\b", re.I), "UNIT MFR."),
+    (re.compile(r"\bowner\b", re.I), "OWNER"),
+    (re.compile(r"\bothers\b", re.I), "OTHERS"),
+)
+_STAT = re.compile(r"\b(?:(integral|built[\s-]*in|unit[\s-]*mounted|wall[\s-]*mounted|line[\s-]*voltage|low[\s-]*voltage|"
+                   r"programmable|factory|remote)\s+)?(?:space\s+|room\s+)?thermostats?\b", re.I)
+_SWITCH = re.compile(r"\b(?:manufacturer|mfr\.?|unit)(?:'s)?\s+(?:on\s*/\s*off\s+|disconnect\s+|speed\s+)?switch|"
+                     r"\bon\s*/\s*off\s+switch", re.I)
+_NOT_IN_CONTRACT = re.compile(r"\bnot\s+in\s+(?:the\s+)?contract\b|\bN\.?I\.?C\.?(?![A-Za-z])", re.I)
+_CONTROLS_BY = re.compile(r"\bcontrols?\s+(?:are\s+|is\s+)?(?:furnished\s+|provided\s+)?by\s+(?:the\s+)?(\w[\w\s.]*)", re.I)
+
+
+def _party(text: str) -> str:
+    return next((name for pattern, name in _PARTIES if pattern.search(text)), "")
+
+
+def exception_reason(system: System) -> str:
+    """The reason a block with no lines is excepted, in the estimator's capital words, read from the writer's
+    no_scope_reason (and its clarifications): "INTEGRAL THERMOSTAT", "LINE-VOLTAGE THERMOSTAT", "MANUFACTURER ON/OFF
+    SWITCH", "WALL MOUNTED THERMOSTAT BY MECHANICAL CONTRACTOR", "NOT IN CONTRACT", "CONTROLS BY OTHERS"; else
+    NO_WORK_REASON. Never a sheet number, a source id or a tag."""
+    text = " ".join([system.no_scope_reason or "", *(c.text for c in system.clarifications)])
+    if _NOT_IN_CONTRACT.search(text):
+        return "NOT IN CONTRACT"
+    stat = _STAT.search(text)
+    if stat:
+        kind = re.sub(r"[\s-]+", " ", stat.group(1) or "").strip().upper()
+        kind = {"LINE VOLTAGE": "LINE-VOLTAGE", "LOW VOLTAGE": "LOW-VOLTAGE", "BUILT IN": "BUILT-IN",
+                "UNIT MOUNTED": "UNIT MOUNTED"}.get(kind, kind)
+        words = f"{kind} THERMOSTAT".strip()
+        if kind in ("INTEGRAL", "BUILT-IN", "LINE-VOLTAGE"):
+            return words
+        party = _party(text[stat.end():]) or _party(text)
+        return f"{words} BY {party}" if party else words
+    if _SWITCH.search(text):
+        return "MANUFACTURER ON/OFF SWITCH"
+    by = _CONTROLS_BY.search(text)
+    if by:
+        party = _party(by.group(1))
+        if party:
+            return f"CONTROLS BY {party}"
+    return NO_WORK_REASON
+
+
+def _excepted_equipment(system: System) -> str:
+    """ "Qty (2) EF-14-1, 2": each family's printed count and its tags as a header prints them."""
+    parts = []
+    for family in system.families:
+        n = _printed(family.count)
+        shown = tag_list(list(family.tags)) if family.tags else family.name
+        parts.append(f"Qty ({n if n is not None else '##'}) {shown}")
+    return ", ".join(parts)
+
+
+def scope_exceptions(job: Job) -> tuple[ScopeException, ...]:
+    """The job's named exceptions, then one for each block the documents list equipment for (a family with tags or
+    a schedule's count) that ends with no AME line and no exception of its own: "EXCEPTION TO ANY WORK WITH Qty (n)
+    <tags> - <reason>" (rules.md "Named exceptions"; `exception_reason`), citing the family counts' sources.
+    Idempotent: a block already excepted (by key) gets no second one."""
+    out = list(job.exceptions)
+    excepted = {x.system_key for x in out if x.system_key}
+    for system in job.systems:
+        if system.devices or system.key in excepted:
+            continue
+        listed = [f for f in system.families if f.tags or f.count.basis == "schedule"]
+        if not listed or len(listed) != len(system.families):
+            continue
+        refs = tuple(dict.fromkeys(r for f in system.families for r in f.count.sources))
+        text = EXCEPTION_FORM.format(equipment=_excepted_equipment(system), reason=exception_reason(system))
+        out.append(ScopeException(system_key=system.key, text=text, refs=refs))
+    return tuple(out)
+
+
 LEFT_OUT = "{name}: left out, no lines written"
 
 
@@ -728,16 +812,59 @@ def _traced(key: str, printed: list[_Printed], notes: list[str]) -> list[Rendere
 
 # ---- the front end ---------------------------------------------------------------------------------------------
 
+# rules.md "Front end mode": when the documents do not name the existing BMS, the proposal prints this and the front
+# end asks the client to confirm the vendor (CORE-1)
+EXISTING_PLACEHOLDER = "[existing BMS name]"
+EXISTING_CONFIRM = "the existing BMS vendor, as the documents do not name it"
+# a "name" that says the documents give none ("base building controls (vendor not named)", "unknown", "TBD")
+_NO_NAME = re.compile(r"\b(?:not\s+(?:named|given|stated|identified|known|specified|provided|listed)|unnamed|unknown"
+                      r"|unspecified|unidentified|tbd|tbc|n/a|none|vendor\s+not|no\s+vendor|by\s+others)\b", re.I)
+# the words a description of an existing BMS uses when it names no product or vendor
+_GENERIC_NAME_WORDS = frozenset(
+    "existing base building buildings building's controls control system systems bms bas ems ddc automation "
+    "management energy owner owner's owners vendor manufacturer house current present the a an of and to be "
+    "confirmed name named tenant landlord central main".split())
+
+
+def existing_name_given(name: str | None) -> bool:
+    """True when `name` names an existing BMS (a vendor or a product, "Honeywell / Niagara N4", "Metasys"); False
+    for a blank, the placeholder itself, a text that says no name is given ("vendor not named", "unknown") or one of
+    generic words only ("base building controls")."""
+    text = (name or "").strip()
+    if not text or _NO_NAME.search(text):
+        return False
+    words = [w for w in re.split(r"[^A-Za-z0-9']+", text.casefold()) if w]
+    return any(w not in _GENERIC_NAME_WORDS for w in words)
+
+
+def existing_system_name(front: FrontEnd | None) -> str | None:
+    """The existing BMS name the proposal prints: None for a new system (a stray name is not printed), the
+    documents' name when one is given, else EXISTING_PLACEHOLDER (rules.md "Front end mode")."""
+    if front is None or front.mode != "extend-existing":
+        return None
+    name = (front.existing_system_name or "").strip()
+    return name if existing_name_given(name) else EXISTING_PLACEHOLDER
+
+
+def _vendor_asked(clarifications) -> bool:
+    return any(c.kind == "confirm" and re.search(r"\bvendor\b|existing\s+(?:bms|system)", c.text, re.I)
+               for c in clarifications)
+
+
 def _front_end(front: FrontEnd | None, playbook: Playbook, out: list[RenderedLine],
                ids: SourceIds) -> ScopeFrontEnd:
     if front is None:
         return ScopeFrontEnd(mode="new-system")
+    name = existing_system_name(front)
+    clarifications = front.clarifications
+    if name == EXISTING_PLACEHOLDER and not _vendor_asked(clarifications):
+        clarifications = (*clarifications, Clarification("confirm", EXISTING_CONFIRM))
     printed = _device_lines(_named(front.devices, ids), None, None, playbook, {1})
-    notes = _notes(front.clarifications, front.devices, [d.quantity for d in front.devices], playbook, ids)
+    notes = _notes(clarifications, front.devices, [d.quantity for d in front.devices], playbook, ids)
     out += _traced("", printed, notes)
     try:
         items = _items(printed, False) + [Item(kind="note", runs=(Run(text=n),)) for n in notes]
-        return ScopeFrontEnd(mode=front.mode, existing_system_name=front.existing_system_name,
+        return ScopeFrontEnd(mode=front.mode, existing_system_name=name,
                              items=tuple(items), tech_hours=front.tech_hours)
     except ValueError as error:
         raise RenderError(f"the front end cannot be printed: {error}") from error

@@ -5,12 +5,16 @@ cannot write files, so the page downloads `decisions.json` and the estimator sav
 `load_decisions` reads it back and `apply_decisions` (pure) applies it to the Job. Each save holds only the answers
 on the page it came from, so the run keeps every saved decision in `decisions history.json` (`merge_decisions`):
 a new save adds a round, its answer on a line replaces an earlier round's answer on the same line, and reading the
-same file again adds nothing. Starting over means deleting both files.
+same file again adds nothing. A save names the page it came from (`{"page": <id>, "decisions": [...]}`; a bare list,
+as saved before, is read too), and every save the history merged is remembered by that id (or by its content), so an
+older decisions.json copied in again is never merged as a new round over newer answers (RUN-2,
+`stale_save`). Starting over means deleting both files.
 `unhonored_decisions` is the post-check: a saved decision that the final job does not still show.
 """
 from __future__ import annotations
 
 import dataclasses
+import datetime as dt
 import hashlib
 import html
 import json
@@ -89,8 +93,23 @@ def count_proofs(out_dir: Path) -> dict[str, list[str]]:
     return out
 
 
+# the start of the check card for a family count the revise corrected (RUN-11, `run.revise_corrections`); its family
+# gets a count card, so the estimator can change it
+CORRECTED_COUNT = "the revise corrected the {family} count"
+
+
+def _corrected_families(findings: Sequence[Finding]) -> set[tuple[str, str]]:
+    found = set()
+    for f in findings:
+        match = re.match(re.escape(CORRECTED_COUNT).replace(r"\{family\}", "(.+?)") + " from ", f.what)
+        if match:
+            found.add((f.system_key, match.group(1)))
+    return found
+
+
 def _questions(job: Job, findings: Sequence[Finding]) -> list[_Question]:
     out: list[_Question] = []
+    corrected = _corrected_families(findings)
     seq = 0
     by_device: dict[tuple[str, str], _Question] = {}
 
@@ -149,9 +168,10 @@ def _questions(job: Job, findings: Sequence[Finding]) -> list[_Question]:
     for key, devices, families in scopes:
         for family in families:
             count = family.count
-            if count.others or count.value is None:
-                why = ("The sources give different counts; the highest prints." if count.others
-                       else "No source gives a count; it prints as Qty (##).")
+            if count.others or count.value is None or (key, family.name) in corrected:
+                why = (_differ_words(count) if count.others
+                       else "No source gives a count; it prints as Qty (##)." if count.value is None
+                       else "The revise corrected this count; check it against the documents.")
                 add(system_key=key, rank=RANK_FLAGGED, title=f"How many {family.name} units?",
                     level="family", family_name=family.name, notes=(why,), count=count, refs=count.sources)
         for device in devices:
@@ -161,7 +181,7 @@ def _questions(job: Job, findings: Sequence[Finding]) -> list[_Question]:
                 if device.flag != "none":
                     notes.append(_FLAG_WORDS[device.flag])
                 if counted:
-                    notes.append("The sources give different counts; the highest prints.")
+                    notes.append(_differ_words(device.quantity))
                 if device.assumption:
                     notes.append(f"Assumed: {device.assumption.what} Why: {device.assumption.why}")
                 add(system_key=key, rank=RANK_FLAGGED, title=_device_title(device), level="device",
@@ -204,10 +224,20 @@ def _ref_html(ref: Ref, label: str = "", proofs: dict[str, list[str]] | None = N
             f'<span class="where">{_e(ref.where)}</span>{pic}</li>')
 
 
+def _differ_words(count: Count) -> str:
+    """Why a count with other counts prints what it prints (the estimator's count ruling, 2026-10-09)."""
+    if count.basis == "schedule":
+        return ("DISCREPANCY: the sources give different counts; the schedule's count prints, the others are "
+                "flags to confirm with the engineer.")
+    return "CONFLICT: the sources give different counts and no schedule gives one; the highest prints."
+
+
 def _count_html(count: Count, proofs: dict[str, list[str]] | None = None) -> str:
-    shown = "Qty (##), not known" if count.value is None else str(count.value)
+    printed = count.printed()
+    shown = "Qty (##), not known" if printed is None else str(printed)
     parts = [f'<div class="count"><b>Printed count: {_e(shown)}</b>'
-             + (" (the highest any source gives)" if count.others else "")]
+             + ((" (the schedule's; the other counts are a DISCREPANCY)" if count.basis == "schedule"
+                 else " (the highest any source gives; no schedule gives it: CONFLICT)") if count.others else "")]
     if count.sources:
         parts.append("<ul>" + "".join(_ref_html(r, "", proofs) for r in count.sources) + "</ul>")
     if count.others:
@@ -358,7 +388,8 @@ document.getElementById("save").addEventListener("click", function () {
     var d = buildDecision(questions[id], states[id]);
     if (d) out.push(d);
   });
-  var blob = new Blob([JSON.stringify(out, null, 2)], {type: "application/json"});
+  var saved = {page: (typeof PAGE_ID === "string" ? PAGE_ID : ""), decisions: out};
+  var blob = new Blob([JSON.stringify(saved, null, 2)], {type: "application/json"});
   var a = document.createElement("a");
   a.href = URL.createObjectURL(blob);
   a.download = "decisions.json";
@@ -400,15 +431,18 @@ def review_page(job: Job, findings: Sequence[Finding], out_dir: Path) -> Path:
 
     One card per system (and one for the front end and the whole job when they have questions) with its open
     questions: the findings, flagged devices and counts with others, and assumptions, ranked must_fix first, then
-    counts flagged, then assumptions, then checks. Only the top MAX_QUESTIONS for the job show at first; "Show all"
-    reveals the rest. Each count shows every source and other count, and the proof image when a Ref points to a
+    counts flagged, then assumptions, then checks. Every must_fix question shows, whatever the cap (RUN-4); the
+    other ranks fill what is left of MAX_QUESTIONS at first; "Show all" reveals the rest. Each count shows every source and other count, and the proof image when a Ref points to a
     relative image path. Buttons Accept / Change / Delete per question; "Save decisions" downloads `decisions.json`
     (a list of `Decision.to_dict()`), which the estimator saves into `out_dir`. One self-contained file."""
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     ranked = _ranked(_questions(job, findings))
     proofs = count_proofs(out_dir)
-    visible = {q.qid for q in ranked[:MAX_QUESTIONS]}
+    # every must_fix question shows, whatever the cap (RUN-4); the cap holds the other ranks to what is left
+    must = [q for q in ranked if q.rank == RANK_MUST_FIX]
+    rest = [q for q in ranked if q.rank != RANK_MUST_FIX]
+    visible = {q.qid for q in [*must, *rest[:max(0, MAX_QUESTIONS - len(must))]]}
 
     cards: list[tuple[str, str]] = [(s.key, f"{s.name} ({s.key})") for s in job.systems]
     if job.front_end is not None:
@@ -426,7 +460,7 @@ def review_page(job: Job, findings: Sequence[Finding], out_dir: Path) -> Path:
         inner = "".join(_question_html(q, q.qid not in visible, proofs) for q in mine)
         if not mine:
             inner = '<p class="empty">Nothing to ask here.</p>'
-        elif hidden == len(mine):
+        elif hidden:              # some or all of this card's questions are behind the cap: say how many (RUN-4)
             inner += f'<p class="empty more">{hidden} more question(s) under "Show all questions".</p>'
         body.append(f'<section class="card" data-system="{_e(key)}"><h2>{_e(title)}</h2>{inner}</section>')
     if job.questions:
@@ -434,11 +468,13 @@ def review_page(job: Job, findings: Sequence[Finding], out_dir: Path) -> Path:
                     + "".join(f"<li>{_e(t)}</li>" for t in job.questions) + "</ul></section>")
 
     total = len(ranked)
+    # this page's id, saved with its decisions: a save is known by the page it came from (RUN-2)
+    page_id = hashlib.sha256(f"{dt.datetime.now().isoformat()}|{job.to_json(None)}".encode()).hexdigest()[:20]
     page = f"""<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Review {_e(job.name)}</title><style>{_CSS}</style></head><body>
 <header class="top"><h1>Review: {_e(job.name)}</h1>
-<div>{min(total, MAX_QUESTIONS)} of {total} question(s) shown, most important first.
+<div>{len(visible)} of {total} question(s) shown, most important first (every must fix shows).
 <button type="button" id="showall">Show all questions</button>
 Answered: <span id="answered">0</span>
 <button type="button" id="save" class="primary">Save decisions</button></div>
@@ -446,7 +482,7 @@ Answered: <span id="answered">0</span>
 save that file into the out folder, then run the estimate again. Decisions saved earlier are kept; a new answer on
 the same line replaces the earlier one.</div><div id="saved"></div></header>
 <main>{"".join(body)}</main>
-<script>{_SCRIPT_CORE}{_SCRIPT_PAGE}</script></body></html>
+<script>var PAGE_ID = {json.dumps(page_id)};{_SCRIPT_CORE}{_SCRIPT_PAGE}</script></body></html>
 """
     path = out_dir / REVIEW_PAGE
     path.write_text(page, encoding="utf-8")
@@ -484,6 +520,8 @@ def load_decisions(out_dir: Path) -> list[Decision]:
         raise ModelError(f"{DECISIONS_FILE}: not valid JSON ({error})") from None
     except OSError:
         raise ModelError(f"could not read {DECISIONS_FILE}: close it if it is open and run again") from None
+    if isinstance(data, dict) and isinstance(data.get("decisions"), list):
+        data = data["decisions"]          # the page's save: {"page": <id>, "decisions": [...]}
     if not isinstance(data, list):
         raise ModelError(f"{DECISIONS_FILE}: expected a list of decisions, got {type(data).__name__}")
     out: list[Decision] = []
@@ -498,6 +536,44 @@ def load_decisions(out_dir: Path) -> list[Decision]:
     return out
 
 
+def decisions_page(out_dir: Path) -> str | None:
+    """The id of the review page `out_dir/decisions.json` was saved from (`{"page": <id>, ...}`); None for a bare
+    list (a save from before the id), a missing or unreadable file (`load_decisions` reports that one)."""
+    try:
+        data = json.loads((Path(out_dir) / DECISIONS_FILE).read_text(encoding="utf-8-sig"))
+    except (OSError, ValueError):
+        return None
+    page = data.get("page") if isinstance(data, dict) else None
+    return page if isinstance(page, str) and page.strip() else None
+
+
+def save_digest(saved: Sequence[Decision], page: str | None = None) -> str:
+    """What a save is known by in the history: "page:<id>" when it names its page, else a digest of its content."""
+    if page:
+        return f"page:{page}"
+    text = json.dumps([d.to_dict() for d in saved], sort_keys=True)
+    return "content:" + hashlib.sha256(text.encode()).hexdigest()[:20]
+
+
+def _merged_saves(history: Sequence[SavedDecision]) -> list[str]:
+    """Every save the history merged, oldest first (each entry carries the saves merged up to its round)."""
+    out: dict[str, None] = {}
+    for entry in sorted(history, key=lambda e: e.round):
+        out.update(dict.fromkeys(entry.files))
+    return list(out)
+
+
+def stale_save(history: Sequence[SavedDecision], saved: Sequence[Decision], page: str | None = None) -> bool:
+    """True when `saved` is a save the history merged before, but not the latest one: an older decisions.json
+    copied into the out folder again. `merge_decisions` adds nothing for it (the newer answers stand); the run says
+    so (RUN-2)."""
+    if not saved:
+        return False
+    merged = _merged_saves(history)
+    digest = save_digest(saved, page)
+    return digest in merged and digest != merged[-1]
+
+
 @dataclass(frozen=True)
 class SavedDecision:
     """One decision kept in the run's history: the save it came from (`round`, 1 for the first) and whether it took
@@ -506,13 +582,15 @@ class SavedDecision:
     `settled` is a digest of the decision's system in the final job of the last run that reached the end
     (`system_digest`); None before such a run. A different digest now: the system was asked again since.
     `copies` is, for a device delete, how many lines with the deleted content the written job had when the
-    decision first came in (what the estimator saw); None when not known."""
+    decision first came in (what the estimator saw); None when not known. `files` are the saves merged up to this
+    entry's round (`save_digest`, oldest first), so the history knows every save it read (RUN-2)."""
     decision: Decision
     round: int
     took_effect: bool = False
     saved: Decision | None = None
     settled: str | None = None
     copies: int | None = None
+    files: tuple[str, ...] = ()
 
     @property
     def as_saved(self) -> Decision:
@@ -526,6 +604,8 @@ class SavedDecision:
             data["settled"] = self.settled
         if self.copies is not None:
             data["copies"] = self.copies
+        if self.files:
+            data["files"] = list(self.files)
         return data
 
 
@@ -553,7 +633,8 @@ def load_history(out_dir: Path) -> list[SavedDecision]:
         return [SavedDecision(Decision.from_dict(entry["decision"]), int(entry["round"]),
                               bool(entry.get("took_effect", False)),
                               Decision.from_dict(entry["saved"]) if entry.get("saved") is not None else None,
-                              _settled(entry.get("settled")), _copies(entry.get("copies")))
+                              _settled(entry.get("settled")), _copies(entry.get("copies")),
+                              _files(entry.get("files")))
                 for entry in data]
     except OSError:
         raise ModelError(f"could not read {DECISIONS_HISTORY}: close it if it is open and run again") from None
@@ -569,6 +650,14 @@ def _copies(value: object) -> int | None:
     if value is None or (isinstance(value, int) and not isinstance(value, bool) and value > 0):
         return value
     raise ModelError(f"copies: expected a whole number above 0, got {value!r}")
+
+
+def _files(value: object) -> tuple[str, ...]:
+    if value is None:
+        return ()
+    if isinstance(value, list) and all(isinstance(v, str) for v in value):
+        return tuple(value)
+    raise ModelError(f"files: expected a list of texts, got {value!r}")
 
 
 def copies_seen(history: Sequence[SavedDecision]) -> dict[Decision, int]:
@@ -625,7 +714,7 @@ def _same_line(a: Decision, b: Decision, job: Job | None = None) -> bool:
 
 
 def merge_decisions(history: Sequence[SavedDecision], saved: Sequence[Decision], *,
-                    job: Job | None = None) -> list[SavedDecision]:
+                    job: Job | None = None, page: str | None = None) -> list[SavedDecision]:
     """The history with this decisions.json added. The page saves only its own answers, so earlier saves are kept:
     a decision from an earlier round stays unless the new save decides the same line (the new answer wins). Every
     decision in one save is kept, in order (a change then a delete of one line are both kept). Reading the same
@@ -635,25 +724,34 @@ def merge_decisions(history: Sequence[SavedDecision], saved: Sequence[Decision],
     line the writer wrote: change X to Y, then delete Y, is kept as delete X; change X to Y, then Y to Z, as change X
     to Z. So every kept decision names a line of the written job; a newer answer on the line a rebased decision now
     names replaces it too. `job` is the written job: a line whose content only one of its lines has is the same
-    line whatever id the page showed (`_same_line`). Pure."""
+    line whatever id the page showed (`_same_line`). Pure.
+
+    A save the history merged before (`page`, the id of the page it came from, `decisions_page`; else its content,
+    `save_digest`) adds nothing, the latest one (read again on every run) or an older one copied in again
+    (`stale_save`, RUN-2): a stale save never overrides newer answers."""
     history = list(history)
     saved = list(saved)
     if not saved:
         return history
     latest = max((h.round for h in history), default=0)
+    merged = _merged_saves(history)
+    digest = save_digest(saved, page)
+    if digest in merged:
+        return history
     if history and [h.as_saved for h in history if h.round == latest] == saved:
         return history
+    files = (*merged, digest)
     carried = [h for h in history if not any(_replaces(d, h, job) for d in saved)]
     new: list[SavedDecision] = []
     for d in saved:
         base = _changed_into(carried, d)
         if base is None:
-            new.append(SavedDecision(d, latest + 1, copies=_seen(job, d)))
+            new.append(SavedDecision(d, latest + 1, copies=_seen(job, d), files=files))
             continue
         carried.remove(base)
         old = base.decision
         rebased = dataclasses.replace(d, device_id=old.device_id, was=old.was)
-        new.append(SavedDecision(rebased, latest + 1, saved=d, copies=_seen(job, rebased)))
+        new.append(SavedDecision(rebased, latest + 1, saved=d, copies=_seen(job, rebased), files=files))
     return [*carried, *new]
 
 

@@ -31,6 +31,13 @@ Party = Literal["AME", "Unit Mfr.", "FA", "Mechanical Contractor", "Electrical C
 Severity = Literal["must_fix", "check"]
 FrontEndMode = Literal["new-system", "extend-existing"]
 DecisionAction = Literal["accept", "change", "delete"]
+# Where a count's printed value comes from (the estimator's count ruling, 2026-10-09; Brain "Quantity rules" R1, R6):
+# "schedule" - the equipment schedule gives it: the schedule's quantity is the working count, and every other count
+#              (plans, risers, the sheet text or picture, a longer tag list) only verifies it: a different one is a
+#              DISCREPANCY flag beside it, never a reason to raise or lower it;
+# "highest"  - no schedule gives it: the highest count any source supports prints, and every other different count
+#              is a CONFLICT flag beside it.
+CountBasis = Literal["highest", "schedule"]
 
 VERBS: tuple[str, ...] = get_args(Verb)
 CONTROLS: tuple[str, ...] = get_args(Control)
@@ -41,6 +48,9 @@ PARTIES: tuple[str, ...] = get_args(Party)
 SEVERITIES: tuple[str, ...] = get_args(Severity)
 FRONT_END_MODES: tuple[str, ...] = get_args(FrontEndMode)
 DECISION_ACTIONS: tuple[str, ...] = get_args(DecisionAction)
+COUNT_BASES: tuple[str, ...] = get_args(CountBasis)
+# the Quantity rules categories a count's other counts are flagged under (`Count.flag`)
+CONFIRMED, DISCREPANCY, CONFLICT = "CONFIRMED", "DISCREPANCY", "CONFLICT"
 
 
 class ModelError(ValueError):
@@ -90,16 +100,38 @@ class OtherCount(_Model):
 
 @dataclass(frozen=True)
 class Count(_Model):
-    """A quantity. `value` is the printed count, the highest any source gives (never undershoot); "Qty (##)" prints
-    only when it is None and no other count is known (`highest()` is what prints). `sources` back `value`; `others` are every different count, each with its source."""
-    value: int | None = field(**_doc('The printed count (the highest found); null when unknown ("Qty (##)").'))
+    """A quantity (the estimator's count ruling, 2026-10-09). `value` is the printed, working count: the equipment
+    schedule's quantity when a schedule gives one (`basis` "schedule"), else the highest count any source supports
+    (`basis` "highest"). `sources` back `value`; `others` are every different count, each with its source: with a
+    schedule each is a DISCREPANCY flag, without one a CONFLICT flag (`flag`), shown beside the count and never
+    silently raising or lowering it. "Qty (##)" prints only when nothing is known (`printed()` is what prints)."""
+    value: int | None = field(**_doc('The printed, working count: the schedule\'s quantity when a schedule gives one, '
+                                     'else the highest any source gives; null when unknown ("Qty (##)").'))
     sources: tuple[Ref, ...] = field(default=(), **_doc("The citations that give the printed count."))
     others: tuple[OtherCount, ...] = field(default=(), **_doc("Every other, different count, with its source."))
+    basis: CountBasis = field(default="highest", **_doc(
+        'schedule: the equipment schedule gives value, and every other count is a DISCREPANCY flag that never '
+        'changes it; highest: no schedule gives it, value is the highest count any source gives (others are a '
+        'CONFLICT flag). Copy the basis of the family count a line is counted from.'))
+
+    def printed(self) -> int | None:
+        """The count that prints: the schedule's `value` when a schedule gives the count; with no schedule the
+        highest of `value` and every other count (estimator ruling D9: a count is never lost); None when none is
+        known."""
+        return self.value if self.basis == "schedule" else self.highest()
 
     def highest(self) -> int | None:
-        """The highest of `value` and every other count (what must print); None when none is known."""
+        """The highest of `value` and every other count; None when none is known. What prints only when no schedule
+        gives the count (`printed`)."""
         numbers = [n for n in (self.value, *(o.value for o in self.others)) if n is not None]
         return max(numbers) if numbers else None
+
+    def flag(self) -> str:
+        """The Quantity rules category of this count's other counts: "" when there are none (one count, or every
+        source agrees), DISCREPANCY when a schedule gives the count, CONFLICT when none does."""
+        if not self.others:
+            return ""
+        return DISCREPANCY if self.basis == "schedule" else CONFLICT
 
 
 @dataclass(frozen=True)
@@ -140,7 +172,7 @@ class Device(_Model):
 
 @dataclass(frozen=True)
 class Clarification(_Model):
-    """A "*" clarification under a block (one per block)."""
+    """A "*" clarification under a block (at most one of each kind per block, ruling D1)."""
     kind: ClarificationKind = field(**_doc("confirm, assumed, per_drawings or note."))
     text: str = field(**_doc("The clarification in plain words (the form comes from the Playbook wording)."))
 
@@ -168,7 +200,7 @@ class System(_Model):
     families: tuple[Family, ...] = field(**_doc("The equipment families in this block, with their counts."))
     sequence_refs: tuple[Ref, ...] = field(default=(), **_doc("The sequence of operation passages for this system."))
     devices: tuple[Device, ...] = field(default=(), **_doc("The scope lines, in print order."))
-    clarifications: tuple[Clarification, ...] = field(default=(), **_doc("At most one per block."))
+    clarifications: tuple[Clarification, ...] = field(default=(), **_doc("At most one of each kind per block."))
     tech_hours: float | None = field(default=None, **_doc("The block's tech hours; null when not set."))
     alternate: AlternateKind = field(default="base", **_doc("base, add or deduct."))
     no_scope_reason: str | None = field(default=None, **_doc(
@@ -192,8 +224,14 @@ class FrontEnd(_Model):
     mode: FrontEndMode = field(**_doc("new-system or extend-existing."))
     existing_system_name: str | None = field(default=None, **_doc("The existing BMS, when extending one."))
     devices: tuple[Device, ...] = field(default=(), **_doc("The front-end lines."))
-    clarifications: tuple[Clarification, ...] = field(default=(), **_doc("At most one."))
+    clarifications: tuple[Clarification, ...] = field(default=(), **_doc("At most one of each kind."))
     tech_hours: float | None = field(default=None, **_doc("The front end's tech hours."))
+    lines: tuple[str, ...] = field(default=(), **_doc(
+        "The planner's: the front-end lines the reading found in the documents, in its words (the writer writes "
+        "the devices from them and their sources)."))
+    notes: tuple[str, ...] = field(default=(), **_doc(
+        "The planner's: the client notes for the front end the reading found, in its words."))
+    refs: tuple[Ref, ...] = field(default=(), **_doc("The planner's: the citations of the front end's facts."))
 
 
 @dataclass(frozen=True)
@@ -382,9 +420,18 @@ _TYPES = {"string": str, "integer": int, "number": (int, float), "object": dict,
           "boolean": bool, "null": type(None)}
 
 
+# Fields added to a model after answers were written (a cached or hand-written answer may lack them): an object of
+# the class (known by its exact properties) that leaves one out is read with the field's default (`from_dict`).
+# `json_schema` still requires them, so a new structured answer always gives them.
+_LATE_FIELDS: dict[frozenset, frozenset] = {
+    frozenset(f.name for f in dataclasses.fields(Count)): frozenset({"basis"}),      # the count ruling, 2026-10-09
+}
+
+
 def schema_errors(value, schema: dict, path: str = "$") -> list[str]:
     """Every way `value` breaks `schema` (empty when it fits). Understands type, enum, properties, required,
-    additionalProperties false, items, minItems and anyOf — the keywords `json_schema` produces."""
+    additionalProperties false, items, minItems and anyOf — the keywords `json_schema` produces. A late field
+    (`_LATE_FIELDS`: a Count's `basis`) may be left out: `from_dict` gives it its default."""
     if "anyOf" in schema:
         if any(not schema_errors(value, option, path) for option in schema["anyOf"]):
             return []
@@ -401,8 +448,9 @@ def schema_errors(value, schema: dict, path: str = "$") -> list[str]:
         errors.append(f"{path}: {value!r} is not one of {schema['enum']}")
     if isinstance(value, dict):
         props = schema.get("properties", {})
+        late = _LATE_FIELDS.get(frozenset(props), frozenset())
         for name in schema.get("required", []):
-            if name not in value:
+            if name not in value and name not in late:
                 errors.append(f"{path}: missing {name}")
         if schema.get("additionalProperties") is False:
             errors += [f"{path}: unexpected {name}" for name in value if name not in props]

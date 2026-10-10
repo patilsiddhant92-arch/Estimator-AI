@@ -32,11 +32,11 @@ from estimator.catalogue.overview import FOUND, RULED_OUT, STANDARD_CLARIFICATIO
 from estimator.catalogue.tags import (STATED_MOST, Equipment, find_tags, label_keys, line_labels, plan_labels,
                                       tag_location, tag_prefix, unread_counts)
 from estimator.reading.inventory import (COUNT_CAUSE_WORDS, COUNT_CAUSES_LEAD, TYPE_ON_ONE_SHEET, TYPE_PLACED,
-                                        counted_per_place, counting_pages, first_pages, plan_area_doubts, plan_areas,
+                                        _discipline_split, counted_per_place, counting_pages, first_pages, plan_area_doubts, plan_areas,
                                         plan_count, plan_floors, plan_groups, sheet_floors,
                                         sheet_labels)
 from estimator.reading.revisions import governing_pages, typical_places
-from estimator.reading.schedules import header_key, quantity_header, vocabulary
+from estimator.reading.schedules import expand_tags, header_key, quantity_header, vocabulary
 from estimator.reading.sequences import POINTS, SEQUENCE
 from estimator.writing.systems import _paragraphs
 from estimator.writing.write import tag_list
@@ -695,7 +695,9 @@ def _schedules_section(catalogue, reading, ids: _Ids, images: dict, why: dict, i
         sid = ids.new(f"{schedule.sheet + ' ' if schedule.sheet else ''}{schedule.title}, "
                       f"{_name(schedule.document)} page {schedule.page}")
         extras = []
-        if schedule.type_only:
+        if getattr(schedule, "passive", False):
+            extras.append("air-device types (diffusers, grilles, outlets), passive — not equipment")
+        elif schedule.type_only:
             extras.append("type rows, no unit tags")
         if schedule.from_text:
             extras.append("counted from the sheet's text; the table couldn't be read")
@@ -793,8 +795,8 @@ def _counts(catalogue, reading, counted_pages: frozenset, multipliers: dict) -> 
                     typed.add(row.tag)
             else:
                 key = _type_code(schedule, row)
-                if key is None or type_titles.search(schedule.title):
-                    continue
+                if key is None or type_titles.search(schedule.title) or getattr(schedule, "passive", False):
+                    continue         # an air device's type code (READ-3) is no equipment family
                 codes.add(key)
                 on_page[(schedule.document, schedule.page)][key] += 1
             if row.existing:
@@ -809,7 +811,13 @@ def _counts(catalogue, reading, counted_pages: frozenset, multipliers: dict) -> 
             counted_rows.add(id(row.cells))
             if n is not None:
                 family.quantity = (family.quantity or 0) + n
-    valid = {t.tag for t in catalogue.tags} | {t for f in families.values() for t in f.scheduled}
+    # an air device's type code read as a tag (B1 → B-1 on the plans, READ-3) is never a unit of any family
+    passive = set()
+    for schedule in reading.schedules:
+        if getattr(schedule, "passive", False) and schedule.headers:
+            for row in schedule.rows:
+                passive.update(expand_tags(row.cells.get(schedule.headers[0], ""), equipment))
+    valid = ({t.tag for t in catalogue.tags} | {t for f in families.values() for t in f.scheduled}) - passive
     exclude = frozenset(tag for s in catalogue.sheets if s.number for tag in find_tags(s.number, equipment))
     records = {(p.document, p.page): p for p in catalogue.pages}
     code_patterns = {code: re.compile(rf"(?<![A-Za-z0-9\-]){re.escape(code)}(?![A-Za-z0-9])") for code in codes}
@@ -938,7 +946,8 @@ def _counts(catalogue, reading, counted_pages: frozenset, multipliers: dict) -> 
             family.notes.append(f"the labels on the plan sheets add up to {labelled}; {how}, however often the plan "
                                 "labels it")
         family.notes += _summed_notes(summed[prefix]) + _labelled_often_notes(labelled_often[prefix])
-        family.notes += _group_notes(prefix, groups, places, labels, per_place_of)
+        family.notes += _group_notes(prefix, groups, places, labels, per_place_of,
+                                     {(sheet.document, sheet.page): sheet for sheet, *_ in read})
         family.notes += _doubt_notes(prefix, doubts, places, labels)
         family.notes += list(dict.fromkeys(unread[prefix]))
         family.notes += [f"{_name(copy)} repeats {_name(original)} (same sheets, same units): read once, "
@@ -1015,14 +1024,21 @@ def _family_sheets(prefix: str, places: dict) -> list[set]:
 _PLACES = {2: "two", 3: "three", 4: "four", 5: "five"}
 
 
-def _group_notes(prefix: str, groups: dict, places: dict, labels: dict, per_place_of: dict | None = None
-                 ) -> list[str]:
+def _disciplines_apart(group, sheets_by_key: dict) -> bool:
+    """The group's sheets are one floor's plans of other plan disciplines (ductwork, piping, zoning: READ-2)."""
+    named = {_discipline_split(sheets_by_key[key])[1] for key in group if key in sheets_by_key}
+    return len(named) >= 2
+
+
+def _group_notes(prefix: str, groups: dict, places: dict, labels: dict, per_place_of: dict | None = None,
+                 sheets_by_key: dict | None = None) -> list[str]:
     """The reading note for each plan group of 2 or more sheets (`plan_groups`) on which this family has a tag on
     two of its sheets: the sheets are counted as one plan, so the estimator can check it, with the family's count
     on them as one plan and as the places they would be if they are not one plan (REVIEW-FINAL6 F5: the title
     block may name the building elsewhere). Never in a client cause's words."""
     on = _family_sheets(prefix, places)
     per_place_of = per_place_of or {}
+    sheets_by_key = sheets_by_key or {}
     notes = []
     for group in dict.fromkeys(groups.values()):
         if len(group) >= 2 and any(len(keys & set(group)) >= 2 for keys in on):
@@ -1036,7 +1052,10 @@ def _group_notes(prefix: str, groups: dict, places: dict, labels: dict, per_plac
                     apart += plan_count(mine, {}, per_place)
             many = _PLACES.get(len(group), str(len(group)))
             notes.append(f"{', '.join(names[:-1])} and {names[-1]} counted as one plan, {one} ({apart} if they are "
-                         f"{many} places): same floor title, same units; check")
+                         f"{many} places): "
+                         + ("one floor's plans of other trades (ductwork, piping, zoning, controls)"
+                            if _disciplines_apart(group, sheets_by_key) else "same floor title, same units")
+                         + "; check")
     return notes
 
 

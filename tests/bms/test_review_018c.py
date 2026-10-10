@@ -140,8 +140,10 @@ def test_guard_a_late_delete_when_the_revise_words_it_differently_is_shown_on_th
 
 
 def test_guard_an_early_delete_the_revise_brings_back_is_reported_once(job_folder, tmp_path, monkeypatch):
-    """The delete matches the first write and is applied early. The revise puts a damper back. The run must not
-    delete it a second time in silence, and must say "decision not honored" once, on the line that came back."""
+    """The delete matches the first write and is applied early. The revise puts the damper back word for word.
+    RUN-1 (audit 2026-10-09): the estimator's delete is applied again after the revise, by the saved line, as after
+    the count rewrite, so the damper stays deleted and no "decision not honored" card is raised (the old behaviour
+    reported the run's own undo on every run)."""
     out, cache, key, state, first = _run_with_reworded(
         job_folder, tmp_path, monkeypatch, ("Controller", "Start Stop", "Damper Actuator"), "Damper Actuator")
     damper = next(d for d in _system(first, key)["devices"] if d["name"] == "Damper Actuator")
@@ -150,10 +152,8 @@ def test_guard_an_early_delete_the_revise_brings_back_is_reported_once(job_folde
     state["add_back"] = True
     again = _reach(job_folder, out, cache, "done")
     final = _system(again, key)["devices"]
-    back = [d for d in final if d["name"] == "Damper Actuator"]
-    assert len(back) == 1
-    cards = [f for f in again.findings if f.rule == "decision not honored"]
-    assert [(f.what, f.device_id) for f in cards] == [(f"decision not honored: delete {damper['id']}", back[0]["id"])]
+    assert [d for d in final if d["name"] == "Damper Actuator"] == []
+    assert [f for f in again.findings if f.rule == "decision not honored"] == []
 
 
 

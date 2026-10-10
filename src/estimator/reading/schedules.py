@@ -55,6 +55,8 @@ class Schedule:
     controls_by: tuple[str, ...]   # the note sentences that say who provides the unit controller
     from_text: bool = False    # counted from the sheet's text, because its table couldn't be read
     source: str = "table"      # "table", or BY_EYE: a picture of the schedule read by the AI judge (reading/pictures.py)
+    passive: bool = False      # lists passive air devices by type (diffusers, grilles, air outlets: READ-3); its codes
+                               # are never units, equipment families or controls systems, whatever their prefix
 
 
 @dataclass(frozen=True)
@@ -81,6 +83,8 @@ class Vocabulary:
     type_titles: re.Pattern     # schedules that list types of air device or fixture, never units
     schedule_heading: re.Pattern   # a line of text that heads a schedule ("EXHAUST FAN SCHEDULE")
     quantity_headers: frozenset[str] = frozenset()   # a column that counts the units a row stands for (QTY)
+    tag_header_pattern: re.Pattern | None = None     # a key header the exact list misses ("UNIT", "PUMP NO."), READ-5
+    air_devices: re.Pattern | None = None            # words naming passive air devices (READ-3)
 
 
 def _any(patterns: Iterable[str]) -> re.Pattern:
@@ -102,6 +106,8 @@ def vocabulary(path: Path = SCHEDULES) -> Vocabulary:
         float(data["border_share"]), int(data["min_rows"]), int(data["min_columns"]), float(data["notes_below"]),
         tuple((a, b) for a, b in data["pairs"]), _any(data["not_schedules"]), _any(data["type_list_titles"]),
         re.compile(data["schedule_heading"]), frozenset(data.get("quantity_headers", ())),
+        tag_header_pattern=re.compile(data["tag_header_pattern"]) if data.get("tag_header_pattern") else None,
+        air_devices=_any(data["air_device_words"]) if data.get("air_device_words") else None,
     )
 
 
@@ -239,6 +245,48 @@ def loose_tags(text: str, equipment: Equipment, range_words: tuple[str, ...] | N
 EQUIPMENT = "Equipment"
 
 
+def unit_tags_in_cell(text: str | None, equipment: Equipment) -> list[str]:
+    """The unit tags a key cell starts with ("EF-14-1", "(E) AHU-3", "VAV-1 THRU 5"); empty when the cell is not a
+    unit's tag (a type code, a note, a line that only mentions a unit)."""
+    text = _squash(text)
+    if not text:
+        return []
+    tags = expand_tags(text, equipment)
+    if not tags or not _compact(re.sub(r"^\(E\)\s*", "", text, flags=re.I)).startswith(_compact(tags[0])):
+        return []
+    return tags
+
+
+def lists_air_devices(title: str, vocab: Vocabulary, also: Iterable[str] = (), described: Iterable[str] = ()) -> bool:
+    """A schedule of passive air devices by type (READ-3): its title, or one of the lines `also` gives (its basis of
+    design, a band row of its key column such as "RETURN AND EXHAUST GRILLE"), names air devices, or most of its
+    description cells (`described`) do. Its codes (B1, CD, RG, LRD-A) are types, never units."""
+    pattern = vocab.air_devices
+    if pattern is None:
+        return False
+    if pattern.search(title or "") or any(pattern.search(t or "") for t in also):
+        return True
+    described = [d for d in described if d]
+    return bool(described) and sum(bool(pattern.search(d)) for d in described) * 2 > len(described)
+
+
+_DESCRIPTION_HEADER = re.compile(r"^(?:DESCRIPTION|TYPE|DEVICE|STYLE|KIND)\b")
+
+
+def _one_letter_elsewhere(tag: str, cell: str, title: str, equipment: Equipment) -> bool:
+    """A one-letter prefix written without its dash ("B1", "P2") under a schedule whose title names another kind of
+    equipment (an AIR OUTLET SCHEDULE's B1 is no boiler, READ-3). An untitled schedule keeps it: a boiler schedule
+    whose title wasn't found must not lose its boilers."""
+    prefix = tag_prefix(tag)
+    if len(prefix) != 1 or re.match(rf"\s*(?:\(E\)\s*)?{prefix}\s*[{_DASH}]", cell or "", re.I):
+        return False
+    kind = kind_from_title(title or _NO_TITLE)
+    if kind == EQUIPMENT:
+        return False
+    name = equipment.prefixes.get(prefix, "")
+    return not any(word in kind.upper() for word in name.upper().split() if len(word) > 2)
+
+
 def kind_from_title(title: str) -> str:
     """What a schedule lists, from its title: "FAN SCHEDULE" → "Fan". A title that doesn't name a schedule
     (none was found, or a notes block was read in its place) says nothing: "Equipment"."""
@@ -331,17 +379,78 @@ class _Grid:
                 max(b[2] for b in boxes), min(bottom, max(b[3] for b in boxes)))
 
 
-def _heads(grid: _Grid, vocab: Vocabulary) -> list[_Head]:
+def _tagged_below(grid: _Grid, r: int, c: int, vocab: Vocabulary, equipment: Equipment) -> tuple[int, int]:
+    """(cells naming a unit, cells with text) in column c below row r, a notes line left out. A one-letter
+    prefix written without its dash ("B1") is a type code here, never a unit. A column naming one unit in two
+    rows or more is no key column (an ASSOCIATED CONDENSING UNIT column names each outdoor unit on every indoor
+    unit's row): (0, cells) then."""
+    tagged = filled = 0
+    seen: set[str] = set()
+    for row in range(r + 1, grid.n_rows):
+        text = grid.text(row, c)
+        if not text or vocab.notes_heading.match(text) or vocab.note_number.match(text):
+            continue
+        filled += 1
+        tags = unit_tags_in_cell(text, equipment) or loose_tags(text, equipment)
+        if tags and seen & set(tags):
+            return 0, filled
+        seen |= set(tags)
+        tagged += bool(tags) and (len(tag_prefix(tags[0])) > 1 or bool(re.match(rf"[A-Z]\s*[{_DASH}]", text)))
+    return tagged, filled
+
+
+_BARE_KEY = re.compile(r"^(?:UNIT|TAG|MARK)(?: NO| NUMBER)?$")
+
+
+def _heads(grid: _Grid, vocab: Vocabulary, equipment: Equipment | None = None) -> list[_Head]:
+    """The schedules' key cells: a header the reading list names (TAG, UNIT NO., MARK ...), or, given the equipment
+    list, one shaped like one ("UNIT", "AC UNIT", "PUMP NO.") over a column of unit tags (READ-5). A table with no
+    such header whose first filled column is unit tags under a blank header (a "F A N  D A T A" band merged over
+    it) is keyed by that column, its header the first row of labels above the tags."""
     heads = []
     for r in range(grid.n_rows - 1):
         row = [header_key(grid.text(r, c)) for c in range(grid.n_cols)]
         tagged = [c for c, key in enumerate(row) if key in vocab.tag_headers]
+        if equipment is not None and vocab.tag_header_pattern is not None:
+            first = next((c for c, key in enumerate(row) if key), None)
+            for c, key in enumerate(row):
+                if (c in tagged or not key or key in vocab.quantity_headers or key in vocab.type_headers
+                        or not vocab.tag_header_pattern.match(key)):
+                    continue
+                if c != first and not _BARE_KEY.match(key):
+                    continue    # "ASSOCIATED CONDENSING UNIT" further along a row names another unit, not the row's
+                units, filled = _tagged_below(grid, r, c, vocab, equipment)
+                if units and units * 2 >= filled:
+                    tagged.append(c)
+            tagged.sort()
         heads += [_Head(r, c, "tag") for c in tagged]
         if not tagged:
             first = next((c for c, key in enumerate(row) if key), None)
             if first is not None and row[first] in vocab.type_headers:
                 heads.append(_Head(r, first, "type"))
-    return heads
+    if heads or equipment is None:
+        return heads
+    return _blank_head(grid, vocab, equipment)
+
+
+def _blank_head(grid: _Grid, vocab: Vocabulary, equipment: Equipment) -> list[_Head]:
+    """The key column of a table whose key header is blank (READ-5): the first column with text below the header
+    rows whose cells are mostly unit tags, its header cell empty. The header row is the first row above the first
+    tag with two or more labels in it."""
+    for c in range(grid.n_cols):
+        rows = [r for r in range(grid.n_rows) if grid.text(r, c)]
+        if not rows:
+            continue
+        first_tag = next((r for r in rows if unit_tags_in_cell(grid.text(r, c), equipment)), None)
+        if first_tag is None or first_tag == 0:
+            return []
+        header = next((r for r in range(first_tag) if not grid.text(r, c)
+                       and sum(bool(grid.text(r, k)) for k in range(grid.n_cols)) >= 2), None)
+        if header is None:
+            return []
+        units, filled = _tagged_below(grid, header, c, vocab, equipment)
+        return [_Head(header, c, "tag")] if units and units * 2 >= filled else []
+    return []
 
 
 def _title(grid: _Grid, words: _Words, head: _Head, vocab: Vocabulary) -> None:
@@ -358,22 +467,52 @@ def _title(grid: _Grid, words: _Words, head: _Head, vocab: Vocabulary) -> None:
             break
         box = grid.row_box(r, head.col, head.end_col)
         text = (words.starting_in(box) if box else "") or " ".join(grid.text(r, c) for c in filled)
-        for pattern in vocab.basis:
-            m = pattern.search(text)
-            if m:
-                head.basis = head.basis or m.group(1).strip() or None
-                text = text[:m.start()].strip()
-                break
+        if _LETTER_SPACED.match(text):
+            continue        # a band over the columns ("F A N  D A T A"), never the schedule's name
+        # each text line of the cell on its own: a smaller "MFR. (AS STD.) ..." line can sit a little above the
+        # title in the same cell ("CONDENSATE PUMPS"), and its maker must not swallow the title
+        lines = [line[3] for line in words.lines(box[0] - 1, box[1], box[2] + 1, box[3])] if box else []
+        kept = []
+        for line in lines or [text]:
+            for pattern in vocab.basis:
+                m = pattern.search(line)
+                if m:
+                    head.basis = head.basis or m.group(1).strip() or None
+                    line = line[:m.start()].strip()
+                    break
+            if line:
+                kept.append(line)
+        text = " ".join(kept)
         head.title_row = r
         if text:
             head.title = text
             return
     if not blocked and head.row <= 3:
         box = grid.row_box(head.row, head.col, head.end_col) or grid.bbox
+        if grid.rect(head.row, head.col) is None and head.col == 0:
+            box = (grid.bbox[0], *box[1:])   # a blank key header merged away: the table's own left edge
         above = words.lines(box[0] - 2, grid.bbox[1] - 40, box[2], grid.bbox[1] + 1)
         above = [line for line in above if line[0] + line[1] <= grid.bbox[1] + 2]
-        if above:
-            head.title = above[-1][3]
+        rows: list[list[tuple]] = []           # the lines side by side at one height are one line, left to right
+        for line in above:
+            if rows and abs(line[0] - rows[-1][0][0]) <= 2:
+                rows[-1].append(line)
+            else:
+                rows.append([line])
+        for row in reversed(rows):
+            text = " ".join(part[3] for part in sorted(row, key=lambda part: part[2]))
+            for pattern in vocab.basis:          # "MFR. (AS STD.) GREENHECK" names the maker, not the schedule
+                m = pattern.search(text)
+                if m:
+                    head.basis = head.basis or m.group(1).strip() or None
+                    text = text[:m.start()].strip()
+                    break
+            if text:
+                head.title = text
+                break
+
+
+_LETTER_SPACED = re.compile(r"^(?:[A-Z0-9]\s){3,}")
 
 
 def _labels(grid: _Grid, head: _Head) -> list[tuple[int, str]]:
@@ -443,10 +582,15 @@ def _schedule(grid: _Grid, words: _Words, head: _Head, vocab: Vocabulary, equipm
     # The tag column is as wide as its header cell. Its words are read by position, row band by
     # row band, so a tag split across two grid columns, or a cell merged over several rows, is
     # read once and whole.
-    head_rect = grid.rect(head.row, head.col) or grid.bbox
+    # a blank key header merged into a band above it has no cell of its own: the column's first cell below gives it
+    head_rect = (grid.rect(head.row, head.col)
+                 or next((grid.rect(r, head.col) for r in range(head.row + 1, grid.n_rows) if grid.rect(r, head.col)),
+                         None)
+                 or grid.bbox)
     tag_x0, tag_x1 = head_rect[0], head_rect[2]
     after = next((grid.rect(head.row, c) for c, _ in labels if c > head.col and grid.rect(head.row, c)), None)
     wide_x1 = after[2] if after else tag_x1
+    passive = _passive(grid, head, labels, vocab, equipment)
     for r in range(head.row + 1, head.end_row):
         top, bottom = grid.bands[r]
         tag_text = words.starting_in((tag_x0, top, tag_x1, bottom))
@@ -459,13 +603,17 @@ def _schedule(grid: _Grid, words: _Words, head: _Head, vocab: Vocabulary, equipm
         tags = expand_tags(tag_text, equipment) if _names_a_unit(tag_text, vocab, equipment) else []
         if tags and not _compact(re.sub(r"^\(E\)\s*", "", tag_text, flags=re.I)).startswith(_compact(tags[0])):
             tags = []   # a line of text that mentions a unit, not the unit's own row
-        if not tags and tag_text and wide_x1 > tag_x1 and _names_a_unit(tag_text, vocab):
+        if passive or (tags and _one_letter_elsewhere(tags[0], tag_text, head.title, equipment)):
+            tags = []   # an air device's type code (B1, CD) or a one-letter code under another kind's title (READ-3)
+        if not tags and not passive and tag_text and wide_x1 > tag_x1 and _names_a_unit(tag_text, vocab):
             # A tag split over two columns ("VAV" | "-503"): kept only when it starts in the tag column,
             # never a tag named in the next column ("ST-1S" | "AHU-1 SUPPLY").
             joined = words.starting_in((tag_x0, top, wide_x1, bottom))
             found = expand_tags(joined, equipment)
             if found and _compact(found[0]).startswith(_compact(tag_text.split()[0])):
                 tags, tag_text = found, joined
+            if tags and _one_letter_elsewhere(tags[0], tag_text, head.title, equipment):
+                tags = []
         tag_text = tag_text or key_text
         cells = {name: grid.text(r, c) for c, name in labels}
         cells[key_name] = tag_text
@@ -473,7 +621,8 @@ def _schedule(grid: _Grid, words: _Words, head: _Head, vocab: Vocabulary, equipm
         model = next((grid.text(r, c) for c in model_cols if grid.text(r, c)), None)
         remarks = " ".join(grid.text(r, c) for c in remark_cols)
         existing = bool(vocab.existing.search(tag_text) or vocab.existing.search(remarks))
-        found = [] if tags or head.kind != "tag" or not _names_a_unit(tag_text, vocab) else loose_tags(tag_text, equipment)
+        found = ([] if tags or passive or head.kind != "tag" or not _names_a_unit(tag_text, vocab)
+                 else loose_tags(tag_text, equipment))
         if tags:
             tagged += [ScheduleRow(tag, cells, maker, model, existing, shares=len(tags)) for tag in tags]
         elif found:
@@ -503,7 +652,25 @@ def _schedule(grid: _Grid, words: _Words, head: _Head, vocab: Vocabulary, equipm
     document, page, sheet = where
     return Schedule(document, page, sheet, head.title or "Schedule (no title found)",
                     tuple(name for _, name in labels), rows, not tagged, tuple(notes),
-                    _controls_by(notes, [r for r in remarks if r], vocab))
+                    _controls_by(notes, [r for r in remarks if r], vocab), passive=passive)
+
+
+def _passive(grid: _Grid, head: _Head, labels: list[tuple[int, str]], vocab: Vocabulary,
+             equipment: Equipment) -> bool:
+    """Whether the schedule under this head lists passive air devices by type (`lists_air_devices`): its title, its
+    basis of design and the rows above its header, the short band rows of its key column ("RETURN AND EXHAUST
+    GRILLE"), and its description cells."""
+    above = [" ".join(grid.text(r, c) for c in range(head.col, head.end_col) if grid.text(r, c))
+             for r in range(max(0, head.title_row), head.row)]
+    bands = []
+    for r in range(head.row + 1, head.end_row):
+        text = grid.text(r, head.col)
+        if (text and len(text) <= 40 and not vocab.notes_heading.match(text) and not vocab.note_number.match(text)
+                and not unit_tags_in_cell(text, equipment)):
+            bands.append(text)
+    columns = [c for c, name in labels if c != head.col and _DESCRIPTION_HEADER.match(header_key(name))]
+    described = [grid.text(r, c) for r in range(head.row + 1, head.end_row) for c in columns]
+    return lists_air_devices(head.title, vocab, [head.basis or "", *above, *bands], described)
 
 
 def _compact(text: str) -> str:
@@ -530,7 +697,7 @@ def _inside(x: float, y: float, box: tuple) -> bool:
 
 def _split(grid: _Grid, words: _Words, vocab: Vocabulary, equipment: Equipment,
            where: tuple[str, int, str | None], other_tables: list[tuple]) -> list[Schedule]:
-    heads = _heads(grid, vocab)
+    heads = _heads(grid, vocab, equipment)
     for head in heads:
         same_column_below = [h.row for h in heads if h.col == head.col and h.row > head.row]
         limit = min(same_column_below, default=grid.n_rows)
@@ -575,23 +742,34 @@ def schedule_from_cells(title: str, headers: Iterable[str], rows: Iterable, note
     typed: list[ScheduleRow] = []
     loose: list[tuple[int, list[ScheduleRow]]] = []
     bare = 0
-    for raw in rows:
+    rows = list(rows)
+    described = [n for n in names if n != key and _DESCRIPTION_HEADER.match(header_key(n))]
+
+    def cells_of(raw) -> dict[str, str]:
         values = raw.get("cells", raw) if isinstance(raw, dict) else raw
         if isinstance(values, dict):
-            cells = {name: _squash(str(values.get(name, "") or "")) for name in names}
-        else:
-            cells = {name: _squash(str(value or "")) for name, value in zip(names, values)}
+            return {name: _squash(str(values.get(name, "") or "")) for name in names}
+        return {name: _squash(str(value or "")) for name, value in zip(names, values)}
+
+    all_cells = [cells_of(raw) for raw in rows]
+    bands = [c.get(key, "") for c in all_cells if c.get(key) and len(c.get(key, "")) <= 40
+             and not unit_tags_in_cell(c.get(key), equipment)]
+    passive = lists_air_devices(title, vocab, bands, [c.get(n, "") for c in all_cells for n in described])
+    for cells in all_cells:
         tag_text = cells.get(key, "")
         if not any(cells.values()) or not tag_text or vocab.note_number.match(tag_text):
             continue
         tags = expand_tags(tag_text, equipment) if _names_a_unit(tag_text, vocab, equipment) else []
         if tags and not _compact(re.sub(r"^\(E\)\s*", "", tag_text, flags=re.I)).startswith(_compact(tags[0])):
             tags = []
+        if passive or (tags and _one_letter_elsewhere(tags[0], tag_text, title, equipment)):
+            tags = []
         maker = next((cells[n] for n in makers if cells.get(n)), None)
         model = next((cells[n] for n in models if cells.get(n)), None)
         remarks = " ".join(cells.get(n, "") for n in remark_names)
         existing = bool(vocab.existing.search(tag_text) or vocab.existing.search(remarks))
-        found = [] if tags or not by_tag or not _names_a_unit(tag_text, vocab) else loose_tags(tag_text, equipment)
+        found = ([] if tags or passive or not by_tag or not _names_a_unit(tag_text, vocab)
+                 else loose_tags(tag_text, equipment))
         if tags:
             tagged += [ScheduleRow(tag, cells, maker, model, existing, shares=len(tags)) for tag in tags]
         elif found:
@@ -608,7 +786,7 @@ def schedule_from_cells(title: str, headers: Iterable[str], rows: Iterable, note
     remarks = [row.cells.get(n, "") for row in out for n in remark_names]
     document, page, sheet = where
     return Schedule(document, page, sheet, title, tuple(names), out, not tagged, notes,
-                    _controls_by(notes, [r for r in remarks if r], vocab), source=source)
+                    _controls_by(notes, [r for r in remarks if r], vocab), source=source, passive=passive)
 
 
 def read_page(page: pymupdf.Page, where: tuple[str, int, str | None],
@@ -619,6 +797,23 @@ def read_page(page: pymupdf.Page, where: tuple[str, int, str | None],
 def _read_tables(page: pymupdf.Page, where: tuple[str, int, str | None], vocab: Vocabulary | None = None,
                  equipment: Equipment | None = None) -> tuple[list[Schedule], int]:
     """The page's schedules, and how many ruled tables of any size find_tables saw on it."""
+    read = _read_page_tables(page, where, vocab, equipment)
+    return read.schedules, read.tables
+
+
+@dataclass
+class _PageTables:
+    schedules: list[Schedule]
+    tables: int                          # ruled tables of any size find_tables saw
+    unread: list[tuple[str, ...]]        # per table that names units in its cells but gave no unit row: those tags
+    leftover: str                        # the page's text outside every table that gave unit rows, line by line
+
+
+def _read_page_tables(page: pymupdf.Page, where: tuple[str, int, str | None], vocab: Vocabulary | None = None,
+                      equipment: Equipment | None = None) -> _PageTables:
+    """The page's schedules; how many tables it has; the tables that list units but could not be read (READ-4:
+    a header the reader doesn't know, a table split it can't follow), each with the unit tags in its cells; and
+    the page's text outside the tables that were read, for counting what those unread tables list."""
     vocab = vocab or vocabulary()
     equipment = equipment or Equipment.load()
     area = page.rect.width * page.rect.height
@@ -626,14 +821,49 @@ def _read_tables(page: pymupdf.Page, where: tuple[str, int, str | None], vocab: 
     tables = [t for t in found if t.row_count >= vocab.min_rows and t.col_count >= vocab.min_columns]
     words = _Words(page)
     schedules: list[Schedule] = []
+    read_boxes: list[tuple] = []
+    unread: list[tuple[str, ...]] = []
     for table in tables:
         grid = _Grid(table)
         x0, y0, x1, y1 = grid.bbox
-        if (x1 - x0) * (y1 - y0) > vocab.border_share * area and not _heads(grid, vocab):
-            continue   # the sheet's border and title block. When a schedule's rules run into the border it is kept.
+        border = (x1 - x0) * (y1 - y0) > vocab.border_share * area
+        if border and not _heads(grid, vocab):
+            continue   # the sheet's border and title block. When a schedule's rules run into the border it is kept
+                       # (a header the reading list names; a header only shaped like one never keeps the border)
         others = [tuple(t.bbox) for t in tables if t is not table]
-        schedules += _split(grid, words, vocab, equipment, where, others)
-    return schedules, len(found)
+        split = _split(grid, words, vocab, equipment, where, others)
+        schedules += split
+        if any(row.tag for sch in split for row in sch.rows):
+            read_boxes.append(grid.bbox)
+        elif not any(sch.passive for sch in split):
+            named = _units_in_cells(grid, equipment)
+            if named:
+                unread.append(named)
+    return _PageTables(schedules, len(found), unread, _text_outside(words, read_boxes))
+
+
+def _units_in_cells(grid: _Grid, equipment: Equipment) -> tuple[str, ...]:
+    """The unit tags a table's cells start with, in order (a one-letter prefix only with its dash: "P-1", never
+    a type code "B1")."""
+    tags: list[str] = []
+    for r in range(grid.n_rows):
+        for c in range(grid.n_cols):
+            text = grid.text(r, c)
+            found = unit_tags_in_cell(text, equipment)
+            if found and (len(tag_prefix(found[0])) > 1 or re.match(rf"[A-Z]\s*[{_DASH}]", text)):
+                tags += found
+    return tuple(dict.fromkeys(tags))
+
+
+def _text_outside(words: _Words, boxes: list[tuple]) -> str:
+    """The page's text lines, top to bottom, of the words whose middle is outside every box."""
+    lines: dict[tuple[int, int], list[tuple]] = {}
+    for w in words.words:
+        x, y = (w[0] + w[2]) / 2, (w[1] + w[3]) / 2
+        if not any(_inside(x, y, box) for box in boxes):
+            lines.setdefault((w[5], w[6]), []).append(w)
+    ordered = sorted(lines.values(), key=lambda ws: (min(w[1] for w in ws), min(w[0] for w in ws)))
+    return "\n".join(" ".join(w[4] for w in sorted(ws, key=lambda w: w[0])) for ws in ordered)
 
 
 # --- a schedule sheet whose tables can't be read: its units counted from its text -------------------
@@ -798,10 +1028,13 @@ def read_schedules(catalogue, page_opener: PageOpener, pages: Collection[tuple[s
         where = (sheet.document, sheet.page, sheet.number)
         found: list[Schedule] = []
         tables = 0
+        unread: list[tuple[str, ...]] = []
+        leftover = ""
         if by_tables:
             try:
                 page = page_opener(sheet.document, sheet.page)
-                found, tables = _read_tables(page, where, vocab, equipment)
+                read = _read_page_tables(page, where, vocab, equipment)
+                found, tables, unread, leftover = read.schedules, read.tables, read.unread, read.leftover
                 found = [s for s in found if not vocab.not_schedules.search(s.title)]
             except Exception as error:
                 if flags is not None:
@@ -812,6 +1045,28 @@ def read_schedules(catalogue, page_opener: PageOpener, pages: Collection[tuple[s
         # at all (a schedule set out without rules); one whose tables were read and weren't schedules isn't.
         if by_text and not any(s.rows for s in found) and (record.status == "ocr" or not tables):
             found = schedules_from_text(text, where, vocab, equipment, sheet_numbers)
+        elif unread:
+            # READ-4: a table that lists units but couldn't be read is never a silent zero. On a schedule sheet its
+            # units are counted from the sheet's text outside the tables that were read (the whole OCR text, less
+            # the units already read), flagged; on any other sheet it is flagged to be checked by eye.
+            read_tags = {row.tag for s in found for row in s.rows if row.tag}
+            counted: set[str] = set()
+            if by_text:
+                extra = schedules_from_text(leftover if record.status != "ocr" else text, where, vocab, equipment,
+                                            set(sheet_numbers) | read_tags)
+                found += extra
+                counted = {row.tag for s in extra for row in s.rows if row.tag}
+            if flags is not None:
+                name = sheet.number or f"{sheet.document.rsplit('/', 1)[-1]} page {sheet.page}"
+                for tags in unread:
+                    missing = [t for t in tags if t not in read_tags]
+                    if not missing:
+                        continue
+                    shown = ", ".join(missing[:6]) + (" …" if len(missing) > 6 else "")
+                    how = ("counted from the sheet's text — check the count"
+                           if all(t in counted for t in missing) else "check by eye, not all counted")
+                    flags.append(f"{name}: a schedule table listing {shown} could not be read from its table "
+                                 f"(its tag column wasn't recognised) — {how}")
         if judge is not None and image_dir is not None and "Schedules" in sheet.types:
             found = _by_eye(sheet, text, found, page_opener, judge, image_dir, plan_tags, vocab, equipment, flags)
         schedules += found

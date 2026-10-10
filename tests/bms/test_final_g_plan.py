@@ -59,8 +59,8 @@ def test_the_condensate_pump_question_names_neither_a_cooling_tower_nor_a_coolin
 
 
 def test_a_no_kind_code_already_a_tag_of_its_owner_says_the_owner_count_is_its_own():
-    """P-1 is one of P's tags and has its own count of 3; the P count printed is that 3. The question says so,
-    so the estimator knows P could be more than 3."""
+    """P-1 is one of P's tags and has its own count of 3. The estimator's count ruling (2026-10-09): the P
+    schedule's 2 stays the printed count and P-1's 3 is a DISCREPANCY beside it; the question says so."""
     ledger = _ledger()
     _family(ledger, "P", "Circulating Pump", "P-1, P-2", 2)
     ledger.add("family", "P-1", "type code on a schedule", "S1", "P-1 (type code on a schedule): schedule rows 1",
@@ -70,4 +70,5 @@ def test_a_no_kind_code_already_a_tag_of_its_owner_says_the_owner_count_is_its_o
     (p,) = job.systems
     (asked,) = [q for q in job.questions if "P-1" in q]
     assert "one of the Circulating Pump (P) tags" in asked
-    assert f"The P count ({p.families[0].count.value}) is taken from P-1's own count" in asked
+    assert p.families[0].count.value == 2 and 3 in {o.value for o in p.families[0].count.others}
+    assert "DISCREPANCY: P-1's own count gives 3; the P count stays 2, the schedule's." in asked

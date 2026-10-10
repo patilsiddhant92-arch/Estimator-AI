@@ -1,7 +1,7 @@
 """The rebuilt estimate, in its final order (design §5 "Integration"):
 
 read (the old app's staged reading) -> plan_job -> counts cross-check (text and vision, through the run's transport)
--> write_system per system -> the estimator's decisions -> validate -> qc_job -> revise_system (must_fix only, one
+-> write_system per system (and the front end, `ai.write_front_end`) -> the estimator's decisions -> validate -> qc_job -> revise_system (must_fix only, one
 round) -> validate -> review_page (with the count proofs) -> render -> the Word proposal, the price sheet and the
 Evidence Package (the Job's scope lines and findings beside the old reading tabs).
 
@@ -22,7 +22,11 @@ the review page. The page shows the job after the revise, so a device decision w
 the writer wrote (the revise re-worded it) is applied to the revised job instead; one that matches neither is a
 must_fix "decision could not be applied" on the review page, never skipped in silence. The page saves only its own
 answers, so the run keeps every save in `decisions history.json` and applies them all (`bms.review.merge_decisions`):
-a later save never undoes an earlier one in silence. An earlier delete that took effect and whose line is in no job
+a later save never undoes an earlier one in silence, and an older decisions.json copied in again is not merged over
+newer answers: the run says so (RUN-2). The revise keeps the estimator's lines: a line they changed is not
+re-opened, a line they deleted is not written back (RUN-1). A must_fix finding about a whole block that asks for a
+family count or the alternate lets the revise correct it, checked against the evidence; each correction is a check
+card naming its source (RUN-11). An earlier delete that took effect and whose line is in no job
 any more makes no card while its system is as the last finished run left it; when the system changed since (it
 was asked again), it is a "check this system" card (severity check), since the line may have come back
 re-worded. An earlier change or accept that matches nothing keeps its "could not be applied" card. A malformed
@@ -64,11 +68,12 @@ from bms.model import Decision, Device, Finding, Header, Job, ModelError, System
 from bms.plan import plan_job
 from bms.playbook import load_playbook
 from bms.citations import SourceIds
-from bms.render import RenderError, render
+from bms.render import RenderError, render, scope_exceptions
 from bms.status import RUN_STATE
-from bms.review import (DECISIONS_FILE, DECISIONS_HISTORY, SavedDecision, _matches_nothing, _target, accept_families,
-                        apply_decisions, apply_seen, copies_seen, held_back, keep_deleted, load_decisions, load_history,
-                        merge_decisions, review_page, save_history, system_digest, unhonored_decisions)
+from bms.review import (CORRECTED_COUNT, DECISIONS_FILE, DECISIONS_HISTORY, SavedDecision, _matches_nothing, _target, accept_families,
+                        apply_decisions, apply_seen, copies_seen, decisions_page, held_back, keep_deleted,
+                        load_decisions, load_history, merge_decisions, review_page, save_history, stale_save,
+                        system_digest, unhonored_decisions)
 from bms.validate import RULE, validate
 
 Mode = Literal["chat", "api"]
@@ -129,16 +134,45 @@ def _standing_accepts(entries: list[SavedDecision], key: str, job: Job | None = 
 
 
 def _revised(system, findings, evidence, playbook, transport, job=None, decisions=None, ids=None, sheets=(),
-             source_sheets=None):
+             source_sheets=None, lines=None, counts_decided=False):
     """Revise, then flag quantity disagreements again. Devices accepted by the estimator stay accepted, unless a
-    decision in `decisions` changes a family count of this system (the new count flags the system again)."""
+    decision in `decisions` changes a family count of this system (the new count flags the system again).
+
+    `lines` (RUN-1): the estimator's line decisions on this system (changes and deletes, `run` passes every one the
+    written job took). The lines they changed are kept as they are through the revise (`ai.revise_system`
+    `estimators`), the lines they deleted are named to the writer and, when the answer writes one again, taken out
+    again by the saved line (`review.keep_deleted`), and a change the answer undid word for word is applied again,
+    as after the count rewrite. A family count the revise corrected (RUN-11) reaches the lines still at the old
+    count (`_carry_new_counts`)."""
+    # the line decisions given in `decisions` count too (a change or a delete there is the estimator's line)
+    given = [*(lines or ()), *(d for d in (decisions or ()) if d.action in ("change", "delete")
+                               and not any(d == other for other in (lines or ())))]
+    lines = [d for d in given if d.system_key == system.key and d.device_id is not None]
+    changes = [d for d in lines if d.action == "change" and d.device is not None]
+    deletes = [d for d in lines if d.action == "delete" and d.was is not None]
+    estimators = tuple(dev.id for dev in system.devices
+                       if any(_same_line(dev, d.device) for d in changes))
+    counts_decided = counts_decided or (bool(decisions) and _counts_changed(decisions, system.key))
+    # only what is set: a revise with no estimator's line asks as before
+    extra = {name: value for name, value in (("estimators", estimators), ("deleted", tuple(d.was for d in deletes)),
+                                             ("counts_decided", counts_decided)) if value}
     if job is None:
-        revised = ai.revise_system(system, findings, evidence, playbook, transport)
+        revised = ai.revise_system(system, findings, evidence, playbook, transport, **extra)
     else:
         revised = ai.revise_system(system, findings, evidence, playbook, transport, tags=job_tags(job),
                                     ids=job_ids(job) if ids is None else ids, sheets=sheets,
                                     source_sheets=tuple(job.source_sheets) if source_sheets is None
-                                    else source_sheets)
+                                    else source_sheets, **extra)
+    if revised is not system and revised.families != system.families:
+        revised = _carry_new_counts(system, revised, revised)
+    if revised is not system and lines:
+        before = job if job is not None else Job("temp", systems=(system,))
+        before = before.with_system(system) if any(s.key == system.key for s in before.systems) else before
+        undone = [d for d in changes if not any(_same_line(dev, d.device) for dev in revised.devices)
+                  and d.was is not None and any(_same_line(dev, d.was) for dev in revised.devices)]
+        if undone:
+            revised = apply_decisions(before.with_system(revised), undone).system(system.key)
+        revised = keep_deleted(before, revised, deletes)
     flagged = flag_written_devices(revised)
     if not decisions:
         return flagged
@@ -151,6 +185,45 @@ def _revised(system, findings, evidence, playbook, transport, job=None, decision
     else:
         temp_job = Job("temp", systems=(flagged,))
     return apply_decisions(temp_job, accepted).system(system.key)
+
+
+def _same_line(device: Device, other: Device) -> bool:
+    """The same line, the id and the flag aside (`review._same_device`)."""
+    return dataclasses.replace(device, id="", flag="none") == dataclasses.replace(other, id="", flag="none")
+
+
+def revise_corrections(before: System, after: System, findings, evidence: str = "") -> list[Finding]:
+    """A check card for each planner field the revise corrected (RUN-11): a family count or the alternate, with
+    the source the correction rests on and the finding that asked for it, so the estimator sees it on the review
+    page and in the Evidence Package (rules.md "The schedule count prints": the estimator decides on review). The
+    card names the printed counts (`Count.printed`: the schedule's when a schedule gives it)."""
+    asked = [f for f in findings if f.system_key == before.key and f.severity == "must_fix" and f.device_id is None]
+    cards = []
+    for old in before.families:
+        new = next((f for f in after.families if f.name == old.name), None)
+        if new is None or new.count == old.count:
+            continue
+        why = next((f for f in asked if f.rule in ai.COUNT_RULES), None) or next(iter(asked), None)
+        cited = "; ".join(f'{r.source_id} "{r.quote}" ({r.where})' for r in new.count.sources)
+        rule = why.rule if why is not None and why.rule in RULE.values() else RULE["higher"]
+        cards.append(Finding(rule, before.key, None, "check",
+                             CORRECTED_COUNT.format(family=old.name) + f" from {old.count.printed()} to "
+                             f"{new.count.printed()}, as a finding asked"
+                             + (f" ({why.what})" if why is not None else "") + f"; per {cited}"
+                             + ("; the schedule's count" if new.count.basis == "schedule" else ""),
+                             f"Check the count against the documents. To set another count, change it on the "
+                             f"'How many {old.name} units?' card: the schedule's count prints when a schedule gives "
+                             f"one, else the highest the documents give."))
+    if after.alternate != before.alternate:
+        why = next((f for f in asked if f.rule == ai.ALTERNATE_RULE), None) or next(iter(asked), None)
+        support = ai.alternate_support(before, evidence, after.alternate) or "no passage found"
+        cards.append(Finding(ai.ALTERNATE_RULE, before.key, None, "check",
+                             f"the revise set {before.name} from {before.alternate} to "
+                             f"{'base bid' if after.alternate == 'base' else after.alternate + ' alternate'}, as a "
+                             f"finding asked" + (f" ({why.what})" if why is not None else "") + f"; per {support}",
+                             "Check the bid form. If the system is not that alternate, tell the writer on this "
+                             "system's card."))
+    return cards
 
 
 def _families_changed(before: Job, key: str, after: Job) -> bool:
@@ -192,8 +265,11 @@ def _carry_new_counts(before: System, after: System, rewritten: System, typed: f
                                                                                         quantity=own[device.id])
         for old, new in changed:
             if device.quantity.value == old.count.value and counted_from(device, old):
-                return dataclasses.replace(device, quantity=dataclasses.replace(device.quantity,
-                                                                                value=new.count.value))
+                # the line takes the family's basis with its new count (the count ruling: a line counted from a
+                # family carries its count whole)
+                return dataclasses.replace(device, quantity=dataclasses.replace(
+                    device.quantity, value=new.count.value,
+                    basis=new.count.basis if new.count.basis != old.count.basis else device.quantity.basis))
         return device
     devices = tuple(carried(device) for device in rewritten.devices)
     return rewritten if devices == rewritten.devices else dataclasses.replace(rewritten, devices=devices)
@@ -331,7 +407,8 @@ def _untouched(finding: Finding, before: Job, after: Job) -> bool:
     system; for the front end or the whole job, everything) is the same after the revise. It stays open for the
     estimator, since QC is not asked again."""
     if not finding.system_key:
-        return True
+        # a front-end finding is closed by a revise that changed the front end; the whole job's stay open
+        return not ai.is_front_end_finding(finding, before.front_end) or before.front_end == after.front_end
     try:
         old, new = before.system(finding.system_key), after.system(finding.system_key)
     except KeyError:
@@ -485,6 +562,9 @@ def _estimate(job_folder: Path, out: Path, cache: Path, mode: Mode, known: dict)
     # 3. write every system (all are asked before stopping for answers)
     known["stage"] = "write"
     evidence = {s.key: ai.evidence_for(s, dossier) for s in job.systems}
+    if job.front_end is not None:
+        # the front end is written as a block of its own, from the spec passages the reading found it in
+        evidence[ai.FRONT_END_KEY] = ai.front_end_evidence(job.front_end, dossier)
     # I, one set for every writer and the revise: every id of the job and of every system's evidence. A ref may
     # cite only its system's evidence, so the final job's ids (the validator's and the renderer's I) are in it, and a
     # text one writer accepts is never an issued id once a later system cites it.
@@ -513,6 +593,13 @@ def _estimate(job_folder: Path, out: Path, cache: Path, mode: Mode, known: dict)
                                 ids=issued(job), sheets=sheets(job), source_sheets=source(job))))
         except ai.NoAnswer as missing:
             pending.append(_not_answered(system.name, missing))
+    if job.front_end is not None:
+        try:
+            job = dataclasses.replace(job, front_end=ai.write_front_end(
+                job.front_end, evidence[ai.FRONT_END_KEY], playbook, transport, tags=job_tags(job),
+                ids=issued(job), sheets=sheets(job), source_sheets=source(job)))
+        except ai.NoAnswer as missing:
+            pending.append(_not_answered(ai.FRONT_END_NAME, missing))
     save(job)
     if pending:
         return RunResult("waiting", "write", waiting=transport.waiting, job_file=job_file, messages=tuple(pending))
@@ -526,18 +613,29 @@ def _estimate(job_folder: Path, out: Path, cache: Path, mode: Mode, known: dict)
     try:
         earlier = load_history(out)
         saved = load_decisions(out)
-        history = merge_decisions(earlier, saved, job=job)
+        page = decisions_page(out)
+        history = merge_decisions(earlier, saved, job=job, page=page)
     except ModelError as error:
         return RunResult("waiting", "decisions", waiting=0, job_file=job_file, messages=(_stopped(error),))
     notes: tuple[str, ...] = ()
+    # an older save copied in again is not merged over newer answers (RUN-2): said, never in silence
+    if stale_save(earlier, saved, page):
+        notes += (f"Decisions: {DECISIONS_FILE} is an earlier save that was already applied, and a newer save "
+                  "came after it, so it is not applied again: the newer answers stand. To use these answers, "
+                  "answer them on the latest review page and save again.",)
+    copies_left = sorted(p.name for p in out.glob("decisions (*).json"))
+    if copies_left:
+        notes += (f"Decisions: {', '.join(copies_left)} {'is' if len(copies_left) == 1 else 'are'} in the out "
+                  f"folder; only {DECISIONS_FILE} is read. If one of them is your newest save, rename it to "
+                  f"{DECISIONS_FILE}.",)
     # a first save has no history yet, which is normal: the note only when an earlier run saved one (its run state)
     if saved and not (out / DECISIONS_HISTORY).is_file() and known.get("decisions", 0) > 0:
-        notes = (f"Decisions: no {DECISIONS_HISTORY} was found, so the decisions start from {DECISIONS_FILE} "
+        notes += (f"Decisions: no {DECISIONS_HISTORY} was found, so the decisions start from {DECISIONS_FILE} "
                  "alone; if an earlier history was deleted, the decisions of earlier saves are not applied.",)
     # decisions.json deleted to start over: the history still holds every earlier save and is still applied
     if earlier and not (out / DECISIONS_FILE).is_file():
         n = len(earlier)
-        notes = (f"Decisions: no {DECISIONS_FILE} was found, but the {n} decision{'s' if n != 1 else ''} kept in "
+        notes += (f"Decisions: no {DECISIONS_FILE} was found, but the {n} decision{'s' if n != 1 else ''} kept in "
                  f"{DECISIONS_HISTORY} {'are' if n != 1 else 'is'} still applied; to start over, delete both "
                  f"{DECISIONS_FILE} and {DECISIONS_HISTORY}.",)
     if history:
@@ -607,16 +705,37 @@ def _estimate(job_folder: Path, out: Path, cache: Path, mode: Mode, known: dict)
     must_fix = [f for f in [*findings, *qc] if f.severity == "must_fix"
                 and not (f.rule == RULE["ids"] and (f.system_key, f.device_id) in estimators)]
     written = job
-    for key in dict.fromkeys(f.system_key for f in must_fix if f.system_key):
+    corrections: list[Finding] = []
+    # the estimator's line decisions the written job took: kept through the revise (RUN-1)
+    lines = [d for d in decisions if d.device_id is not None and d.action in ("change", "delete")
+             and not _matches_nothing(decided_from, d) and not held_back(decided_from, d, copies)]
+    for key in dict.fromkeys(f.system_key for f in must_fix if f.system_key and f.system_key != ai.FRONT_END_KEY):
         system = job.system(key)
+        mine = [f for f in must_fix if f.system_key == key]
         try:
-            job = job.with_system(_revised(system, [f for f in must_fix if f.system_key == key],
-                                            evidence[key], playbook, transport, job,
-                                            decisions=_standing_accepts(history, key, decided_from),
-                                            ids=issued(job), sheets=sheets(job), source_sheets=source(job)))
+            revised = _revised(system, mine, evidence[key], playbook, transport, job,
+                               decisions=_standing_accepts(history, key, decided_from),
+                               ids=issued(job), sheets=sheets(job), source_sheets=source(job), lines=lines,
+                               counts_decided=_counts_changed(decisions, key))
+            corrections += revise_corrections(system, revised, mine, evidence[key])
+            job = job.with_system(revised)
 
         except ai.NoAnswer as missing:
             pending.append(_not_answered(system.name, missing))
+    # the front end's must_fix findings (QC's and the validator's, on the whole job's key) reach its revise
+    front = job.front_end
+    if front is not None and any(ai.is_front_end_finding(f, front) for f in must_fix):
+        mine = [d for d in lines if d.system_key == ""]
+        extra = {name: value for name, value in (
+            ("estimators", tuple(dev.id for dev in front.devices if any(
+                d.action == "change" and d.device is not None and _same_line(dev, d.device) for d in mine))),
+            ("deleted", tuple(d.was for d in mine if d.action == "delete" and d.was is not None))) if value}
+        try:
+            job = dataclasses.replace(job, front_end=ai.revise_front_end(
+                front, must_fix, evidence.get(ai.FRONT_END_KEY, ""), playbook, transport, tags=job_tags(job),
+                ids=issued(job), sheets=sheets(job), source_sheets=source(job), **extra))
+        except ai.NoAnswer as missing:
+            pending.append(_not_answered(f"{ai.FRONT_END_NAME} (revise)", missing))
     # a device decision made on the page's (revised) wording that matched nothing the writer wrote is applied to
     # the revised job; one decision is never applied twice
     # (an accept a count change overrules is not applied late either)
@@ -656,6 +775,10 @@ def _estimate(job_folder: Path, out: Path, cache: Path, mode: Mode, known: dict)
     if pending:
         return RunResult("waiting", "revise", waiting=transport.waiting, job_file=job_file,
                          messages=(*notes, *pending))
+    # a block the documents list equipment for that ends with no AME line is a named exception (rules.md "Named
+    # exceptions"), in the job itself so Job.json, the review page and the Evidence Package show it as printed
+    job = dataclasses.replace(job, exceptions=scope_exceptions(job))
+    save(job)
     findings = validate(job, playbook)
     open_qc = [f for f in qc if f.severity != "must_fix" or _untouched(f, written, job)]
     # the revised job's quotes, checked again: a revise that changed a line closes its QC finding, never the check
@@ -663,7 +786,7 @@ def _estimate(job_folder: Path, out: Path, cache: Path, mode: Mode, known: dict)
     open_qc += [f for f in ai.quote_findings(job, index, playbook)
                 if (f.rule, f.system_key, f.device_id, f.what) not in known_qc]
     id_cards = [_id_change_card(*found) for found in _ids_in_changes(job, decisions)]
-    all_findings = tuple([*id_cards, *findings, *open_qc, *unhonored_decisions(decided_from, early, job, copies=copies),
+    all_findings = tuple([*id_cards, *corrections, *findings, *open_qc, *unhonored_decisions(decided_from, early, job, copies=copies),
                           *unhonored_decisions(revised_job, checked_late, job, copies=copies), *rechecks])
 
     # 6. the review page, the render and the three documents

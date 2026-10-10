@@ -158,6 +158,13 @@ Work top to bottom. Items on one line share a root cause or the same lines of co
   usually standard within one drawing set. When a sheet is cited, give its page beside it: "M-101 (pg.56)"
   (citation-format request: check where the `where` texts are built before changing).
 - D9: accepted (value is the highest whenever any count exists; Evidence Package prints the same).
+- COUNT RULING (2026-10-09, the estimator; narrows D9; audit DOC-1..4, PLAN-1..5): the equipment schedule is the
+  primary source of truth. When a schedule gives a count (`Count.basis` "schedule"), the schedule's quantity prints
+  and is the working count; plan, riser and vision counts verify it, and every difference is a flag per
+  Brain/Quantity rules.txt (DISCREPANCY beside a schedule; a duplicate tag row on a schedule is a DISCREPANCY), shown
+  in the counts evidence, never silently raising or lowering the count. Only with no schedule does D9 hold: the
+  highest supported count prints, flagged (CONFLICT). Playbook rules "The schedule count prints" and "Never change a
+  count silently" replace "Higher count prints" and "Never undershoot".
 
 These are not code the fixer can decide alone. Each names the bugs waiting on it.
 

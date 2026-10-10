@@ -124,8 +124,15 @@ The main ones:
 - The job's own documents decide the scope. Every line cites this job. No standard lines are added.
 - The Master Template sets only the shape of a block, never what is in it.
 - Every line says who furnishes, installs and wires.
-- The higher count prints, flagged, with every count named. An unknown count prints as "Qty (##)".
+- The equipment schedule is the source of truth for counts (the estimator's ruling, 2026-10-09). When a schedule
+  gives a count, the schedule's count prints and is the working count; the plans, risers, the sheet text and the
+  sheet picture only check it. A count that differs is a flag (DISCREPANCY), named with where it is in the quantity
+  note and in the Evidence Package's Counts tab, and it never raises or lowers the printed count. A tag listed twice
+  on a schedule is a DISCREPANCY too, never a silent 1 or 2. A schedule of types with no quantity column (CUH-A,
+  EBB-B) gives no unit count: the plans' count of their places is the quantity. Only when no schedule gives a count
+  does the highest count the documents support print, flagged as a CONFLICT. An unknown count prints as "Qty (##)".
 - On the plans, when in doubt the sheets add up: an overcount is named for you, an undercount would be invisible.
+  (This is how the plan count is made; beside a schedule it is a check, never the printed count.)
   Two plan sheets count as one plan only when they are in one document, have two different sheet numbers (two
   pages of one number are never one plan), their titles name a floor and say the same words in the same order (the
   trade words aside: "HVAC DUCTWORK FIRST FLOOR PLAN" and "HVAC PIPING FIRST FLOOR PLAN"; "BUILDING 1 LEVEL 2" and
@@ -134,16 +141,18 @@ The main ones:
   most of one sheet, and the counts line says "M-101 and M-201 counted as one plan ...; check". Every other sheet
   adds up, so EBB-1 on ten floors' plans is 10, and the counts line names it in case it is one unit shown again,
   and names sheets that may show one plan. A typical plan counts once per floor it stands for, each floor once.
-  The Evidence Package's inventory counts with the same rule. When the plans still show more than the schedule,
-  the quantity note says the likely cause in plain words, for example
+  The Evidence Package's inventory counts with the same rule, and so do the plan-text and picture counts of the
+  count check (a typical plan's tags times its floors; on the picture, every place a tag is drawn). When the plans
+  still show more than the schedule, the quantity note says the likely cause in plain words, for example
   "*Qty. (12) per plan placements (likely a typical unit at each place); 1 per schedule rows." Those words
   are in `playbook/wording.json` (`count_causes`). The tags and sheets behind a cause go to the writers'
   evidence, never into the client's note.
 - How a label is read. A tag counts on a plan when it stands alone ("VAV-3", "(VAV-3)") or starts a short line,
   whatever words follow ("VAV-3 450 CFM", "EF-2 ON ROOF"); other tags on that line count too ("FCU-4 / FCU-5",
   "VAV-1 THRU VAV-5"). A tag after a word like TO, FROM, SEE, PER or SERVED BY is a note, not a label, and so is any
-  line of more than 12 words. A count written after a tag is that many places: "CUH-A (TYP. OF 4)", "CUH-A x4",
-  "CUH-A (4)" and "CUH-A 4 PLACES" are four. A count over 50, or one the app cannot read, is counted as one place,
+  line of more than 12 words. A count written with a tag is that many places: "CUH-A (TYP. OF 4)", "CUH-A (TYP. OF 4
+  PLACES)", "CUH-A (TYP. 4)", "CUH-A, TYP. OF 4", "CUH-A x4", "CUH-A (4)", "CUH-A(4)", "CUH-A 4 PLACES",
+  "CUH-A (4 TOTAL)", "CUH-A (QTY 4)", "4x CUH-A", "(4) CUH-A" and "CUH-A" over "(TYP. OF 4)" are four. A count over 50, or one the app cannot read, is counted as one place,
   and the counts line names the tag and the words so you can check.
 - A unit is never lost. A unit's tag (VAV-101) the plan names anywhere, even only in a note, counts once on that
   plan when it is labelled nowhere. A type's tag (EBB-A) counts only where it is labelled.

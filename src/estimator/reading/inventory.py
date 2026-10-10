@@ -341,6 +341,10 @@ def plan_areas(plans) -> dict[tuple[str, int], int]:
 # drawn on several sheets: a ductwork plan and its piping plan) only when every test below holds; every other sheet
 # is its own group, and the groups add up. `inventory.placements` and the dossier's counts line both count with
 # `plan_groups` and `plan_count`, so the Evidence Package and the proposal never disagree.
+# READ-2 (2026-10-09): one floor's plans of several trades (its ductwork, piping, zoning or controls plan, one
+# document, the same floor words) are one plan group without the shared-tag test (`_one_plan`): their placements are
+# one set, the most of one sheet, never the sum, and the counts line names them as one plan with the sum beside it.
+# Typical-floor multiplication (`plan_count`'s floors) is unchanged.
 
 _TRADE_WORDS = TRADE_WORDS
 _FLOOR_TOKEN = re.compile(
@@ -354,14 +358,49 @@ def _title_tokens(sheet) -> tuple[str, ...]:
     return title_words(sheet)
 
 
+# The plan disciplines of one floor (READ-2): a ductwork, a piping, a zoning or controls, an airflow or balancing plan
+# of one floor show the same units, each sheet for its own trade. Their placements are one set, the most of any one
+# sheet, never the sum (VAV-A labelled on FLOOR 30's ductwork and its zoning plan is one set of boxes). These words
+# are taken out of a title only to compare the floor it names; supersession keeps `title_words` as it is.
+PLAN_DISCIPLINE_WORDS = frozenset({"DUCTWORK", "DUCT", "SHEETMETAL", "PIPING", "PIPE", "HYDRONIC", "HYDRONICS",
+                                   "REFRIGERANT", "REFRIGERATION", "CONTROLS", "CONTROL", "ZONING", "ZONE", "ZONES",
+                                   "AIRFLOW", "BALANCE", "BALANCING", "VENTILATION", "TEMPERATURE", "BMS", "BAS",
+                                   "DDC", "ATC", "HVAC", "MECHANICAL", "MECH", "PLAN", "PLANS", "AND", "LAYOUT"})
+_LEVEL_NAMES = frozenset({"CONCOURSE", "PODIUM", "PLAZA", "LOBBY"})   # a level named by a word, not a number
+_SAYS_NOTHING = frozenset({"HVAC", "MECHANICAL", "MECH", "PLAN", "PLANS", "AND", "LAYOUT"})
+
+
+def _discipline_split(sheet) -> tuple[tuple[str, ...], frozenset[str]]:
+    """(the title's words in order without its plan-discipline words, the discipline words it names): "FLOOR 30 -
+    MECHANICAL ZONING PLAN" is (FLOOR 30, {ZONING}), "MECHANICAL 14TH FLOOR PIPING AND CONTROLS PLAN" is
+    (14TH FLOOR, {PIPING, CONTROLS})."""
+    title = re.sub(r"\bL-(\d)", r"L\1", title_without_number(sheet))
+    words = re.findall(r"[A-Z0-9]+", title)
+    rest = tuple(w for w in words if w not in PLAN_DISCIPLINE_WORDS)
+    named = frozenset(w for w in words if w in PLAN_DISCIPLINE_WORDS and w not in _SAYS_NOTHING)
+    return rest, named
+
+
 def _one_plan(a, a_tags, b, b_tags, codes: Collection[str]) -> bool:
     """Two plan sheets show one plan: the same document, the same title words (`_title_tokens`) with a floor among
     them (so BASEMENT 1 and BASEMENT 2, BLDG. A and BLDG. B, TOWERS 1 AND 2 and 3 AND 4 never are), and at least
     AREA_SHARED unit tags repeated, AREA_OVERLAP of the smaller sheet's (a type's tag is never evidence). Two pages
     of one sheet number never are: alike on every page they are one plan for several floors (`plan_floors`), else
-    each page is its own sheet, counted (REVIEW-FINAL7 F7: pages 1 and 3 alike, page 2 other, are three sheets)."""
+    each page is its own sheet, counted (REVIEW-FINAL7 F7: pages 1 and 3 alike, page 2 other, are three sheets).
+
+    Two plans of one floor for two plan disciplines (READ-2: FLOOR 30's DUCTWORK plan and its ZONING plan, the 14TH
+    FLOOR plan and its PIPING AND CONTROLS plan) are one plan without the tag test: the same document, the same
+    title words with a floor among them once the discipline words are taken out (`_discipline_split`), and other
+    discipline words. Their placements are one set (the most of any one sheet), never the sum. A demolition plan,
+    an enlarged or partial plan, or one naming another part of the floor keeps words of its own and stays apart."""
     if a.document != b.document or (a.number and a.number == b.number):
         return False
+    a_rest, a_named = _discipline_split(a)
+    b_rest, b_named = _discipline_split(b)
+    if (a_rest and a_rest == b_rest and a_named != b_named and not _ENLARGED.search((a.title or "").upper())
+            and (_area_key(a.title) is not None and any(_FLOOR_TOKEN.match(w) for w in a_rest)
+                 or any(w in _LEVEL_NAMES for w in a_rest))):
+        return True
     words = _title_tokens(a)
     if not words or words != _title_tokens(b) or not any(_FLOOR_TOKEN.match(w) for w in words):
         return False
@@ -903,8 +942,18 @@ def build_inventory(catalogue, schedules: list[Schedule], typicals: Sequence = (
     # A type code a type-only schedule counts (`_type_rows`), by the schedule that first counted it: another version
     # of the schedule (RD-1) adds the codes it alone lists, and of a code both give a quantity the higher counts.
     typed_codes: dict[str, tuple[int, Schedule]] = {}
+    passive: list[str] = []
     for schedule in schedules:
         if not schedule.type_only or not schedule.rows:
+            continue
+        if getattr(schedule, "passive", False):
+            # READ-3: a schedule of passive air devices by type (diffusers, grilles, air outlets) lists no
+            # equipment: its codes are never units, families or controls systems, only said once here
+            key = schedule.headers[0] if schedule.headers else ""
+            codes = list(dict.fromkeys(row.cells.get(key, "") for row in schedule.rows if row.cells.get(key)))
+            shown = ", ".join(codes[:8]) + (" …" if len(codes) > 8 else "")
+            passive.append(f"{_label(schedule)} lists air-device types ({shown}) — passive devices, not equipment; "
+                           f"not counted")
             continue
         counted_types = _type_rows(schedule, {item.tag for item in items if item.tag not in typed_codes})
         if counted_types:
@@ -931,7 +980,7 @@ def build_inventory(catalogue, schedules: list[Schedule], typicals: Sequence = (
              f"units, so this may be right" for a, b in vocabulary().pairs
              if counts.get(a) and counts.get(b) and counts[a] != counts[b]]
     return (items, totals, pairs + dropped + _new_prefix_flags(schedules) + _from_text_flags(from_text)
-            + _left_out(spec_only, mentioned, sorted(never, key=_natural)))
+            + _left_out(spec_only, mentioned, sorted(never, key=_natural)) + passive)
 
 
 def _plan_like(sheet) -> bool:

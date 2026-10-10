@@ -157,13 +157,23 @@ exclusion; or a device with real cost has no named party and no default fits. Qu
 
 ## Counts and quantities
 
-### Higher count prints
-When the documents give different counts, the highest count prints, flagged, and every other count is named with
-where it is. The estimator decides on review.
+### The schedule count prints
+The equipment schedule is the primary source of every equipment count (the estimator's ruling, 2026-10-09). When a
+schedule gives the count, the schedule's quantity prints and is the working count. Floor plans, risers, the sheet
+text, the sheet picture and a longer tag list verify it: a count that agrees confirms it; a count that differs is a
+flag, never a reason to raise or lower the printed count. Each flag uses a category of the quantity rules:
+CONFIRMED, DISCREPANCY (a supporting sheet gives another count than the schedule), EXTRA (on a sheet, not in the
+schedule), MISSING (in the schedule, on no drawing), ORPHANED (in one place only), CONFLICT (different counts and
+no schedule to hold them to) and EXISTING / REMOVAL (not new work). The same tag listed twice on a schedule is a
+DISCREPANCY: never a silent 1 and never a silent 2. A schedule of types with no quantity (CUH-A, VAV type B) gives
+no unit count: the plans' count of the types' places is the quantity. Only when no schedule gives the count does
+the highest count the documents support print, flagged as a CONFLICT. Every other count is named with where it
+is, the flag shows in the Evidence Package's counts, and the estimator decides on review.
 
-### Never undershoot
-Never print a count lower than one the documents give. Never invent a number. An unknown count prints "Qty (##)"
-in a header and "(Qty. ##)" on a line, flagged to confirm.
+### Never change a count silently
+Never raise or lower a count without its flag, and never drop a count the documents give: every other count stays
+beside the printed one with its source. Never invent a number. An unknown count prints "Qty (##)" in a header and
+"(Qty. ##)" on a line, flagged to confirm.
 
 ### Line quantity
 A line's quantity prints only when it differs from the block's count, as "(Qty. N Total)". Identical lines for
@@ -254,6 +264,35 @@ wired at the factory and is not written. Do not write a line per monitored point
 ### Factory-installed devices
 A device installed at the factory is never a line, blanket wiring clause or not. It becomes "Wire <device>
 (Furnished by Unit Mfr.)" only when the sequence itself gives the wiring of that device to the controls contractor.
+
+### VAV boxes are field DDC
+A VAV box (VAV, fan powered box, CAV box, any terminal unit of the VAV / Fan VAV shape) is not a packaged unit. AME
+furnishes the box's DDC controller to the box manufacturer, who mounts it at the factory: a note that the boxes ship
+with a factory-installed, factory-mounted or open protocol controller, or are "packaged", is that controller, never
+the unit manufacturer's own controls. Write the box's lines in the shape's order, each only when this job's
+documents call for it: "Furnish DDC Controller to the Factory for Installation"; the space sensor the sequence
+declares, "Furnish and Install Space Temperature Sensor", "Space Temperature / Humidity Sensor", "Space Temperature
+/ Humidity / CO2 Sensor" or "Space Temperature / CO2 Sensor" (a zone with demand control ventilation takes the CO2
+form, each form its own line with its own count; a thermostat the plans show for the zone is this sensor);
+"Furnish Fan Enable" only for a fan powered box; "Furnish and Install Discharge Air Temperature Sensor" on every
+reheat box; then "Furnish and Wire Hot Water Control Valve and Actuator", or "Furnish Electric Heat Enable (DO)", or
+"Furnish Electric Heat SCR Control (AO)", whichever the reheat is; then the 24V power: "Run 24V Power Loop to VAVs"
+when the documents give the 24V wiring to the controls contractor, or "Furnish and Install VAV Transformer", or "24V
+VAV Transformer is Coming with the Unit" when the schedule, sequence or details give the transformer to the unit
+manufacturer. A cooling-only box takes no discharge sensor, valve or heat line.
+
+### VAV boxes on the manufacturer's controls
+A VAV box takes the three integration lines in place of the DDC controller only when the documents say its controls
+are the unit manufacturer's own and the BMS integrates them. When the documents give the box controls to the
+manufacturer but do not say who integrates them, or also give the controller to the controls contractor, keep the
+DDC controller lines and flag the ownership to confirm.
+
+### VAV zone radiation interlock
+Radiation the sequence ties to a VAV zone (finned tube, radiator or perimeter heat valves run with the zone's
+thermostat or sensor) is written in the radiation's own block when the radiation is scheduled with tags of its own:
+"Furnish and Wire Hot Water Control Valve and Actuator" and "Interlock with Associated VAV Operation". When it has no
+tags or block of its own, the VAV block carries it: the valve in its valve line and "Interlock with <the radiation
+in the documents' words>".
 
 ### Template is the ideal case
 The Master Template shows how the system looks in the ideal case. When the sequence says something explicit, it

@@ -41,8 +41,8 @@ Not used: `assets/phrasing_bank.json` and any past-job example (brief). No job t
 | | Start/stop covers the relay and status switch | GEM Additional rules: start/stop and status |
 | | Fire alarm interface | GEM Fire alarm and life safety interface, steps 1 to 3; Self-QC 08 |
 | | Unclear ownership is flagged | GEM Contradiction and assumption scan, conflicts 1 to 4; Flags (confirm ownership) |
-| Counts and quantities | Higher count prints | Practice Contradicted counts; GEM Quantity detailing; Design §2.5 |
-| | Never undershoot | Design §2.5; GEM Quantity detailing ("never invent a number"); Contradiction scan, conflict 6 |
+| Counts and quantities | The schedule count prints | Estimator count ruling 2026-10-09 (replaces "Higher count prints"); Brain Quantity rules R1-R9; Practice Contradicted counts; GEM Quantity detailing; Design §2.5 |
+| | Never change a count silently | Estimator count ruling 2026-10-09 (was "Never undershoot"); Design §2.5; GEM Quantity detailing ("never invent a number"); Contradiction scan, conflict 6 |
 | | Line quantity | GEM Additional rules: consolidating identical lines; Quantity detailing; House style `trailing_forms` |
 | | Systems named only in the sequence | Practice Systems named only in the sequence; GEM same section |
 | Clarifications and assumptions | One clarification per block | Practice Flags in the draft; GEM One clarification per block; Design §2.6 |

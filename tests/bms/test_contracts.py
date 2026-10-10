@@ -190,7 +190,7 @@ def test_schema_errors_catch_bad_answers(raw):
 def test_finding_schema_is_what_qc_answers():
     schema = {"type": "object", "properties": {"findings": {"type": "array", "items": json_schema(Finding)}},
               "required": ["findings"], "additionalProperties": False}
-    answer = {"findings": [Finding("Higher count prints", "VRF", None, "check", "w", "f").to_dict()]}
+    answer = {"findings": [Finding("The schedule count prints", "VRF", None, "check", "w", "f").to_dict()]}
     assert schema_errors(answer, schema) == []
 
 
@@ -271,7 +271,8 @@ SIGNATURES = {
                       "source_sheets"],   # optional, kw-only (source_sheets: FINAL-J)
     ai.qc_job: ["job", "evidence_index", "playbook", "transport"],
     ai.revise_system: ["system", "findings", "evidence", "playbook", "transport", "tags", "ids", "sheets",
-                       "source_sheets"],   # as write_system
+                       "source_sheets", "estimators", "deleted", "counts_decided"],   # as write_system; the
+    # estimator's lines (RUN-1) and the counts they set (RUN-11): optional, kw-only
     ai.evidence_for: ["system", "dossier"],
     ai.evidence_index: ["dossier"],
     counts.count_tags: ["image_path", "tag_pattern", "transport"],      # transport: optional, keyword-only

@@ -20,14 +20,17 @@
         "furnished_by": "AME",
         "installed_by": "AME",
         "wired_by": "AME",
-        "quantity": {"value": 1, "sources": [], "others": []},
+        "quantity": {"value": 1, "sources": [], "others": [], "basis": "highest"},
         "refs": [{"source_id": "S1", "quote": "provide a new building management system with graphics", "where": "23 09 23, Specs.pdf page 2"}],
         "assumption": null,
         "flag": "none"
       }
     ],
     "clarifications": [],
-    "tech_hours": 8.0
+    "tech_hours": 8.0,
+    "lines": [],
+    "notes": [],
+    "refs": []
   },
   "systems": [
     {
@@ -42,7 +45,7 @@
           "count": {
             "value": 2,
             "sources": [{"source_id": "S2", "quote": "RTU-1 RTU-2", "where": "M-001, Drawings.pdf page 1"}],
-            "others": [{"value": 1, "ref": {"source_id": "S3", "quote": "RTU-1", "where": "M-101, Drawings.pdf page 2"}}]
+            "others": [{"value": 1, "ref": {"source_id": "S3", "quote": "RTU-1", "where": "M-101, Drawings.pdf page 2"}}], "basis": "highest"
           }
         }
       ],
@@ -56,7 +59,7 @@
           "furnished_by": "AME",
           "installed_by": "AME",
           "wired_by": "AME",
-          "quantity": {"value": 2, "sources": [{"source_id": "S2", "quote": "RTU-1 RTU-2", "where": "M-001, Drawings.pdf page 1"}], "others": []},
+          "quantity": {"value": 2, "sources": [{"source_id": "S2", "quote": "RTU-1 RTU-2", "where": "M-001, Drawings.pdf page 1"}], "others": [], "basis": "highest"},
           "refs": [{"source_id": "S4", "quote": "factory controls with BACnet interface", "where": "M-001, Drawings.pdf page 1"}],
           "assumption": null,
           "flag": "none"
@@ -69,7 +72,7 @@
           "furnished_by": "AME",
           "installed_by": "AME",
           "wired_by": "AME",
-          "quantity": {"value": 2, "sources": [], "others": []},
+          "quantity": {"value": 2, "sources": [], "others": [], "basis": "highest"},
           "refs": [{"source_id": "S4", "quote": "factory controls with BACnet interface", "where": "M-001, Drawings.pdf page 1"}],
           "assumption": null,
           "flag": "none"
@@ -82,7 +85,7 @@
           "furnished_by": "Mechanical Contractor",
           "installed_by": "Mechanical Contractor",
           "wired_by": "Mechanical Contractor",
-          "quantity": {"value": null, "sources": [], "others": []},
+          "quantity": {"value": null, "sources": [], "others": [], "basis": "highest"},
           "refs": [{"source_id": "S4", "quote": "factory controls with BACnet interface", "where": "M-001, Drawings.pdf page 1"}],
           "assumption": null,
           "flag": "none"
@@ -95,7 +98,7 @@
           "furnished_by": "Unit Mfr.",
           "installed_by": "AME",
           "wired_by": "AME",
-          "quantity": {"value": 2, "sources": [{"source_id": "S5", "quote": "duct smoke detector shipped loose", "where": "M-001, Drawings.pdf page 1"}], "others": []},
+          "quantity": {"value": 2, "sources": [{"source_id": "S5", "quote": "duct smoke detector shipped loose", "where": "M-001, Drawings.pdf page 1"}], "others": [], "basis": "highest"},
           "refs": [{"source_id": "S5", "quote": "duct smoke detector shipped loose", "where": "M-001, Drawings.pdf page 1"}],
           "assumption": {"what": "one detector per unit", "why": "the schedule note names a detector for each unit without a count"},
           "flag": "assumed"
@@ -116,7 +119,7 @@
         {
           "name": "Exhaust Fan",
           "tags": ["EF-1", "EF-2", "EF-3"],
-          "count": {"value": 3, "sources": [{"source_id": "S6", "quote": "EF-1 EF-2 EF-3", "where": "M-001, Drawings.pdf page 1"}], "others": []}
+          "count": {"value": 3, "sources": [{"source_id": "S6", "quote": "EF-1 EF-2 EF-3", "where": "M-001, Drawings.pdf page 1"}], "others": [], "basis": "highest"}
         }
       ],
       "sequence_refs": [{"source_id": "Q2", "quote": "exhaust fans shall start and stop on the BMS schedule", "where": "23 09 93, Specs.pdf page 10"}],
@@ -129,7 +132,7 @@
           "furnished_by": "AME",
           "installed_by": "AME",
           "wired_by": "AME",
-          "quantity": {"value": 3, "sources": [{"source_id": "S6", "quote": "EF-1 EF-2 EF-3", "where": "M-001, Drawings.pdf page 1"}], "others": []},
+          "quantity": {"value": 3, "sources": [{"source_id": "S6", "quote": "EF-1 EF-2 EF-3", "where": "M-001, Drawings.pdf page 1"}], "others": [], "basis": "highest"},
           "refs": [{"source_id": "Q2", "quote": "exhaust fans shall start and stop on the BMS schedule", "where": "23 09 93, Specs.pdf page 10"}],
           "assumption": null,
           "flag": "none"
@@ -142,7 +145,7 @@
           "furnished_by": "AME",
           "installed_by": "AME",
           "wired_by": "AME",
-          "quantity": {"value": 3, "sources": [], "others": []},
+          "quantity": {"value": 3, "sources": [], "others": [], "basis": "highest"},
           "refs": [{"source_id": "Q2", "quote": "exhaust fans shall start and stop on the BMS schedule", "where": "23 09 93, Specs.pdf page 10"}],
           "assumption": null,
           "flag": "none"
@@ -158,7 +161,7 @@
           "quantity": {
             "value": 2,
             "sources": [{"source_id": "S7", "quote": "MD-1 interlocked with EF-1", "where": "M-101, Drawings.pdf page 2"}, {"source_id": "S8", "quote": "MD-2 interlocked with EF-2", "where": "M-101, Drawings.pdf page 2"}],
-            "others": []
+            "others": [], "basis": "highest"
           },
           "refs": [{"source_id": "S7", "quote": "MD-1 interlocked with EF-1", "where": "M-101, Drawings.pdf page 2"}],
           "assumption": null,
@@ -177,15 +180,15 @@
       "shape": "VRF System",
       "control": "integration",
       "families": [
-        {"name": "Indoor Unit", "tags": ["FCU-1", "FCU-2", "FCU-3", "FCU-4"], "count": {"value": 4, "sources": [{"source_id": "S9", "quote": "FCU-1 THRU FCU-4", "where": "M-002, Drawings.pdf page 3"}], "others": []}},
-        {"name": "Condensing Unit", "tags": ["CU-1"], "count": {"value": 1, "sources": [{"source_id": "S10", "quote": "CU-1", "where": "M-002, Drawings.pdf page 3"}], "others": []}},
+        {"name": "Indoor Unit", "tags": ["FCU-1", "FCU-2", "FCU-3", "FCU-4"], "count": {"value": 4, "sources": [{"source_id": "S9", "quote": "FCU-1 THRU FCU-4", "where": "M-002, Drawings.pdf page 3"}], "others": [], "basis": "highest"}},
+        {"name": "Condensing Unit", "tags": ["CU-1"], "count": {"value": 1, "sources": [{"source_id": "S10", "quote": "CU-1", "where": "M-002, Drawings.pdf page 3"}], "others": [], "basis": "highest"}},
         {
           "name": "Branch Selector",
           "tags": ["BS-1", "BS-2"],
           "count": {
             "value": 2,
             "sources": [{"source_id": "I1", "quote": "counted on the sheet picture", "where": "M-102 whole sheet, Drawings.pdf page 4 (picture)"}],
-            "others": [{"value": 1, "ref": {"source_id": "S11", "quote": "BS-1", "where": "M-002, Drawings.pdf page 3"}}]
+            "others": [{"value": 1, "ref": {"source_id": "S11", "quote": "BS-1", "where": "M-002, Drawings.pdf page 3"}}], "basis": "highest"
           }
         }
       ],
@@ -199,7 +202,7 @@
           "furnished_by": "AME",
           "installed_by": "AME",
           "wired_by": "AME",
-          "quantity": {"value": 1, "sources": [], "others": []},
+          "quantity": {"value": 1, "sources": [], "others": [], "basis": "highest"},
           "refs": [{"source_id": "S12", "quote": "VRF controls by manufacturer with BACnet gateway", "where": "M-002, Drawings.pdf page 3"}],
           "assumption": null,
           "flag": "none"
@@ -212,7 +215,7 @@
           "furnished_by": "AME",
           "installed_by": "AME",
           "wired_by": "AME",
-          "quantity": {"value": 1, "sources": [], "others": []},
+          "quantity": {"value": 1, "sources": [], "others": [], "basis": "highest"},
           "refs": [{"source_id": "S12", "quote": "VRF controls by manufacturer with BACnet gateway", "where": "M-002, Drawings.pdf page 3"}],
           "assumption": null,
           "flag": "quantity"
@@ -225,7 +228,7 @@
           "furnished_by": "Unit Mfr.",
           "installed_by": "Mechanical Contractor",
           "wired_by": "AME",
-          "quantity": {"value": 1, "sources": [], "others": []},
+          "quantity": {"value": 1, "sources": [], "others": [], "basis": "highest"},
           "refs": [{"source_id": "S12", "quote": "VRF controls by manufacturer with BACnet gateway", "where": "M-002, Drawings.pdf page 3"}],
           "assumption": null,
           "flag": "ownership"
@@ -243,7 +246,7 @@
       "shape": "Duct Heater",
       "control": "field",
       "families": [
-        {"name": "Duct Heater", "tags": ["DH-1", "DH-2"], "count": {"value": 2, "sources": [{"source_id": "S13", "quote": "DH-1 DH-2", "where": "M-001, Drawings.pdf page 1"}], "others": []}}
+        {"name": "Duct Heater", "tags": ["DH-1", "DH-2"], "count": {"value": 2, "sources": [{"source_id": "S13", "quote": "DH-1 DH-2", "where": "M-001, Drawings.pdf page 1"}], "others": [], "basis": "highest"}}
       ],
       "sequence_refs": [{"source_id": "Q3", "quote": "the BMS shall modulate the duct heater to maintain discharge temperature", "where": "23 09 93, Specs.pdf page 11"}],
       "devices": [
@@ -255,7 +258,7 @@
           "furnished_by": "AME",
           "installed_by": "AME",
           "wired_by": "AME",
-          "quantity": {"value": 2, "sources": [{"source_id": "S13", "quote": "DH-1 DH-2", "where": "M-001, Drawings.pdf page 1"}], "others": []},
+          "quantity": {"value": 2, "sources": [{"source_id": "S13", "quote": "DH-1 DH-2", "where": "M-001, Drawings.pdf page 1"}], "others": [], "basis": "highest"},
           "refs": [{"source_id": "Q3", "quote": "the BMS shall modulate the duct heater to maintain discharge temperature", "where": "23 09 93, Specs.pdf page 11"}],
           "assumption": null,
           "flag": "none"
@@ -268,7 +271,7 @@
           "furnished_by": "AME",
           "installed_by": "AME",
           "wired_by": "AME",
-          "quantity": {"value": 2, "sources": [], "others": []},
+          "quantity": {"value": 2, "sources": [], "others": [], "basis": "highest"},
           "refs": [{"source_id": "Q3", "quote": "the BMS shall modulate the duct heater to maintain discharge temperature", "where": "23 09 93, Specs.pdf page 11"}],
           "assumption": null,
           "flag": "none"
@@ -286,7 +289,7 @@
       "shape": "Unit Heater",
       "control": "field",
       "families": [
-        {"name": "Cabinet Unit Heater", "tags": [], "count": {"value": null, "sources": [], "others": []}}
+        {"name": "Cabinet Unit Heater", "tags": [], "count": {"value": null, "sources": [], "others": [], "basis": "highest"}}
       ],
       "sequence_refs": [{"source_id": "Q4", "quote": "cabinet unit heaters shall cycle to maintain space temperature", "where": "23 09 93, Specs.pdf page 12"}],
       "devices": [
@@ -298,7 +301,7 @@
           "furnished_by": "AME",
           "installed_by": "AME",
           "wired_by": "AME",
-          "quantity": {"value": null, "sources": [], "others": []},
+          "quantity": {"value": null, "sources": [], "others": [], "basis": "highest"},
           "refs": [{"source_id": "Q4", "quote": "cabinet unit heaters shall cycle to maintain space temperature", "where": "23 09 93, Specs.pdf page 12"}],
           "assumption": {"what": "one sensor per heater", "why": "the sequence controls each heater on its own space temperature"},
           "flag": "quantity"

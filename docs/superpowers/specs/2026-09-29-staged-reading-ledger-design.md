@@ -30,6 +30,10 @@ When two documents disagree about a count, **the higher count is printed**, so t
 undershoots. The block carries a "*" note naming both counts and where each came from, and the
 review list repeats it.
 
+> Superseded for the bms app by the estimator's count ruling (2026-10-09): when a schedule gives the count, the
+> schedule's count prints and every other count is a DISCREPANCY flag beside it; only with no schedule does the
+> higher count print, flagged. See `playbook/rules.md` "The schedule count prints".
+
 ---
 
 ## 1. The job ledger

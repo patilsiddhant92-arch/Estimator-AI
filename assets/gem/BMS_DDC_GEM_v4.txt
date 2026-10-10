@@ -591,7 +591,7 @@ QUANTITY DETAILING
 Default format: (Qty. ## Total)
 Unknown quantities: (Qty. per Mechanical Schedule) / (Qty. per Drawing) / (Qty. per Engineer), flagged CONFIRM QUANTITY.
 Never invent a number.
-When the documents give two counts, the higher count prints, flagged CONFIRM QUANTITY, with both counts named beside it (the estimator, 2026-10-03).
+When the documents give two counts, the schedule's count prints when a schedule gives one, flagged CONFIRM QUANTITY (a DISCREPANCY), with both counts named beside it; only with no schedule does the higher count print, flagged (the estimator, 2026-10-09, replacing the 2026-10-03 "higher count prints").
 The estimator decides on review.
 SYSTEMS NAMED ONLY IN THE SEQUENCE (the estimator, 2026-10-03)
 A system the sequence names but no drawing shows is printed in the base bid with its integration lines.

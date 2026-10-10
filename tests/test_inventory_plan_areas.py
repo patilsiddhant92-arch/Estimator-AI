@@ -41,11 +41,12 @@ def test_a_type_tag_on_a_floor_drawn_twice_counts_every_place():
     catalogue = _job([SCHEDULES, ("M-101", "HVAC DUCTWORK FIRST FLOOR PLAN", ("Plans",), FOUR),
                       ("M-201", "HVAC PIPING AND CONTROLS FIRST FLOOR PLAN", ("Plans",), FOUR)], ["EBB-A"])
     placed = placements(catalogue, ["EBB-A"])["EBB-A"]
-    assert placed.total == 8                                  # FINAL-G: was 4 (merged); the higher count
+    assert placed.total == 8                                  # every label summed, a cross-check only
     assert placed.most_on_one_sheet == 4
     items, _totals, _flags = build_inventory(catalogue, [_schedule("EBB-A")])
     item = next(i for i in items if i.tag == "EBB-A")
-    assert item.quantity == 8
+    assert item.quantity == 4         # READ-2 (2026-10-09, replaces FINAL-G's 8): one floor's ductwork and piping
+                                      # and controls plans are one set of placements, the most of one sheet
     assert "labelled 8 times on the plans" in item.reason
     # every sheet is named with its own labels, never "same plan as"
     assert "M-101 4, M-201 4" in item.reason and "same plan" not in item.reason

@@ -17,7 +17,9 @@ the contract and not needed. The behaviours are those the estimator approved in 
   families the ledger names by their own kind;
 - condensate pumps carrying the tag numbers of one split block's units are planned in that block (their float
   switch tie-in); a condensate pump block never takes the split shape;
-- the printed count is the highest; every other count is kept with its source; unknown is None (Qty (##));
+- the printed count is the equipment schedule's when a schedule gives one (every other count is kept with its source
+  as a DISCREPANCY flag, never changing it), else the highest (every other a CONFLICT flag); unknown is None
+  (Qty (##)) (the estimator's count ruling, 2026-10-09);
 - unscheduled and sequence-only families, parts with no count, unmatched sequence sections and the ledger's own
   questions become plain-words questions.
 """
@@ -27,6 +29,7 @@ import re
 from dataclasses import dataclass, field, replace
 
 from estimator.catalogue.job import Catalogue
+from estimator.catalogue.tags import is_type_tag
 from estimator.ledger.facts import Fact, Ledger
 from estimator.writing.dossier import Dossier, sections_in
 
@@ -66,6 +69,26 @@ _NOT_MAKER = re.compile(r"\bnot\s+by\b|\bnot\s+the\s+unit\s+mfr", re.I)
 _INTEGRATION = re.compile(r"\bbacnet\b|\bmodbus\b|\blonworks\b|\bgateway\b|\bintegrat|\bnetwork\s+interface\b", re.I)
 _NO_CONTROLS = re.compile(r"\bnot\s+in\s+contract\b|\bn\.?\s?i\.?\s?c\.?(?![a-z])|\bno\s+(?:bms\s+|ddc\s+)?controls?\b|"
                           r"\bcontrols?\s+(?:are\s+|is\s+)?by\s+others\b", re.I)
+# VAV terminal units (Master Template "VAV / Fan VAV"): AME furnishes the DDC controller to the box factory, so a
+# "factory" or "factory-installed controller" note is no packaged unit. Only a sentence that gives the box controls
+# to the unit maker makes it one, and then only with the integration it names (`_terminal_control`).
+_TERMINAL_PREFIXES = frozenset({"VAV", "FPB", "FPV", "FPT", "CAV"})
+_TERMINAL_WORDS = re.compile(r"\bvav\b|\bvariable\s+air\s+volume\b|\bfan[\s-]*powered\s+(?:box|terminal|vav)|"
+                             r"\bterminal\s+units?\b|\bcav\s+box", re.I)
+_MAKER_WORD = r"(?:mfr\.?|manufacturer|oem|vendor)"
+_MAKER_CONTROLS = re.compile(
+    r"\b(?:controls?|controllers?|ddc)\b[^.;]{0,40}?\b(?:by|furnished\s+by|provided\s+by|supplied\s+by)\s+(?:the\s+)?"
+    r"(?:vav\s+|box\s+|terminal\s+(?:unit\s+)?|unit\s+|equipment\s+)?" + _MAKER_WORD + r"(?![a-z])"
+    r"|\b" + _MAKER_WORD + r"(?:'s|s')?\s+(?:own\s+|factory\s+|standard\s+|packaged\s+)?(?:controls?|controllers?|ddc)\b"
+    r"|\b" + _MAKER_WORD + r"\s+(?:shall\s+|to\s+)?(?:furnish|provide|supply)\w*\s+(?:and\s+install\s+)?[^.;]{0,30}?"
+    r"\b(?:controls?|controllers?|ddc)\b", re.I)
+_CONTRACTOR_WORD = r"(?:atc|bms|ddc|temperature\s+controls?|controls?)\s+contractor|this\s+(?:section|contractor)"
+_AME_CONTROLLER = re.compile(
+    r"\b(?:" + _CONTRACTOR_WORD + r")\b[^.;]{0,20}?\b(?:shall\s+|to\s+)?(?:furnish|provide|supply)\w*\b[^.;]{0,30}?"
+    r"\b(?:controllers?|ddc)\b"
+    r"|\b(?:controllers?|(?:ddc\s+)?controls?)\b[^.;]{0,30}?\b(?:furnished|provided|supplied)\s+by\s+(?:the\s+)?(?:"
+    + _CONTRACTOR_WORD + r")\b"
+    r"|\bfurnish\w*\s+(?:the\s+)?(?:ddc\s+)?controllers?\s+to\s+the\s+(?:factory|manufacturer|mfr|box|vav|unit)", re.I)
 _SERVES = re.compile(r"serves?\s+([A-Z][A-Z0-9-]+)")
 _NOTE_TOPICS = frozenset({"question", "exception", "alternate"})     # notes about the job, not about a system
 _TAG = re.compile(r"^[A-Za-z]{1,6}(?:-[A-Za-z0-9.]+)+$")
@@ -333,11 +356,16 @@ class _Planner:
         head = f"{family.prefix} is on a schedule with no kind of equipment given for it; "
         own = set(family.count.sources)
         taken = owner.count.value is not None and bool(own & set(owner.count.sources))
+        # the owner's schedule count stays; the code's own count is a DISCREPANCY beside it (the count ruling)
+        beside = [o for o in owner.count.others if o.ref in own] if owner.count.basis == "schedule" else []
+        discrepancy = (f" DISCREPANCY: {family.prefix}'s own count gives {beside[0].value}; the {owner.prefix} "
+                       f"count stays {owner.count.value}, the schedule's." if beside and not taken else "")
         if family.prefix.upper() in {t.upper() for t in owner.tags}:
             # when the owner's count is the code's own count, say so: the owner could be that count and more
             # (REVIEW-FINAL4 F5)
             source = (f" The {owner.prefix} count ({owner.count.value}) is taken from {family.prefix}'s own count, "
-                      f"so check that it counts every {owner.name} unit, not only {family.prefix}." if taken else "")
+                      f"so check that it counts every {owner.name} unit, not only {family.prefix}." if taken
+                      else discrepancy)
             self.questions.append(
                 f"{head}it is one of the {owner.name} ({owner.prefix}) tags, so it is counted with the "
                 f"{owner.name} units, not again.{source} Confirm it is one of them.")
@@ -354,7 +382,8 @@ class _Planner:
                     f"already includes {family.prefix}. Confirm {family.prefix} is one of them and that the "
                     f"{owner.prefix} count is right.")
         else:
-            said = f"Confirm it is one, and that its count is not already in the {owner.prefix} count."
+            said = (f"Confirm it is one, and that its count is not already in the {owner.prefix} count."
+                    + discrepancy)
         self.questions.append(
             f"{head}its code is a tag of {owner.name} ({owner.prefix}), so it is planned with the {owner.name} "
             f"units. {said}")
@@ -381,13 +410,28 @@ class _Planner:
                 return _with_kind(words, kind, kind_word)
         return family.name
 
+    def _alternate(self, label: str, names, tags) -> tuple[str, list[Ref]]:
+        """The alternate the documents make of a block (an "alternate" note, a schedule's title or note, a plan
+        note: `Reader.alternate_cited`) and its citation, which the block carries in its refs. One the documents
+        only number ("ALTERNATE #1") is planned as an add and asked."""
+        kind, ref, numbered = self.reader.alternate_cited(*names, tags=tags)
+        if kind != "base" and numbered and ref is not None:
+            self.questions.append(f"The documents call {label} “{ref.quote}” without saying add or deduct; the plan "
+                                  "makes it an add alternate. Is it an add or a deduct alternate?")
+        # an "alternate" note is the sequence pass's own reading, cited where the note's passage is; a schedule title
+        # or a plan note the planner read itself is carried as the block's ref, so the writer, QC and the estimator
+        # see where the alternate comes from
+        noted = self.reader.note("alternate", *names) is not None
+        return kind, ([ref] if ref is not None and not noted else [])
+
     def _single(self, family: FamilyFacts) -> _Draft:
         reader = self.reader
         name = self.specific_name(family)
+        alternate, refs = self._alternate(f"{name} ({family.prefix})", (family.prefix,), family.tags)
         return _Draft(key=family.prefix, name=name, kind="single",
                       families=[_Fam(name, family.tags, family.count, family)], prefixes=[family.prefix],
-                      matches=reader.matches(family.prefix), alternate=reader.alternate(family.prefix),
-                      exception=reader.exception(family.prefix))
+                      matches=reader.matches(family.prefix), alternate=alternate,
+                      exception=reader.exception(family.prefix), extra_refs=refs)
 
     def _group(self, group: Fact, claims_of: dict) -> _Draft:
         reader = self.reader
@@ -416,10 +460,11 @@ class _Planner:
         member_words = " ".join(f"{f.prefix} {f.name}" for f, _ in members(reader, group))
         said = squash(group.subject)
         named = (said,) if said else ()
+        alternate, refs = self._alternate(f"“{name}”", (*named, *prefixes), [t for f in families for t in f.tags])
         return _Draft(key=name, name=name, kind="group", families=families, prefixes=list(dict.fromkeys(prefixes)),
-                      matches=reader.matches(*named, *prefixes), alternate=reader.alternate(*named, *prefixes),
+                      matches=reader.matches(*named, *prefixes), alternate=alternate,
                       exception=reader.exception(*named, *prefixes),
-                      words=f"{name} {squash(group.value)} {member_words}")
+                      words=f"{name} {squash(group.value)} {member_words}", extra_refs=refs)
 
     def _rest(self, family: FamilyFacts, claims: list) -> _Draft | None:
         """The family as a system of its own: whole when no group took it; the tags no group listed when groups
@@ -525,7 +570,8 @@ class _Planner:
                 merged = _Draft(key=name, name=name, kind="split", families=[f for d in block for f in d.families],
                                 prefixes=list(dict.fromkeys(p for d in block for p in d.prefixes)),
                                 matches=list(dict.fromkeys(m for d in block for m in d.matches)),
-                                alternate=alternate, exception=exception)
+                                alternate=alternate, exception=exception,
+                                extra_refs=list(dict.fromkeys(r for d in block for r in d.extra_refs)))
                 out[out.index(block[0])] = merged
                 out = [d for d in out if d not in block[1:]]
         return self._condensate_pumps(out, prefixes)
@@ -643,7 +689,8 @@ class _Planner:
             merged = _Draft(key=name, name=name, kind="heaters", families=[f for d in block for f in d.families],
                             prefixes=list(dict.fromkeys(p for d in block for p in d.prefixes)),
                             matches=list(dict.fromkeys(m for d in block for m in d.matches)), alternate=alternate,
-                            exception=next((d.exception for d in block if d.exception), ""))
+                            exception=next((d.exception for d in block if d.exception), ""),
+                            extra_refs=list(dict.fromkeys(r for d in block for r in d.extra_refs)))
             out[out.index(block[0])] = merged
             out = [d for d in out if d not in block[1:]]
         return out
@@ -897,7 +944,7 @@ class _Planner:
         refs = [self.reader.fact_ref(m) for m in draft.matches] + draft.extra_refs
         name = _one(draft.name) if _is_one(families) else draft.name
         return System(key=key, name=name, shape=shape.name if shape is not None else "",
-                      control=self._control(draft, vrf, drafts),
+                      control=self._control(draft, vrf, drafts, shape),
                       families=tuple(Family(_one(f.name) if _is_one([f]) else f.name, tuple(f.tags), f.count)
                                      for f in families),
                       sequence_refs=tuple(dict.fromkeys(refs)), alternate=draft.alternate)
@@ -949,15 +996,18 @@ class _Planner:
         word = next((n for n in names if any(w in n.casefold() for w in _ROLE_WORDS[role])), _ROLE_NAMES[role])
         return replace(fam, name=word)
 
-    def _control(self, draft: _Draft, vrf: bool, drafts: list[_Draft]) -> str:
+    def _control(self, draft: _Draft, vrf: bool, drafts: list[_Draft], shape: Shape | None = None) -> str:
         """packaged when a provider fact about the system says the unit maker or the factory controls it;
         integration when one says the BMS integrates it (or the system is a VRF group and none says otherwise);
         none when one says no controls are in the contract; else field. Global points are integration. A provider
-        fact naming a tag is about the system holding that tag only (`_named`, PLN-4)."""
+        fact naming a tag is about the system holding that tag only (`_named`, PLN-4). A VAV terminal unit block is
+        read by `_terminal_control`: a factory word alone keeps it field."""
         if draft.kind == "global":
             return "integration"
-        found = [squash(f.value) for f in self.ledger.of_kind("provider")
-                 if any(d is draft for d in _named(drafts, f.subject))]
+        facts = [f for f in self.ledger.of_kind("provider") if any(d is draft for d in _named(drafts, f.subject))]
+        found = [squash(f.value) for f in facts]
+        if self._is_terminal(draft, shape):
+            return self._terminal_control(draft, facts, found)
         if any(_MAKER.search(v) and not _NOT_MAKER.search(v) for v in found):
             return "packaged"
         if any(_INTEGRATION.search(v) for v in found):
@@ -965,6 +1015,46 @@ class _Planner:
         if any(_NO_CONTROLS.search(v) for v in found):
             return "none"
         return "integration" if vrf else "field"
+
+    @staticmethod
+    def _is_terminal(draft: _Draft, shape: Shape | None) -> bool:
+        """A block of VAV terminal units: its shape is the VAV one (by its name or kind words), or, with no shape,
+        its prefixes or its name say VAV. A group with another shape (an air handler with its boxes) is not one."""
+        if draft.kind not in ("single", "group"):
+            return False
+        if shape is not None:
+            return _TERMINAL_WORDS.search(f"{shape.name} {' '.join(shape.kind_words)}") is not None
+        return draft.kind == "single" and (any(_lead(p) in _TERMINAL_PREFIXES for p in draft.prefixes)
+                                           or _TERMINAL_WORDS.search(draft.name) is not None)
+
+    def _terminal_control(self, draft: _Draft, facts: list[Fact], found: list[str]) -> str:
+        """A VAV terminal unit's control (Master Template "VAV / Fan VAV"; the estimator's doctrine: AME furnishes
+        the DDC controller to the factory for installation on about every job). A "factory", "factory-installed
+        controller" or "packaged" note is that controller mounted at the box factory: field. A sentence giving the
+        controller to the controls contractor is field. The box is packaged (the integration lines) only when a
+        sentence gives its controls to the unit maker and one says the BMS integrates them (BACnet, gateway,
+        integrate) and none gives the controller to the controls contractor. A maker-controls sentence with no
+        integration and no such sentence, or one with integration beside such a sentence, keeps it field and asks the
+        estimator (a maker that only mounts the controller AME furnishes is the house default: field, no question).
+        Not in contract is none."""
+        maker = [v for v in found if _MAKER_CONTROLS.search(v) and not _NOT_MAKER.search(v)]
+        ours = [v for v in found if _AME_CONTROLLER.search(v)]
+        integrated = any(_INTEGRATION.search(v) for v in found)
+        if maker and integrated and not ours:
+            return "packaged"
+        if maker and (integrated or not ours):
+            places = _places(tuple(self.reader.fact_ref(f) for f in facts
+                                   if _MAKER_CONTROLS.search(squash(f.value))))
+            why = ("the documents also give the controller to the controls contractor" if ours
+                   else "they do not say the BMS integrates the manufacturer's controls")
+            self.questions.append(
+                f"{draft.name} ({draft.key}): {places} gives the VAV box controls to the unit manufacturer, but {why}. "
+                "Scoped as AME's DDC controller furnished to the factory for installation (the house default); "
+                "confirm, or say the boxes come on the manufacturer's controls integrated to the BMS.")
+            return "field"
+        if any(_NO_CONTROLS.search(v) for v in found) and not ours:
+            return "none"
+        return "field"
 
     # -- step 4b: units seen on the drawings but on no schedule join their family's system
 
@@ -1015,22 +1105,42 @@ class _Planner:
     def added_tags(self) -> None:
         """Each family whose tag list a later pass contradicted with tags the list lacks (the plans show EF-4
         where the schedule lists EF-1 thru 3) keeps those tags (the Reader joins both lists) and is asked once,
-        naming both numbers: how many the list gives and how many were counted."""
+        naming both numbers: how many the list gives and how many were counted. A family whose own unit tags are
+        more than its schedule's count (PLAN-3, "VAV-1 thru 5" beside a schedule of 3), and a schedule listing one
+        tag twice (Quantity rules R7), are asked as a DISCREPANCY: the schedule's count stays the working count."""
         for fact in self.reader.family_facts():
             family = self.reader.family(fact)
-            if not family.added:
-                continue
             unit = self.reader.ledger.find("unit", family.prefix)
+            count = family.count
+            if family.duplicates:
+                self.questions.append(
+                    f"DISCREPANCY - duplicate tag on the schedule: {family.name} ({family.prefix}): "
+                    f"{_places((self.reader.fact_ref(unit),))} lists {', '.join(family.duplicates)} more than once; "
+                    f"the working count stays {count.value} (the schedule's), pending: confirm with the engineer how "
+                    "many units there are.")
+            units = len({t.upper() for t in family.tags if not is_type_tag(t)})
+            if not family.added:
+                if count.basis == "schedule" and count.value is not None and units > count.value:
+                    self.questions.append(
+                        f"DISCREPANCY: {family.name} ({family.prefix}): the schedule gives {count.value} "
+                        f"({_places(count.sources)}) but its tags name {units} ({tag_words(family.tags)}); the "
+                        f"working count stays {count.value}, the schedule's: confirm with the engineer.")
+                continue
             head = (f"{family.name} ({family.prefix}): {_places((self.reader.fact_ref(unit),))} lists "
                     f"{family.listed} ({squash(unit.value)}); {', '.join(family.added)} "
                     f"{'is' if len(family.added) == 1 else 'are'} also on {_places(family.added_refs)}")
-            if family.count.value is None:
+            if count.value is None:
                 self.questions.append(f"{head}; no count is known (Qty (##)): how many are there?")
-            elif family.was is not None and family.count.value != family.was:
-                self.questions.append(f"{head}; counted {family.count.value} (the count gave {family.was}), "
+            elif count.basis == "schedule" and units > count.value:
+                self.questions.append(f"DISCREPANCY: {head}; {units} tags in all, but the working count stays "
+                                      f"{count.value}, the schedule's: confirm with the engineer whether "
+                                      f"{', '.join(family.added)} {'is' if len(family.added) == 1 else 'are'} "
+                                      "more units.")
+            elif family.was is not None and count.value != family.was:
+                self.questions.append(f"{head}; counted {count.value} (the count gave {family.was}), "
                                       "confirm the count.")
             else:
-                self.questions.append(f"{head}; counted {family.count.value}, confirm the count includes "
+                self.questions.append(f"{head}; counted {count.value}, confirm the count includes "
                                       f"{', '.join(family.added)}.")
 
     # -- the invariant: nothing the ledger holds is dropped
@@ -1148,10 +1258,14 @@ def _says_kind(shape: Shape, name: str) -> bool:
 
 def _reduced(count: Count, new: int) -> Count:
     """A family's count made smaller for one block (a group's part, the rest after the parts, the dampers no fan
-    took): `new` prints, citing the sources of the number it came from. The family's other counts below `new` are
-    kept; those at or above it are whole-family numbers that would print in its place (the highest prints), so they
-    leave `others`; the planner's question names them and the number it came from (`_came_from`)."""
-    return Count(new, count.sources, tuple(o for o in count.others if o.value < new))
+    took): `new` prints, citing the sources of the number it came from. With no schedule the family's other counts
+    below `new` are kept; those at or above it are whole-family numbers that would print in its place (the highest
+    prints), so they leave `others`; the planner's question names them and the number it came from (`_came_from`).
+    A schedule's count keeps every other count but one equal to `new`: they are DISCREPANCY flags that never print
+    in its place."""
+    if count.basis == "schedule":
+        return replace(count, value=new, others=tuple(o for o in count.others if o.value != new))
+    return replace(count, value=new, others=tuple(o for o in count.others if o.value < new))
 
 
 def _places(refs) -> str:
@@ -1399,7 +1513,14 @@ def _front_end(planner: _Planner) -> FrontEnd:
         planner.questions.append("The documents do not say whether the BMS is new or extends an existing one; "
                                  "which is it? The plan assumes a new system.")
         mode = "new-system"
-    return FrontEnd(mode=mode, existing_system_name=existing if mode == "extend-existing" else None)
+    # the spec pass's front-end lines and client notes are the front end's facts: carried, with their citations,
+    # so the front end's writer writes its devices and its clarification from them (`bms.ai.write_front_end`)
+    of = lambda subject: [f for f in facts if squash(f.subject).casefold() == subject and squash(f.value)]  # noqa: E731
+    lines, notes = of("line"), of("note")
+    refs = tuple(dict.fromkeys(planner.reader.fact_ref(f) for f in facts if f.source_id))
+    return FrontEnd(mode=mode, existing_system_name=existing if mode == "extend-existing" else None,
+                    lines=tuple(dict.fromkeys(squash(f.value) for f in lines)),
+                    notes=tuple(dict.fromkeys(squash(f.value) for f in notes)), refs=refs)
 
 
 def _exceptions(planner: _Planner, systems: list[System], drafts: list[_Draft]) -> tuple[ScopeException, ...]:
@@ -1443,15 +1564,18 @@ def plan_job(ledger: Ledger, catalogue: Catalogue, dossier: Dossier, playbook: P
     Contract:
     - One System per block the job calls for, each with `key` (unique), `name`, `shape` (a Playbook shape name via
       `playbook.shape_for(kind, prefixes)`, or "" when no shape applies), `control`, `families` (each with its tags
-      and a Count whose `value` is the highest count any source gives, `sources` the refs giving it, `others` every
-      different count with its ref; `value` None when no count is known), `sequence_refs` (the sequence passages,
+      and a Count whose `value` is the schedule's quantity when a schedule gives it (`basis` "schedule"), else the
+      highest count any source gives (`basis` "highest"), `sources` the refs giving it, `others` every different
+      count with its ref (a DISCREPANCY, resp. CONFLICT, flag); `value` None when no count is known), `sequence_refs` (the sequence passages,
       as Refs) and `alternate`.
     - `devices`, `clarifications` are empty and `tech_hours` None: `write_system` fills them.
     - Groups the practice rules keep together are one System: a VRF / split group with its indoor, condensing and
       branch-selector families; dampers linked to a fan are under that fan's system (not a system of their own);
       duct heaters in one place.
     - A system the documents name but AME does not do goes to `Job.exceptions`; open questions to `Job.questions`.
-    - `Job.front_end` is set (mode from the ledger's front_end facts); `Job.header` stays None (the run sets it).
+    - `Job.front_end` is set (mode from the ledger's front_end facts; `lines`, `notes` and `refs` the spec pass's
+      front-end lines and client notes with their citations, for the front end's writer); `Job.header` stays None
+      (the run sets it).
     - Every Ref's `source_id` is a ledger / dossier source id ("S41", "I2", "Q7", "F17"), its `quote` the exact
       words, its `where` the place (`ledger.sources[source_id]`, shortened by `estimator.ledger.facts.where_short`).
     - Pure: the same ledger, catalogue, dossier and Playbook give the same Job. No AI call.
