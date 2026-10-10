@@ -670,11 +670,14 @@ def _beside(grid: _Grid, words: _Words, head: _Head, vocab: Vocabulary, other_ta
 # --- a schedule of passive air devices: its codes are types, never units (HP 3, HP 20) ------------------------
 
 def lists_air_devices(title: str, vocab: Vocabulary, also: Iterable[str] = (), described: Iterable[str] = (),
-                      codes: Iterable[str] = ()) -> bool:
+                      codes: Iterable[str] = (), equipment: Equipment | None = None) -> bool:
     """A schedule of passive air devices by type (diffusers, grilles, registers, louvers, air outlets, silencers): its
     title, or one of the lines `also` gives (the lines between its title and its header, a band row of its key
     column such as "RETURN AND EXHAUST GRILLES"), names air devices, or most of its description cells (`described`)
-    do. A title that also names equipment a controller serves (a damper, a fan, a unit) never does. A description column
+    do. A title that also names equipment a controller serves (a damper, a fan, a unit) never does. A line of `also`
+    says so only while no key cell is a unit tag of other equipment (`_other_units`: EF-1 under a band row "EXHAUST
+    GRILLES AND LOUVERS" is a fan, whose schedule is no list of air devices); a title says so whatever the key cells
+    hold (`_passive_flags` says the fan tags). A description column
     decides by its words alone. A schedule with none (no air device word, no description cell) is known by its key
     column's `codes` (`_only_outlet_codes`: RG-1, CD-1, SD-1, TG-1), unless a line above its header names equipment a
     controller serves. Its codes (B1, SD-1, CD, LRD-A) are types, never units: B is a boiler's prefix and SD a smoke
@@ -683,7 +686,10 @@ def lists_air_devices(title: str, vocab: Vocabulary, also: Iterable[str] = (), d
     if pattern is None or (vocab.not_air_devices is not None and vocab.not_air_devices.search(title or "")):
         return False
     also = list(also)
-    if pattern.search(title or "") or any(pattern.search(line or "") for line in also):
+    codes = list(codes)
+    if pattern.search(title or ""):
+        return True
+    if any(pattern.search(line or "") for line in also) and not _other_units(codes, vocab, equipment or Equipment.load()):
         return True
     described = [d for d in described if d]
     if described:
@@ -714,6 +720,19 @@ def _only_outlet_codes(codes: Iterable[str], vocab: Vocabulary) -> bool:
     return bool(prefixes) and all(p in vocab.outlet_codes for p in prefixes) and len(set(prefixes)) >= vocab.outlet_code_kinds
 
 
+def _other_units(cells: Iterable[str], vocab: Vocabulary, equipment: Equipment) -> list[str]:
+    """The tags of other equipment that key cells name: a cell that is a unit tag (`_unit_tags` with a prefix the equipment
+    list knows: EF-1, AHU-1, VAV-1; a type code such as B1 is none, `_is_unit_cell`) whose prefix is no code prefix of an
+    air outlet (`air_outlet_codes`: SD is a smoke damper's as well, and says nothing against a list of air outlets).
+    Such a key column lists units a controller serves, whatever the lines around it say."""
+    found: list[str] = []
+    for text in cells:
+        tags = _unit_tags(text, vocab, equipment, loose=False)
+        if _is_unit_cell(text, tags):
+            found += [tag for tag in tags if tag_prefix(tag) not in vocab.outlet_codes]
+    return list(dict.fromkeys(found))
+
+
 def _air_bands(keys: Iterable[str], vocab: Vocabulary, equipment: Equipment) -> list[str]:
     """The key cells that head a group of air devices ("RETURN AND EXHAUST GRILLES"): short text that names air
     devices and is no unit tag and no note, with another row after it. A line of text under the last row is a
@@ -735,7 +754,7 @@ def _passive(grid: _Grid, head: _Head, labels: list[tuple[int, str]], vocab: Voc
     columns = [c for c, name in labels if c != head.col and _is(name, vocab.description_headers)]
     described = [grid.text(r, c) for r in range(head.row + 1, head.end_row) for c in columns]
     return lists_air_devices(head.title, vocab, [head.basis or "", *above, *_air_bands(keys, vocab, equipment)], described,
-                             keys)
+                             keys, equipment)
 
 
 def _compact(text: str) -> str:
@@ -819,7 +838,7 @@ def schedule_from_cells(title: str, headers: Iterable[str], rows: Iterable, note
     kind = kind_from_title(title)
     described = [c.get(n, "") for c in all_cells for n in names if n != key and _is(n, vocab.description_headers)]
     keys = [c.get(key, "") for c in all_cells]
-    passive = lists_air_devices(title, vocab, _air_bands(keys, vocab, equipment), described, keys)
+    passive = lists_air_devices(title, vocab, _air_bands(keys, vocab, equipment), described, keys, equipment)
     tagged: list[ScheduleRow] = []
     typed: list[ScheduleRow] = []
     loose: list[tuple[int, list[ScheduleRow]]] = []
@@ -1101,17 +1120,25 @@ def _sheet_name(sheet) -> str:
     return sheet.number or f"{sheet.document.rsplit('/', 1)[-1]} page {sheet.page}"
 
 
-def _passive_flags(found: list[Schedule], sheet, vocab: Vocabulary) -> list[str]:
+def _passive_flags(found: list[Schedule], sheet, vocab: Vocabulary, equipment: Equipment) -> list[str]:
     """A schedule set aside as a list of air devices by something other than its title (its description cells, a band
-    row, a line under its title) is said, so a list wrongly set aside is seen: its codes are given no unit."""
+    row, a line under its title) is said, so a list wrongly set aside is seen: its codes are given no unit. So is one
+    its title sets aside when its key column also holds tags of other equipment (`_other_units`: EF-1, AHU-1), since
+    a fan schedule titled as grilles would give no fan."""
     lines = []
     for schedule in found:
-        if schedule.passive and not (vocab.air_devices and vocab.air_devices.search(schedule.title)):
-            key = schedule.headers[0] if schedule.headers else ""
-            codes = list(dict.fromkeys(row.cells[key] for row in schedule.rows if row.cells.get(key)))
-            shown = ", ".join(codes[:6]) + (" …" if len(codes) > 6 else "")
-            lines.append(f"{_sheet_name(sheet)}: {schedule.title} lists air devices by type ({shown}): read as passive "
-                         f"devices, never as units; check")
+        if not schedule.passive:
+            continue
+        key = schedule.headers[0] if schedule.headers else ""
+        codes = list(dict.fromkeys(row.cells[key] for row in schedule.rows if row.cells.get(key)))
+        units = _other_units(codes, vocab, equipment)
+        if vocab.air_devices and vocab.air_devices.search(schedule.title) and not units:
+            continue
+        shown = ", ".join(codes[:6]) + (" …" if len(codes) > 6 else "")
+        also = (f" but its key column also holds tags of other equipment ({', '.join(units[:6])}"
+                f"{' …' if len(units) > 6 else ''})" if units else "")
+        lines.append(f"{_sheet_name(sheet)}: {schedule.title} lists air devices by type ({shown}){also}: read as passive "
+                     f"devices, never as units; check")
     return lines
 
 
@@ -1162,7 +1189,8 @@ def read_schedules(catalogue, page_opener: PageOpener, pages: Collection[tuple[s
     with a line added to `flags`; the rest of the job is still read. With a `judge` and an `image_dir`, a
     Schedules sheet whose schedules are pictures is read by eye (reading/pictures.py). A table that names
     units but has no key column the reader knows is counted from its text on a schedule sheet, and flagged
-    on any sheet; a schedule set aside as a list of air devices by its cells, not its title, is flagged too."""
+    on any sheet; a schedule set aside as a list of air devices by its cells, not its title, is flagged too, and so
+    is one set aside by its title whose key column holds the tags of other equipment (EF-1)."""
     vocab = vocabulary()
     equipment = Equipment.load()
     records = {(p.document, p.page): p for p in catalogue.pages}
@@ -1199,7 +1227,7 @@ def read_schedules(catalogue, page_opener: PageOpener, pages: Collection[tuple[s
                 if record.status != "ocr":
                     continue
         if flags is not None:
-            flags += _passive_flags(found, sheet, vocab) + _blank_key_flags(found, sheet)
+            flags += _passive_flags(found, sheet, vocab, equipment) + _blank_key_flags(found, sheet)
         # A sheet read from its text layer is counted from its text only when find_tables saw no table on it
         # at all (a schedule set out without rules); one whose tables were read and weren't schedules isn't.
         if by_text and not any(s.rows for s in found) and (record.status == "ocr" or not tables):

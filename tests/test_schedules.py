@@ -470,6 +470,75 @@ def test_a_schedule_read_by_eye_of_air_outlets_lists_no_units():
     assert not boilers.passive and [row.tag for row in boilers.rows] == ["B-1", "B-2"]
 
 
+# --- a band row or a line above the header that names air devices never sets a list of units aside (review) --------
+
+def test_a_fan_schedule_under_a_band_row_that_names_air_devices_keeps_its_four_units(tmp_path):
+    """EF-1 to EF-4 are fans a controller serves: a band row of their key column ("EXHAUST GRILLES AND LOUVERS") never sets
+    the schedule aside, and a schedule that is kept is nothing to flag."""
+    rows = [["SCHEDULE", "", ""], ["TAG", "SERVICE", "CFM"], ["EXHAUST GRILLES AND LOUVERS", "", ""],
+            ["EF-1", "TOILETS", "300"], ["EF-2", "JANITOR", "150"], ["EF-3", "KITCHEN", "900"], ["EF-4", "LOBBY", "250"]]
+    catalogue, opener = catalogue_for(tmp_path, grid(200, 200, [200, 90, 80], rows))
+    flags: list[str] = []
+    [schedule] = read_schedules(catalogue, opener, flags=flags)
+    assert not schedule.passive and not schedule.type_only
+    assert [row.tag for row in schedule.rows] == ["EF-1", "EF-2", "EF-3", "EF-4"]
+    assert flags == []
+
+
+def test_a_line_above_the_header_that_names_air_devices_never_sets_a_fan_schedule_aside(tmp_path):
+    rows = [["SCHEDULE", "", ""], ["BASIS OF DESIGN: GRILLES AND LOUVERS BY OTHERS", "", ""], ["TAG", "SERVICE", "CFM"],
+            ["EF-1", "TOILETS", "300"], ["EF-2", "JANITOR", "150"]]
+    catalogue, opener = catalogue_for(tmp_path, grid(200, 200, [300, 90, 80], rows))
+    [schedule] = read_schedules(catalogue, opener)
+    assert not schedule.passive and [row.tag for row in schedule.rows] == ["EF-1", "EF-2"]
+
+
+def test_a_grille_schedule_with_band_rows_stays_set_aside_when_its_codes_are_outlet_codes(tmp_path):
+    """RG, SG and SD are air outlet code prefixes (`air_outlet_codes`): they never count against the band rows, so the list
+    of grilles and registers is still no list of units, and it is said, since only its band rows tell what it lists."""
+    rows = [["SCHEDULE", "", ""], ["TAG", "SERVICE", "MODEL"], ["RETURN GRILLES AND REGISTERS", "", ""],
+            ["RG-1", "RETURN", "350RL"], ["RG-2", "RETURN", "350RL"], ["SG-1", "SUPPLY", "280"], ["SD-1", "SUPPLY", "OMNI"]]
+    catalogue, opener = catalogue_for(tmp_path, grid(200, 200, [200, 90, 80], rows))
+    flags: list[str] = []
+    [schedule] = read_schedules(catalogue, opener, flags=flags)
+    assert schedule.passive and schedule.type_only and not any(row.tag for row in schedule.rows)
+    assert len(flags) == 1 and "never as units" in flags[0]
+
+
+def test_a_schedule_read_by_eye_with_fans_under_an_air_device_band_keeps_its_units():
+    from estimator.reading.schedules import schedule_from_cells
+    cells = [["EXHAUST GRILLES AND LOUVERS", ""], ["EF-1", "TOILETS"], ["EF-2", "JANITOR"]]
+    schedule = schedule_from_cells("", ["TAG", "SERVICE"], cells, [], ("Mech.pdf", 4, "M-601"))
+    assert not schedule.passive and [row.tag for row in schedule.rows] == ["EF-1", "EF-2"]
+    grilles = schedule_from_cells("", ["TAG", "SERVICE"], [["RETURN GRILLES", ""], ["RG-1", "RETURN"], ["SD-1", "SUPPLY"]],
+                                  [], ("Mech.pdf", 4, "M-601"))
+    assert grilles.passive and [row.tag for row in grilles.rows] == [None, None]
+
+
+def test_an_air_device_schedule_that_holds_a_fan_tag_is_set_aside_by_its_title_but_flagged(tmp_path):
+    """The title still decides, so nothing is read as a unit; but a fan's tag in the key column is said, so that a fan
+    schedule titled as grilles is looked at: the dossier counts none of its fans."""
+    rows = [["GRILLE AND LOUVER SCHEDULE", "", ""], ["TAG", "SIZE", "FREE AREA"], ["RG-1", "24X12", "1"],
+            ["EF-1", "48X24", "9"], ["EF-2", "36X36", "11"]]
+    catalogue, opener = catalogue_for(tmp_path, grid(200, 200, [90, 90, 80], rows))
+    flags: list[str] = []
+    [schedule] = read_schedules(catalogue, opener, flags=flags)
+    assert schedule.passive and [row.tag for row in schedule.rows] == [None] * 3
+    assert len(flags) == 1 and flags[0].startswith("M-601: GRILLE AND LOUVER SCHEDULE")
+    assert "EF-1, EF-2" in flags[0] and "never as units" in flags[0] and flags[0].endswith("check")
+
+
+def test_a_titled_air_device_schedule_whose_codes_are_types_is_nothing_to_flag(tmp_path):
+    """B1 is a type code (a boiler's prefix, written with no dash), SD an air outlet's code prefix: neither is a unit's tag
+    outside the air outlets' codes."""
+    rows = [["AIR OUTLET SCHEDULE", "", ""], ["DESIGNATION", "DESCRIPTION", "NECK SIZE"],
+            ["B1", "LINEAR SUPPLY DIFFUSER", "8"], ["SD-1", "SUPPLY DIFFUSER", "10"], ["CD", "CEILING DIFFUSER", "12"]]
+    catalogue, opener = catalogue_for(tmp_path, grid(200, 200, [90, 200, 80], rows))
+    flags: list[str] = []
+    [schedule] = read_schedules(catalogue, opener, flags=flags)
+    assert schedule.passive and flags == []
+
+
 # --- a key column the reading list does not name: UNIT, PUMP NO., AC UNIT NO., or no header at all (HP 4, HP 21) ---
 
 def test_a_unit_header_and_a_pump_no_header_are_read(tmp_path):
