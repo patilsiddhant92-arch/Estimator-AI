@@ -315,7 +315,7 @@ class _Check:
         for key, sheet in sheets.items():
             here = [patterns[f] for f, keys in on_sheet.items() if key in keys]
             self._count_sheet(sheet, here)
-        self.groups = self._plan_groups(list(sheets.values()))
+        self.groups = self._plan_groups(list(sheets.values()), plans)
 
         job, entries, asked = self.job, [], []
         for system, family in families:
@@ -459,13 +459,20 @@ class _Check:
             confident, ambiguous = classify_located_boxes(page, pattern, scale)
             return (confident, ambiguous, *located_tallies(page, pattern, listed), True)
 
-    def _plan_groups(self, sheets: list[_Sheet]) -> dict:
-        """The inventory's plan groups of the counted sheets (`plan_groups`, the labels alone as evidence); empty
-        when they cannot be made (every sheet is then its own group)."""
+    def _plan_groups(self, sheets: list[_Sheet], plans=()) -> dict:
+        """The inventory's plan groups (`plan_groups`) of EVERY plan sheet of the job, the labels alone as evidence of
+        the sheets this check read (`sheets`); a plan sheet that shows none of the families' tags has no evidence. A
+        sheet that shows no tag is still a sheet of its floor: two sheets of one trade and one title make that floor
+        too uncertain to group (ruling L1, `inventory._same_floor_and_area`), so a check that left the twin out would
+        group sheets that the dossier, which sees it, does not, and its located count would fall below the dossier's.
+        Empty when the groups cannot be made (every sheet is then its own group)."""
         from estimator.reading.inventory import plan_groups
 
         try:
-            return plan_groups([(s.sheet, dict(s.evidence or {})) for s in sheets if s.sheet is not None])
+            evidence = {s.key: dict(s.evidence or {}) for s in sheets}
+            every = {(p.document, p.page): p for p in plans}
+            every.update({s.key: s.sheet for s in sheets if s.sheet is not None})
+            return plan_groups([(sheet, evidence.get(key, {})) for key, sheet in every.items()])
         except Exception:
             return {}
 

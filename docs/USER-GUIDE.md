@@ -125,20 +125,40 @@ The main ones:
 - The Master Template sets only the shape of a block, never what is in it.
 - Every line says who furnishes, installs and wires.
 - The higher count prints, flagged, with every count named. An unknown count prints as "Qty (##)".
-- On the plans, when in doubt the sheets add up: an overcount is named for you, an undercount would be invisible.
-  Two plan sheets count as one plan only when they are in one document, have two different sheet numbers (two
-  pages of one number are never one plan), their titles name a floor and say the same words in the same order (the
-  trade words aside: "HVAC DUCTWORK FIRST FLOOR PLAN" and "HVAC PIPING FIRST FLOOR PLAN"; "BUILDING 1 LEVEL 2" and
-  "BUILDING 2 LEVEL 1" are two places) and they repeat at least three of each other's units, and 60% of the
-  smaller sheet's. Then a unit's tag (VAV-101) counts once and a type's tag (EBB-A) the
-  most of one sheet, and the counts line says "M-101 and M-201 counted as one plan ...; check". Every other sheet
-  adds up, so EBB-1 on ten floors' plans is 10, and the counts line names it in case it is one unit shown again,
-  and names sheets that may show one plan. A typical plan counts once per floor it stands for, each floor once.
-  The Evidence Package's inventory counts with the same rule. When the plans still show more than the schedule,
-  the quantity note says the likely cause in plain words, for example
-  "*Qty. (12) per plan placements (likely a typical unit at each place); 1 per schedule rows." Those words
-  are in `playbook/wording.json` (`count_causes`). The tags and sheets behind a cause go to the writers'
-  evidence, never into the client's note.
+- On the plans, sheets that show the same floor and area are not added together (ruling L1). A ductwork plan, a
+  piping plan and a controls plan of one floor draw the same units, each for its own trade. The app counts them as
+  one plan.
+  Two plan sheets are one plan when all of these are true:
+  - They are in one document.
+  - They have two different sheet numbers. Two pages of one number are never one plan.
+  - One of the two tests below is true.
+
+  Test 1, the same floor and area for other trades. The titles name the same one floor, the same parts of it
+  (TOWER A, EAST WING) and the same other words. The trades they name are not the same: "LEVEL 2 HVAC DUCTWORK PLAN"
+  and "LEVEL 2 HVAC PIPING PLAN". "1ST FLOOR", "FIRST FLOOR" and "LEVEL 1" are one floor. Two words for one trade are
+  one trade (DUCT and DUCTWORK, BAS and CONTROLS). This test needs no tag evidence. Two sheets of one trade with one
+  title could be the two halves of a floor, so they never group by this test. A floor that has two such sheets
+  groups none of its sheets by this test. A plan named ENLARGED or PARTIAL never groups by this test. A plan that
+  names several floors never groups by this test.
+
+  Test 2, the same title and the same units. The titles say the same words in the same order, with a floor among
+  them (the trade words aside). The sheets repeat at least three of each other's units, and 60% of the smaller
+  sheet's. "BUILDING 1 LEVEL 2" and "BUILDING 2 LEVEL 1" are two places.
+
+  In a group, each tag counts the highest count of one sheet. A unit's tag (VAV-101) counts once. A type's tag
+  (EBB-A) counts the most labels of one sheet. The floors and areas then add up.
+  When this count is lower than the sheets add up to, the counts line gives both numbers. For example:
+  "M-101 and M-201 counted as one plan, 4 (8 if they are two places): same floor and area; check".
+  Every other sheet adds up, because a count that is too low is the worst error. So EBB-1 on ten floors' plans is
+  10. The counts line names it, in case it is one unit shown again. The counts line also names sheets that may show
+  one plan. A typical plan counts once per floor it stands for, and each floor counts once.
+  A count stated beside a tag ("CUH-A (TYP. OF 4)") on sheets of one floor and area counts once in the same way.
+  When this makes the count lower than the sheets add up to, the planner asks you to confirm it.
+  The Evidence Package's inventory counts with the same rule.
+  When the plans still show more than the schedule, the quantity note gives the likely cause in plain words. For
+  example: "*Qty. (12) per plan placements (likely a typical unit at each place); 1 per schedule rows." Those words
+  are in `playbook/wording.json` (`count_causes`). The tags and sheets behind a cause go to the writers' evidence.
+  They never go into the client's note.
 - How a label is read. A tag counts on a plan when it stands alone ("VAV-3", "(VAV-3)") or starts a short line,
   whatever words follow ("VAV-3 450 CFM", "EF-2 ON ROOF"); other tags on that line count too ("FCU-4 / FCU-5",
   "VAV-1 THRU VAV-5"). A tag after a word like TO, FROM, SEE, PER or SERVED BY is a note, not a label, and so is any

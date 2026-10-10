@@ -71,17 +71,19 @@ def test_the_inventory_adds_up_a_type_tag_on_two_towers_first_floors():
     assert placements(catalogue, ["EBB-A"])["EBB-A"].total == 8
 
 
-def test_the_same_floor_named_two_ways_in_one_document_adds_up_and_is_named(tmp_path):
-    """"LEVEL 1" and "FIRST FLOOR" name one floor, but FINAL-I (lead ruling) groups sheets only when their title
-    words are the same: these are summed, 12 (was one plan, 6), and each pair is named as maybe one plan."""
+def test_the_same_floor_named_two_ways_in_one_document_is_one_plan_for_two_trades(tmp_path):
+    """"LEVEL 1" and "FIRST FLOOR" name one floor. FINAL-I summed them, 12, because the title words differed; ruling L1
+    reads the floor, however it is written ("LEVEL 02" and "2ND FLOOR" too), so the plan and the controls plan of a
+    floor are one plan: 6, each pair named as one plan with the sum beside it."""
     boxes1, boxes2 = "VAV-1\nVAV-2\nVAV-3", "VAV-4\nVAV-5\nVAV-6"
     catalogue, reading = _job([("M-101", "HVAC LEVEL 1 PLAN", boxes1), ("M-102", "HVAC LEVEL 02 PLAN", boxes2),
                                ("M-201", "CONTROLS FIRST FLOOR PLAN", boxes1),
                                ("M-202", "CONTROLS 2ND FLOOR PLAN", boxes2)], [f"VAV-{n}" for n in range(1, 7)])
     d = build_dossier(catalogue, reading, tmp_path)
-    assert d.counts["VAV"]["plan_placements"] == 12
+    assert d.counts["VAV"]["plan_placements"] == 6
     line = next(line for line in d.text.splitlines() if "] VAV (" in line)
-    assert "M-101 and M-201 may show one plan" in line and "M-102 and M-202 may show one plan" in line
+    assert "M-101 and M-201 counted as one plan, 3 (6 if they are two places)" in line
+    assert "M-102 and M-202 counted as one plan, 3 (6 if they are two places)" in line
 
 
 def test_a_type_tag_once_on_each_of_two_floors_is_not_called_one_unit_shown_again(tmp_path):

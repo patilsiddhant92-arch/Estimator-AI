@@ -114,10 +114,10 @@ def test_a_typical_type_tag_prints_a_typical_unit_at_each_place(tmp_path):
 
 
 def test_a_floor_drawn_twice_is_never_named_as_a_cause(tmp_path):
-    """EF-1 on two floors, each floor drawn on a ductwork plan and a controls plan. FINAL-I (lead ruling): the first
-    floor's two sheets repeat three unit tags under one floor title, one plan group (3); the second floor's repeat
-    only EF-1, too little to be one plan, so they add up (2): 5, the higher count, printed with no cause. "A floor
-    drawn on two plan sheets counted once" is never claimed."""
+    """EF-1 on two floors, each floor drawn on a ductwork plan and a controls plan. Ruling L1: each floor's two sheets
+    show one floor and area, one plan group, however few tags they repeat (3 on the first floor, 1 on the second):
+    4, printed with no cause (FINAL-I added the second floor's sheets up: 5). "A floor drawn on two plan sheets
+    counted once" is never claimed."""
     pages, sheets, at = _sheets_and_schedule(("M-101", "HVAC DUCTWORK FIRST FLOOR PLAN", "EF-1\nEF-2\nEF-3"),
                                              ("M-201", "HVAC PIPING AND CONTROLS FIRST FLOOR PLAN", "EF-1\nEF-2\nEF-3"),
                                              ("M-102", "HVAC DUCTWORK SECOND FLOOR PLAN", "EF-1"),
@@ -126,8 +126,8 @@ def test_a_floor_drawn_twice_is_never_named_as_a_cause(tmp_path):
     sheets.append(_sheet(at, "M-601", "SCHEDULES", types=("Schedules",)))
     tags = ["EF-1", "EF-2", "EF-3"]
     count = _family_count(_catalogue(pages, sheets, tags), _reading("EF SCHEDULE", tags, at), "EF", tmp_path)
-    assert count.highest() == 5
-    assert _note(count, tags=tuple(tags)) == ["*Qty. (5) per plan placements; 3 per schedule rows."]
+    assert count.highest() == 4
+    assert _note(count, tags=tuple(tags)) == ["*Qty. (4) per plan placements; 3 per schedule rows."]
 
 
 def test_the_note_never_carries_the_estimators_hints(tmp_path):

@@ -1490,3 +1490,139 @@ def test_a_stated_count_in_another_form_on_a_sheet_of_the_dossier_counts():
     count = plan_job(ledger, None, dossier, PLAYBOOK).systems[0].families[0].count
     assert count.value >= 4 and count.value == 6
     assert count.sources[0] == Ref("S2", "CUH-A (TYP. OF 4)", "M-101, Drawings.pdf page 2")
+
+
+# ---- ruling L1 (ws23): stated counts on the plan sheets of one floor and area are not added ------------------------
+
+def _sheet_dossier(*sheets) -> Dossier:
+    """A dossier of 7c sheet-text lines, one per (number, page, title, text): "[Dn] M-101, Drawings.pdf page 3 TITLE:
+    text", each with its source "M-101, Drawings.pdf page 3 (sheet text)"."""
+    lines, sources = [], {}
+    for n, (number, page, title, text) in enumerate(sheets, start=7):
+        where = f"{number}, Drawings.pdf page {page}"
+        lines.append(f"[D{n}] {where} {title}: {text}")
+        sources[f"D{n}"] = f"{where} (sheet text)"
+    return Dossier(job_name="Invented Job", text="\n".join(lines) + "\n", images=(), sources=sources, families=(),
+                   device_totals={}, counts={}, stats={})
+
+
+def _cuh_job(dossier: Dossier, count=None):
+    ledger = _ledger()
+    _family(ledger, "CUH", "Cabinet Unit Heater", "CUH-A, CUH-B", count)
+    return plan_job(ledger, None, dossier, PLAYBOOK)
+
+
+L2_DUCT = "LEVEL 2 HVAC DUCTWORK PLAN"
+L2_PIPE = "LEVEL 2 HVAC PIPING PLAN"
+L3_DUCT = "LEVEL 3 HVAC DUCTWORK PLAN"
+
+
+def test_the_same_stated_count_on_two_sheets_of_one_floor_and_area_counts_once():
+    dossier = _sheet_dossier(("M-101", 3, L2_DUCT, "CUH-A (TYP. OF 4) AT THE ENTRIES"),
+                             ("M-201", 4, L2_PIPE, "CUH-A (TYP. OF 4) PIPED"))
+    count = _cuh_job(dossier).systems[0].families[0].count
+    assert count.value == 4                                              # the sheets added up gave 8
+    assert [r.source_id for r in count.sources] == ["D7", "D8"]           # both sheets still cite it
+
+
+def test_the_stated_counts_of_two_floors_add_up():
+    dossier = _sheet_dossier(("M-101", 3, L2_DUCT, "CUH-A (TYP. OF 4)"), ("M-201", 4, L2_PIPE, "CUH-A (TYP. OF 4)"),
+                             ("M-102", 5, L3_DUCT, "CUH-A (TYP. OF 4)"))
+    assert _cuh_job(dossier).systems[0].families[0].count.value == 8      # level 2 once, level 3 once
+
+
+def test_each_tag_counts_the_most_of_one_sheet_of_the_group_and_the_tags_add_up():
+    dossier = _sheet_dossier(("M-101", 3, L2_DUCT, "CUH-A (TYP. OF 4) CUH-B x2"),
+                             ("M-201", 4, L2_PIPE, "CUH-A (TYP. OF 3) CUH-B x5"))
+    assert _cuh_job(dossier).systems[0].families[0].count.value == 4 + 5
+
+
+def test_two_sheets_of_one_trade_and_one_title_could_be_the_halves_of_a_floor_so_their_counts_add_up():
+    dossier = _sheet_dossier(("M-101", 3, L2_DUCT, "CUH-A (TYP. OF 4)"), ("M-102", 4, L2_DUCT, "CUH-A (TYP. OF 4)"))
+    assert _cuh_job(dossier).systems[0].families[0].count.value == 8
+
+
+def test_a_twin_sheet_that_states_nothing_still_stops_the_other_trades_sheet_from_being_one_plan():
+    # the same floor drawn twice for ductwork (one of them states no count) and once for piping: which of the two the
+    # piping plan shows is not known, so nothing is grouped (`plan_groups` sees every sheet of the dossier)
+    dossier = _sheet_dossier(("M-101", 3, L2_DUCT, "CUH-A (TYP. OF 4)"), ("M-102", 4, L2_DUCT, "GENERAL NOTES ONLY"),
+                             ("M-201", 5, L2_PIPE, "CUH-A (TYP. OF 4)"))
+    assert _cuh_job(dossier).systems[0].families[0].count.value == 8
+
+
+@pytest.mark.parametrize("title", ["LEVEL 2 HVAC DETAILS", "LEVEL 2 HVAC SCHEDULES", "LEVEL 2 HVAC RISER DIAGRAM"])
+def test_a_sheet_that_is_no_plan_is_never_grouped_with_a_plan(title):
+    dossier = _sheet_dossier(("M-101", 3, L2_DUCT, "CUH-A (TYP. OF 4)"), ("M-501", 4, title, "CUH-A (TYP. OF 4)"))
+    assert _cuh_job(dossier).systems[0].families[0].count.value == 8
+
+
+def test_a_line_that_is_no_sheet_text_is_never_grouped():
+    dossier = Dossier(job_name="Invented Job", text="[S2] CUH-A (TYP. OF 4)\n[S4] CUH-A (TYP. OF 4)\n", images=(),
+                      sources={"S2": SOURCES["S2"], "S4": SOURCES["S4"]}, families=(), device_totals={}, counts={},
+                      stats={})
+    assert _cuh_job(dossier).systems[0].families[0].count.value == 8
+
+
+def test_the_drop_is_recorded_on_the_family_with_both_numbers_and_the_sheets():
+    from bms.plan_read import AddedUp, Reader
+
+    dossier = _sheet_dossier(("M-101", 3, L2_DUCT, "CUH-A (TYP. OF 4)"), ("M-201", 4, L2_PIPE, "CUH-A (TYP. OF 4)"),
+                             ("M-102", 5, L3_DUCT, "CUH-A (TYP. OF 4)"))
+    ledger = _ledger()
+    _family(ledger, "CUH", "Cabinet Unit Heater", "CUH-A")
+    reader = Reader(ledger, dossier.sources, dossier.text)
+    family = reader.family_by_prefix("CUH")
+    assert family.count.value == 8
+    assert family.added_up == AddedUp(counted=8, summed=12, sheets=(("M-101", "M-201"),))
+    nothing_lowered = _sheet_dossier(("M-101", 3, L2_DUCT, "CUH-A (TYP. OF 4)"), ("M-102", 5, L3_DUCT, "CUH-A (TYP. OF 4)"))
+    assert Reader(ledger, nothing_lowered.sources, nothing_lowered.text).family_by_prefix("CUH").added_up is None
+
+
+def test_a_count_lowered_by_the_rule_below_what_the_sheets_add_up_to_is_asked_with_both_numbers():
+    dossier = _sheet_dossier(("M-101", 3, L2_DUCT, "CUH-A (TYP. OF 4)"), ("M-201", 4, L2_PIPE, "CUH-A (TYP. OF 4)"))
+    job = _cuh_job(dossier)
+    [asked] = [q for q in job.questions if "if the sheets were added up" in q]
+    assert "Cabinet Unit Heater (CUH)" in asked and "M-101 and M-201 show one floor and area" in asked
+    assert "4 counted, 8 if the sheets were added up" in asked
+
+
+def test_the_dossiers_own_counts_line_is_not_read_as_a_stated_count():
+    # its reading note says "CUH-A 4 places, 4 on M-101" (a type tag's placements), which reads like a stated count
+    # ("CUH-A 4 PLACES"), but those placements are the two sheets' counts again, not more units
+    counts_line = ("[S1] CUH (Cabinet Unit Heater): schedule rows 0; plan placements 4 (M-101 4; M-201 4); riser —; "
+                   "placements above the other counts, likely: a typical unit at each place. Tags: CUH-A. Reading "
+                   "notes: the 4 placements on the plans are above the other counts: CUH-A 4 places, 4 on M-101 — "
+                   "likely a typical unit placed at each place: check the schedule's quantity.")
+    sheets = _sheet_dossier(("M-101", 3, L2_DUCT, "CUH-A (TYP. OF 4)"), ("M-201", 4, L2_PIPE, "CUH-A (TYP. OF 4)"))
+    dossier = dataclasses.replace(sheets, text=counts_line + "\n" + sheets.text,
+                                  sources={**sheets.sources, "S1": SOURCES["S1"].replace("FAN", "CUH")})
+    count = _cuh_job(dossier).systems[0].families[0].count
+    assert count.value == 4
+    assert [r.source_id for r in count.sources] == ["D7", "D8"]
+
+
+def test_the_rule_reads_the_sheet_text_lines_the_dossier_builder_writes(tmp_path):
+    # the line shape `_plan_sheet` reads is the one `build_dossier` writes in 7c, not only the one these tests invent
+    import sys
+
+    from bms.plan_read import AddedUp, Reader
+
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+    from estimator.writing.dossier import build_dossier
+    from test_dossier_plan_areas import DWG, _catalogue, _page, _reading, _sheet
+
+    pages = [_page(DWG, 1, "CUH-A (TYP. OF 4)"), _page(DWG, 2, "CUH-A (TYP. OF 4)")]
+    sheets = [_sheet(1, "M-101", L2_DUCT), _sheet(2, "M-201", L2_PIPE)]
+    built = build_dossier(_catalogue(pages, sheets, ["CUH-A"]), _reading(), tmp_path)
+    ledger = _ledger()
+    _family(ledger, "CUH", "Cabinet Unit Heater", "CUH-A")
+    family = Reader(ledger, built.sources, built.text).family_by_prefix("CUH")
+    assert family.count.value == 4
+    assert family.added_up == AddedUp(4, 8, (("M-101", "M-201"),))
+
+
+def test_no_question_when_the_printed_count_is_not_below_what_the_sheets_add_up_to():
+    dossier = _sheet_dossier(("M-101", 3, L2_DUCT, "CUH-A (TYP. OF 4)"), ("M-201", 4, L2_PIPE, "CUH-A (TYP. OF 4)"))
+    job = _cuh_job(dossier, count=9)                                      # a schedule quantity above the sum prints
+    assert job.systems[0].families[0].count.value == 9
+    assert not any("if the sheets were added up" in q for q in job.questions)
