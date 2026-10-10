@@ -293,3 +293,19 @@ def test_one_sheet_written_two_ways_in_two_documents_is_flagged_once(tmp_path):
     make_pdf(takeoffs / "2. Addendum 1" / "Addendum 1.pdf", _untitled("M101"))
     flags = catalogue_job(root, tmp_path / "cache").flags
     assert [f for f in flags if f.startswith("Sheet ")] == ["Sheet M-101 is on 2 pages (Mech.pdf p.1; Addendum 1.pdf p.1)"]
+
+
+# --- ruling L1: the words that name a plan's kind (the plan groups) never widen the words that name a sheet ------
+
+def test_the_plan_kind_words_widen_the_plan_groups_vocabulary_and_never_the_supersession_one():
+    from types import SimpleNamespace
+
+    from estimator.catalogue.job import GENERIC_PLAN_WORDS, PLAN_DISCIPLINE_WORDS, TRADE_WORDS, title_words
+
+    assert TRADE_WORDS <= PLAN_DISCIPLINE_WORDS and GENERIC_PLAN_WORDS <= PLAN_DISCIPLINE_WORDS
+    assert {"ZONING", "AIRFLOW", "BALANCING", "HYDRONIC", "REFRIGERANT"} <= PLAN_DISCIPLINE_WORDS
+    assert "ZONING" not in TRADE_WORDS and "AIRFLOW" not in TRADE_WORDS    # `title_words` also names a reissued sheet
+    assert "ZONE" not in PLAN_DISCIPLINE_WORDS                              # "ZONE 2" names a part of a floor
+    assert not GENERIC_PLAN_WORDS & {"DUCTWORK", "PIPING", "CONTROLS", "ZONING", "PLUMBING"}
+    assert title_words(SimpleNamespace(title="LEVEL 4 ZONING PLAN", number="M-301")) == ("LEVEL", "4", "ZONING")
+    assert title_words(SimpleNamespace(title="LEVEL 4 DUCTWORK PLAN", number="M-201")) == ("LEVEL", "4")

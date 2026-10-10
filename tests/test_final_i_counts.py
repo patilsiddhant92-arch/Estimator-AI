@@ -6,6 +6,8 @@
 - In a group a unit's tag counts once, a type's tag the most labels of one sheet, each times the floors the group
   stands for, every floor once. Every other sheet is its own group, and the groups add up: when in doubt, sum.
 - Sheets are keyed by (document, page): one sheet number in two documents with the same text is two sheets (F7).
+Ruling L1 (2026-10-10) adds to the first point: sheets of one floor and area for other trades are one plan group with
+no tag test (tests/test_inventory_same_floor.py); the tag test above stays for sheets that name no other trade.
 Every test here fails on rebuild 36b6d5c by assertion. Invented fixtures only."""
 from types import SimpleNamespace
 
@@ -62,12 +64,23 @@ def test_a_floor_drawn_on_a_ductwork_and_a_piping_plan_is_one_group_and_a_type_c
 
 
 def test_one_title_with_too_few_unit_tags_in_common_is_two_plans(tmp_path):
-    """The same title, but only two unit tags repeated: too little to be one plan, so the sheets add up (4)."""
+    """The same title (and so the same trade), but only two unit tags repeated: too little to be one plan, so the
+    sheets add up (4). Two sheets of one trade could be the two halves of a floor."""
     pages = [_page(DWG, 1, _lines("VAV-1", "VAV-2")), _page(DWG, 2, _lines("VAV-1", "VAV-2"))]
-    sheets = [_sheet(1, "M-101", "HVAC FIRST FLOOR PLAN"), _sheet(2, "M-201", "CONTROLS FIRST FLOOR PLAN")]
+    sheets = [_sheet(1, "M-101", "HVAC FIRST FLOOR PLAN"), _sheet(2, "M-201", "HVAC FIRST FLOOR PLAN")]
     d = build_dossier(_catalogue(pages, sheets, ["VAV-1", "VAV-2"]), _reading(), tmp_path)
     assert d.counts["VAV"]["plan_placements"] == 4
     assert "M-101 and M-201 may show one plan" in _line("VAV", d)
+
+
+def test_one_floor_for_two_trades_with_too_few_unit_tags_in_common_is_one_plan(tmp_path):
+    """Ruling L1: a floor plan and the controls plan of the same floor show the same floor and area. Two units on
+    both sheets are 2, not 4: the tag evidence is not needed when the titles say the floor, and the sum is said."""
+    pages = [_page(DWG, 1, _lines("VAV-1", "VAV-2")), _page(DWG, 2, _lines("VAV-1", "VAV-2"))]
+    sheets = [_sheet(1, "M-101", "HVAC FIRST FLOOR PLAN"), _sheet(2, "M-201", "CONTROLS FIRST FLOOR PLAN")]
+    d = build_dossier(_catalogue(pages, sheets, ["VAV-1", "VAV-2"]), _reading(), tmp_path)
+    assert d.counts["VAV"]["plan_placements"] == 2
+    assert "M-101 and M-201 counted as one plan, 2 (4 if they are two places)" in _line("VAV", d)
 
 
 def test_a_group_of_two_typical_sheets_counts_every_floor_they_name_once(tmp_path):

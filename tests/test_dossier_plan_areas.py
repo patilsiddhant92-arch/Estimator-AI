@@ -112,9 +112,9 @@ def test_a_typical_type_tag_counts_per_place_and_floors_add_up(tmp_path):
     assert "same plan as" not in _line("EBB", d)
 
 
-def test_a_typical_type_tag_on_a_floor_drawn_twice_counts_every_place_and_names_the_two_sheets(tmp_path):
-    """FINAL-G: was 4 (the places of one drawing); a type's tag is never merged, so 8, the higher count, with the
-    two sheets named as maybe one plan."""
+def test_a_typical_type_tag_on_a_floor_drawn_twice_counts_the_most_of_one_sheet_and_names_both_numbers(tmp_path):
+    """Ruling L1 (replaces FINAL-G's 8): the floor's plan and its piping and controls plan show one floor and area,
+    so a type's tag counts the most places of one sheet, 4, with the two sheets named as one plan and the sum, 8."""
     pages = [_page(DWG, 1, "\n".join(["EBB-A"] * 4)), _page(DWG, 2, "\n".join(["EBB-A"] * 4)),
              _page(DWG, 3, "EBB SCHEDULE\nEBB-A")]
     sheets = [_sheet(1, "M-101", "HVAC FIRST FLOOR PLAN"),
@@ -122,8 +122,8 @@ def test_a_typical_type_tag_on_a_floor_drawn_twice_counts_every_place_and_names_
               _sheet(3, "M-601", "SCHEDULES", types=("Schedules",))]
     catalogue = _catalogue(pages, sheets, ["EBB-A"])
     d = build_dossier(catalogue, _reading([_schedule("EBB SCHEDULE", ["EBB-A"], 3)]), tmp_path)
-    assert d.counts["EBB"]["plan_placements"] == 8
-    assert "M-101 and M-201 may show one plan; both are counted, the higher count" in _line("EBB", d)
+    assert d.counts["EBB"]["plan_placements"] == 4
+    assert "M-101 and M-201 counted as one plan, 4 (8 if they are two places)" in _line("EBB", d)
 
 
 def test_a_plan_whose_title_names_no_floor_adds_up_and_is_named(tmp_path):

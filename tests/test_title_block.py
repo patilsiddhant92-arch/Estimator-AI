@@ -272,3 +272,105 @@ def test_one_sheet_however_its_number_is_spaced(a, b):
 @pytest.mark.parametrize("a, b", [("M-1.01", "M-101"), ("M1-01", "M-101"), ("M-101-A", "M-101")])
 def test_another_sheet_keeps_its_own_key(a, b):
     assert sheet_key(a) != sheet_key(b)
+
+
+# --- HP 1: a title centred in the strip is read whole, not cut to its last line ---------------------------
+# The strip is centred, so its long lines begin further left than a line under the sheet number does. Every
+# fixture here is invented; the numbers are fractions of the sheet, as `Span` gives them.
+
+
+def test_a_title_centred_in_the_strip_is_read_whole_not_cut_to_its_last_line():
+    # The long first line begins 0.070 left of the number (the slack is 0.06) but runs on over it.
+    spans = [_span("HVAC CONTROLS SEQUENCES", 17, 0.870, 0.825, w=0.100),      # 0.870 to 0.970
+             _span("SHEET 2 OF 3", 17, 0.905, 0.838, w=0.030),                 # 0.905 to 0.935
+             _span("M-502.00", 22, 0.940, 0.946, w=0.035, h=0.013)]
+    assert read_title_block(spans) == TitleBlock("M-502.00", "HVAC CONTROLS SEQUENCES SHEET 2 OF 3")
+
+
+def test_a_centred_title_of_one_long_line_comes_from_the_title_block():
+    # without the centred rule the line before the number still gave this title, but as "beside the sheet number"
+    spans = [_span("PIPING AND INSTRUMENTATION DIAGRAM", 16, 0.850, 0.84, w=0.130),    # 0.850 to 0.980
+             _span("M-611", 30, 0.945, 0.93, w=0.030, h=0.016)]
+    block = read_title_block(spans)
+    assert (block.number, block.title, block.source) == ("M-611", "PIPING AND INSTRUMENTATION DIAGRAM", "title block")
+
+
+def test_a_centred_title_reaches_no_further_left_than_a_title_strip_is_wide():
+    # a wide line that begins far from the number's column is a note across the sheet, not a title line
+    spans = [_span("A WIDE LINE OF 17 POINT CAPITALS ACROSS THE SHEET", 17, 0.50, 0.84, w=0.46),   # 0.50 to 0.96
+             _span("HVAC SCHEDULES", 17, 0.915, 0.86, w=0.06),
+             _span("M-601", 30, 0.945, 0.93, w=0.030, h=0.016)]
+    assert read_title_block(spans) == TitleBlock("M-601", "HVAC SCHEDULES")
+
+
+def test_a_line_in_a_column_beside_the_strip_is_not_a_title_line():
+    # it ends before the number begins: it sits beside the strip, whatever its size
+    spans = [_span("ENGINEER OF RECORD", 17, 0.70, 0.84, w=0.12),                  # 0.70 to 0.82
+             _span("HVAC SCHEDULES", 17, 0.915, 0.86, w=0.06),
+             _span("M-601", 30, 0.945, 0.93, w=0.030, h=0.016)]
+    assert read_title_block(spans) == TitleBlock("M-601", "HVAC SCHEDULES")
+
+
+def test_a_line_to_the_right_of_the_number_is_not_a_title_line():
+    spans = [_span("HVAC SCHEDULES", 17, 0.90, 0.86, w=0.05),
+             _span("RIGHT OF THE NUMBER", 17, 0.985, 0.84, w=0.014),
+             _span("M-601", 30, 0.93, 0.93, w=0.030, h=0.016)]
+    assert read_title_block(spans) == TitleBlock("M-601", "HVAC SCHEDULES")
+
+
+def test_a_title_centred_under_its_label_is_read_whole():
+    # "DRAWING TITLE:" is centred over a centred title: the long first line begins left of the label's column.
+    spans = [_span("DRAWING TITLE:", 8, 0.915, 0.800, w=0.050),                     # centre 0.940
+             _span("HVAC CONTROLS SEQUENCES", 17, 0.890, 0.815, w=0.100),           # 0.890 to 0.990, centre 0.940
+             _span("SHEET 2 OF 3", 17, 0.925, 0.830, w=0.030),
+             _span("SHEET NO.", 8, 0.915, 0.900, w=0.040),
+             _span("M-502.00", 22, 0.925, 0.915, w=0.035, h=0.013)]
+    assert read_title_block(spans) == TitleBlock("M-502.00", "HVAC CONTROLS SEQUENCES SHEET 2 OF 3")
+
+
+def test_a_left_aligned_title_under_its_label_still_reads_the_same():
+    spans = [_span("DRAWING TITLE:", 8, 0.890, 0.800, w=0.050),
+             _span("HVAC CONTROLS SEQUENCES", 17, 0.890, 0.815, w=0.100),
+             _span("SHEET 2 OF 3", 17, 0.890, 0.830, w=0.030),
+             _span("SHEET NO.", 8, 0.890, 0.900, w=0.040),
+             _span("M-502.00", 22, 0.890, 0.915, w=0.035, h=0.013)]
+    assert read_title_block(spans) == TitleBlock("M-502.00", "HVAC CONTROLS SEQUENCES SHEET 2 OF 3")
+
+
+@pytest.mark.parametrize("x0, w", [
+    (0.70, 0.12),     # 0.70 to 0.82: begins further left than a strip is wide
+    (0.84, 0.06),     # 0.84 to 0.90: within reach, but its centre is not on the label and it ends before the label
+    (0.60, 0.70),     # 0.60 to 1.30: its centre is on the label, but it begins far from the label's column
+])
+def test_a_text_column_left_of_a_label_is_not_taken_as_its_title(x0, w):
+    spans = [_span("DRAWING TITLE:", 8, 0.915, 0.800, w=0.050),                      # 0.915 to 0.965
+             _span("OWNER REPRESENTATIVE", 17, x0, 0.815, w=w),
+             _span("HVAC SCHEDULES", 17, 0.915, 0.815, w=0.06),
+             _span("SHEET NO.", 8, 0.915, 0.900, w=0.040),
+             _span("M-601", 22, 0.925, 0.915, w=0.035, h=0.013)]
+    assert read_title_block(spans) == TitleBlock("M-601", "HVAC SCHEDULES")
+
+
+def test_a_centred_sequence_sheet_is_read_from_the_pdf_and_found_as_the_sequence(tmp_path):
+    # HP 1 with HP 192a, from a real PDF: the title is centred in the strip, so its long first line begins further
+    # left than a line under the number does. Cut to "SHEET 2 OF 3", the sheet was no sequence sheet at all.
+    import pymupdf
+
+    from estimator.catalogue.job import catalogue_job
+    from estimator.reading.sequences import SEQUENCE, find_backbone
+
+    def centred(text, size, centre):
+        return centre - pymupdf.get_text_length(text, fontname="helv", fontsize=size) / 2
+
+    first, second = "HVAC CONTROLS SEQUENCES", "SHEET 2 OF 3"
+    sheet = Page(width=3024, height=2160,
+                 texts=((200, 300, FILLER, 12), (centred(first, 20, 2740), 1800, first, 20),
+                        (centred(second, 20, 2740), 1830, second, 20), (2820, 2000, "M-502.00", 30)))
+    root = tmp_path / "26-9999"
+    make_pdf(root / "2. Takeoffs" / "1. Base Takeoff" / "Controls.pdf", sheet)
+    result = catalogue_job(root, tmp_path / "cache")
+    [found] = result.sheets
+    assert (found.number, found.title, found.title_source) == ("M-502.00", "HVAC CONTROLS SEQUENCES SHEET 2 OF 3",
+                                                               "title block")
+    backbones, _flags = find_backbone(result)
+    assert [(b.what, b.kind, b.first_page) for b in backbones] == [(SEQUENCE, "drawing sheet", 1)]

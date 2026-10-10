@@ -154,3 +154,76 @@ def test_a_contents_page_naming_the_points_list_section_is_not_the_list():
     catalogue = FakeCatalogue(sections=(before,), pages=(page("Specs.pdf", 1, contents), page("Specs.pdf", 2, FILLER)))
     found, _ = find_backbone(catalogue)
     assert [b.what for b in found] == []
+
+
+# --- HP 192a: sheets titled a sequence or a points list in any common wording feed the sequence reader --------
+
+import pytest  # noqa: E402
+
+NO_SEQUENCE = "No sequence of operation found — step 5 has no backbone for this job; scope comes from the drawings"
+NO_POINTS = "No points list found — the sequence is not cross-checked"
+
+
+def _found(*titles: str):
+    sheets = tuple(sheet("IC.pdf", n, f"IC0{n}", title) for n, title in enumerate(titles, start=1))
+    return find_backbone(FakeCatalogue(sheets=sheets, pages=tuple(page("IC.pdf", n, FILLER)
+                                                                  for n in range(1, len(titles) + 1))))
+
+
+@pytest.mark.parametrize("title", [
+    "SEQUENCE OF OPERATION", "SEQUENCE OF OPERATIONS", "SEQUENCES OF OPERATION", "CONTROL SEQUENCES",
+    "HVAC CONTROLS SEQUENCES", "CONTROLS SEQUENCE", "OPERATING SEQUENCE", "AHU-1 SEQUENCE", "SEQUENCE-OF-OPERATION",
+    "HVAC SEQ. OF OPERATION", "SEQ OF OPS", "sequences of operation",
+    "CONTROL SEQUENCES - SHEET 2 OF 3",
+])
+def test_a_sheet_titled_a_sequence_in_any_common_wording_is_the_sequence(title):
+    found, flags = _found(title)
+    assert [(b.what, b.kind) for b in found] == [(SEQUENCE, "drawing sheet")]
+    assert found[0].where.startswith(f"IC01 {title} (IC.pdf, page 1)")
+    assert flags == [NO_POINTS]
+
+
+@pytest.mark.parametrize("title", [
+    "POINTS LIST", "POINT LIST", "BMS POINTS LIST", "DDC POINT LIST", "CONTROL POINTS LIST", "POINTS SCHEDULE",
+    "POINT SCHEDULE", "I/O POINT SCHEDULE", "I/O POINTS", "I/O LIST", "I/O SCHEDULE", "INPUT/OUTPUT SCHEDULE",
+    "INPUT / OUTPUT LIST", "CONTROL POINTS", "CONTROLS POINTS", "BAS POINTS", "BMS POINTS", "DDC POINTS",
+    "POINTS TABLE", "POINT LISTING", "bms points",
+])
+def test_a_sheet_titled_a_points_list_in_any_common_wording_is_the_points_list(title):
+    found, flags = _found(title)
+    assert [(b.what, b.kind) for b in found] == [(POINTS, "drawing sheet")]
+    assert flags == [NO_SEQUENCE]
+
+
+@pytest.mark.parametrize("title", [
+    "FIRST FLOOR PLAN", "HVAC CONTROL DIAGRAM", "CONTROL VALVE DETAILS", "CONTROL PANEL DETAILS",
+    "POINT OF CONNECTION PLAN", "AIR HANDLING UNIT SCHEDULE", "BOILER SCHEDULE", "RISER DIAGRAM",
+    "INPUT POWER PLAN", "OUTPUT LEVELS", "I/O MODULE DETAILS", "BASEMENT PLAN", "PLUMBING POINT DETAILS",
+    "SET POINT SCHEDULE", "TEMPERATURE SET POINT SCHEDULE", "SETPOINT SCHEDULE",     # setpoints are no points list
+])
+def test_a_sheet_that_is_neither_is_not_a_backbone(title):
+    found, flags = _found(title)
+    assert found == []
+    assert flags == [NO_SEQUENCE]
+
+
+def test_one_title_that_names_both_is_both():
+    found, flags = _found("BMS I/O POINTS AND CONTROL SEQUENCES")
+    assert {b.what for b in found} == {SEQUENCE, POINTS}
+    assert flags == []
+
+
+def test_the_sequence_sheets_of_a_set_in_a_run_are_one_item_whatever_their_wording():
+    sheets = (sheet("IC.pdf", 4, "IC04-1", "CONTROL SEQUENCES - SHEET 1 OF 2"),
+              sheet("IC.pdf", 5, "IC04-2", "CONTROL SEQUENCES - SHEET 2 OF 2"),
+              sheet("IC.pdf", 6, "IC05", "I/O POINT SCHEDULE"))
+    found, flags = find_backbone(FakeCatalogue(sheets=sheets, pages=tuple(page("IC.pdf", n, FILLER) for n in (4, 5, 6))))
+    assert [(b.what, b.first_page, b.last_page) for b in found] == [(SEQUENCE, 4, 5), (POINTS, 6, 6)]
+    assert flags == []
+
+
+def test_a_spec_section_titled_with_the_plural_is_a_sequence_section():
+    section = SpecSection(number="23 09 00", title="CONTROL SEQUENCES FOR HVAC",
+                          document="Specs.pdf", first_page=10, last_page=14)
+    found, _flags = find_backbone(FakeCatalogue(sections=(section,), pages=(page("Specs.pdf", 10, FILLER),)))
+    assert [(b.what, b.kind) for b in found] == [(SEQUENCE, "spec section")]

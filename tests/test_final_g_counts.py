@@ -72,18 +72,19 @@ def test_type_tags_on_a_floor_drawn_twice_add_up_and_the_line_names_the_two_shee
     assert "may show one plan" not in _line("VAV", d)
 
 
-def test_a_numbered_tag_placed_at_many_places_counts_every_place(tmp_path):
+def test_a_numbered_tag_placed_at_many_places_counts_the_most_of_one_sheet_of_a_floor(tmp_path):
     """FCU-1 at five places on each of two sheets of one floor: a numbered type (the inventory's rule, 3 places and
-    4 on one sheet), so every place counts (10, the higher count) and the cause is named; before, merged (5)."""
+    4 on one sheet), so it counts every place of one sheet (5), the cause is named, and both numbers are said. FINAL-G
+    added the two sheets up (10); ruling L1 counts the sheets of one floor and area once."""
     text = "\n".join(["FCU-1"] * 5)
     pages = [_page(DWG, 1, text), _page(DWG, 2, text)]
     sheets = [_sheet(1, "M-101", "HVAC DUCTWORK FIRST FLOOR PLAN"),
               _sheet(2, "M-201", "HVAC PIPING AND CONTROLS FIRST FLOOR PLAN")]
     d = build_dossier(_catalogue(pages, sheets, ["FCU-1"]), _reading(), tmp_path)
-    assert d.counts["FCU"]["plan_placements"] == 10
+    assert d.counts["FCU"]["plan_placements"] == 5
     line = _line("FCU", d)
     assert "likely a typical unit placed at each place" in line
-    assert "M-101 and M-201 may show one plan" in line
+    assert "M-101 and M-201 counted as one plan, 5 (10 if they are two places)" in line
 
 
 def test_a_unit_tag_on_a_typical_floor_drawn_twice_counts_once_per_floor(tmp_path):

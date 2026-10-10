@@ -102,6 +102,18 @@ def _plural(n: int, word: str) -> str:
 TRADE_WORDS = frozenset({"PLAN", "PLANS", "DUCTWORK", "DUCT", "PIPING", "PIPE", "CONTROLS", "CONTROL", "HVAC",
                          "MECHANICAL", "MECH", "PLUMBING", "AND"})
 
+# The words of a plan sheet's title that name the kind of drawing it is, not the place it shows: TRADE_WORDS and the
+# other kinds of plan that one floor is drawn for (ruling L1: the plan groups' test for sheets of one floor and area,
+# `inventory.plan_groups`). TRADE_WORDS is not widened: `title_words` also says which sheet a reissue replaces
+# (`revisions.supersede`), and that must not change. ZONE is not here: "ZONE 2" names a part of a floor.
+PLAN_KIND_WORDS = frozenset({"ZONING", "AIRFLOW", "BALANCING", "BALANCE", "VENTILATION", "HYDRONIC", "HYDRONICS",
+                             "REFRIGERANT", "REFRIGERATION", "SHEETMETAL", "TEMPERATURE", "BMS", "BAS", "DDC", "ATC",
+                             "LAYOUT"})
+PLAN_DISCIPLINE_WORDS = TRADE_WORDS | PLAN_KIND_WORDS
+# Of those, the words that say nothing of the trade ("MECHANICAL FIRST FLOOR PLAN" names no trade); a title's trades
+# are its other discipline words ("PIPING", "CONTROLS", "ZONING").
+GENERIC_PLAN_WORDS = frozenset({"PLAN", "PLANS", "AND", "HVAC", "MECHANICAL", "MECH", "LAYOUT"})
+
 
 def title_without_number(sheet) -> str:
     """The title upper-cased, its own sheet number taken out only where a title block prefixes or ends it: as a
