@@ -247,6 +247,37 @@ def test_a_split_family_with_a_higher_inventory_sum_is_asked_once_with_both_sums
     assert "4 per M-501" in asked and "per equipment counts for VAV" in asked
 
 
+class _CountedSources(dict):
+    """The dossier's sources, counting every scan of them."""
+    scans = 0
+
+    def items(self):
+        self.scans += 1
+        return super().items()
+
+
+def test_a_familys_counts_line_is_found_without_a_scan_of_the_sources_for_each_family():
+    vav = vav_totals(*TWO_TRADES)[0]
+    totals = [vav, replace(vav, prefix="CUH"), replace(vav, prefix="EF")]
+    line = "equipment counts for {} (schedules and plans)"
+    where = {"D4": "M-101, Drawings.pdf page 2 (sheet text)", "S7": line.format("CUH"), "S8": line.format("VAV"),
+             "S9": line.format("VAV"), "S6": line.format("EF")}
+    reader = Reader(_ledger(), where, "", totals)
+    reader.dossier_sources = _CountedSources(where)
+    cited = [reader._total_sum(prefix)[1].source_id for prefix in ("VAV", "CUH", "EF")]
+    assert cited == ["S8", "S7", "S6"]                  # each family's own line; the first of two lines of one family
+    assert reader.dossier_sources.scans == 1            # every family's line came from one scan
+    assert reader._total_sum("VAV") == reader._total_sum("VAV") and reader.dossier_sources.scans == 1
+
+
+def test_the_note_names_the_sheets_of_a_floor_as_the_inventory_names_them():
+    from bms.plan_read import AddedUp
+
+    assert "M-101 and M-201 show one floor and area, so" in AddedUp(4, 8, (("M-101", "M-201"),)).note()
+    note = AddedUp(4, 12, (("M-101", "M-201", "M-301"), ("M-102", "M-202"))).note()
+    assert "M-101, M-201 and M-301 show one floor and area; M-102 and M-202 show one floor and area, so" in note
+
+
 def test_the_higher_of_two_sums_is_the_one_kept():
     first, second = Ref("D7", "CUH-A (TYP. OF 4)", "M-101"), Ref("S9", "a flag", "equipment counts for VAV")
     count = Count(6, (PLAN,))

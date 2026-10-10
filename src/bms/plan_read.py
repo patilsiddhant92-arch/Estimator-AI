@@ -8,6 +8,7 @@ from functools import lru_cache
 
 from estimator.catalogue.tags import STATED_MOST
 from estimator.ledger.facts import Fact, Ledger, where_short
+from estimator.reading.inventory import _names
 
 from bms.model import Count, OtherCount, Ref
 
@@ -200,12 +201,6 @@ def _plan_sheet(where: str, text: str) -> _PlanSheet | None:
     return _PlanSheet(place.group("document"), int(place.group("page")), place.group("number"), title)
 
 
-def _names(places) -> str:
-    """"M-101", "M-101 and M-201", "M-101, M-201 and M-301"."""
-    places = list(places)
-    return places[0] if len(places) == 1 else ", ".join(places[:-1]) + f" and {places[-1]}"
-
-
 class Reader:
     def __init__(self, ledger: Ledger, dossier_sources: dict | None = None, dossier_text: str = "",
                  totals=()) -> None:
@@ -218,6 +213,7 @@ class Reader:
         self._families: dict[str, FamilyFacts] = {}
         self._plans: dict[str, _PlanSheet] | None = None
         self._groups: dict | None = None
+        self._counts_ids: dict[str, str] | None = None
 
     # refs
     def where(self, source_id: str, depth: int = 0) -> str:
@@ -460,9 +456,23 @@ class Reader:
         if total is None or not total.summed:
             return None
         flag = next((f for f in total.flags if _SHEETS_ADDED_UP in f), None)
-        source = next((sid for sid, where in self.dossier_sources.items()
-                       if where.startswith(f"{_COUNTS_SOURCE}{total.prefix} ")), None)
+        source = self._counts_sources().get(total.prefix)
         return None if flag is None or source is None else (total.summed, self.ref(source, flag))
+
+    def _counts_sources(self) -> dict[str, str]:
+        """The dossier's equipment counts lines by family prefix: prefix -> the id of the first source that is that
+        family's line ("equipment counts for VAV (schedules and plans)"). Built once, on first use, so a family's line
+        is found without a scan of every source for each family. Any text between the lead and a space is a prefix
+        (a line is found by the prefix it is asked for, whether or not the prefix holds a space)."""
+        if self._counts_ids is None:
+            found: dict[str, str] = {}
+            for sid, where in self.dossier_sources.items():
+                if where.startswith(_COUNTS_SOURCE):
+                    words = where[len(_COUNTS_SOURCE):]
+                    for space in re.finditer(" ", words):
+                        found.setdefault(words[:space.start()], sid)
+            self._counts_ids = found
+        return self._counts_ids
 
     @staticmethod
     def _with_sum(count: Count, *sums: tuple[int, Ref] | None) -> Count:
