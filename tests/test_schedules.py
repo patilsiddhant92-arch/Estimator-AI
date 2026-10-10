@@ -735,3 +735,132 @@ EF-1 THRU 3 | ROOF | 400
 """
     schedules = schedules_from_text(text, ("Mech.pdf", 6, "H601"))
     assert [(s.title, [r.tag for r in s.rows]) for s in schedules] == [("EXHAUST FAN SCHEDULE", ["EF-1", "EF-2", "EF-3"])]
+
+
+# --- an air outlet schedule with a plain title is known by its codes (HP 3, HP 20) -----------------------------------
+
+_OUTLET_CODES = ["RG-1", "CD-1", "SD-1", "SG-1", "EG-1", "TG-1", "LD-1"]
+
+
+def _plain_rows(codes, columns=("NECK SIZE", "FACE SIZE")):
+    return [["SCHEDULE", "", ""], ["MARK", *columns]] + [[code, "8", "24X24"] for code in codes]
+
+
+def test_an_air_outlet_schedule_with_a_plain_title_and_no_description_is_known_by_its_codes(tmp_path):
+    """RG-1, CD-1, SD-1, SG-1, EG-1, TG-1, LD-1: no air device word anywhere and no description column, so the codes say what
+    it lists. Said in a flag, since a list wrongly set aside would give no unit."""
+    catalogue, opener = catalogue_for(tmp_path, grid(200, 200, [90, 80, 80], _plain_rows(_OUTLET_CODES)))
+    flags: list[str] = []
+    [schedule] = read_schedules(catalogue, opener, flags=flags)
+    assert schedule.passive and schedule.type_only
+    assert [row.tag for row in schedule.rows] == [None] * 7
+    assert len(flags) == 1 and "(RG-1, CD-1, SD-1, SG-1, EG-1, TG-1 …)" in flags[0] and "never as units" in flags[0]
+
+
+def test_an_equipment_schedule_with_a_plain_title_is_still_read_as_units(tmp_path):
+    codes = ["AHU-1", "FCU-1", "EF-1"]
+    catalogue, opener = catalogue_for(tmp_path, grid(200, 200, [90, 80, 80], _plain_rows(codes, ("SERVICE", "CFM"))))
+    flags: list[str] = []
+    [schedule] = read_schedules(catalogue, opener, flags=flags)
+    assert not schedule.passive and not schedule.type_only
+    assert [row.tag for row in schedule.rows] == codes and flags == []
+
+
+def test_one_kind_of_code_alone_is_no_air_outlet_list(tmp_path):
+    """SD is a smoke damper's prefix as well as a supply diffuser's: a list of SD codes only keeps its units."""
+    codes = ["SD-1", "SD-2", "SD-3"]
+    catalogue, opener = catalogue_for(tmp_path, grid(200, 200, [90, 80, 80], _plain_rows(codes, ("SIZE", "ACTUATOR"))))
+    [schedule] = read_schedules(catalogue, opener)
+    assert not schedule.passive and [row.tag for row in schedule.rows] == codes
+
+
+def test_a_type_column_naming_dampers_says_the_codes_are_no_air_outlets(tmp_path):
+    """Two kinds of outlet code (SD, LD), but the type column says the equipment is dampers: its units are kept."""
+    rows = [["SCHEDULE", "", ""], ["MARK", "TYPE", "SIZE"], ["SD-1", "SMOKE DAMPER", "24X12"],
+            ["SD-2", "SMOKE DAMPER", "12X12"], ["LD-1", "MOTORIZED DAMPER", "48X24"]]
+    catalogue, opener = catalogue_for(tmp_path, grid(200, 200, [90, 140, 80], rows))
+    [schedule] = read_schedules(catalogue, opener)
+    assert not schedule.passive and [row.tag for row in schedule.rows] == ["SD-1", "SD-2", "LD-1"]
+
+
+def test_a_description_column_that_names_no_air_device_keeps_the_units_whatever_the_codes(tmp_path):
+    """SD and LD can be a smoke detector's and a leak detector's: a description column decides by its words alone, and
+    these name no air device, so the codes are never read for it."""
+    rows = [["SCHEDULE", "", ""], ["MARK", "DESCRIPTION", "LOCATION"], ["SD-1", "SMOKE DETECTOR", "MECH ROOM"],
+            ["LD-1", "LEAK DETECTOR", "BOILER ROOM"], ["LD-2", "LEAK DETECTOR", "CHILLER ROOM"]]
+    catalogue, opener = catalogue_for(tmp_path, grid(200, 200, [90, 140, 120], rows))
+    flags: list[str] = []
+    [schedule] = read_schedules(catalogue, opener, flags=flags)
+    assert not schedule.passive and [row.tag for row in schedule.rows] == ["SD-1", "LD-1", "LD-2"] and flags == []
+
+
+def test_a_code_that_is_no_air_outlet_code_keeps_the_schedule_a_list_of_units(tmp_path):
+    """One code in the key column is a fan's, the others look like outlets' codes: all of them must be outlet codes."""
+    codes = ["RG-1", "CD-1", "EF-1"]
+    catalogue, opener = catalogue_for(tmp_path, grid(200, 200, [90, 80, 80], _plain_rows(codes)))
+    [schedule] = read_schedules(catalogue, opener)
+    assert not schedule.passive and "EF-1" in [row.tag for row in schedule.rows]
+
+
+def test_a_plain_titled_air_outlet_schedule_read_by_eye_is_known_by_its_codes():
+    from estimator.reading.schedules import schedule_from_cells
+    where = ("Mech.pdf", 4, "M-601")
+    outlets = schedule_from_cells("", ["MARK", "NECK SIZE"], [[code, "8"] for code in _OUTLET_CODES], [], where)
+    assert outlets.passive and outlets.type_only and [row.tag for row in outlets.rows] == [None] * 7
+    units = schedule_from_cells("", ["MARK", "CFM"], [["AHU-1", "900"], ["FCU-1", "300"], ["EF-1", "100"]], [], where)
+    assert not units.passive and [row.tag for row in units.rows] == ["AHU-1", "FCU-1", "EF-1"]
+
+
+# --- a table over most of the sheet is read by any key header, and never dropped without a word ----------------------
+
+# the sheet's border, and a title block of two columns under its first cell: three columns in all, as a table must have
+_BORDER = ((20, 20, 2572, 20), (20, 1708, 2572, 1708), (20, 20, 20, 1708), (2572, 20, 2572, 1708),
+           (2300, 20, 2300, 1708), (2300, 1400, 2572, 1400), (2300, 1550, 2572, 1550), (2436, 1400, 2436, 1708))
+
+
+def _large_table(rows):
+    """A schedule table over most of the sheet: 1800 by 1600 points of 2592 by 1728, past the border share."""
+    return grid(100, 100, [800, 600, 400], rows, height=400)
+
+
+def test_a_schedule_table_over_most_of_the_sheet_is_read_whatever_its_key_header(tmp_path):
+    """TAG has always kept a table that large; UNIT, PUMP NO. and a blank key header give the same rows."""
+    for key in ("TAG", "UNIT", "PUMP NO.", ""):
+        rows = [["EXHAUST FANS", "", ""], [key, "SERVICE", "CFM"], ["EF-1", "TOILETS", "300"], ["EF-2", "JANITOR", "150"]]
+        catalogue, opener = catalogue_for(tmp_path, _large_table(rows))
+        flags: list[str] = []
+        [schedule] = read_schedules(catalogue, opener, flags=flags)
+        assert [row.tag for row in schedule.rows] == ["EF-1", "EF-2"] and not schedule.from_text, key
+        assert not any("most of the sheet" in flag for flag in flags), key
+
+
+def test_a_table_over_most_of_the_sheet_that_still_cannot_be_read_is_flagged_not_dropped(tmp_path):
+    """A header no list knows (EQUIPMENT): the table is no border, since it names units; the units are counted from its
+    text and a flag says so, like a smaller table of the same kind."""
+    rows = [["EXHAUST FANS", "", ""], ["EQUIPMENT", "SERVICE", "CFM"], ["EF-1", "TOILETS", "300"], ["EF-2", "JANITOR", "150"]]
+    catalogue, opener = catalogue_for(tmp_path, _large_table(rows))
+    flags: list[str] = []
+    schedules = read_schedules(catalogue, opener, flags=flags)
+    assert sorted(row.tag for s in schedules for row in s.rows) == ["EF-1", "EF-2"] and all(s.from_text for s in schedules)
+    assert len(flags) == 1
+    assert "M-601" in flags[0] and "EF-1, EF-2" in flags[0] and "could not be read" in flags[0]
+    assert "most of the sheet" in flags[0] and "check" in flags[0]
+
+
+def test_a_sheet_border_table_that_names_no_unit_is_dropped_without_a_flag(tmp_path):
+    texts = ((2310, 1450, "ACME ENGINEERS", 10), (2310, 1600, "M-601 MECHANICAL SCHEDULES", 10),
+             (100, 100, "GENERAL NOTES: ALL DUCTWORK SHALL BE SUPPORTED FROM THE STRUCTURE ABOVE.", 10))
+    catalogue, opener = catalogue_for(tmp_path, (_BORDER, texts))
+    flags: list[str] = []
+    assert read_schedules(catalogue, opener, flags=flags) == [] and flags == []
+
+
+def test_a_title_blocks_sheet_number_cell_never_keeps_the_sheet_border_or_is_flagged(tmp_path):
+    """The title block has a SHEET NUMBER label over the plumbing sheet's own number, P-101 (a pump's tag shape): the
+    border is still dropped, and the sheet's own number is no unit a flag names."""
+    texts = ((2310, 1380, "ACME ENGINEERS", 10), (2310, 1450, "SHEET NUMBER", 10), (2310, 1600, "P-101", 10),
+             (100, 100, "GENERAL NOTES: ALL PIPING SHALL BE SUPPORTED FROM THE STRUCTURE ABOVE.", 10))
+    catalogue, opener = catalogue_for(tmp_path, (_BORDER, texts), sheet="P-101", title="PLUMBING SCHEDULES",
+                                      discipline="Plumbing")
+    flags: list[str] = []
+    assert read_schedules(catalogue, opener, flags=flags) == [] and flags == []

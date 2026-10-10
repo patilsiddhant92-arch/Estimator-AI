@@ -48,5 +48,8 @@
   "air_device_exceptions_about": "A title with one of these words lists equipment a controller serves as well (LOUVER AND DAMPER SCHEDULE: motorized dampers), so the schedule is never taken for a list of air devices.",
   "air_device_exceptions": ["\\bDAMPERS?\\b", "\\bACTUATORS?\\b", "\\bFANS?\\b", "\\bUNITS?\\b", "\\bBOX(?:ES)?\\b", "\\bCOILS?\\b",
                             "\\bVALVES?\\b", "\\bHEATERS?\\b", "\\bPUMPS?\\b", "\\bCONTROLLERS?\\b"],
+  "air_outlet_codes_about": "Code prefixes common on air outlets (CD ceiling diffuser, RG return grille, SG supply grille, LD linear diffuser ...). A schedule whose key column holds nothing but codes with these prefixes (RG-1, CD-1, SD-1, TG-1, LD-A), of air_outlet_code_kinds different prefixes at least, is a list of air outlets when nothing else says what it lists: no air device word in its title or in a line above its header, no title that names equipment a controller serves (air_device_exceptions), and no description column (description_headers), whose words decide alone. SD is a smoke damper's prefix as well as a supply diffuser's, and SD or LD can be a detector's: one kind of code alone proves nothing, and a description column's words are always read first.",
+  "air_outlet_codes": ["CD", "SD", "RD", "ED", "LD", "SG", "RG", "EG", "TG", "LG", "SR", "RR", "WG", "FG"],
+  "air_outlet_code_kinds": 2,
   "pairs":[["SS", "CU"], ["IU", "CU"], ["FCU", "CU"], ["CRAC", "ACCU"], ["AC", "CU"], ["HP", "ACCU"]]
 }
