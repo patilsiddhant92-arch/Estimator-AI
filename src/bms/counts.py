@@ -460,12 +460,12 @@ class _Check:
             return (confident, ambiguous, *located_tallies(page, pattern, listed), True)
 
     def _plan_groups(self, sheets: list[_Sheet], plans=()) -> dict:
-        """The inventory's plan groups (`plan_groups`) of EVERY plan sheet of the job, the labels alone as evidence of the
-        sheets this check read (`sheets`); a plan sheet that shows none of the families' tags has no evidence. A sheet
-        that shows no tag is still a sheet of its floor: two sheets of one trade and one title make that floor too
-        uncertain to group (ruling L1, `inventory._same_floor_and_area`), so a check that left the twin out would group
-        sheets the dossier, which sees it, does not, and its located count would fall below the dossier's. Empty when the
-        groups cannot be made (every sheet is then its own group)."""
+        """The inventory's plan groups (`plan_groups`) of EVERY plan sheet of the job, the labels alone as evidence of
+        the sheets this check read (`sheets`); a plan sheet that shows none of the families' tags has no evidence. A
+        sheet that shows no tag is still a sheet of its floor: two sheets of one trade and one title make that floor
+        too uncertain to group (ruling L1, `inventory._same_floor_and_area`), so a check that left the twin out would
+        group sheets that the dossier, which sees it, does not, and its located count would fall below the dossier's.
+        Empty when the groups cannot be made (every sheet is then its own group)."""
         from estimator.reading.inventory import plan_groups
 
         try:
