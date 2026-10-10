@@ -10,7 +10,10 @@ QUANTITY column, else its labels on the plan sheets times each sheet's floors, e
 
 Plan sheets that show the same floor and area (a ductwork plan and a piping plan of one floor) are one plan: they
 are not added together (lead ruling L1). When that makes a count lower than the sheets add up to, the item, the
-family total and `Placements` keep the higher number in `summed`, and the reason says both.
+family total and `Placements` keep the higher number in `summed`, and the item's reason, the family's flag and the
+dossier's counts line say both. (The proposal's "*" quantity note does not read `summed` yet: `Count.highest()`
+prints the highest number, so the sum cannot be one of a Count's others. It needs a field of its own: a decision for
+the lead.)
 """
 from __future__ import annotations
 
@@ -75,7 +78,7 @@ class InventoryItem:
     action: str                # "" | "confirm" | "include pending" | "exclude pending"
     types: tuple[str, ...] = ()   # a TYPE ONLY row's type codes ("CD", "EG"); empty on every other row
     summed: int | None = None     # ruling L1: what `quantity` would be if the plan sheets of one floor and area were
-                                  # added up, set only when that is above `quantity` (a '*' note prints both numbers)
+                                  # added up, set only when that is above `quantity` (the reason says both numbers)
 
 
 @dataclass(frozen=True)
@@ -86,7 +89,7 @@ class FamilyTotal:
     tags: str                  # "VAV-101 thru VAV-112, VAV-114"
     flags: tuple[str, ...]
     summed: int | None = None  # ruling L1: `scheduled` if the plan sheets of one floor and area were added up; set only
-                               # when above `scheduled`
+                               # when above `scheduled` (a flag of the family says both numbers)
 
 
 def _natural(tag: str) -> list:
@@ -196,7 +199,7 @@ class Placements:
 
     Ruling L1: sheets that show the same floor and area (`plan_groups`) are not added. Where that makes `count`
     lower than the sheets added up, both numbers are here: `count` and `summed`, with the sheets named in
-    `same_plan`, so a '*' note can print them."""
+    `same_plan`, so the item's reason, the family's flag and the counts line can say them."""
     on_plans: dict[str, int]                 # plan sheet → labels on it
     floors: dict[str, int]                   # plan sheet → the floors it stands for (1 when not typical)
     on_risers: dict[str, int] = field(default_factory=dict)   # riser diagram → labels on it, a cross-check
@@ -388,9 +391,11 @@ def plan_areas(plans) -> dict[tuple[str, int], int]:
 #       unit tags.
 # Every other sheet is its own group, and the groups add up: two sheets of one trade with the same title could be the
 # two halves of a floor, so they need the tag evidence of (2). When a count is lower than its sheets add up to, both
-# numbers stay in the data (`Placements.summed`) and print as a '*' note: a count that is too low is the worst
-# error, so a drop is never silent. `inventory.placements` and the dossier's counts line both count with
-# `plan_groups` and `plan_count`, so the Evidence Package and the proposal never disagree.
+# numbers stay in the data (`Placements.summed`) and are said in the item's reason, the family's flag and the counts
+# line: a count that is too low is the worst error, so a drop is never silent. (The proposal's "*" quantity note
+# does not read them yet: a Count prints its highest number, so the sum needs a field of its own, a decision for the
+# lead.) `inventory.placements` and the dossier's counts line both count with `plan_groups` and `plan_count`, so the
+# Evidence Package and the proposal never disagree.
 
 _TRADE_WORDS = TRADE_WORDS
 _FLOOR_TOKEN = re.compile(
