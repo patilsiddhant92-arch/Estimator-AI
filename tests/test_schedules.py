@@ -806,6 +806,58 @@ EF-1 THRU 3 | ROOF | 400
     assert [(s.title, [r.tag for r in s.rows]) for s in schedules] == [("EXHAUST FAN SCHEDULE", ["EF-1", "EF-2", "EF-3"])]
 
 
+def test_a_garbled_heading_after_an_air_outlet_schedule_never_hides_the_units_that_follow():
+    """The skipping that an air outlet heading starts ends at the first row of a unit of other equipment, though no
+    heading ended it (OCR misread the fan schedule's own). Its rows are no air outlet schedule's: their title is unknown."""
+    text = """AIR OUTLET SCHEDULE
+CD-1 | CEILING DIFFUSER | 8
+RG-1 | RETURN GRILLE | 12
+EXHAUS7 FAN SCHEDLE
+EF-1 | ROOF | 400
+EF-2 | ROOF | 400
+EF-3 | ROOF | 400
+"""
+    schedules = schedules_from_text(text, ("Mech.pdf", 6, "H601"))
+    assert [row.tag for s in schedules for row in s.rows] == ["EF-1", "EF-2", "EF-3"]
+    assert all(s.from_text and "AIR OUTLET" not in s.title for s in schedules)
+
+
+def test_the_header_line_of_an_air_outlet_schedule_itself_does_not_end_the_skipping():
+    text = """AIR OUTLET SCHEDULE
+MARK | DESCRIPTION | NECK
+SD-1 | SUPPLY DIFFUSER | 12
+SD-2 | SUPPLY DIFFUSER | 10
+"""
+    assert schedules_from_text(text, ("Mech.pdf", 6, "H601")) == []
+
+
+def test_a_tag_header_line_after_an_air_outlet_schedule_ends_the_skipping_too():
+    """SD is an air outlet's code prefix and a smoke damper's: no row of it ends the skipping, but the header line of the
+    next table, whose heading OCR misread, tells that a schedule of units starts."""
+    text = """AIR OUTLET SCHEDULE
+MARK | DESCRIPTION | NECK
+CD-1 | CEILING DIFFUSER | 8
+RG-1 | RETURN GRILLE | 12
+SMOKE DAMPER SCHEDLE
+MARK | SIZE | ACTUATOR
+SD-1 | 24X12 | 120V
+SD-2 | 12X12 | 120V
+"""
+    schedules = schedules_from_text(text, ("Mech.pdf", 6, "H601"))
+    assert [row.tag for s in schedules for row in s.rows] == ["SD-1", "SD-2"]
+
+
+def test_a_row_of_an_air_outlet_code_after_an_air_outlet_heading_is_still_skipped_beside_a_later_unit():
+    text = """AIR OUTLET SCHEDULE
+B1 | LINEAR DIFFUSER | 8
+SD-1 | SUPPLY DIFFUSER | 12
+GARBLED HEADING
+AHU-1 | ROOF | 8000
+"""
+    schedules = schedules_from_text(text, ("Mech.pdf", 6, "H601"))
+    assert [row.tag for s in schedules for row in s.rows] == ["AHU-1"]
+
+
 # --- an air outlet schedule with a plain title is known by its codes (HP 3, HP 20) -----------------------------------
 
 _OUTLET_CODES = ["RG-1", "CD-1", "SD-1", "SG-1", "EG-1", "TG-1", "LD-1"]

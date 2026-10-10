@@ -995,30 +995,39 @@ def schedules_from_text(text: str, where: tuple[str, int, str | None], vocab: Vo
     further along a row is a model number or a unit it serves, and a tag written with a space ("AS 100") is
     words, not a unit; neither is counted. A "THRU" range gives one tag per unit. OCR's usual misreadings of
     a tag's digits ("RTU-t", "VAVS-3") are put right. Under a heading that names air devices ("AIR OUTLET
-    SCHEDULE") nothing is counted: those codes (B1, SD-1) are types."""
+    SCHEDULE") nothing is counted: those codes (B1, SD-1) are types. That ends at the next heading, and at a line no
+    heading ended (OCR misread the next schedule's): a tag header line after the list's own, or the row of a unit
+    of other equipment (a tag whose prefix is no air outlet's code, `air_outlet_codes`). The line is then read as
+    any other, and its rows are filed under no title, since the air outlet heading is no longer theirs."""
     vocab = vocab or vocabulary()
     equipment = equipment or Equipment.load()
     groups: dict[str, list[ScheduleRow]] = {}
     seen: set[str] = set(exclude)
     title = _NO_TITLE
     passive = False
+    started = False          # after an air outlet heading: a line other than a tag header has come (its own is past)
     for raw in clean_text(text).splitlines():
         heading = _heading(raw, vocab)
         if heading:
             title = heading
             passive = lists_air_devices(title, vocab)    # a diffuser schedule: its codes (B1, SD-1) are no units
-            continue
-        if passive:
+            started = False
             continue
         line = raw.upper()
-        existing = bool(vocab.existing.search(line))
         cell = _first_cell(line, equipment)
-        tags = expand_tags(cell, equipment) if cell else []
-        if not tags or not _compact(cell).startswith(_compact(tags[0])):
-            continue
-        prefix = tag_prefix(tags[0])
-        spaced = cell[len(prefix):len(prefix) + 1].isspace() or (len(prefix) == 1 and not re.match(rf"{prefix}[{_DASH}]", cell))
-        if spaced and "_" not in tags[0]:      # an underscore-joined tag starts with its location, not its prefix
+        tags = _row_tags(cell, equipment)
+        if passive:
+            header = bool(vocab.header_line.match(cell))
+            if tags and tag_prefix(tags[0]) not in vocab.outlet_codes and tags[0] not in exclude:
+                passive, title = False, _NO_TITLE     # a unit of other equipment: no air outlet list goes on here
+            elif header and started:
+                passive, title = False, _NO_TITLE     # the header of a table whose heading was misread
+                continue
+            else:
+                started = started or (bool(cell) and not header)
+                continue
+        existing = bool(vocab.existing.search(line))
+        if not tags:
             continue
         for tag in tags:
             if tag in seen:
@@ -1028,6 +1037,19 @@ def schedules_from_text(text: str, where: tuple[str, int, str | None], vocab: Vo
     document, page, sheet = where
     return [Schedule(document, page, sheet, title, (), tuple(rows), False, (), (), from_text=True)
             for title, rows in groups.items()]
+
+
+def _row_tags(cell: str, equipment: Equipment) -> list[str]:
+    """The tags a text line's first cell names when the line is a unit's row: the cell starts with them, and a tag written
+    with a space ("AS 100") or a one-letter prefix with no dash ("B1") is words or a type code, never a unit."""
+    tags = expand_tags(cell, equipment) if cell else []
+    if not tags or not _compact(cell).startswith(_compact(tags[0])):
+        return []
+    prefix = tag_prefix(tags[0])
+    spaced = cell[len(prefix):len(prefix) + 1].isspace() or (len(prefix) == 1 and not re.match(rf"{prefix}[{_DASH}]", cell))
+    if spaced and "_" not in tags[0]:      # an underscore-joined tag starts with its location, not its prefix
+        return []
+    return tags
 
 
 _MISREAD = str.maketrans({"S": "5", "O": "0", "Q": "0", "I": "1", "L": "1", "T": "1", "|": "1", "!": "1"})
