@@ -5,6 +5,7 @@ lost. The page and the Python side read a typed count alike.
 Invented data only: the sample fixture."""
 from __future__ import annotations
 
+import copy
 import dataclasses
 import json
 import shutil
@@ -14,7 +15,7 @@ from pathlib import Path
 import pytest
 
 from bms import review
-from bms.model import Count, Decision, Job, ModelError
+from bms.model import Count, Decision, Job, ModelError, OtherCount
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures"
 NODE = pytest.mark.skipif(shutil.which("node") is None, reason="node not installed")
@@ -330,6 +331,153 @@ def test_the_history_leaves_a_family_the_job_does_not_have_as_it_is(job):
     assert review.merge_decisions([], [saved])[0].decision == saved                    # no job: nothing to build on
 
 
+# ---- an older page saved a count typed on a line as a new name: it is a count, and the line keeps its name -------------
+# The page before the fix put any words typed in Change on a line's card into the line's name ("2 units" renamed the
+# line to "2 units") and into `reason`, and left the quantity as the card showed it. Only a name that is a whole number
+# and one unit word and nothing else is read as the count it meant.
+
+# a count with a unit word an older page saved as a rename, and the number it says
+OLDER_COUNTS = [("2 units", 2), ("3 nos", 3), ("4 ea", 4), ("1 unit", 1), ("5 each", 5), ("6 pcs", 6), ("2 ea.", 2),
+                ("3 no.", 3), ("Two units", 2), ("twelve nos", 12), ("0 units", 0), ("  7   ea ", 7)]
+# real words an older page saved as a new name: the line is renamed, as before
+REAL_RENAMES = ["2 pipe FCU", "2 FCU", "2 way valve", "3 port valve", "Room Sensor", "4 ea sensors",
+                "2 units of Room Sensor", "10 sensors", "24V supply", "2.5 units", "2-ea", "2ea", "units", "ea"]
+
+
+def _line(job: Job, system: str = "EF", device_id: str = "EF.d1"):
+    return next(d for d in job.system(system).devices if d.id == device_id)
+
+
+def _older_page_change(job: Job, text: str, system: str = "EF", device_id: str = "EF.d1") -> Decision:
+    """What the page before the fix saved for `text` typed in Change on a line's card (its buildDecision): the words
+    are the line's new name and the `reason`; the quantity stays as the card showed it, and the flag is cleared."""
+    line = _line(job, system, device_id)
+    return Decision(system, "change", device_id=device_id, reason=text, was=line,
+                    device=dataclasses.replace(line, name=text, flag="none"))
+
+
+def _counted(line, value: int):
+    """`line` with the count `value` as the page builds a typed count: the other counts go, the flag is cleared."""
+    return dataclasses.replace(line, quantity=dataclasses.replace(line.quantity, value=value, others=()), flag="none")
+
+
+@pytest.fixture
+def disputed(job: Job) -> Job:
+    """The sample job with an exhaust fan line that has a second count and a flag, so a typed count visibly settles it."""
+    line = _line(job)
+    other = OtherCount(value=5, ref=line.refs[0])
+    system = job.system("EF")
+    devices = tuple(dataclasses.replace(d, flag="quantity",
+                                        quantity=dataclasses.replace(d.quantity, others=(other,)))
+                    if d.id == line.id else d for d in system.devices)
+    return job.with_system(dataclasses.replace(system, devices=devices))
+
+
+@pytest.mark.parametrize("text, value", OLDER_COUNTS)
+def test_an_older_page_count_with_a_unit_word_sets_the_quantity_and_keeps_the_line_name(disputed, text, value):
+    line = _line(disputed)
+    assert line.quantity.others and line.flag == "quantity"
+    result = review.apply_decisions(disputed, [_older_page_change(disputed, text)])
+    assert _line(result) == _counted(line, value)                        # the name is the line's own, not the words
+    assert [d.id for d in result.system("EF").devices] == [d.id for d in disputed.system("EF").devices]
+    assert _line(disputed) == line                                       # pure
+
+
+@pytest.mark.parametrize("text", REAL_RENAMES)
+def test_a_rename_with_real_words_saved_by_an_older_page_stays_a_rename(job, text):
+    line = _line(job)
+    result = review.apply_decisions(job, [_older_page_change(job, text)])
+    assert _line(result) == dataclasses.replace(line, name=text, flag="none")
+    assert _line(result).quantity == line.quantity                       # the count is not touched
+
+
+def test_a_name_the_current_page_saved_stays_a_rename_even_when_it_looks_like_a_count(job):
+    """The current page puts the count box text in `reason` ("renamed to ..." when only the name box was used), so
+    a name typed in the name box is the estimator's own words and is never read as a count."""
+    line = _line(job)
+    renamed = Decision("EF", "change", device_id=line.id, was=line, reason="renamed to 2 units",
+                       device=dataclasses.replace(line, name="2 units", flag="none"))
+    assert _line(review.apply_decisions(job, [renamed])).name == "2 units"
+    hand_made = dataclasses.replace(renamed, reason="")
+    assert _line(review.apply_decisions(job, [hand_made])).name == "2 units"
+
+
+def test_an_older_page_count_applied_without_the_saved_line_keeps_the_name_of_the_line_it_names(job):
+    line = _line(job)
+    said = dataclasses.replace(_older_page_change(job, "3 nos"), was=None)
+    assert _line(review.apply_decisions(job, [said])) == _counted(line, 3)
+
+
+def test_a_unit_word_name_the_line_already_has_is_no_rename_and_is_not_read_as_a_count(job):
+    """A line already named "2 units" is not renamed by "2 units", so nothing says this was a count."""
+    line = dataclasses.replace(_line(job), name="2 units")
+    job = job.with_system(dataclasses.replace(job.system("EF"), devices=(line, *job.system("EF").devices[1:])))
+    result = review.apply_decisions(job, [_older_page_change(job, "2 units")])
+    assert _line(result) == line
+
+
+def test_the_post_check_reads_an_older_page_count_as_a_count(disputed):
+    decision = _older_page_change(disputed, "2 units")
+    after = review.apply_decisions(disputed, [decision])
+    assert review.unhonored_decisions(disputed, [decision], after) == []
+    # the last write took the line away, or put the old count back: the decision is not honored
+    gone = disputed.with_system(dataclasses.replace(disputed.system("EF"), devices=tuple(
+        d for d in disputed.system("EF").devices if d.id != "EF.d1")))
+    for later in (gone, disputed):
+        (found,) = review.unhonored_decisions(disputed, [decision], later)
+        assert (found.rule, found.system_key, found.severity) == ("decision not honored", "EF", "must_fix")
+
+
+def test_a_real_rename_saved_by_an_older_page_is_still_honored_by_the_post_check(job):
+    decision = _older_page_change(job, "2 pipe FCU")
+    after = review.apply_decisions(job, [decision])
+    assert review.unhonored_decisions(job, [decision], after) == []
+
+
+def test_the_history_gives_an_older_page_count_its_line_name_back(disputed):
+    """The run keeps the decision as the count it meant (everything that reads a decision's line, the count rewrite
+    included, sees the count and the line's own name), and the file as saved stays on record."""
+    line = _line(disputed)
+    saved = _older_page_change(disputed, "2 units")
+    (entry,) = review.merge_decisions([], [saved], job=disputed)
+    assert entry.decision.device == _counted(line, 2) and entry.decision.was == line
+    assert entry.decision.reason == "2 units" and entry.as_saved == saved and entry.round == 1
+    assert review.apply_seen(disputed, [entry.decision], {}) == review.apply_decisions(disputed, [saved])
+    # reading the same file again adds nothing; an entry that was read already is left alone
+    assert review.merge_decisions([entry], [saved], job=disputed) == [entry]
+    assert review.merge_decisions([entry], [], job=disputed) == [entry]
+    assert review.merge_decisions([], [saved])[0].decision.device == _counted(line, 2)      # no job needed
+
+
+def test_the_history_reads_an_entry_an_older_run_kept_too(disputed):
+    saved = _older_page_change(disputed, "4 ea")
+    earlier = review.SavedDecision(saved, 1, took_effect=True, settled="abc")
+    (entry,) = review.merge_decisions([earlier], [], job=disputed)
+    assert entry.decision.device == _counted(_line(disputed), 4)
+    assert (entry.round, entry.took_effect, entry.settled) == (1, True, "abc") and entry.as_saved == saved
+
+
+@pytest.mark.parametrize("text", REAL_RENAMES)
+def test_the_history_leaves_a_real_rename_as_it_is(job, text):
+    saved = _older_page_change(job, text)
+    (entry,) = review.merge_decisions([], [saved], job=job)
+    assert entry.decision == saved and entry.saved is None
+
+
+def test_an_older_page_count_typed_on_a_line_an_earlier_save_renamed_keeps_that_name(job):
+    """Change X to Y (a real rename), then the page shows Y and "2 units" is typed on it: one change, X to Y with
+    the count 2, which is what the current page would have saved."""
+    x = _line(job)
+    y = dataclasses.replace(x, name="Controller B")
+    first = Decision("EF", "change", device_id=x.id, was=x, device=y, reason="renamed to Controller B")
+    later = Decision("EF", "change", device_id=x.id, was=y, reason="2 units",
+                     device=dataclasses.replace(y, name="2 units", flag="none"))
+    history = review.merge_decisions([], [first], job=job)
+    (entry,) = review.merge_decisions(history, [later], job=job)
+    assert entry.decision.was == x and entry.decision.device == _counted(y, 2) and entry.saved == later
+    assert _line(review.apply_seen(job, [entry.decision], {})) == _counted(dataclasses.replace(x, name="Controller B"), 2)
+
+
 # ---- the whole run -----------------------------------------------------------------------------------------------------
 
 from test_ai import dossier, raw  # noqa: E402,F401  (fixtures)
@@ -357,3 +505,28 @@ def test_an_older_words_only_family_change_is_applied_by_the_whole_run(job_folde
     kept = json.loads((out / "decisions history.json").read_text(encoding="utf-8"))
     assert [(h["decision"]["count"]["value"], h["decision"]["reason"], h["took_effect"]) for h in kept] == [
         (5, "5 units", True)]
+
+
+def test_an_older_page_count_typed_on_a_line_is_applied_by_the_whole_run(job_folder, tmp_path, monkeypatch):
+    """Run 1 finishes. The estimator's file, saved by a page of before the fix, holds the flagged sensor renamed to
+    "4 ea" (the words typed as a count in Change; the quantity as the card showed it). Run 2 keeps the sensor's own
+    name, gives it the count 4 and clears its flag, with no "decision not honored" card. The history keeps the
+    decision as the count it meant, and the file as saved."""
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    out, cache = tmp_path / "out", tmp_path / "cache"
+    _drive(job_folder, out, cache, [])
+    sensor = next(c for c in _cards(out) if c["level"] == "device")
+    assert sensor["device"]["flag"] == "quantity"
+    older = copy.deepcopy(sensor["device"])
+    older.update(name="4 ea", flag="none")
+    (out / "decisions.json").write_text(json.dumps([_decision(sensor, "change", device=older, reason="4 ea")]),
+                                        encoding="utf-8")
+    second = _drive(job_folder, out, cache, [])
+    job = json.loads(second.job_file.read_text(encoding="utf-8"))
+    system = next(s for s in job["systems"] if s["key"] == sensor["system_key"])
+    assert [(d["name"], d["flag"], d["quantity"]["value"], d["quantity"]["others"]) for d in system["devices"]] == [
+        (sensor["device"]["name"], "none", 4, [])]
+    assert not [f for f in second.findings if f.rule == "decision not honored"]
+    kept = json.loads((out / "decisions history.json").read_text(encoding="utf-8"))
+    assert [(h["decision"]["device"]["name"], h["decision"]["device"]["quantity"]["value"], h["saved"]["device"]["name"],
+             h["took_effect"]) for h in kept] == [(sensor["device"]["name"], 4, "4 ea", True)]

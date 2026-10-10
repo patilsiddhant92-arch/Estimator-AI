@@ -619,8 +619,8 @@ def load_decisions(out_dir: Path) -> list[Decision]:
 class SavedDecision:
     """One decision kept in the run's history: the save it came from (`round`, 1 for the first) and whether it took
     effect on some run (it matched a line and was applied). `saved` is the decision as decisions.json had it when
-    the run rebased it onto an earlier change or gave a words-only family change its count (`merge_decisions`); None
-    when `decision` is that decision.
+    the run rebased it onto an earlier change, gave a words-only family change its count, or read a line renamed to a
+    count's words as that count (`merge_decisions`); None when `decision` is that decision.
     `settled` is a digest of the decision's system in the final job of the last run that reached the end
     (`system_digest`); None before such a run. A different digest now: the system was asked again since.
     `copies` is, for a device delete, how many lines with the deleted content the written job had when the
@@ -754,7 +754,9 @@ def merge_decisions(history: Sequence[SavedDecision], saved: Sequence[Decision],
     to Z. So every kept decision names a line of the written job; a newer answer on the line a rebased decision now
     names replaces it too. `job` is the written job: a line whose content only one of its lines has is the same
     line whatever id the page showed (`_same_line`). A family change saved as words only (an older page) whose words
-    hold a whole number ("5 units") is kept with that count (`_with_typed_count`). Pure."""
+    hold a whole number ("5 units") is kept with that count (`_with_typed_count`). So is a line change an older page
+    saved as a rename to a whole number and a unit word ("2 units"): it is kept as that count on the line, which keeps
+    its own name (`_read_count_name`). Pure."""
     history = [_with_typed_count(entry, job) for entry in history]
     saved = list(saved)
     if not saved:
@@ -771,18 +773,25 @@ def merge_decisions(history: Sequence[SavedDecision], saved: Sequence[Decision],
             continue
         carried.remove(base)
         old = base.decision
-        rebased = dataclasses.replace(d, device_id=old.device_id, was=old.was)
+        rebased = dataclasses.replace(_read_count_name(d), device_id=old.device_id, was=old.was)
         new.append(SavedDecision(rebased, latest + 1, saved=d, copies=_seen(job, rebased)))
     return [*carried, *new]
 
 
 def _with_typed_count(entry: SavedDecision, job: Job | None) -> SavedDecision:
-    """`entry`, when its decision is a family change that carries words and no count (an older page saved "5 units"
-    so), with the count its words say set on the family's own count, as `_new_count` and the page build a typed
-    count; the decision as saved stays on record (`saved`). Every reader of a decision's count (the run's count
-    rewrite too) then sees it. Unchanged when the words hold no number, when `job` is not given or has not that family,
-    or when the decision already has a count."""
+    """`entry`, when its decision is a count an older page saved as words: a family change that carries words and no
+    count (an older page saved "5 units" so) gets the count its words say, set on the family's own count, as
+    `_new_count` and the page build a typed count; a line change renamed to a count's words ("2 units") gets the
+    line's own name back and that count (`_read_count_name`). The decision as saved stays on record (`saved`).
+    Every reader of a decision's count (the run's count rewrite too) then sees it. A family change is unchanged when
+    the words hold no number, when `job` is not given or has not that family, or when the decision already has a
+    count."""
     d = entry.decision
+    if d.device_id is not None:
+        read = _read_count_name(d)
+        if read == d:
+            return entry
+        return dataclasses.replace(entry, decision=read, saved=d if entry.saved is None else entry.saved)
     if job is None or d.family_name is None or d.action != "change" or d.count is not None:
         return entry
     family = _family(job, d.system_key, d.family_name)
@@ -790,6 +799,34 @@ def _with_typed_count(entry: SavedDecision, job: Job | None) -> SavedDecision:
         return entry
     return dataclasses.replace(entry, decision=dataclasses.replace(d, count=count),
                                saved=d if entry.saved is None else entry.saved)
+
+
+# The page before the typed-count fix took any words typed in Change on a line's card as the line's new name: "2 units"
+# renamed the line to "2 units". The same words went in `reason`, and the quantity stayed as the card showed it. A
+# decisions.json saved so is read as the count it meant, and the line keeps its own name, when the new name is a whole
+# number and one unit word and nothing else. Other words stay a rename ("2 pipe FCU"). So does a name the current page
+# saved: its `reason` is the count box text or "renamed to ...", never the name itself.
+UNIT_WORDS = ("unit", "units", "no", "nos", "ea", "each", "pc", "pcs", "piece", "pieces", "item", "items", "qty")
+_COUNT_NAME = re.compile(r"^\s*([0-9]+|" + "|".join(NUMBER_WORDS) + r")\s+(?:" + "|".join(UNIT_WORDS) + r")\.?\s*$",
+                         re.IGNORECASE)
+
+
+def _read_count_name(d: Decision, line: Device | None = None) -> Decision:
+    """`d` as the count an older page saved as a rename (see above): the line with its own name and the number the
+    words say as its count, with no other counts, as the page builds a typed count. The line's own name is the saved
+    line's (`was`), else the name of `line`, the line `d` is applied to. `d` itself for every other decision."""
+    if d.action != "change" or d.device is None or d.device_id is None:
+        return d
+    found = _COUNT_NAME.match(d.device.name)
+    if found is None or d.reason.strip() != d.device.name.strip():
+        return d
+    own = d.was if d.was is not None else line
+    if own is None or own.name == d.device.name:
+        return d
+    word = found.group(1).lower()
+    count = dataclasses.replace(d.device.quantity, value=int(word) if word.isdigit() else NUMBER_WORDS.index(word),
+                                others=())
+    return dataclasses.replace(d, device=dataclasses.replace(d.device, name=own.name, quantity=count))
 
 
 def _replaces(d: Decision, h: SavedDecision, job: Job | None) -> bool:
@@ -864,8 +901,8 @@ def _apply_to_devices(devices: tuple[Device, ...], device_id: str, decision: Dec
         elif decision.action == "accept":
             out.append(dataclasses.replace(device, flag="none"))
         elif decision.action == "change":
-            out.append(dataclasses.replace(decision.device, id=device.id) if decision.device is not None
-                       else device)
+            made = _read_count_name(decision, device).device
+            out.append(dataclasses.replace(made, id=device.id) if made is not None else device)
         # delete: dropped
     return tuple(out)
 
@@ -875,8 +912,10 @@ def apply_decisions(job: Job, decisions: Sequence[Decision]) -> Job:
     quantity flags of the devices counted from that family (shared sources, `counts.counted_from`) whose own count
     is known; delete removes the device (or the system, when no device or family is
     named); change replaces the device (same id) or the family's Count (a family change that carries words and no
-    count sets the number the words start with: "5 units" is 5; words with no number change nothing). A decision
-    naming a system or device the job no longer has is skipped. Pure. System key "" names the front end's devices.
+    count sets the number the words start with: "5 units" is 5; words with no number change nothing). A line change
+    an older page saved as a rename to a whole number and a unit word ("2 units", "3 nos", "4 ea") sets that count
+    and keeps the line's name (`_read_count_name`). A decision naming a system or device the job no longer has is
+    skipped. Pure. System key "" names the front end's devices.
 
     A device delete whose id no longer holds its line is applied to a line with the same content only when as many
     copies of it are left as the estimator saw (`apply_seen`, with `copies_seen` of the history; when not known, see
@@ -1164,7 +1203,7 @@ def _device_holds(before: Job, decision: Decision, after: Job, expected: Job) ->
     if decision.action == "delete":
         return _how_many(later, target) <= _how_many(want, target)
     if decision.action == "change" and decision.device is not None:
-        new = decision.device
+        new = _read_count_name(decision, target).device
         return (_how_many(later, new) >= _how_many(want, new)
                 and (_same_device((target,), new) or _how_many(later, target) <= _how_many(want, target)))
     if _how_many(later, target) < _how_many(want, target):
