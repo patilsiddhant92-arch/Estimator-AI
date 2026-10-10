@@ -53,7 +53,7 @@ A run takes about 25 to 45 minutes of working time. Work is shared out to AI age
 |---|---|
 | Proposal (.docx) | The draft scope, in the house format |
 | Price Sheet (.xlsx) | Tech hours and quantities per line |
-| Evidence Package (.xlsx) | Every line with its verb, owners, quantity, the quote and sheet or section it rests on, and the reviewer's findings |
+| Evidence Package (.xlsx) | Opens on a Summary (the numbers that need you, one row per system with its lines, flags, findings and tech hours, each linked to its lines). Then Scope lines (one row per printed line: verb, who furnishes / installs / wires, colour coded, the quantity as a number, its open findings and first citation), Findings (must fix first, linked to the line), Counts (each count, its sources and every other count), Citations (every quote, one per row, filter by sheet) and System notes (clarifications, systems left out and why, sequences, exceptions, internal takeoff questions). The reading and catalogue tabs follow, in teal and grey |
 | Review.html | One page of open questions: each count with the images it was counted from, each assumption with its reason |
 | Job.json | The whole job as data, for reading, for measuring and for `status`. The next run does not read it: it builds the job again from the answers it has kept. Its `source_sheets` list is every sheet number the facts were read from: a line may name one of them after a sheet word ("per sheet S201"); written alone, one that looks like a source id the app issued (S201) is refused |
 | Ledger.json | The facts the app read from the documents, each with where it was found |

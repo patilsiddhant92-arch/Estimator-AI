@@ -147,11 +147,13 @@ def test_a_run_waits_for_its_answers_then_writes_all_four_outputs(job_folder, tm
     assert 'src="count-proofs/' in result.review.read_text(encoding="utf-8")
 
     book = openpyxl.load_workbook(result.evidence)
-    assert book.sheetnames[1:3] == ["Scope lines", "Findings"]
+    assert book.sheetnames[:3] == ["Summary", "Scope lines", "Findings"]
     rows = [[c.value for c in row] for row in book["Scope lines"].iter_rows()]
-    device = next(r for r in rows if r[2] == "device")
-    assert device[6] == "Furnish and Install" and device[7:10] == ["AME", "AME", "AME"]
-    assert "invented place" in device[12] and device[14] == "quantity"
+    at = {h: i for i, h in enumerate(rows[0])}
+    device = rows[1]
+    assert device[at["Verb"]] == "Furnish and Install"
+    assert [device[at[h]] for h in ("Furnished by", "Installed by", "Wired by")] == ["AME", "AME", "AME"]
+    assert "invented place" in device[at["Cited at"]] and device[at["Flag"]] == "quantity"
 
     # a further run with every answer cached finishes straight away, writing nothing new to ask
     again = estimate(job_folder, out, cache, "chat")
