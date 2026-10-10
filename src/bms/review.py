@@ -248,9 +248,10 @@ def _question_html(q: _Question, extra: bool, proofs: dict[str, list[str]] | Non
     if q.level == "device" and q.device:
         data["count"] = q.device.quantity.to_dict()
     del_label = "Delete this system" if q.level == "system" else "Delete"
-    hint = {"device": "Type the new count here: a whole number (5 or 5 units), or ## for not known. To rename the "
-                      "line, type the new name in the name box.",
-            "family": "Type the new count: a whole number (5 or 5 units), or ## for not known.",
+    hint = {"device": "Type the new count here: a whole number, alone or with one unit word (5 or 5 units), or ## for "
+                      "not known. To rename the line, type the new name in the name box.",
+            "family": "Type the new count: a whole number, alone or with one unit word (5 or 5 units), or ## for not "
+                      "known.",
             "system": "A note for the writer; it is recorded but does not edit the job."}[q.level]
     delete = f'<button type="button" data-act="delete">{del_label}</button>' if can_delete else ""
     selects = ""
@@ -283,25 +284,28 @@ def _question_html(q: _Question, extra: bool, proofs: dict[str, list[str]] | Non
 
 
 # ---- a count typed in Change -------------------------------------------------------------------------------------
-# What the estimator types in the count box of Change. It starts with a whole number, in digits or in words ("2",
-# "5 units", "2 ea", "two"); the words after it are only said. A number joined to more is no count ("24V", "2nd",
-# "2.5", "1,000", "10-12", "3/4", "2-way valve"). "##" ("unknown", "not known", "Qty (##)") says the count is not
-# known. The page (`parseNumber` in `_SCRIPT_CORE`) and `_typed_count` read the same two patterns, so both sides
-# read one text alike. Anything else holds no count: the page says so (`decisionProblem`), and the decision keeps
-# the words.
+# What the estimator types in the count box of Change. It is a whole number, in digits or in words, alone or with one
+# unit word and a dot, nothing else ("2", "5 units", "2 ea.", "two"). Other words after the number ("4 pipe FCU",
+# "2 stage", "12 total") may say what the number is of, so the number alone is not the count: the text is words. A
+# number joined to more is no count either ("24V", "2nd", "2.5", "1,000", "10-12", "3/4", "2-way valve"). "##"
+# ("unknown", "not known", "Qty (##)") says the count is not known. The page (`parseNumber` in `_SCRIPT_CORE`) and
+# `_typed_count` read the same two patterns, so both sides read one text alike. Anything else holds no count: the
+# page says so (`decisionProblem`), and the decision keeps the words.
 NUMBER_WORDS = ("zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten", "eleven",
                 "twelve", "thirteen", "fourteen", "fifteen", "sixteen", "seventeen", "eighteen", "nineteen", "twenty")
+UNIT_WORDS = ("unit", "units", "no", "nos", "ea", "each", "pc", "pcs", "piece", "pieces", "item", "items", "qty")
 UNKNOWN_COUNT_PATTERN = r"^(?:##|unknown|not known|qty \(##\))$"
-LEADING_COUNT_PATTERN = (r"^\s*\(?\s*([0-9]+|" + "|".join(NUMBER_WORDS) + r")"
-                         r"(?![A-Za-z0-9_]|[.,][0-9]|[-–/][A-Za-z0-9])")      # a hyphen, an en dash or a slash
+# the whole text: the number (group 1), then at most one unit word, then at most one dot
+LEADING_COUNT_PATTERN = (r"^\s*([0-9]+|" + "|".join(NUMBER_WORDS) + r")"
+                         r"(?:\s+(?:" + "|".join(UNIT_WORDS) + r"))?\.?\s*$")
 _UNKNOWN_COUNT = re.compile(UNKNOWN_COUNT_PATTERN, re.IGNORECASE)
 _LEADING_COUNT = re.compile(LEADING_COUNT_PATTERN, re.IGNORECASE)
 
 
 def _typed_count(text: str) -> tuple[str, int | None]:
-    """What a count typed in Change says: ("number", n) for a whole number, ("number", None) for "not known",
-    ("words", None) for text with no count in it, ("none", None) for no text. The page reads it the same way
-    (`parseNumber`)."""
+    """What a count typed in Change says: ("number", n) for a whole number alone or with one unit word,
+    ("number", None) for "not known", ("words", None) for any other text (a number with other words after it is
+    no count), ("none", None) for no text. The page reads it the same way (`parseNumber`)."""
     said = (text or "").strip()
     if not said:
         return ("none", None)
@@ -367,7 +371,7 @@ function buildDecision(q, state) {
   }
   return d;
 }
-var COUNT_HELP = "a whole number, for example 5 or 5 units, or ## for not known";
+var COUNT_HELP = "a whole number, alone or with one unit word, for example 5 or 5 units, or ## for not known";
 function explainChange(q, state) {
   // {ok, text}: what the answer will do, or why it cannot. Only a Change on a line or a count has a problem; a
   // note on the system is free text.
@@ -604,7 +608,8 @@ def _changes_nothing(decision: Decision) -> str | None:
             if _typed_count(said)[0] == "words":
                 return (f"a change of the {decision.family_name!r} count says {said!r}, but no whole number can be "
                         "read from it, so it changes nothing. Change that count on the review page again: type a "
-                        "whole number (for example 5 or 5 units, or ## for not known) and save decisions.json again")
+                        "whole number, alone or with one unit word (for example 5 or 5 units, or ## for not known), "
+                        "and save decisions.json again")
     elif decision.device_id is not None and decision.action == "change" and decision.device is None:
         return f"a change of device {decision.device_id!r} has no device, so it changes nothing"
     return None
@@ -826,8 +831,8 @@ def _with_typed_count(entry: SavedDecision, job: Job | None) -> SavedDecision:
 # renamed the line to "2 units". The same words went in `reason`, and the quantity stayed as the card showed it. A
 # decisions.json saved so is read as the count it meant, and the line keeps its own name, when the new name is a whole
 # number and one unit word and nothing else. Other words stay a rename ("2 pipe FCU"). So does a name the current page
-# saved: its `reason` is the count box text or "renamed to ...", never the name itself.
-UNIT_WORDS = ("unit", "units", "no", "nos", "ea", "each", "pc", "pcs", "piece", "pieces", "item", "items", "qty")
+# saved: its `reason` is the count box text or "renamed to ...", never the name itself. (`UNIT_WORDS` is above, with
+# the typed count it belongs to.)
 _COUNT_NAME = re.compile(r"^\s*([0-9]+|" + "|".join(NUMBER_WORDS) + r")\s+(?:" + "|".join(UNIT_WORDS) + r")\.?\s*$",
                          re.IGNORECASE)
 
@@ -1019,7 +1024,7 @@ def _apply_one(job: Job, d: Decision, seen: int | None = None,
 
 def _new_count(d: Decision, family: Family) -> Count | None:
     """The count a family change gives `family`: the decision's own `count`; else, for a change that carries words
-    only (an older page, a hand edit), the number the words start with (`_typed_count`), set on the family's own
+    only (an older page, a hand edit), the whole number the words say (`_typed_count`), set on the family's own
     count: its sources stay, the other counts and the sum of the sheets of one floor and area (`Count.added_up`) go, as
     the page builds a typed count (a typed count settles the dispute). None when the decision holds no count (words
     with no number in them): nothing is applied."""
@@ -1151,8 +1156,8 @@ def _no_count_card(decision: Decision, subject: str) -> Finding:
     return Finding("decision not honored", decision.system_key, None, "check",
                    f"this saved decision (change {subject}) says {decision.reason.strip()!r}, which holds no whole "
                    "number; it is not applied",
-                   "Change that count again on its card: type a whole number, for example 5 or 5 units, or ## for not "
-                   "known. Then save again.")
+                   "Change that count again on its card: type a whole number, alone or with one unit word, for example "
+                   "5 or 5 units, or ## for not known. Then save again.")
 
 
 def _lost_its_system(before: Job, decision: Decision, deleted: frozenset[str]) -> bool:
