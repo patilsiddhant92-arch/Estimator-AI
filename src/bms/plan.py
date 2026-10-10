@@ -19,7 +19,8 @@ the contract and not needed. The behaviours are those the estimator approved in 
   switch tie-in); a condensate pump block never takes the split shape;
 - the printed count is the highest; every other count is kept with its source; unknown is None (Qty (##)); the sum
   of the sheets of one floor and area, when ruling L1 left it above the printed count, is kept apart in
-  `Count.added_up` (never printed as the count; the proposal's "*" note names both numbers);
+  `Count.added_up` (never printed as the count; the proposal's "*" note names both numbers); a family split between
+  blocks carries it in none, so one question names both numbers (`added_up_counts`);
 - unscheduled and sequence-only families, parts with no count, unmatched sequence sections and the ledger's own
   questions become plain-words questions.
 """
@@ -1038,15 +1039,35 @@ class _Planner:
 
     # -- counts ruling L1 made lower than the plan sheets add up to
 
-    def added_up_counts(self) -> None:
-        """Each family whose stated counts on the plan sheets of one floor and area ruling L1 counted once, and whose
-        printed count is below what those sheets add up to, is asked once, naming both numbers: a drop from the sum is
-        never silent."""
+    def added_up_counts(self, systems: list[System], drafts: list[_Draft]) -> None:
+        """Each family whose printed count is below a sum ruling L1 left out of it is asked once, naming both numbers
+        and where each is: a drop from the sum is never silent. Two sums can be left out of a family's count. The
+        counts stated for its tags on the plan sheets of one floor and area (`AddedUp`) are asked whenever the printed
+        count is below them: the question names the sheets. The highest sum of all (`Count.added_up`, which also holds
+        the sum of the scheduled units that the dossier's family total gives) is asked when no block carries it: a
+        block that holds the family's own count carries it, and its "*" note and its review card name both numbers; a
+        family split between blocks (or reduced, `_reduced`) leaves it in none of them. A family with both is asked
+        once."""
+        held: dict[str, list[str]] = {}         # family prefix -> the blocks it is in
+        carried: set[str] = set()               # the prefixes whose count a block carries with its sum
+        for system, draft in zip(systems, drafts):
+            for fam in draft.families:
+                if fam.source is not None:
+                    key = fam.source.prefix.casefold()
+                    held.setdefault(key, []).append(system.name)
+                    if fam.count.added_up is not None:
+                        carried.add(key)
         for fact in self.reader.family_facts():
             family = self.reader.family(fact)
-            up = family.added_up
-            if up is not None and (family.count.value is None or family.count.value < up.summed):
-                self.questions.append(f"{family.name} ({family.prefix}): {up.note()}; confirm the count.")
+            key = family.prefix.casefold()
+            stated, up = family.added_up, family.count.added_up
+            said = []
+            if stated is not None and (family.count.value is None or family.count.value < stated.summed):
+                said.append(stated.note())
+            if up is not None and key not in carried and not (said and up.value <= stated.summed):
+                said.append(_left_out(family.count, held.get(key, [])))
+            if said:
+                self.questions.append(f"{family.name} ({family.prefix}): {'; '.join(said)}; confirm the count.")
 
     # -- the invariant: nothing the ledger holds is dropped
 
@@ -1186,6 +1207,16 @@ def _came_from(count: Count, new: int) -> str:
     """The numbers a reduced count came from, as a question says them: "10 per M-501 (also 9 per M-101)"."""
     also = _also(count, new)
     return f"{count.value} per {_places(count.sources)}" + (f" (also {also})" if also else "")
+
+
+def _left_out(count: Count, blocks: list[str]) -> str:
+    """The words for the sum ruling L1 left out of a family's count (`Count.added_up`) when no block's note names it:
+    the highest count and the sum, each with its place, and the blocks the family is in, each with only part of it."""
+    up = count.added_up
+    parts = list(dict.fromkeys(blocks))
+    held = f"the count in each block it is in ({', '.join(parts)}) is only part of the family's, " if parts else ""
+    return (f"the highest count is {count.value} per {_places(count.sources)}; {up.value} if every sheet of the same "
+            f"floor and area is added up (per {_places((up.ref,))}); {held}so no block's note names the {up.value}")
 
 
 def _same_name(name: str) -> str:
@@ -1488,7 +1519,7 @@ def plan_job(ledger: Ledger, catalogue: Catalogue, dossier: Dossier, playbook: P
     systems = _with_served([planner.system(d, keys, drafts) for d in drafts], drafts)
     planner.family_questions(systems, drafts)
     planner.added_tags()
-    planner.added_up_counts()
+    planner.added_up_counts(systems, drafts)
     planner.lost(drafts)
     front_end = _front_end(planner)
     questions = own + planner.questions + _unmatched_sections(planner, drafts)
