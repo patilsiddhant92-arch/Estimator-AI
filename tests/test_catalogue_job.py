@@ -309,3 +309,12 @@ def test_the_plan_kind_words_widen_the_plan_groups_vocabulary_and_never_the_supe
     assert not GENERIC_PLAN_WORDS & {"DUCTWORK", "PIPING", "CONTROLS", "ZONING", "PLUMBING"}
     assert title_words(SimpleNamespace(title="LEVEL 4 ZONING PLAN", number="M-301")) == ("LEVEL", "4", "ZONING")
     assert title_words(SimpleNamespace(title="LEVEL 4 DUCTWORK PLAN", number="M-201")) == ("LEVEL", "4")
+
+
+def test_the_trade_synonyms_are_words_of_the_plan_vocabulary_and_map_in_one_step():
+    from estimator.catalogue.job import GENERIC_PLAN_WORDS, PLAN_DISCIPLINE_WORDS, TRADE_SYNONYMS
+
+    assert set(TRADE_SYNONYMS) | set(TRADE_SYNONYMS.values()) <= PLAN_DISCIPLINE_WORDS
+    assert not set(TRADE_SYNONYMS) & set(TRADE_SYNONYMS.values())            # one step, never a chain
+    assert not GENERIC_PLAN_WORDS & (set(TRADE_SYNONYMS) | set(TRADE_SYNONYMS.values()))   # a synonym names a trade
+    assert {TRADE_SYNONYMS[w] for w in ("DUCT", "PIPE", "CONTROL")} == {"DUCTWORK", "PIPING", "CONTROLS"}

@@ -20,8 +20,8 @@ from collections.abc import Collection, Iterable, Sequence
 from dataclasses import dataclass, field, replace
 from functools import lru_cache
 
-from estimator.catalogue.job import (CONTROLS_DISCIPLINES, GENERIC_PLAN_WORDS, PLAN_DISCIPLINE_WORDS, TRADE_WORDS,
-                                     repeats, title_without_number, title_words)
+from estimator.catalogue.job import (CONTROLS_DISCIPLINES, GENERIC_PLAN_WORDS, PLAN_DISCIPLINE_WORDS, TRADE_SYNONYMS,
+                                     TRADE_WORDS, repeats, title_without_number, title_words)
 from estimator.catalogue.tags import (DECIMAL_TYPE, Equipment, is_type_tag, label_key, label_keys, line_labels,
                                       plan_labels, tag_prefix)
 from estimator.reading.revisions import governing_pages, typical_places
@@ -409,9 +409,11 @@ def _place_facts(title: str) -> tuple[tuple | None, tuple[str, ...], frozenset[s
     """What a plan sheet's title says of the place and the trade (ruling L1), its own sheet number already taken
     out of it (`title_without_number`, so upper case): (the floors and parts it names, None when no one floor can
     be read (`_area_read`); the other words that name the place or the kind of plan, in order: KITCHEN, DEMOLITION,
-    NEW WORK; the trades it names: PIPING, CONTROLS, ZONING). HVAC, MECHANICAL and PLAN name no trade."""
+    NEW WORK; the trades it names: PIPING, CONTROLS, ZONING). HVAC, MECHANICAL and PLAN name no trade. Two words for
+    one trade are one trade (`TRADE_SYNONYMS`: DUCT is DUCTWORK, BAS is CONTROLS)."""
     words = re.findall(r"[A-Z0-9]+", title)
-    trades = frozenset(w for w in words if w in PLAN_DISCIPLINE_WORDS and w not in GENERIC_PLAN_WORDS)
+    trades = frozenset(TRADE_SYNONYMS.get(w, w) for w in words
+                       if w in PLAN_DISCIPLINE_WORDS and w not in GENERIC_PLAN_WORDS)
     read = _area_read(title)
     if read is None:
         return None, (), trades

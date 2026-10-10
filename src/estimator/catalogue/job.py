@@ -113,6 +113,12 @@ PLAN_DISCIPLINE_WORDS = TRADE_WORDS | PLAN_KIND_WORDS
 # Of those, the words that say nothing of the trade ("MECHANICAL FIRST FLOOR PLAN" names no trade); a title's trades
 # are its other discipline words ("PIPING", "CONTROLS", "ZONING").
 GENERIC_PLAN_WORDS = frozenset({"PLAN", "PLANS", "AND", "HVAC", "MECHANICAL", "MECH", "LAYOUT"})
+# Words that name one trade two ways ("DUCT PLAN" and "DUCTWORK PLAN", "BAS PLAN" and "CONTROLS PLAN"). The plan groups
+# read them as one trade (`inventory._place_facts`), so two sheets of one floor that differ only so are not "other
+# trades": they could be the halves of a floor, and a count that is too low is the worst error.
+TRADE_SYNONYMS = {"DUCT": "DUCTWORK", "PIPE": "PIPING", "CONTROL": "CONTROLS", "BMS": "CONTROLS", "BAS": "CONTROLS",
+                  "DDC": "CONTROLS", "ATC": "CONTROLS", "BALANCE": "BALANCING", "HYDRONICS": "HYDRONIC",
+                  "REFRIGERATION": "REFRIGERANT"}
 
 
 def title_without_number(sheet) -> str:

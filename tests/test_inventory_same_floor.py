@@ -83,6 +83,34 @@ def test_sheets_of_another_floor_or_area_or_with_no_other_trade_stay_apart_witho
     assert _apart(_groups(one, other))
 
 
+@pytest.mark.parametrize("one, other", [
+    ("LEVEL 4 HVAC DUCTWORK PLAN", "LEVEL 4 HVAC DUCT PLAN"),
+    ("LEVEL 4 HVAC PIPING PLAN", "LEVEL 4 HVAC PIPE PLAN"),
+    ("LEVEL 4 CONTROLS PLAN", "LEVEL 4 CONTROL PLAN"),
+    ("LEVEL 4 BMS PLAN", "LEVEL 4 CONTROLS PLAN"),
+    ("LEVEL 4 BAS PLAN", "LEVEL 4 DDC PLAN"),
+    ("LEVEL 4 AIRFLOW BALANCE PLAN", "LEVEL 4 AIRFLOW BALANCING PLAN"),
+    ("LEVEL 4 HYDRONICS PLAN", "LEVEL 4 HYDRONIC PLAN"),
+])
+def test_two_wordings_of_one_trade_are_one_trade_so_the_sheets_are_not_one_plan_on_their_titles(one, other):
+    # DUCT and DUCTWORK name one trade: two such sheets could be the halves of a floor, so each counts (a count that
+    # is too low is the worst error)
+    assert _apart(_groups(one, other))
+
+
+def test_a_floor_with_two_wordings_of_one_trade_is_too_uncertain_to_group_its_other_trades():
+    assert _apart(_groups("LEVEL 3 HVAC DUCTWORK PLAN", "LEVEL 3 HVAC DUCT PLAN", "LEVEL 3 HVAC PIPING PLAN"))
+
+
+@pytest.mark.parametrize("one, other", [
+    ("LEVEL 4 HVAC DUCT PLAN", "LEVEL 4 HVAC PIPE PLAN"),               # two trades, each in its short form
+    ("LEVEL 4 DUCT PLAN", "LEVEL 4 CONTROL PLAN"),
+    ("LEVEL 4 BMS PLAN", "LEVEL 4 HVAC DUCTWORK PLAN"),
+])
+def test_two_trades_in_their_short_forms_are_still_one_plan(one, other):
+    assert _one_group(_groups(one, other))
+
+
 def test_a_floor_drawn_in_two_documents_is_two_sheets():
     assert _apart(_groups("LEVEL 4 HVAC DUCTWORK PLAN", "LEVEL 4 HVAC PIPING PLAN", documents=["A.pdf", "B.pdf"]))
 
