@@ -227,3 +227,35 @@ def test_a_spec_section_titled_with_the_plural_is_a_sequence_section():
                           document="Specs.pdf", first_page=10, last_page=14)
     found, _flags = find_backbone(FakeCatalogue(sections=(section,), pages=(page("Specs.pdf", 10, FILLER),)))
     assert [(b.what, b.kind) for b in found] == [(SEQUENCE, "spec section")]
+
+
+# --- ws23: a sheet about another kind of point is not the points list -----------------------------------------
+
+@pytest.mark.parametrize("title", [
+    "SET-POINT SCHEDULE", "SET POINT SCHEDULE", "SET–POINT SCHEDULE", "SET/POINT SCHEDULE",
+    "TEMPERATURE SET-POINT SCHEDULE", "SET-POINTS TABLE", "SET POINTS LIST", "SET-POINT LISTING",
+    "ACCESS POINT SCHEDULE", "WIRELESS ACCESS POINT SCHEDULE", "ACCESS POINTS SCHEDULE", "ACCESS-POINT TABLE",
+    "CONNECTION POINT SCHEDULE", "DEW POINT TABLE", "TEST POINT LIST", "POWER POINT SCHEDULE",
+    "SURVEY CONTROL POINTS", "SURVEY CONTROL POINT TABLE",
+])
+def test_a_sheet_about_another_kind_of_point_is_not_the_points_list(title):
+    found, flags = _found(title)
+    assert found == []
+    assert flags == [NO_SEQUENCE]
+
+
+@pytest.mark.parametrize("title", [
+    "AHU-1 POINTS LIST", "CHILLER POINT SCHEDULE", "HVAC POINT LIST", "RTU POINT TABLE", "AHU POINTS SCHEDULE",
+    "SET POINT SCHEDULE AND BMS POINTS LIST", "ACCESS POINT SCHEDULE AND I/O POINT SCHEDULE",
+    "HVAC SET-POINT AND POINTS LIST", "CONTROL POINTS LIST - SHEET 2 OF 2",
+])
+def test_a_points_list_named_beside_another_point_or_after_an_equipment_name_is_still_the_points_list(title):
+    found, flags = _found(title)
+    assert [(b.what, b.kind) for b in found] == [(POINTS, "drawing sheet")]
+    assert flags == [NO_SEQUENCE]
+
+
+def test_a_spec_section_about_set_points_is_not_a_points_section():
+    section = SpecSection(number="23 09 13", title="SET-POINT SCHEDULE", document="Specs.pdf", first_page=3, last_page=4)
+    found, _flags = find_backbone(FakeCatalogue(sections=(section,), pages=(page("Specs.pdf", 3, FILLER),)))
+    assert found == []
