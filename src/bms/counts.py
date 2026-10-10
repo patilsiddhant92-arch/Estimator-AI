@@ -127,8 +127,9 @@ def cross_check(job: "Job", catalogue: "Catalogue", cache: Path, *, transport=No
     counted from the family's sources get flag "quantity" when the counts disagree. Proof images and their manifest
     go under `<cache>/count-proofs/`. A family whose whole-sheet pictures show symbols drawn with no tag
     (`CountResult.untagged` above 0) gets one plain-words question in `Job.questions` naming every such sheet and its
-    number; they are never added to the count. Families whose sheets cannot be pictured or counted are left as they
-    are.
+    number; they are never added to the count. A family's `Count.added_up` (the planner's sum of the sheets of one
+    floor and area, ruling L1) is kept while it is above the new printed count and dropped when the plans reach it.
+    Families whose sheets cannot be pictured or counted are left as they are.
     Pure apart from the picture cache under `cache`. Never lowers a count, never raises; running it twice changes
     nothing more."""
     try:
@@ -562,7 +563,10 @@ class _Check:
                 others += [OtherCount(value, s) for s in sources] or [OtherCount(value, Ref("", NO_SOURCE_QUOTE, ""))]
                 value, sources = n, [ref]
                 disagree = True
-        return Count(value, tuple(sources), tuple(others)), ids, disagree
+        merged = Count(value, tuple(sources), tuple(others))
+        if count.added_up is not None and (merged.highest() or 0) < count.added_up.value:
+            merged = dataclasses.replace(merged, added_up=count.added_up)    # ruling L1's sum, while it is above
+        return merged, ids, disagree
 
     # -- the proof images
 

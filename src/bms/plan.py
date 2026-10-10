@@ -17,7 +17,9 @@ the contract and not needed. The behaviours are those the estimator approved in 
   families the ledger names by their own kind;
 - condensate pumps carrying the tag numbers of one split block's units are planned in that block (their float
   switch tie-in); a condensate pump block never takes the split shape;
-- the printed count is the highest; every other count is kept with its source; unknown is None (Qty (##));
+- the printed count is the highest; every other count is kept with its source; unknown is None (Qty (##)); the sum
+  of the sheets of one floor and area, when ruling L1 left it above the printed count, is kept apart in
+  `Count.added_up` (never printed as the count; the proposal's "*" note names both numbers);
 - unscheduled and sequence-only families, parts with no count, unmatched sequence sections and the ledger's own
   questions become plain-words questions.
 """
@@ -128,7 +130,8 @@ class _Planner:
     def __init__(self, ledger: Ledger, dossier: Dossier | None, playbook: Playbook) -> None:
         self.ledger = ledger
         self.playbook = playbook
-        self.reader = Reader(ledger, getattr(dossier, "sources", None) or {}, getattr(dossier, "text", "") or "")
+        self.reader = Reader(ledger, getattr(dossier, "sources", None) or {}, getattr(dossier, "text", "") or "",
+                             getattr(dossier, "families", ()) or ())
         self.dossier = dossier
         self.questions: list[str] = []
         self._texts: dict[str, str] | None = None
@@ -1162,7 +1165,9 @@ def _reduced(count: Count, new: int) -> Count:
     """A family's count made smaller for one block (a group's part, the rest after the parts, the dampers no fan
     took): `new` prints, citing the sources of the number it came from. The family's other counts below `new` are
     kept; those at or above it are whole-family numbers that would print in its place (the highest prints), so they
-    leave `others`; the planner's question names them and the number it came from (`_came_from`)."""
+    leave `others`; the planner's question names them and the number it came from (`_came_from`). The family's
+    `added_up` (ruling L1) is the sum of the whole family's sheets, not of this part: it is left out, and the
+    planner's question (`added_up_counts`) still names both numbers."""
     return Count(new, count.sources, tuple(o for o in count.others if o.value < new))
 
 

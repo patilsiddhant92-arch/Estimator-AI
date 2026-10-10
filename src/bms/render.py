@@ -313,6 +313,9 @@ def _reason(assumption, ids: SourceIds, playbook: Playbook) -> str:
 UNLABELLED = "elsewhere in the documents"       # a count with no place (wording.json quantity.unlabelled, optional)
 # the count note's joiners: "(N) per <label>; M and K per <label>" (wording.json quantity.per / and / joiner, optional)
 COUNT_PER, COUNT_AND, COUNT_JOINER = " per ", " and ", "; "
+# the last clause of a count's part when ruling L1 left a sum out of it (`Count.added_up`): the sheets of one floor and
+# area count once, so the sum is named, never printed as the count. The renderer's own words (no wording.json key).
+COUNT_ADDED_UP = "{n} if every sheet of the same floor and area is added up"
 # what a count's quote counted, in the note's words (wording.json quantity.labels replaces a label it sets)
 COUNT_LABELS = {"plan_placements": "plan placements", "schedule_rows": "schedule rows", "schedule": "the schedule",
                 "riser": "the riser", "sheet_pictures": "the sheet pictures"}
@@ -387,6 +390,7 @@ class _CountWords:
     both: str = COUNT_AND
     joiner: str = COUNT_JOINER
     labels: dict = field(default_factory=lambda: dict(COUNT_LABELS))
+    added_up: str = COUNT_ADDED_UP
 
 
 def _count_words(playbook: Playbook) -> _CountWords:
@@ -410,13 +414,32 @@ def _count_causes(count: Count, playbook: Playbook) -> str:
     return _fill(words["form"], causes=words["joiner"].join(words[key] for key in keys))
 
 
-def _count_part(count: Count, ids: SourceIds, causes: str = "", words: _CountWords = _CountWords()) -> str:
+def _added_up(count: Count, printed: int) -> int | None:
+    """The sum ruling L1 left out of the count (`Count.added_up`) when it is above the number that prints: the number
+    the note names beside it. None when there is none, or the printed count has reached it (a count typed or read
+    since): then no sum is left to name."""
+    up = count.added_up
+    return up.value if up is not None and up.value > printed else None
+
+
+def _line_counts(devices) -> list[Count]:
+    """The devices' quantities for the quantity note, each without a sum: the sum is the planner's, set on a family
+    from the sheets (`plan_read.Reader.family`), so a line that carries one (a writer's copy of its family's count, or
+    a number it made up) names none."""
+    return [replace(d.quantity, added_up=None) for d in devices]
+
+
+def _count_part(count: Count, ids: SourceIds, causes: str = "", words: _CountWords = _CountWords(),
+                with_sum: bool = True) -> str:
     """One count's part of the quantity note: "(N) per <label>; M per <label>; K and J per <label>": the printed
     (highest) count first, then every other count with its label, highest first, equal values from one label
     folded, none dropped (estimator ruling D6); a count with no label still prints, with the plain `unlabelled`
     words ("15 elsewhere in the documents", never "per the documents"); "" when there is no other count. `causes` (`_count_causes`) prints after
     the "plan placements" label, or after the printed count's sheet when the plan placements give that count too.
-    `words` gives the labels and the joiners (" per ", " and ", "; ") and the unlabelled words."""
+    `words` gives the labels and the joiners (" per ", " and ", "; ") and the unlabelled words. The last clause is the
+    sum ruling L1 left out of the count, when it is above the printed count ("9 if every sheet of the same floor and
+    area is added up"): it makes a part of a count with no other count; `with_sum` False leaves it off (the part
+    `_count_note` compares lines by)."""
     n = _printed(count)
     if n is None:
         return ""
@@ -432,7 +455,8 @@ def _count_part(count: Count, ids: SourceIds, causes: str = "", words: _CountWor
         values = folded.setdefault(_count_label(value, ref, ids, labels), [])
         if value not in values:
             values.append(value)
-    if not folded:
+    added = _added_up(count, n) if with_sum else None
+    if not folded and added is None:
         return ""
     clauses = sorted(folded.items(), key=lambda item: -max(item[1]))
 
@@ -443,7 +467,10 @@ def _count_part(count: Count, ids: SourceIds, causes: str = "", words: _CountWor
         numbers = words.both.join(str(v) for v in sorted(values, reverse=True))
         return f"{numbers}{words.per}{shown(label)}" if label else f"{numbers} {words.unlabelled}"
 
-    others = words.joiner.join(clause(label, values) for label, values in clauses)
+    pieces = [clause(label, values) for label, values in clauses]
+    if added is not None:
+        pieces.append(words.added_up.format(n=added))
+    others = words.joiner.join(pieces)
     first = shown(head)
     if causes and head != placements and placements in heads:
         first = f"{head} {causes}"               # the plan placements give the printed count too: their causes stay
@@ -451,24 +478,27 @@ def _count_part(count: Count, ids: SourceIds, causes: str = "", words: _CountWor
 
 
 def _count_note(counts: list[Count], playbook: Playbook, ids: SourceIds, names: list[str] | None = None) -> str:
-    """The block's one quantity note naming every other count in the documents ("" when there is none). `names`
-    gives, count by count, the family name its part opens with ("" for none: a block with one family, a device).
-    It goes through the safety net every other client text goes through (`SourceIds.without_issued`): an issued id
-    that reached a place is taken out, token only."""
+    """The block's one quantity note naming every other count in the documents ("" when there is none), and, last in
+    a count's part, the sum ruling L1 left out of it. `names` gives, count by count, the family name its part opens
+    with ("" for none: a block with one family, a device). It goes through the safety net every other client text
+    goes through (`SourceIds.without_issued`): an issued id that reached a place is taken out, token only."""
     words = _count_words(playbook)
     names = list(names or []) + [""] * (len(counts) - len(names or []))
-    seen: dict[str, list[str]] = {}              # a part -> the family names it opens with; a repeat prints once
+    # a part, without its sum clause -> (the family name it opens with, the part) for each; a repeat prints once
+    seen: dict[str, list[tuple[str, str]]] = {}
     for count, name in zip(counts, names):       # (a device often carries its family's count: the family's wins)
-        part = _count_part(count, ids, _count_causes(count, playbook), words)
+        causes = _count_causes(count, playbook)
+        part = _count_part(count, ids, causes, words)
         if not part:
             continue
-        under = seen.setdefault(part, [])
-        # a line that carries a family's count adds nothing; a second family that reads the same numbers from the
-        # same places is a count of its own, and prints under its own name (none dropped)
-        if name in under or (not name and under):
+        under = seen.setdefault(_count_part(count, ids, causes, words, with_sum=False) or part, [])
+        # a line that carries a family's count adds nothing, with or without the family's sum; a second family that
+        # reads the same numbers from the same places is a count of its own, and prints under its own name (none
+        # dropped)
+        if any(name == other for other, _ in under) or (not name and under):
             continue
-        under.append(name)
-    parts = [f"{name} {part}" if name else part for part, under in seen.items() for name in under]
+        under.append((name, part))
+    parts = [f"{name} {part}" if name else part for under in seen.values() for name, part in under]
     if not parts:
         return ""
     # made of places the where checks gave (`SourceIds.sheet`, `place`), so it is read as a where is: a source sheet
@@ -620,9 +650,9 @@ def printed_texts(system: System, shape: Shape | None, playbook: Playbook, ids: 
 def _notes(clarifications: tuple[Clarification, ...], devices, counts: list[Count],
            playbook: Playbook, ids: SourceIds, names: list[str] | None = None) -> list[str]:
     """One "*" line per kind, after the lines: confirm, assumed (every assumption with its why), per drawings, the
-    note line; then the one quantity note naming every other count. A text's own leading label is not printed
-    twice, an issued source id left in a stale text never prints (the token alone is taken out: no sentence is
-    rewritten), and a text is never cut."""
+    note line; then the one quantity note naming every other count (and the sum ruling L1 left out of a family's
+    count). A text's own leading label is not printed twice, an issued source id left in a stale text never prints
+    (the token alone is taken out: no sentence is rewritten), and a text is never cut."""
     texts: dict[str, list[str]] = {kind: [] for kind in CLARIFICATION_KINDS}
     for c in clarifications:
         text = _trim(clarification_text(c.kind, c.text, ids))
@@ -722,7 +752,7 @@ def _system_blocks(system: System, playbook: Playbook, out: list[RenderedLine],
     printed = _device_lines(_named(system.devices, ids), shape, system, playbook, reference)
     named = len(system.families) > 1             # more than one family: each family's part names its family
     notes = _notes(system.clarifications, system.devices,
-                   [f.count for f in system.families] + [d.quantity for d in system.devices], playbook, ids,
+                   [f.count for f in system.families] + _line_counts(system.devices), playbook, ids,
                    [_title(f.name, _casing(playbook)) if named else "" for f in system.families])
     try:                                 # every field checked: a blank line, a negative quantity or tech hours
         items = _items(printed, pending) + [Item(kind="note", runs=(Run(text=n),)) for n in notes]
@@ -753,7 +783,7 @@ def _front_end(front: FrontEnd | None, playbook: Playbook, out: list[RenderedLin
     if front is None:
         return ScopeFrontEnd(mode="new-system")
     printed = _device_lines(_named(front.devices, ids), None, None, playbook, {1})
-    notes = _notes(front.clarifications, front.devices, [d.quantity for d in front.devices], playbook, ids)
+    notes = _notes(front.clarifications, front.devices, _line_counts(front.devices), playbook, ids)
     out += _traced("", printed, notes)
     try:
         items = _items(printed, False) + [Item(kind="note", runs=(Run(text=n),)) for n in notes]

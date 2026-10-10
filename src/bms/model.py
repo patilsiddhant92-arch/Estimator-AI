@@ -91,10 +91,16 @@ class OtherCount(_Model):
 @dataclass(frozen=True)
 class Count(_Model):
     """A quantity. `value` is the printed count, the highest any source gives (never undershoot); "Qty (##)" prints
-    only when it is None and no other count is known (`highest()` is what prints). `sources` back `value`; `others` are every different count, each with its source."""
+    only when it is None and no other count is known (`highest()` is what prints). `sources` back `value`; `others`
+    are every different count, each with its source. `added_up` is the plain sum over the plan sheets of one floor and
+    area (ruling L1), kept only while it is above the printed count: it is never a count that prints (`highest()`
+    ignores it, so it is not one of `others`), and the proposal's "*" note names both numbers."""
     value: int | None = field(**_doc('The printed count (the highest found); null when unknown ("Qty (##)").'))
     sources: tuple[Ref, ...] = field(default=(), **_doc("The citations that give the printed count."))
     others: tuple[OtherCount, ...] = field(default=(), **_doc("Every other, different count, with its source."))
+    added_up: OtherCount | None = field(default=None, **_doc(
+        'The plain sum over sheets of the same floor and area, when it is higher than the printed count (ruling L1). '
+        'It never prints as the count; a "*" note names both numbers.'))
 
     def highest(self) -> int | None:
         """The highest of `value` and every other count (what must print); None when none is known."""

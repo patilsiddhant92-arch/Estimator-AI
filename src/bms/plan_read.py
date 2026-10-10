@@ -3,7 +3,7 @@ notes that name a system. Pure functions over the old app's Ledger and Dossier; 
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from functools import lru_cache
 
 from estimator.catalogue.tags import STATED_MOST
@@ -128,10 +128,13 @@ def short_name(value, fallback: str = "") -> str:
 class AddedUp:
     """Ruling L1: the counts stated after a family's tags on the dossier's plan sheets ("CUH-A (TYP. OF 4)") are not
     added over sheets that show one floor and area. They count `counted`; added up the sheets give `summed`, which is
-    above it. `sheets` are the places of each group of 2 or more such sheets that state a count."""
+    above it. `sheets` are the places of each group of 2 or more such sheets that state a count. `refs` are the
+    dossier lines that state a count, in the dossier's order (never compared): the first is the citation of the sum
+    when the family's `Count.added_up` keeps it."""
     counted: int
     summed: int
     sheets: tuple[tuple[str, ...], ...] = ()
+    refs: tuple[Ref, ...] = field(default=(), compare=False)
 
     def note(self) -> str:
         """The plain words for the drop, both numbers: "M-101 and M-201 show one floor and area, so the counts stated
@@ -171,6 +174,7 @@ class _PlanSheet:
 
 _SHEET_TEXT = "(sheet text)"          # how the dossier's source for a sheet's own text (7c) ends
 _COUNTS_SOURCE = "equipment counts for "     # how the dossier's source for a family's equipment counts line begins
+_SHEETS_ADDED_UP = "if the sheets were added up"   # the words of a family total's flag that names its sum (L1)
 _PLACE = re.compile(r"^(?:(?P<number>[^,]+), )?(?P<document>.+?) page (?P<page>\d+)$")
 
 
@@ -203,10 +207,14 @@ def _names(places) -> str:
 
 
 class Reader:
-    def __init__(self, ledger: Ledger, dossier_sources: dict | None = None, dossier_text: str = "") -> None:
+    def __init__(self, ledger: Ledger, dossier_sources: dict | None = None, dossier_text: str = "",
+                 totals=()) -> None:
         self.ledger = ledger
         self.dossier_sources = dict(dossier_sources or {})
         self.dossier_text = str(dossier_text or "")
+        # the dossier's family totals (`Dossier.families`, the inventory's `FamilyTotal`s) by prefix: ruling L1's
+        # sum of the scheduled units where the sheets of one floor and area were counted once (`_total_sum`)
+        self.totals = {squash(t.prefix).casefold(): t for t in totals or () if getattr(t, "prefix", None)}
         self._families: dict[str, FamilyFacts] = {}
         self._plans: dict[str, _PlanSheet] | None = None
         self._groups: dict | None = None
@@ -404,7 +412,7 @@ class Reader:
         summed = sum(n for _id, per_tag, _ref in lines for n in per_tag.values())
         same = tuple(tuple(dict.fromkeys(names)) for names in places.values() if len(set(names)) >= 2)
         refs = tuple(_unique([ref for _id, _per_tag, ref in lines]))
-        return counted, refs, AddedUp(counted, summed, same) if summed > counted else None
+        return counted, refs, AddedUp(counted, summed, same, refs) if summed > counted else None
 
     # families
     def family_facts(self) -> list[Fact]:
@@ -434,12 +442,41 @@ class Reader:
             count = Count(len(tags), tuple(_unique(list(raised))),
                           tuple(_unique([*count.others, OtherCount(count.value, count.sources[0])]))
                           if count.sources else count.others)
+        stated = (added_up.summed, added_up.refs[0]) if added_up is not None and added_up.refs else None
+        count = self._with_sum(count, stated, self._total_sum(prefix))
         sequence_only = count_fact is None and fact.stage == "sequence"
         plan_only = not sequence_only and (count_fact is None or not count_fact.was_settled)
         found = FamilyFacts(fact, prefix, short_name(fact.value, prefix), tags, count, plan_only, sequence_only,
                             added, len(listed), was, added_refs, added_up)
         self._families[prefix.casefold()] = found
         return found
+
+    def _total_sum(self, prefix: str) -> tuple[int, Ref] | None:
+        """Ruling L1 on the scheduled units: the sum the dossier's family total for the prefix kept
+        (`inventory.FamilyTotal.summed`, set only when above `scheduled`), cited by the family's equipment counts line
+        in the words of the total's flag that says both numbers ("4 units counted, 8 if the sheets were added up").
+        None when the family has no such sum, or the dossier has no counts line of it to cite."""
+        total = self.totals.get(squash(prefix).casefold())
+        if total is None or not total.summed:
+            return None
+        flag = next((f for f in total.flags if _SHEETS_ADDED_UP in f), None)
+        source = next((sid for sid, where in self.dossier_sources.items()
+                       if where.startswith(f"{_COUNTS_SOURCE}{total.prefix} ")), None)
+        return None if flag is None or source is None else (total.summed, self.ref(source, flag))
+
+    @staticmethod
+    def _with_sum(count: Count, *sums: tuple[int, Ref] | None) -> Count:
+        """The family's count with the sum ruling L1 left out of it, when the sheets added up give more than the
+        printed count (`Count.added_up`; the sum is never a count that prints, so it is never one of the `others`).
+        Each sum is (its number, its citation): the counts the sheets state (`AddedUp`, cited by the first dossier
+        line that states one, also one of the count's own refs) and the scheduled units of the family's total
+        (`_total_sum`). The highest is kept (a count that is too low is the worst error), the first of equals. The
+        count unchanged when none is above the printed count."""
+        top = count.highest()
+        best = max((s for s in sums if s is not None), key=lambda s: s[0], default=None)
+        if best is None or top is None or best[0] <= top:
+            return count
+        return replace(count, added_up=OtherCount(*best))
 
     def _added_tags(self, unit: Fact | None, listed: tuple[str, ...]) -> tuple[tuple[str, ...], tuple[Ref, ...]]:
         """The tags a unit fact's contradictions give that its own list does not (a later pass saw "EF-1 thru 4"
