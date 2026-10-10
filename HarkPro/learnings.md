@@ -7,7 +7,7 @@ Kept short and general so it applies to any job. Rulings with ids are in `doctri
 2. **Damper actuators are Furnish and Install.** If a damper is on the plans, the control diagram or the sequence, AME furnishes and installs its actuator, even when the schedule lists it with the unit. Add a *Confirm flag when the schedule disagrees. "Wire Damper Actuator" is rare. (R20)
 3. **A block lists every end device.** A system is never "Interlock with ..." only. If its points sit on another unit's controller, list the devices in its own block and add a note saying where the points land. (R21)
 4. **At least flag it.** A doubtful ownership is never silently given to someone else. Keep it as AME's scope with a *Confirm, or raise it as a question.
-5. Earlier, still in force: the schedule count prints and other counts are flagged (R1). A controls item "by MC" is AME's, never an exception (R2). Leak sensor, local RAM and condensate float use the Master Template wording. Count every damper actuator.
+5. Earlier: the schedule count prints and other counts are flagged (R1) — SUPERSEDED 2026-10-10: the highest count prints; every other differing count prints in a * note with both numbers and sources. A controls item "by MC" is AME's, never an exception (R2). Leak sensor, local RAM and condensate float use the Master Template wording. Count every damper actuator.
 
 ## Evidence (estimator)
 6. **Show the proof, not ids.** Every scope line shows where the documents say it, word for word: sheet, page, quote. The estimator should never have to follow source ids or line ids. (R22; done in `harkpro/evidence.py`)

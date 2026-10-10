@@ -4,8 +4,9 @@
 upper-case alias such as "AC" or "EF" is a tag prefix and matches "AC-1" or a tag list; a longer alias is matched as
 words). A shared alias (AC is both a split system and a packaged unit's tag) picks both families: the critic decides
 which one the documents describe. The front end is always in. `checklist(family)` lists every line of the family with
-what the critic needs to judge it. Nothing here is job-specific: the checks come from the template, so a miss is
-caught by method, not by a ruling written for one job.
+what the critic needs to judge the wording of a line the evidence calls for. The template gives wording, order and
+hours only (estimator ruling 2026-10-10, evidence only): a checklist line is never a reason to ask for a line the job's
+documents do not show, so the legacy `required` flag is not passed on.
 """
 from __future__ import annotations
 
@@ -18,7 +19,7 @@ LINES = DOCTRINE / "lines.json"
 RULINGS = DOCTRINE / "rulings.md"
 ALWAYS = ("front_end",)
 
-LINE_KEYS = ("id", "text", "verb", "owner_furnish", "owner_install", "owner_wire", "applies_when", "required",
+LINE_KEYS = ("id", "text", "verb", "owner_furnish", "owner_install", "owner_wire", "applies_when",
              "alt_group", "variant", "depth", "parent", "template_exact")
 
 

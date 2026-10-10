@@ -8,6 +8,6 @@ justification or an estimator question; the loop repeats until no open must-fix 
 left goes to the estimator.
 
 Modules: `evidence` (the log + a generic concept scan), `scope` (Job.json view and revisions), `checklist` (generic
-family checklists from lines.json), `schemas`, `handoff` (request / answer files, the app's chat form), `loop` (the
+family wording checklists from lines.json; wording only), `schemas`, `handoff` (request / answer files, the app's chat form), `loop` (the
 rounds), `report`, `grade` (recall against an estimator's known misses). Prompts: `HarkPro/qc_prompts/`.
 """

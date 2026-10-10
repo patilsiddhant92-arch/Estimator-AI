@@ -1,7 +1,7 @@
 # Conflicts between the old doctrine sources and lines.json / rulings.md
 
 Built 2026-10-09 against branch `hark/harkpro-notes` (= `main`). Precedence: **rulings.md > lines.json > Brain/Quantity
-rules.txt > everything else**. "Winner" names which side holds. Nothing in `src/`, `playbook/`, `Brain/`, `assets/` or
+rules.txt > everything else** (lines.json for wording, order and hours only since 2026-10-10; see section B). "Winner" names which side holds. Nothing in `src/`, `playbook/`, `Brain/`, `assets/` or
 `tests/` was changed; each row is a proposed edit for the estimator to approve.
 
 Line numbers
@@ -30,14 +30,18 @@ Line numbers
 
 ## B. "No standard lines" vs a line library (R11, lines.json `required`)
 
+**C11-C16 SUPERSEDED 2026-10-10** by the estimator ruling "evidence only: a line prints only when the job's documents show that device; the Master Template gives wording, order and hours only". The old sources' "no standard lines / no
+line without evidence" side holds; `lines.json` is wording, order and hours data only and its `required` flag is not
+used to make a line exist. The "Winner" column of C11-C16 below is history only.
+
 | # | Old source | Old text | Contradicts | Winner |
 |---|---|---|---|---|
-| C11 | `playbook/rules.md:465-469` (main) | "The Master Template (shapes.json) sets only the shape of a block ... It never says that a line exists." | lines.json is the line library; `required: true` lines print whenever the family is present and `applies_when` holds (R11 VAV lines; front-end graphics/training marked "Default" in MT ¶60/62). | **lines.json.** Lines still need the family to be in the job (R1) and their condition to hold; they no longer need their own document citation. |
-| C12 | `playbook/rules.md:26-29` | "There is no 'AME standard' line and no fallback line. A line is never added because ... the Master Template lists it" | Same as C11; R11 | **lines.json / R11.** |
-| C13 | `AGENTS.md:28-29` | "The job's own documents decide the scope. No standard lines, no fallback lines, no wording from other jobs." | Same as C11 | **lines.json / R11** for "no standard lines". "No wording from other jobs" still holds (lines.json carries no job data). |
-| C14 | `playbook/shapes.json:3` | "Never content: no default lines, no device a block gets without this job's evidence." | Same as C11 | **lines.json.** shapes.json keeps the slot order and wording forms. |
-| C15 | `Brain/ESTIMATOR_DOCTRINE.md:13` | "Never invent — No Brain lines without evidence" | Same as C11 | **lines.json / R11** (evidence = the family is scheduled; the line's condition is in `applies_when`). |
-| C16 | `playbook/rules.md:407-410` | Each front end line (... 3-D graphics, training ...) "is written only when this job's specification calls for it" | MT ¶60 and ¶62 mark 3-D Graphics and Training "Default" (`front_end.07`, `.08`, `.16`, `.17` required). | **lines.json.** |
+| C11 (SUPERSEDED 2026-10-10) | `playbook/rules.md:465-469` (main) | "The Master Template (shapes.json) sets only the shape of a block ... It never says that a line exists." | lines.json is the line library; `required: true` lines print whenever the family is present and `applies_when` holds (R11 VAV lines; front-end graphics/training marked "Default" in MT ¶60/62). | **lines.json.** Lines still need the family to be in the job (R1) and their condition to hold; they no longer need their own document citation. |
+| C12 (SUPERSEDED 2026-10-10) | `playbook/rules.md:26-29` | "There is no 'AME standard' line and no fallback line. A line is never added because ... the Master Template lists it" | Same as C11; R11 | **lines.json / R11.** |
+| C13 (SUPERSEDED 2026-10-10) | `AGENTS.md:28-29` | "The job's own documents decide the scope. No standard lines, no fallback lines, no wording from other jobs." | Same as C11 | **lines.json / R11** for "no standard lines". "No wording from other jobs" still holds (lines.json carries no job data). |
+| C14 (SUPERSEDED 2026-10-10) | `playbook/shapes.json:3` | "Never content: no default lines, no device a block gets without this job's evidence." | Same as C11 | **lines.json.** shapes.json keeps the slot order and wording forms. |
+| C15 (SUPERSEDED 2026-10-10) | `Brain/ESTIMATOR_DOCTRINE.md:13` | "Never invent — No Brain lines without evidence" | Same as C11 | **lines.json / R11** (evidence = the family is scheduled; the line's condition is in `applies_when`). |
+| C16 (SUPERSEDED 2026-10-10) | `playbook/rules.md:407-410` | Each front end line (... 3-D graphics, training ...) "is written only when this job's specification calls for it" | MT ¶60 and ¶62 mark 3-D Graphics and Training "Default" (`front_end.07`, `.08`, `.16`, `.17` required). | **lines.json.** |
 | C17 | `assets/system_templates.json:3, 94-95, 314` | "standard" lines added "as an ASSUMPTION with '*Assumed per AME standard - confirm'"; `standard_text` "24V Transformer by Unit Mfr." | lines.json prints template wording without an assumption flag when required; MT ¶158 wording is "24V VAV Transformer is Coming with the Unit". | **lines.json.** (Also: this file carries a sample tag and a sheet reference copied from the template; see the report.) |
 
 ## C. Wording and verbs
@@ -58,7 +62,7 @@ Line numbers
 
 | # | Old source | Old text | Contradicts | Winner |
 |---|---|---|---|---|
-| C27 | `playbook/rules.md:160-166` (main) | "Higher count prints ... the highest count prints, flagged" / "Never print a count lower than one the documents give." | R1: the schedule count prints; other counts are flagged. | **R1** (the hark/fix-all patch already rewrites these lines, unmerged). |
+| C27 | `playbook/rules.md:160-166` (main) | "Higher count prints ... the highest count prints, flagged" / "Never print a count lower than one the documents give." | R1: the schedule count prints; other counts are flagged. | **R1** (the hark/fix-all patch already rewrites these lines, unmerged). **R1 SUPERSEDED 2026-10-10:** the highest count prints; every other differing count prints in a * note with both numbers and sources, so the old "highest prints" side holds on the number. |
 | C28 | `assets/gem/BMS_DDC_GEM_v4.txt:594`; `assets/gem/ame_practice.txt` "CONTRADICTED COUNTS" (main) | "the higher count prints, flagged CONFIRM QUANTITY" | R1 | **R1** (patch fixes, unmerged). |
 | C29 | `playbook/rules.md:172-176` | A system named only in the sequence prints in the base bid, "Qty (##)" | `Brain/Quantity rules.txt:59-63, 125` ORPHANED: "do not price until confirmed" | **Quantity rules** (they outrank rules.md) for a system in one place only; R1 sub-case is PENDING estimator. |
 

@@ -8,7 +8,7 @@ to the estimator.
 
 | Prompt | Step | Answer schema |
 |---|---|---|
-| `critic.md` | `qc_critic`: round 1 walks every evidence item (covered / dismissed / raised) and runs the method checks (every family against its `lines.json` checklist, cross-system devices, systems left out, the front end, unsupported lines, alternates). Later rounds give a verdict on every answered thread (resolved / reopen / escalate). | `harkpro.qc.schemas.CRITIC` |
+| `critic.md` | `qc_critic`: round 1 walks every evidence item (covered / dismissed / raised) and runs the method checks (every evidenced device against its family's `lines.json` wording, cross-system devices, systems left out, the front end, unsupported lines, alternates). Later rounds give a verdict on every answered thread (resolved / reopen / escalate). | `harkpro.qc.schemas.CRITIC` |
 | `respond.md` | `qc_respond`: the writer answers each open thread: `revise` (add / change / delete / clarify / except), `justify`, or `estimator_question`. | `harkpro.qc.schemas.RESPOND` |
 
 Running it (no API key: each request is answered as a JSON file, the same way `tools/run_job.py` hands off the app's

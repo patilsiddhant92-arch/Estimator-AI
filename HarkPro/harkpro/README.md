@@ -1,7 +1,7 @@
 # harkpro: the new estimating flow, beside the app
 
 Reads the app's own outputs (Ledger.json, Job.json, Proposal.docx); never writes to `src/`.
-Doctrine: `HarkPro/doctrine/lines.json` (line library) and `rulings.md` (R2-R9 are coded in `coverage.py`).
+Doctrine: `HarkPro/doctrine/lines.json` (template wording, order and hours only; never a source of line existence) and `rulings.md` (R2-R9 are coded in `coverage.py`).
 
     PYTHONPATH=<worktree>/HarkPro:<worktree>/src python -m harkpro coverage LEDGER JOB --out DIR [--dismissals d.json] [--judge-answer a.json] [--strict]
     PYTHONPATH=... python -m harkpro evidence LEDGER JOB --out DIR [--debug]

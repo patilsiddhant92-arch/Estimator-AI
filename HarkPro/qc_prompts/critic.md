@@ -15,8 +15,9 @@ You are given, as one JSON object:
   verb, furnished/installed/wired by, quantity, citations, flag, assumption), its clarifications, its alternate
   (base / add / deduct) and its `no_scope_reason` when it was left out; the front end; the exceptions; the questions.
 - `checklists`: for each equipment family the job or its evidence names, every Master Template line of that family
-  (`id`, exact `text`, `verb`, owners, `applies_when`, `required`, `alt_group`, `variant`, `parent`). This is the
-  house method: a family is checked against all of its lines, not against what the writer happened to write.
+  (`id`, exact `text`, `verb`, owners, `applies_when`, `alt_group`, `variant`, `parent`). They give WORDING, ORDER
+  and HOURS only (estimator ruling 2026-10-10, evidence only): a line prints only when the job's documents show that
+  device. A checklist line is never, on its own, a reason to ask for a line.
 - `rulings`: the estimator's rulings. Decided rulings win over everything. A PENDING ruling is a question for the
   estimator, never a settled rule.
 - `round` and `threads`: the questions and critiques of earlier rounds, each with the writer's response (a revision,
@@ -41,9 +42,9 @@ For EVERY evidence item in `evidence` give exactly one entry in `items`. Ask of 
    maker's unless it names the ATC / BMS contractor or gives BMS wiring; "by others", "by EC", "by owner" make an
    exception or an ownership flag; two documents that give the same device to different parties make an estimator
    question, not a guess.
-5. **Is the quantity right?** The schedule count prints. A device drawn on the plans without a tag is counted from
-   the plans: every symbol, never "one per unit". A count from another source that differs is flagged, never
-   silently dropped.
+5. **Is the quantity right?** The highest count prints; every other differing count prints in a * note with both
+   numbers and their sources (estimator rulings 2026-10-10). A device drawn on the plans without a tag is counted
+   from the plans: every symbol, never "one per unit". A differing count is never silently dropped.
 6. **Is the Master Template line right?** The line must be the family checklist line whose `applies_when` holds,
    in its exact text (placeholders filled), with its verb and owners, unless a decided ruling says otherwise.
 
@@ -51,10 +52,10 @@ Raise a thread for every item that fails a question. One thread may carry severa
 
 ## Then: the method checks (every round 1)
 
-- **Each family in the scope, against its checklist.** For every checklist line whose `applies_when` could hold on
-  this job's evidence, the scope has it, or the evidence shows it does not apply. A `required: true` line whose
-  condition holds and is missing is a must_fix. Lines of one `alt_group` are alternatives: check the right one was
-  chosen.
+- **Each evidenced device, against its family's checklist wording.** For every device an evidence item shows, the
+  scope uses the checklist line that words it, in its exact text, verb and owners. Never ask for a checklist line
+  that no evidence item shows a device for: the template gives wording, order and hours only, never the existence of
+  a line. Lines of one `alt_group` are alternatives: check the right one was chosen for the evidenced device.
 - **Cross-system devices.** Devices that live on other sheets than their system's schedule: leak detectors, drip
   pans, condensate pumps and float / overflow switches, local alarm panels, motorized / control dampers drawn
   without tags, radiator / perimeter / finned-tube valves tied to zone thermostats, occupancy sensors, CO2 sensors,
@@ -97,5 +98,5 @@ Also open a new thread when a revision itself breaks something (a wrong verb, a 
   placeholders filled, `verb`, owners, `quantity`), or null when no line is right (an exception, a flag, a removal).
 - `citations`: at least one, each an evidence id and a quote copied word for word from that item's `text`.
 
-Never invent evidence. Never quote words that are not in the item. Never ask for a line the evidence and the
-checklists do not support. Give no thread about style or wording the template and the rulings do not rule on.
+Never invent evidence. Never quote words that are not in the item. Never ask for a line without an evidence item
+that shows the device; the checklists alone never support a line. Give no thread about style or wording the template and the rulings do not rule on.

@@ -10,12 +10,16 @@ How to read this file
 - **Decided** = ruled by the estimator, with the date and where it was recorded.
 - **PENDING estimator** = proposed (by Hark or by a reviewer) but not decided. Do not code a PENDING ruling as settled;
   a scope writer that meets the case asks the question instead.
-- Line ids (`vav.01`, ...) point into `lines.json`.
+- Line ids (`vav.01`, ...) point into `lines.json` for wording, order and hours only. `lines.json` never decides that a
+  line exists: a line prints only when the job's documents show that device (estimator ruling 2026-10-10).
 - No job names, tags, sheet numbers or job text here (AGENTS.md rule 1). Test jobs are Job 1, Job 2a/2b and Job 3.
 
 ---
 
 ### R1. The schedule says which systems are in the job; the Quantity rules govern quantities
+**SUPERSEDED 2026-10-10** by the estimator rulings of 2026-10-10: "the highest count prints; every other differing count prints in a * note with both numbers and sources". Do not apply the count part of R1
+(schedule count prints, others only flagged) or its PENDING no-schedule sub-case; kept below as history only.
+
 **Decided 2026-10-09** (`HarkPro/discussion.md:4-5`).
 - The equipment schedule decides which systems the job has.
 - `Brain/Quantity rules.txt` governs every quantity.

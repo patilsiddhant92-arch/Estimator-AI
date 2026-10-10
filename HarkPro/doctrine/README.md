@@ -6,7 +6,7 @@ Four files replace the eight overlapping doctrine sources (Master Template, GEM 
 | File | What it is |
 |---|---|
 | `rulings.md` | The estimator's dated, numbered decisions (R1..). **Win over everything.** PENDING items are questions, not rules. |
-| `lines.json` | The Master Template as data: 39 families, 438 lines in the template's exact wording, with when each applies, ownership, tech hours and price-book items. |
+| `lines.json` | The Master Template as data: 39 families, 438 lines in the template's exact wording, with when each applies, ownership, tech hours and price-book items. Wording, order and hours only: it is not a source of line existence (2026-10-10). |
 | `conflicts.md` | Every place an old source contradicts the two files above, with file:line and the winner. |
 | `check_doctrine.py` | Validator. Run it after every edit. |
 
@@ -16,7 +16,8 @@ until the estimator approves the edits listed in `conflicts.md`.
 ## Precedence
 
 1. **`rulings.md`** (decided rulings only)
-2. **`lines.json`** (which lines exist, their exact words, when they apply)
+2. **`lines.json`** (the exact words, the order and the tech hours of a line; never whether a line exists: a line
+   prints only when the job's documents show that device, estimator ruling 2026-10-10)
 3. **`Brain/Quantity rules.txt`** (every count; R1 makes it the quantity authority)
 4. Everything else: `playbook/rules.md`, `shapes.json` (slot order, header forms), `wording.json` (brackets, qty forms),
    GEM v3.2/v4, `ame_practice.txt`, `ESTIMATOR_DOCTRINE.md`, AGENTS files. Use them only where 1-3 are silent.
@@ -29,13 +30,15 @@ doctrine decides **how** each system is written.
 1. **Systems.** Take the systems from the equipment schedule (R1). Match each to a family by `aliases` (tag prefixes and
    names) and, where an alias is shared (AC/ACCU in VRF and split; EF in exhaust fans and gas detection), by what the
    documents say the system is.
-2. **Counts.** Apply `Brain/Quantity rules.txt`. The schedule count prints; every other count is a flag (R1).
+2. **Counts.** The highest count prints; every other differing count prints in a * note with both numbers and sources
+   (estimator rulings 2026-10-10, superseding R1).
 3. **Variant.** If the family has `variants` (front end new/existing, exhaust fan interlocked/field DDC, UV field
    DDC/DDC ready, unit heater electric/DDC/water, VRF central controller/BMS interface ...), pick the one the documents
    describe. Lines without a `variant` apply to every variant.
 4. **Lines.** Walk the family's `lines` in order:
-   - `required: true` → print it whenever `applies_when` holds (house default; no separate citation needed).
-   - `required: false` → print it only when this job's documents call for it, citing them.
+   - Print a line only when this job's documents show that device, citing them (estimator ruling 2026-10-10:
+     evidence only). The `required` flag in `lines.json` is legacy data and is not used: it never makes a line
+     print without evidence.
    - `alt_group` → print at most one line of the group (the template's OR); choose by `applies_when`.
    - `depth: 2` + `parent` → prints one level in, under its parent; never without the parent.
    - Fill placeholders (`{n}`, `{qty}`, `{tags}`, `{size}`, `{sheet}`, `{location}`, `{existing_bms}` ...) from the job.
