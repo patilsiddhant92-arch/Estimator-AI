@@ -267,3 +267,38 @@ def test_a_document_hashed_while_locked_for_a_moment_is_hashed_on_a_retry(job, t
     monkeypatch.setattr(pages.hashlib, "file_digest", busy)
     reading = read_job(catalogue, cache_dir=tmp_path / "pages")
     assert reading == whole and not _unreadable(reading)
+
+
+# --- a plan tag an air outlet schedule lists as a code is said in the reading flags, as in the dossier's counts line ---
+
+def _outlet_sheet() -> Page:
+    rows = [["AIR OUTLET SCHEDULE", "", ""], ["DESIGNATION", "DESCRIPTION", "NECK SIZE"],
+            ["SD-1", "SUPPLY DIFFUSER", "12"], ["SD-2", "RETURN GRILLE", "10"]]
+    lines, texts = grid(300, 300, [90, 200, 80], rows)
+    return Page(W, H, ((200, 200, FILLER, 12), *texts, (2640, 1860, "HVAC SCHEDULES", 20), (2800, 2000, "M-601", 40)),
+                lines=lines)
+
+
+SD_PLAN = Page(W, H, ((200, 300, FILLER, 12), (900, 900, "SD-1", 12), (900, 1000, "SD-1", 12), (900, 1100, "SD-2", 12),
+                      (2640, 1860, "SECOND FLOOR PLAN", 20), (2800, 2000, "M-201", 40)))
+OUTLET_NOTE = ("SD-1, SD-2 on the plans (3 labels) are listed as air-outlet codes on AIR OUTLET SCHEDULE (M-601): not "
+               "counted as units, 0 counted, 2 if counted as units; check")
+
+
+def test_a_plan_tag_an_air_outlet_schedule_lists_is_in_the_reading_flags_and_the_counts_line_alike(tmp_path):
+    from estimator.writing.dossier import build_dossier
+
+    root = tmp_path / "26-9999, 1 Test Street"
+    make_pdf(root / "2. Takeoffs" / "1. Base Takeoff" / "Mech.pdf", _outlet_sheet(), SD_PLAN)
+    catalogue = catalogue_job(root, tmp_path / "cache")
+    reading = read_job(catalogue)
+    assert [f for f in reading.flags if "air-outlet code" in f] == [OUTLET_NOTE]
+    dossier = build_dossier(catalogue, reading, tmp_path / "cache")
+    assert OUTLET_NOTE in dossier.text and "SD" not in dossier.counts       # said, and still counted in no family
+
+
+def test_no_plan_tag_listed_by_an_air_outlet_schedule_gives_no_such_flag(tmp_path):
+    root = tmp_path / "26-9999, 1 Test Street"
+    make_pdf(root / "2. Takeoffs" / "1. Base Takeoff" / "Mech.pdf", _outlet_sheet(), PLAN)
+    reading = read_job(catalogue_job(root, tmp_path / "cache"))
+    assert not [f for f in reading.flags if "air-outlet code" in f]

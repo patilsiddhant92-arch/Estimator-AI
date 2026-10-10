@@ -32,11 +32,11 @@ from estimator.catalogue.overview import FOUND, RULED_OUT, STANDARD_CLARIFICATIO
 from estimator.catalogue.tags import (STATED_MOST, Equipment, find_tags, label_keys, line_labels, plan_labels,
                                       sheet_number_tags, tag_location, tag_prefix, unread_counts)
 from estimator.reading.inventory import (COUNT_CAUSE_WORDS, COUNT_CAUSES_LEAD, TYPE_ON_ONE_SHEET, TYPE_PLACED,
-                                        counted_per_place, counting_pages, first_pages, plan_area_doubts, plan_areas,
-                                        plan_count, plan_floors, plan_groups, sheet_floors,
-                                        sheet_labels)
+                                        air_outlet_codes, air_outlet_notes, counted_per_place, counting_pages,
+                                        first_pages, plan_area_doubts, plan_areas, plan_count, plan_floors, plan_groups,
+                                        sheet_floors, sheet_labels)
 from estimator.reading.revisions import governing_pages, typical_places
-from estimator.reading.schedules import expand_tags, header_key, quantity_header, vocabulary
+from estimator.reading.schedules import header_key, quantity_header, vocabulary
 from estimator.reading.sequences import POINTS, SEQUENCE
 from estimator.writing.systems import _paragraphs
 from estimator.writing.write import tag_list
@@ -768,6 +768,8 @@ class _Family:
     riser: int = 0
     notes: list = field(default_factory=list)       # why the placements are likely above the other counts
     causes: list = field(default_factory=list)      # those causes' keys (COUNT_CAUSE_WORDS), for the line's head
+    air_only: bool = False              # no unit at all: only an air outlet schedule's codes (`air_outlet_notes`) made this
+                                        # line; it is printed with its note and is no family of the counts
 
 
 def _unindexed_plan_tags(plan_sheets: list[tuple], equipment: Equipment, sheet_numbers: frozenset[str]) -> set[str]:
@@ -834,8 +836,7 @@ def _counts(catalogue, reading, counted_pages: frozenset, multipliers: dict) -> 
                 family.quantity = (family.quantity or 0) + n
     # an air device's code read as a tag (B1 is B-1, the boiler's, on a schedule sheet; SD-1 a smoke damper's) is no unit
     # of any family on the plans (HP 3): only a unit a non-air-device schedule lists keeps its tag
-    air_codes = {tag for schedule in reading.schedules if schedule.passive and schedule.headers for row in schedule.rows
-                 for tag in expand_tags(row.cells.get(schedule.headers[0], ""), equipment)}
+    air_codes = set(air_outlet_codes(reading.schedules, equipment))
     exclude = frozenset(tag for s in catalogue.sheets if s.number for tag in find_tags(s.number, equipment))
     records = {(p.document, p.page): p for p in catalogue.pages}
     plan_sheets: list[tuple] = []
@@ -961,6 +962,12 @@ def _counts(catalogue, reading, counted_pages: frozenset, multipliers: dict) -> 
         if most >= 2:
             labelled_often[prefix].append((tag, printed[(prefix, tag)][0], most))
     extra = _copy_counts(catalogue, read, tallies_of, code_patterns, per_place_of)
+    # the plan tags left out above as an air outlet's code are named, with both numbers: a drop is never silent. A prefix
+    # with no other unit still gets its line, with the note (and no count: it is no family, so no system).
+    air_notes = air_outlet_notes(catalogue, reading.schedules, getattr(reading, "typicals", ()), counted_pages)
+    for prefix in air_notes:
+        if prefix not in families:
+            families[prefix] = _Family(air_only=True)
     for prefix, family in families.items():
         family.notes, family.causes = _placement_causes(prefix, family, seen_on, printed, placed, each_place[prefix],
                                                         typed, counted)
@@ -980,6 +987,7 @@ def _counts(catalogue, reading, counted_pages: frozenset, multipliers: dict) -> 
                          f"{family.placements}; if it is another building, {family.placements + n}; check"
                          for (copy, original), n in extra.get(prefix, {}).items() if n]
         family.notes += _unlisted_notes(prefix, family, equipment)
+        family.notes += [air_notes[prefix]] if prefix in air_notes else []
     return families
 
 
@@ -1147,7 +1155,7 @@ def _placement_causes(prefix: str, family: _Family, seen_on: dict, printed: dict
 def _counts_dict(families: dict[str, _Family]) -> dict[str, dict]:
     return {prefix: {"schedule_rows": f.rows, "quantity_column": f.quantity, "plan_placements": f.placements,
                      "riser": f.riser or None, "distinct_tags": len(f.scheduled | f.on_plans)}
-            for prefix, f in families.items()}
+            for prefix, f in families.items() if not f.air_only}
 
 
 def _family_order(reading, families: dict[str, _Family]) -> list[str]:
