@@ -76,6 +76,10 @@ so a later save does not undo an earlier one. A new answer on the same line repl
 decisions over, delete both `decisions.json` and `decisions history.json`. If either file is damaged, the run stops
 and says so in plain words.
 
+A `decisions.json` that an older page saved can hold a family change with words and no count, such as "4 pipe FCU".
+That file now stops the run, and the run says which change it is. Open Review.html, type a whole number (5 or
+5 units) or ## on that card, and save the decisions again.
+
 ### Cards about your decisions on the review page
 
 - **Decision not honored**: a later write undid your decision. The page shows the line as it is now. Decide on it
