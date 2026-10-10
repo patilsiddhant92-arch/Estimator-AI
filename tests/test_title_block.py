@@ -374,3 +374,73 @@ def test_a_centred_sequence_sheet_is_read_from_the_pdf_and_found_as_the_sequence
                                                                "title block")
     backbones, _flags = find_backbone(result)
     assert [(b.what, b.kind, b.first_page) for b in backbones] == [(SEQUENCE, "drawing sheet", 1)]
+
+
+# --- ws23: a large line of another field in the strip is not the title ------------------------------------------
+# The centred rule reads a line that begins up to CENTRED_REACH left of the number and runs on over it. A project name, an
+# owner or a consultant is such a line too, and it is often larger than the title, so it must neither be taken for the
+# title nor join it. Such a line is a title line only when no small label of another field stands over it and it is
+# within one line height of the line below it, as the lines of one title are. Every fixture is invented.
+
+_TITLE_AND_NUMBER = "HVAC CONTROLS SEQUENCES SHEET 2 OF 3"
+
+
+@pytest.mark.parametrize("label", ["PROJECT:", "PROJECT NAME:", "Project", "OWNER:", "CLIENT:", "ARCHITECT:",
+                                   "ENGINEER:", "CONSULTANT:", "SITE:", "ADDRESS:"])
+def test_a_large_line_under_the_label_of_another_field_is_not_the_title_though_it_is_close_above_it(label):
+    # The name is larger than the title lines and directly above them (no gap), so only its label tells them apart. The
+    # label owns the nearest line under it, never the title lines below that, though the first is within its reach.
+    spans = [_span(label, 8, 0.915, 0.797, w=0.040),
+             _span("INVENTED HARBOUR TOWER PHASE TWO", 20, 0.865, 0.810, w=0.110),    # 0.865 to 0.975: over the number
+             _span("HVAC CONTROLS SEQUENCES", 17, 0.870, 0.823, w=0.100),
+             _span("SHEET 2 OF 3", 17, 0.905, 0.836, w=0.030),
+             _span("M-502.00", 22, 0.940, 0.946, w=0.035, h=0.013)]
+    assert read_title_block(spans) == TitleBlock("M-502.00", _TITLE_AND_NUMBER)
+
+
+@pytest.mark.parametrize("name_y", [0.780, 0.800])
+def test_a_large_line_apart_from_the_title_is_not_a_title_line_though_nothing_labels_it(name_y):
+    # 0.043 (0.780) or 0.018 (0.800, a blank line and a half) between the name and the first title line: more than one
+    # line height (0.012), so they are not one block of text
+    spans = [_span("INVENTED HARBOUR TOWER PHASE TWO", 20, 0.865, name_y, w=0.110),
+             _span("HVAC CONTROLS SEQUENCES", 17, 0.870, 0.830, w=0.100),
+             _span("SHEET 2 OF 3", 17, 0.905, 0.843, w=0.030),
+             _span("M-502.00", 22, 0.940, 0.946, w=0.035, h=0.013)]
+    assert read_title_block(spans) == TitleBlock("M-502.00", _TITLE_AND_NUMBER)
+
+
+@pytest.mark.parametrize("label", ["DESCRIPTION:", "SCOPE:", "NOTES:"])
+def test_a_label_that_is_no_other_field_leaves_a_centred_title_whole(label):
+    spans = [_span(label, 8, 0.915, 0.797, w=0.040),
+             _span("HVAC CONTROLS SEQUENCES", 17, 0.870, 0.810, w=0.100),
+             _span("SHEET 2 OF 3", 17, 0.905, 0.823, w=0.030),
+             _span("M-502.00", 22, 0.940, 0.946, w=0.035, h=0.013)]
+    assert read_title_block(spans) == TitleBlock("M-502.00", _TITLE_AND_NUMBER)
+
+
+def test_a_centred_title_with_a_wider_line_pitch_is_still_read_whole():
+    # extra leading between the two lines (a gap of 0.008, two thirds of a line height): still one block of text
+    spans = [_span("HVAC CONTROLS SEQUENCES", 17, 0.870, 0.810, w=0.100),
+             _span("SHEET 2 OF 3", 17, 0.905, 0.830, w=0.030),
+             _span("M-502.00", 22, 0.940, 0.946, w=0.035, h=0.013)]
+    assert read_title_block(spans) == TitleBlock("M-502.00", _TITLE_AND_NUMBER)
+
+
+def test_a_project_name_in_a_centred_strip_is_left_out_of_the_title_read_from_the_pdf(tmp_path):
+    # from a real PDF: the name is larger than the title and nearly touches it; its small label sits over it
+    import pymupdf
+
+    from estimator.catalogue.job import catalogue_job
+
+    def centred(text, size, centre):
+        return centre - pymupdf.get_text_length(text, fontname="helv", fontsize=size) / 2
+
+    name, first, second = "INVENTED HARBOUR TOWER PHASE TWO", "HVAC CONTROLS SEQUENCES", "SHEET 2 OF 3"
+    sheet = Page(width=3024, height=2160,
+                 texts=((200, 300, FILLER, 12), (centred("PROJECT:", 8, 2740), 1690, "PROJECT:", 8),
+                        (centred(name, 22, 2740), 1700, name, 22), (centred(first, 20, 2740), 1740, first, 20),
+                        (centred(second, 20, 2740), 1770, second, 20), (2820, 2000, "M-502.00", 30)))
+    root = tmp_path / "26-9999"
+    make_pdf(root / "2. Takeoffs" / "1. Base Takeoff" / "Controls.pdf", sheet)
+    [found] = catalogue_job(root, tmp_path / "cache").sheets
+    assert (found.number, found.title, found.title_source) == ("M-502.00", _TITLE_AND_NUMBER, "title block")
