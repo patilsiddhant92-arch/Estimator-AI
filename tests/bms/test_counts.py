@@ -809,6 +809,56 @@ def test_two_sheets_of_one_plan_count_a_unit_once(tmp_path):
         assert count.value == value and not count.others, (key, count)
 
 
+# ---- ruling L1 (ws23): the plan groups see every plan sheet, also a twin that shows no tag --------------------------
+
+# (two unit tags only: three repeated unit tags would group the sheets by the earlier tag evidence, FINAL-I)
+_L1_TAGS = ((200, 200, FILLER, 10), (300, 400, "EF-1", 14), (900, 300, "EF-2", 14))
+_L1_TEXT = "\n".join(t for _, _, t, _ in _L1_TAGS)
+
+
+def _ef_job() -> Job:
+    ef = System("EF", "EF", "EF", "field", (Family("EF", ("EF-1", "EF-2"), Count(2, (Ref("S1", "EF", "M"),))),))
+    return Job("t", (ef,))
+
+
+def test_a_floor_drawn_for_two_trades_is_counted_once_as_before(tmp_path):
+    # ruling L1: the ductwork plan and the piping plan of one floor show the same two units
+    pdf = make_pdf(tmp_path / "job" / "Drawings.pdf", Page(W, H, _L1_TAGS), Page(W, H, _L1_TAGS))
+    catalogue = _catalogue(pdf, [(1, "M-101", "LEVEL 3 HVAC DUCTWORK PLAN", _L1_TEXT),
+                                 (2, "M-201", "LEVEL 3 HVAC PIPING PLAN", _L1_TEXT)])
+    count = counts.cross_check(_ef_job(), catalogue, tmp_path / "cache").system("EF").families[0].count
+    assert count.value == 2 and not count.others
+
+
+def test_a_twin_sheet_that_shows_no_tag_still_stops_the_other_trades_sheet_from_being_one_plan(tmp_path):
+    """Two ductwork sheets of one floor with one title could be the halves of a floor, so the piping plan of that floor is
+    no one plan with either (`plan_groups`, ruling L1). The twin shows no tag, so the check read only two sheets and
+    grouped them: the located count (2) fell below the dossier's, which sees all three sheets (4). Never lower."""
+    pdf = make_pdf(tmp_path / "job" / "Drawings.pdf", Page(W, H, _L1_TAGS), Page(W, H, ((200, 200, FILLER, 10),)),
+                   Page(W, H, _L1_TAGS))
+    catalogue = _catalogue(pdf, [(1, "M-101", "LEVEL 3 HVAC DUCTWORK PLAN", _L1_TEXT),
+                                 (2, "M-102", "LEVEL 3 HVAC DUCTWORK PLAN", FILLER),
+                                 (3, "M-201", "LEVEL 3 HVAC PIPING PLAN", _L1_TEXT)])
+    count = counts.cross_check(_ef_job(), catalogue, tmp_path / "cache").system("EF").families[0].count
+    assert count.value == 4
+    assert [o.value for o in count.others] == [2]
+
+
+def test_the_groups_the_check_counts_with_are_the_inventorys_groups_of_every_plan_sheet(tmp_path):
+    from estimator.reading.inventory import plan_groups
+
+    pdf = make_pdf(tmp_path / "job" / "Drawings.pdf", Page(W, H, _L1_TAGS), Page(W, H, ((200, 200, FILLER, 10),)),
+                   Page(W, H, _L1_TAGS))
+    catalogue = _catalogue(pdf, [(1, "M-101", "LEVEL 3 HVAC DUCTWORK PLAN", _L1_TEXT),
+                                 (2, "M-102", "LEVEL 3 HVAC DUCTWORK PLAN", FILLER),
+                                 (3, "M-201", "LEVEL 3 HVAC PIPING PLAN", _L1_TEXT)])
+    check = counts._Check(_ef_job(), catalogue, tmp_path / "cache", None)
+    check.run()
+    everything = plan_groups([(sheet, {}) for sheet in catalogue.sheets])
+    assert set(check.groups) == set(everything)                                 # the twin is in the groups too
+    assert all(len(group) == 1 for group in check.groups.values())              # none of the three is one plan
+
+
 # ---- CNT-10: a proof of a sheet no longer counted is not published --------------------------------------------
 
 def test_a_proof_of_a_sheet_no_longer_counted_is_not_published(tmp_path):
