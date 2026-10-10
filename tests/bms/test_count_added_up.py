@@ -12,6 +12,7 @@ from pathlib import Path
 
 import pytest
 
+from estimator.ledger.facts import SETTLED
 from estimator.reading.inventory import build_inventory
 from estimator.writing.dossier import Dossier
 
@@ -131,15 +132,21 @@ def vav_totals(*plans):
     return build_inventory(catalogue, [inventory_schedule(*[f"VAV-{n}" for n in range(1, 5)])])[1]
 
 
-def vav_job(totals, count=4, sources=None):
+def vav_job(totals, count=4, sources=None, group=None, sheets=()):
     """The planned job of a ledger that lists the four boxes with `count`, and the dossier whose counts line holds the
-    totals' flags (the reading notes of the line, as `build_dossier` writes them)."""
+    totals' flags (the reading notes of the line, as `build_dossier` writes them). `group` is a group fact's value (it
+    takes part of the family: "VAV (VAV-1, VAV-2)"); `sheets` are (number, page, title, text) lines of sheet text."""
     ledger = _ledger()
     _family(ledger, "VAV", "Variable Air Volume Box", "VAV-1 thru 4", count)
+    if group:
+        ledger.add("group", "Group A", group, "S5", "Group A riser", "risers", SETTLED)
     notes_line = "; ".join(flag for total in totals for flag in total.flags)
     text = f"[S9] VAV (Variable Air Volume Box): schedule rows 4; plan placements 4. Reading notes: {notes_line}.\n"
-    dossier = Dossier(job_name="Invented Job", text=text, images=(),
-                      sources={"S9": COUNTS_LINE} if sources is None else sources, families=tuple(totals),
+    where = {"S9": COUNTS_LINE} if sources is None else dict(sources)
+    for n, (number, page, title, said) in enumerate(sheets, start=7):
+        text += f"[D{n}] {number}, Drawings.pdf page {page} {title}: {said}\n"
+        where[f"D{n}"] = f"{number}, Drawings.pdf page {page} (sheet text)"
+    dossier = Dossier(job_name="Invented Job", text=text, images=(), sources=where, families=tuple(totals),
                       device_totals={}, counts={}, stats={})
     return plan_job(ledger, None, dossier, PLAYBOOK), dossier
 
@@ -177,6 +184,98 @@ def test_a_sum_the_dossier_cannot_cite_is_not_kept():
     """No counts line for the family among the dossier's sources: there is no place to cite, so no sum is kept."""
     count = vav_job(vav_totals(*TWO_TRADES), sources={})[0].systems[0].families[0].count
     assert count.value == 4 and count.added_up is None
+
+
+# ---- a family split between blocks: no block keeps the sum, so one question names both numbers -------------------
+
+TAKES_TWO = "VAV (VAV-1, VAV-2)"             # a group that takes two of the four boxes: the family is in two blocks
+ADDED_8 = "8 if every sheet of the same floor and area is added up"
+
+
+def sum_questions(job: Job) -> list[str]:
+    return [q for q in job.questions if "added up" in q]
+
+
+def test_a_family_split_between_blocks_names_the_inventorys_sum_in_one_question():
+    """Each part's count is made smaller (`_reduced`), which leaves the sum out of both blocks: the planner asks, once,
+    with the printed count and the sum, each with its place, and the blocks the family is in."""
+    job, _ = vav_job(vav_totals(*TWO_TRADES), group=TAKES_TWO)
+    assert len(job.systems) == 2
+    assert [f.count.added_up for s in job.systems for f in s.families] == [None, None]     # no block's note has it
+    [asked] = sum_questions(job)
+    assert "Variable Air Volume Box (VAV)" in asked
+    assert "4 per M-501" in asked and ADDED_8 in asked                  # both numbers, each with its place
+    assert "per equipment counts for VAV" in asked
+    assert all(system.name in asked for system in job.systems)          # the blocks the family is in
+
+
+def test_a_family_in_one_block_leaves_its_sum_to_that_blocks_note():
+    """The block's family keeps the sum (its "*" note and its review card name both numbers): no question repeats it."""
+    job, _ = vav_job(vav_totals(*TWO_TRADES))
+    assert job.systems[0].families[0].count.added_up.value == 8
+    assert sum_questions(job) == []
+
+
+def test_a_group_that_takes_the_whole_family_keeps_the_sum_in_its_block():
+    job, _ = vav_job(vav_totals(*TWO_TRADES), group="VAV")
+    (group,) = job.systems
+    assert group.families[0].count.added_up.value == 8
+    assert sum_questions(job) == []
+
+
+def test_a_split_family_whose_sum_the_sheets_state_is_asked_once():
+    """The stated counts' own question already names both numbers: the sum is not asked a second time."""
+    sheets = _sheet_dossier(("M-101", 3, L2_DUCT, "CUH-A (TYP. OF 4)"), ("M-201", 4, L2_PIPE, "CUH-A (TYP. OF 4)"))
+    ledger = _ledger()
+    _family(ledger, "CUH", "Cabinet Unit Heater", "CUH-A, CUH-B, CUH-C, CUH-D")
+    ledger.add("group", "Group A", "CUH (CUH-A, CUH-B)", "S5", "Group A riser", "risers", SETTLED)
+    job = plan_job(ledger, None, sheets, PLAYBOOK)
+    assert len(job.systems) == 2
+    assert [f.count.added_up for s in job.systems for f in s.families] == [None, None]
+    [asked] = sum_questions(job)
+    assert "M-101 and M-201 show one floor and area" in asked and "4 counted, 8 if the sheets were added up" in asked
+
+
+def test_a_split_family_with_a_higher_inventory_sum_is_asked_once_with_both_sums():
+    """The sheets state 3 (6 added up) and the schedule's units are 4 (8 added up): the higher sum is the one kept, and
+    the one question names it beside the stated counts' sum, since no block's note does."""
+    stated = (("M-101", 3, L2_DUCT, "VAV-1 ×3"), ("M-201", 4, L2_PIPE, "VAV-1 ×3"))
+    job, _ = vav_job(vav_totals(*TWO_TRADES), group=TAKES_TWO, sheets=stated)
+    assert [f.count.added_up for s in job.systems for f in s.families] == [None, None]
+    [asked] = sum_questions(job)
+    assert "3 counted, 6 if the sheets were added up" in asked and ADDED_8 in asked
+    assert "4 per M-501" in asked and "per equipment counts for VAV" in asked
+
+
+class _CountedSources(dict):
+    """The dossier's sources, counting every scan of them."""
+    scans = 0
+
+    def items(self):
+        self.scans += 1
+        return super().items()
+
+
+def test_a_familys_counts_line_is_found_without_a_scan_of_the_sources_for_each_family():
+    vav = vav_totals(*TWO_TRADES)[0]
+    totals = [vav, replace(vav, prefix="CUH"), replace(vav, prefix="EF")]
+    line = "equipment counts for {} (schedules and plans)"
+    where = {"D4": "M-101, Drawings.pdf page 2 (sheet text)", "S7": line.format("CUH"), "S8": line.format("VAV"),
+             "S9": line.format("VAV"), "S6": line.format("EF")}
+    reader = Reader(_ledger(), where, "", totals)
+    reader.dossier_sources = _CountedSources(where)
+    cited = [reader._total_sum(prefix)[1].source_id for prefix in ("VAV", "CUH", "EF")]
+    assert cited == ["S8", "S7", "S6"]                  # each family's own line; the first of two lines of one family
+    assert reader.dossier_sources.scans == 1            # every family's line came from one scan
+    assert reader._total_sum("VAV") == reader._total_sum("VAV") and reader.dossier_sources.scans == 1
+
+
+def test_the_note_names_the_sheets_of_a_floor_as_the_inventory_names_them():
+    from bms.plan_read import AddedUp
+
+    assert "M-101 and M-201 show one floor and area, so" in AddedUp(4, 8, (("M-101", "M-201"),)).note()
+    note = AddedUp(4, 12, (("M-101", "M-201", "M-301"), ("M-102", "M-202"))).note()
+    assert "M-101, M-201 and M-301 show one floor and area; M-102 and M-202 show one floor and area, so" in note
 
 
 def test_the_higher_of_two_sums_is_the_one_kept():

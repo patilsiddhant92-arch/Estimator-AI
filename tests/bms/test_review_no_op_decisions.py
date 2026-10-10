@@ -27,6 +27,6 @@ def test_an_entry_that_changes_nothing_is_refused(tmp_path, decision, word):
 
 
 def test_a_words_only_family_change_is_kept(tmp_path):
-    kept = Decision("EF", "change", family_name="Fans", reason="three on the roof")
+    kept = Decision("EF", "change", family_name="Fans", reason="three units")
     _write(tmp_path, kept, Decision("EF", "change", family_name="Fans", count=Count(value=3)))
     assert review.load_decisions(tmp_path)[0] == kept

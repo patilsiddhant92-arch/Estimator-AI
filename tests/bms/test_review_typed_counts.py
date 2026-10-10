@@ -20,13 +20,17 @@ from bms.model import Count, Decision, Job, ModelError, OtherCount
 FIXTURES = Path(__file__).resolve().parent / "fixtures"
 NODE = pytest.mark.skipif(shutil.which("node") is None, reason="node not installed")
 
-# a count in words, and the number it says
+# a count in words, and the number it says: a whole number (digits or a number word), then at most one unit word and a
+# dot, nothing else
 COUNTS = [("2 units", 2), ("5 units", 5), ("2 ea", 2), ("2 ea.", 2), ("2 each", 2), ("two", 2), ("Two units", 2),
-          ("twelve", 12), ("12 total", 12), ("4 (per the schedule)", 4), ("4, per the plans", 4), ("7", 7),
-          ("007", 7), ("0", 0), ("(4)", 4), ("##", None), ("unknown", None), ("Not known", None)]
-# words that hold no count
+          ("twelve", 12), ("7", 7), ("007", 7), ("0", 0), ("5.", 5), ("5 units.", 5), ("5 UNITS", 5), ("1 unit", 1),
+          ("3 no", 3), ("4 nos", 4), ("3 pc", 3), ("3 pcs", 3), ("1 piece", 1), ("8 pieces", 8), ("1 item", 1),
+          ("6 items", 6), ("2 qty", 2), ("##", None), ("unknown", None), ("Not known", None)]
+# words that hold no count: a number that starts them is no count when anything but one unit word follows it
 UNREADABLE = ["only the roof fans", "approx", "2.5 units", "10-12 fans", "1/2", "24V supply", "-3", "about 4", "2nd floor",
-              "tenants"]
+              "tenants", "4 pipe FCU", "2 stage", "12 total", "2 fans", "three on the roof", "4 (per the schedule)",
+              "4, per the plans", "(4)", "5 units please", "2 units 3 units", "2 ea each", "5 units, 4 spare",
+              "3 x 4", "5 units (per plan)"]
 
 
 @pytest.fixture
@@ -184,7 +188,10 @@ console.log(JSON.stringify([explainChange(d, {{action: "change", text: "5 units"
 # ---- the page and the Python side read a typed count alike ----------------------------------------------------------
 
 SAMPLES = [*(text for text, _ in COUNTS), *UNREADABLE, "", "  ", "2.5", "2,5", "1,000", "3/4", "24V", "2-way valve",
-           "(4)", "4 (per plan)", "x4", "twenty", "twenty-one", "ten", "tens", "ONE", "Qty (##)", "qty (##)", "## units"]
+           "(4)", "4 (per plan)", "x4", "twenty", "twenty-one", "ten", "tens", "ONE", "Qty (##)", "qty (##)",
+           "## units", "  5   units  ", "5\tunits", "5units", "5 units..", "5 .", "TWO", "Two Units", "eighteen",
+           "eight units", *(f"3 {unit}" for unit in review.UNIT_WORDS),
+           *(f"3 {unit.upper()}." for unit in review.UNIT_WORDS)]
 
 
 @NODE
@@ -206,6 +213,21 @@ def test_python_reads_a_typed_count(text, value):
 def test_python_does_not_read_a_count_from_words_without_one(text):
     assert review._typed_count(text) == ("words", None)
     assert review._typed_count("") == ("none", None) == review._typed_count("   ")
+
+
+@pytest.mark.parametrize("unit", review.UNIT_WORDS)
+def test_each_unit_word_may_follow_the_number_and_nothing_else_may(unit):
+    assert review._typed_count(f"3 {unit}") == ("number", 3) == review._typed_count(f"  3   {unit.upper()}.  ")
+    assert review._typed_count(f"3 {unit} {unit}") == ("words", None)           # one unit word only
+    assert review._typed_count(f"3 pipe {unit}") == ("words", None)             # another word between: no count
+    assert review._typed_count(f"3 {unit}s?") == ("words", None)
+
+
+@pytest.mark.parametrize("text", ["4 pipe FCU", "2 stage", "three on the roof", "2 fans", "(4)"])
+def test_a_number_followed_by_other_words_is_not_read_as_a_count(text):
+    """The words may name what the number is of ("4 pipe FCU" is a kind of unit, "2 stage" a kind of fan), so the
+    number alone is not the count: the estimator types the count, with one unit word if they like."""
+    assert review._typed_count(text) == ("words", None)
 
 
 # ---- the Python side: the file, the apply, the post-check ----------------------------------------------------------
@@ -279,6 +301,7 @@ def page(job, tmp_path) -> str:
 def test_a_device_card_has_a_name_box_and_says_what_each_box_is_for(page):
     assert page.count('data-field="name"') >= 1
     assert "5 units" in page and "name box" in page
+    assert "alone or with one unit word" in page                        # a number with other words is no count
     assert "or new words to rename the line" not in page
 
 
