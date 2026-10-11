@@ -456,7 +456,7 @@ def test_broken_json_names_the_file(tmp_path):
 # ---- the stubs' signatures (the brief, exactly) --------------------------------------------------------------
 
 SIGNATURES = {
-    plan.plan_job: ["ledger", "catalogue", "dossier", "playbook", "register", "typicals"],   # register, typicals: T-007
+    plan.plan_job: ["ledger", "catalogue", "dossier", "playbook", "register", "typicals"],   # T-007: the register
     validate.validate: ["job", "playbook"],
     render.render: ["job", "playbook"],
     ai.write_system: ["system", "evidence", "playbook", "transport", "tags", "ids", "sheets",
