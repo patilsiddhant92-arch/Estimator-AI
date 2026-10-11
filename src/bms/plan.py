@@ -1502,9 +1502,9 @@ def _front_end(planner: _Planner) -> FrontEnd:
 _REMAINS = re.compile(r"\bexisting\b[^.;]{0,60}\bto\s+remain\b|\bto\s+remain\b|\bremains?\s+as[\s-]*is\b", re.I)
 _WORK_BY_OTHERS = re.compile(r"\b(?:bms|ddc|controls?|work)\b[^.;]{0,40}\bby\s+others\b", re.I)
 _NOT_BY_OTHERS = re.compile(r"\bnot\s+by\s+others\b", re.I)
-# The estimator's form of a named exception, as rules.md "Named exceptions" words it. `_exception_line` reads the form
-# from the Playbook's own text; this stands in only while no rule of the Playbook holds one.
-EXCEPTION_FORM = "EXCEPTION TO ANY WORK WITH {equipment} - {reason}"
+# The estimator's form of a named exception is the Playbook's own (rules.md "Named exceptions"): `_exception_line` reads
+# it from the rule's text. The code holds no wording of an exception. A Playbook that gives no form gets a question for
+# the estimator (`_no_form_question`) and an exception with no text.
 _FORM_IN_RULE = re.compile(r'"(EXCEPTION[^"]*?)\s*Qty\s*\(n\)\s*<tags>([^"]*?)<reason>([^"]*)"')
 
 
@@ -1524,15 +1524,27 @@ def _excepted_equipment(system: System) -> str:
     return ", ".join(parts) or system.name
 
 
-def _exception_line(playbook: Playbook, equipment: str, reason: str) -> str:
+def _exception_line(playbook: Playbook, equipment: str, reason: str) -> str | None:
     """The exception in the estimator's form: the form of the Playbook's rule (the one that quotes `"EXCEPTION ... Qty
-    (n) <tags> ... <reason>"`) with the equipment and the reason put in; EXCEPTION_FORM when no rule holds one."""
+    (n) <tags> ... <reason>"`) with the equipment and the reason put in. None when no rule holds a form: no line is
+    written from code then."""
     for rule in playbook.rules.values():
         found = _FORM_IN_RULE.search(squash(rule.text))
         if found:
             head, middle, tail = found.groups()
             return squash(f"{head} {equipment}{middle}{reason}{tail}")
-    return EXCEPTION_FORM.format(equipment=equipment, reason=reason)
+    return None
+
+
+def _no_form_question(equipment: str, reason: str, refs: tuple[Ref, ...]) -> str:
+    """The plain question that stands in for an exception line when no rule of the Playbook gives the form of one: it
+    names the item, the documents' reason in their own words and where each citing fact was read. No line of fixed
+    text: the estimator says how the exception reads."""
+    cited = "; ".join(f'{ref.where or "the documents"}: "{ref.quote}"' for ref in refs)
+    return (f"The documents put the BMS work on {equipment} outside AME's scope: {reason}"
+            + (f" (cited at {cited})" if cited else "")
+            + ". The Playbook gives no form for a named exception, so no EXCEPTION line was written. "
+              "What must the exception say?")
 
 
 def _outside_scope(planner: _Planner, systems: list[System], drafts: list[_Draft],
@@ -1543,7 +1555,9 @@ def _outside_scope(planner: _Planner, systems: list[System], drafts: list[_Draft
     as the Playbook's "Words the client never sees" forbids); it cites every fact that says it. Not for a system an
     exception note already names (`covered`: the reading's own line stands), not for a front-end item (the front end's
     client note carries it) and not for equipment no block of the plan holds. No line of fixed text: the reason is the
-    documents'."""
+    documents' and the form is the Playbook's. When the Playbook gives no form, the exception has no text (it prints
+    nothing and keeps its citation) and the planner asks the estimator instead (`_no_form_question`, added to
+    `planner.questions`)."""
     key_of = {id(d): s.key for s, d in zip(systems, drafts)}
     by_key = {s.key: s for s in systems}
     found: dict[tuple[str, str], list[Fact]] = {}
@@ -1557,9 +1571,11 @@ def _outside_scope(planner: _Planner, systems: list[System], drafts: list[_Draft
     out = []
     for (key, _), facts in found.items():
         refs = tuple(dict.fromkeys(planner.reader.fact_ref(f) for f in facts if f.source_id))
-        reason = squash(facts[0].value)
-        out.append(ScopeException(system_key=key, refs=refs,
-                                  text=_exception_line(planner.playbook, _excepted_equipment(by_key[key]), reason)))
+        reason, equipment = squash(facts[0].value), _excepted_equipment(by_key[key])
+        line = _exception_line(planner.playbook, equipment, reason)
+        if line is None:
+            planner.questions.append(_no_form_question(equipment, reason, refs))
+        out.append(ScopeException(system_key=key, refs=refs, text=line or ""))
     return out
 
 
@@ -1617,8 +1633,9 @@ def plan_job(ledger: Ledger, catalogue: Catalogue, dossier: Dossier, playbook: P
       duct heaters in one place.
     - A system the documents name but AME does not do goes to `Job.exceptions` (an exception note of the reading, or a
       provider fact that puts its BMS work outside AME's scope: not in contract, controls by others, existing to
-      remain; each cites its fact, the line is the estimator's form with the documents' words); open questions to
-      `Job.questions`.
+      remain; each cites its fact, the line is the form of the Playbook's rule "Named exceptions" with the documents'
+      words; a Playbook that gives no form gets an exception with no text and a question that names the item and its
+      citation, never a line of fixed text); open questions to `Job.questions`.
     - `Job.front_end` is set (mode and the existing system's name from the ledger's front_end facts; `lines`, `notes`
       and `refs` what the front_end facts and the provider facts about front-end items say, with citations, for the
       front end's writer; a question when the documents call for no front end, or name no existing BMS to extend);
@@ -1645,8 +1662,8 @@ def plan_job(ledger: Ledger, catalogue: Catalogue, dossier: Dossier, playbook: P
     planner.added_up_counts(systems, drafts)
     planner.lost(drafts)
     front_end = _front_end(planner)
+    exceptions = _exceptions(planner, systems, drafts)      # before the questions: it asks when the Playbook has no form
     questions = own + planner.questions + _unmatched_sections(planner, drafts)
     name = ledger.job_name or getattr(dossier, "job_name", "") or ""
-    return Job(name=name, systems=tuple(systems), front_end=front_end,
-               exceptions=_exceptions(planner, systems, drafts),
+    return Job(name=name, systems=tuple(systems), front_end=front_end, exceptions=exceptions,
                questions=tuple(dict.fromkeys(q for q in questions if q)))

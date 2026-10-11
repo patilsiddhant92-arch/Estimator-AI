@@ -18,17 +18,18 @@ dependency without the controller (`jsonschema` and `yaml` are not installed —
 | Path | What | Owner |
 |---|---|---|
 | `src/bms/__init__.py` | package | controller |
-| `src/bms/model.py` | Job model, enumerations, JSON round-trip, JSON Schema, schema check | controller |
+| `src/bms/model.py` | Job model, enumerations, `UNNAMED_EXISTING`, JSON round-trip, JSON Schema, schema check | controller |
 | `src/bms/playbook.py` | Playbook loader and checks, `shape_for`, `strip_comments` (rules.md as the loader reads it: comments out, sample marks kept, line breaks kept), `SAMPLE_PATTERN` (the sample mark as written, spaces or none) | controller |
 | `src/bms/plan.py` | `plan_job` | workstream 2 |
 | `src/bms/validate.py` | `validate` | workstream 3 |
 | `src/bms/render.py` | `render`, `ProposalDraft`, `RenderedLine`, `line_form(device, shape, playbook) -> str` (the wording a device's line prints with), `printed_texts(system, shape, playbook, ids) -> [(device id, text)]` (each line a system prints, in print order; the validator's line-length check reads it) | workstream 4 |
-| `src/bms/ai.py` | `write_system`, `rewrite_for_count`, `qc_job`, `revise_system`, `evidence_for`, `evidence_index`, `quote_findings(job, evidence_index, playbook) -> [Finding]` (the QC pass's mechanical quote check alone), `CITES_RULE` (the rule that check reports under), transports | workstream 5 |
+| `src/bms/ai.py` | `write_system`, `rewrite_for_count`, `qc_job`, `revise_system`, `evidence_for`, `evidence_index`, `quote_findings(job, evidence_index, playbook) -> [Finding]` (the QC pass's mechanical quote check alone), `CITES_RULE` (the rule that check reports under), the front end's writer: `write_front_end`, `revise_front_end`, `front_end_system`, `front_end_evidence`, `is_front_end_finding`, `FRONT_END_KEY`, `FRONT_END_NAME`, `FRONT_END_TOPIC`; transports | workstream 5 |
 | `src/bms/citations.py` | source ids in client text: `SourceIds` (`scan`, `refusal`, `without_issued`; `source_sheets`, FINAL-J), `job_tags`, `job_ids`, `job_sheets`, `source_sheets`, `tag_tokens`, `plan_refs`, `ref_sheets`, the clarification labels | controller |
 | `src/bms/counts_vision.py` | the whole-sheet picture question and its answer checks, among them `misplaced(answer, rects) -> [str]` (one problem per pattern that counts tags but places no box in a tile sent) and `untagged(answer, patterns) -> {pattern: n}` (each asked pattern's untagged symbols as the answer gives them; a pattern whose entry gives none is left out) | workstream 6 |
 | `src/bms/counts.py` | `count_tags`, `cross_check`, `CountResult`, `Box`, `flag_written_devices`, `publish_proofs` | workstream 6 |
-| `src/bms/review.py` | `review_page`, `load_decisions`, `apply_decisions`; the decisions history: `SavedDecision`, `load_history`, `save_history`, `merge_decisions(history, saved, *, job=None)`, `apply_seen`, `copies_seen`, `held_back`, `unhonored_decisions`, `system_digest`, `accept_families`; `DECISIONS_FILE`, `DECISIONS_HISTORY` | workstream 7 |
+| `src/bms/review.py` | `review_page`, `load_decisions`, `apply_decisions`; the decisions history: `SavedDecision`, `load_history`, `save_history`, `merge_decisions(history, saved, *, job=None)`, `apply_seen`, `copies_seen`, `held_back`, `unhonored_decisions`, `system_digest`, `accept_families`; `DECISIONS_FILE`, `DECISIONS_HISTORY`, `NOT_CITED_GROUP` (the heading of the coverage group) | workstream 7 |
 | `tools/measure.py` | `measure`, `MeasureResult`, `LineMatch` | workstream 7 |
+| `src/bms/coverage.py` | `coverage(job, ledger, dossier=None) -> list[Finding]` (the coverage gate: one `check` Finding, rule `"coverage"`, for each ledger fact of a scope kind that nothing in the job cites; pure, report only), `RULE`, `SCOPE_KINDS` | HarkPro T-001 (reviewed by the lead); `run` calls it |
 | `src/bms/run.py` | `estimate`, `RunResult` (the orchestration) | controller |
 | `src/bms/status.py` | `check(out, cache) -> Status` (exit code and plain lines), `Status`, `RUN_STATE` (`"run state.json"`) | controller |
 | `src/bms/doctor.py` | `run_doctor` and its checks (Python, dependencies, `.claude/run-job.json` models, Playbook, cache folder) | controller |
@@ -57,6 +58,11 @@ missing required key, wrong type or a value outside an enumeration raises `Model
 | `Severity` | "must_fix", "check" | `SEVERITIES` |
 | `FrontEndMode` | "new-system", "extend-existing" | `FRONT_END_MODES` |
 | `DecisionAction` | "accept", "change", "delete" | `DECISION_ACTIONS` |
+
+`UNNAMED_EXISTING = "[existing BMS name]"` is a constant of the model, not an enumeration. It is the fill-in the
+proposal prints for an existing BMS that the documents do not name (rules.md "Front end mode"; the same text as
+`assets/front_end.json` `existing_systems.unnamed`). The square brackets make it read as a blank for the estimator to
+complete. The planner asks for the name in a question, and `FrontEnd.existing_system_name` stays `None`.
 
 ### 2.2 Classes (field: type = default)
 
@@ -100,7 +106,19 @@ System:         key: str, name: str, shape: str, control: Control, families: tup
                   block its own entry, so its writer leaves the heaters to the heater block.
 ScopeException: system_key: str, text: str, refs: tuple[Ref] = ()        # design §4.2 "Exception" (renamed: builtin)
 FrontEnd:       mode: FrontEndMode, existing_system_name: str | None = None, devices: tuple[Device] = (),
-                clarifications: tuple[Clarification] = (), tech_hours: float | None = None
+                clarifications: tuple[Clarification] = (), tech_hours: float | None = None,
+                lines: tuple[str] = (), notes: tuple[str] = (), refs: tuple[Ref] = (),
+                no_scope_reason: str | None = None
+                  the planner fills mode, existing_system_name, lines, notes and refs, from the ledger's front_end
+                  facts and the provider facts about front-end items. lines: what the reading found the documents call
+                  for in the front end (a front-end line, or an item the documents give to another party), one entry
+                  each, in the reading's words. notes: the client notes the reading found for the front end, in its
+                  words. refs: the citations of those facts (passages of this job's documents). The front end's
+                  writer (`ai.write_front_end`) fills devices, clarifications, tech_hours and no_scope_reason, as
+                  `write_system` fills a System. no_scope_reason: why the writer wrote no line (the run then adds one
+                  question for the estimator); None otherwise. existing_system_name is None when the documents do
+                  not name the existing BMS: the proposal prints UNNAMED_EXISTING. No standard line stands in when
+                  the documents call for none: lines and notes are empty and nothing is written.
 Header:         quote_number: str, reference: str, mep_engineer: str, based_on: tuple[str], date: str (ISO),
                 to: str = "All Bidders"                                     # mirrors estimator.scope.Header
 Job:            name: str, systems: tuple[System] = (), front_end: FrontEnd | None = None,
@@ -114,6 +132,10 @@ Job:            name: str, systems: tuple[System] = (), front_end: FrontEnd | No
                   job.system(key) -> System (KeyError); job.with_system(system) -> Job (replaced by key).
 Finding:        rule: str, system_key: str, device_id: str | None, severity: Severity, what: str, fix: str
                   rule = a Playbook rule name (### heading); system_key "" for the front end / whole job.
+                  The run's own findings are the exception: "decision not honored" (listed in
+                  `playbook_lint.RUN_LEVEL_RULE_NAMES`) and the coverage gate's "coverage" name no Playbook
+                  rule, and rules.md need not hold them. The gate builds its Finding with `rule=` as a keyword,
+                  so the literal-text scan of `playbook_lint.finding_rule_names` does not read it.
 Decision:       system_key: str, action: DecisionAction, device_id: str | None = None, family_name: str | None = None,
                 device: Device | None = None, count: Count | None = None, finding_rule: str | None = None,
                 reason: str = "", was: Device | None = None
@@ -135,7 +157,8 @@ card (an earlier delete that may be back re-worded) is a `check` (REVIEW-FINAL F
   FrontEnd and Finding carries a `description`; the fields of Job, Header and Decision carry none (the planner and
   the run build those; no AI step answers them). `System.shape`'s description reads "The Playbook shape name this
   block follows." and does not mention the `""` case (an untemplated system).
-- `write_system` / `revise_system` answer `json_schema(System)`. `qc_job` answers
+- `write_system` / `revise_system` answer `json_schema(System)`; so do `write_front_end` and `revise_front_end`, which
+  ask for the front end as a System (`ai.front_end_system`). `qc_job` answers
   `{"type": "object", "properties": {"findings": {"type": "array", "items": json_schema(Finding)}},
   "required": ["findings"], "additionalProperties": false}`.
 - `schema_errors(value, schema) -> list[str]` — every way a JSON value breaks a schema (type, enum, properties,
@@ -250,7 +273,16 @@ sources, others, and `added_up`: the sum over the sheets of one floor and area (
 family total), ruling L1, set only while above the printed count; `plan_read.Reader.family`), sequence_refs,
 alternate; devices / clarifications empty, tech_hours None. VRF/split groups one system (indoor, condensing,
 branch-selector families); dampers linked to a fan under that fan; duct heaters in one place; exceptions and
-questions filled; front_end set; header left None. Pure, no AI.
+questions filled; front_end set (mode and existing_system_name from the ledger's front_end facts; `lines`, `notes`
+and `refs` from those facts and from the provider facts about front-end items; a question when the documents call
+for no front end, or name no existing BMS to extend); header left None. Pure, no AI.
+A named exception (HP 24) is made for a block whose BMS work a provider fact puts outside AME's scope (not in the
+contract, controls or BMS work by others, existing equipment that stays). It cites each fact that says so. Its text is the
+form of the Playbook's own rule "Named exceptions" (`plan._exception_line` reads it from the rule's text), with the
+equipment as the block's header names it and the documents' reason in the fact's own words. No line of fixed text
+stands in: when no rule of the Playbook gives the form, the exception has an empty `text` (it prints nothing, and
+keeps its citation) and `Job.questions` gets one plain question for the estimator that names the item, the reason and
+where each fact is cited.
 
 ### Workstream 3 — `bms.validate`
 `validate(job: Job, playbook: Playbook) -> list[Finding]` — one small function per Playbook rule, on fields only;
@@ -425,13 +457,21 @@ evidence_for(system: System, dossier: Dossier) -> str
 evidence_index(dossier: Dossier) -> dict[str, str]
 write_system(system: System, evidence: str, playbook: Playbook, transport: Transport, *, tags: Sequence[str] = (), ids: Sequence[str] = (), sheets: Sequence[str] = (), source_sheets: Sequence[str] = ()) -> System
 qc_job(job: Job, evidence_index: Mapping[str, str], playbook: Playbook, transport: Transport) -> list[Finding]
-revise_system(system: System, findings: Sequence[Finding], evidence: str, playbook: Playbook, transport, *, tags: Sequence[str] = (), ids: Sequence[str] = (), sheets: Sequence[str] = (), source_sheets: Sequence[str] = ()) -> System
+revise_system(system: System, findings: Sequence[Finding], evidence: str, playbook: Playbook, transport, *, tags: Sequence[str] = (), ids: Sequence[str] = (), sheets: Sequence[str] = (), source_sheets: Sequence[str] = (), hold_counts: Sequence[str] = ()) -> System
+write_front_end(front: FrontEnd, evidence: str, playbook: Playbook, transport: Transport, *, tags: Sequence[str] = (), ids: Sequence[str] = (), sheets: Sequence[str] = (), source_sheets: Sequence[str] = (), taken: Iterable[str] = ()) -> FrontEnd
+revise_front_end(front: FrontEnd, findings: Sequence[Finding], evidence: str, playbook: Playbook, transport: Transport, *, tags: Sequence[str] = (), ids: Sequence[str] = (), sheets: Sequence[str] = (), source_sheets: Sequence[str] = (), taken: Iterable[str] = ()) -> FrontEnd
+front_end_system(front: FrontEnd, taken: Iterable[str] = ()) -> System
+front_end_evidence(front: FrontEnd, dossier: Dossier, taken: Iterable[str] = ()) -> str
+is_front_end_finding(finding: Finding, front: FrontEnd | None, playbook: Playbook | None = None) -> bool
+FRONT_END_KEY = "FE"; FRONT_END_NAME = "Front End"; FRONT_END_TOPIC = "front end"      # the Playbook topic "## Front end"
 rewrite_for_count(system: System, evidence: str, playbook: Playbook, transport: Transport, *, tags: Sequence[str] = (), ids: Sequence[str] = (), sheets: Sequence[str] = (), source_sheets: Sequence[str] = ()) -> System
 # rewrite_for_count: asked only when an estimator's decision changed a family count; the devices already written are named in the prompt by their words and kept (by content and id); a device decision never comes here
 # tags (optional): every tag of the job (bms.citations.job_tags). A tag protects only the form it is written in (bms.citations.tag_tokens): "F1", "C2", "AHU-S1" (as S1) and a range "F1-F4" protect those tokens; "S-1", "EF-S-1" and "F-1 thru F-4" protect nothing, since their plain forms are issued ids of the job
 # ids (optional): I, the source ids the intake refuses in client text; the run passes one set to every writer, the count rewrite and the revise: every id of the job (bms.citations.job_ids) plus every id each system's evidence cites. A tag (in its written form) and a sheet number in K are never refused. A source id in client text is detected and refused, never rewritten
 # sheets (optional): K, the whole plan's sheet numbers (bms.citations.job_sheets: the wheres of the planner's refs, never a writer's device refs and, since FINAL-J, never the ledger sources' wheres); the run works it out per call from the job it writes into (a decision can take planner refs out) and passes it to every writer, the count rewrite and the revise, so intake, validator and render agree on a sheet another system's where names. A K sheet is a sheet wherever it stands
 # source_sheets (optional, FINAL-J): the job's source sheets (Job.source_sheets, the ledger sources' wheres); the run passes the job's to every writer, the count rewrite and the revise beside K. One is a known sheet in a where (anywhere in it) and in client text right after a sheet word ("per sheet S201", "sheets S201 and S202"); bare in client text ("Valves per S201.") an issued one is refused, as the validator (must_fix) and the renderer (cut) read it: `SourceIds.of(ids, tags, sheets, *, source_sheets=())`, `SourceIds.of_job` reads Job.source_sheets; client text goes through `scan` / `refusal` / `without_issued`, a where through `where_issued` / `sheet` / `place`, the renderer's quantity note (made of places) through `without_issued(text, place=True)`
+# revise_system corrections (HP 17): a must_fix finding about the whole block under a count rule ("Higher count prints" or "Never undershoot"; `ai.COUNT_RULES`), or whose fix sets a count, lets the answer correct a family's count; one under the alternate rule ("Never invent an alternate"), or whose fix names the alternate, lets it correct the alternate. Every other planner field still wins. A count correction keeps every count the family already had in `others`, each with its source, so no count is lowered or dropped and the "*" note names both numbers; a count it adds cites the evidence (id and quote) or the answer is refused. An add or deduct alternate needs a passage of the evidence that says so. `hold_counts` (keyword-only, default ()): the names of the families whose count the estimator set; a revise never changes them. The run passes the families of the estimator's count decisions on that system. A finding about one line, or about a line the block lacks, opens no correction
+# the front end (HP 22, 186, 192d) is written and revised like a block of its own. `front_end_system(front, taken)` is the front end as a System: its key is the one its lines' ids already carry, else `FRONT_END_KEY`, or that key with a number when a system of the job has it (`taken`: the keys of the job's systems); name `FRONT_END_NAME`, no shape (its lines print in the generic form), control "integration", the planner's `refs` as its sequence_refs (so its evidence carries the passages the reading found), and its own devices, clarifications, tech hours and reason. `front_end_evidence(front, dossier, taken)` is `evidence_for(front_end_system(...))`: only this job's text. `write_front_end` asks one WRITE_SYSTEM request (name "Front End", step "write", plan_key the front end's key; instructions `prompts/write_front_end.md`) with `json_schema(System)` and the checks of `write_system`, and puts the answer's devices, clarifications, tech hours and reason into `front`; the Master Template's front-end lines go in the prompt as house wording and order only. It asks only when the planner carried something the documents say about the front end (`lines` or `notes`) and nothing is written yet (no device, no clarification, no `no_scope_reason`); else it returns `front` without asking. `revise_front_end` revises the front end for its must_fix findings (`is_front_end_finding`), one round, through `revise_system` (name "Front End (revise)"); it returns `front` unchanged, without asking, when there is no such finding or when the documents call for no front end. `is_front_end_finding(finding, front, playbook=None)`: the system key "" is the whole job's, which the front end and the job's exceptions share, so a finding with key "" is about the front end when it names one of its lines; one that names no line is about the front end when its rule is under the Playbook topic `FRONT_END_TOPIC`, or its words say "front end", or they are not about a named exception; False for any other key, or when there is no front end. Both writers raise NoAnswer as `write_system` does
 ```
 Chat hand-off (unchanged from the old Judge so `tools/run_job.py` and the `/run-job` skill drive it):
 request `<cache>/judge-chat/requests/<key>.json` with fields `key`, `kind`, `system` (the system name, or "QC"),
@@ -439,8 +479,9 @@ request `<cache>/judge-chat/requests/<key>.json` with fields `key`, `kind`, `sys
 the extras (`step`, `plan_key`, `images`), `schema`, `answer_file` (`<cache>/judge-chat/answers/<key>.json`);
 `key = estimator.writing.judge._key(CHAT_MODEL, prompt, system_prompt)`; on a usable answer the answer is cached
 in `<cache>/judge/<key>.json` as `{"version": 1, "kind", "model", "answer"}` and the request file is deleted.
-Kinds: `write_system` (write, count rewrite and revise, so `/run-job` dispatches them to the writer model) and
-`qc_job`. The `step` extra is `"write"`, `"decide"` (the count rewrite, `rewrite_for_count`) or `"revise"` on a
+Kinds: `write_system` (write, count rewrite and revise, so `/run-job` dispatches them to the writer model; the front
+end's write and revise too: its `system` is "Front End" and "Front End (revise)", its `plan_key` the front end's key)
+and `qc_job`. The `step` extra is `"write"`, `"decide"` (the count rewrite, `rewrite_for_count`) or `"revise"` on a
 `write_system` request, and `"qc"` on a `qc_job` request (`STEPS` still lists only write and revise). A request whose
 earlier answer was refused also carries `previous_problem`.
 Answer freshness: an answer file counts only when it is newer than its request file and newer than the answer last
@@ -481,6 +522,11 @@ does not cover every tile sent is refused and asked again like a bad answer.
 self-contained file; at most about 15 ranked questions; Accept / Change / Delete; decisions saved as
 `decisions.json` = list of `Decision.to_dict()`); `load_decisions(out_dir: Path) -> list[Decision]` ([] when
 missing; ModelError when malformed); `apply_decisions(job: Job, decisions: Sequence[Decision]) -> Job` (pure).
+A finding of the coverage gate (rule `"coverage"`, see §6) is no question. The page lists it in a group of its own,
+headed `NOT_CITED_GROUP` ("Not cited in the job"), after the system cards: the finding as the gate wrote it (the fact's
+id, kind and name, the place it was read at, its quote) and what to do. The group has no card, no button and no
+decision, and it does not count among the questions or use the room of the top ones. A page with no such finding has
+no group. `python -m bms status` counts them under their rule ("2 for coverage").
 A family whose Count has an `added_up` above the printed count gets a card like one with other counts (ruling L1:
 the card's note and the page name both numbers, the sum under "If every sheet of the same floor and area is added
 up"); a count typed in Change settles the sum with the other counts (`added_up` None), on the page and in
@@ -523,15 +569,20 @@ old app).
 `estimate(job_folder: Path, out: Path, cache: Path, mode: "chat"|"api" = "chat") -> RunResult`, in order:
 `catalogue_job` → `estimator.reading.job.read_job` → `job_header` → `build_dossier` → `Judge` +
 `retire_requests` → `estimator.ledger.run.read_job` (saves `<quote> Ledger.json`; stops "waiting" at "read" when
-incomplete) → `load_playbook` → `plan_job` → header set → `cross_check` → `write_system` per system (all asked,
-then stop "waiting" at "write" if any NoAnswer; saves `<quote> Job.json`) → `load_history` + `load_decisions`
+incomplete) → `load_playbook` → `plan_job` → header set → `cross_check` → `write_system` per system, then
+`write_front_end` (the front end is written like a system, from `front_end_evidence`, the passages the planner cited
+for it; nothing is asked when the documents call for none; when its writer writes no line, `no_scope_reason` holds
+why and one question asks the estimator whether the job needs a front end) (all asked, then stop "waiting" at
+"write" if any NoAnswer; saves `<quote> Job.json`) → `load_history` + `load_decisions`
 (a malformed file stops at "decisions") → `merge_decisions(job=)` → save the history → `apply_seen` (every
 decision of the history) → `rewrite_for_count` for each system whose family counts the decisions changed, then the
 standing accepts applied to it (waiting at "write") → `validate` → `qc_job` (waiting at "qc") → `revise_system`
-for systems with must_fix findings (validate's and QC's; one round; the standing accepts applied again; waiting at
-"revise") → the late decisions (device decisions made on the page's revised wording, which matched nothing the
-writer wrote) applied to the revised job → history saved (`took_effect`) → `validate` → the "not honored", "could
-not be applied" and "check this system" findings → `publish_proofs` → `review_page` → `render` → `write_evidence`
+for systems with must_fix findings (validate's and QC's; one round; the standing accepts applied again; the families
+whose count the estimator set passed as `hold_counts`; waiting at "revise"), then `revise_front_end` for the must_fix
+findings about the front end (`is_front_end_finding`) → the late decisions (device decisions made on the page's
+revised wording, which matched nothing the writer wrote) applied to the revised job → history saved (`took_effect`)
+→ `validate` → the "not honored", "could not be applied" and "check this system" findings → the coverage gate
+(`bms.coverage.coverage`, findings only) → `publish_proofs` → `review_page` → `render` → `write_evidence`
 → `_build` (proposal and price sheet) → history saved (`settled`). The run's first act writes `out/run state.json`
 as "running" (again once the quote and job name are known); its last act replaces it with how the run ended
 (`version`, `status`, `stage`, `waiting`, `messages`, `quote`, `job`, and `decisions`: how many decisions the
@@ -546,6 +597,19 @@ waits for no request. `render` appears only in the run state: a proposal that ca
 the error reaches the caller.
 `python -m bms estimate` exits 0 when done, 2 when requests are waiting, and 1 when it stops with nothing to answer
 (a refusal limit, or the `decisions` stage).
+
+The coverage gate (2026-10-11): `bms.coverage.coverage(job, ledger, dossier=None) -> list[Finding]` reports each
+ledger fact of a scope kind (`SCOPE_KINDS`: family, unit, device, sequence_match, front_end) that nothing in the job
+cites: no Ref with the same source and quote, and no family, tag, line, clarification, exception, question or front
+end that names it. Each is one Finding, severity `check`, rule `"coverage"`, system_key "", no device; its `what`
+names the fact's id, kind and name, the place it was read at and its quote. The run calls the gate once per run, on the
+final Job (after the last write, revise, QC and the estimator's decisions, the late ones too), and before `review_page`
+and `write_evidence` build their outputs. Its findings are added to the run's open findings, so they are in
+`RunResult.findings`, on the review page (the group "Not cited in the job", §5 workstream 7) and on the Evidence
+Package "Findings" tab. The gate only reports. It never changes the Job (a test compares the saved Job with the one
+the gate was given), it asks no AI, and it never blocks the run: a fault in it is one plain line in
+`RunResult.messages` and the run still ends done, so the exit codes do not change. "coverage" is a code rule, not a
+Playbook rule (§2.2, Finding): no rule of rules.md carries it.
 Two commands are called "status" and they mean different things. `tools/run_job.py status JOB --out OUT` *runs the
 estimate* (`python -m bms estimate --mode chat` by default, `--app estimator` for the old app) and lists the
 requests still waiting. `python -m bms status OUT [--cache C]` (`bms.status.check`) never runs anything, never
