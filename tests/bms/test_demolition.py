@@ -95,3 +95,35 @@ def test_a_job_with_no_demolition_lines_renders_no_block():
     out = render(replace(_sample(), demolition=()), PLAYBOOK)
     assert [block.header for block in out.scope.blocks if block.header == "Demolition Scope"] == []
     assert all(line.text != "Demolition Scope" for line in out.lines)
+
+
+def test_the_evidence_package_has_two_demolition_rows(tmp_path):
+    import sys
+
+    import openpyxl
+
+    from bms.evidence import DEMOLITION_HEADINGS, DEMOLITION_TAB, write_evidence
+
+    tests = Path(__file__).resolve().parents[1]
+    if str(tests) not in sys.path:
+        sys.path.insert(0, str(tests))
+    from test_evidence import _catalogue
+
+    shown = Ref("S1", "shown for removal", "MD-101, Drawings.pdf page 6")
+    remain = Ref("S2", "FCU-2 remains", "M-201, Mech.pdf page 7")
+    lines = (
+        DemolitionLine("AHU", "demo", 2, (shown,), "existing controls removed"),
+        DemolitionLine("FCU", "existing to remain", 1, (remain,)),
+    )
+    path = write_evidence(tmp_path / "e.xlsx", _catalogue(), None, None, Job("Invented", demolition=lines))
+    book = openpyxl.load_workbook(path)
+    assert book.sheetnames[1:3] == ["Scope lines", "Findings"]
+    assert DEMOLITION_TAB in book.sheetnames
+    rows = [[cell.value for cell in row] for row in book[DEMOLITION_TAB].iter_rows()]
+    assert rows[0] == DEMOLITION_HEADINGS
+    assert rows[1][:4] == ["AHU", "demo", 2, "existing controls removed"]
+    assert rows[1][4] == 'S1 | "shown for removal" | MD-101, Drawings.pdf page 6'
+    assert rows[2][:3] == ["FCU", "existing to remain", 1]
+    assert rows[2][3] in ("", None)
+    assert 'S2 | "FCU-2 remains" | M-201, Mech.pdf page 7' in rows[2][4]
+    assert len(rows) == 3
