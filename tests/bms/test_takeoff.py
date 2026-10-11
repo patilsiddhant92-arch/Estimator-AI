@@ -714,3 +714,75 @@ def test_the_run_sets_the_devices_of_the_excluded_sheets_aside():
     assert [(a.family, a.value, a.reason, a.ref.source_id) for a in job.set_aside] == [("T", 9, "demolition sheet",
                                                                                         "S18")]
     assert takeoff.attach_device_set_asides(job, fx.reading().devices, fx.dossier().sheet_pages) == job
+
+
+# ---- Stage 2, Task 2.7: end to end on the invented fixture ------------------------------------------------------------
+
+def _written(job: Job) -> Job:
+    """A stand-in for the writers (no transport): one controller line per block, and on the fan coil block the space
+    sensors at the thermostat count of the new-work sheets (`device_tally`), each citing the fixture."""
+    from bms.model import Count, Device, Header, Ref
+
+    ref = Ref("S1", "AIR HANDLING UNIT SCHEDULE", "M-601, Mech.pdf page 1")
+    kept, _aside = takeoff.device_tally(fx.reading().devices, job.sheets, "T")
+    systems = []
+    for system in job.systems:
+        shape = PLAYBOOK.shapes.get(system.shape) if system.shape else None
+        slot = shape.line_order[0] if shape is not None else "controller"
+        devices = [Device(f"{system.key}.d1", slot, "DDC Controller", "Furnish and Install", "AME", "AME", "AME",
+                          Count(system.families[0].count.value, (ref,)), (ref,))]
+        if system.key == "FCU":
+            devices.append(Device("FCU.d2", slot, "Space Temperature Sensor", "Furnish and Install", "AME", "AME",
+                                  "AME", Count(kept, (ref,)), (ref,)))
+        systems.append(dataclasses.replace(system, devices=tuple(devices)))
+    return dataclasses.replace(job, systems=tuple(systems),
+                               header=Header("00-1111", "Invented Hall", "Invented", ("Mech.pdf",), "2026-10-12"))
+
+
+def test_takeoff_end_to_end(tmp_path):
+    from bms.counts import cross_check
+    from bms.render import render
+
+    register = _extended_register()
+    job = plan_job(_extended_ledger(), fx.catalogue(), fx.dossier(), PLAYBOOK, register=register)
+    job = takeoff.attach(job, register)
+    job = takeoff.attach_device_set_asides(job, fx.reading().devices, fx.dossier().sheet_pages)
+    job = takeoff.attach_demolition(job)
+    job = cross_check(job, fx.catalogue(), tmp_path / "cache")          # no transport: the located-text count only
+    counts = {f.name: f.count.value for s in job.systems for f in s.families}
+    assert [counts[n] for n in ("Air Handling Unit", "Exhaust Fan", "Energy Recovery Unit", "Fan Coil Unit")] == \
+        [5, 5, 1, 55]
+    draft = render(_written(job), PLAYBOOK)
+    headers = [line.text for line in draft.lines if line.kind == "header"]
+    assert "Qty (5) Air Handling Unit AHU-1 thru 5" in headers and "Qty (5) Exhaust Fan EF-1 thru 5" in headers
+    assert "Qty (1) Energy Recovery Unit ERU-1" in headers
+    assert any(h.startswith("Qty (55) Fan Coil Unit FCU-1") for h in headers)
+    # the thermostats print at 30: the 9 on the demolition plan are set aside
+    (sensor,) = [line for line in draft.lines if line.device_id == "FCU.d2"]
+    assert "Space Temperature Sensor" in sensor.text and sensor.quantity == 30
+    assert [(a.family, a.value, a.reason) for a in job.set_aside] == [("T", 9, "demolition sheet")]
+    # the valves are inside the air handler block; two pump blocks print for the remote pumps; the plant's pumps
+    # stay in the boiler block
+    blocks = [b.header for b in draft.scope.blocks]
+    at = blocks.index("Qty (5) Air Handling Unit AHU-1 thru 5")
+    assert blocks[at + 1] == "Qty (5) Control Valve CV-1 thru 5" and draft.scope.blocks[at + 1].joined
+    assert "Qty (1) Chilled Water Pump P-1" in blocks and "Qty (1) Hot Water Pump P-2" in blocks
+    assert blocks.index("Qty (2) Pump P-3, 4") == blocks.index("Qty (1) Boiler B-1") + 1
+    # the Demolition Scope is the last block before the alternates; AHU-6 and EF-6 are in no header or count
+    assert blocks[-1] == "Demolition Scope"
+    demo = [i.runs[0].text for i in draft.scope.blocks[-1].items]
+    assert demo == ["Qty (1) AHU demo", "Qty (1) EF demo"]
+    assert not any("AHU-6" in h or "EF-6" in h or "thru 6" in h for h in headers)
+    assert all("AHU-6" not in f.tags and "EF-6" not in f.tags for s in job.systems for f in s.families)
+    # at most one count question per family, in the lead's form
+    asked = [q for q in job.questions if q.startswith("How many ")]
+    assert len(asked) == len({q.split(" units?")[0] for q in asked})
+    # the writer's evidence carries the register (Task 2.5) and the Evidence Package lists every set-aside (Task 2.6)
+    from bms.evidence import set_aside_rows
+
+    fcu = takeoff.register_text(job, job.system("FCU"), _extended_ledger(), devices=fx.reading().devices)
+    assert "Thermostats: 30 on the new-work sheets; 9 set aside (demolition sheet)" in fcu
+    assert len(set_aside_rows(job.set_aside)) == len(job.set_aside) == 1
+    # the set-asides and the demolition lines are in Job.json
+    saved = Job.from_json(job.to_json())
+    assert saved.set_aside == job.set_aside and saved.demolition == job.demolition and saved.units == job.units
