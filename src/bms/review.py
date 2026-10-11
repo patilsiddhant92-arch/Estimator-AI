@@ -298,8 +298,11 @@ UNKNOWN_COUNT_PATTERN = r"^(?:##|unknown|not known|qty \(##\))$"
 # the whole text: the number (group 1), then at most one unit word, then at most one dot
 LEADING_COUNT_PATTERN = (r"^\s*([0-9]+|" + "|".join(NUMBER_WORDS) + r")"
                          r"(?:\s+(?:" + "|".join(UNIT_WORDS) + r"))?\.?\s*$")
-_UNKNOWN_COUNT = re.compile(UNKNOWN_COUNT_PATTERN, re.IGNORECASE)
-_LEADING_COUNT = re.compile(LEADING_COUNT_PATTERN, re.IGNORECASE)
+# ASCII case folding only: the page's RegExp "i" (no "u") never folds a letter above U+007F onto an ASCII one, but
+# Python's re.IGNORECASE folds four ("ſ", "ı", "İ", the Kelvin sign), so "ſix" was a count here and words on the page
+# (and its number word was in no list: a ValueError). T-003.
+_UNKNOWN_COUNT = re.compile(UNKNOWN_COUNT_PATTERN, re.IGNORECASE | re.ASCII)
+_LEADING_COUNT = re.compile(LEADING_COUNT_PATTERN, re.IGNORECASE | re.ASCII)
 
 
 def _typed_count(text: str) -> tuple[str, int | None]:
