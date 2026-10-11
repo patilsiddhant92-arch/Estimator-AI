@@ -26,7 +26,8 @@ def test_a_unit_tag_on_two_sheets_of_two_documents_adds_up_and_is_named(tmp_path
     pages = [_page(DWG, 1, text), _page(CTL, 1, text)]
     sheets = [_sheet(1, "M-101", "DUCTWORK PLAN - SUITE 3"), _sheet(1, "C-101", "CONTROLS PLAN - SUITE 3", CTL)]
     d = build_dossier(_catalogue(pages, sheets, BOXES, [_doc(DWG, 1), _doc(CTL, 1)]), _reading(), tmp_path)
-    assert d.counts["VAV"]["plan_placements"] == 10
+    # T-005a (estimator ruling 2 of 2026-10-11): a numbered unit tag is one unit in the job, so 5 again (FINAL-I: 10)
+    assert d.counts["VAV"]["plan_placements"] == 5
     line = _line("VAV", d)
     assert "same plan as" not in line
     assert "M-101 5" in line and "C-101 5" in line            # every sheet still listed for the evidence
@@ -49,8 +50,9 @@ def test_a_unit_tag_on_the_plans_of_three_floors_counts_on_each_and_is_named(tmp
     sheets = [_sheet(1, "M-101", "HVAC FIRST FLOOR PLAN"), _sheet(2, "M-102", "HVAC SECOND FLOOR PLAN"),
               _sheet(3, "M-106", "HVAC ROOF PLAN")]
     d = build_dossier(_catalogue(pages, sheets, ["EF-1"]), _reading(), tmp_path)
-    assert d.counts["EF"]["plan_placements"] == 3
-    assert "EF-1 is on 3 plans (M-101, M-102, M-106), counted on each, 3" in _line("EF", d)
+    assert d.counts["EF"]["plan_placements"] == 1          # T-005a ruling 2: one unit in the job (FINAL-I: 3)
+    assert "EF-1 is on 3 plans (M-101, M-102, M-106), counted once, 1" in _line("EF", d)
+    assert "if each plan's EF-1 is its own unit (a type used once per plan), 3" in _line("EF", d)
 
 
 def test_type_tags_on_a_floor_drawn_twice_add_up_and_the_line_names_the_two_sheets(tmp_path):

@@ -25,6 +25,7 @@ from functools import lru_cache
 
 from estimator.catalogue.job import (CONTROLS_DISCIPLINES, GENERIC_PLAN_WORDS, PLAN_DISCIPLINE_WORDS, TRADE_SYNONYMS,
                                      TRADE_WORDS, repeats, title_without_number, title_words)
+from estimator.catalogue.sheet_types import is_demolition, work_words
 from estimator.catalogue.tags import (DECIMAL_TYPE, Equipment, is_type_tag, label_key, label_keys, line_labels,
                                       plan_labels, tag_prefix)
 from estimator.reading.revisions import governing_pages, typical_places
@@ -211,6 +212,8 @@ class Placements:
     each_place_summed: int = 0               # `each_place` likewise
     same_plan: tuple[tuple[str, ...], ...] = ()   # the sheets (by name) of each plan group that shows this tag on 2 or
                                                   # more of them: counted as one plan, not added (L1)
+    demolition: dict[str, int] = field(default_factory=dict)   # demolition sheet -> labels on it, left out of every
+                                                               # count (ruling 1 of 2026-10-11, T-005a)
 
     @property
     def drawn(self) -> int:
@@ -494,21 +497,68 @@ def plan_groups(plans, codes: Collection[str] = ()) -> dict[tuple[str, int], tup
     return {key: tuple(members[root(key)]) for key in keys}
 
 
-def plan_count(found, groups: dict, per_place: bool) -> int:
+_BUILDING = re.compile(
+    r"\b(?:BUILDINGS?|BLDGS?|TOWERS?|PAVILIONS?)\b\.?\s*[-#]?\s*(?:NO\.?\s*)?[A-Z0-9]{1,6}"
+    r"(?:\s*(?:,|AND|&)\s*[A-Z0-9]{1,6}\b)*"
+    r"|\b[A-Z][A-Z0-9]*\s+(?:BUILDING|BLDG|TOWER|PAVILION)\b", re.I)
+_NOT_A_BUILDING = re.compile(r"^(?:MECHANICAL|HVAC|PLAN|THE|AND|OF|NEW|EXISTING)\s", re.I)
+
+
+def plan_buildings(sheets) -> dict[tuple[str, int], str]:
+    """(document, page) -> the building a plan sheet shows, for ruling 2 of 2026-10-11 (T-005a): a numbered unit tag
+    is one unit in the job, so it counts once however many plans show it, but a job of several buildings can reuse
+    its tags in each (VAV-1 in BLDG. A and in BLDG. B). The building is what the title names with a building word
+    (BUILDING 1000, BLDG. A, TOWERS 1 AND 2, NORTH TOWER), and the document as well when the same sheet number is in
+    two documents (two identical buildings issued as two documents, REVIEW-FINAL5 F7). "" for every other sheet: the
+    floors, wings and part plans of one building (EAST, AREA B, WEST WING, part plans at a match line) are one place."""
+    sheets = list(sheets)
+    documents: dict[str, set] = defaultdict(set)
+    for s in sheets:
+        if s.number:
+            documents[s.number].add(s.document)
+    found = {}
+    for s in sheets:
+        title = title_without_number(s) if s.number else (s.title or "").upper()
+        named = [" ".join(m.group(0).upper().replace(".", "").split()) for m in _BUILDING.finditer(title)]
+        named = [n for n in named if not _NOT_A_BUILDING.match(n)]
+        twin = s.document if s.number and len(documents[s.number]) > 1 else ""
+        found[(s.document, s.page)] = " / ".join(filter(None, [*named, twin]))
+    return found
+
+
+def plan_count(found, groups: dict, per_place: bool, buildings: dict | None = None) -> int:
     """The one counting rule (lead ruling, FINAL-I; ruling L1 for which sheets are one plan), given each plan sheet a
     tag is on as ((document, page), labels on it as drawn, the floors it stands for: a typical sheet's floor names,
     empty for one floor) and `plan_groups`.
-    In each plan group a unit's tag counts once, a tag counted at every place (`counted_per_place`) the most labels
+    A unit's tag counts once in the whole job (ruling 2 of 2026-10-11), times the floors its typical sheets stand
+    for, once in each building when the job has several (`buildings`, from `plan_buildings`). In each plan group a tag counted at every place (`counted_per_place`) the most labels
     of any one sheet of the group (one plan drawn again), each times the floors the group's sheets stand for, every
     floor once (two typical sheets of floors 2 to 5 are 4 floors, of floors 2 to 5 and 6 to 10 are 9). The groups
     are summed."""
+    if not per_place:
+        # Ruling 2 of 2026-10-11 (T-005a): a numbered unit tag (AHU-1, EF-3) is ONE unit in the whole job, however
+        # many plans show it (the plans of other trades, part plans that overlap at a match line): once, times the
+        # floors its typical sheets stand for (every floor once). The other labels are duplicates; the dossier's
+        # counts line names them (`_summed_notes`).
+        # A job of several buildings can reuse its tags in each (`plan_buildings`): once in each building.
+        # A typical sheet already says each floor it stands for has its own unit of the tag; where the tag is on a
+        # typical sheet, a plan of one floor (a plan group, `groups`) that shows it too is one floor more (FIRST FLOOR
+        # PLAN beside TYPICAL FLOORS 2-4 is 4): when in doubt the higher count.
+        floors_of: dict[str, set] = defaultdict(set)
+        typical = {(buildings or {}).get(key, "") for key, _n, floors in found if floors}
+        for key, _n, floors in found:
+            building = (buildings or {}).get(key, "")
+            floors_of[building].update(floors)
+            if not floors and building in typical:
+                floors_of[building].add(("plan", groups.get(key, (key,))))
+        return sum(max(1, len(floors)) for floors in floors_of.values())
     by_group: dict[tuple, list] = defaultdict(list)
     for key, n, floors in found:
         by_group[groups.get(key, (key,))].append((n, frozenset(floors)))
     total = 0
     for entries in by_group.values():
         floors = max(1, len(frozenset().union(*(f for _n, f in entries))))
-        total += (max(n for n, _f in entries) if per_place else 1) * floors
+        total += max(n for n, _f in entries) * floors
     return total
 
 
@@ -684,15 +734,21 @@ def placements(catalogue, tags: Iterable[str], typicals: Sequence = (),
     pages = counting_pages(catalogue, pages)
     sheets = {(s.document, s.page): s for s in catalogue.sheets}
     read: list[tuple] = []
+    demolished: list[tuple] = []          # ruling 1: demolition plans, read only to name what they leave out
     for record in catalogue.pages:
         sheet = sheets.get((record.document, record.page))
         if (sheet is None or (record.document, record.page) not in pages or sheet.discipline not in CONTROLS_DISCIPLINES
                 or "Schedules" in sheet.types):
             continue
         riser = bool(_RISER.search(sheet.title or "")) or any("riser" in t for t in sheet.types)
+        if is_demolition(sheet):
+            if "Plans" in sheet.types or riser:
+                demolished.append((sheet, record))
+            continue
         if riser or "Plans" in sheet.types:
             read.append((sheet, record, riser))
-    labels = sheet_labels(sheet for sheet, _r, _riser in read)
+    worked = demolition_work(catalogue, asked) if demolished else {}
+    labels = sheet_labels([*(sheet for sheet, _r, _riser in read), *(sheet for sheet, _r in demolished)])
     tallies: dict[tuple[str, int], dict[str, int]] = {}
     evidence: dict[tuple[str, int], dict[str, int]] = {}
     for sheet, record, riser in read:
@@ -701,7 +757,20 @@ def placements(catalogue, tags: Iterable[str], typicals: Sequence = (),
         labelled = evidence[(sheet.document, sheet.page)] = line_labels(record.text, keys)
         tallies[(sheet.document, sheet.page)] = labelled if riser else plan_labels(record.text, keys, labelled)
     groups = plan_groups([(sheet, evidence[(sheet.document, sheet.page)]) for sheet, _r, riser in read if not riser])
+    left_out: dict[str, dict[str, int]] = defaultdict(dict)   # tag -> demolition sheet -> labels, not counted
+    for sheet, record in demolished:
+        key = (sheet.document, sheet.page)
+        for tag, n in plan_labels(record.text, keys, line_labels(record.text, keys)).items():
+            if tag not in asked:
+                continue
+            if tag in worked:          # the documents name work on this unit: counted where the demolition plan shows it
+                tallies.setdefault(key, {})[tag] = n
+            else:
+                left_out[tag][labels[key]] = left_out[tag].get(labels[key], 0) + n
+        if key in tallies:
+            read.append((sheet, record, False))
     found: dict[str, list] = defaultdict(list)            # tag -> [((document, page), labels, floors)]
+    buildings = plan_buildings(sheet for sheet, _r, riser in read if not riser)
     on_plans: dict[str, dict[str, int]] = defaultdict(dict)
     floors: dict[str, dict[str, int]] = defaultdict(dict)
     on_risers: dict[str, dict[str, int]] = defaultdict(dict)
@@ -731,13 +800,39 @@ def placements(catalogue, tags: Iterable[str], typicals: Sequence = (),
         # `summed` and `each_place_summed` are the same two counts with every sheet its own plan (no groups): the
         # sheets added up, kept beside them so a drop that ruling L1 makes can print both numbers
         return Placements(dict(on_plans.get(tag, {})), dict(floors.get(tag, {})), dict(on_risers.get(tag, {})),
-                          plan_count(mine, groups, per_place) if mine else 0, per_place,
+                          plan_count(mine, groups, per_place, buildings) if mine else 0, per_place,
                           plan_count(mine, groups, True) if mine else 0,
-                          plan_count(mine, {}, per_place) if mine else 0,
+                          plan_count(mine, {}, per_place, buildings) if mine else 0,
                           plan_count(mine, {}, True) if mine else 0,
-                          same_plan(mine))
+                          same_plan(mine), dict(left_out.get(tag, {})))
 
-    return {tag: placed(tag) for tag in set(on_plans) | set(on_risers)}
+    return {tag: placed(tag) for tag in set(on_plans) | set(on_risers) | set(left_out)}
+
+
+# ---- ruling 1 of 2026-10-11 (T-005a): work named on a unit a demolition plan shows ----------------------------------
+
+def demolition_work(catalogue, tags: Iterable[str]) -> dict[str, str]:
+    """tag -> the first line of the documents (any page: a note, a keyed note, the spec) that names the tag and work
+    on it (`sheet_types.work_words`: refurbish, relocate its sensor, new controls ...). Such a unit is counted where a
+    demolition plan shows it (ruling 1); every other unit a demolition plan shows is left out of the counts. A line
+    that only removes a unit or keeps it ("REMOVE EXISTING AHU-6", "EXISTING TO REMAIN") names no work."""
+    wanted = {t for t in tags if t}
+    if not wanted:
+        return {}
+    words = work_words()
+    names = "|".join(re.escape(t) for t in sorted(wanted, key=len, reverse=True))
+    find = re.compile(rf"(?<![A-Za-z0-9\-])({names})(?![A-Za-z0-9]|-[A-Za-z0-9])", re.I)
+    by_upper = {t.upper(): t for t in wanted}
+    found: dict[str, str] = {}
+    for record in getattr(catalogue, "pages", ()) or ():
+        for line in (record.text or "").splitlines():
+            if not any(w.search(line) for w in words):
+                continue
+            for match in find.finditer(line):
+                tag = by_upper.get(match.group(1).upper())
+                if tag is not None:
+                    found.setdefault(tag, " ".join(line.split()))
+    return found
 
 
 # ---- a plan tag an air outlet schedule lists as a code: left out of the dossier's units, and said -------------------
@@ -833,8 +928,8 @@ def _as_type(tag: str, kind: str, schedule: Schedule, row, placed: Placements | 
         said = f"; {placed.same_plan_note(placed.count, placed.summed)}" if lowered else ""
         return InventoryItem(tag, kind, "CONFIRMED", placed.count, label, seen,
                              f"On the schedule ({label}) and counted {placed.count} times on the plans "
-                             f"({placed.plans_text()}): a unit's tag counts once on each plan and on each floor a "
-                             f"typical plan stands for{said} — check the count", "confirm",
+                             f"({placed.plans_text()}): a unit's tag counts once in the job, on each floor a typical "
+                             f"plan stands for{said} — check the count", "confirm",
                              summed=placed.summed if lowered else None)
     else:
         return None

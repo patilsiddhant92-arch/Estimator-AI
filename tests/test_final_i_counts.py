@@ -28,20 +28,22 @@ def _notes(line: str) -> str:
     return line.split("Reading notes:", 1)[1] if "Reading notes:" in line else ""
 
 
-@pytest.mark.parametrize("first, second", [
-    ("HVAC BASEMENT 1 PLAN", "HVAC BASEMENT 2 PLAN"),
-    ("FIRST FLOOR PLAN - BLDG. A", "FIRST FLOOR PLAN - BLDG. B"),
-    ("SUITE 3 FLOOR PLAN", "SUITE 4 FLOOR PLAN"),
-    ("TOWERS 1 AND 2 LEVEL 5 PLAN", "TOWERS 3 AND 4 LEVEL 5 PLAN"),
-    ("BUILDING 1000 FLOOR PLAN", "BUILDING 2000 FLOOR PLAN"),
+@pytest.mark.parametrize("first, second, expected", [
+    ("HVAC BASEMENT 1 PLAN", "HVAC BASEMENT 2 PLAN", 3),
+    ("FIRST FLOOR PLAN - BLDG. A", "FIRST FLOOR PLAN - BLDG. B", 6),
+    ("SUITE 3 FLOOR PLAN", "SUITE 4 FLOOR PLAN", 3),
+    ("TOWERS 1 AND 2 LEVEL 5 PLAN", "TOWERS 3 AND 4 LEVEL 5 PLAN", 6),
+    ("BUILDING 1000 FLOOR PLAN", "BUILDING 2000 FLOOR PLAN", 6),
 ])
-def test_titles_with_other_words_are_never_one_plan_and_add_up(tmp_path, first, second):
+def test_titles_with_other_words_are_never_one_plan_and_add_up(tmp_path, first, second, expected):
     """One document, the same three boxes on both sheets: the titles' words differ, so the sheets are two plan
-    groups and add up (6); the rebuild counted each box once over the set (3)."""
+    groups (never "counted as one plan"). T-005a (estimator ruling 2 of 2026-10-11): a numbered unit tag is one unit
+    in the job, so the boxes count once (3), except where the titles name two buildings (BLDG. A and B, TOWERS 1 AND
+    2 and 3 AND 4, BUILDING 1000 and 2000), which can each have their own VAV-1: once in each building (6)."""
     pages = [_page(DWG, 1, _lines(*UNITS)), _page(DWG, 2, _lines(*UNITS))]
     sheets = [_sheet(1, "M-101", first), _sheet(2, "M-102", second)]
     d = build_dossier(_catalogue(pages, sheets, UNITS), _reading(), tmp_path)
-    assert d.counts["VAV"]["plan_placements"] == 6
+    assert d.counts["VAV"]["plan_placements"] == expected
     assert "counted as one plan" not in _line("VAV", d)
 
 
@@ -56,20 +58,24 @@ def test_a_floor_drawn_on_a_ductwork_and_a_piping_plan_is_one_group_and_a_type_c
     d = build_dossier(_catalogue(pages, sheets, UNITS + ["EBB-A"]), _reading(), tmp_path)
     assert d.counts["VAV"]["plan_placements"] == 3
     assert d.counts["EBB"]["plan_placements"] == 4
-    for prefix, one, apart in (("VAV", 3, 6), ("EBB", 4, 8)):
+    for prefix, one, apart in (("EBB", 4, 8),):
         line = _line(prefix, d)
         assert (f"M-101 and M-201 counted as one plan, {one} ({apart} if they are two places): same floor and "
                 "area; check") in _notes(line)                      # FINAL-K: both counts (REVIEW-FINAL6 F5)
         assert "same plan as" not in line and "may show one plan" not in line
+    # T-005a (ruling 2): the boxes are one unit each in the job however the sheets group, so no group note for them
+    assert "counted as one plan" not in _line("VAV", d)
 
 
 def test_one_title_with_too_few_unit_tags_in_common_is_two_plans(tmp_path):
     """The same title (and so the same trade), but only two unit tags repeated: too little to be one plan, so the
-    sheets add up (4). Two sheets of one trade could be the two halves of a floor."""
+    sheets add up (4). Two sheets of one trade could be the two halves of a floor. T-005a (ruling 2): two part plans
+    of a floor that show the same units count them once: 2, the overlap named."""
     pages = [_page(DWG, 1, _lines("VAV-1", "VAV-2")), _page(DWG, 2, _lines("VAV-1", "VAV-2"))]
     sheets = [_sheet(1, "M-101", "HVAC FIRST FLOOR PLAN"), _sheet(2, "M-201", "HVAC FIRST FLOOR PLAN")]
     d = build_dossier(_catalogue(pages, sheets, ["VAV-1", "VAV-2"]), _reading(), tmp_path)
-    assert d.counts["VAV"]["plan_placements"] == 4
+    assert d.counts["VAV"]["plan_placements"] == 2
+    assert "VAV-1 is on 2 plans (M-101, M-201), counted once, 1" in _line("VAV", d)
     assert "M-101 and M-201 may show one plan" in _line("VAV", d)
 
 
@@ -80,7 +86,9 @@ def test_one_floor_for_two_trades_with_too_few_unit_tags_in_common_is_one_plan(t
     sheets = [_sheet(1, "M-101", "HVAC FIRST FLOOR PLAN"), _sheet(2, "M-201", "CONTROLS FIRST FLOOR PLAN")]
     d = build_dossier(_catalogue(pages, sheets, ["VAV-1", "VAV-2"]), _reading(), tmp_path)
     assert d.counts["VAV"]["plan_placements"] == 2
-    assert "M-101 and M-201 counted as one plan, 2 (4 if they are two places)" in _line("VAV", d)
+    # T-005a (ruling 2): one unit each in the job either way, so the duplicates are named per tag, with both numbers
+    assert "VAV-1 is on 2 plans (M-101, M-201), counted once, 1" in _line("VAV", d)
+    assert "if each plan's VAV-1 is its own unit (a type used once per plan), 2" in _line("VAV", d)
 
 
 def test_a_group_of_two_typical_sheets_counts_every_floor_they_name_once(tmp_path):
@@ -132,7 +140,7 @@ def _scheduled(plan_texts, titles, tags, typicals=(), documents=None):
 
 
 @pytest.mark.parametrize("case, expected", [
-    ("a unit's tag on two floors' plans", {"VAV-1": 2}),
+    ("a unit's tag on two floors' plans", {"VAV-1": 1}),          # T-005a ruling 2: one unit in the job
     ("a type's tag on one floor drawn twice", {"EBB-A": 4, "VAV-1": 1, "VAV-2": 1, "VAV-3": 1}),
     ("a unit's tag on two typical sheets of other floors", {"VAV-1": 9}),
     ("one sheet number in two documents", {"AHU-1": 2}),

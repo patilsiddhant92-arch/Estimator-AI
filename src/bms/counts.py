@@ -271,6 +271,7 @@ class _Check:
 
     def run(self):
         from estimator.catalogue.job import CONTROLS_DISCIPLINES
+        from estimator.catalogue.sheet_types import is_demolition
 
         families = [(s, f) for s in self.job.systems for f in s.families if any(t.strip() for t in f.tags)]
         if not families:
@@ -285,7 +286,8 @@ class _Check:
         records = {(p.document, p.page): p for p in getattr(self.catalogue, "pages", ()) or ()}
         plans = [s for s in getattr(self.catalogue, "sheets", ()) or ()
                  if PLAN_TYPE in (s.types or ()) and s.discipline in CONTROLS_DISCIPLINES
-                 and (s.document, s.page) in records]
+                 and (s.document, s.page) in records
+                 and not is_demolition(s)]   # ruling 1 (T-005a): a demolition plan's units are not counted
         # with a transport, a plan whose text names no family's tag is still asked when its page is mostly
         # picture (a raster plan under a vector title block): its tags are only in the picture
         finds = [searcher(pattern) for pattern in patterns.values()]
@@ -607,8 +609,10 @@ def _located_count(sheets, pattern: str, groups: dict | None = None) -> int:
     "CUH-A (TYP. OF 4)" is 4) the most of one sheet; the groups added up (EBB-A on two floor plans is 2). The
     located count does not multiply by a typical sheet's floors: a typical plan can read lower than the planner's
     count, and then it is a cross-check other, never the printed count."""
-    from estimator.reading.inventory import counted_per_place, plan_count
+    from estimator.reading.inventory import counted_per_place, plan_buildings, plan_count
 
+    # ruling 2 of 2026-10-11 (T-005a): a unit's tag once in the job, once in each building of a job of several
+    buildings = plan_buildings(s.sheet for s in sheets if s.sheet is not None)
     found: dict[str, list] = {}
     for sheet in sheets:
         for tag, n in (sheet.labels or {}).items():
@@ -617,7 +621,7 @@ def _located_count(sheets, pattern: str, groups: dict | None = None) -> int:
     total = 0
     for tag, mine in found.items():
         per_place = counted_per_place(tag, sum(n for _k, n, _f in mine), max(n for _k, n, _f in mine))
-        total += plan_count(mine, groups or {}, per_place)
+        total += plan_count(mine, groups or {}, per_place, buildings)
     return total
 
 

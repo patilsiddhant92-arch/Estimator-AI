@@ -28,13 +28,14 @@ import pymupdf
 
 from estimator.catalogue.documents import document_names
 from estimator.catalogue.job import CONTROLS_DISCIPLINES, document_repeats
+from estimator.catalogue.sheet_types import is_demolition
 from estimator.catalogue.overview import FOUND, RULED_OUT, STANDARD_CLARIFICATION, STANDARD_EXCLUSION
 from estimator.catalogue.tags import (STATED_MOST, Equipment, find_tags, label_keys, line_labels, plan_labels,
                                       sheet_number_tags, tag_location, tag_prefix, unread_counts)
 from estimator.reading.inventory import (COUNT_CAUSE_WORDS, COUNT_CAUSES_LEAD, TYPE_ON_ONE_SHEET, TYPE_PLACED,
                                         air_outlet_codes, air_outlet_notes, counted_per_place, counting_pages,
                                         first_pages, plan_area_doubts, plan_areas, plan_count, plan_floors, plan_groups,
-                                        sheet_floors, sheet_labels)
+                                        sheet_floors, sheet_labels, demolition_work, plan_buildings)
 from estimator.reading.revisions import governing_pages, typical_places
 from estimator.reading.schedules import header_key, quantity_header, vocabulary
 from estimator.reading.sequences import POINTS, SEQUENCE
@@ -840,6 +841,7 @@ def _counts(catalogue, reading, counted_pages: frozenset, multipliers: dict) -> 
     exclude = frozenset(tag for s in catalogue.sheets if s.number for tag in find_tags(s.number, equipment))
     records = {(p.document, p.page): p for p in catalogue.pages}
     plan_sheets: list[tuple] = []
+    demolition: list[tuple] = []      # ruling 1 (T-005a): demolition plans, their units left out unless work is named
     for sheet in catalogue.sheets:
         key = (sheet.document, sheet.page)
         record = records.get(key)
@@ -847,7 +849,9 @@ def _counts(catalogue, reading, counted_pages: frozenset, multipliers: dict) -> 
             continue
         is_plan = "Plans" in sheet.types
         is_riser = bool(_RISER.search(sheet.title or ""))
-        if is_plan or is_riser:
+        if (is_plan or is_riser) and is_demolition(sheet):
+            demolition.append((sheet, key, record, True, False))
+        elif is_plan or is_riser:
             plan_sheets.append((sheet, key, record, is_plan, is_riser))
     # A plan tag is left out of the units only when an air outlet schedule of this job lists it as an air outlet's code
     # (`air_codes`), and even then a unit schedule that lists it keeps it. Every other plan tag stays: the tag index leaves
@@ -859,7 +863,8 @@ def _counts(catalogue, reading, counted_pages: frozenset, multipliers: dict) -> 
     read: list[tuple] = [
         (sheet, key, record, is_plan, is_riser,
          Counter(tag for tag in find_tags("\n".join(s.text for s in record.edge_spans), equipment, exclude) if tag in valid))
-        for sheet, key, record, is_plan, is_riser in plan_sheets]
+        for sheet, key, record, is_plan, is_riser in plan_sheets + demolition]
+    demolished = {key for _sheet, key, *_ in demolition}
     # A tag in the title-block strip of most of these sheets is the title block's own text (a project or
     # phone number that looks like a tag), not a unit: its words there aren't counted.
     in_edge = Counter(tag for *_, edge in read for tag in edge)
@@ -893,6 +898,17 @@ def _counts(catalogue, reading, counted_pages: frozenset, multipliers: dict) -> 
     evidence: dict[tuple[str, int], Counter] = {}       # the labels alone: which plans are one plan group
     for sheet, key, record, is_plan, is_riser, edge in read:
         tallies[key], evidence[key] = tallies_of(key, record, edge, is_plan)
+    # Ruling 1 (T-005a): a demolition plan's units are left out of every count, unless a line of the documents names
+    # work on the unit (`demolition_work`); those are counted where the demolition plan shows them. What is left out
+    # is kept (`left_out`) so the counts line names it with both numbers.
+    worked = demolition_work(catalogue, {t for key in demolished for t in tallies[key]}) if demolished else {}
+    left_out: dict[tuple[str, int], Counter] = {}
+    for key in demolished:
+        left_out[key] = Counter({t: n for t, n in tallies[key].items() if t not in worked})
+        tallies[key] = Counter({t: n for t, n in tallies[key].items() if t in worked})
+        evidence[key] = Counter({t: n for t, n in evidence[key].items() if t in worked})
+    left_read = [entry for entry in read if entry[1] in demolished]
+    read = [entry for entry in read if entry[1] not in demolished or tallies[entry[1]]]
     # Lead rulings FINAL-I and L1, the one counting rule shared with the inventory (`plan_groups`, `plan_count`): plan
     # sheets are one plan group only when they are in one document and either show the same floor and area for other
     # trades (L1: no tag evidence needed), or their titles have the same words with a floor among them and they repeat
@@ -904,9 +920,10 @@ def _counts(catalogue, reading, counted_pages: frozenset, multipliers: dict) -> 
     # the labels alone are the groups' evidence: the backstop (`plan_labels`) never joins two plans (FINAL-N)
     labelled_plans = [(sheet, evidence[key]) for sheet, key, _r, is_plan, *_ in read if is_plan]
     groups = plan_groups(labelled_plans, code_patterns)
+    buildings = plan_buildings(sheet for sheet, _tags in labelled_plans)     # ruling 2: a unit once in each building
     doubts = [(a, b) for a, b in plan_area_doubts(labelled_plans, plan_areas(labelled_plans))
               if b not in groups.get(a, ())]
-    labels = sheet_labels(sheet for sheet, *_ in read)
+    labels = sheet_labels([*(sheet for sheet, *_ in read), *(entry[0] for entry in left_read if entry not in read)])
     floor_sets = plan_floors(catalogue, getattr(reading, "typicals", ()))
     places: dict[tuple[str, str], list] = defaultdict(list)          # (prefix, tag) -> [(sheet, places, floor set)]
     seen_on: dict[tuple[str, str], dict[str, str]] = defaultdict(dict)    # (prefix, tag) -> the sheets showing it
@@ -950,17 +967,23 @@ def _counts(catalogue, reading, counted_pages: frozenset, multipliers: dict) -> 
         # the labels as drawn, floors not applied: a typical sheet's floors multiply a unit, never make it a type
         drawn, most = sum(n for _key, n, _f in found), max(n for _key, n, _f in found)
         per_place = counted_per_place(tag, drawn, most, code=tag in code_patterns or tag in typed)
-        count = plan_count(found, groups, per_place)
+        count = plan_count(found, groups, per_place, buildings)
         counted[(prefix, tag)], per_place_of[(prefix, tag)] = count, per_place
         families[prefix].placements += count
         if per_place:
             each_place[prefix].add(tag)
             continue
-        on = list(dict.fromkeys(groups.get(key, (key,)) for key, *_ in found))
-        if len(on) >= 2:
-            summed[prefix].append((tag, [labels[group[0]] for group in on], count))
+        # ruling 2 (T-005a): one unit in the job however many plan sheets show it; the other labels are duplicates,
+        # named with the number they would make if each sheet's were its own unit
+        shown = list(dict.fromkeys(key for key, *_ in found))
+        if len(shown) >= 2:
+            each = sum(max(1, len(floors)) for key in shown
+                       for floors in [frozenset().union(*(f for k, _n, f in found if k == key))])
+            summed[prefix].append((tag, [labels[key] for key in shown], count, each))
         if most >= 2:
             labelled_often[prefix].append((tag, printed[(prefix, tag)][0], most))
+    demolition_notes = _demolition_notes(left_read, left_out, worked, labels, places, groups, per_place_of, families,
+                                         code_patterns, typed, buildings)
     extra = _copy_counts(catalogue, read, tallies_of, code_patterns, per_place_of)
     # the plan tags left out above as an air outlet's code are named, with both numbers: a drop is never silent. A prefix
     # with no other unit still gets its line, with the note (and no count: it is no family, so no system).
@@ -975,8 +998,8 @@ def _counts(catalogue, reading, counted_pages: frozenset, multipliers: dict) -> 
         if labelled > family.placements:
             units = any(not per_place_of.get((p, t), False) for p, t in places if p == prefix)
             how = (("a type's tag counts the most labels of one sheet of each floor and area"
-                    + (", a unit's tag once for each floor and area" if units else "")) if each_place[prefix]
-                   else "a unit's tag is counted once for each floor and area")
+                    + (", a unit's tag once in the job" if units else "")) if each_place[prefix]
+                   else "a unit's tag is counted once in the job")
             family.notes.append(f"the labels on the plan sheets add up to {labelled}; {how}, however often the plan "
                                 "labels it")
         family.notes += _summed_notes(summed[prefix]) + _labelled_often_notes(labelled_often[prefix])
@@ -988,7 +1011,66 @@ def _counts(catalogue, reading, counted_pages: frozenset, multipliers: dict) -> 
                          for (copy, original), n in extra.get(prefix, {}).items() if n]
         family.notes += _unlisted_notes(prefix, family, equipment)
         family.notes += [air_notes[prefix]] if prefix in air_notes else []
+        family.notes += demolition_notes.get(prefix, [])
     return families
+
+
+def _demolition_notes(left_read: list, left_out: dict, worked: dict, labels: dict, places: dict, groups: dict,
+                      per_place_of: dict, families: dict, code_patterns: dict, typed: set,
+                      buildings: dict | None = None) -> dict[str, list[str]]:
+    """prefix -> the counts line's reading notes for what the demolition plans show (ruling 1 of 2026-10-11, T-005a),
+    each with both numbers: a unit only on demolition plans, left out ("AHU-6 is on demolition sheets only (MD
+    315.00): left out of the count, 5; with the demolition sheets, 6"); a type's labels on them, left out; a unit
+    counted there because the documents name work on it. A unit's tag also on a new-work plan changes nothing (one
+    unit in the job, ruling 2) and is not named. Only families that have a counts line are named."""
+    on_demo: dict[tuple[str, str], list] = defaultdict(list)
+    for sheet, key, *_rest in left_read:
+        for tag, n in left_out.get(key, Counter()).items():
+            prefix = tag if tag in code_patterns else _prefix(tag)
+            on_demo[(prefix, tag)].append((key, n, frozenset()))
+    notes: dict[str, list[str]] = defaultdict(list)
+    units: dict[str, list] = defaultdict(list)          # prefix -> [(tag, sheets)]: only on demolition plans
+    for (prefix, tag), demo in sorted(on_demo.items(), key=lambda item: (item[0][0], _natural(item[0][1]))):
+        if prefix not in families or families[prefix].air_only:
+            continue
+        found = places.get((prefix, tag), [])
+        sheets = list(dict.fromkeys(labels[key] for key, _n, _f in demo))
+        drawn, most = sum(n for _k, n, _f in found + demo), max(n for _k, n, _f in found + demo)
+        per_place = per_place_of.get((prefix, tag)) if found else counted_per_place(
+            tag, drawn, most, code=tag in code_patterns or tag in typed)
+        now = plan_count(found, groups, per_place, buildings) if found else 0
+        with_demo = plan_count(found + demo, groups, per_place, buildings)
+        if with_demo <= now:
+            continue
+        if not found and not per_place:
+            units[prefix].append((tag, sheets, with_demo))
+            continue
+        total = families[prefix].placements
+        more = sum(n for _k, n, _f in demo)
+        notes[prefix].append(f"{tag} has {more} more label{'s' if more != 1 else ''} on demolition sheets "
+                             f"({', '.join(sheets)}): left out of the count, {total}; with the demolition sheets, "
+                             f"{total + with_demo - now}")
+    for prefix, found in units.items():
+        total = families[prefix].placements
+        tags = [tag for tag, _s, _n in found]
+        sheets = list(dict.fromkeys(name for _t, names, _n in found for name in names))
+        named = ", ".join(tags[:CAUSE_EXAMPLES]) + (f" and {len(tags) - CAUSE_EXAMPLES} more"
+                                                     if len(tags) > CAUSE_EXAMPLES else "")
+        notes[prefix].insert(0, f"{named} {'is' if len(tags) == 1 else 'are'} on demolition sheets only "
+                                f"({', '.join(sheets)}): left out of the count, {total}; with the demolition sheets, "
+                                f"{total + sum(n for _t, _s, n in found)}")
+    for tag, line in sorted(worked.items(), key=lambda item: _natural(item[0])):
+        prefix = tag if tag in code_patterns else _prefix(tag)
+        if prefix not in families or (prefix, tag) not in places:
+            continue
+        shown = [key for key, _n, _f in places[(prefix, tag)]]
+        demolished = {key for _sheet, key, *_r in left_read}
+        demo_sheets = list(dict.fromkeys(labels[key] for key in shown if key in demolished))
+        if demo_sheets:
+            only = "only " if all(key in demolished for key in shown) else ""
+            notes[prefix].append(f"{tag} is on demolition sheets {only}({', '.join(demo_sheets)}), counted: the "
+                                 f"documents name work on it ('{line[:120]}')")
+    return notes
 
 
 def _copy_counts(catalogue, read: list, tallies_of, code_patterns: dict, per_place_of: dict
@@ -1027,17 +1109,20 @@ def _sheets_named(sheets: list[str]) -> str:
 
 
 def _summed_notes(summed: list) -> list[str]:
-    """The reading note for each unit's tag (a numbered tag, `counted_per_place` false) counted on 2 or more plans
-    the counting rule adds up (lead ruling, FINAL-I): a numbered type used once on each floor's plan (EBB-1 on ten
-    floors) is so counted on each, and one unit shown on several plans is so overcounted; the estimator checks the
-    schedule's quantity. The most plans first, at most CAUSE_EXAMPLES tags named. A hint for the estimator and the
-    writers only: never in a client cause's words (no COUNT_CAUSE_WORDS)."""
+    """The reading note for each unit's tag (a numbered tag, `counted_per_place` false) shown on 2 or more plan sheets
+    (ruling 2 of 2026-10-11, T-005a): one unit in the whole job, counted once, the other labels duplicates (the plans
+    of other trades, part plans that overlap at a match line). The note says both numbers: the count, and what it
+    would be if each sheet's label were its own unit (a numbered type used once on each floor's plan), so the
+    estimator can check the schedule's quantity. The most plans first, at most CAUSE_EXAMPLES tags named. A hint for
+    the estimator and the writers only: never in a client cause's words (no COUNT_CAUSE_WORDS)."""
     ranked = sorted(summed, key=lambda item: (-len(item[1]), _natural(item[0])))
-    notes = [f"{tag} is on {len(sheets)} plans ({_sheets_named(sheets)}), counted on each, {count}: likely a type used "
-             "on each plan; if it is one unit shown on several plans, it is 1: check the schedule's quantity"
-             for tag, sheets, count in ranked[:CAUSE_EXAMPLES]]
+    notes = [f"{tag} is on {len(sheets)} plans ({_sheets_named(sheets)}), counted once, {count}: a numbered unit tag is "
+             f"one unit in the job, the other labels are duplicates; if each plan's {tag} is its own unit (a type used "
+             f"once per plan), {each}: check "
+             "the schedule's quantity"
+             for tag, sheets, count, each in ranked[:CAUSE_EXAMPLES]]
     if len(ranked) > CAUSE_EXAMPLES:
-        notes.append(f"{len(ranked) - CAUSE_EXAMPLES} more tags so: each counted on every plan that shows it")
+        notes.append(f"{len(ranked) - CAUSE_EXAMPLES} more tags so: each counted once however many plans show it")
     return notes
 
 
@@ -1078,6 +1163,8 @@ def _group_notes(prefix: str, groups: dict, places: dict, labels: dict, per_plac
                     per_place = per_place_of.get((p, tag), False)
                     one += plan_count(mine, groups, per_place)
                     apart += plan_count(mine, {}, per_place)
+            if apart <= one:
+                continue      # unit tags only: one unit in the job either way (ruling 2), nothing to check here
             many = _PLACES.get(len(group), str(len(group)))
             notes.append(f"{', '.join(names[:-1])} and {names[-1]} counted as one plan, {one} ({apart} if they are "
                          f"{many} places): same floor and area; check")

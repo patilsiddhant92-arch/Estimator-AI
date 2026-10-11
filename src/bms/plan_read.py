@@ -235,6 +235,24 @@ def _plan_sheet(where: str, text: str) -> _PlanSheet | None:
     return _PlanSheet(place.group("document"), int(place.group("page")), place.group("number"), title)
 
 
+def _demolition_text(where: str, text: str, source: str) -> bool:
+    """A dossier line of a demolition sheet's own text (7c): its source ends "(sheet text)" and the title between its
+    place and the colon is a demolition sheet's (`sheet_types.is_demolition`). Ruling 1 of 2026-10-11 (T-005a): the
+    counts such a sheet states are the previous job's units, never counted."""
+    from estimator.catalogue.sheet_types import is_demolition, types_of
+
+    if not source.endswith(_SHEET_TEXT) or not text.startswith(where):
+        return False
+    title = text[len(where):].split(":", 1)[0].strip()
+    return bool(title) and is_demolition(_Titled(title, types_of(title, _sheet_types())))
+
+
+@dataclass(frozen=True)
+class _Titled:
+    title: str
+    types: tuple[str, ...]
+
+
 class Reader:
     def __init__(self, ledger: Ledger, dossier_sources: dict | None = None, dossier_text: str = "",
                  totals=()) -> None:
@@ -378,6 +396,9 @@ class Reader:
             head = _SOURCE_LINE.match(line)
             if not head or self.dossier_sources.get(head.group(1), "").startswith(_COUNTS_SOURCE):
                 continue
+            if _demolition_text(where_short(self.dossier_sources.get(head.group(1), "")), head.group(2),
+                                self.dossier_sources.get(head.group(1), "")):
+                continue      # ruling 1 (T-005a): a demolition plan's stated counts are the previous job's
             # each count read: (where it starts, its tag in capitals, the count, the words as printed)
             said = [(m.start(), m.group(1).upper(), stated_number(m, 2), squash(m.group(0)))
                     for m in after.finditer(head.group(2)) if stated_number(m, 2) is not None]
