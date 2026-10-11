@@ -1,7 +1,7 @@
 # T-005e report: Master Template format, GEM order of points, off-hours and prevailing wage
 
 1. **Task** T-005e. **Branch** `hark/T-005e`. **Base** `origin/lead/wave2` (0e78113). **Last commit**: the commit
-   that carries this report (see `git log hark/T-005e`).
+   that carries this report, on top of 1df101c (the code). See `git log hark/T-005e`.
 
 ## 2. What changed
 
@@ -109,10 +109,16 @@ New tests, in `tests/bms/test_t005e_format_order_labor.py`:
 - `test_without_conditions_the_template_boilerplate_stays`
 - `test_the_price_sheet_carries_the_lines_in_red_with_a_flag`
 
-Full suite (`-n 2 -p no:cacheprovider`, in two chunks; see the final line in the commit message):
-- **Chunk 1** (tests/bms plus the writer and price-sheet test files): 7 failed, 2716 passed, 2 skipped. All 7 are
-  baseline: the 5 test_ai chat tests, test_review_final3 resource code, and test_status_review normal-exit.
-- **Chunk 2** (the rest): see the commit message.
+Full suite (`-n 2 -p no:cacheprovider`, in two chunks). **Nothing fails outside the 12 baseline tests.**
+- **Chunk 1** (tests/bms plus test_price_rows, test_write_price_sheet, test_write_scope, test_write_cover,
+  test_write_systems, test_round_trip, test_sent, test_price_check, test_price_book_revised and test_next_batch):
+  7 failed, 2716 passed, 2 skipped. All 7 are baseline: the 5 test_ai chat tests, test_review_final3 resource code,
+  and test_status_review normal-exit.
+- **Chunk 2** (every other tests/*.py): 2 failed, 2129 passed, 8 skipped. Both are baseline: test_assets project
+  python and test_main open output folder.
+- The revert_audit tests passed in this run.
+- After the chunks I made two small edits: T-005c's exact `_apply` hunk, and the front-end "no information" guard. I
+  re-ran test_t005e_format_order_labor, test_render and test_front_end_name after them: 160 passed.
 
 ## 4. What I did not do, and why
 - **Prompts** (`src/bms/prompts/`): not edited. T-005d is rewriting all four prompts, and the order is now enforced in
