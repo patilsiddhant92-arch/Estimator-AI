@@ -47,13 +47,15 @@ def test_the_opening_prints_the_jobs_existing_system_not_the_templates_sample(jo
     front = FrontEnd(mode="extend-existing", existing_system_name="Acme Net", devices=(_link(),))
     opening, heading = _opening_and_heading(replace(job, front_end=front), playbook, tmp_path)
     assert SAMPLE_OPENING_NAME not in opening
-    assert opening.endswith("an extension of the existing Acme Net BMS system.")
-    assert heading == "Seamlessly Tie in to the Existing Acme Net BMS"
+    # T-005 ruling 4: a BMS that is not one of AME's three prints red between ***
+    assert opening.endswith("an extension of the existing ***Acme Net*** BMS system.")
+    assert heading == "Seamlessly Tie in to the Existing ***Acme Net*** BMS"
 
 
 def test_the_opening_prints_the_plain_placeholder_when_the_documents_name_no_system(job, playbook, tmp_path):
     front = FrontEnd(mode="extend-existing", existing_system_name=None, devices=(_link(),))
     opening, heading = _opening_and_heading(replace(job, front_end=front), playbook, tmp_path)
     assert SAMPLE_OPENING_NAME not in opening and SAMPLE_OPENING_NAME not in heading
-    assert opening.endswith("an extension of the existing [existing BMS name] BMS system.")
-    assert heading == "Seamlessly Tie in to the Existing [existing BMS name] BMS"
+    # T-005 ruling 4: the fill-in prints red between ***
+    assert opening.endswith("an extension of the existing ***[existing BMS name]*** BMS system.")
+    assert heading == "Seamlessly Tie in to the Existing ***[existing BMS name]*** BMS"

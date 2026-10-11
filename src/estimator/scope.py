@@ -21,6 +21,7 @@ class Run(_Model):
 
     text: str
     bold: bool = False
+    red: bool = False                # printed in red, for the estimator to notice (T-005e)
 
 
 class Item(_Model):
