@@ -350,5 +350,48 @@
     {"system_key": "FA", "text": "Fire alarm system by others", "refs": [{"source_id": "S14", "quote": "fire alarm by division 28", "where": "E-001, Drawings.pdf page 5"}]}
   ],
   "questions": ["Is the existing lobby fan to be kept?"],
-  "source_sheets": []
+  "source_sheets": [],
+  "sheets": [
+    {
+      "document": "Drawings.pdf",
+      "page": 2,
+      "number": "M-101",
+      "kind": "new_work",
+      "area": "Level 1",
+      "counts_units": true,
+      "reason": "New work plan of level 1: the units drawn here count.",
+      "refs": [{"source_id": "S7", "quote": "MD-1 interlocked with EF-1", "where": "M-101, Drawings.pdf page 2"}]
+    }
+  ],
+  "units": [
+    {
+      "family": "EF",
+      "tag": "EF-1",
+      "labels": ["EF-1"],
+      "status": "new",
+      "count": 1,
+      "sheets": ["M-101"],
+      "refs": [{"source_id": "S7", "quote": "MD-1 interlocked with EF-1", "where": "M-101, Drawings.pdf page 2"}],
+      "serves": "",
+      "service": "",
+      "with_plant": false,
+      "reason": "Scheduled, and drawn on the new work plan."
+    }
+  ],
+  "set_aside": [
+    {
+      "family": "EF",
+      "value": 2,
+      "ref": {"source_id": "S15", "quote": "EF-2 EF-3 EXISTING TO BE REMOVED", "where": "MD-101, Drawings.pdf page 6"},
+      "reason": "demolition sheet",
+      "note": "2 placements on the demolition sheet set aside; 1 unit on the new work sheet"
+    }
+  ],
+  "future_items": [
+    {
+      "family": "RTU",
+      "item": "outside airflow measuring station",
+      "refs": [{"source_id": "Q5", "quote": "outside airflow measuring station (future)", "where": "23 09 93, Specs.pdf page 13"}]
+    }
+  ]
 }

@@ -3,6 +3,7 @@ Every later workstream builds against these; a change here is a contract change 
 from __future__ import annotations
 
 import copy
+import dataclasses
 import inspect
 import json
 import shutil
@@ -13,14 +14,17 @@ from pathlib import Path
 import pytest
 
 from bms import ai, counts, plan, render, review, run, validate
-from bms.model import (ALTERNATES, CLARIFICATION_KINDS, CONTROLS, FLAGS, PARTIES, VERBS, Count, Decision, Device,
-                       Finding, Job, ModelError, OtherCount, Ref, Served, System, json_schema, schema_errors)
+from bms.model import (ALTERNATES, CLARIFICATION_KINDS, CONTROLS, COUNTED_STATUSES, FLAGS, PARTIES, SET_ASIDE_REASONS,
+                       SHEET_KINDS, UNIT_STATUSES, VERBS, Count, Decision, Device, Finding, FutureItem, Job,
+                       ModelError, OtherCount, Ref, Served, SetAside, SheetClass, System, Unit, json_schema,
+                       schema_errors)
 from bms.playbook import Playbook, PlaybookError, load_playbook
 
 ROOT = Path(__file__).resolve().parents[2]
 FIXTURES = Path(__file__).resolve().parent / "fixtures"
 SAMPLE_JOB = FIXTURES / "sample_job.json"
 SAMPLE_PLAYBOOK = FIXTURES / "sample_playbook"
+TAKEOFF_CLASSES = (("sheets", SheetClass), ("units", Unit), ("set_aside", SetAside), ("future_items", FutureItem))
 sys.path.insert(0, str(ROOT / "tools"))
 import measure  # noqa: E402
 
@@ -44,6 +48,12 @@ def test_enumerations_are_the_design_values():
     assert CLARIFICATION_KINDS == ("confirm", "assumed", "per_drawings", "note")
     assert ALTERNATES == ("base", "add", "deduct")
     assert PARTIES == ("AME", "Unit Mfr.", "FA", "Mechanical Contractor", "Electrical Contractor", "Others", "Owner")
+    assert SHEET_KINDS == ("new_work", "demolition", "part_plan", "enlarged_plan", "riser", "schedule", "detail",
+                           "control_diagram", "other")
+    assert UNIT_STATUSES == ("new", "demolish", "demolish_with_work", "existing_remain", "relocate", "future")
+    assert SET_ASIDE_REASONS == ("demolition sheet", "same unit labelled again", "part plan of one area", "future item",
+                                 "existing to remain", "not a unit of this family")
+    assert COUNTED_STATUSES == ("new",)                 # ruling 17: relocated units print in the Demolition Scope
 
 
 def test_fixture_round_trips_losslessly(raw, job):
@@ -151,6 +161,76 @@ def test_finding_and_decision_round_trip():
     assert Decision.from_dict(json.loads(json.dumps(decision.to_dict()))) == decision
 
 
+# ---- the takeoff register (takeoff pass, stage 1: stored on the Job, no count reads it) ---------------------------
+
+def test_takeoff_fields_round_trip(raw, job):
+    (sheet,), (unit,), (aside,), (future,) = job.sheets, job.units, job.set_aside, job.future_items
+    assert isinstance(sheet, SheetClass) and isinstance(unit, Unit)
+    assert isinstance(aside, SetAside) and isinstance(future, FutureItem)
+    assert (sheet.number, sheet.kind, sheet.area, sheet.counts_units) == ("M-101", "new_work", "Level 1", True)
+    assert (sheet.document, sheet.page) == ("Drawings.pdf", 2)
+    assert (unit.family, unit.tag, unit.status, unit.count) == ("EF", "EF-1", "new", 1)
+    assert unit.refs and unit.serves == "" and unit.service == ""
+    assert (aside.family, aside.value, aside.reason) == ("EF", 2, "demolition sheet")
+    assert future.item == "outside airflow measuring station" and future.refs
+    assert Job.from_json(job.to_json()) == job
+    for key, cls in TAKEOFF_CLASSES:
+        assert cls.from_dict(json.loads(json.dumps(raw[key][0]))).to_dict() == raw[key][0]
+
+
+def test_old_job_without_takeoff_fields_loads(raw):
+    for key, _ in TAKEOFF_CLASSES:
+        del raw[key]
+    old = Job.from_dict(raw)
+    assert (old.sheets, old.units, old.set_aside, old.future_items) == ((), (), (), ())   # a Job saved before the fields
+    assert Job("Empty").to_dict()["units"] == []
+
+
+def test_unit_needs_a_ref(raw):
+    with pytest.raises(ModelError, match="no ref"):
+        Unit("EF", "EF-1", ("EF-1",), "new", 1, ("M-101",), ())
+    bad = copy.deepcopy(raw)
+    bad["units"][0]["refs"] = []
+    with pytest.raises(ModelError, match=r"units\[0\]: .*no ref"):
+        Job.from_dict(bad)
+
+
+@pytest.mark.parametrize("path, value, where", [
+    (("sheets", 0, "kind"), "floor plan", r"sheets\[0\]\.kind"),
+    (("sheets", 0, "counts_units"), "yes", r"sheets\[0\]\.counts_units"),
+    (("sheets", 0, "counts_units"), 1, r"sheets\[0\]\.counts_units"),          # a number is not true or false
+    (("sheets", 0, "page"), "two", r"sheets\[0\]\.page"),
+    (("units", 0, "status"), "gone", r"units\[0\]\.status"),
+    (("units", 0, "count"), "one", r"units\[0\]\.count"),
+    (("units", 0, "sheets"), "M-101", r"units\[0\]\.sheets"),
+    (("set_aside", 0, "reason"), "because", r"set_aside\[0\]\.reason"),
+    (("set_aside", 0, "value"), None, r"set_aside\[0\]\.value"),
+    (("future_items", 0, "refs"), "S1", r"future_items\[0\]\.refs"),
+    (("future_items", 0, "colour"), "red", "unknown field"),
+])
+def test_takeoff_rows_are_checked_like_the_rest_of_the_model(raw, path, value, where):
+    target = raw
+    for step in path[:-1]:
+        target = target[step]
+    target[path[-1]] = value
+    with pytest.raises(ModelError, match=where):
+        Job.from_dict(raw)
+
+
+def test_a_takeoff_row_may_leave_out_only_the_fields_that_have_a_default(raw):
+    for key, cls in TAKEOFF_CLASSES:
+        fields = dataclasses.fields(cls)
+        required = [f.name for f in fields if f.default is dataclasses.MISSING]
+        optional = [f for f in fields if f.default is not dataclasses.MISSING]
+        for name in required:
+            with pytest.raises(ModelError, match=f"missing field {name}"):
+                cls.from_dict({k: v for k, v in raw[key][0].items() if k != name})
+        row = cls.from_dict({k: v for k, v in raw[key][0].items() if k not in {f.name for f in optional}})
+        assert all(getattr(row, f.name) == f.default for f in optional)       # the default fills what was left out
+    assert [f.name for f in dataclasses.fields(Unit) if f.default is dataclasses.MISSING] == [
+        "family", "tag", "labels", "status", "count", "sheets", "refs"]
+
+
 # ---- the JSON Schema ---------------------------------------------------------------------------------------------
 
 def _objects(schema: dict):
@@ -186,6 +266,43 @@ def test_system_schema_is_strict_for_structured_outputs():
     count = device["properties"]["quantity"]["properties"]["value"]
     assert {"type": "null"} in count["anyOf"]
     json.dumps(schema)
+
+
+def test_takeoff_schemas_are_strict_for_structured_outputs(raw):
+    for key, cls in TAKEOFF_CLASSES:
+        schema = json_schema(cls)
+        for obj in _objects(schema):
+            assert obj["additionalProperties"] is False
+            assert obj["required"] == list(obj["properties"])
+        assert schema_errors(raw[key][0], schema) == []
+        assert json_schema(Job)["properties"][key]["items"] == schema      # the Job takes the register as it is
+        json.dumps(schema)
+    assert list(json_schema(SheetClass)["properties"]) == ["document", "page", "number", "kind", "area",
+                                                           "counts_units", "reason", "refs"]
+    assert list(json_schema(Unit)["properties"]) == ["family", "tag", "labels", "status", "count", "sheets", "refs",
+                                                     "serves", "service", "with_plant", "reason"]
+    assert list(json_schema(SetAside)["properties"]) == ["family", "value", "ref", "reason", "note"]
+    assert list(json_schema(FutureItem)["properties"]) == ["family", "item", "refs"]
+    sheet = json_schema(SheetClass)["properties"]
+    assert sheet["counts_units"]["type"] == "boolean" and sheet["kind"]["enum"] == list(SHEET_KINDS)
+    assert json_schema(Unit)["properties"]["status"]["enum"] == list(UNIT_STATUSES)
+    assert json_schema(Unit)["properties"]["refs"]["minItems"] == 1
+    assert json_schema(Unit)["properties"]["with_plant"]["type"] == "boolean"
+    assert json_schema(SetAside)["properties"]["reason"]["enum"] == list(SET_ASIDE_REASONS)
+
+
+def test_schema_errors_catch_bad_takeoff_rows(raw):
+    sheet = copy.deepcopy(raw["sheets"][0])
+    for bad in ("yes", 1, None):                                   # only true or false is a boolean
+        sheet["counts_units"] = bad
+        assert any("counts_units" in e for e in schema_errors(sheet, json_schema(SheetClass))), bad
+    unit = copy.deepcopy(raw["units"][0])
+    unit["refs"], unit["status"] = [], "gone"
+    errors = schema_errors(unit, json_schema(Unit))
+    assert any("refs" in e and "at least 1" in e for e in errors) and any("status" in e for e in errors)
+    aside = copy.deepcopy(raw["set_aside"][0])
+    del aside["note"]
+    assert any("missing note" in e for e in schema_errors(aside, json_schema(SetAside)))
 
 
 def test_the_schema_takes_added_up_as_an_other_count_or_null(raw):

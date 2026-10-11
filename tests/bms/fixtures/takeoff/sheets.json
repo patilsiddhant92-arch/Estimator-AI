@@ -1,0 +1,72 @@
+[
+  {
+    "page": 1,
+    "number": "M-601",
+    "title": "MECHANICAL SCHEDULES",
+    "types": ["Schedules"],
+    "text": ""
+  },
+  {
+    "page": 2,
+    "number": "M-401",
+    "title": "MECHANICAL NEW WORK DUCTWORK ATTIC PLAN",
+    "types": ["Plans"],
+    "text": "AHU-1\nAHU-2\nAHU-3\nAHU-4\nAHU-5\nEF-1\nEF-2\nEF-3\nEF-4\nEF-5\nERU-1"
+  },
+  {
+    "page": 3,
+    "number": "M-402",
+    "title": "MECHANICAL NEW WORK PIPING ATTIC PLAN",
+    "types": ["Plans"],
+    "text": "AHU-1\nAHU-2\nAHU-3\nAHU-4\nAHU-5\nERU-1"
+  },
+  {
+    "page": 4,
+    "number": "M-403",
+    "title": "MECHANICAL NEW WORK EQUIPMENT ATTIC PLAN - PART A",
+    "types": ["Plans"],
+    "text": "AHU-1\nAHU-2\nAHU-3\nEF-1\nEF-2\nEF-3"
+  },
+  {
+    "page": 5,
+    "number": "M-404",
+    "title": "MECHANICAL NEW WORK EQUIPMENT ATTIC PLAN - PART B",
+    "types": ["Plans"],
+    "text": "AHU-3\nAHU-4\nAHU-5\nEF-3\nEF-4\nEF-5\nERU-1"
+  },
+  {
+    "page": 6,
+    "number": "MD-401",
+    "title": "MECHANICAL DEMOLITION DUCTWORK ATTIC PLAN",
+    "types": ["Plans", "Demolition"],
+    "text": "AHU-1\nAHU-2\nAHU-3\nAHU-4\nAHU-5\n(D)AHU-6\nEF-1\nEF-2\nEF-3\nEF-4\nEF-5\n(D)EF-6"
+  },
+  {
+    "page": 7,
+    "number": "M-201",
+    "title": "MECHANICAL NEW WORK FIRST FLOOR PLAN",
+    "types": ["Plans"],
+    "text": "FCU-1\nFCU-1\nFCU-1\nFCU-1\nFCU-1\nFCU-1\nFCU-1\nFCU-1\nFCU-1\nFCU-1\nFCU-1\nFCU-1\nFCU-1\nFCU-1\nFCU-1\nFCU-1\nFCU-1\nFCU-1\nFCU-1\nFCU-1\nFCU-1\nFCU-1\nFCU-1\nFCU-1\nFCU-1\nT\nT\nT\nT\nT\nT\nT\nT\nT\nT\nT\nT\nT\nT"
+  },
+  {
+    "page": 8,
+    "number": "M-202",
+    "title": "MECHANICAL NEW WORK SECOND FLOOR PLAN",
+    "types": ["Plans"],
+    "text": "FCU-1\nFCU-1\nFCU-1\nFCU-1\nFCU-1\nFCU-1\nFCU-1\nFCU-1\nFCU-1\nFCU-1\nFCU-1\nFCU-1\nFCU-1\nFCU-1\nFCU-1\nFCU-1\nFCU-1\nFCU-1\nFCU-1\nFCU-1\nFCU-1\nFCU-1\nFCU-1\nFCU-1\nFCU-1\nFCU-1\nFCU-1\nFCU-1\nFCU-1\nFCU-1\nT\nT\nT\nT\nT\nT\nT\nT\nT\nT\nT\nT\nT\nT\nT\nT"
+  },
+  {
+    "page": 9,
+    "number": "MD-201",
+    "title": "MECHANICAL DEMOLITION FIRST FLOOR PLAN",
+    "types": ["Plans", "Demolition"],
+    "text": "T\nT\nT\nT\nT\nT\nT\nT\nT"
+  },
+  {
+    "page": 10,
+    "number": "M-701",
+    "title": "CONTROL DIAGRAMS",
+    "types": ["Control diagrams"],
+    "text": "AHU OUTSIDE AIRFLOW MEASURING STATION (FUTURE)"
+  }
+]

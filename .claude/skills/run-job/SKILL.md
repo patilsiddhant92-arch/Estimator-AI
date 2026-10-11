@@ -25,14 +25,15 @@ Read `.claude/run-job.json`: `judge_model` (reading passes), `writer_model` (wri
 
 1. Run `.venv/Scripts/python.exe tools/run_job.py status <job> --out <out> [--cache <cache>] [--app estimator]`. It
    runs the estimate and ends with a block listing the requests still waiting, the proposal path if any, the
-   estimate's `exit` code (2 while requests wait, 0 when done) and the `stage` it waits at (read, count, write,
-   qc, revise). Go by the block, not the exit code.
+   estimate's `exit` code (2 while requests wait, 0 when done) and the `stage` it waits at (read, takeoff, count,
+   write, qc, revise). Go by the block, not the exit code.
 2. If `proposal` is set, go to the finish.
    Stop rule: no waiting requests and no proposal: report the last summary and stop.
    A request listed with `"rejected": true` was answered but the estimator could not use the answer (its
    `reason` says why, when the run printed one); its answer file is already deleted and the attempt counted, so
    dispatch it again. Otherwise handle the waiting requests by kind:
    - `read_pass`: one at a time, in the order listed (each reading depends on the one before).
+   - `takeoff_job`: alone, after the reading; it goes to `judge_model`.
    - `count_tags`: the plan count check, one request per plan sheet (its tiles listed under `images`, in order,
      every tag pattern on the sheet asked together); up to 4 at once, each in its own subagent,
      all dispatched in one message; they go to `count_model`.
@@ -42,7 +43,7 @@ Read `.claude/run-job.json`: `judge_model` (reading passes), `writer_model` (wri
    - `qc_job`: alone (one per part when the QC is split; the parts are independent).
 
    For each request, start one subagent whose Agent `model` parameter is `judge_model` for `read_pass`,
-   `count_model` for `count_tags`, `writer_model` for `write_system` and `qc_model` for `qc_job`. Give it exactly this
+   `judge_model` for `takeoff_job`, `count_model` for `count_tags`, `writer_model` for `write_system` and `qc_model` for `qc_job`. Give it exactly this
    prompt, with `<path>` taken from the status block's `file`, `<answer_file>` from its `answer_file`, and `<scratch>`
    set to `<out folder>/.scratch/<request file name without .json>`:
 

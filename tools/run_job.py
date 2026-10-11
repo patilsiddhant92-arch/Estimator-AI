@@ -9,7 +9,7 @@ the old app (`python -m estimator estimate --ai chat`).
 The child runs with this checkout's `src` first on PYTHONPATH: the venv's editable install can name another
 checkout, and a run from a worktree would load that checkout's code.
 It prints the tool's summary, then one JSON block listing the requests still waiting for an answer (kinds
-`read_pass`, `count_tags`, `write_system`, `qc_job`) and the proposal path once it is written. A request still present although its answer file
+`read_pass`, `takeoff_job`, `count_tags`, `write_system`, `qc_job`) and the proposal path once it is written. A request still present although its answer file
 exists was rejected by the estimator: it is listed with `"rejected": true` and the estimator's reason, its answer
 file is deleted and an attempt is counted. A rebuilt app's request also lists its `step` (write, revise, qc) and,
 when an earlier answer was refused, the `problem` the next answer must fix.
@@ -29,11 +29,13 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 ATTEMPTS = ".run-job-attempts.json"
-MAIN_LIST = {"read_pass": "facts", "write_system": "lines", "qc_job": "findings"}   # the answer's main list, by kind
+# the answer's main list, by kind
+MAIN_LIST = {"read_pass": "facts", "takeoff_job": "units", "write_system": "lines", "qc_job": "findings"}
 OUT_MARKER = ".run-job-out"          # beside the requests: which out folder the last status run used
 
 
-BMS_STEPS = ("count", "write", "decide", "revise", "qc")   # the rebuilt app's request steps (bms.ai, bms.counts)
+# the rebuilt app's request steps (bms.takeoff, bms.ai, bms.counts)
+BMS_STEPS = ("takeoff", "count", "write", "decide", "revise", "qc")
 
 
 def stage_of(text: str) -> str | None:
