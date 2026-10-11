@@ -411,3 +411,83 @@ def test_the_run_tests_answerer_answers_a_takeoff_request_the_checks_keep():
     assert [u.tag for u in value.units] == [*(f"AHU-{n}" for n in range(1, 6)), *(f"EF-{n}" for n in range(1, 6)),
                                             "ERU-1", "FCU-1"]
     assert {u.refs[0].source_id for u in value.units} == {"F3", "F6", "F9", "F12"}
+
+
+# ---- Stage 2, Task 2.1: count over admissible sheets ------------------------------------------------------------------
+
+def _register() -> takeoff.Takeoff:
+    """The fixture's correct register, as the checks keep it."""
+    register, problems = _check(fx.answer())
+    assert problems == []
+    return register
+
+
+def _registered_job() -> Job:
+    """The fixture planned without the register, then the register put on it (the Stage 1 run order)."""
+    return takeoff.attach(_planned(), _register())
+
+
+def _key(number: str) -> tuple[str, int]:
+    return ("Mech.pdf", SHEET_NUMBERS.index(number) + 1)
+
+
+def test_admissible_pages_are_the_sheets_whose_units_count():
+    pages = takeoff.admissible_pages(_registered_job().sheets)
+    assert pages == frozenset(_key(n) for n in ("M-401", "M-402", "M-403", "M-404", "M-201", "M-202"))
+
+
+def test_area_groups_map_the_four_attic_sheets_to_one_group():
+    groups = takeoff.area_groups(_registered_job().sheets)
+    attic = tuple(_key(n) for n in ("M-401", "M-402", "M-403", "M-404"))
+    assert all(groups[key] == attic for key in attic)
+    # one area per floor; the demolition sheets and the sheets that are no plan are in no group
+    assert groups[_key("M-201")] == (_key("M-201"),) and groups[_key("M-202")] == (_key("M-202"),)
+    assert not {_key(n) for n in ("MD-401", "MD-201", "M-601", "M-701")} & set(groups)
+
+
+def test_placements_over_the_admissible_pages_with_the_area_groups():
+    job = _registered_job()
+    pages, groups = takeoff.admissible_pages(job.sheets), takeoff.area_groups(job.sheets)
+    for prefix, tags, total in (("AHU", [f"AHU-{n}" for n in range(1, 6)], 5),
+                                ("EF", [f"EF-{n}" for n in range(1, 6)], 5), ("ERU", ["ERU-1"], 1),
+                                ("FCU", ["FCU-1"], 55)):
+        found = placements(fx.catalogue(), tags, pages=pages, groups=groups)
+        assert sum(p.count for p in found.values()) == total, prefix
+        # MD-401 is read nowhere: no plan count, no group, nothing left out from it
+        assert all("MD-401" not in p.on_plans and "MD-401" not in p.demolition for p in found.values()), prefix
+        assert all("MD-401" not in names for p in found.values() for group in p.same_plan for names in group)
+
+
+def test_the_groups_keyword_replaces_the_code_s_plan_groups():
+    """Given groups, `placements` reads them in place of `plan_groups`: two sheets of one type tag in one given group
+    count once (the most of one sheet), not added."""
+    job = _registered_job()
+    pages = takeoff.admissible_pages(job.sheets)
+    one = {_key("M-201"): (_key("M-201"), _key("M-202")), _key("M-202"): (_key("M-201"), _key("M-202"))}
+    (found,) = placements(fx.catalogue(), ["FCU-1"], pages=pages, groups=one).values()
+    assert found.count == 30
+    (found,) = placements(fx.catalogue(), ["FCU-1"], pages=pages, groups={}).values()
+    assert found.count == 55
+    (found,) = placements(fx.catalogue(), ["FCU-1"], pages=pages).values()
+    assert found.count == 55
+
+
+def test_device_tally_keeps_the_thermostats_of_the_new_work_sheets():
+    kept, aside = takeoff.device_tally(fx.reading().devices, _registered_job().sheets, "T")
+    assert kept == 30
+    (one,) = aside
+    assert (one.family, one.value, one.reason) == ("T", 9, "demolition sheet")
+    assert one.ref.where == "MD-201, Mech.pdf page 9" and one.ref.quote == "T"
+    assert one.note == "9 thermostats on MD-201 set aside (demolition sheet); 30 on the new-work sheets"
+
+
+def test_device_tally_cites_the_sheet_text_when_the_dossier_gives_it():
+    pages = fx.dossier().sheet_pages
+    kept, (one,) = takeoff.device_tally(fx.reading().devices, _registered_job().sheets, "T", pages)
+    assert kept == 30 and one.ref.source_id == "S18"
+
+
+def test_device_tally_with_no_register_keeps_every_count():
+    kept, aside = takeoff.device_tally(fx.reading().devices, (), "T")
+    assert (kept, aside) == (39, [])
+

@@ -736,10 +736,15 @@ def plan_area_doubts(plans, areas: dict[tuple[str, int], int] | None = None
 
 
 def placements(catalogue, tags: Iterable[str], typicals: Sequence = (),
-               pages: Collection[tuple[str, int]] | None = None) -> dict[str, Placements]:
+               pages: Collection[tuple[str, int]] | None = None,
+               groups: dict | None = None) -> dict[str, Placements]:
     """Each tag's labels on the plan sheets and on the riser diagrams, read from the counted pages of each sheet
     (`counting_pages`), and its count on the plans by the one counting rule (`plan_groups`, `plan_count`), the
-    floors of each typical sheet applied (1.4). A type sized "X.0" is also labelled "X" (HRU-4)."""
+    floors of each typical sheet applied (1.4). A type sized "X.0" is also labelled "X" (HRU-4).
+
+    `groups` (takeoff pass Stage 2, Task 2.1): the plan groups to count by, in the form `plan_groups` returns
+    ((document, page) -> the group's sheets), used in place of the code's own `plan_groups` when given: the takeoff
+    register's areas (`bms.takeoff.area_groups`). A sheet in no given group is a group of its own."""
     keys = label_keys(tags)
     if not keys:
         return {}
@@ -774,7 +779,9 @@ def placements(catalogue, tags: Iterable[str], typicals: Sequence = (),
         # the labels alone are the plan groups' evidence (the backstop never joins two plans)
         labelled = evidence[(sheet.document, sheet.page)] = line_labels(record.text, keys)
         tallies[(sheet.document, sheet.page)] = labelled if riser else plan_labels(record.text, keys, labelled)
-    groups = plan_groups([(sheet, evidence[(sheet.document, sheet.page)]) for sheet, _r, riser in read if not riser])
+    if groups is None:
+        groups = plan_groups([(sheet, evidence[(sheet.document, sheet.page)])
+                              for sheet, _r, riser in read if not riser])
     left_out: dict[str, dict[str, int]] = defaultdict(dict)   # tag -> demolition sheet -> labels, not counted
     for sheet, record in demolished:
         key = (sheet.document, sheet.page)

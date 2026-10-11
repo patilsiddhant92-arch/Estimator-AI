@@ -307,6 +307,71 @@ def load(path: Path) -> Takeoff:
     return Takeoff.from_dict({key: data.get(key) or [] for key in _KEYS})
 
 
+# ---- Stage 2: the register binds the counts (plan Tasks 2.1 to 2.5) ------------------------------------------
+
+def _sheet_key(sheet) -> tuple[str, int]:
+    return (sheet.document, int(sheet.page))
+
+
+def admissible_pages(sheets) -> frozenset[tuple[str, int]]:
+    """The (document, page) of every sheet whose units and devices count for this job (`counts_units` true)."""
+    return frozenset(_sheet_key(s) for s in sheets or () if s.counts_units)
+
+
+def area_groups(sheets) -> dict[tuple[str, int], tuple[tuple[str, int], ...]]:
+    """(document, page) -> the sheets of its area, in the form `inventory.plan_groups` returns: the counted sheets
+    (`counts_units` true) that name one area (the same words, any case) share one tuple, in (document, page) order.
+    A counted sheet with no area is a group of its own; a sheet whose units do not count is in no group (it is
+    never read for a count, `admissible_pages`)."""
+    counted = sorted((s for s in sheets or () if s.counts_units), key=_sheet_key)
+    members: dict[str, list[tuple[str, int]]] = {}
+    for sheet in counted:
+        area = " ".join(sheet.area.split()).casefold()
+        members.setdefault(area or f"\0{sheet.document}\0{sheet.page}", []).append(_sheet_key(sheet))
+    return {key: tuple(keys) for keys in members.values() for key in keys}
+
+
+def plural(word: str) -> str:
+    """ "Thermostat" -> "thermostats": a device name as a count's plain words."""
+    word = " ".join(str(word or "").split()).lower()
+    return word if not word or word.endswith("s") else f"{word}s"
+
+
+def aside_reason(sheet) -> str:
+    """Why the counts of a sheet whose units do not count are set aside, in the register's words."""
+    return {"demolition": "demolition sheet", "part_plan": "part plan of one area",
+            "enlarged_plan": "same unit labelled again"}.get(getattr(sheet, "kind", ""), "not a unit of this family")
+
+
+def device_tally(devices, sheets, label: str, sheet_pages: dict | None = None) -> tuple[int, list[SetAside]]:
+    """The devices labelled `label` (`reading.devices`, the `DeviceCount`s) counted over the sheets the register
+    admits: (the total of the counted sheets, one `SetAside` per sheet whose units do not count). A device counted on
+    a sheet the register does not list is kept (the register decides only the sheets it classed). With no register
+    sheets every count is kept. `sheet_pages` (`Dossier.sheet_pages`, 7c id -> (document, page)) gives each set-aside
+    its sheet text's source id; without it the id is empty."""
+    by_key = {_sheet_key(s): s for s in sheets or ()}
+    ids = {(doc, int(page)): sid for sid, (doc, page) in (sheet_pages or {}).items()}
+    mine = [d for d in devices or () if d.label == label]
+    kept = 0
+    out: list[tuple] = []
+    for d in mine:
+        sheet = by_key.get((d.document, int(d.page)))
+        if sheet is None or sheet.counts_units:
+            kept += d.total
+        else:
+            out.append((d, sheet))
+    aside = []
+    for d, sheet in out:
+        reason = aside_reason(sheet)
+        where = (f"{d.sheet}, {d.document} page {d.page}" if d.sheet else f"{d.document} page {d.page}")
+        aside.append(SetAside(family=label, value=d.total,
+                              ref=Ref(source_id=ids.get((d.document, int(d.page)), ""), quote=label, where=where),
+                              reason=reason,
+                              note=f"{d.total} {plural(d.device)} on {d.sheet or where} set aside ({reason}); {kept} on the "
+                                   "new-work sheets"))
+    return kept, aside
+
+
 # ---- Demolition Scope (T-G1) -------------------------------------------------------------------------------
 
 # A unit of one of these statuses prints in the Demolition Scope. new and future do not.
