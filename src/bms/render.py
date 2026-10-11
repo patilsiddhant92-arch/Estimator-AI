@@ -925,7 +925,8 @@ def _notes(clarifications: tuple[Clarification, ...], devices, playbook: Playboo
 
 # T-007 Task 2.6 (reduced; estimator ruling 14): a duplicate of one unit the takeoff set aside prints one short '*'
 # line in its family's block. A "demolition sheet" set-aside prints none: the Demolition Scope block carries those
-# units. The other reasons (future item, existing to remain, not a unit of this family) print none here either.
+# units. The other reasons (future item, existing to remain, not a unit of this family, count by unit register) print
+# none here either.
 DUPLICATE_WORDS = {"part plan of one area": " on part plans", "same unit labelled again": ", labelled again on"}
 COUNTED_ONCE = "*{family} counted once{words}"
 _SHEET_SPLIT = re.compile(r"\s*(?:[,;&/]|\band\b)\s*", re.IGNORECASE)
@@ -953,7 +954,8 @@ def _count_note(system: System, set_aside: Sequence[SetAside], ids: SourceIds) -
     """The block's '*' lines for the takeoff's set-asides: one short line per "same unit labelled again" or "part plan
     of one area" set-aside of a family the block carries (its tags' prefix is the set-aside's family), never a
     paragraph and never tech hours (rulings 14 and 16). The line names the sheets: "*AHU counted once on part plans
-    M-403 and M-404" (the ref's where, then the note's sheets). With no sheet to name it gives both numbers instead:
+    M-403 and M-404" (the ref's where, then the note's sheets), then both numbers (T-007b): "*AHU counted once on part plans M-401,
+    M-402, M-403 and M-404: 16 set aside, 5 counted". With no sheet to name it gives both numbers instead:
     "*AHU counted once on part plans: 6 set aside, 5 counted". A "demolition sheet" set-aside prints no line."""
     counts = {}
     for family in system.families:
@@ -969,13 +971,14 @@ def _count_note(system: System, set_aside: Sequence[SetAside], ids: SourceIds) -
             continue
         text = COUNTED_ONCE.format(family=aside.family.strip().upper(), words=words)
         sheets = _sheets_named((aside.ref.where, aside.note), ids, frozenset(counts))
+        counted = counts[family]
+        numbers = f": {aside.value} set aside" + (f", {counted} counted" if counted is not None else "")
         if sheets:
             text = f"{text} {' and '.join(sheets)}" if len(sheets) <= 2 else \
                 f"{text} {', '.join(sheets[:-1])} and {sheets[-1]}"
+            text += numbers
         else:
-            counted = counts[family]
-            text = f"{text.replace(', labelled again on', ', labelled again')}: {aside.value} set aside" + \
-                (f", {counted} counted" if counted is not None else "")
+            text = f"{text.replace(', labelled again on', ', labelled again')}{numbers}"
         text = _squash(ids.without_issued(text)).strip()
         if text and text not in out:
             out.append(text)

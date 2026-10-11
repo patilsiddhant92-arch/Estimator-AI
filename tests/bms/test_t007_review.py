@@ -15,7 +15,7 @@ def _fams(job):
 
 
 def _family_questions(job, prefix, name):
-    return [q for q in job.questions if q.startswith(f"How many {prefix} units?") or q.startswith(f"{name} ({prefix})")]
+    return [q for q in job.questions if (q.startswith("How many ") and f"({prefix})? " in q) or q.startswith(f"{name} ({prefix})")]
 
 
 def test_acceptance_register_prints_new_work_counts():
@@ -37,14 +37,13 @@ def test_acceptance_higher_code_counts_set_aside_both_numbers_one_question_each(
                                         ERU=(3, "M-401 1; M-402 1; M-404 1"))
     job = tt._plan_registered(ledger)
     aside = {(a.family, a.value): a for a in job.set_aside}
-    assert {("AHU", 21), ("EF", 16), ("ERU", 3)} <= set(aside)
+    assert {("AHU", 5), ("AHU", 16), ("EF", 5), ("EF", 11), ("ERU", 3)} <= set(aside)   # T-007b: by sheet
     for (fam, n), a in aside.items():
         assert str(n) in a.note and a.ref.source_id            # both numbers and a source
     for prefix, name in (("AHU", "Air Handling Unit"), ("EF", "Exhaust Fan"), ("ERU", "Energy Recovery Unit")):
         assert len(_family_questions(job, prefix, name)) == 1, job.questions
 
 
-@pytest.mark.xfail(strict=True, reason="deferred follow-up (review S2): the set-aside reason comes from today's code count")
 def test_acceptance_demolition_part_of_dropped_count_is_named():
     """The dropped 21 includes MD-401's 5 (a demolition sheet). Expect the set-aside to name the demolition sheet."""
     ledger = tt._ledger_with_placements(AHU=(21, "M-401 5; M-402 5; M-403 3; M-404 3; MD-401 5"))
@@ -93,6 +92,15 @@ def test_pump_count_above_tags_survives_the_plant_move_and_split():
     assert [a.value for a in aside] == [4] and "6" in aside[0].note and "4" in aside[0].note
     asked = [q for q in job.questions if q.startswith("Pump (P):")]
     assert len(asked) == 1 and "6" in asked[0] and "4" in asked[0], job.questions
+
+
+def test_t007b_a_pump_count_the_register_changes_has_the_new_reason():
+    """T-007b task 4: the schedule says 6, the register's units add up to 4: one set-aside, reason "count by unit
+    register", its note giving both numbers."""
+    job = plan_job(_pump_ledger(6), fx.catalogue(), fx.dossier(), tt.PLAYBOOK, register=tt._extended_register())
+    aside = [a for a in job.set_aside if a.family == "P"]
+    assert [(a.value, a.reason) for a in aside] == [(4, "count by unit register")]
+    assert "4" in aside[0].note and "6" in aside[0].note
 
 
 def test_a_plant_move_never_lowers_a_count():

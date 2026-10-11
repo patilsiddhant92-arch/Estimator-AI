@@ -61,7 +61,7 @@ missing required key, wrong type or a value outside an enumeration raises `Model
 | `DecisionAction` | "accept", "change", "delete" | `DECISION_ACTIONS` |
 | `SheetKind` | "new_work", "demolition", "part_plan", "enlarged_plan", "riser", "schedule", "detail", "control_diagram", "other" | `SHEET_KINDS` |
 | `UnitStatus` | "new", "demolish", "demolish_with_work", "existing_remain", "relocate", "future" | `UNIT_STATUSES` |
-| `SetAsideReason` | "demolition sheet", "same unit labelled again", "part plan of one area", "future item", "existing to remain", "not a unit of this family" | `SET_ASIDE_REASONS` |
+| `SetAsideReason` | "demolition sheet", "same unit labelled again", "part plan of one area", "future item", "existing to remain", "not a unit of this family", "count by unit register" | `SET_ASIDE_REASONS` |
 | `DemolitionAction` | "demo", "existing to remain", "relocation" | `DEMOLITION_ACTIONS` |
 
 `Flag` has no "future" value: `Device.mark` (T-005c) carries a future item. The last three enumerations are the
@@ -653,8 +653,8 @@ one area", enlarged_plan -> "same unit labelled again", else "not a unit of this
 Task 2.2 (the planner reads the register):
 ```
 recount(catalogue, register, typicals=()) -> {PREFIX: Recount(value, reason)}
-admit(prefix, entries, register, recount=None) -> (kept entries, [SetAside])
-count_question(family, printed, counted) -> str | None
+admit(prefix, entries, register, recount=None, breakdown=None) -> (kept entries, [SetAside])
+count_question(family, printed, counted, name="") -> str | None
 family_rows(register, family); counted_tags(register, family); uncounted_tags(register, family)
 plan_job(ledger, catalogue, dossier, playbook, register=None, typicals=()) -> Job
 Reader(ledger, dossier_sources=None, dossier_text="", totals=(), register=None, recount=None)
@@ -668,11 +668,20 @@ the register's count that the family's uncounted units (not in `COUNTED_STATUSES
 status: demolish / demolish_with_work "demolition sheet", existing_remain / relocate "existing to remain", future
 "future item"), replaces a "plan placements" number that differs from the recount by the recount (the number set
 aside), and adds the register's count (the sum of `Unit.count` of the counted units, citing the first one's refs).
-Each set-aside's note is "<n> set aside (<reason>); <count> <family> on the new-work sheets". The highest kept entry
+Each set-aside's note is "<n> set aside (<reason>); <count> <family> on the new-work sheets". T-007b: a dropped
+placement number is set aside by sheet when the counts line names them ("plan placements 21 (M-401 5; ...; MD-401
+5)", `breakdown`): one `SetAside` per reason, each with its own number (the parts add up to the dropped number) and
+its note naming its sheets ("16 set aside (part plan of one area: M-401, M-402, M-403, M-404); 5 AHU on the new-work
+sheets"). A sheet the register does not count has its kind's reason ("demolition sheet"); the sheets it counts are
+"part plan of one area" when of one area, else "same unit labelled again". A quote with no sheets keeps the single
+reason. The '*' line names the sheets and both numbers: "*AHU counted once on part plans M-401, M-402, M-403 and
+M-404: 16 set aside, 5 counted". `recount` reads a sheet the register admits even when the code types it as
+demolition (`inventory.placements(..., admitted=pages)`). The highest kept entry
 prints. `Reader.family` drops the register's uncounted tags from the family's tags. With a register `plan_job`
 returns the Job with the register's `sheets`, `units` and `future_items`, `set_aside` the register's then the
-planner's, and one question per family whose printed count fell below the code's count: "How many <family> units?
-<N> print from the new-work sheets; the code counted <M>." `attach` keeps the planner's set-asides after the
+planner's, and one question per family whose printed count fell below the code's count: "How many <Family plural>
+(<PREFIX>)? <N> print from the new-work sheets; the code counted <M>." (T-007b; e.g. "How many Air Handling Units
+(AHU)? 5 print ..."; `Reader._count` passes the family's name, from its family fact) `attach` keeps the planner's set-asides after the
 register's. With no register nothing changes.
 
 Task 2.3 (blocks from the register; T-007 review fixes). The register feeds T-005b's own paths:
@@ -683,7 +692,7 @@ After `link_dampers`, `serve_units` moves a non-valve family whose register unit
 into it whole, and a pump family's `with_plant` units into the plant's block. Every split or part move counts each
 tag by its register row (`Unit.count`; one for a tag with no row). A count never drops in silence (`_parts_hold`):
 when the units' total differs from the family's count, the higher prints, the lower is set aside on `Job.set_aside`
-(reason "not a unit of this family", the note giving both numbers) and one "<Family> (<PREFIX>): ...; confirm the
+(reason "count by unit register", the note giving both numbers) and one "<Family> (<PREFIX>): ...; confirm the
 count." question asks; when the family's count is the higher, the family is neither split nor moved (T-005b's
 guard). Before the systems are built, `register_tags` keeps in each family only the tags of its counted units when
 the register has rows for it.

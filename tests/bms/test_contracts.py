@@ -52,7 +52,7 @@ def test_enumerations_are_the_design_values():
                            "control_diagram", "other")
     assert UNIT_STATUSES == ("new", "demolish", "demolish_with_work", "existing_remain", "relocate", "future")
     assert SET_ASIDE_REASONS == ("demolition sheet", "same unit labelled again", "part plan of one area", "future item",
-                                 "existing to remain", "not a unit of this family")
+                                 "existing to remain", "not a unit of this family", "count by unit register")
     assert COUNTED_STATUSES == ("new",)                 # ruling 17: relocated units print in the Demolition Scope
 
 
