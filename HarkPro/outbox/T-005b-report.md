@@ -155,3 +155,27 @@ The AHU count of 21 in that ledger is T-005a's area.
    - (c) a Demolition block.
 2. Should an untied control valve stay in a valve block until answered (what I did: never undershoot)? Or should it
    go nowhere until the estimator answers?
+
+## Full-suite result
+
+I ran `python -m pytest tests -n 2 -p no:cacheprovider` in 4 chunks of the 199 test files. A sandbox restart killed
+a single whole run, so I used chunks.
+
+| Chunk | Passed | Skipped | Failed |
+|---|---|---|---|
+| 1 | 1519 | 0 | 5 |
+| 2 | 893 | 2 | 2 |
+| 3 | 1044 | 0 | 1 |
+| 4 | 1371 | 8 | 1 |
+| **Total** | **4827** | **10** | **9** |
+
+All 9 failures are accepted baseline tests:
+- the 5 `tests/bms/test_ai.py` chat tests;
+- `test_review_final3` (resource code);
+- `test_status_review` (normal-exit);
+- `test_assets` (project python);
+- `test_main` (open output folder).
+
+The two revert_audit baseline tests passed this time.
+
+Nothing failed outside the baseline.
