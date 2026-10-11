@@ -379,7 +379,10 @@ def job_folder(root: Path) -> Path | None:
     (the old app is given the job folder itself); else None."""
     chain = [Path(root), *Path(root).parents]
     for here, parent in zip(chain, chain[1:]):
-        if _TAKEOFFS_FOLDER.match(here.name) and parent.name:
+        # a folder named Takeoff inside "2. Takeoffs" matches the same word. Keep walking so the job folder is the
+        # parent of the outer takeoffs folder, not "2. Takeoffs" itself.
+        if (_TAKEOFFS_FOLDER.match(here.name) and parent.name
+                and not _TAKEOFFS_FOLDER.match(parent.name)):
             return parent
     return next((here for here in chain if _JOB_NUMBER_FOLDER.match(here.name)), None)
 
