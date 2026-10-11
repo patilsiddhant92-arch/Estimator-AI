@@ -20,3 +20,4 @@ Priority order for HarkPro: T-005e fixes, T-005d fixes, T-006. The estimator wan
 | T-005d | Writer and evidence: no "Assumed", loose devices, text cut | OPEN (sent back, see T-005d-fixes.md) | hark/T-005d | 2026-10-11 |
 | T-005e | Master Template format, GEM order, off-hours, prevailing wage | OPEN (sent back, see T-005e-fixes.md) | hark/T-005e | 2026-10-11 |
 | T-006 | Takeoff pass, Stage 1: sheet classes and unit register, no count changes | OPEN (waits for origin/takeoff/s1) | hark/T-006 | 2026-10-11 |
+| T-007 | Takeoff pass, Stage 2: the register binds counts and blocks (Tasks 2.1 to 2.5, 2.7, part of 2.6) | OPEN (waits for 'T-007 base ready') | hark/T-007 | 2026-10-11 |
