@@ -686,6 +686,10 @@ class FakeAnthropicClient:
             answer = {"facts": [], "contradictions": [], "confirmations": [], "understanding": "invented reading"}
             return _ApiStream(_ApiResponse(json.dumps(answer)))
 
+        # 1b. takeoff_job (from bms.takeoff)
+        if "units" in props and "sheets" in props:
+            return _ApiStream(_ApiResponse(json.dumps(takeoff_answer({"prompt": prompt}))))
+
         # 2. count_tags (from counts_vision)
         if "patterns" in props:
             patterns = [m.group(1).strip() for m in re.finditer(r"^Pattern \d+:\s*(.+)$", prompt, re.M)]
@@ -948,3 +952,62 @@ def test_a_folder_with_no_job_number_puts_the_cover_page_question_on_the_review_
     page = result.review.read_text(encoding="utf-8")
     assert "Open questions for the client" in page
     assert "Give the job number and the project name for the cover page" in page
+
+
+# ---- the takeoff pass (plan 2026-10-11, Task 1.6): a step after the reading; Stage 1 changes no count ------------------
+
+def test_a_run_waits_at_takeoff_after_reading(job_folder, tmp_path, monkeypatch):
+    from bms.model import Job
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    out, cache = tmp_path / "out", tmp_path / "cache"
+    stages, kinds = [], []
+    for _ in range(25):
+        result = estimate(job_folder, out, cache, "chat")
+        stages.append(result.stage)
+        if result.stage == "count" or result.status == "done":
+            break
+        waiting = [json.loads(p.read_text(encoding="utf-8"))
+                   for p in sorted((cache / "judge-chat" / "requests").glob("*.json"))]
+        kinds.append(sorted({r["kind"] for r in waiting}))
+        if result.stage == "takeoff":
+            assert kinds[-1] == ["takeoff_job"] and not (out / f"{JOB} Takeoff.json").exists()
+            (request,) = waiting
+            assert request["step"] == "takeoff" and request["system"] == "Takeoff"
+        answer_all(cache)
+    assert "takeoff" in stages and stages.index("takeoff") > stages.index("read"), stages
+    assert stages[stages.index("takeoff") + 1:][:1] == ["count"], stages      # read, then takeoff, then count
+    assert (out / f"{JOB} Takeoff.json").is_file()
+    job = Job.from_json((out / f"{JOB} Job.json").read_text(encoding="utf-8"))
+    assert job.sheets and job.units
+    assert {u.tag for u in job.units} >= {"VAV-1", "VAV-2", "VAV-3", "VAV-4"}
+
+
+def test_takeoff_changes_no_count(job_folder, tmp_path, monkeypatch):
+    """The Job a run saves after the counts cross-check has the family counts of plan_job and cross_check on the
+    same inputs without a takeoff."""
+    from bms import ai, run
+    from bms.counts import cross_check
+    from bms.model import Job
+    from bms.plan import plan_job
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    seen: dict = {}
+    real_plan = run.plan_job
+
+    def spy(ledger, catalogue, dossier, playbook):
+        seen.update(ledger=ledger, catalogue=catalogue, dossier=dossier, playbook=playbook)
+        return real_plan(ledger, catalogue, dossier, playbook)
+    monkeypatch.setattr(run, "plan_job", spy)
+    out, cache = tmp_path / "out", tmp_path / "cache"
+    result = _reach(job_folder, out, cache, "write")
+    assert result.stage == "write"
+    saved = Job.from_json(result.job_file.read_text(encoding="utf-8"))
+    assert saved.units and saved.sheets                              # the register is on the job
+
+    without = plan_job(seen["ledger"], seen["catalogue"], seen["dossier"], seen["playbook"])
+    assert without.units == () and without.sheets == ()
+    transport = ai.ChatTransport(cache, job=seen["dossier"].job_name)    # the count answers are cached
+    without = cross_check(without, seen["catalogue"], cache, transport=transport)
+
+    def counts(job):
+        return {(s.key, f.name): f.count for s in job.systems for f in s.families}
+    assert counts(saved) == counts(without) and counts(saved)

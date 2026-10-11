@@ -371,6 +371,22 @@ def test_save_and_load(tmp_path):
     assert takeoff.load(path) == register
 
 
+def test_save_leaves_a_file_that_holds_the_same_register(tmp_path, monkeypatch):
+    """Every later run reads the same cached answer: the file is not written again (a folder another program holds
+    does not stop the run for it)."""
+    register, _ = _take_off(fx.answer())
+    path = tmp_path / "00-1111 Takeoff.json"
+    assert takeoff.save(register, path) is True
+
+    def refuse(*_a):
+        raise PermissionError(13, "Access is denied (invented)")
+    monkeypatch.setattr(ai.os, "replace", refuse)
+    assert takeoff.save(register, path) is False
+    other = dataclasses.replace(register, questions=("How many AHU units?",))
+    with pytest.raises(PermissionError):
+        takeoff.save(other, path)
+
+
 # ---- Task 1.4: the prompt ---------------------------------------------------------------------------------------------
 
 def test_the_takeoff_prompt_carries_the_amended_ruling_list():

@@ -280,8 +280,17 @@ def attach(job: Job, takeoff: Takeoff) -> Job:
                                future_items=takeoff.future_items)
 
 
-def save(takeoff: Takeoff, path: Path) -> None:
-    ai._write_json(Path(path), {"version": VERSION, **takeoff.to_dict()}, indent=1)
+def save(takeoff: Takeoff, path: Path) -> bool:
+    """Write the register whole or not at all (`ai._write_json`); a file that already holds this register is left
+    as it is (every later run reads the same cached answer). True when it was written."""
+    path = Path(path)
+    try:
+        if load(path) == takeoff:
+            return False
+    except (OSError, ValueError, KeyError, TypeError, ModelError):
+        pass                        # missing, unreadable or another register: write it
+    ai._write_json(path, {"version": VERSION, **takeoff.to_dict()}, indent=1)
+    return True
 
 
 def load(path: Path) -> Takeoff:

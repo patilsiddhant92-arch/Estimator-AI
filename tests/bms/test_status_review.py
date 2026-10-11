@@ -148,8 +148,8 @@ def test_a_model_error_from_the_pipeline_still_raises(job_folder, tmp_path, monk
         return real_plan(*a, **k)
 
     monkeypatch.setattr(run, "plan_job", plan_once)
-    for _ in range(10):                                       # reading asks first; answer it
-        if run.estimate(job_folder, out, cache, "chat").stage != "read" or planned:
+    for _ in range(10):                                       # reading and the takeoff ask first; answer them
+        if run.estimate(job_folder, out, cache, "chat").stage not in ("read", "takeoff") or planned:
             break
         assert answer_all(cache)
     assert planned
