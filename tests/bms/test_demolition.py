@@ -127,3 +127,31 @@ def test_the_evidence_package_has_two_demolition_rows(tmp_path):
     assert rows[2][3] in ("", None)
     assert 'S2 | "FCU-2 remains" | M-201, Mech.pdf page 7' in rows[2][4]
     assert len(rows) == 3
+
+
+def test_the_price_sheet_has_a_red_labor_row_per_line(tmp_path):
+    from openpyxl import load_workbook
+
+    from estimator.__main__ import ALIASES, PRICE_BOOK, WORKUP_TEMPLATE
+    from estimator.price_sheet.price_book import PriceBook
+    from estimator.price_sheet.rows import HOURS, QUANTITY, SCOPE
+    from estimator.price_sheet.write import write_price_sheet
+
+    ref = Ref("S1", "shown for removal", "MD-101, Drawings.pdf page 6")
+    lines = (
+        DemolitionLine("AHU", "demo", 2, (ref,), "existing controls removed"),
+        DemolitionLine("VAV", "relocation", 1, (ref,)),
+    )
+    draft = render(replace(_sample(), demolition=lines), PLAYBOOK)
+    path = write_price_sheet(draft.scope, WORKUP_TEMPLATE, PriceBook.load(PRICE_BOOK, ALIASES), tmp_path / "s.xlsx")
+    ws = load_workbook(path)["Price Sheet 1"]
+    heading = next(row for row in range(6, 397) if ws.cell(row, SCOPE).value == "Demolition Scope")
+    assert ws.cell(heading + 1, SCOPE).value == "AHU demo"
+    assert ws.cell(heading + 1, QUANTITY).value == 2
+    assert ws.cell(heading + 1, HOURS).value is None
+    assert ws.cell(heading + 2, SCOPE).value == "VAV Relocation"
+    assert ws.cell(heading + 2, QUANTITY).value == 1
+    assert ws.cell(heading + 2, HOURS).value is None
+    for row in (heading + 1, heading + 2):
+        assert "C00000" in str(ws.cell(row, SCOPE).font.color.rgb)
+        assert "C00000" in str(ws.cell(row, QUANTITY).font.color.rgb)

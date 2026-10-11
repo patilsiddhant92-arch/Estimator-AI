@@ -24,6 +24,7 @@ QUANTITY_PENDING = "QUANTITY PENDING"       # a "Qty (##)" block or a "(Qty. ##)
 BASE_LABEL = "Base Bid"
 MAX_SHEETS = 10
 _FLAG_FONT = Font(bold=True, color="C00000")
+_RED_FONT = Font(color="C00000")          # a Demolition Scope labor row (T-G1): hours left for the estimator
 
 
 class PriceSheetError(ValueError):
@@ -84,6 +85,9 @@ def _fill(ws, sheet: Sheet, book: PriceBook) -> int:
                 ws.cell(r, UNIT_PRICE).value = match.price
                 if match.needs_review:
                     _flag(ws, r, PRICE_NEEDS_REVIEW)
+        if row.red:
+            for column in (HOURS, QUANTITY, SCOPE):
+                ws.cell(r, column).font = _RED_FONT
     return pending
 
 
