@@ -6,10 +6,11 @@ import re
 from dataclasses import dataclass, field, replace
 from functools import lru_cache
 
-from estimator.catalogue.tags import STATED_MOST, is_type_tag
+from estimator.catalogue.tags import STATED_MOST, is_type_tag, label_key
 from estimator.ledger.facts import Fact, Ledger, where_short
 from estimator.reading.inventory import _names
 
+from bms import ai_evidence
 from bms.model import Count, OtherCount, Ref
 
 _SPACES = re.compile(r"\s+")
@@ -247,6 +248,7 @@ class Reader:
         self._plans: dict[str, _PlanSheet] | None = None
         self._groups: dict | None = None
         self._counts_ids: dict[str, str] | None = None
+        self._schedule_list: list[_Schedule] | None = None
 
     # refs
     def where(self, source_id: str, depth: int = 0) -> str:
@@ -611,9 +613,42 @@ class Reader:
         return None
 
     def alternate(self, *names: str) -> str:
+        """The bid alternate the documents make of the system these names call: "add" or "deduct" when an "alternate"
+        note of the ledger naming one of them says so (the note wins), else when the title of the schedule that lists
+        its family says so (`_title_alternate`); "base" when neither does."""
         fact = self.note("alternate", *names)
-        value = squash(fact.value).casefold() if fact else ""
-        return "add" if value.startswith("add") else "deduct" if value.startswith("deduct") else "base"
+        if fact is not None:
+            value = squash(fact.value).casefold()
+            return "add" if value.startswith("add") else "deduct" if value.startswith("deduct") else "base"
+        return self._title_alternate(names)
+
+    def _title_alternate(self, names: tuple[str, ...]) -> str:
+        """The side of the alternate the titles of the schedules listing the families these names are the prefixes of
+        say (`alternate_in`; HP 23), when every such schedule says the same one. A schedule lists a family when a row
+        begins with one of its tags, or when a fact of the family cites its title, a row or a note. A family on
+        schedules that disagree (a base one and an alternate one) is "base": nothing says which of its units are the
+        alternate, so no part of the base bid is taken out of it."""
+        sides: list[str] = []
+        for name in dict.fromkeys(squash(n) for n in names if squash(n)):
+            family = self.family_by_prefix(name)
+            if family is None:
+                continue
+            tags = {label_key(t) for t in family.tags}
+            cited = self._cited(family.prefix)
+            sides += [alternate_in(s.title) or "base" for s in self._schedules() if tags & s.firsts or cited & s.ids]
+        return sides[0] if sides and len(set(sides)) == 1 else "base"
+
+    def _cited(self, prefix: str) -> set[str]:
+        """The source ids the family's own facts (family, unit and count, each with its contradictions) cite."""
+        key = squash(prefix).casefold()
+        return {sid for f in self.ledger.facts.values()
+                if f.kind in ("family", "unit", "count") and squash(f.subject).casefold() == key
+                for sid in (f.source_id, *(c.source_id for c in f.contradictions))}
+
+    def _schedules(self) -> list[_Schedule]:
+        if self._schedule_list is None:
+            self._schedule_list = _schedules_of(self.dossier_text)
+        return self._schedule_list
 
     def exception(self, *names: str) -> str:
         fact = self.note("exception", *names)
@@ -623,6 +658,65 @@ class Reader:
 _SOURCE_LINE = re.compile(r"^\s*\[([A-Za-z]{1,4}\d+[a-z]?)\]\s?(.*)$")
 _COUNTS_CLAUSE = re.compile(r"\b(schedule rows|quantity column total|distinct tags|plan placements|riser)\s+(\d+)\b",
                             re.I)
+
+
+# ---- a bid alternate a schedule's title names (HP 23) ---------------------------------------------------------------
+
+_ALT = r"alt(?:ernates?)?\b\.?"
+_ADD_ALTERNATE = re.compile(rf"\b(?:add|additive|added)\.?[\s-]+{_ALT}", re.I)
+_DEDUCT_ALTERNATE = re.compile(rf"\b(?:deduct|deductive|deducted)\.?[\s-]+{_ALT}", re.I)
+_NOT_ALTERNATE = re.compile(r"\b(?:no|not|non|without)\s+(?:an?\s+)?$", re.I)
+
+
+def alternate_in(title: str) -> str:
+    """"add" or "deduct" when a schedule's title says it is that bid alternate ("ADD ALTERNATE", "ADD ALT. NO. 2",
+    "ADDITIVE ALTERNATE #1", "DEDUCT ALTERNATE", "DEDUCTIVE ALTERNATE"); "" when it says none, or says both, or says it
+    is not one ("NO ADD ALTERNATE"). An alternate that is only numbered ("ALTERNATE #1") says no side: never
+    invented."""
+    title = squash(title)
+    sides = {side for side, pattern in (("add", _ADD_ALTERNATE), ("deduct", _DEDUCT_ALTERNATE))
+             for m in pattern.finditer(title) if not _NOT_ALTERNATE.search(title[:m.start()])}
+    return sides.pop() if len(sides) == 1 else ""
+
+
+@dataclass(frozen=True)
+class _Schedule:
+    """A schedule of the dossier's schedule part: its title (the words of its title line before its place), the source
+    ids of its title line, rows and notes, and the label keys of the tags its rows begin with."""
+    title: str
+    ids: frozenset[str]
+    firsts: frozenset[str]
+
+
+_SCHEDULE_NOTES = ("Note:", "Unit controls by:")       # how the dossier's lines of a schedule's notes begin
+_ENTRY_ID = re.compile(r"^\[[A-Za-z]{1,4}\d+[a-z]?\]\s?")
+_ROW_COUNT = re.compile(r"\(\d+ rows?\b[^)]*\)\s*$")    # the end of a title line: "(2 rows)", "(1 row; type rows)"
+
+
+def _schedules_of(text: str) -> list[_Schedule]:
+    """The schedules in the schedule part of the dossier text, as `estimator.writing.dossier` writes them: a title line
+    with its place and row count ("[S1] AIR PURIFIER (ADD ALTERNATE) — M-401, Drawings.pdf page 7 (2 rows)"), then its
+    rows ("[S6] AP-1 | AHU-1", or "[S6] AP-1" alone when the schedule has one column; the row of an existing unit ends
+    "(EXISTING)"; a first cell may name a range) and its notes. Entries in any other part are no schedule's."""
+    found: list[_Schedule] = []
+    title, ids, firsts = None, set(), set()
+    for entry in ai_evidence.parse(text):
+        if entry.part != ai_evidence.SCHEDULES or entry.sid is None:
+            continue
+        line = _ENTRY_ID.sub("", entry.body.split("\n", 1)[0])      # an entry of several lines keeps its id in `body`
+        if line.startswith(_SCHEDULE_NOTES):
+            ids.add(entry.sid)
+        elif " — " in line and ("|" not in line or _ROW_COUNT.search(line)):
+            if title is not None:
+                found.append(_Schedule(title, frozenset(ids), frozenset(firsts)))
+            title, ids, firsts = squash(line.split(" — ", 1)[0]), {entry.sid}, set()
+        else:
+            cell = re.sub(r"\([^()]*\)\s*$", "", line.split("|", 1)[0]).strip()
+            ids.add(entry.sid)
+            firsts |= {label_key(tag) for tag in [cell, *expand([cell])] if tag}
+    if title is not None:
+        found.append(_Schedule(title, frozenset(ids), frozenset(firsts)))
+    return found
 
 
 def counts_clauses(quote: str) -> list[tuple[str, int]]:
