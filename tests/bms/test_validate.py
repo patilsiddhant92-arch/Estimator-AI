@@ -571,14 +571,15 @@ def test_a_citation_with_no_place_is_a_must_fix(job):
 
 
 def test_an_unknown_device_quantity_with_no_clarification_is_a_check(job):
-    """VAL-15: a line whose wording prints its quantity, with the quantity unknown, prints "(Qty. ##)": the block
-    needs a confirm or per-drawings clarification."""
+    """VAL-15: a line whose wording prints its quantity, with the quantity unknown, prints "Qty (##)" in front: the
+    block needs a confirm or per-drawings clarification."""
     j = edit_device(job, "EF", "EF.d1", quantity=Count(None))
     assert rules(validate(j, PB), RULE["unknown"]) == [(RULE["unknown"], "EF", "EF.d1", "check")]
     # with a confirm clarification, or on a line whose wording prints no quantity, it is clean
     j2 = edit(j, "EF", clarifications=(Clarification("confirm", "confirm the controller count"),))
     assert rules(validate(j2, PB), RULE["unknown"]) == []
-    j3 = edit_device(job, "EF", "EF.d2", quantity=Count(None))
+    # map_points is a fixed line: no {verb} and no {device}, so it prints no quantity
+    j3 = edit_device(job, "RTU", "RTU.d2", quantity=Count(None))
     assert rules(validate(j3, PB), RULE["unknown"]) == []
 
 
