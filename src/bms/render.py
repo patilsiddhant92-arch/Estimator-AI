@@ -755,9 +755,13 @@ def _gem_devices(system: System, shape: Shape | None, playbook: Playbook) -> tup
     - a valve is always Furnish and Wire (GEM v4 ~228): one written Furnish and Install prints Furnish and Wire;
     - a valve inside a factory-controlled unit (packaged or integration control) that the unit maker furnishes and AME
       does not install is not a controls line (GEM v4 ~291, ~294): left out;
-    - a pump AME's own DDC controller runs always gets VFD Control with its Start/Stop and Status (GEM v4 ~346-349):
-      a block under field control whose pump Start/Stop line has no VFD Control line for that pump gets one, citing
-      the Start/Stop line's sources (`bms.order.minimum_points`). Fault and speed feedback are never added.
+    - a pump AME's own DDC controller runs gets VFD Control with its Start/Stop and Status only when the documents
+      show a VFD on that pump (playbook/rules.md "Minimum points on AME-run equipment": "VFD Control when the
+      equipment has a VFD"; lead ruling 2026-10-11, the Playbook wins over GEM v4 ~346-349): a block under field
+      control whose pump Start/Stop line has no VFD Control line for that pump, but another line of the block names
+      that pump's VFD (a VFD fault or speed feedback) or the Start/Stop line's own quote names a VFD, gets one, citing
+      the Start/Stop line's sources (`bms.order.minimum_points`). A constant-speed pump gets none. Fault and speed
+      feedback are never added.
     Pure: the Job is not changed."""
     rules = gem_module.valve_rules()
     factory = system.control in tuple(rules.get("factory_controls", ("packaged", "integration")))
@@ -783,6 +787,7 @@ def _pump_minimums(system: System, shape: Shape | None, devices: list[Device]) -
     pump, start, vfd, not_control = (re.compile(words[k], re.I) for k in ("pump", "start_stop", "vfd_control",
                                                                           "not_control"))
     controls = [d.name for d in devices if vfd.search(d.name) and not not_control.search(d.name)]
+    named_vfd = [d.name for d in devices if vfd.search(d.name)]          # any line naming a VFD (control, fault ...)
     starts = [d for d in devices if d.verb == "Furnish" and d.furnished_by == "AME" and pump.search(d.name)
               and start.search(d.name)]
     added: list[Device] = []
@@ -792,6 +797,10 @@ def _pump_minimums(system: System, shape: Shape | None, devices: list[Device]) -
             continue
         mine = [c for c in controls if stem.lower() in c.lower()]
         if mine or (len(starts) == 1 and any(pump.search(c) for c in controls)):
+            continue
+        # the Playbook wins (rules.md "Minimum points on AME-run equipment"): only a pump the documents show with a
+        # VFD gets VFD Control; a constant-speed pump gets none (lead ruling 2026-10-11)
+        if not (any(stem.lower() in n.lower() for n in named_vfd) or any(vfd.search(r.quote or "") for r in d.refs)):
             continue
         line_order = shape.line_order if shape is not None else ()
         slot = next((s for s in (d.slot.replace("start_stop", "vfd_control"), d.slot.replace("start_stop", "vfd"))

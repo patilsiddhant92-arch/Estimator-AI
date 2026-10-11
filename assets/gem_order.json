@@ -410,7 +410,7 @@
     }
   },
   "minimum_points": {
-    "about": "GEM v4 'MANDATORY MINIMUM POINTS - PUMPS' (~346-351): a pump AME's own DDC controller runs always gets Start/Stop and Status and VFD Control; fault and speed feedback print only when the documents call them (they are never added). A block under field control whose pump Start/Stop line has no VFD Control line for that pump gets one, citing the Start/Stop line's sources, in the shape's VFD slot for that pump (start_stop -> vfd_control, else vfd), else other_point.",
+    "about": "A pump AME's own DDC controller runs gets Start/Stop and Status; VFD Control only when the documents show a VFD on that pump (playbook/rules.md 'Minimum points on AME-run equipment'; lead ruling 2026-10-11: the Playbook wins over GEM v4 ~346-351 'always'). Fault and speed feedback print only when the documents call them (they are never added). A block under field control whose pump Start/Stop line has no VFD Control line for that pump, but another line of the block names that pump's VFD (vfd_control words, e.g. a VFD Fault) or the Start/Stop line's own quote names a VFD, gets one, citing the Start/Stop line's sources, in the shape's VFD slot for that pump (start_stop -> vfd_control, else vfd), else other_point.",
     "pump": "\\bpumps?\\b",
     "start_stop": "\\bstart\\s*[/-]?\\s*stop\\b",
     "stem_end": "\\s*\\bstart\\s*[/-]?\\s*stop\\b.*$",
