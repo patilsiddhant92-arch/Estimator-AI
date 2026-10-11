@@ -216,14 +216,15 @@ where it is. The estimator decides on review. Every count that differs from the 
 (see Quantities print in the line).
 
 ### Never undershoot
-Never print a count lower than one the documents give. Never invent a number. An unknown count prints "Qty (##)"
-in a header and "(Qty. ##)" on a line, flagged to confirm. The only exceptions, here and in Higher count prints, are
-the units on demolition sheets, whose count moves to Demolition Scope with its number, and a duplicate label of one
-unit on two part plans, which a short "*" line names with both numbers.
+Never print a count lower than one the documents give. Never invent a number. An unknown count prints "Qty (##)", in
+a header and in front of a line, flagged to confirm. The only exceptions, here and in Higher count prints, are the
+units on demolition sheets, whose count moves to Demolition Scope with its number, and a duplicate label of one unit
+on two part plans, which a short "*" line names with both numbers.
 
 ### Line quantity
-A line's quantity prints only when it differs from the block's count, as "(Qty. N Total)". Identical lines for
-several units are one line with the total ("Furnish Chiller Enable (Qty. 6 Total)"), never one line per tag.
+A line's quantity prints only when it differs from the block's count, in front of the line, as
+"Qty (N) <device line>". When it equals the block's count, the line has no quantity in front. Identical lines for
+several units are one line with the total ("Qty (6) Furnish Chiller Enable"), never one line per tag.
 
 ### Systems named only in the sequence
 A system the sequence names but no drawing shows (an emergency generator, plumbing pumps, domestic water heaters,
@@ -242,11 +243,11 @@ One unit can show on two part plans that share an area. Count it once. The other
 unit. A short "*" line gives both numbers.
 
 ### Quantities print in the line
-A quantity prints in the line it counts. The block heading keeps "Qty (#) <system>". A device line inside a block
-starts with its count, "Qty (#) <device>", when the device count differs from the block count (for example "Qty (33)
-Furnish and Install Space Temperature Sensor"). It is never a bracket "(Qty. N Total)" at the end of the line. There
-is no separate quantity note. When two counts differ, the line prints the highest and names each other count with
-where it is, in brackets, for example "(4 per plan placements)".
+A quantity prints in the line it counts. The block heading keeps "Qty (n) <system>". A device line inside a block
+starts with its count, "Qty (N) <device line>", when the device count differs from the block count (for example
+"Qty (33) Furnish and Install Space Temperature Sensor"). It is never a bracket "(Qty. N Total)" at the end of the
+line. There is no separate quantity note. When two counts differ, the line prints the highest and names each other
+count with where it is, in brackets, for example "(4 per plan placements)".
 
 ## Clarifications and assumptions
 
@@ -651,11 +652,12 @@ stations, valves; Install and Wire; other Wire; wiring runs and plain work state
 testing); the integration lines last; then the block's one clarification.
 
 ### Line form
-Each line starts with its verb, or with an interlock, tie-in or wiring phrase when it has no verb. No bullets, no
-category or verb-group headers, no dash after the verb. Details go after the device in brackets: the owner, the
-quantity "(Qty. N Total)", "(as per sequence)", "(Location: ...)". A combined sensor the documents name as one
-("temperature and humidity sensor") is one line; named separately, two lines. A filter switch is one line per filter
-stage in the documents' name. A line is at most 160 characters.
+Each line starts with its verb, or with an interlock, tie-in or wiring phrase when it has no verb. A line whose count
+differs from the block's count starts with "Qty (N)" before that (see Line quantity). No bullets, no category or
+verb-group headers, no dash after the verb. Details go after the device in brackets: the owner, "(as per sequence)",
+"(Location: ...)". A combined sensor the documents name as one ("temperature and humidity sensor") is one line; named
+separately, two lines. A filter switch is one line per filter stage in the documents' name. A line is at most 160
+characters.
 
 ### Sub-lines under their parent
 Some lines print one level in, directly under a parent line, as the Master Template prints them: gas detection
@@ -667,8 +669,9 @@ with its slot set, its citation and its quantity, right after its parent device,
 ownership (the same furnished, installed and wired by). A sub-line needs its parent line in the same block.
 
 ### Untemplated systems
-A system with no shape is still written, from its evidence, in the house form "<verb> <device><owner><quantity>",
-in the standard order, under a header "Qty (n) <name> <tags>". Every rule in this book applies to it.
+A system with no shape is still written, from its evidence, in the house form "<quantity><verb> <device><owner>" (the
+quantity first, see Line quantity), in the standard order, under a header "Qty (n) <name> <tags>". Every rule in this
+book applies to it.
 
 ### One system one block
 Each system the documents describe is its own block, from its own sequence section; systems are never collapsed
