@@ -64,13 +64,13 @@ def _penthouse(extra_pages=(), extra_sheets=(), schedule=True):
     text = "\n".join(UNITS)
     pages = [_page(DWG, 1, text), _page(DWG, 2, text), _page(DWG, 3, text), _page(DWG, 4, text),
              _page(DWG, 5, "AHU SCHEDULE\n" + text), *extra_pages]
-    sheets = [_sheet(1, "M114.00", "MECHANICAL CONSTRUCTION DUCTWORK PENTHOUSE PLAN"),
-              _sheet(2, "M214.00", "MECHANICAL CONSTRUCTION PIPING PENTHOUSE PLAN"),
-              _sheet(3, "M314.00", "MECHANICAL CONSTRUCTION EQUIPMENT PENTHOUSE PLAN"),
-              _sheet(4, "M315.00", "MECHANICAL CONSTRUCTION PENTHOUSE ROOF PLAN"),
-              _sheet(5, "M610.00", "MECHANICAL SCHEDULES", types=("Schedules",)), *extra_sheets]
+    sheets = [_sheet(1, "M184.00", "MECHANICAL CONSTRUCTION DUCTWORK PENTHOUSE PLAN"),
+              _sheet(2, "M284.00", "MECHANICAL CONSTRUCTION PIPING PENTHOUSE PLAN"),
+              _sheet(3, "M384.00", "MECHANICAL CONSTRUCTION EQUIPMENT PENTHOUSE PLAN"),
+              _sheet(4, "M385.00", "MECHANICAL CONSTRUCTION PENTHOUSE ROOF PLAN"),
+              _sheet(5, "M680.00", "MECHANICAL SCHEDULES", types=("Schedules",)), *extra_sheets]
     tags = UNITS + ["AHU-6"]
-    reading = _reading([_schedule("AHU SCHEDULE", UNITS, 5, sheet="M610.00")] if schedule else [])
+    reading = _reading([_schedule("AHU SCHEDULE", UNITS, 5, sheet="M680.00")] if schedule else [])
     return _catalogue(pages, sheets, tags), reading
 
 
@@ -79,7 +79,7 @@ def test_a_unit_on_four_plans_of_one_penthouse_counts_once_and_the_duplicates_ar
     d = build_dossier(catalogue, reading, tmp_path)
     assert d.counts["AHU"]["plan_placements"] == 5               # was 20: 5 tags x 4 plans
     line = _line("AHU", d)
-    assert "AHU-1 is on 4 plans (M114.00, M214.00, M314.00 …), counted once, 1" in line
+    assert "AHU-1 is on 4 plans (M184.00, M284.00, M384.00 …), counted once, 1" in line
     assert "a numbered unit tag is one unit in the job" in line
     assert "if each plan's AHU-1 is its own unit (a type used once per plan), 4" in line     # both numbers, for the estimator
 
@@ -95,8 +95,8 @@ def test_part_plans_that_overlap_count_a_unit_once_with_a_note(tmp_path):
 
 def test_a_type_tag_still_counts_at_every_place_on_new_work_plans(tmp_path):
     pages = [_page(DWG, 1, "\n".join(["FCU-1"] * 30)), _page(DWG, 2, "\n".join(["FCU-1"] * 25))]
-    sheets = [_sheet(1, "M111.00", "MECHANICAL CONSTRUCTION DUCTWORK FIRST FLOOR PLAN"),
-              _sheet(2, "M112.00", "MECHANICAL CONSTRUCTION DUCTWORK SECOND FLOOR PLAN")]
+    sheets = [_sheet(1, "M181.00", "MECHANICAL CONSTRUCTION DUCTWORK FIRST FLOOR PLAN"),
+              _sheet(2, "M182.00", "MECHANICAL CONSTRUCTION DUCTWORK SECOND FLOOR PLAN")]
     d = build_dossier(_catalogue(pages, sheets, ["FCU-1"]), _reading(), tmp_path)
     assert d.counts["FCU"]["plan_placements"] == 55
 
@@ -112,11 +112,11 @@ def test_the_inventory_counts_a_unit_on_four_plans_once():
 
 def _with_demolition(note=""):
     pages = [_page(DWG, 6, "AHU-6\nEF-6\nAHU-1"), _page(DWG, 7, "\n".join(["FCU-1"] * 3))]
-    sheets = [_sheet(6, "MD 315.00", "MECHANICAL DEMOLITION PENTHOUSE ROOF PLAN", types=DEMO),
-              _sheet(7, "MD 111.00", "MECHANICAL DEMOLITION DUCTWORK FIRST FLOOR PLAN", types=DEMO)]
+    sheets = [_sheet(6, "MD 385.00", "MECHANICAL DEMOLITION PENTHOUSE ROOF PLAN", types=DEMO),
+              _sheet(7, "MD 181.00", "MECHANICAL DEMOLITION DUCTWORK FIRST FLOOR PLAN", types=DEMO)]
     if note:
         pages.append(_page(DWG, 8, f"GENERAL NOTES\n1. {note}"))
-        sheets.append(_sheet(8, "M001.00", "MECHANICAL GENERAL NOTES AND LEGENDS", types=("Notes and legends",)))
+        sheets.append(_sheet(8, "M008.00", "MECHANICAL GENERAL NOTES AND LEGENDS", types=("Notes and legends",)))
     return pages, sheets
 
 
@@ -126,19 +126,19 @@ def test_a_unit_only_on_a_demolition_plan_is_left_out_and_named_with_both_number
     d = build_dossier(catalogue, reading, tmp_path)
     assert d.counts["AHU"]["plan_placements"] == 5               # was 21 on 26-0544
     line = _line("AHU", d)
-    assert ("AHU-6 is on demolition sheets only (MD 315.00): left out of the count, 5; with the demolition sheets, "
+    assert ("AHU-6 is on demolition sheets only (MD 385.00): left out of the count, 5; with the demolition sheets, "
             "6") in line
     assert "AHU-6" not in line.split("Tags:")[1].split(".")[0]   # not among the counted tags
 
 
 def test_a_type_tag_on_a_demolition_plan_is_left_out_and_named_with_both_numbers(tmp_path):
     new = [_page(DWG, 1, "\n".join(["FCU-1"] * 5))]
-    sheet = [_sheet(1, "M111.00", "MECHANICAL CONSTRUCTION DUCTWORK FIRST FLOOR PLAN")]
+    sheet = [_sheet(1, "M181.00", "MECHANICAL CONSTRUCTION DUCTWORK FIRST FLOOR PLAN")]
     pages, sheets = _with_demolition()
     d = build_dossier(_catalogue(new + pages, sheet + sheets, ["FCU-1", "AHU-1", "AHU-6", "EF-6"]), _reading(),
                       tmp_path)
     assert d.counts["FCU"]["plan_placements"] == 5
-    assert ("FCU-1 has 3 more labels on demolition sheets (MD 111.00): left out of the count, 5; with the demolition "
+    assert ("FCU-1 has 3 more labels on demolition sheets (MD 181.00): left out of the count, 5; with the demolition "
             "sheets, 8") in _line("FCU", d)
 
 
@@ -151,8 +151,8 @@ def test_a_unit_on_a_demolition_plan_with_work_named_on_it_is_not_added_and_its_
     d = build_dossier(catalogue, reading, tmp_path)
     assert d.counts["AHU"]["plan_placements"] == 5
     line = _line("AHU", d)
-    assert "AHU-6 is on demolition sheets only (MD 315.00): left out of the count, 5; with the demolition sheets, 6" in line
-    assert ("AHU-6 on demolition sheets (MD 315.00): the documents name work on it ('1. REFURBISH EXISTING AHU-6 AND "
+    assert "AHU-6 is on demolition sheets only (MD 385.00): left out of the count, 5; with the demolition sheets, 6" in line
+    assert ("AHU-6 on demolition sheets (MD 385.00): the documents name work on it ('1. REFURBISH EXISTING AHU-6 AND "
             "RELOCATE ITS SPACE SENSOR.'): for the Demolition Scope, not added to the new-work count") in line
 
 
@@ -161,12 +161,12 @@ def test_the_inventory_leaves_a_demolition_unit_out():
     catalogue, _r = _penthouse(pages, sheets)
     placed = placements(catalogue, UNITS + ["AHU-6"])
     assert "AHU-6" not in placed or placed["AHU-6"].count == 0
-    assert placed["AHU-1"].count == 1 and "MD 315.00" not in placed["AHU-1"].on_plans
+    assert placed["AHU-1"].count == 1 and "MD 385.00" not in placed["AHU-1"].on_plans
 
 
 def test_a_removal_line_names_no_work():
     pages = [_page(DWG, 1, "1. REMOVE EXISTING AHU-6 IN ITS ENTIRETY.\n2. EF-6 EXISTING TO REMAIN.")]
-    catalogue = _catalogue(pages, [_sheet(1, "M001.00", "NOTES", types=("Notes and legends",))], ["AHU-6", "EF-6"])
+    catalogue = _catalogue(pages, [_sheet(1, "M008.00", "NOTES", types=("Notes and legends",))], ["AHU-6", "EF-6"])
     assert demolition_work(catalogue, ["AHU-6", "EF-6"]) == {}
 
 
@@ -181,16 +181,16 @@ def test_thermostats_on_a_demolition_plan_are_not_counted_and_the_flag_says_both
     path = make_pdf(tmp_path / "Mech.pdf", new, demo)
     doc = pymupdf.open(str(path))
     try:
-        sheets = (Sheet("Mech.pdf", 1, "M111.00", "MECHANICAL CONSTRUCTION FIRST FLOOR PLAN", "Mechanical", ("Plans",)),
-                  Sheet("Mech.pdf", 2, "MD 111.00", "MECHANICAL DEMOLITION FIRST FLOOR PLAN", "Mechanical", DEMO))
+        sheets = (Sheet("Mech.pdf", 1, "M181.00", "MECHANICAL CONSTRUCTION FIRST FLOOR PLAN", "Mechanical", ("Plans",)),
+                  Sheet("Mech.pdf", 2, "MD 181.00", "MECHANICAL DEMOLITION FIRST FLOOR PLAN", "Mechanical", DEMO))
         pages = tuple(PageRecord("Mech.pdf", i, "text", f"page {i}", 0, True) for i in (1, 2))
         catalogue = SimpleNamespace(pages=pages, sheets=sheets)
         counts, flags = count_devices(catalogue, lambda d, p: doc[p - 1], [], [], pages={("Mech.pdf", 1),
                                                                                           ("Mech.pdf", 2)})
     finally:
         doc.close()
-    assert [(c.sheet, c.label, c.total) for c in counts] == [("M111.00", "T", 2)]
-    assert any("'T' 3 more on demolition sheets (MD 111.00): left out of the count, 2; with them, 5" in f
+    assert [(c.sheet, c.label, c.total) for c in counts] == [("M181.00", "T", 2)]
+    assert any("'T' 3 more on demolition sheets (MD 181.00): left out of the count, 2; with them, 5" in f
                for f in flags)
 
 
