@@ -11,8 +11,9 @@ most one question per family.
 - `check_answer(...)` refuses an answer that leaves a sheet out, gives one twice or names an unknown one; a plan with
   no area; a scheduled tag with no unit row; a ref whose id the job does not know or whose quote is not in it; a
   demolition sheet that counts with no ref; two rows for one unit; `serves` naming no unit; a scheduled unit set
-  aside, or counted below the schedule, without a reason and a cited passage other than the schedule itself (the
-  schedule floor: the scheduled rows, plus the numeric quantity column when the schedule has one).
+  aside, or counted below the schedule, without a reason and a cited passage other than the schedule and the unit's
+  own schedule row (the schedule floor: the scheduled rows, plus the numeric quantity column when the schedule has
+  one).
 - `take_off(...)` asks through the run's transport (chat or API) with those checks; `ai.NoAnswer` as the writers.
 - `attach(job, takeoff)` puts the register on the Job. Stage 1 changes no count: nothing reads the register yet.
 - `save` / `load`: `out/<quote> Takeoff.json`.
@@ -148,35 +149,43 @@ def _ref_problem(ref: Ref, ledger, index: dict) -> str | None:
     return None
 
 
-def _scheduled(reading) -> dict[str, tuple[str, int, str]]:
-    """Each scheduled tag (plain) -> (the tag as printed, its floor, its schedule's "<sheet> <title>"): the floor is
-    one per row, or the row's numeric quantity column when the schedule has one. The reading already lists one row
-    per tag ("A THRU C" rows are expanded)."""
-    floor: dict[str, tuple[str, int, str]] = {}
+def _scheduled(reading) -> dict[str, tuple[str, int, tuple[str, ...]]]:
+    """Each scheduled tag (plain) -> (the tag as printed, its floor, the source-name prefixes that are the schedule
+    itself for that row): the floor is one per row, or the row's numeric quantity column when the schedule has one.
+    The reading already lists one row per tag ("A THRU C" rows are expanded)."""
+    floor: dict[str, tuple[str, int, tuple[str, ...]]] = {}
     for schedule in getattr(reading, "schedules", ()) or ():
         if getattr(schedule, "passive", False):
             continue
         quantity = next((h for h in schedule.headers if _QUANTITY.match(str(h))), None)
-        name = f"{schedule.sheet or '-'} {schedule.title}"
         for row in schedule.rows:
             if not row.tag:
                 continue
             number = _NUMBER.match(str(row.cells.get(quantity, ""))) if quantity else None
             least = int(number.group(1)) if number else 1
-            tag, before, _ = floor.get(_plain(row.tag), (row.tag, 0, name))
-            floor[_plain(row.tag)] = (tag, max(before, least), name)
+            tag, before, own = floor.get(_plain(row.tag), (row.tag, 0, ()))
+            floor[_plain(row.tag)] = (tag, max(before, least), own + _own_sources(schedule, row.tag))
     return floor
 
 
-def _cites_beyond(unit: Unit, schedule: str, ledger) -> bool:
-    """The unit cites a passage other than its schedule: a ref whose source (a fact's own source) is not the
-    schedule's ("M-601 AIR HANDLING UNIT SCHEDULE, Mech.pdf page 1" is the schedule "M-601 AIR HANDLING UNIT
-    SCHEDULE")."""
+def _own_sources(schedule, tag: str) -> tuple[str, ...]:
+    """The names the dossier gives the schedule and this tag's row (`estimator.writing.dossier`): the schedule
+    "<sheet> <title>, <document> page <n>" ("<title>, ..." with no sheet) and the row "<title> row <tag>, <where>".
+    The schedule's notes ("<title> notes, ...") are other passages."""
+    head = f"{schedule.sheet} {schedule.title}" if schedule.sheet else schedule.title
+    return (f"{head}, ", f"{schedule.title} row {tag}, ")
+
+
+def _cites_beyond(unit: Unit, own: tuple[str, ...], ledger) -> bool:
+    """The unit cites a passage other than its schedule and its own schedule row: a ref whose source (a fact's own
+    source) is not named as the schedule or that row ("M-601 AIR HANDLING UNIT SCHEDULE, Mech.pdf page 1" is the
+    schedule; "AIR HANDLING UNIT SCHEDULE row AHU-5, M-601, Mech.pdf page 1" is the row of AHU-5)."""
     for ref in unit.refs:
         sid = str(ref.source_id).strip().strip("[]")
         fact = ledger.facts.get(sid)
         source = fact.source_id if fact is not None else sid
-        if not str(ledger.sources.get(source, "")).startswith(f"{schedule},"):
+        name = str(ledger.sources.get(source, ""))
+        if not any(name.startswith(prefix) for prefix in own):
             return True
     return False
 
@@ -213,12 +222,12 @@ def _problems(takeoff: Takeoff, ledger, catalogue, reading, index: dict) -> list
             problems.append(f"unit {unit.tag} serves {unit.serves}, which is no unit of the register")
     # the schedule floor
     by_tag = {_plain(u.tag): u for u in takeoff.units}
-    for plain, (tag, least, schedule) in _scheduled(reading).items():
+    for plain, (tag, least, own) in _scheduled(reading).items():
         unit = by_tag.get(plain)
         if unit is None:
             problems.append(f"scheduled tag {tag} has no unit row")
             continue
-        explained = bool(unit.reason.strip()) and _cites_beyond(unit, schedule, ledger)
+        explained = bool(unit.reason.strip()) and _cites_beyond(unit, own, ledger)
         if unit.status not in COUNTED_STATUSES and not explained:
             problems.append(f"unit {unit.tag} is scheduled but its status is {unit.status}: give the reason and cite "
                             "the passage that sets the scheduled row aside")

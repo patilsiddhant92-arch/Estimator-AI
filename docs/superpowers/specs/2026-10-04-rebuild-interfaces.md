@@ -617,7 +617,8 @@ no ledger fact or source of the job (`ai.evidence_index(dossier)`), or whose quo
 fact's quote and value or that source's text; and the schedule floor: every scheduled tag (one row per tag, as the
 reading lists them) has a unit row; a scheduled unit whose status is not in `COUNTED_STATUSES`, or whose count is
 below its floor (1 per row, or the row's numeric QTY / QUANTITY column), needs a reason and a ref to a passage other
-than its own schedule. `attach` replaces `sheets`, `units`, `set_aside` and `future_items` only. `save` writes
+than its own schedule and its own schedule row (by the source's name: "<sheet> <title>, ..." or "<title> row <tag>, ...";
+a fact counts by its own source; the schedule's notes are other passages). `attach` replaces `sheets`, `units`, `set_aside` and `future_items` only. `save` writes
 `{"version": 1, "sheets": [...], "units": [...], "set_aside": [...], "future_items": [...], "questions": [...]}`
 whole or not at all (`ai._write_json`) and returns True; a file that already holds the same register is left as it
 is (False): every later run reads the same cached answer.
