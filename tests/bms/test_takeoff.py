@@ -384,3 +384,15 @@ def test_the_takeoff_prompt_carries_the_amended_ruling_list():
     # the plan's words, with its examples in “ ”: a straight-quoted capitalised phrase in a prompt is a rule citation
     # (`playbook_lint.prompt_rule_names`), and "Demolition Scope" or "Level 2 east" is no Playbook rule
     assert '"' not in text and "“Demolition Scope”" in text and "(“Attic”, “Level 2 east”)" in text
+
+
+# ---- Task 1.5: the run tests' answerer --------------------------------------------------------------------------------
+
+def test_the_run_tests_answerer_answers_a_takeoff_request_the_checks_keep():
+    _, transport = _take_off(fx.answer())
+    answer = fx.takeoff_answer({"prompt": transport.asked[0]["prompt"]})
+    value, problems = _check(answer)
+    assert problems == [] and len(value.sheets) == 10 and all(s.kind == "new_work" for s in value.sheets)
+    assert [u.tag for u in value.units] == [*(f"AHU-{n}" for n in range(1, 6)), *(f"EF-{n}" for n in range(1, 6)),
+                                            "ERU-1", "FCU-1"]
+    assert {u.refs[0].source_id for u in value.units} == {"F3", "F6", "F9", "F12"}

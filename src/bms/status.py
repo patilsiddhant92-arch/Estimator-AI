@@ -31,10 +31,11 @@ from pathlib import Path
 
 RUN_STATE = "run state.json"        # out/: "running", then how the last run ended; written by bms.run.estimate
 REVIEW_PAGE = "Review.html"
-_ORDER = ("read", "count", "write", "decisions", "qc", "revise", "done")
-_KIND_STAGE = {"read_pass": "read", "read_schedule": "read", "count_tags": "count", "write_system": "write",
-               "qc_job": "qc"}
-_STEP_STAGE = {"count": "count", "write": "write", "decide": "write", "revise": "revise", "qc": "qc"}
+_ORDER = ("read", "takeoff", "count", "write", "decisions", "qc", "revise", "done")
+_KIND_STAGE = {"read_pass": "read", "read_schedule": "read", "takeoff_job": "takeoff", "count_tags": "count",
+               "write_system": "write", "qc_job": "qc"}
+_STEP_STAGE = {"takeoff": "takeoff", "count": "count", "write": "write", "decide": "write", "revise": "revise",
+               "qc": "qc"}
 _SHOWN = 10                         # names shown on one line before "and N more"
 _RULE = re.compile(r'<span class="rule">Rule: (.*?)</span>', re.S)
 _DONE = ("Stage: done. The review page, the proposal and the price sheet are written after the last reading and "

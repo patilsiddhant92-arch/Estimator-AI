@@ -110,3 +110,64 @@ def answer() -> dict:
     """The correct takeoff register for this job (`answer.json`): ten sheets, fourteen units, no set-aside (the code
     works out the excluded sheets' counts) and one future item, as the AI's answer to the takeoff request."""
     return _load("answer.json")
+
+
+# ---- the run tests' takeoff answerer (plan Task 1.5) ------------------------------------------------------------------
+
+_SHEET_LINE = re.compile(r"^(?P<document>.+?) \| page (?P<page>\d+) \| (?P<number>.+?) \| .* \| text: (?P<text>\S+) \| "
+                         r"labels: (?P<labels>.*)$")
+_FACT_LINE = re.compile(r"^(?P<id>F\d+) \w+ \S+ = (?P<value>.*?) \[\w+\] “(?P<quote>.*)” \(")
+_ROW_LINE = re.compile(r"^(?P<tag>[^\s:]+): (?P<cells>.*)$")
+_QUANTITY = re.compile(r"(?:^|; )(?:QTY|QUANTITY)[^=;]*=\s*(\d+)\s*(?:;|$)", re.I)
+
+
+def _section(prompt: str, heading: str) -> list[str]:
+    lines, inside = [], False
+    for line in prompt.splitlines():
+        if line.startswith("## "):
+            inside = line == f"## {heading}"
+            continue
+        if inside and line.strip() and line != "(none)":
+            lines.append(line)
+    return lines
+
+
+def takeoff_answer(request: dict) -> dict:
+    """A plain answer to any takeoff request, from its prompt alone: every listed sheet `new_work`, its area its
+    number (or its page), `counts_units` true; one `new` unit per scheduled tag (its count the schedule's numeric
+    quantity, else 1), citing the first fact line that names it. A job whose ledger has no fact naming the tag (the
+    run tests' reading passes answer no facts) cites the text of the first sheet whose labels list it."""
+    prompt = request["prompt"]
+    sheets, labelled = [], []
+    for line in _section(prompt, "Sheets"):
+        found = _SHEET_LINE.match(line)
+        if not found:
+            continue
+        number = "" if found["number"] == "-" else found["number"]
+        sheets.append({"document": found["document"], "page": int(found["page"]), "number": number,
+                       "kind": "new_work", "area": number or f"page {found['page']}", "counts_units": True,
+                       "reason": "Invented: every sheet counts.", "refs": []})
+        labelled.append((found["text"], found["number"], [label.rsplit(" x", 1)[0]
+                                                          for label in found["labels"].split(", ")]))
+    facts = [m for line in _section(prompt, "Ledger facts") if (m := _FACT_LINE.match(line))]
+    units, seen = [], set()
+    for line in _section(prompt, "Schedules"):
+        found = _ROW_LINE.match(line)
+        if not found or found["tag"] == "-" or found["tag"] in seen or "=" not in found["cells"]:
+            continue
+        tag = found["tag"]
+        seen.add(tag)
+        word = re.compile(rf"(?<![\w-]){re.escape(tag)}(?![\w-])")
+        fact = next((f for f in facts if word.search(f["quote"]) or word.search(f["value"])), None)
+        if fact is not None:
+            ref = {"source_id": fact["id"], "quote": tag, "where": "invented"}
+        else:
+            text, where = next(((t, n) for t, n, labels in labelled if tag in labels and t != "-"), (None, None))
+            if text is None:
+                continue                    # nothing to cite: the check names the tag
+            ref = {"source_id": text, "quote": tag, "where": where}
+        quantity = _QUANTITY.search(found["cells"])
+        units.append({"family": re.match(r"[A-Za-z]*", tag).group(0) or tag, "tag": tag, "labels": [tag],
+                      "status": "new", "count": int(quantity.group(1)) if quantity else 1, "sheets": [],
+                      "refs": [ref], "serves": "", "service": "", "reason": ""})
+    return {"sheets": sheets, "units": units, "set_aside": [], "future_items": [], "questions": []}

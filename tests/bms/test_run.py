@@ -20,6 +20,7 @@ if str(TESTS) not in sys.path:
 
 from pdfs import FILLER, Page, make_pdf  # noqa: E402
 from test_schedules import grid  # noqa: E402
+from takeoff_fixture import takeoff_answer  # noqa: E402  (beside this file)
 
 W, H = 3024, 2160
 JOB = "00-9999"
@@ -90,6 +91,8 @@ def _answer(request: dict) -> dict:
     kind = request["kind"]
     if kind == "read_pass":
         return {"facts": [], "contradictions": [], "confirmations": [], "understanding": "invented reading"}
+    if kind == "takeoff_job":
+        return takeoff_answer(request)
     if kind == "count_tags":
         examined = list(range(1, len(request.get("tiles", [])) + 1))          # every tile opened
         return {"patterns": [{"pattern": p, "tiles_examined": examined, "tags": []}

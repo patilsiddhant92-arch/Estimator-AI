@@ -1345,6 +1345,24 @@ def test_run_job_check_holds_a_rebuilt_answer_to_its_whole_schema(tmp_path, raw)
     assert run_job.check_answer(answer, request) is None
 
 
+def test_run_job_check_holds_a_takeoff_answer_to_its_schema(tmp_path):
+    """Takeoff pass plan, Task 1.5: the takeoff request (kind takeoff_job, step takeoff) is a rebuilt app request."""
+    sys.path.insert(0, str(ROOT / "tools"))
+    sys.path.insert(0, str(ROOT / "tests" / "bms"))
+    import run_job
+    import takeoff_fixture
+    from bms import takeoff
+    request, answer = tmp_path / "r.json", tmp_path / "a.json"
+    request.write_text(json.dumps({"key": "k", "kind": takeoff.TAKEOFF_JOB, "step": "takeoff",
+                                   "schema": takeoff.answer_schema()}), encoding="utf-8")
+    answer.write_text(json.dumps(takeoff_fixture.answer()), encoding="utf-8")
+    assert run_job.check_answer(answer, request) is None
+    assert "takeoff" in run_job.BMS_STEPS and run_job.MAIN_LIST["takeoff_job"] == "units"
+    no_units = {k: v for k, v in takeoff_fixture.answer().items() if k != "units"}
+    answer.write_text(json.dumps(no_units), encoding="utf-8")
+    assert "units" in run_job.check_answer(answer, request)
+
+
 def test_run_job_lists_the_reason_a_rebuilt_answer_was_refused(tmp_path):
     sys.path.insert(0, str(ROOT / "tools"))
     import run_job
