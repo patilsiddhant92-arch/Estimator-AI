@@ -130,6 +130,23 @@ Every failure is in the accepted environment baseline:
 - A first full bms run after the merges found four failures this branch caused (test_contracts plan_job signature;
   three test_run_front_end tests whose plan_job fake took no keywords). 53a34b0 fixes them.
 
+### 5b. After merging origin/lead/wave2 5d1e5b6 (G-002 quantity prefix) into hark/T-007 (merge 44f1789, no conflicts)
+
+`pytest tests/bms -q -n 2 -m "not slow"`:
+
+```
+FAILED tests/bms/test_ai.py::test_chat_writes_a_request_then_reads_the_answer_and_caches_it
+FAILED tests/bms/test_ai.py::test_chat_refuses_an_answer_that_breaks_the_schema
+FAILED tests/bms/test_ai.py::test_a_cached_answer_clears_a_request_left_behind_by_a_killed_run
+FAILED tests/bms/test_ai.py::test_every_cleanup_is_logged_beside_the_cache - ...
+FAILED tests/bms/test_ai.py::test_write_system_through_the_chat_rejects_and_asks_again
+FAILED tests/bms/test_review_final3.py::test_a_real_child_failing_with_the_resource_code_is_run_three_times_then_reported
+FAILED tests/bms/test_status_review.py::test_every_normal_exit_writes_the_state_whole_and_status_agrees
+7 failed, 2935 passed, 2 skipped, 4 xfailed, 186 warnings in 391.01s (0:06:31)
+```
+
+All 7 are the accepted baseline. Full `tests` suite on the merged tip: 11 failed, 5270 passed (baseline only).
+
 ## 6. Acceptance on the invented fixture (`test_takeoff_end_to_end`)
 
 The fixture on the base has no valves, pumps or boiler (the amended Task 1.2 rows never landed: 14 units, not 19).
