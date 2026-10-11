@@ -11,7 +11,7 @@ import pytest
 from bms.model import (Assumption, Clarification, Count, Device, Family, FrontEnd, Job, OtherCount, Ref,
                        ScopeException, System)
 from bms.playbook import load_playbook
-from bms.render import ProposalDraft, RenderedLine, RenderError, render
+from bms.render import AME_ONLY_FLAG, ProposalDraft, RenderedLine, RenderError, render
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures"
 ROOT = Path(__file__).resolve().parents[2]
@@ -59,15 +59,16 @@ def one(job: Job, sys: System) -> Job:
 
 def test_rooftop_block_golden(draft):
     assert texts(draft, "RTU") == [
-        "Qty (2) Rooftop Units RTU-1, 2",
+        # T-005e: estimator ruling 15 (2026-10-11 afternoon): the other counts print in the line itself
+        "Qty (2) Rooftop Units RTU-1, 2 (2 per M-001; 1 per M-101)",
         # T-005e: the GEM order of points: Install and Wire before the integration lines, which are always last
         "Install and Wire Duct Smoke Detector (Furnished by Unit Mfr.)",
         "Furnish BMS Communication Wiring to RTU Factory Controls",
         "Map Available Points Via Mfr. Provided BMS Interface",
         "AME requires mfr. Rep to assist in integration, cost to be incurred by mech contractor",
-        # T-005e addendum: ONE "*" clarification per block (GEM v4 ~548), its parts joined, a client note led by "Note:"
-        "*one detector per unit, because the schedule note names a detector for each unit without a count; "
-        "Note: Unit count carried at 2; the roof plan shows 1; Qty. (2) per M-001; 1 per M-101.",
+        # T-005e: ruling 14: one short "*" line per item
+        "*one detector per unit, because the schedule note names a detector for each unit without a count",
+        "*Unit count carried at 2; the roof plan shows 1",
     ]
 
 
@@ -76,14 +77,14 @@ def test_exhaust_fan_block_golden(draft):
         "Qty (3) Exhaust Fans EF-1 thru 3",
         "Furnish and Install DDC Controller",       # T-005e addendum: the shape's (Master Template's) order stands
         "Furnish Fan Start / Stop and Status",
-        "Furnish and Install Motorized Damper Actuator (Qty. 2)",
+        "Furnish and Install Qty (2) Motorized Damper Actuator",      # T-005e: ruling 15, "Qty (#) <device>"
     ]
 
 
 def test_vrf_stacks_one_header_per_family_over_one_set_of_lines(draft):
     # T-005e addendum: no sub-heading over the stacked headers (heading "Qty (#) <system>" only)
     assert texts(draft, "VRF")[:3] == ["Qty (4) Indoor Unit FCU-1 thru 4", "Qty (1) Condensing Unit CU-1",
-                                       "Qty (2) Branch Selector BS-1, 2"]
+                                       "Qty (2) Branch Selector BS-1, 2 (2 per M-102; 1 per M-002)"]
     assert all(b.numbered for b in draft.scope.blocks)
     blocks = [b for b in draft.scope.blocks if b.header.startswith(("Qty (4) Indoor", "Qty (1) Cond", "Qty (2) Branch"))]
     assert [b.joined for b in blocks] == [False, True, True]
@@ -96,20 +97,23 @@ def test_vrf_stacks_one_header_per_family_over_one_set_of_lines(draft):
 def test_unknown_count_prints_hashes_and_quantity_unknown(draft):
     cuh = texts(draft, "CUH")
     assert cuh[0] == "Qty (##) Cabinet Unit Heaters"
-    assert cuh[1] == "Furnish and Install Space Temperature Sensor (Qty. ##)"
-    assert cuh[2].startswith("*one sensor per heater, because ")      # T-005e addendum: one "*" line per block
-    assert cuh[2].endswith("; Cabinet unit heater quantity as per drawings") and len(cuh) == 3
+    assert cuh[1] == "Furnish and Install Qty (##) Space Temperature Sensor"       # T-005e: ruling 15
+    assert cuh[2].startswith("*one sensor per heater, because ")      # T-005e: ruling 14, one "*" line per item
+    assert cuh[3] == "*Cabinet unit heater quantity as per drawings"
 
 
 def test_confirm_note_and_count_note_for_vrf(draft):
     notes = [l.text for l in draft.lines if l.system_key == "VRF" and l.kind == "note"]
-    assert notes == ["*Branch selector count: 2 on the plan picture, 1 on the schedule - to be confirmed; "   # (T-005e:
-                     "Qty. Branch Selector (2) per M-102; 1 per M-002."]   # one line) (ruling D6, 2026-10-07)
+    # (ruling D6, 2026-10-07; T-005e: ruling 15, the other counts on the family's header, no quantity note)
+    assert notes == ["*Branch selector count: 2 on the plan picture, 1 on the schedule - to be confirmed"]
+    assert "Qty (2) Branch Selector BS-1, 2 (2 per M-102; 1 per M-002)" in texts(draft, "VRF")
 
 
 def test_front_end_exceptions_and_alternates(draft):
     scope = draft.scope
-    assert [i.text for i in scope.front_end.items] == ["Furnish and Install BMS Server Software and Graphics"]
+    # T-005e: estimator ruling 19: the Master Template's New front end "Default" training line (graphics is written)
+    assert [i.text for i in scope.front_end.items] == ["Furnish and Install BMS Server Software and Graphics",
+                                                       "Furnish Necessary Training on New Controls"]
     assert scope.front_end.mode == "new-system" and scope.front_end.tech_hours == 8.0
     assert scope.named_exceptions == ("Fire alarm system by others",)
     assert [b.header for b in scope.blocks if "Duct Heaters" in b.header] == []
@@ -131,14 +135,14 @@ def test_header_comes_from_the_job(draft):
 
 def test_tech_hours_go_on_the_block_header(draft):
     by_header = {b.header: b.tech_hours for b in draft.scope.blocks}
-    assert by_header["Qty (2) Rooftop Units RTU-1, 2"] == 4.0
+    assert by_header["Qty (2) Rooftop Units RTU-1, 2 (2 per M-001; 1 per M-101)"] == 4.0
     assert by_header["Qty (3) Exhaust Fans EF-1 thru 3"] == 12.0
     assert by_header["Qty (##) Cabinet Unit Heaters"] is None
 
 
 def test_item_quantities_price_only_what_ame_acts_on_and_never_under_a_hash_count(draft):
     blocks = {b.header: b for b in draft.scope.blocks}
-    rtu = blocks["Qty (2) Rooftop Units RTU-1, 2"]
+    rtu = blocks["Qty (2) Rooftop Units RTU-1, 2 (2 per M-001; 1 per M-101)"]
     assert [i.quantity for i in rtu.items][:4] == [2, 2, 2, None]      # the rep line is the mechanical contractor's
     assert [i.depth for i in rtu.items][:4] == [1, 1, 1, 2]            # the rep line sits one level in, under its map line
     assert all(i.quantity is None for i in blocks["Qty (##) Cabinet Unit Heaters"].items)
@@ -166,23 +170,22 @@ def test_lines_follow_the_shape_order_not_the_device_order(job, playbook):
     shuffled = replace(ef, devices=tuple(reversed(ef.devices)))
     assert texts(render(one(job, shuffled), playbook), "EF")[1:] == [      # T-005e addendum: the shape's order
         "Furnish and Install DDC Controller", "Furnish Fan Start / Stop and Status",
-        "Furnish and Install Motorized Damper Actuator (Qty. 2)"]
+        "Furnish and Install Qty (2) Motorized Damper Actuator"]
 
 
 def test_the_higher_count_prints_even_when_value_is_lower(job, playbook):
     fam = Family("Exhaust Fan", ("EF-1", "EF-2"), Count(value=2, sources=(Ref("S0", "q", "M-2, Drawings.pdf page 2"),),
                                                        others=(OtherCount(5, REF),)))
     out = render(one(job, system([device()], families=(fam,))), playbook)
-    assert texts(out, "EF")[0] == "Qty (5) Exhaust Fans EF-1, 2"
-    assert texts(out, "EF")[-1] == "*Qty. (5) per M-1; 2 per M-2."
+    assert texts(out, "EF")[0] == "Qty (5) Exhaust Fans EF-1, 2 (5 per M-1; 2 per M-2)"  # (T-005e: ruling 15, the other counts in the line)
 
 
 def test_count_note_names_the_place_of_every_count(job, playbook):
     fam = Family("Exhaust Fan", ("EF-1",), Count(value=4, sources=(Ref("S1", "q", "M-201, Drawings.pdf page 3"),),
                                                  others=(OtherCount(3, Ref("S2", "q", "M-301, Specs.pdf page 8")),
                                                          OtherCount(5, Ref("S3", "q", "M-401, Drawings.pdf page 9")))))
-    note = texts(render(one(job, system([device()], families=(fam,))), playbook), "EF")[-1]
-    assert note == "*Qty. (5) per M-401; 4 per M-201; 3 per M-301."
+    header = texts(render(one(job, system([device()], families=(fam,))), playbook), "EF")[0]
+    assert header.endswith(" (5 per M-401; 4 per M-201; 3 per M-301)")  # (T-005e: ruling 15, the other counts in the line)
 
 
 def test_count_note_uses_sheet_numbers_never_file_names_and_folds_one_place(job, playbook):
@@ -196,9 +199,8 @@ def test_count_note_uses_sheet_numbers_never_file_names_and_folds_one_place(job,
                 OtherCount(0, Ref("S6", "q", "Q-305.00 whole sheet, Invented Set.pdf page 4 (picture)")),
                 OtherCount(4, Ref("S7", "q", "99 99 99 Invented Section, invented-spec_Rev_2.pdf page 3")))))
     out = texts(render(one(job, system([device(qty=7)], families=(fam,), shape="")), pb), "EF")
-    qty = [t for t in out if t.startswith("*Qty.")]
-    assert qty == ["*Qty. (7); 4 per 99 99 99 Invented Section; 3 per Q-210.10; 2 per Q-702.00; "
-                   "1 and 0 per Q-305.00."]
+    assert out[0].endswith(" (7; 4 per 99 99 99 Invented Section; 3 per Q-210.10; 2 per Q-702.00; "
+                           "1 and 0 per Q-305.00)")  # (T-005e: ruling 15, the other counts in the line)
     assert not any("the documents" in t for t in out)
     assert not any(".pdf" in t for t in out)
 
@@ -209,8 +211,9 @@ def test_count_note_is_one_line_per_block_beside_the_confirm(job, playbook):
     d = device(qty=3, quantity=Count(3, others=(OtherCount(2, Ref("S2", "q", "Q-1, A.pdf page 1")),)))
     clar = (Clarification("confirm", "Confirm quantity: 3 fans carried per the schedule"),)
     out = texts(render(one(job, system([d], families=(fam,), shape="", clarifications=clar)), pb), "EF")
-    # T-005e addendum: the one "*" clarification carries the quantity note (GEM v4 ~548)
-    assert out[-1:] == ["*Confirm quantity: 3 fans carried per the schedule; Qty. (3); 2 per Q-1."]
+    # T-005e: ruling 14 (one short "*" line per item) and 15 (the other counts in the header, no quantity note)
+    assert out[0].endswith(" (3; 2 per Q-1)") and out[-1] == "*Confirm quantity: 3 fans carried per the schedule"
+    assert not any(t.startswith("*Qty") for t in out)
 
 
 # ---- the clarification labels (the text's own label is not printed twice) -------------------------------------
@@ -269,9 +272,9 @@ def test_issued_ids_with_no_place_are_taken_out_and_no_word_around_them(job):
                refs=(REF,) + tuple(Ref(i, "x", "ledger fact") for i in ("S900", "S901", "S902", "S903")),
                assumption=Assumption("one damper", "the plan shows it in S903"))
     out = texts(render(one(job, system([a, b])), pb), "EF")
-    assert out[-1] == ("*Assumed: one invented sensor per, because the schedule ( , ) shows one per unit; "
-                       "one damper, because the plan shows it in")
-    assert "S9" not in out[-1] and "  " not in out[-1]
+    assert out[-2:] == ["*Assumed: one invented sensor per, because the schedule ( , ) shows one per unit",
+                        "*Assumed: one damper, because the plan shows it in"]       # (T-005e: ruling 14)
+    assert not any("S9" in t or "  " in t for t in out[-2:])
 
 
 def test_keynote_drawing_fact_and_count_ids_do_not_print(job):
@@ -314,9 +317,10 @@ def test_a_where_that_holds_an_id_never_prints(job):
     fams = (Family("Exhaust Fan", ("EF-1",), Count(3, (Ref("F17", "x", "Ledger fact F17"),),
                                                   (OtherCount(2, Ref("S2", "q", "M-101, Invented.pdf page 2")),))),)
     out = texts(render(one(job, system([a], families=fams, clarifications=clar)), pb), "EF")
-    # T-005e addendum: one "*" line per block, its parts joined
-    assert "*Confirm the invented damper count per; Assumed: one invented actuator, because the actuator is shown on " \
-           "and in; Qty. (3); 2 per M-101." in out
+    # T-005e: ruling 14 (one short "*" line per item), ruling 15 (the other counts in the header)
+    assert "*Confirm the invented damper count per" in out
+    assert "*Assumed: one invented actuator, because the actuator is shown on and in" in out
+    assert out[0].endswith(" (3; 2 per M-101)")
     for line in out:
         assert not re.search(r"\b(?:F17|I3|S8)\b", line), line
 
@@ -482,7 +486,7 @@ def test_a_damper_family_under_a_fan_prints_no_header_of_its_own(job, playbook):
     assert [l.text for l in out.lines if l.system_key == "EF" and l.kind == "header"] == [
         "Qty (3) Exhaust Fans EF-1 thru 3"]
     assert ef_lines[1:] == ["Furnish and Install DDC Controller", "Furnish Fan Start / Stop and Status",
-                            "Furnish and Install Motorized Damper Actuator (Qty. 2)"]
+                            "Furnish and Install Qty (2) Motorized Damper Actuator"]
     assert texts(out, "MD")[0] == "Qty (4) Motorized Dampers"
     assert [b.header for b in out.scope.blocks] == ["Qty (3) Exhaust Fans EF-1 thru 3", "Qty (4) Motorized Dampers"]
 
@@ -493,21 +497,23 @@ def test_each_family_header_prints_its_highest_count(job, playbook):
     fams = (Family("Indoor Unit", ("IU-1",), Count(value=4, others=(OtherCount(6, REF), OtherCount(1, REF)))),
             Family("Condensing Unit", ("CU-1",), Count(value=None, others=(OtherCount(2, REF),))))
     out = render(one(job, system([device()], families=fams, shape="")), playbook)
-    assert [l.text for l in out.lines if l.kind == "header"] == ["Qty (6) Indoor Unit IU-1", "Qty (2) Condensing Unit CU-1"]
+    assert [l.text for l in out.lines if l.kind == "header"] == [       # (T-005e: ruling 15, the counts in the line)
+        "Qty (6) Indoor Unit IU-1 (6 per M-1; 4 elsewhere in the documents; 1 per M-1)",
+        "Qty (2) Condensing Unit CU-1"]
 
 
 def test_a_quantity_prints_only_when_it_differs_from_the_blocks_count(job, playbook):
     out = render(one(job, system([device(qty=2), device(qty=1, id="X.d2", slot="damper_actuator", name="Damper"),
                                   device(qty=2, id="X.d3", slot="damper_actuator", name="Damper B")])), playbook)
     assert texts(out, "EF")[1:] == ["Furnish and Install DDC Controller",
-                                    "Furnish and Install Damper (Qty. 1)", "Furnish and Install Damper B"]
+                                    "Furnish and Install Qty (1) Damper", "Furnish and Install Damper B"]   # ruling 15
 
 
 def test_every_assumption_says_why_and_a_reason_may_lead_with_its_own_word(job, playbook):
     a = device(assumption=Assumption("one per fan", "since the sequence names each fan"), flag="assumed")
     b = device(id="X.d2", slot="damper_actuator", name="Damper", assumption=Assumption("a damper per fan.", "the schedule"))
-    note = texts(render(one(job, system([a, b])), playbook), "EF")[-1]
-    assert note == "*one per fan, since the sequence names each fan; a damper per fan, because the schedule"
+    notes = texts(render(one(job, system([a, b])), playbook), "EF")[-2:]     # T-005e: ruling 14, one line per item
+    assert notes == ["*one per fan, since the sequence names each fan", "*a damper per fan, because the schedule"]
 
 
 def test_an_assumption_without_its_why_is_refused(job, playbook):
@@ -516,12 +522,12 @@ def test_an_assumption_without_its_why_is_refused(job, playbook):
         render(one(job, system([bad])), playbook)
 
 
-def test_one_star_line_per_block_its_kinds_in_a_fixed_order(job, playbook):
-    # T-005e addendum: ONE "*" clarification per block (GEM v4 ~548), the kinds in the Playbook's order
+def test_one_star_line_per_item_its_kinds_in_a_fixed_order(job, playbook):
+    # T-005e: estimator ruling 14 (2026-10-11 afternoon): one short "*" line per item, the kinds in the Playbook's order
     clar = (Clarification("note", "n1"), Clarification("per_drawings", "p1"), Clarification("confirm", "c1"),
             Clarification("confirm", "c2"), Clarification("assumed", "a1"), Clarification("note", "n2"))
     out = texts(render(one(job, system([device()], clarifications=clar)), playbook), "EF")
-    assert out[2:] == ["*c1; c2 - to be confirmed; a1; p1 as per drawings; Note: n1; Note: n2"]
+    assert out[2:] == ["*c1 - to be confirmed", "*c2 - to be confirmed", "*a1", "*p1 as per drawings", "*n1", "*n2"]
 
 
 def test_owner_brackets_come_from_the_wording(job, playbook):
@@ -537,7 +543,7 @@ def test_a_shapeless_system_prints_in_the_generic_form_in_device_order(job, play
     out = texts(render(one(job, system([d1, d2], shape="", families=(Family("Gas Detector", ("GD-1", "GD-2"),
                                                                               Count(value=3)),))), playbook), "EF")
     assert out == ["Qty (3) Exhaust Fans GD-1, 2", "Furnish and Install Gas Detector (Furnished by Others)",
-                   "Furnish and Install Gas Sensor (Qty. ##)"]
+                   "Furnish and Install Qty (##) Gas Sensor"]          # (T-005e: ruling 15)
 
 
 def test_a_slot_the_shape_lacks_still_prints_after_the_known_slots(job, playbook):
@@ -565,10 +571,12 @@ def test_extend_existing_front_end_and_deduct_alternate(job, playbook):
                   clarifications=(Clarification("note", "tie to the old head end"),), tech_hours=2.0)
     out = render(replace(job, front_end=fe, systems=(system([device()], alternate="deduct"),)), playbook)
     assert out.scope.front_end.existing_system_name == "Old BMS"
-    # T-005e: an existing BMS front end prints the Master Template's existing-BMS lines, then the writer's own
+    # T-005e: the Master Template's existing-BMS lines, then the writer's own, the note, and T-005c's red flag
+    # ("Old BMS" is not one of AME's three: T-005 ruling 4)
     assert [i.text for i in out.scope.front_end.items] == [
         "Furnish Network Level Control Panel", "Furnish 3-D Graphics to match existing",
-        "Furnish Necessary Training on New Controls", "Furnish and Install Link", "*tie to the old head end"]
+        "Furnish Necessary Training on New Controls", "Furnish and Install Link", "*tie to the old head end",
+        AME_ONLY_FLAG]
     assert len(out.scope.deduct_alternates) == 1 and out.scope.blocks == ()
 
 
@@ -654,7 +662,7 @@ def test_global_points_print_first_and_qty_hash_systems_after_the_equipment():
     assert headers[0] == "Qty (1) Global Points"
     assert headers[1].endswith("EF-1, 2") and headers[2].endswith("EF-8, 9")       # the plan's order kept
     assert headers[3].startswith("Qty (##)")
-    keys = list(dict.fromkeys(l.system_key for l in out.lines))
+    keys = list(dict.fromkeys(l.system_key for l in out.lines if l.system_key))   # "" is the front end (T-005c)
     assert keys == ["GP", "EF", "EF2", "SEQ"]
 
 
@@ -708,7 +716,8 @@ def _note(count: Count) -> list[str]:
     pb = load_playbook(ROOT / "playbook")
     fam = Family("Exhaust Fan", ("EF-1",), count)
     out = texts(render(_repo_job(system([device(qty=count.highest())], families=(fam,), shape="")), pb), "EF")
-    return [t for t in out if t.startswith("*Qty.")]
+    # T-005e: estimator ruling 15: the other counts print in the line itself (here the header), no quantity note
+    return [t[t.rfind(" (") + 1:] for t in out[:1] if " (" in t]
 
 
 def test_count_note_places_are_human_labels_never_the_documents():
@@ -720,8 +729,8 @@ def test_count_note_places_are_human_labels_never_the_documents():
                           OtherCount(9, Ref("S5", "schedule rows 9", counts_line)),
                           OtherCount(2, Ref("S6", "counted on the sheet picture", "pictures of the invented set"))))
     # (ruling D6, 2026-10-07)
-    assert _note(count) == ["*Qty. (16) per Q-100.00; 15 elsewhere in the documents; 12 per plan placements; "
-                            "9 per schedule rows; 6 per the riser; 2 per the sheet pictures."]
+    assert _note(count) == ["(16 per Q-100.00; 15 elsewhere in the documents; 12 per plan placements; "
+                            "9 per schedule rows; 6 per the riser; 2 per the sheet pictures)"]
 
 
 def test_count_note_reads_the_counts_line_part_that_gives_the_value():
@@ -731,8 +740,8 @@ def test_count_note_reads_the_counts_line_part_that_gives_the_value():
                           OtherCount(5, Ref("S3", line, "equipment counts for XF")),
                           OtherCount(4, Ref("S4", line, "equipment counts for XF")),
                           OtherCount(3, Ref("S5", line, "equipment counts for XF"))))
-    assert _note(count) == ["*Qty. (8) per Q-101.00; 7 per the schedule; 5 per plan placements; 4 per the riser; "
-                            "3 per schedule rows."]
+    assert _note(count) == ["(8 per Q-101.00; 7 per the schedule; 5 per plan placements; 4 per the riser; "
+                            "3 per schedule rows)"]
 
 
 def test_count_note_names_every_count_even_one_with_no_label_and_has_no_cap():
@@ -740,11 +749,11 @@ def test_count_note_names_every_count_even_one_with_no_label_and_has_no_cap():
     counts_line = "equipment counts for EF"
     count = Count(value=20, sources=(Ref("S1", "distinct tags 20", counts_line),),
                   others=(OtherCount(15, Ref("S2", "distinct tags 15", counts_line)),))
-    assert _note(count) == ["*Qty. (20); 15 elsewhere in the documents."]
+    assert _note(count) == ["(20; 15 elsewhere in the documents)"]
     many = Count(value=20, sources=(Ref("S1", "q", "Q-1.00, A.pdf page 1"),),
                  others=tuple(OtherCount(n, Ref(f"S{n}", "q", f"Q-{n}.00, A.pdf page {n}")) for n in (3, 9, 5, 7, 11, 2)))
-    assert _note(many) == ["*Qty. (20) per Q-1.00; 11 per Q-11.00; 9 per Q-9.00; 7 per Q-7.00; 5 per Q-5.00; "
-                           "3 per Q-3.00; 2 per Q-2.00."]
+    assert _note(many) == ["(20 per Q-1.00; 11 per Q-11.00; 9 per Q-9.00; 7 per Q-7.00; 5 per Q-5.00; "
+                           "3 per Q-3.00; 2 per Q-2.00)"]
 
 
 def test_a_two_family_count_note_names_each_family():
@@ -753,14 +762,14 @@ def test_a_two_family_count_note_names_each_family():
                                                  others=(OtherCount(15, Ref("S2", "q", "Q-2.00, A.pdf page 2")),)))
     heaters = Family("Unit Heater", ("UH-1",), Count(value=4, sources=(Ref("S3", "q", "Q-3.00, A.pdf page 3"),),
                                                     others=(OtherCount(3, Ref("S4", "q", "Q-4.00, A.pdf page 4")),)))
+    # T-005e: ruling 15: each family's other counts print on its own header
     out = texts(render(_repo_job(system([device(qty=20)], families=(fans, heaters), shape="")), pb), "EF")
-    assert [t for t in out if t.startswith("*Qty.")] == [
-        "*Qty. Exhaust Fan (20) per Q-1.00; 15 per Q-2.00; Unit Heater (4) per Q-3.00; 3 per Q-4.00."]
+    assert out[:2] == ["Qty (20) Exhaust Fan EF-1 (20 per Q-1.00; 15 per Q-2.00)",
+                       "Qty (4) Unit Heater UH-1 (4 per Q-3.00; 3 per Q-4.00)"]
     # a device that carries its family's count does not print that count a second time
     fan_device = replace(device(qty=20), quantity=fans.count)
     out = texts(render(_repo_job(system([fan_device], families=(fans, heaters), shape="")), pb), "EF")
-    assert [t for t in out if t.startswith("*Qty.")] == [
-        "*Qty. Exhaust Fan (20) per Q-1.00; 15 per Q-2.00; Unit Heater (4) per Q-3.00; 3 per Q-4.00."]
+    assert sum("15 per Q-2.00" in t for t in out) == 1 and not any(t.startswith("*") for t in out)
 
 
 def test_count_note_folds_the_same_value_from_the_same_label():
@@ -768,7 +777,7 @@ def test_count_note_folds_the_same_value_from_the_same_label():
                   others=(OtherCount(2, Ref("S2", "located on the sheet text", "Q-3.00, A.pdf page 2")),
                           OtherCount(2, Ref("S3", "counted on the sheet picture", "Q-3.00 whole sheet, A.pdf page 2")),
                           OtherCount(2, Ref("S4", "riser 2", "equipment counts for EF"))))
-    assert _note(count) == ["*Qty. (4) per Q-2.00; 2 per Q-3.00; 2 per the riser."]
+    assert _note(count) == ["(4 per Q-2.00; 2 per Q-3.00; 2 per the riser)"]
 
 
 @pytest.mark.parametrize("shape, name, tags, n, header", [
@@ -795,7 +804,7 @@ def test_a_line_whose_quantity_differs_from_the_block_count_is_priced_from_the_b
     sensor = device(id="EF.d2", slot="space_temp", name="Space Temperature Sensor", qty=6)
     out = render(_repo_job(system([device(id="EF.d1", qty=2), sensor])), pb)
     line = next(l.text for l in out.lines if l.device_id == "EF.d2")
-    assert "(Qty. 6 Total)" in line and "–" not in line
+    assert "Qty (6) Space Temperature Sensor" in line and "–" not in line      # (T-005e: ruling 15)
     path = write_price_sheet(out.scope, WORKUP_TEMPLATE, PriceBook.load(PRICE_BOOK, ALIASES), tmp_path / "s.xlsx")
     ws = load_workbook(path)["Price Sheet 1"]
     row = next(r for r in range(6, 397) if "Space Temperature Sensor" in str(ws.cell(r, 4).value or ""))
@@ -812,7 +821,7 @@ def test_a_line_whose_quantity_differs_from_the_block_count_is_priced_from_the_b
     sensor = device(id="EF.d2", slot="space_temp", name="Space Temperature Sensor", qty=6)
     out = render(_repo_job(system([device(id="EF.d1", qty=2), sensor])), pb)
     line = next(l.text for l in out.lines if l.device_id == "EF.d2")
-    assert "(Qty. 6 Total)" in line and "–" not in line
+    assert "Qty (6) Space Temperature Sensor" in line and "–" not in line      # (T-005e: ruling 15)
     path = write_price_sheet(out.scope, WORKUP_TEMPLATE, PriceBook.load(PRICE_BOOK, ALIASES), tmp_path / "s.xlsx")
     ws = load_workbook(path)["Price Sheet 1"]
     row = next(r for r in range(6, 397) if "Space Temperature Sensor" in str(ws.cell(r, 4).value or ""))

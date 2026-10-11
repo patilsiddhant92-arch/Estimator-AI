@@ -11,6 +11,9 @@ from __future__ import annotations
 
 import copy
 import datetime as dt
+import json
+import re
+from functools import lru_cache
 from pathlib import Path
 
 from docx.document import Document as DocxDocument
@@ -19,6 +22,7 @@ from docx.oxml.ns import qn
 from docx.shared import Pt, RGBColor, Twips
 from docx.table import _Cell
 from docx.text.paragraph import Paragraph
+from docx.text.run import Run as DocxRun
 
 from estimator.files import open_docx
 from estimator.proposal import layout
@@ -40,6 +44,33 @@ WAGE_CLARIFICATION = "All labor is priced at prevailing wage rates, as the docum
 
 class TemplateError(ValueError):
     """The template has changed in a way the tool doesn't recognise."""
+
+
+# --- red marks (T-005 rulings 3, 4 and 7, estimator 2026-10-11) -------------------------------------------------------
+
+# A value the estimator must complete or look at prints in red with *** (the header's placeholder, an existing BMS that
+# is not one of AME's three, the "[existing BMS name]" fill-in). AME's three are the bid check's "platforms_we_bid"
+# (Honeywell WEBs, Johnson Controls FX / Facility Explorer, Niagara / Tridium): one list, read, never typed here.
+STARS = "***"
+_MANUFACTURERS = Path(__file__).resolve().parents[3] / "assets" / "reading_lists" / "manufacturers.json"
+
+
+@lru_cache(maxsize=1)
+def _ame_patterns() -> tuple[re.Pattern, ...]:
+    data = json.loads(_MANUFACTURERS.read_text(encoding="utf-8"))
+    return tuple(re.compile(p, re.I) for line in data["platforms_we_bid"] for p in line["patterns"])
+
+
+def ame_bms(name: str | None) -> bool:
+    """True when the existing BMS's name names one of the three lines AME works with (any part of a joined name
+    "Honeywell / Niagara N4" will do); False for any other maker, a bare "Honeywell" or "Johnson Controls", and the
+    bracket fill-in."""
+    return bool(name) and any(p.search(name) for p in _ame_patterns())
+
+
+def _paint_red(run) -> None:
+    """A run (its w:r element) in red; python-docx keeps the run properties in their schema order."""
+    DocxRun(run, None).font.color.rgb = RGBColor.from_string(layout.EXISTING_NAME_COLOUR)
 
 
 def write_proposal(job: Job, template_path: Path, out_path: Path) -> Path:
@@ -148,6 +179,8 @@ def _set_after_label(paragraph: Paragraph, label: str, value: str) -> None:
     if not rest:
         raise TemplateError(f"nothing to fill after {label!r}")
     _set_run_text(rest[0], value)
+    if STARS in value:                   # a placeholder to complete (T-005 ruling 3): red
+        _paint_red(rest[0])
     for run in rest[1:]:
         run.getparent().remove(run)
 
@@ -232,7 +265,12 @@ def _delete_from_until(first: Paragraph, stop: Paragraph) -> None:
 
 def _set_existing_name(heading: Paragraph, name: str, *, required: bool = True) -> None:
     """Write `name` over the red sample in a paragraph. `required`: a paragraph with no red sample is a changed
-    template (refused); otherwise there is nothing to replace and it is left as it is."""
+    template (refused); otherwise there is nothing to replace and it is left as it is. A name that is not one of AME's
+    three (`ame_bms`), the bracket fill-in included, prints red between *** (T-005 ruling 4); one of the three prints
+    in the paragraph's own colour."""
+    paint = not ame_bms(name)
+    if paint:
+        name = f"{STARS}{name}{STARS}"
     runs = heading._p.findall(qn("w:r"))
     red = []
     for run in runs:
@@ -255,6 +293,8 @@ def _set_existing_name(heading: Paragraph, name: str, *, required: bool = True) 
     if model is not None:
         first.insert(0, copy.deepcopy(model))
     _set_run_text(first, f"{before}{name}{after}")
+    if paint:
+        _paint_red(first)
     for run in red[1:]:
         run.getparent().remove(run)
 

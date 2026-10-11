@@ -19,6 +19,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass, field, replace
 
 from estimator.price_sheet.write import PriceSheetError, check_fit
+from estimator.proposal.write import ame_bms
 from estimator.scope import Alternate, Block, Item, Run
 from estimator.scope import FrontEnd as ScopeFrontEnd
 from estimator.scope import Header as ScopeHeader
@@ -29,7 +30,7 @@ from estimator.writing.write import tag_list
 from bms.citations import SHEET, SourceIds, clarification_text, squash as _squash, strip_label
 from bms.model import CLARIFICATION_KINDS, UNNAMED_EXISTING, Clarification, Count, Device, FrontEnd, Job, Ref, System
 from bms import order as gem_module
-from bms.order import existing_lines, front_end_entry, front_end_rank, position as gem_position
+from bms.order import existing_lines, front_end_entries, front_end_rank, new_lines, position as gem_position
 from estimator.proposal.layout import EXISTING_SYSTEM_HEADING
 from bms.playbook import DEFAULT_ORDER, Playbook, Shape
 
@@ -44,6 +45,49 @@ BECAUSE = "because "
 _REASON_LEADS = ("as ", "since ", "given that ", "because ")
 
 assert set(_AFTER_LINES) == set(CLARIFICATION_KINDS)
+
+# ---- T-005c (estimator rulings of 2026-10-11, 4, 5 and the printing of 7): the renderer's own words ------------------
+# (wording.json keys proposed to the Playbook in HarkPro/outbox/T-005c-report.md)
+# the one flag line of a front end whose existing BMS is not one of AME's three (`estimator.proposal.write.ame_bms`)
+AME_ONLY_FLAG = ("***AME works only with Honeywell WEBS, Johnson FX (Facility Explorer) or Niagara Tridium "
+                 "front ends")
+# the front end when the documents call for none (no front-end line from the reading, none written)
+NO_FRONT_END = "No front end information found"
+# a device marked "future" prints "(<mark_note>)" after its line, in red; "(FUTURE)" when it has no note
+FUTURE_WORD = "FUTURE"
+RED_MARKS = ("future", "notice")
+# a "*" line longer than this prints as short points: the first after the label, each other on its own "- " line
+LONG_CLARIFICATION = 150
+_ABBREVIATIONS = {"mfr", "mfrs", "spec", "specs", "sec", "no", "nos", "e.g", "i.e", "etc", "inc", "co", "corp",
+                  "approx", "dwg", "dwgs", "fig", "div", "vol", "st", "ft", "min", "max", "ref", "typ", "incl", "qty",
+                  "vs", "dept", "bldg", "mech", "elec"}
+_POINT_BREAK = re.compile(r"([.;])\s+")
+_WORD_BEFORE = re.compile(r"([A-Za-z.]+)$")
+
+
+def short_points(text: str) -> str:
+    """A long "*" line as short points (T-005 ruling 5): split after each sentence (". " before a capital, never after
+    an abbreviation such as "Mfr." or "Spec.") and each "; ", the first point after the line's label, each other on a
+    line of its own after "- " (a line break in the one note, so the words are never cut or reworded). A line of at most
+    LONG_CLARIFICATION characters, or one sentence, is given back as it is."""
+    text = (text or "").strip()
+    if len(text) <= LONG_CLARIFICATION:
+        return text
+    pieces, start = [], 0
+    for match in _POINT_BREAK.finditer(text):
+        if match.group(1) == ".":
+            word = _WORD_BEFORE.search(text[start:match.start()])
+            if not text[match.end():match.end() + 1].isupper():
+                continue
+            if word and (len(word.group(1).strip(".")) <= 1 or word.group(1).lower().strip(".") in _ABBREVIATIONS):
+                continue
+        pieces.append(text[start:match.start()])
+        start = match.end()
+    pieces.append(text[start:])
+    pieces = [p.strip().rstrip(" .;") for p in pieces if p.strip(" .;")]
+    if len(pieces) < 2:
+        return text
+    return "\n".join([pieces[0]] + [f"- {p}" for p in pieces[1:]])
 
 
 class RenderError(ValueError):
@@ -117,7 +161,10 @@ def render(job: Job, playbook: Playbook) -> ProposalDraft:
       two alternatives, and the pump VFD Control GEM v4 always writes (`_gem_devices`). GEM v4 also prints a valve
       Furnish and Wire and leaves out a valve inside a factory-controlled unit (a note in `lines`). The off-hours work,
       prevailing wage and warranty the documents call for are added after, by `bms.labor.with_labor` and
-      `with_warranty`.
+      `with_warranty`. Also the
+      estimator's red flags of T-005 ruling 4 in the front end (`_front_end_flags`: "No front end information found",
+      the AME_ONLY_FLAG line). A "future" device prints "(<mark_note>)" after its line and a "future" or "notice"
+      device prints red (`_with_marks`, `_items`); a "*" line over LONG_CLARIFICATION prints as short points.
     """
     if job.header is None:
         raise RenderError("the job has no header (quote number, reference, engineer, date)")
@@ -434,13 +481,6 @@ def _added_up(count: Count, printed: int) -> int | None:
     return up.value if up is not None and up.value > printed else None
 
 
-def _line_counts(devices) -> list[Count]:
-    """The devices' quantities for the quantity note, each without a sum: the sum is the planner's, set on a family
-    from the sheets (`plan_read.Reader.family`), so a line that carries one (a writer's copy of its family's count, or
-    a number it made up) names none."""
-    return [replace(d.quantity, added_up=None) for d in devices]
-
-
 def _count_part(count: Count, ids: SourceIds, causes: str = "", words: _CountWords = _CountWords(),
                 with_sum: bool = True) -> str:
     """One count's part of the quantity note: "(N) per <label>; M per <label>; K and J per <label>": the printed
@@ -451,7 +491,7 @@ def _count_part(count: Count, ids: SourceIds, causes: str = "", words: _CountWor
     `words` gives the labels and the joiners (" per ", " and ", "; ") and the unlabelled words. The last clause is the
     sum ruling L1 left out of the count, when it is above the printed count ("9 if every sheet of the same floor and
     area is added up"): it makes a part of a count with no other count; `with_sum` False leaves it off (the part
-    `_count_note` compares lines by)."""
+    `_qty_notes` compares lines by)."""
     n = _printed(count)
     if n is None:
         return ""
@@ -487,36 +527,6 @@ def _count_part(count: Count, ids: SourceIds, causes: str = "", words: _CountWor
     if causes and head != placements and placements in heads:
         first = f"{head} {causes}"               # the plan placements give the printed count too: their causes stay
     return f"({n}){words.per}{first}{words.joiner}{others}" if head else f"({n}){words.joiner}{others}"
-
-
-def _count_note(counts: list[Count], playbook: Playbook, ids: SourceIds, names: list[str] | None = None) -> str:
-    """The block's one quantity note naming every other count in the documents ("" when there is none), and, last in
-    a count's part, the sum ruling L1 left out of it. `names` gives, count by count, the family name its part opens
-    with ("" for none: a block with one family, a device). It goes through the safety net every other client text
-    goes through (`SourceIds.without_issued`): an issued id that reached a place is taken out, token only."""
-    words = _count_words(playbook)
-    names = list(names or []) + [""] * (len(counts) - len(names or []))
-    # a part, without its sum clause -> (the family name it opens with, the part) for each; a repeat prints once
-    seen: dict[str, list[tuple[str, str]]] = {}
-    for count, name in zip(counts, names):       # (a device often carries its family's count: the family's wins)
-        causes = _count_causes(count, playbook)
-        part = _count_part(count, ids, causes, words)
-        if not part:
-            continue
-        under = seen.setdefault(_count_part(count, ids, causes, words, with_sum=False) or part, [])
-        # a line that carries a family's count adds nothing, with or without the family's sum; a second family that
-        # reads the same numbers from the same places is a count of its own, and prints under its own name (none
-        # dropped)
-        if any(name == other for other, _ in under) or (not name and under):
-            continue
-        under.append((name, part))
-    parts = [f"{name} {part}" if name else part for under in seen.values() for name, part in under]
-    if not parts:
-        return ""
-    # made of places the where checks gave (`SourceIds.sheet`, `place`), so it is read as a where is: a source sheet
-    # a where names stays, as the validator's where check keeps it (FINAL-J)
-    return ids.without_issued(_fill(playbook.wording.quantity["others_note"], counts=words.joiner.join(parts)),
-                              place=True)
 
 
 # ---- one line --------------------------------------------------------------------------------------------------
@@ -607,6 +617,7 @@ def _device_lines(devices, shape: Shape | None, system: System | None, playbook:
     casing = _casing(playbook)
     what = _title(system.name, casing) if system is not None and system.control == "integration" else ""
     quantity_words = playbook.wording.quantity
+    header_words = playbook.wording.header
     house_lines, _ = _fixed_texts(playbook, shape)
     trio = dict(zip(playbook.wording.integration_trio, playbook.wording.integration_depths))
     front_end = shape is None and system is None
@@ -616,16 +627,18 @@ def _device_lines(devices, shape: Shape | None, system: System | None, playbook:
         owner = _owner(device, playbook)
         form = line_form(device, shape, playbook)
         fixed = house_lines.get(_plain(device.name))     # a house line printed as written (line_form chose it)
-        qty = ""
+        qty, shown = "", _title(device.name, casing)
         if "{qty}" in form:
-            if device.id in qty_notes:
-                qty = qty_notes[device.id]
-            elif number is None:
-                qty = quantity_words["unknown"]
-            elif number not in reference:
-                qty = quantity_words["line"].format(n=number)
+            # ruling 15: the quantity in the line itself, "Qty (#) <device>", and its other counts after it
+            if number is None or number not in reference or device.id in qty_notes:
+                n = header_words["unknown_count"] if number is None else str(number)
+                if "{device}" in form:
+                    shown = f"{LINE_QTY.format(n=n)} {shown}"
+                else:
+                    qty = quantity_words["unknown"] if number is None else quantity_words["line"].format(n=number)
+            qty += qty_notes.get(device.id, "")
         if _PLACEHOLDER.search(form):
-            text = _fill(form, verb=device.verb, device=_title(device.name, casing), owner=owner, qty=qty, what=what)
+            text = _fill(form, verb=device.verb, device=shown, owner=owner, qty=qty, what=what)
         elif fixed is not None and owner and fixed not in playbook.wording.integration_trio:
             text = _squash(form + owner)             # a shape's house line another party furnishes keeps its bracket
         else:
@@ -717,16 +730,16 @@ def printed_texts(system: System, shape: Shape | None, playbook: Playbook, ids: 
     if system.key:
         reference = {n for n in (_printed(f.count) for f in _header_families(system)) if n is not None}
         devices, _ = _gem_devices(system, shape, playbook)
-        counts = [f.count for f in system.families]
+        counts = [f.count for f in _header_families(system)]
     else:
         reference = {1}
         devices, counts = list(system.devices), []
     named = _named(devices, ids)
     notes = _qty_notes(named, counts, playbook, ids)
     own = {d.id for d in system.devices}
-    return [(p.device.id, p.text) for p in _device_lines(named, shape, system if system.key else None, playbook,
-                                                          reference, notes)
-            if not p.marker and p.device.id in own]
+    printed = _with_marks(_device_lines(named, shape, system if system.key else None, playbook, reference, notes),
+                          ids)
+    return [(p.device.id, p.text) for p in printed if not p.marker and p.device.id in own]
 
 
 # ---- what GEM v4 decides about a line (T-005e addendum) ----------------------------------------------------------
@@ -790,43 +803,49 @@ def _pump_minimums(system: System, shape: Shape | None, devices: list[Device]) -
 
 # ---- the quantity notes on a device's own line (GEM v4 ~609) -------------------------------------------------------
 
-LINE_COUNT_NOTE = " (Qty. {counts})"    # a device's own other counts, on its line: " (Qty. 3 per M-101; 2 per M-201)"
+LINE_QTY = "Qty ({n})"            # a line's own quantity, before its device (ruling 15: "Qty (#) <device>")
+LINE_COUNTS = " ({counts})"        # its other counts after it: " (4 per M-601; 2 per M-401)"
+
+
+def _counts_text(count: Count, playbook: Playbook, ids: SourceIds, with_sum: bool = True) -> str:
+    """A count's other counts as a line carries them ("4 per M-601; 2 per M-401", the printed one first, ruling L2
+    and D6), "" when the documents give no other; through the safety net every client text goes through."""
+    words = _count_words(playbook)
+    part = _count_part(count, ids, _count_causes(count, playbook), words, with_sum=with_sum)
+    if not part:
+        return ""
+    return ids.without_issued(re.sub(r"^\((\d+)\)", r"\1", part), place=True)
 
 
 def _qty_notes(devices, family_counts: list[Count], playbook: Playbook, ids: SourceIds) -> dict[str, str]:
-    """device id -> the quantity note its own line carries (GEM v4 ~609: "Quantity notes ... stay with the device's
-    own line"): its count's part ("3 per M-101; 2 per M-201") when it names other counts that no family of the block
-    already names. A family's count stays in the block's one clarification."""
-    words = _count_words(playbook)
-    families = {_count_part(c, ids, _count_causes(c, playbook), words, with_sum=False) for c in family_counts}
+    """device id -> the other counts its own line carries (GEM v4 ~609; estimator ruling 15, 2026-10-11 afternoon:
+    quantities print in the line itself, no separate quantity note), when its count names other counts that no header
+    family of the block already names (the header carries those, `_header_counts`)."""
+    families = {_counts_text(c, playbook, ids, with_sum=False) for c in family_counts}
     families.discard("")
     out: dict[str, str] = {}
     for d in devices:
         count = replace(d.quantity, added_up=None)
-        part = _count_part(count, ids, _count_causes(count, playbook), words)
-        if not part or part in families:
-            continue
-        # through the safety net the block's quantity note goes through (`_count_note`): an issued id is taken out
-        out[d.id] = ids.without_issued(LINE_COUNT_NOTE.format(counts=re.sub(r"^\((\d+)\)", r"\1", part)),
-                                       place=True)
+        text = _counts_text(count, playbook, ids)
+        if text and text not in families:
+            out[d.id] = LINE_COUNTS.format(counts=text)
     return out
 
 
-# ---- the "*" clarifications --------------------------------------------------------------------------------------
+def _header_counts(count: Count, playbook: Playbook, ids: SourceIds) -> str:
+    """The other counts a header's family has, after the header (ruling 15; ruling L2: every other count prints with
+    both numbers and where), "" for none: " (2 per M-001; 1 per M-101)", and the sum ruling L1 left out last."""
+    text = _counts_text(count, playbook, ids)
+    return LINE_COUNTS.format(counts=text) if text else ""
 
-NOTE_LEAD = "Note: "           # a client note joined after the other parts of the one clarification (rules.md)
 
-
-def _notes(clarifications: tuple[Clarification, ...], devices, counts: list[Count],
-           playbook: Playbook, ids: SourceIds, names: list[str] | None = None) -> list[str]:
-    """The block's ONE "*" clarification (GEM v4 ~547-550, "one '*' clarification per block"; NOTES 2026-10-11 rule
-    7), after the lines, [] when there is nothing to say. Its parts, in the Playbook's order: confirm, assumed (every
-    assumption with its why), per drawings, the client notes, then the quantity note naming every other count of the
-    block's families (and the sum ruling L1 left out of a family's count). The items of one kind are joined with "; "
-    in that kind's form; the parts are joined with "; " behind one "*", a client note led by "Note: " (rules.md
-    "Client notes"). A block with only client notes keeps the note form ("**..."). A text's own leading label is not
-    printed twice, an issued source id left in a stale text never prints (the token alone is taken out: no sentence
-    is rewritten), and a text is never cut. A device's own other counts go on its line (`_qty_notes`), not here."""
+def _notes(clarifications: tuple[Clarification, ...], devices, playbook: Playbook, ids: SourceIds) -> list[str]:
+    """The block's "*" lines after its lines: one short line per item, never a paragraph (estimator ruling 14,
+    2026-10-11 afternoon; it replaces "one '*' note per block"). The kinds in the Playbook's order: confirm, assumed
+    (every assumption with its why), per drawings, the client notes; each item in its kind's form, a repeat printed
+    once, a long item as short points (`short_points`). No quantity note: quantities print in the lines (ruling 15,
+    `_qty_notes`, `_header_counts`). A text's own leading label is not printed twice, an issued source id left in a
+    stale text never prints (the token alone is taken out: no sentence is rewritten), and a text is never cut."""
     texts: dict[str, list[str]] = {kind: [] for kind in CLARIFICATION_KINDS}
     for c in clarifications:
         text = _trim(clarification_text(c.kind, c.text, ids))
@@ -835,25 +854,8 @@ def _notes(clarifications: tuple[Clarification, ...], devices, counts: list[Coun
     for device in devices:
         if device.assumption is not None:
             texts["assumed"].append(_reason(device.assumption, ids, playbook))
-    filled: list[tuple[str, str]] = []           # (kind, the kind's line in its own form)
-    for kind in _AFTER_LINES:
-        unique = list(dict.fromkeys(texts[kind]))
-        if unique:
-            filled.append((kind, _fill(playbook.wording.clarifications[kind], text="; ".join(unique))))
-    note = _count_note(counts, playbook, ids, names)
-    if note:
-        filled.append(("quantity", note))
-    if not filled:
-        return []
-    if len(filled) == 1:
-        return [filled[0][1]]
-    parts = []
-    for kind, line in filled:
-        if kind == "note":
-            parts += [NOTE_LEAD + t for t in dict.fromkeys(texts["note"])]
-        else:
-            parts.append(line.lstrip("*").strip())
-    return ["*" + "; ".join(parts)]
+    return [short_points(_fill(playbook.wording.clarifications[kind], text=text))
+            for kind in _AFTER_LINES for text in dict.fromkeys(texts[kind])]
 
 
 # ---- a system --------------------------------------------------------------------------------------------------
@@ -935,20 +937,18 @@ def _system_blocks(system: System, playbook: Playbook, out: list[RenderedLine], 
     if len(families) <= 1:
         family = families[0] if families else None
         headers = [_header_text(form, system.name, family.tags if family else (),
-                                family.count if family else Count(value=None), playbook)]
+                                family.count if family else Count(value=None), playbook)
+                   + (_header_counts(family.count, playbook, ids) if family else "")]
     else:
-        headers = [_header_text(form, f.name, f.tags, f.count, playbook) for f in families]
+        headers = [_header_text(form, f.name, f.tags, f.count, playbook) + _header_counts(f.count, playbook, ids)
+                   for f in families]
     reference = {n for n in (_printed(f.count) for f in families) if n is not None}
     pending = not families or any(_printed(f.count) is None for f in families)     # "Qty (##)": nothing is priced
     devices, left = _gem_devices(system, shape, playbook)       # T-005e addendum: valves, pump minimum (GEM v4)
     devices = _named(devices, ids)
-    qty_notes = _qty_notes(devices, [f.count for f in system.families], playbook, ids)
-    printed = _device_lines(devices, shape, system, playbook, reference, qty_notes)
-    named = len(system.families) > 1             # more than one family: each family's part names its family
-    notes = _notes(system.clarifications, system.devices,
-                   [f.count for f in system.families]
-                   + _line_counts(d for d in devices if d.id not in qty_notes), playbook, ids,
-                   [_title(f.name, _casing(playbook)) if named else "" for f in system.families])
+    qty_notes = _qty_notes(devices, [f.count for f in families], playbook, ids)
+    printed = _with_marks(_device_lines(devices, shape, system, playbook, reference, qty_notes), ids)
+    notes = _notes(system.clarifications, system.devices, playbook, ids)
     try:                                 # every field checked: a blank line, a negative quantity or tech hours
         items = _items(printed, pending) + [Item(kind="note", runs=(Run(text=n),)) for n in notes]
         last = len(headers) - 1
@@ -963,8 +963,21 @@ def _system_blocks(system: System, playbook: Playbook, out: list[RenderedLine], 
 
 
 def _items(printed: list[_Printed], pending: bool) -> list[Item]:
-    return [Item(kind="line", depth=p.depth, runs=(Run(text=p.text),),
+    return [Item(kind="line", depth=p.depth, runs=(Run(text=p.text, red=not p.marker and p.device.mark in RED_MARKS),),
                  quantity=p.quantity if (p.priced and not pending) else None) for p in printed]
+
+
+def _with_marks(printed: list[_Printed], ids: SourceIds) -> list[_Printed]:
+    """The printed lines with a "future" device's "(<mark_note>)" after its words (T-005 ruling 7: "(FUTURE AS PER
+    control schematic on sheet M710.00)"; "(FUTURE)" with no note). The note goes through the safety net every client
+    text goes through (`SourceIds.without_issued`). `_items` prints a "future" or "notice" line in red."""
+    out = []
+    for p in printed:
+        if p.device.mark == "future":
+            note = _squash(ids.without_issued(p.device.mark_note or "")).strip(" ()") or FUTURE_WORD
+            p = replace(p, text=f"{p.text} ({note})")
+        out.append(p)
+    return out
 
 
 def _traced(key: str, printed: list[_Printed], notes: list[str]) -> list[RenderedLine]:
@@ -986,28 +999,44 @@ def existing_system_name(front: FrontEnd) -> str | None:
 
 
 def _existing_template_lines(front: FrontEnd, printed: list[_Printed]) -> list[str]:
-    """The Master Template's "Extension of Existing" lines (network level control panel, 3-D graphics to match
-    existing, training: `bms.order.existing_lines`) that an EXISTING BMS front end prints and the writer's lines do not
-    already carry (T-005e): a written line of the same entry stands, citing this job. None for a new system, when the
-    documents call for no front end (no line from the reading, none written: T-005c's "No front end information
-    found"), or when the writer wrote no front-end line and said why (the documents give the front end to others)."""
-    if front.mode != "extend-existing" or not (front.devices or front.lines):
+    """The Master Template's front-end house lines the writer's lines do not already carry (T-005e; estimator ruling
+    19, 2026-10-11 afternoon: the template's front-end section defines the standard lines): for an EXISTING BMS its
+    "Extension of Existing" lines (network level control panel, 3-D graphics to match existing, training:
+    `bms.order.existing_lines`), for a NEW system its "Default" lines (3-D graphics, training: `bms.order.new_lines`).
+    A written line of the same entry stands, citing this job. None when the documents call for no front end (no line
+    from the reading, none written: T-005c's "No front end information found"), or when the writer wrote no
+    front-end line and said why (the documents give the front end to others)."""
+    if not (front.devices or front.lines):
         return []
     if not front.devices and _squash(front.no_scope_reason or ""):
         return []
-    have = {front_end_entry(p.text) for p in printed}
-    return [text for text, entry in existing_lines() if entry not in have]
+    have = set().union(*(front_end_entries(p.text) for p in printed))
+    template = existing_lines() if front.mode == "extend-existing" else new_lines()
+    return [text for text, entry in template if entry not in have]
+
+
+def _front_end_flags(front: FrontEnd, printed: list[_Printed]) -> list[str]:
+    """The front end's red lines (T-005 ruling 4): "No front end information found" when the documents call for none
+    (no line from the reading, none written); the one AME_ONLY_FLAG line when the existing BMS the documents name is
+    not one of AME's three (the unnamed fill-in has the planner's question instead)."""
+    flags = []
+    if not printed and not front.lines:
+        flags.append(NO_FRONT_END)
+    name = existing_system_name(front)
+    if name and name != UNNAMED_EXISTING and not ame_bms(name):
+        flags.append(AME_ONLY_FLAG)
+    return flags
 
 
 def _front_end(front: FrontEnd | None, playbook: Playbook, out: list[RenderedLine],
                ids: SourceIds) -> ScopeFrontEnd:
     if front is None:
-        return ScopeFrontEnd(mode="new-system")
+        out.append(RenderedLine("", None, "note", NO_FRONT_END, None, None))
+        return ScopeFrontEnd(mode="new-system", items=(Item(kind="note", runs=(Run(text=NO_FRONT_END, red=True),)),))
     devices = _named(front.devices, ids)
     qty_notes = _qty_notes(devices, [], playbook, ids)
-    printed = _device_lines(devices, None, None, playbook, {1}, qty_notes)
-    notes = _notes(front.clarifications, front.devices,
-                   _line_counts(d for d in devices if d.id not in qty_notes), playbook, ids)
+    printed = _with_marks(_device_lines(devices, None, None, playbook, {1}, qty_notes), ids)
+    notes = _notes(front.clarifications, front.devices, playbook, ids)
     added = _existing_template_lines(front, printed)
     # one list in the Master Template's front-end order: the writer's lines and the template's existing-BMS lines
     merged = sorted([(front_end_rank(p.text), n, p) for n, p in enumerate(printed)]
@@ -1025,9 +1054,11 @@ def _front_end(front: FrontEnd | None, playbook: Playbook, out: list[RenderedLin
         # writer prints it from the mode (estimator.proposal.layout.front_end_heading); traced here for the review
         traced.insert(0, RenderedLine("", None, "header",
                                       f"{EXISTING_SYSTEM_HEADING} {existing_system_name(front)} BMS", None, None))
-    out += traced + _traced("", [], notes)
+    red_notes = _front_end_flags(front, printed)         # T-005c: after the lines and the notes
+    out += traced + _traced("", [], notes) + [RenderedLine("", None, "note", n, None, None) for n in red_notes]
     try:
-        items = lines + [Item(kind="note", runs=(Run(text=n),)) for n in notes]
+        items = (lines + [Item(kind="note", runs=(Run(text=n),)) for n in notes]
+                 + [Item(kind="note", runs=(Run(text=n, red=True),)) for n in red_notes])
         return ScopeFrontEnd(mode=front.mode, existing_system_name=existing_system_name(front),
                              items=tuple(items), tech_hours=front.tech_hours)
     except ValueError as error:

@@ -176,7 +176,8 @@ def test_system_schema_is_strict_for_structured_outputs():
     schema = json_schema(System)
     for obj in _objects(schema):
         assert obj["additionalProperties"] is False
-        assert obj["required"] == list(obj["properties"])
+        # every property is required, except Device.mark and mark_note (T-005c: added later, optional, default "")
+        assert obj["required"] == [p for p in obj["properties"] if p not in ("mark", "mark_note")]
     device = schema["properties"]["devices"]["items"]
     assert device["properties"]["refs"]["minItems"] == 1
     assert device["properties"]["verb"]["enum"] == list(VERBS)
