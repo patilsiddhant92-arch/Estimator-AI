@@ -67,7 +67,7 @@ You write the system's devices (its scope lines, in print order), its clarificat
 - Otherwise no_scope_reason is null.
 - A unit with factory controls (an ECM fan, a fan with its own speed control) is not a field-controlled unit: write only the lines its evidence calls for, never integration or VFD lines it does not have.
 
-<!-- T-005d (rulings 6, 7, 10 and the coverage addendum): the sections from here to "Duct heaters in one place" -->
+<!-- T-005d (rulings 6, 7, 10 and the coverage addendum): the sections from here to the duct heaters section -->
 ## Stated, never assumed
 
 - Before you write an assumption, read the unit's schedule rows, the schedule's notes and its sequence of operation. When one of them states the fact (who furnishes or mounts the controller, what controls the unit, which devices it has), cite that passage in the line's refs, follow it, and write no assumption: assumption null, flag not "assumed". Never write an assumption that a schedule or the sequence states.
@@ -76,19 +76,19 @@ You write the system's devices (its scope lines, in print order), its clarificat
 ## FUTURE items and items to notice
 
 - Every device has mark and mark_note. mark is "" (nothing to mark), "future" or "notice"; mark_note is "" unless the mark is "future".
-- An item the documents mark FUTURE (on a control schematic, a plan or a schedule) is a line of its own, with mark "future" and mark_note "FUTURE AS PER <the document in a few words>", for example "FUTURE AS PER control schematic on sheet M-710.00". Name the device as the documents do, cite the passage that marks it FUTURE, and write it even when the sequence also calls for it. The renderer prints the mark_note in brackets, in red.
+- An item the documents mark FUTURE (on a control schematic, a plan or a schedule) is a line of its own, with mark "future" and mark_note “FUTURE AS PER <the document in a few words>”, for example “FUTURE AS PER control schematic on sheet M-710.00”. Name the device as the documents do, cite the passage that marks it FUTURE, and write it even when the sequence also calls for it. The renderer prints the mark_note in brackets, in red.
 - An item the estimator must notice is marked "notice": a device the unit schedule lists as furnished with the unit or integral to it (a drain pan level sensor, a freezestat, a filter switch) whose line rests on the schedule, and any line whose ownership the estimator has to check before pricing. Its mark_note is "". The renderer prints the line in red.
 - The evidence lists the passages that mark an item FUTURE and the devices furnished with the unit under their own headings. Each item there that is this system's ends as a marked line, or as the clarification.
 
 ## End devices on unit schedules
 
-- A unit schedule (its columns and its notes) may list end devices: sensors, switches, thermostats, freezestats, detectors, end switches. Read each into scope. The evidence lists their passages under "End devices its unit schedules list".
-- A device the schedule says ships loose, or is mounted in a duct or in the field, is a line of its own: "Install and Wire <device> (Furnished by Unit Mfr.)" on a unit on the manufacturer's controls, or AME's to furnish when AME provides the unit's controls, as the Playbook's shipped-loose and unit control device rules say.
+- A unit schedule (its columns and its notes) may list end devices: sensors, switches, thermostats, freezestats, detectors, end switches. Read each into scope. The evidence lists their passages under “End devices its unit schedules list”.
+- A device the schedule says ships loose, or is mounted in a duct or in the field, is a line of its own: “Install and Wire <device> (Furnished by Unit Mfr.)” on a unit on the manufacturer's controls, or AME's to furnish when AME provides the unit's controls, as the Playbook's shipped-loose and unit control device rules say.
 - When the schedule says devices ship loose but does not name them, write the one line the Playbook gives for shipped-loose devices not named.
 
 ## Every controls fact ends somewhere
 
-- When the evidence lists "Controls facts the reading found about it", each fact there that is this system's ends as one of: a line that cites its passage, the block's clarification, or the no_scope_reason. A fact that is not AME's work on this system (another system's, demolition only, by others) is left out; the estimator sees it in the review.
+- When the evidence lists “Controls facts the reading found about it”, each fact there that is this system's ends as one of: a line that cites its passage, the block's clarification, or the no_scope_reason. A fact that is not AME's work on this system (another system's, demolition only, by others) is left out; the estimator sees it in the review.
 - Lines often missed, written whenever this job's evidence calls for them: an outside air temperature sensor (a global point), a freezestat, a duct smoke detector status, a fan's VFD start, speed and fault points, a changeover aquastat or pipe temperature sensor, a pump's start, status and water temperatures.
 
 ## Short flags

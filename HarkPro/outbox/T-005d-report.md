@@ -81,6 +81,9 @@ Shared files I touched (please check on merge):
   working copy at the time; needed so `test_contracts` passes with the new fields.
 - `src/bms/run.py` :537-541: the writers get `ai.system_evidence(s, dossier, ledger)` and
   `ai.front_end_evidence(job.front_end, dossier, taken, ledger)` (two lines; T-005c's header change is elsewhere).
+- `tests/test_dossier.py` :480-495 (`test_each_plan_sheets_own_text_is_given_in_7c_once_per_sheet_number`): the
+  text and the bound now follow `PLAN_TEXT_LIMIT` instead of the fixed 8,000. T-005a's edits to this file are in other
+  hunks (around :241 and :292).
 - `src/estimator/writing/dossier.py` :59: `PLAN_TEXT_LIMIT` 8,000 -> 24,000 (the total cap 400,000 stays). T-005a's
   hunks in this file are elsewhere (imports and `_counts`). Note: this changes the dossier text, so every reading pass
   and writer is asked again on the next run (a new cache key); the counts are not affected.
@@ -105,7 +108,16 @@ file; I then wrote the tests and checked them against the base. Names:
 `test_an_assumption_on_a_line_citing_no_schedule_or_sequence_is_kept`, `test_a_long_assumption_is_refused`,
 `test_a_long_clarification_is_refused`, `test_the_writer_prompts_carry_the_rulings`.
 
-Full suite (`-n 2 -p no:cacheprovider`): SUITE_RESULT_PLACEHOLDER
+Full suite (`-n 2 -p no:cacheprovider`, run in 8 chunks of 25 files because four agents shared the CPUs):
+4,834 passed, 10 skipped, 10 failed. All 10 failures are baseline: 4 `test_ai` chat tests (the 5th chat test passed
+this time), `test_assets::test_running_on_the_project_python`,
+`test_main::test_the_output_folder_being_a_file_that_is_open_is_plain`,
+`test_review_final3::test_a_real_child_failing_with_the_resource_code_is_run_three_times_then_reported`,
+`test_revert_audit::test_a_tools_change_is_reverted_too`, and
+`test_revert_audit_review::test_a_test_file_saved_with_a_utf8_bom_is_audited` / `test_a_new_test_inside_a_class_is_audited`.
+Two failures of mine came up in the first pass and are fixed: the playbook lint read my new double-quoted prompt
+phrases as rule names (now in curly quotes), and `tests/test_dossier.py` checked the old 8,000 cut (now follows
+`PLAN_TEXT_LIMIT`). I re-ran both chunks after the fixes and they pass.
 
 Checked on the real 26-0544 documents (local only, nothing committed): with this branch the AHU, EF and ERV
 evidence carries M710.00 whole with both [FUTURE] items listed in the FUTURE checklist; AHU notes no longer list the

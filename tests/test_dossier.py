@@ -478,6 +478,7 @@ def test_the_plan_sheet_notes_are_all_given_in_7b_with_ids_capped_per_sheet(tmp_
 
 
 def test_each_plan_sheets_own_text_is_given_in_7c_once_per_sheet_number(tmp_path):
+    from estimator.writing.dossier import PLAN_TEXT_LIMIT
     catalogue, reading = _job()
     plumbing = "Drawings/Plumb.pdf"
     catalogue.sheets = catalogue.sheets + (_sheet(1, "P-101", "PLUMBING PLAN", discipline="Plumbing",
@@ -485,13 +486,14 @@ def test_each_plan_sheets_own_text_is_given_in_7c_once_per_sheet_number(tmp_path
                                            _sheet(2, "A-101", "FLOOR PLAN", discipline="Architectural",
                                                   document=plumbing))
     catalogue.pages = catalogue.pages + (
-        PageRecord(plumbing, 1, "text", "KEYED NOTE 4 PROVIDE 2-POSITION ACTUATOR ON INTAKE DAMPER " + "Y" * 9000, 0),
+        PageRecord(plumbing, 1, "text", "KEYED NOTE 4 PROVIDE 2-POSITION ACTUATOR ON INTAKE DAMPER "
+                   + "Y" * (PLAN_TEXT_LIMIT + 1_000), 0),        # T-005d: the cut follows the limit (24,000)
         PageRecord(plumbing, 2, "text", "PAINT THE WALLS.", 0))
     d = build_dossier(catalogue, reading, tmp_path)
     part = d.text.split("--- 7c PLAN SHEET TEXT ---")[1].split("== 8.")[0]
     assert "PROVIDE 2-POSITION ACTUATOR ON INTAKE DAMPER" in part and "PAINT THE WALLS." not in part
     p101 = part.split("P-101")[1]
-    assert len(p101) < 8_200 and "…" in p101
+    assert len(p101) < PLAN_TEXT_LIMIT + 200 and "…" in p101
     for sid in re.findall(r"\[(S\d+)\]", part):
         assert sid in d.sources
 
