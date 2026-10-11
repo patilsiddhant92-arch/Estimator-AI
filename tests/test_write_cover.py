@@ -82,6 +82,43 @@ def test_extending_an_existing_system(bare_job, proposal_template, tmp_path):
     assert not [r for r in heading.runs if r.font.color.rgb is not None and str(r.font.color.rgb) == "FF0000"]
 
 
+def test_the_opening_of_an_extension_names_the_jobs_existing_system_not_the_templates_sample(
+        bare_job, proposal_template, tmp_path):
+    """HP 25: the template's second opening carries a red sample name in its sentence ("the existing District Wide
+    BMS system"); the proposal prints this job's existing system there, as in the heading, in the sentence's colour."""
+    job = bare_job.model_copy(update={"front_end": FrontEnd(mode="extend-existing",
+                                                            existing_system_name="Honeywell WEBs")})
+    out = write_proposal(job, proposal_template, tmp_path / "p.docx")
+    opening = next(p for p in docx.Document(str(out)).paragraphs if squash(p.text).startswith(layout.OPENING))
+    assert squash(opening.text).endswith("an extension of the existing Honeywell WEBs BMS system.")
+    assert "District Wide" not in opening.text
+    assert not [r for r in opening.runs if r.font.color.rgb is not None and str(r.font.color.rgb) == "FF0000"]
+    assert not [t for t in _texts(out) if "District Wide" in t]
+
+
+def test_the_opening_of_a_new_system_is_the_templates_own(bare_job, proposal_template, tmp_path):
+    template_opening = next(p.text for p in docx.Document(str(proposal_template)).paragraphs
+                            if squash(p.text).startswith(layout.OPENING))
+    opening = next(t for t in _texts(write_proposal(bare_job, proposal_template, tmp_path / "p.docx"))
+                   if t.startswith(layout.OPENING))
+    assert opening == squash(template_opening)
+
+
+def test_an_opening_with_no_red_sample_is_left_as_it_is(bare_job, proposal_template, tmp_path):
+    """A template whose second opening has no red sample has nothing to replace there; the heading's red sample is
+    still required (a template change the tool refuses)."""
+    document = docx.Document(str(proposal_template))
+    openings = [p for p in document.paragraphs if squash(p.text).startswith(layout.OPENING)]
+    for run in openings[1].runs:
+        run.font.color.rgb = None
+    template = tmp_path / "t.docx"
+    document.save(str(template))
+    # one of AME's three, so the name prints plain (a name that is not prints red between ***, T-005 ruling 4)
+    job = bare_job.model_copy(update={"front_end": FrontEnd(mode="extend-existing", existing_system_name="Niagara N4")})
+    assert "Seamlessly Tie in to the Existing Niagara N4 BMS" in _texts(write_proposal(job, template,
+                                                                                     tmp_path / "p.docx"))
+
+
 def test_scope_heading_suffix(bare_job, proposal_template, tmp_path):
     assert "SCOPE OF WORK – PREVAILING WAGE" in _texts(write_proposal(bare_job, proposal_template, tmp_path / "p.docx"))
 

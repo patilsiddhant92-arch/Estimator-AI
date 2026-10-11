@@ -7,6 +7,8 @@ on the page it came from, so the run keeps every saved decision in `decisions hi
 a new save adds a round, its answer on a line replaces an earlier round's answer on the same line, and reading the
 same file again adds nothing. Starting over means deleting both files.
 `unhonored_decisions` is the post-check: a saved decision that the final job does not still show.
+The coverage gate's findings (facts nothing in the job cites) are no questions: the page lists them apart, in the
+group NOT_CITED_GROUP, with no button.
 """
 from __future__ import annotations
 
@@ -21,11 +23,13 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from bms.counts import counted_from, disputed_families
+from bms.coverage import RULE as COVERAGE_RULE
 from bms.model import PARTIES, VERBS, Count, Decision, Device, Family, Finding, Job, ModelError, Ref, System
 
 REVIEW_PAGE = "Review.html"
 DECISIONS_FILE = "decisions.json"
 DECISIONS_HISTORY = "decisions history.json"
+NOT_CITED_GROUP = "Not cited in the job"      # the heading of the group of the coverage gate's findings
 MAX_QUESTIONS = 15
 PROOFS_FOLDER, PROOFS_MANIFEST = "count-proofs", "proofs.json"     # as bms.counts publishes them into the out folder
 
@@ -93,11 +97,24 @@ def _questions(job: Job, findings: Sequence[Finding]) -> list[_Question]:
     out: list[_Question] = []
     seq = 0
     by_device: dict[tuple[str, str], _Question] = {}
+    by_title: dict[tuple[str, str, str, str], _Question] = {}
 
     def add(**kw) -> None:
         nonlocal seq
         device_id = kw.get("device_id")
         key = (kw.get("system_key", ""), device_id) if device_id else None
+        same = None if device_id else (kw.get("system_key", ""), kw.get("level", ""), kw.get("family_name") or "",
+                                       squash_title(kw.get("title", "")))
+        if same is not None and same in by_title:
+            # T-005b (ruling 11): a card with no line of its own that asks what another card of the same block
+            # already asks (two passes giving one finding, one family named twice) is one card: its notes join it
+            current = by_title[same]
+            current.notes = tuple(dict.fromkeys(current.notes + tuple(kw.get("notes") or ())))
+            current.rank = min(current.rank, kw.get("rank", current.rank))
+            if current.finding_rule is None and kw.get("finding_rule"):
+                current.finding_rule = kw["finding_rule"]
+            current.refs = tuple(dict.fromkeys(current.refs + tuple(kw.get("refs") or ())))
+            return
         if key is not None and key in by_device:
             current = by_device[key]
             notes = tuple(note for note in kw.get("notes") or () if note not in current.notes)
@@ -130,6 +147,8 @@ def _questions(job: Job, findings: Sequence[Finding]) -> list[_Question]:
         out.append(question)
         if key is not None:
             by_device[key] = question
+        if same is not None:
+            by_title[same] = question
 
     scopes: list[tuple[str, Sequence[Device], Sequence]] = [(s.key, s.devices, s.families) for s in job.systems]
     if job.front_end is not None:
@@ -137,6 +156,8 @@ def _questions(job: Job, findings: Sequence[Finding]) -> list[_Question]:
     by_key = {key: devices for key, devices, _f in scopes}
 
     for finding in findings:
+        if finding.rule == COVERAGE_RULE:
+            continue                    # the coverage gate's findings have a group of their own (`_not_cited_html`)
         device = (next((d for d in by_key.get(finding.system_key, ()) if d.id == finding.device_id), None)
                   if finding.device_id else None)
         add(system_key=finding.system_key,
@@ -147,6 +168,7 @@ def _questions(job: Job, findings: Sequence[Finding]) -> list[_Question]:
             device=device, count=device.quantity if device else None, refs=device.refs if device else ())
 
     for key, devices, families in scopes:
+        family_cards: dict[str, _Question] = {}
         for family in families:
             count = family.count
             if count.others or count.value is None or _adds_up(count):
@@ -160,7 +182,17 @@ def _questions(job: Job, findings: Sequence[Finding]) -> list[_Question]:
                                f"{count.highest()} prints, {count.added_up.value} if every sheet is added up.")
                 add(system_key=key, rank=RANK_FLAGGED, title=f"How many {family.name} units?",
                     level="family", family_name=family.name, notes=tuple(why), count=count, refs=count.sources)
+                family_cards.setdefault(family.name, by_title[(key, "family", family.name,
+                                                               squash_title(f"How many {family.name} units?"))])
+        folded: dict[str, list[str]] = {}
         for device in devices:
+            home = _repeats_family_count(device, families, family_cards) if (key, device.id) not in by_device \
+                else None
+            if home is not None:
+                # T-005b (ruling 11): the line's only question is the family's count, asked once on the family card;
+                # the family's Accept or Change settles the line too (`_accept_clears`)
+                folded.setdefault(home, []).append(_device_title(device))
+                continue
             counted = bool(device.quantity.others)
             if device.flag != "none" or counted:
                 notes = []
@@ -177,7 +209,34 @@ def _questions(job: Job, findings: Sequence[Finding]) -> list[_Question]:
                     device_id=device.id,
                     notes=(f"Assumed: {device.assumption.what}", f"Why: {device.assumption.why}"),
                     count=device.quantity, refs=device.refs, device=device)
+        for name, titles in folded.items():
+            card = family_cards[name]
+            card.notes = card.notes + (
+                f"The lines counted from it print the same count, so they are not asked again; your answer here "
+                f"settles them too: {'; '.join(titles)}.",)
     return out
+
+
+def squash_title(text: object) -> str:
+    """A card's title as two cards compare it: spaces squashed, any case."""
+    return re.sub(r"\s+", " ", str(text or "")).strip().casefold()
+
+
+def _repeats_family_count(device: Device, families: Sequence[Family], cards: dict[str, _Question]) -> str | None:
+    """The name of the family whose count card already asks this line's only question, else None (T-005b, ruling 11).
+    The line is flagged for its count only (flag "quantity", no assumption), was counted from exactly one disputed
+    family that has a card (`counts.counted_from`, the rule the family's Accept clears it by), and its count is that
+    family's: the same number prints, and its other counts are among the family's."""
+    if device.flag != "quantity" or device.assumption is not None or device.quantity.value is None:
+        return None
+    homes = [f for f in families if f.count.others and counted_from(device, f)]
+    if len(homes) != 1 or homes[0].name not in cards:
+        return None
+    family = homes[0]
+    if device.quantity.highest() != family.count.highest():
+        return None
+    theirs = {o.value for o in family.count.others} | {family.count.value}
+    return family.name if all(o.value in theirs for o in device.quantity.others) else None
 
 
 def _adds_up(count: Count) -> bool:
@@ -231,6 +290,19 @@ def _count_html(count: Count, proofs: dict[str, list[str]] | None = None) -> str
                      + _ref_html(count.added_up.ref, f"{count.added_up.value}: ", proofs) + "</ul>")
     parts.append("</div>")
     return "".join(parts)
+
+
+def _not_cited_html(findings: Sequence[Finding]) -> str:
+    """The group of the coverage gate's findings: each fact the reading found that nothing in the job cites, as the gate
+    worded it (`Finding.what`: its id, kind and name, the place it was read at, its quote) with what to do. A list, not
+    questions: it has no button and saves no decision, and it changes nothing in the proposal."""
+    items = "".join(
+        f'<li>{_e(f.what)} <span class="rule">Rule: {_e(f.rule)}</span>'
+        + (f'<p class="note">What to do: {_e(f.fix)}</p>' if f.fix else "") + "</li>" for f in findings)
+    return (f'<section class="card" id="not-cited" data-group="not-cited"><h2>{_e(NOT_CITED_GROUP)}</h2>'
+            '<p class="empty">The reading found each of these in the job\'s documents. Nothing in the job cites it: no '
+            'line, note, exception or question. This list changes nothing in the proposal.</p>'
+            f'<ul class="uncited">{items}</ul></section>')
 
 
 def _select(name: str, options: Sequence[str], current: str) -> str:
@@ -295,18 +367,28 @@ NUMBER_WORDS = ("zero", "one", "two", "three", "four", "five", "six", "seven", "
                 "twelve", "thirteen", "fourteen", "fifteen", "sixteen", "seventeen", "eighteen", "nineteen", "twenty")
 UNIT_WORDS = ("unit", "units", "no", "nos", "ea", "each", "pc", "pcs", "piece", "pieces", "item", "items", "qty")
 UNKNOWN_COUNT_PATTERN = r"^(?:##|unknown|not known|qty \(##\))$"
-# the whole text: the number (group 1), then at most one unit word, then at most one dot
-LEADING_COUNT_PATTERN = (r"^\s*([0-9]+|" + "|".join(NUMBER_WORDS) + r")"
-                         r"(?:\s+(?:" + "|".join(UNIT_WORDS) + r"))?\.?\s*$")
-_UNKNOWN_COUNT = re.compile(UNKNOWN_COUNT_PATTERN, re.IGNORECASE)
-_LEADING_COUNT = re.compile(LEADING_COUNT_PATTERN, re.IGNORECASE)
+# the spaces as the page's JavaScript knows them (its \s and its trim()): written out, because Python's \s and strip()
+# know others (U+001C to U+001F, U+0085) and not U+FEFF, so one text read two ways. T-003.
+_JS_SPACE_CLASS = r"[\t\n\v\f\r \u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000\ufeff]"
+JS_SPACES = ("\t\n\v\f\r \u00a0\u1680" + "".join(chr(c) for c in range(0x2000, 0x200B))
+             + "\u2028\u2029\u202f\u205f\u3000\ufeff")
+# the whole text: the number (group 1), then at most one unit word, then at most one dot. At most 15 digits: the page's
+# parseInt holds no more exactly (2**53), and Python's int() refuses more than 4300. T-003.
+LEADING_COUNT_PATTERN = (r"^" + _JS_SPACE_CLASS + r"*([0-9]{1,15}|" + "|".join(NUMBER_WORDS) + r")"
+                         r"(?:" + _JS_SPACE_CLASS + r"+(?:" + "|".join(UNIT_WORDS) + r"))?\.?"
+                         + _JS_SPACE_CLASS + r"*$")
+# ASCII case folding only: the page's RegExp "i" (no "u") never folds a letter above U+007F onto an ASCII one, but
+# Python's re.IGNORECASE folds four ("ſ", "ı", "İ", the Kelvin sign), so "ſix" was a count here and words on the page
+# (and its number word was in no list: a ValueError). T-003.
+_UNKNOWN_COUNT = re.compile(UNKNOWN_COUNT_PATTERN, re.IGNORECASE | re.ASCII)
+_LEADING_COUNT = re.compile(LEADING_COUNT_PATTERN, re.IGNORECASE | re.ASCII)
 
 
 def _typed_count(text: str) -> tuple[str, int | None]:
     """What a count typed in Change says: ("number", n) for a whole number alone or with one unit word,
     ("number", None) for "not known", ("words", None) for any other text (a number with other words after it is
     no count), ("none", None) for no text. The page reads it the same way (`parseNumber`)."""
-    said = (text or "").strip()
+    said = (text or "").strip(JS_SPACES)      # the page's trim()
     if not said:
         return ("none", None)
     if _UNKNOWN_COUNT.match(said):
@@ -513,7 +595,7 @@ h1{font-size:18px;margin:0 0 4px}main{max-width:900px;margin:0 auto;padding:16px
 .tag{display:inline-block;font-size:12px;border-radius:4px;padding:1px 6px;border:1px solid var(--line);color:var(--mute)}
 .tag.r0{color:var(--bad);border-color:var(--bad)}.tag.r1{color:var(--warn);border-color:var(--warn)}
 .rule,.where,.hint,.others,.empty{color:var(--mute);font-size:13px}.src{font-weight:600;margin-right:4px}
-.note{margin:4px 0}.count{margin:6px 0}ul{margin:4px 0 4px 18px;padding:0}
+.note{margin:4px 0}.count{margin:6px 0}ul{margin:4px 0 4px 18px;padding:0}.uncited li{margin:0 0 10px}
 .proof img{display:block;max-width:100%;max-height:260px;border:1px solid var(--line);margin:4px 0}
 .buttons{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:6px}
 button{font:inherit;padding:4px 12px;border:1px solid var(--line);border-radius:6px;background:var(--card);color:var(--ink);cursor:pointer}
@@ -535,10 +617,16 @@ def review_page(job: Job, findings: Sequence[Finding], out_dir: Path) -> Path:
     counts flagged, then assumptions, then checks. Only the top MAX_QUESTIONS for the job show at first; "Show all"
     reveals the rest. Each count shows every source and other count, and the proof image when a Ref points to a
     relative image path. Buttons Accept / Change / Delete per question; "Save decisions" downloads `decisions.json`
-    (a list of `Decision.to_dict()`), which the estimator saves into `out_dir`. One self-contained file."""
+    (a list of `Decision.to_dict()`), which the estimator saves into `out_dir`. One self-contained file.
+
+    The coverage gate's findings (rule `bms.coverage.RULE`: a fact the reading found that nothing in the job cites)
+    are no questions. They are listed in one group of their own, NOT_CITED_GROUP, after the cards: each as the gate
+    worded it, with no button and no decision. They do not count among the questions and take no place among the top
+    ones. With none, the page has no such group."""
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     ranked = _ranked(_questions(job, findings))
+    uncited = [f for f in findings if f.rule == COVERAGE_RULE]
     proofs = count_proofs(out_dir)
     visible = {q.qid for q in ranked[:MAX_QUESTIONS]}
 
@@ -561,6 +649,8 @@ def review_page(job: Job, findings: Sequence[Finding], out_dir: Path) -> Path:
         elif hidden == len(mine):
             inner += f'<p class="empty more">{hidden} more question(s) under "Show all questions".</p>'
         body.append(f'<section class="card" data-system="{_e(key)}"><h2>{_e(title)}</h2>{inner}</section>')
+    if uncited:
+        body.append(_not_cited_html(uncited))
     if job.questions:
         body.append('<section class="card"><h2>Open questions for the client</h2><ul>'
                     + "".join(f"<li>{_e(t)}</li>" for t in job.questions) + "</ul></section>")
@@ -833,8 +923,10 @@ def _with_typed_count(entry: SavedDecision, job: Job | None) -> SavedDecision:
 # number and one unit word and nothing else. Other words stay a rename ("2 pipe FCU"). So does a name the current page
 # saved: its `reason` is the count box text or "renamed to ...", never the name itself. (`UNIT_WORDS` is above, with
 # the typed count it belongs to.)
-_COUNT_NAME = re.compile(r"^\s*([0-9]+|" + "|".join(NUMBER_WORDS) + r")\s+(?:" + "|".join(UNIT_WORDS) + r")\.?\s*$",
-                         re.IGNORECASE)
+# (It reads as the count box does, `_LEADING_COUNT`: ASCII case folding, the page's spaces, at most 15 digits. Before,
+# a saved name "ſix units" or one of thousands of digits raised ValueError and stopped the run. T-003.)
+_COUNT_NAME = re.compile(r"^" + _JS_SPACE_CLASS + r"*([0-9]{1,15}|" + "|".join(NUMBER_WORDS) + r")" + _JS_SPACE_CLASS
+                         + r"+(?:" + "|".join(UNIT_WORDS) + r")\.?" + _JS_SPACE_CLASS + r"*$", re.IGNORECASE | re.ASCII)
 
 
 def _read_count_name(d: Decision, line: Device | None = None) -> Decision:

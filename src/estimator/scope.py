@@ -21,6 +21,7 @@ class Run(_Model):
 
     text: str
     bold: bool = False
+    red: bool = False                # printed in red, for the estimator to notice (T-005e)
 
 
 class Item(_Model):
@@ -108,6 +109,16 @@ class Header(_Model):
     based_on: tuple[str, ...] = Field(min_length=1)
 
 
+class LaborCondition(_Model):
+    """A labor condition the job's documents call for (T-005e): off-hours work or prevailing wage. Both documents
+    carry it in red, citing `source`; the proposal's normal-hours clarification and off-hours exclusion give way."""
+
+    kind: Literal["off-hours", "prevailing-wage"]
+    text: str = Field(min_length=1)      # the red line, as printed
+    source: str = Field(min_length=1)    # where the documents say it ("Spec Section 01 10 00")
+    quote: str = ""                      # the documents' words
+
+
 class Job(_Model):
     header: Header
     scope_heading_suffix: str = ""
@@ -116,3 +127,4 @@ class Job(_Model):
     add_alternates: tuple[Alternate, ...] = ()
     deduct_alternates: tuple[Alternate, ...] = ()
     named_exceptions: tuple[str, ...] = ()
+    labor_conditions: tuple[LaborCondition, ...] = ()

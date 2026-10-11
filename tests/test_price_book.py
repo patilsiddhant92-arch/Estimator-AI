@@ -48,9 +48,11 @@ def test_price_key_keeps_a_bracket_that_is_part_of_the_name():
 
 
 def test_every_priced_row_is_loaded(price_book):
-    assert len(price_book.items) == 67
-    assert sum(1 for i in price_book.items if i.sheet == "Parts Pricing") == 50
-    assert sum(1 for i in price_book.items if i.sheet == "BMS-DDC-Panels") == 17
+    """The revised workbook (T-002): 53 priced parts, 19 panels and 42 valves and meters."""
+    assert len(price_book.items) == 114
+    assert sum(1 for i in price_book.items if i.sheet == "Std Parts Pricing") == 53
+    assert sum(1 for i in price_book.items if i.sheet == "BMS-DDC-Panels") == 19
+    assert sum(1 for i in price_book.items if i.sheet == "Control Valves & Meters") == 42
 
 
 @pytest.mark.parametrize("line, price", [
@@ -66,8 +68,9 @@ def test_known_prices(price_book, line, price):
 
 
 def test_no_guessing(price_book):
-    assert price_book.lookup("Furnish and Install DDC Controller") is None
-    assert price_book.lookup("Furnish and Install Damper Actuator") is None
+    assert price_book.lookup("Furnish and Install DDC Controller") is None        # the book prices it by size
+    assert price_book.lookup("Furnish Network Level Control Panel") is None
+    assert price_book.lookup("Furnish and Wire Hot Water Control Valve and Actuator") is None   # valves by size
 
 
 def test_install_only_lines_are_never_priced_from_the_furnish_and_install_price(price_book):
@@ -79,13 +82,15 @@ def test_install_only_lines_are_never_priced_from_the_furnish_and_install_price(
 
 
 def test_the_books_own_doubts_are_kept(price_book):
-    assert price_book.lookup("Furnish and Wire Filter DP Switch").needs_review is True
+    """The revised workbook's "Below is not completed" rows (the plant controllers) are priced but questioned."""
+    assert price_book.lookup("Furnish Plant Controller with 32 UIO").needs_review is True
+    assert price_book.lookup("Furnish and Wire Filter DP Switch").needs_review is False
     assert price_book.lookup("Furnish and Install Space Temperature Sensor").needs_review is False
 
 
 def test_rows_without_a_price_are_not_items(price_book):
-    assert price_book.lookup("Furnish and Install Horn and Strobe") is None
-    assert "Horn and Strobe" not in {i.name for i in price_book.items}
+    assert price_book.lookup("Furnish Enable/Disable") is None
+    assert {"Enable/Disable", "Global Sensor"}.isdisjoint({i.name for i in price_book.items})
 
 
 def test_a_confirmed_alias_prices_a_line(price_book):

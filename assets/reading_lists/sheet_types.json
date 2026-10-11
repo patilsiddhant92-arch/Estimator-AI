@@ -10,10 +10,13 @@
     {"name": "Control diagrams", "patterns": ["^(?!.*\\bPLANS?\\b).*\\bCONTROLS?\\b", "\\bSEQUENCES?\\s+OF\\s+OPERATIONS?\\b", "\\bPOINTS?\\s+LISTS?\\b", "\\bINSTRUMENT(?:ATION)?\\b", "^(?!.*\\bPLANS?\\b).*\\b(?:BMS|BAS|EPMS|DCIM)\\b"]},
     {"name": "Diagrams", "patterns": ["\\bDIAGRAMS?\\b", "\\bONE[- ]LINE\\b", "\\bSCHEMATICS?\\b", "\\bRISERS?\\b", "\\bISOMETRICS?\\b"]},
     {"name": "Sections and elevations", "patterns": ["\\bSECTIONS?\\b", "\\bELEVATIONS?\\b"]},
-    {"name": "Demolition", "patterns": ["\\bDEMOLITION\\b", "\\bDEMO\\b", "\\bREMOVALS?\\b"]},
+    {"name": "Demolition", "patterns": ["\\bDEMOLITION\\b", "\\bDEMO\\b", "\\bREMOVALS?\\b", "\\bEXISTING\\s+TO\\s+BE\\s+REMOVED\\b"]},
     {"name": "Specifications", "patterns": ["\\bSPECIFICATIONS?\\b", "\\bSPECS\\b"]},
     {"name": "Notes and legends", "patterns": ["\\bNOTES\\b", "\\bLEGENDS?\\b", "\\bSYMBOLS\\b", "\\bABBREVIATIONS\\b", "\\bCOVER\\b", "\\bINDEX\\b", "\\bDRAWINGS?\\s+LISTS?\\b", "\\bTABLE\\s+OF\\s+CONTENTS\\b", "\\bGENERAL\\s+INFORMATION\\b", "\\bINSPECTIONS?\\b", "\\bCOMPLIANCE\\b"]}
   ],
+  "demolition_new_work": ["\\bNEW\\s+WORK\\b", "\\bNEW\\s+CONSTRUCTION\\b"],
+  "demolition_work_about": "Ruling 1 (2026-10-11): a unit on a demolition sheet is left out of every count unless the documents name work on it. A line of any sheet that names the unit's tag and one of these words names work on it (refurbishment of an existing unit, relocation of its sensors or thermostats). A demolition sheet whose title also matches demolition_new_work is a new-work sheet too, and is counted.",
+  "demolition_work": ["\\bREFURBISH\\w*", "\\bRECONDITION\\w*", "\\bRETROFIT\\w*", "\\bRELOCAT\\w*", "\\bREWORK\\w*", "\\bREBUILD\\w*", "\\bOVERHAUL\\w*", "\\bUPGRAD\\w*", "\\bREPLACE\\s+(?:THE\\s+)?(?:EXISTING\\s+)?(?:THERMOSTATS?|SENSORS?|CONTROLS?|CONTROLLERS?|ACTUATORS?|VALVES?)\\b", "\\b(?:THERMOSTATS?|SENSORS?|CONTROLS?|CONTROLLERS?|ACTUATORS?|VALVES?)\\s+(?:TO|SHALL)\\s+BE\\s+REPLACED\\b", "\\bNEW\\s+(?:DDC\\s+)?CONTROLS?\\b"],
   "disciplines_by_title": [
     {"name": "Mechanical", "patterns": ["\\bMECHANICAL\\b", "\\bHVAC\\b"]},
     {"name": "Plumbing", "patterns": ["\\bPLUMBING\\b", "\\bSANITARY\\b", "\\bDOMESTIC\\s+WATER\\b"]},

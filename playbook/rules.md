@@ -26,7 +26,7 @@ written.
 ### No standard or fallback lines
 There is no "AME standard" line and no fallback line. A line is never added because systems of this kind usually
 have it, because the Master Template lists it, or to fill a gap. If the documents are silent, the line is not
-written; if the gap matters, ask the estimator a question.
+written; if the gap matters, ask the estimator a question. The front end house lines are the one exception.
 
 ### Nothing from other jobs
 Wording, devices, counts and examples come only from this job. Never reuse a line, a note or a quantity from
@@ -51,6 +51,10 @@ sensor, actuator, switch, valve, relay, meter, detector, transmitter and hardwir
 responsibilities (panel work, demolition, wiring runs not tied to a device, coordination, testing) become lines
 too (see Miscellaneous responsibilities). Nothing on the list is dropped. Every device on the list
 has its line, and every line is on the list.
+
+### Occupancy sensors are never dropped
+Every occupancy sensor that the controls documents show ends as a line for AME or as an ownership flag in the
+block's clarification. It is never left out.
 
 ### Sequence first, point list second
 The sequence is the main source; the point list confirms it. Read the sequence first, then check the point list
@@ -77,11 +81,12 @@ answers. Getting this right is AME's responsibility on every line; restating the
 ### Who owns what by default
 Work that belongs to another party is not AME's scope unless the documents give it to AME. Fire alarm contractor:
 fan start/stop through the fire alarm, smoke and duct detectors, any command the fire alarm starts. Mechanical
-contractor: valve bodies, piping, unit-mounted safeties not assigned to the controls contractor. Electrical
-contractor: VFDs unless the controls contractor furnishes them, line-voltage wiring, conduit, disconnects. Unit
-manufacturer: factory-mounted sensors, factory controls, isolation valves and internal safeties. Owner: anything
-the specification calls owner-furnished. Sheet metal contractor: ductwork, and installing airflow measuring
-stations.
+contractor: valve bodies and piping. AME is the mechanical contractor's subcontractor for controls, so a controls
+item or sensor that the documents give to the mechanical contractor is AME's (see Controls given to the mechanical
+contractor). Electrical contractor: VFDs unless the controls contractor furnishes them, line-voltage wiring,
+conduit, disconnects. Unit manufacturer: factory-mounted sensors, factory controls, isolation valves and internal
+safeties. Owner: anything the specification calls owner-furnished. Sheet metal contractor: ductwork, and installing
+airflow measuring stations.
 
 ### Three ownership questions
 Ask three questions of every device, with no exception. Who furnishes it: the party the documents name; with no
@@ -108,6 +113,22 @@ When the documents name the controls contractor for a device or a task, that ove
 including the packaged-unit defaults. A generic "provide", "furnish" or "install" with no party named is not an
 assignment to AME.
 
+### Controls given to the mechanical contractor
+AME is the mechanical contractor's subcontractor for controls. A controls item or sensor that the documents give to
+the mechanical contractor ("by MC", "by HVAC contractor", "mechanical contractor shall provide ...") is AME's
+scope. It is written with the normal AME verb. It is never a named exception and never "(Furnished by Mechanical
+Contractor)". An exhaust fan space thermostat "by MC" is "Furnish and Install Space Thermostat". A leak detector
+"by MC" is "Furnish and Install Leak Sensor". Work that is not controls stays with the mechanical contractor: valve
+bodies and piping. AME still furnishes and wires the control valve and its actuator.
+
+### Schedule notes address the manufacturer
+A note on an equipment schedule is the unit or pump manufacturer's instruction, unless it names the controls
+contractor (ATC, BMS or controls contractor) or gives BMS wiring ("wire to BMS", "by BMS contractor", "by ATC"). A
+generic "provide ..." in a schedule note is not an assignment to AME. The note is still read: it tells which
+devices come with the unit (shipped loose, integral, factory mounted), and that decides the Install and Wire,
+Tie-in and client note lines. A schedule note that gives a controls item to the mechanical contractor makes it
+AME's (see Controls given to the mechanical contractor).
+
 ### Mixed ownership device by device
 Decide each device on its own. A field DDC unit may have a device the unit manufacturer furnishes; a packaged unit
 may have a device the documents give to AME.
@@ -121,14 +142,39 @@ not (see Factory-installed devices).
 ### Other trades in brackets
 Name the furnishing party in brackets after the device: "(Furnished by Unit Mfr.)" for the unit manufacturer;
 "(Relay Furnished by FA)" for fire alarm relays and signals; "(Furnished by Others)" for dampers and end switches by
-the sheet metal contractor; "(Furnished by Mechanical Contractor)" for condensate pumps and float switches;
-"(Furnished by Electrical Contractor)" and "(Furnished by Owner)" when those parties furnish. The bracket names
-only the furnishing party; who installs is kept in the Evidence Package, not printed.
+the sheet metal contractor; "(Furnished by Mfr.)" for the condensate pump float switch (see Condensate pump float
+switch); "(Furnished by Electrical Contractor)" and "(Furnished by Owner)" when those parties furnish. A controls
+item that the documents give to the mechanical contractor is AME's and has no bracket (see Controls given to the
+mechanical contractor). The bracket names only the furnishing party; who installs is kept in the Evidence Package,
+not printed.
+
+### Leak detectors
+A water leak detector or drip pan detector at a unit is "Furnish and Install Leak Sensor": AME furnishes, installs
+and wires it like any field sensor. This holds on a packaged unit too, and when the documents say only that it is
+wired to a local alarm panel and name no furnishing party. It is the exception to the packaged unit default in
+Three ownership questions. The device name is Leak Sensor, as the Master Template names it. Refrigerant leak
+detection that is part of the unit is not a line. Its client note is "**Refrigeration Leak Detection system is
+coming with the unit per equipment schedule". The wiring that AME does for refrigerant leak detection is a line
+(see Refrigerant leak detection wiring).
+
+### Condensate pump float switch
+The float switch of a condensate pump comes with the pump. When the documents say that the BMS ties in to it (a
+detail, a sequence or a plan note gives the wiring to the BMS), AME writes "Tie-in Condensate Pump Float Switch
+(Furnished by Mfr.)". The bracket is "(Furnished by Mfr.)", never "(Furnished by Mechanical Contractor)". A pump
+schedule note such as "provide float operated high water alarm" is the pump manufacturer's note (see Schedule notes
+address the manufacturer). It does not give AME the tie-in by itself.
+
+### Local alarm panel
+When leak detectors or a condensate overflow report to a local alarm panel (a local audible or visual alarm) that
+the documents show, AME writes "Furnish and Install Local RAM Module" in the block of the unit they serve. This is
+also so on a packaged unit, with no party named (see Three ownership questions). The line is not written when the
+documents show no local alarm panel.
 
 ### Point lines only on AME controllers
 "Furnish <point>" lines (start/stop and status, speed control, enable, setpoint, alarms, feedback) are written only
 for a system AME's own DDC controller runs. On a packaged or factory-controlled unit the three integration lines
-cover every monitored point.
+cover every monitored point. A fan whose points land on the controller of another AME unit (an exhaust fan wired to
+the air handler's controller) counts as run by an AME controller (see Every block lists its end devices).
 
 ### Minimum points on AME-run equipment
 On equipment AME's own controller runs, write these points with the documents' citation that puts the equipment
@@ -138,6 +184,13 @@ Alarm/Fault. Cooling towers: Fan Enable, Fan Status and Fan VFD Control; the Fan
 written only when the documents call it, in their exact term (Fault, Malfunction or Safety Stop). VFD speed
 feedback, position feedback and open/closed status from end switches only when the documents call them. These
 are never listed for equipment on factory controls unless the documents give them to AME.
+
+### Every block lists its end devices
+A block is never only "Interlock with ...". When the sequence or the control diagram gives a system points, the
+block lists all its end devices. For an exhaust fan these are, as the documents call for them: start/stop and
+status, VFD control, VFD fault and the damper actuator. This holds when the points land on the controller of
+another AME unit, such as the air handler: the lines stay in the fan's block, and a client note says where the
+points land.
 
 ### Start/stop covers the relay and status switch
 "Furnish <fan> Start/Stop and Status" includes the relay and the current switch. Do not add a separate current
@@ -159,21 +212,42 @@ exclusion; or a device with real cost has no named party and no default fits. Qu
 
 ### Higher count prints
 When the documents give different counts, the highest count prints, flagged, and every other count is named with
-where it is. The estimator decides on review.
+where it is. The estimator decides on review. Every count that differs from the printed one prints in the same line
+(see Quantities print in the line).
 
 ### Never undershoot
-Never print a count lower than one the documents give. Never invent a number. An unknown count prints "Qty (##)"
-in a header and "(Qty. ##)" on a line, flagged to confirm.
+Never print a count lower than one the documents give. Never invent a number. An unknown count prints "Qty (##)", in
+a header and in front of a line, flagged to confirm. The only exceptions, here and in Higher count prints, are the
+units on demolition sheets, whose count moves to Demolition Scope with its number, and a duplicate label of one unit
+on two part plans, which a short "*" line names with both numbers.
 
 ### Line quantity
-A line's quantity prints only when it differs from the block's count, as "(Qty. N Total)". Identical lines for
-several units are one line with the total ("Furnish Chiller Enable (Qty. 6 Total)"), never one line per tag.
+A line's quantity prints only when it differs from the block's count, in front of the line, as
+"Qty (N) <device line>". When it equals the block's count, the line has no quantity in front. Identical lines for
+several units are one line with the total ("Qty (6) Furnish Chiller Enable"), never one line per tag.
 
 ### Systems named only in the sequence
 A system the sequence names but no drawing shows (an emergency generator, plumbing pumps, domestic water heaters,
 heat tracing, glycol feed, a gas booster) is printed in the base bid with its integration lines, "Qty (##)", and
 the clarification "*Quantity per plumbing drawings" (or the drawings of the trade that shows it). It is never held
 back as a question only.
+
+### Demolition Scope
+A demolition plan shows the previous job's units: removed, remaining or relocated. Their count never goes into the
+new-work blocks. It prints in one block headed "Demolition Scope", the last block of the scope, in lines such as "Qty
+(n) AHU demo", "Qty (n) FCU Existing to Remain" and "Qty (n) VAV Relocation". Named work on such a unit, such as
+refurbishing it or relocating its sensors or thermostat, is a line of this block.
+
+### One unit on two part plans counts once
+One unit can show on two part plans that share an area. Count it once. The other labels are duplicates of the same
+unit. A short "*" line gives both numbers.
+
+### Quantities print in the line
+A quantity prints in the line it counts. The block heading keeps "Qty (n) <system>". A device line inside a block
+starts with its count, "Qty (N) <device line>", when the device count differs from the block count (for example
+"Qty (33) Furnish and Install Space Temperature Sensor"). It is never a bracket "(Qty. N Total)" at the end of the
+line. There is no separate quantity note. When two counts differ, the line prints the highest and names each other
+count with where it is, in brackets, for example "(4 per plan placements)".
 
 ## Clarifications and assumptions
 
@@ -182,14 +256,14 @@ A block has at most one "*" clarification of each kind, naming the lines it cove
 ownership to confirm and the assumptions made. Do not put a bracket on every line; the per-line detail stays in the
 Evidence Package. When a block needs several items of one kind, they are joined in that kind's one line. Its forms:
 "*Confirm quantity: ...", "*Confirm ownership: ...", "*Assumed: ...", "*Quantity per <trade> drawings", and
-"**<note>" for client notes. The quantity note naming the block's other counts is its own "*" line after them.
+"**<note>" for client notes. Each "*" line is one short line, never a paragraph. Several "*" lines in one block are
+fine when each is a different item. A "*" line that the estimator must see prints in red.
 
 ### Joining into the one clarification
 Each kind prints as one line, in a fixed order after the block's lines: to confirm, assumed, per drawings, client
-notes. The items of one kind are joined with "; " in that kind's form. Last comes the quantity note, on its own
-line, naming every other count of the block with where it is (none dropped; a count with no place still prints).
-Example: "*Confirm quantity: 4 per schedule", then "*Assumed: relay by AME, as the sequence asks for a stop", then
-"**Start/Stop via Fire Alarm System". The front end block follows the same rule.
+notes. The items of one kind are joined with "; " in that kind's form. Example: "*Confirm quantity: 4 per schedule",
+then "*Assumed: relay by AME, as the sequence asks for a stop", then "**Start/Stop via Fire Alarm System". The front
+end block follows the same rule.
 
 ### Every assumption says why
 Every assumption says what was assumed and why, in a few plain words naming the document or the missing
@@ -199,17 +273,20 @@ it always carries its reason.
 
 ### Assumption wording has no source ids
 An assumption or a clarification names the sheet or section it rests on ("M-201", "the fan schedule"), never a
-source id ("S12", "S40 note 1"): source ids are for the Evidence Package only.
+source id ("S12", "S40 note 1"): source ids are for the model's citations only. The Evidence Package shows, on
+every scope line, where the documents say it, word for word: the sheet, the page and the quote, not an id.
 
 ### Client notes
 A client note is a statement to the client that the documents support, such as "**Start/Stop via Fire Alarm
 System". It has no place of its own: it goes into the block's one clarification. When the block has nothing to
 confirm, assume or count per drawings, the clarification is the "note" kind and the notes are joined with "; "
 ("**Start/Stop via Fire Alarm System; PC Workstation by Owner"). Otherwise they are joined after the other parts,
-each led by "Note:" (see Joining into the one clarification). A client note never changes the price: work AME
-prices is a line, never a note (see Miscellaneous responsibilities). A device the documents say the unit's
-manufacturer furnishes, and that AME does not touch, may be noted in the house form "**<ITEM> BY UNIT MFR." (for
-example "**LEAK DETECTION BY UNIT MFR."). Never an estimating hint (where to look, how to decide), never tech
+each led by "Note:" (see Joining into the one clarification). A client note prints in red. A client note never
+changes the price: work AME prices is a line, never a note (see Miscellaneous responsibilities). A device the
+documents say the unit's manufacturer furnishes, and that AME does not touch, may be noted in the house form
+"**<ITEM> BY UNIT MFR." (for example "**AIRFLOW MEASURING STATION BY UNIT MFR."). Refrigerant leak detection that
+is part of the unit is the exception: its note is "**Refrigeration Leak Detection system is coming with the unit
+per equipment schedule" (see Leak detectors). Never an estimating hint (where to look, how to decide), never tech
 hours, never prices.
 
 ### Miscellaneous responsibilities
@@ -231,7 +308,17 @@ controls contractor is written AME.
 
 ### Questions for the estimator
 What the documents cannot settle and that changes the price is a question for the estimator, kept off the
-proposal. A question never replaces a line the documents call for; a missing count prints "Qty (##)" and asks.
+proposal. A question never replaces a line the documents call for; a missing count prints "Qty (##)" and asks. A
+question is asked once. A question that holds for a whole family is asked once for the family, never per unit or per
+line.
+
+### A stated fact is not an assumption
+When a schedule or the sequence states a fact, write it as stated and cite it. Never print "Assumed" for it.
+
+### Red flags for the estimator
+An item the documents mark FUTURE prints as its normal line, then "(FUTURE AS PER <source>)" in red font, naming the
+sheet or section. An item the estimator must notice, such as an integral drain pan level sensor that the factory
+furnishes, is highlighted red in the scope. Red marks what the estimator must see.
 
 ## Packaged units
 
@@ -241,19 +328,34 @@ The controller and every end device belong to the unit manufacturer unless the d
 plan note or detail) give one to the controls contractor. AME's work on it is limited to four things: the
 shipped-loose devices; any device the documents explicitly give to the controls contractor, with the normal verb;
 wiring to a factory-installed device only when the sequence gives that wiring to AME; and the three integration
-lines, last.
+lines, last. Three field devices at the unit are also lines: the leak detector, the local alarm panel module and
+the condensate pump float switch tie-in (see Leak detectors, Local alarm panel and Condensate pump float switch).
 
 ### No AME controller on a packaged unit
 Never write "Furnish and Install DDC Controller" for a unit on factory controls.
 
 ### Nothing inside the unit is a line
 What the sequence describes inside the unit (valve control, fan control, DX staging, leak control, reheat, internal
-sensors, actuators, safeties, filter switches, airflow stations, condensate devices, refrigerant leak detectors) is
-wired at the factory and is not written. Do not write a line per monitored point or per internal device.
+sensors, actuators, safeties, filter switches, airflow stations) is wired at the factory and is not written. Do not
+write a line per monitored point or per internal device. These are outside the unit and are lines: the leak
+detector at the unit, the local alarm panel module and the condensate pump float switch tie-in (see Leak detectors,
+Local alarm panel and Condensate pump float switch); a remote duct damper actuator that a riser or a plan shows (see
+Damper actuators are Furnish and Install); and the control devices of a unit when AME provides its controls (see
+Unit control devices when AME provides the controls).
 
 ### Factory-installed devices
-A device installed at the factory is never a line, blanket wiring clause or not. It becomes "Wire <device>
-(Furnished by Unit Mfr.)" only when the sequence itself gives the wiring of that device to the controls contractor.
+A device that the unit manufacturer furnishes and installs at the factory is never a line, blanket wiring clause or
+not. It becomes "Wire <device> (Furnished by Unit Mfr.)" only when the sequence itself gives the wiring of that
+device to the controls contractor. A device that AME furnishes to the factory for installation is AME's (see Unit
+control devices when AME provides the controls).
+
+### Unit control devices when AME provides the controls
+When AME provides the controls of a unit, including a controller that AME furnishes to the unit manufacturer for
+installation at the factory, the control devices on the unit schedule are AME's: temperature and enthalpy sensors,
+freezestat, drain pan level sensor and filter switch. They are "Furnish and Install", or "Furnish and Wire" when
+the factory installs the device and AME wires it. Do not write "Install and Wire ... (Furnished by Unit Mfr.)" for
+them unless the documents clearly give the device to the unit manufacturer. When unsure, keep the device as AME's
+and flag the ownership.
 
 ### Template is the ideal case
 The Master Template shows how the system looks in the ideal case. When the sequence says something explicit, it
@@ -265,8 +367,11 @@ is taken into account. AME's task is the right ownership on each line, not resta
 A device the unit manufacturer furnishes and ships loose (space sensor or thermostat, supply air temperature
 sensor, supply static pressure sensor and the like) is written "Install and Wire <device> (Furnished by Unit Mfr.)"
 on its own line, wired to the unit's own controller. Write out every manufacturer-furnished device the job names
-that AME installs or wires. "Wire <device> (Furnished by Unit Mfr.)" is only for a device the manufacturer already
-mounts. When unsure whether it is mounted, write Install and Wire.
+that AME installs or wires. A unit schedule (an ERV, an RTU or any other unit) can list end devices shipped loose, in
+a column or a note. Read it, and write each one as a line. "Wire <device> (Furnished by Unit Mfr.)" is only for a
+device the manufacturer already mounts. When unsure whether it is mounted, write Install and Wire. This is for a unit
+on the manufacturer's controls. When AME provides the controls of the unit, see Unit control devices when AME
+provides the controls.
 
 ### Shipped-loose devices not named
 When the documents say the unit ships devices loose but do not name them and no submittal is in hand, write one
@@ -285,6 +390,20 @@ A damper actuator is written in the block of the fan or unit it serves (the exha
 fan's damper, the unit's outside air damper), never gathered into one motorized damper block at the end. The link
 is on the plans and risers: when the duct can be traced on the plan or through the riser floors, the actuator goes
 under that fan's or unit's block.
+
+### Count every damper
+Count every damper actuator the plans show, tagged or not. Never assume one actuator per unit. Trace each damper's
+duct to the fan or unit it serves and write the actuator in that block (see Dampers under their fan). A damper that
+cannot be assigned goes in the Motorized Dampers block (see Untraced dampers in their own block).
+
+### Damper actuators are Furnish and Install
+A damper that the plans, the risers, the control diagram or the sequence show gets "Furnish and Install ... Damper
+Actuator" from AME, even when the equipment schedule lists the damper or its actuator with the unit. On a unit with
+factory controls, a remote duct damper that a riser or a plan shows is AME's scope. A damper that only a schedule
+shows is factory: the unit manufacturer furnishes it, and AME writes no line for it. When the schedule says that
+another party furnishes a damper that a riser or a plan shows, still write the line and add the "*Confirm
+ownership" clarification. A "Wire ... Damper Actuator" line is rare: it is for an actuator that another party
+furnishes and installs and AME only wires.
 
 ### Untraced dampers in their own block
 When a damper's fan cannot be traced, the dampers form one Motorized Dampers block of their own, with the sheet
@@ -325,6 +444,30 @@ When the sequence explicitly gives the BMS the heater's control (for example "th
 controls for the electric duct heater"), write the full heater scope even on a packaged unit. A sentence giving
 only an enable, signal, interlock, status or alarm, or naming another party as providing the controls, is not such
 an assignment.
+
+## VAV boxes and radiation
+
+### VAV lines
+A VAV, fan powered box or terminal unit takes the Master Template's words for each line the documents call for.
+When the documents give AME the controller and have the box maker mount it, the line is "Furnish DDC Controller to
+the Factory for Installation": AME furnishes it and the factory installs it. This is the exception to Furnish alone
+in Verb from the three answers and to the DDC controller verb in Verbs by device type. A "factory-mounted" or "open
+protocol controller" note in the schedule is this controller, not the manufacturer's own controls. A VAV has one
+space sensor, the one the sequence declares: "Space Temperature Sensor", "Space Temperature / Humidity Sensor",
+"Space Temperature / Humidity / CO2 Sensor" or "Space Temperature / CO2 Sensor". "Furnish Fan Enable" is for a fan
+powered box only. For reheat the words are "Furnish and Install Discharge Air Temperature Sensor" and one of
+"Furnish and Wire Hot Water Control Valve and Actuator", "Furnish Electric Heat Enable (DO)" or "Furnish Electric
+Heat SCR Control (AO)". For 24V power the words are one of "Run 24V Power Loop to VAVs (Mentioned 24 V Wiring
+Control by BMS Contractor)", "Furnish and Install VAV Transformer" or "24V VAV Transformer is Coming with the
+Unit", the one that matches who provides the power. The power loop line is written when the mechanical drawings or
+the specifications mention the 24 V wiring for the VAVs. A line is written only when the documents show the device.
+Tech hours follow the shape: 3 per cooling-only VAV and 4 per VAV with a hot water valve.
+
+### Radiation valves tied to VAV zone thermostats
+When the documents run radiator, finned tube or perimeter heat valves from each VAV zone thermostat, with separate
+wiring, AME writes an interlock wiring line for each zone. The line names the associated VAV, FCU or system as its
+device. When AME furnishes the valve, the valve line is "Furnish and Wire Hot Water Control Valve and Actuator". A
+line is written only when the documents show the valve and its interlock.
 
 ## VRF and split systems
 
@@ -405,15 +548,22 @@ The front end is either a new web-enabled BMS ("Front End Web Enabled BMS System
 from the documents; when they do not name it, print "[existing BMS name]" and flag it.
 
 ### Front end lines cite the specification
-Each front end line (network level control panel, PC workstation, BMS server, portable operator terminal, UPS,
-3-D graphics, training, IT infrastructure) is written only when this job's specification calls for it, with its
-citation. Graphics on a tie-in are "to match existing".
+The house front end lines are the standard lines that the Master Template's front end section defines, with the
+reason for each. Write each one as that section says and cite that section. Every other front end line (PC
+workstation, BMS server, portable operator terminal, UPS, IT infrastructure) is written only when this job's
+specification calls for it, with its citation. Graphics on a tie-in are "to match existing".
 
 ### Front end items by others
 When the documents give the workstation, server or network switches to the owner or others in the same sentence,
 the line is not written and the front end's one clarification carries the client note ("**PC Workstation by
 Owner", joined as in Joining into the one clarification). A sentence about the owner's network connection or the
 room's location is not the owner furnishing the item.
+
+### Lighting control integration
+When the documents give the ATC or BMS contractor the integration of a lighting control system (for example for
+occupied standby), AME writes this line once, in the front end block: "Interface Lighting Control System (By
+Others) With Front End BMS Via Manufacturer Provided BMS Interface". It is not written again in a Misc Monitoring
+block.
 
 ### Auto dialer with a network panel
 When AME furnishes a network level control panel, the BMS can send alarms by email and text, so an auto dialer
@@ -424,13 +574,24 @@ ALARMS VIA EMAIL AND SMS TEXT)".
 Warranty scope is written only when the specification states the warranty and its length; an extended maintenance
 contract only when it states the extra years.
 
+### Existing BMS the house works with
+AME works only with Honeywell WEBS, Johnson FX and Niagara Tridium. Those names print plain. Any other name prints in
+red as "***<name>***" wherever it appears: in the front end heading and in the opening sentence. The front end then
+gets one flag line: "***AME works only with Honeywell WEBS, Johnson FX (Facility Explorer) or Niagara Tridium front
+ends". The fill-in "[existing BMS name]" prints the same way, with no flag line.
+
+### No front end called for
+When the documents call for no front end, the front end of the proposal says "No front end information found".
+
 ## Exceptions and alternates
 
 ### Named exceptions
 A unit the documents leave with no BMS work is a named exception in the estimator's form: "EXCEPTION TO ANY WORK
 WITH Qty (n) <tags> - <reason>" (for example INTEGRAL THERMOSTAT, LINE-VOLTAGE THERMOSTAT, MANUFACTURER ON/OFF
-SWITCH). One BMS word in its own sequence paragraphs or schedule notes (BMS, DDC, monitor, alarm, status, BACnet)
-means it has BMS work and is priced instead.
+SWITCH). One BMS word in its own sequence paragraphs (BMS, DDC, monitor, alarm, status, BACnet) means it has BMS
+work and is priced instead. The same word in a schedule note counts only when the note names the controls
+contractor or gives BMS wiring (see Schedule notes address the manufacturer). A thermostat that the documents give
+to the mechanical contractor is AME's, never an exception (see Controls given to the mechanical contractor).
 
 ### Never invent an alternate
 A system is an add or deduct alternate only when the documents say so. Otherwise it is base bid.
@@ -438,6 +599,11 @@ A system is an add or deduct alternate only when the documents say so. Otherwise
 ### Exclusions
 Work another party furnishes, installs and wires goes to the exclusions, one plain line each, only items relevant
 to this job.
+
+### Off-hours work and prevailing wage
+When the documents name off-hours work (for example 6 PM to 6 AM) or prevailing wage, add each to the proposal and to
+the price sheet, highlighted red. Never exclude either one silently. The standard exclusion "All off-hours or overtime
+labor" does not stand against it.
 
 ## Tech hours
 
@@ -451,21 +617,22 @@ Where a shape gives no hours, leave the hours empty for the estimator.
 Some template rules have two parts: Gas Detection is 8 hours per gas panel plus 4 hours per fan it controls;
 Kitchen Exhaust Ventilation is 40 hours per kitchen exhaust fan; a reheat VAV with a hot water valve is 4 hours, a
 cooling-only VAV 3; Global Points are 4 hours, plus 4 for a weather station; a Packaged ERU / RTU / AHU is 16 hours
-per unit.
+per unit; an exhaust fan with points is 4 hours per fan, with or without an AME controller of its own.
 
 ### Integration-only systems
 A system with no Master Template hours that AME only integrates (a generator, heat tracing, water heaters, a VFD or
 panel integration) is 4 hours per integration.
 
 ### Tech hours never print
-Tech hours go to the price sheet only, never into a line or a note.
+Tech hours go to the price sheet only, never into a line or a note. The Master Template's tech-hour lines ("**tech
+hour: ...") are guidance for the estimate, not lines of the proposal.
 
 ## Shapes and wording
 
 ### Template gives shape only
 The Master Template (shapes.json) sets only the shape of a block: the header form, the order of lines and the
 wording form of a line. It never says that a line exists. A slot is a place a line prints when, and only when, this
-job's documents put a device there.
+job's documents put a device there. The front end house lines are the one exception.
 
 ### Placing a device in a slot
 Put each device in the slot of its block's shape that matches it. Several devices may share a slot: one line per
@@ -485,11 +652,12 @@ stations, valves; Install and Wire; other Wire; wiring runs and plain work state
 testing); the integration lines last; then the block's one clarification.
 
 ### Line form
-Each line starts with its verb, or with an interlock, tie-in or wiring phrase when it has no verb. No bullets, no
-category or verb-group headers, no dash after the verb. Details go after the device in brackets: the owner, the
-quantity "(Qty. N Total)", "(as per sequence)", "(Location: ...)". A combined sensor the documents name as one
-("temperature and humidity sensor") is one line; named separately, two lines. A filter switch is one line per filter
-stage in the documents' name. A line is at most 160 characters.
+Each line starts with its verb, or with an interlock, tie-in or wiring phrase when it has no verb. A line whose count
+differs from the block's count starts with "Qty (N)" before that (see Line quantity). No bullets, no category or
+verb-group headers, no dash after the verb. Details go after the device in brackets: the owner, "(as per sequence)",
+"(Location: ...)". A combined sensor the documents name as one ("temperature and humidity sensor") is one line; named
+separately, two lines. A filter switch is one line per filter stage in the documents' name. A line is at most 160
+characters.
 
 ### Sub-lines under their parent
 Some lines print one level in, directly under a parent line, as the Master Template prints them: gas detection
@@ -501,9 +669,25 @@ with its slot set, its citation and its quantity, right after its parent device,
 ownership (the same furnished, installed and wired by). A sub-line needs its parent line in the same block.
 
 ### Untemplated systems
-A system with no shape is still written, from its evidence, in the house form "<verb> <device><owner><quantity>",
-in the standard order, under a header "Qty (n) <name> <tags>". Every rule in this book applies to it.
+A system with no shape is still written, from its evidence, in the house form "<quantity><verb> <device><owner>" (the
+quantity first, see Line quantity), in the standard order, under a header "Qty (n) <name> <tags>". Every rule in this
+book applies to it.
 
 ### One system one block
 Each system the documents describe is its own block, from its own sequence section; systems are never collapsed
-into one block, except as the VRF and split rule and the dampers rules say.
+into one block, except as the VRF and split rule, the dampers rules and the valves rule say.
+
+### Proposal header
+"Quote #" is the job number and "Reference" is the project name, both from the name of the job folder, never the
+takeoff folder. Never print a bracket placeholder such as "[project name]". When the job folder gives no project name,
+print "***" in red and ask the estimator.
+
+### Valves under their unit
+A control valve and its actuator are written in the block of the unit they serve (an air handler, a fan coil), never
+in a separate valve system. The plans, risers and sequence show which unit. When none can be traced, ask the
+estimator.
+
+### Pumps by plant or by service
+When the plant (chillers, boilers or the like) is in the job's scope and the pumps serve it, the pumps are part of the
+plant block. When the job shows remote pumps, each service is its own block: chilled water pumps in one, hot water
+pumps in another. The documents decide. The block header makes clear which case it is.

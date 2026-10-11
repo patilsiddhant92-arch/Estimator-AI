@@ -241,8 +241,9 @@ def test_the_counts_hold_schedule_rows_distinct_tags_and_plan_placements(tmp_pat
                                "distinct_tags": 1}
     # EF-2 is existing on the schedule, but still placed on the plan: EF-1 on the FIRST FLOOR and the ROOF plans, EF-2
     # once. FINAL-I (lead ruling): two plans with other titles add up, so 3 (FINAL-G 2, EF-1 once over the set).
+    # T-005a (estimator ruling 2 of 2026-10-11): a numbered unit tag is one unit in the job: 2.
     assert d.counts["EF"]["schedule_rows"] == 1
-    assert d.counts["EF"]["plan_placements"] == 3
+    assert d.counts["EF"]["plan_placements"] == 2
     assert d.counts["EF"]["distinct_tags"] == 2
     assert "EF (Exhaust Fan): schedule rows 1;" in d.text
     assert "Tags: EF-1, 2." in d.text
@@ -292,7 +293,7 @@ def test_a_riser_count_is_kept_separately(tmp_path):
     catalogue.sheets += (_sheet(4, "M-501", "AIR RISER DIAGRAM", types=("Air riser",)),)
     d = build_dossier(catalogue, reading, tmp_path)
     assert d.counts["EF"]["riser"] == 2
-    assert d.counts["EF"]["plan_placements"] == 3               # the riser is not a plan (EF-1 on two plans: 2)
+    assert d.counts["EF"]["plan_placements"] == 2               # the riser is not a plan (T-005a: EF-1 once in the job)
 
 
 def test_a_tag_in_every_title_block_is_not_a_unit(tmp_path):

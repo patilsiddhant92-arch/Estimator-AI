@@ -29,6 +29,7 @@ class Row:
     ref: tuple = ()                  # where in Job.model_dump() this row came from
     count_pending: bool = False      # a block header whose count is still to fill: "Qty (##)"
     quantity_pending: bool = False   # a line whose own quantity is still to fill: "(Qty. ##)", so it is not priced
+    red: bool = False                # a line the proposal prints in red (`Run.red`): red here too (T-005e)
 
 
 @dataclass(frozen=True)
@@ -73,8 +74,10 @@ def _block_rows(block: Block, number: int | None, ref: tuple) -> list[Row]:
 
 def _item_row(item: Item, markers: dict[int, str], ref: tuple) -> Row:
     text = squash(item.text) if item.kind == "note" else f"{markers[item.depth]}  {squash(item.text)}"
-    pending = item.kind == "line" and item.quantity is None and LINE_QUANTITY_TO_FILL in item.text
-    return Row(text, hours=item.tech_hours, quantity=item.quantity, item=item, ref=ref, quantity_pending=pending)
+    pending = item.kind == "line" and item.quantity is None and (LINE_QUANTITY_TO_FILL in item.text
+                                                                   or COUNT_TO_FILL in item.text)   # T-005e: "Qty (##) <device>"
+    return Row(text, hours=item.tech_hours, quantity=item.quantity, item=item, ref=ref, quantity_pending=pending,
+               red=any(run.red for run in item.runs))
 
 
 @dataclass(frozen=True)

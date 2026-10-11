@@ -1,5 +1,5 @@
 # tests/test_run_job_tool.py
-import json, os, subprocess, sys
+import argparse, json, os, subprocess, sys
 from pathlib import Path
 
 
@@ -129,15 +129,109 @@ def test_a_retry_of_a_refused_answer_keeps_its_count(tmp_path):
 
 def test_status_prints_its_json_block_on_a_cp1252_console(tmp_path):
     """A fake estimate prints a character cp1252 cannot hold; the JSON block still comes out, parseable."""
-    pkg = tmp_path / "fake" / "bms"
-    pkg.mkdir(parents=True)
-    (pkg / "__init__.py").write_text("", encoding="utf-8")
-    (pkg / "__main__.py").write_text("import sys\nsys.stdout.reconfigure(encoding='utf-8')\nprint('count \u2265 5')\n",
-                                     encoding="utf-8")
-    env = dict(os.environ, PYTHONIOENCODING="cp1252", PYTHONPATH=str(tmp_path / "fake"))
-    run = subprocess.run([sys.executable, "tools/run_job.py", "status", str(tmp_path / "26-0001"), "--out",
+    fake = tmp_path / "fake_estimate.py"
+    fake.write_text("import sys\nsys.stdout.reconfigure(encoding='utf-8')\nprint('count \u2265 5')\n", encoding="utf-8")
+    # `status` puts this checkout's src first on the child's PYTHONPATH, so a fake `bms` package cannot win there:
+    # run_job runs in a wrapper that swaps the estimate command for the fake script.
+    wrapper = tmp_path / "wrapper.py"
+    wrapper.write_text("import sys\nsys.path.insert(0, 'tools')\nimport run_job\n"
+                       f"run_job.estimate_command = lambda *args, **kwargs: [sys.executable, {str(fake)!r}]\n"
+                       "sys.exit(run_job.main(sys.argv[1:]))\n", encoding="utf-8")
+    env = dict(os.environ, PYTHONIOENCODING="cp1252")
+    run = subprocess.run([sys.executable, str(wrapper), "status", str(tmp_path / "26-0001"), "--out",
                           str(tmp_path / "out")], capture_output=True, env=env)
     text = run.stdout.decode("utf-8").replace(chr(13) + chr(10), chr(10))
     assert run.returncode == 0, run.stderr
     block = json.loads(text[text.index('{\n "waiting"'):])
     assert block["waiting"] == [] and block["exit"] == 0
+
+
+def _status_child_env(tmp_path, monkeypatch, app="bms"):
+    """The env= that `status` gives the estimate child, and the run_job module. subprocess.run is faked: nothing runs."""
+    sys.path.insert(0, "tools")
+    import run_job
+    seen = []
+
+    def fake_run(cmd, **kwargs):
+        seen.append(kwargs.get("env"))
+        return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+
+    monkeypatch.setattr(run_job.subprocess, "run", fake_run)
+    args = argparse.Namespace(job=tmp_path / "26-0001", out=tmp_path / "out", cache=None, app=app)
+    assert run_job.cmd_status(args) == 0 and len(seen) == 1
+    return seen[0], run_job
+
+
+def test_status_starts_the_estimate_with_this_checkouts_src_first_on_pythonpath(tmp_path, monkeypatch):
+    """A venv's editable install can point at another checkout, and a run from a worktree would load that code.
+    PYTHONPATH comes before the install's path, so the child must be told this checkout's src."""
+    monkeypatch.delenv("PYTHONPATH", raising=False)
+    for app in ("bms", "estimator"):
+        env, run_job = _status_child_env(tmp_path, monkeypatch, app)
+        assert env is not None, "status started the child without an env"
+        assert env.get("PYTHONPATH") == str(run_job.ROOT / "src")
+
+
+def test_status_puts_this_checkouts_src_before_an_existing_pythonpath(tmp_path, monkeypatch):
+    monkeypatch.setenv("PYTHONPATH", "elsewhere")
+    env, run_job = _status_child_env(tmp_path, monkeypatch)
+    assert env is not None and env.get("PYTHONPATH") == str(run_job.ROOT / "src") + os.pathsep + "elsewhere"
+    assert env["PATH"] == os.environ["PATH"]             # the rest of the environment goes on to the child
+
+
+def test_check_imports_bms_from_this_checkouts_src_ahead_of_the_install_path(monkeypatch):
+    """`check` loads bms.model in its own process. A .pth file can put another checkout's src on sys.path, so this
+    checkout's src must go to the front, not the end."""
+    sys.path.insert(0, "tools")
+    import run_job
+    src = str(run_job.ROOT / "src")
+    monkeypatch.setattr(sys, "path", [p for p in sys.path if p != src])
+    assert run_job._schema_errors({}, {"type": "object"}) == []
+    assert sys.path[0] == src
+
+
+def _failing_check(tmp_path):
+    """A request that names its out folder (the marker `status` writes) and an answer that fails its check. Gives a
+    function that runs `check` on them with the flags passed, one that reads the attempt counts, and the answer file."""
+    out, requests = tmp_path / "out", tmp_path / "requests"
+    out.mkdir()
+    requests.mkdir()
+    (requests / ".run-job-out").write_text(str(out), encoding="utf-8")
+    request, answer = requests / "k.json", tmp_path / "a.json"
+    request.write_text(json.dumps({"key": "k", "kind": "read_pass", "schema": {"required": ["facts"], "properties": {}}}),
+                       encoding="utf-8")
+    answer.write_text(json.dumps({"note": "no facts"}), encoding="utf-8")
+
+    def check(*flags):
+        return subprocess.run([sys.executable, "tools/run_job.py", "check", *flags, str(answer), str(request)],
+                              capture_output=True, text=True)
+
+    def attempts():
+        path = out / ".run-job-attempts.json"
+        return json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
+
+    return check, attempts, answer
+
+
+def test_a_failed_check_adds_one_attempt_for_its_request(tmp_path):
+    check, attempts, _ = _failing_check(tmp_path)
+    assert check().returncode == 1 and attempts() == {"k": 1}
+    assert check().returncode == 1 and attempts() == {"k": 2}
+
+
+def test_a_failed_check_with_no_count_leaves_the_attempt_count_unchanged(tmp_path):
+    """A subagent checks its own answer with --no-count, so only the lead's check counts: one attempt per round."""
+    check, attempts, answer = _failing_check(tmp_path)
+    run = check("--no-count")
+    assert run.returncode == 1 and "facts" in run.stdout and attempts() == {}       # the message still comes out
+    assert check().returncode == 1 and attempts() == {"k": 1}
+    assert check("--no-count").returncode == 1 and attempts() == {"k": 1}
+    answer.write_text(json.dumps({"facts": []}), encoding="utf-8")
+    ok = check("--no-count")
+    assert ok.returncode == 0 and ok.stdout.strip() == "ok"
+
+
+def test_the_skill_has_the_subagent_check_with_no_count_and_the_lead_check_without():
+    text = Path(".claude/skills/run-job/SKILL.md").read_text(encoding="utf-8")
+    commands = [line for line in text.splitlines() if "tools/run_job.py check" in line]
+    assert len(commands) == 2 and "--no-count" in commands[0] and "--no-count" not in commands[1]

@@ -48,8 +48,12 @@ def test_a_line_the_book_cannot_price_is_price_pending(written):
     assert (ws["E13"].value, ws["H13"].value) == (None, PRICE_PENDING)   # DDC Controller
 
 
-def test_a_price_the_book_itself_questions_is_marked(written):
-    ws = written[1]["Price Sheet 1"]
+def test_a_price_the_book_itself_questions_is_marked(small_job, workup_template, price_book, tmp_path):
+    """The revised workbook questions no part the small job uses, so the book here marks Filter DP Switch itself."""
+    from dataclasses import replace
+    from estimator.price_sheet.price_book import PriceBook
+    book = PriceBook([replace(i, needs_review=i.name == "Filter DP Switch") for i in price_book.items], {})
+    ws = openpyxl.load_workbook(str(write_price_sheet(small_job, workup_template, book, tmp_path / "s.xlsx")))["Price Sheet 1"]
     assert (ws["E19"].value, ws["H19"].value) == (50, PRICE_NEEDS_REVIEW)  # Filter DP Switch
 
 

@@ -54,16 +54,18 @@ def test_a_type_by_its_quantity_column_with_an_empty_cell_counts_every_place_on_
 
 # ---- F2 HIGH: the title test sorts the words, so two places with the same words in another order group ------------
 
-@pytest.mark.parametrize("first, second", [
-    ("BUILDING 1 LEVEL 2 PLAN", "BUILDING 2 LEVEL 1 PLAN"),
-    ("LEVEL 1 AREA 2 PLAN", "LEVEL 2 AREA 1 PLAN"),
-    ("WING 3 FLOOR 4 PLAN", "WING 4 FLOOR 3 PLAN"),
+@pytest.mark.parametrize("first, second, expected", [
+    ("BUILDING 1 LEVEL 2 PLAN", "BUILDING 2 LEVEL 1 PLAN", 6),
+    ("LEVEL 1 AREA 2 PLAN", "LEVEL 2 AREA 1 PLAN", 3),
+    ("WING 3 FLOOR 4 PLAN", "WING 4 FLOOR 3 PLAN", 3),
 ])
-def test_titles_with_the_same_words_in_another_order_are_two_places_and_add_up(tmp_path, first, second):
+def test_titles_with_the_same_words_in_another_order_are_two_places_and_add_up(tmp_path, first, second, expected):
     """Building 1's level 2 and building 2's level 1 are two places, each with VAV-1 to 3: 6. f5394a9 groups them
-    (the sorted words are equal and a floor word is among them) and counts 3."""
+    (the sorted words are equal and a floor word is among them) and counts 3. T-005a (estimator ruling 2 of
+    2026-10-11): a numbered unit tag is one unit in the job, once in each building: areas and wings of one building
+    count each box once (3), never "counted as one plan"."""
     d = build_dossier(_two_sheets(first, second), _reading(), tmp_path)
-    assert d.counts["VAV"]["plan_placements"] == 6
+    assert d.counts["VAV"]["plan_placements"] == expected
     assert "counted as one plan" not in _line("VAV", d)
 
 
@@ -116,7 +118,9 @@ def test_a_title_that_names_its_part_by_the_sheet_number_is_not_one_plan_with_an
     f5394a9 takes each sheet's own number out of its title, leaving "WING FIRST FLOOR" twice, and counts 3."""
     d = build_dossier(_two_sheets("WING MA1 FIRST FLOOR PLAN", "WING MB1 FIRST FLOOR PLAN", ("MA1", "MB1")),
                       _reading(), tmp_path)
-    assert d.counts["VAV"]["plan_placements"] == 6
+    # T-005a (ruling 2): two wings of one building show each box once in the job: 3, the duplicates named
+    assert d.counts["VAV"]["plan_placements"] == 3
+    assert "VAV-1 is on 2 plans (MA1, MB1), counted once, 1" in _line("VAV", d)
 
 
 # ---- F5 MEDIUM: the group note gives only the low count ------------------------------------------------------------
@@ -128,8 +132,10 @@ def test_a_plan_group_note_gives_the_count_if_the_sheets_are_two_places(tmp_path
     d = build_dossier(_two_sheets("FIRST FLOOR PLAN", "FIRST FLOOR PLAN", ("M-101", "M-201")), _reading(), tmp_path)
     assert d.counts["VAV"]["plan_placements"] == 3
     notes = _notes(_line("VAV", d))
-    assert "M-101 and M-201 counted as one plan" in notes
-    assert "6" in notes.split("M-101 and M-201 counted as one plan", 1)[1].split(";", 1)[0]
+    # T-005a (ruling 2): unit tags are one unit each in the job however the sheets group, so the summed count is said
+    # per tag, beside the low one
+    assert "VAV-1 is on 2 plans (M-101, M-201), counted once, 1" in notes
+    assert "if each plan's VAV-1 is its own unit (a type used once per plan), 2" in notes
 
 
 # ---- F6 MEDIUM: one sheet number on two pages of one document with other text --------------------------------------
@@ -173,22 +179,24 @@ def test_a_tag_listed_twice_on_the_schedules_keeps_saying_so_when_the_plans_coun
     schedules = [_schedule("FAN SCHEDULE", ["EF-1"], 9), _schedule("FAN SCHEDULE 2", ["EF-1"], 10, sheet="M-602")]
     items, _totals, _flags = build_inventory(_catalogue(pages, sheets, ["EF-1"]), schedules, ())
     item = next(i for i in items if i.tag == "EF-1")
-    assert item.quantity == 2
+    assert item.quantity == 1                                     # T-005a ruling 2: one unit in the job (was 2)
     assert "listed 2 times on the schedules" in item.reason
 
 
 # ---- guards: what holds on f5394a9 ---------------------------------------------------------------------------------
 
-@pytest.mark.parametrize("first, second", [
-    ("BUILDING A FIRST FLOOR PLAN", "BUILDING B FIRST FLOOR PLAN"),
-    ("FIRST FLOOR PLAN - EAST", "FIRST FLOOR PLAN - WEST"),
-    ("LEVEL 1 PLAN", "LEVEL 2 PLAN"),
-    ("FIRST FLOOR PLAN", "1ST FLOOR PLAN"),
+@pytest.mark.parametrize("first, second, expected", [
+    ("BUILDING A FIRST FLOOR PLAN", "BUILDING B FIRST FLOOR PLAN", 6),
+    ("FIRST FLOOR PLAN - EAST", "FIRST FLOOR PLAN - WEST", 3),
+    ("LEVEL 1 PLAN", "LEVEL 2 PLAN", 3),
+    ("FIRST FLOOR PLAN", "1ST FLOOR PLAN", 3),
 ])
-def test_guard_two_places_one_document_whose_titles_differ_add_up(tmp_path, first, second):
+def test_guard_two_places_one_document_whose_titles_differ_add_up(tmp_path, first, second, expected):
+    """T-005a (estimator ruling 2 of 2026-10-11): a numbered unit tag is one unit in the job, once in each building
+    the titles name: 6 for two buildings, else 3 with the duplicates named."""
     d = build_dossier(_two_sheets(first, second), _reading(), tmp_path)
-    assert d.counts["VAV"]["plan_placements"] == 6
-    assert "counted on each" in _notes(_line("VAV", d)) or "may show one plan" in _line("VAV", d)
+    assert d.counts["VAV"]["plan_placements"] == expected
+    assert "counted once" in _notes(_line("VAV", d)) or "may show one plan" in _line("VAV", d)
 
 
 def test_guard_one_title_on_two_typical_sheets_of_other_floors_counts_every_floor(tmp_path):
@@ -201,12 +209,14 @@ def test_guard_one_title_on_two_typical_sheets_of_other_floors_counts_every_floo
     assert d.counts["VAV"]["plan_placements"] == 24
 
 
-@pytest.mark.parametrize("tags", [["VAV-1A", "VAV-1B", "VAV-1C"], ["FCU-A", "FCU-B", "FCU-C"]])
-def test_guard_letter_suffixed_tags_on_two_floors_add_up(tmp_path, tags):
+@pytest.mark.parametrize("tags, expected", [(["VAV-1A", "VAV-1B", "VAV-1C"], 3), (["FCU-A", "FCU-B", "FCU-C"], 6)])
+def test_guard_letter_suffixed_tags_on_two_floors_add_up(tmp_path, tags, expected):
+    """T-005a (ruling 2): VAV-1A is a numbered unit tag, one unit in the job (3); FCU-A is a type's tag, counted at
+    every place (6)."""
     pages = [_page(DWG, 1, _lines(*tags)), _page(DWG, 2, _lines(*tags))]
     sheets = [_sheet(1, "M-101", "LEVEL 1 PLAN"), _sheet(2, "M-102", "LEVEL 2 PLAN")]
     d = build_dossier(_catalogue(pages, sheets, tags), _reading(), tmp_path)
-    assert d.counts[tags[0].split("-")[0]]["plan_placements"] == 6
+    assert d.counts[tags[0].split("-")[0]]["plan_placements"] == expected
 
 
 @pytest.mark.parametrize("titles", [

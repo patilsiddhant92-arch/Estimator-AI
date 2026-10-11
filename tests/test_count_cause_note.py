@@ -69,7 +69,10 @@ def _note(count: Count, name="Exhaust Fan", tags=("EF-1",)) -> list[str]:
                     devices=(controller,))
     job = Job(name="Invented", systems=(system,), header=Header("00-0000", "Invented", "Invented", ("A",),
                                                                 "2026-10-04"))
-    return [line.text for line in render(job, pb).lines if line.text.startswith("*Qty.")]
+    # T-005e: estimator ruling 15 (2026-10-11 afternoon): the other counts print in the line itself (the family's
+    # header), no separate "*Qty." note: the header's bracket of counts
+    header = next(line.text for line in render(job, pb).lines if line.kind == "header")
+    return [header[header.index(" (", header.index(")")) + 1:]] if " (" in header[header.index(")"):] else []
 
 
 def _sheets_and_schedule(*plans):
@@ -79,16 +82,16 @@ def _sheets_and_schedule(*plans):
 
 
 def test_a_unit_tag_on_several_floors_plans_counts_on_each_and_claims_no_cause(tmp_path):
-    """FINAL-I (lead ruling, when in doubt sum): three floors' plans add up, 3 (FINAL-G 1). The higher count is
-    printed with the other count, and no cause is claimed for the client."""
+    """T-005a (estimator ruling 2 of 2026-10-11): a numbered unit tag is one unit in the job, so EF-1 on three
+    floors' plans is 1 (FINAL-I added them up, 3), as the schedule says: no other count, no note, no cause."""
     pages, sheets, at = _sheets_and_schedule(("M-101", "HVAC FIRST FLOOR PLAN", "EF-1"),
                                              ("M-102", "HVAC SECOND FLOOR PLAN", "EF-1"),
                                              ("M-106", "HVAC ROOF PLAN", "EF-1"))
     pages.append(_page(at, "EF SCHEDULE\nEF-1"))
     sheets.append(_sheet(at, "M-601", "SCHEDULES", types=("Schedules",)))
     count = _family_count(_catalogue(pages, sheets, ["EF-1"]), _reading("EF SCHEDULE", ["EF-1"], at), "EF", tmp_path)
-    assert count.highest() == 3
-    assert _note(count) == ["*Qty. (3) per plan placements; 1 per schedule rows."]
+    assert count.highest() == 1
+    assert _note(count) == []
 
 
 def test_a_type_tag_printed_twice_on_one_sheet_prints_one_unit_labelled_more_than_once(tmp_path):
@@ -99,7 +102,7 @@ def test_a_type_tag_printed_twice_on_one_sheet_prints_one_unit_labelled_more_tha
     count = _family_count(_catalogue(pages, sheets, ["EBB-B", "EBB-C"]),
                           _reading("EBB SCHEDULE", ["EBB-B", "EBB-C"], at), "EBB", tmp_path)
     assert _note(count, "Baseboard Heater", ("EBB-B", "EBB-C")) == [
-        "*Qty. (4) per plan placements (likely one unit labelled more than once on a sheet); 2 per schedule rows."]
+        "(4 per plan placements (likely one unit labelled more than once on a sheet); 2 per schedule rows)"]
 
 
 def test_a_typical_type_tag_prints_a_typical_unit_at_each_place(tmp_path):
@@ -110,14 +113,14 @@ def test_a_typical_type_tag_prints_a_typical_unit_at_each_place(tmp_path):
     count = _family_count(_catalogue(pages, sheets, ["EBB-A"]), _reading("EBB SCHEDULE", ["EBB-A"], at), "EBB",
                           tmp_path)
     assert _note(count, "Baseboard Heater", ("EBB-A",)) == [
-        "*Qty. (12) per plan placements (likely a typical unit at each place); 1 per schedule rows."]
+        "(12 per plan placements (likely a typical unit at each place); 1 per schedule rows)"]
 
 
 def test_a_floor_drawn_twice_is_never_named_as_a_cause(tmp_path):
     """EF-1 on two floors, each floor drawn on a ductwork plan and a controls plan. Ruling L1: each floor's two sheets
     show one floor and area, one plan group, however few tags they repeat (3 on the first floor, 1 on the second):
-    4, printed with no cause (FINAL-I added the second floor's sheets up: 5). "A floor drawn on two plan sheets
-    counted once" is never claimed."""
+    4, printed with no cause (FINAL-I added the second floor's sheets up: 5). T-005a (ruling 2): a numbered unit tag
+    is one unit in the job, so EF-1 on both floors is one unit: 3, as the schedule says, and no note."""
     pages, sheets, at = _sheets_and_schedule(("M-101", "HVAC DUCTWORK FIRST FLOOR PLAN", "EF-1\nEF-2\nEF-3"),
                                              ("M-201", "HVAC PIPING AND CONTROLS FIRST FLOOR PLAN", "EF-1\nEF-2\nEF-3"),
                                              ("M-102", "HVAC DUCTWORK SECOND FLOOR PLAN", "EF-1"),
@@ -126,8 +129,8 @@ def test_a_floor_drawn_twice_is_never_named_as_a_cause(tmp_path):
     sheets.append(_sheet(at, "M-601", "SCHEDULES", types=("Schedules",)))
     tags = ["EF-1", "EF-2", "EF-3"]
     count = _family_count(_catalogue(pages, sheets, tags), _reading("EF SCHEDULE", tags, at), "EF", tmp_path)
-    assert count.highest() == 4
-    assert _note(count, tags=tuple(tags)) == ["*Qty. (4) per plan placements; 3 per schedule rows."]
+    assert count.highest() == 3
+    assert _note(count, tags=tuple(tags)) == []
 
 
 def test_the_note_never_carries_the_estimators_hints(tmp_path):
@@ -150,14 +153,14 @@ def test_the_cause_goes_with_the_placements_clause_even_when_another_count_print
     count = Count(5, (Ref("S5", "riser 5", "equipment counts for EF"),),
                   (OtherCount(3, Ref("S5", "plan placements 3", "equipment counts for EF")),
                    OtherCount(1, Ref("S5", head, "equipment counts for EF"))))
-    assert _note(count) == ["*Qty. (5) per the riser; 3 per plan placements (likely one unit labelled more than once "
-                            "on a sheet); 1 per schedule rows."]
+    assert _note(count) == ["(5 per the riser; 3 per plan placements (likely one unit labelled more than once "
+                            "on a sheet); 1 per schedule rows)"]
 
 
 def test_no_cause_prints_when_no_counts_line_names_one():
     count = Count(3, (Ref("S5", "plan placements 3", "equipment counts for EF"),),
                   (OtherCount(1, Ref("S5", "schedule rows 1", "equipment counts for EF")),))
-    assert _note(count) == ["*Qty. (3) per plan placements; 1 per schedule rows."]
+    assert _note(count) == ["(3 per plan placements; 1 per schedule rows)"]
 
 
 def test_the_counts_line_head_names_the_cause_for_the_ledger(tmp_path):

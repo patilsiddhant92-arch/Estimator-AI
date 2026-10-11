@@ -42,13 +42,24 @@ Read `.claude/run-job.json`: `judge_model` (reading passes), `writer_model` (wri
    - `qc_job`: alone (one per part when the QC is split; the parts are independent).
 
    For each request, start one subagent whose Agent `model` parameter is `judge_model` for `read_pass`,
-   `count_model` for `count_tags`, `writer_model` for `write_system` and `qc_model` for `qc_job`. Give it exactly this prompt, with `<path>`
-   taken from the status block's `file` (and its `answer_file` from the block's `answer_file`):
+   `count_model` for `count_tags`, `writer_model` for `write_system` and `qc_model` for `qc_job`. Give it exactly this
+   prompt, with `<path>` taken from the status block's `file`, `<answer_file>` from its `answer_file`, and `<scratch>`
+   set to `<out folder>/.scratch/<request file name without .json>`:
 
    "You are the AI judge of the estimating tool. Read the request file <path>. Its `system_prompt` is your
-   instructions; answer its `prompt` exactly in the JSON shape of its `schema`; write the JSON to its
-   `answer_file` (relative to the repo root), UTF-8; do not spawn subagents; do not run the estimator; reply
-   with one line."
+   instructions; answer its `prompt` exactly in the JSON shape of its `schema`. Run every Python command from the
+   repo root with `.venv/Scripts/python.exe`. Obey these rules.
+   1. Open only <path>. Do not list the requests folder. Do not open any other request file.
+   2. Build the answer as Python data in `obj`. Write it with
+      `with open(r"<answer_file>", "w", encoding="utf-8") as f: json.dump(obj, f, ensure_ascii=False, indent=2)`.
+      Do not type JSON by hand into a file. Do not use a heredoc or an editor tool to write <answer_file>.
+   3. Put each scratch file, such as your script, in <scratch>. Make that folder yourself. Do not use a shared temp
+      folder.
+   4. After you write <answer_file>, run
+      `.venv/Scripts/python.exe tools/run_job.py check --no-count "<answer_file>" "<path>"`.
+      If the check fails, fix the answer and run the check again. Report only after the check prints `ok`.
+   5. Do not start subagents or review skills. Do not run the estimator. Report in fewer than 100 words: the path of
+      <answer_file>, the real output of the check, and any doubt about the evidence."
 
    Add to the prompt that the subagent must create the answer file's parent folder if it is missing, that it must
    open every picture the request lists under `images` (each by its path) before answering, and that when the

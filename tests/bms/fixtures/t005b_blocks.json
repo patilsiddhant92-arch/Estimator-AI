@@ -1,0 +1,51 @@
+{
+  "about": "T-005b regression fixture (NOTES 2026-10-11 rule 4). An INVENTED copy of the 26-0544 planning defects: control valves printed as a block of their own instead of under the unit each serves (tied by the valve schedule's SERVES column), pumps of two services printed as one block (the service is in the sequence section titles, tags as comma lists), and one count question asked many times (per line and per repeated family question). Same tag forms (CV-n, P-n, AHU-n, ERV-n), same sheet-number form (Mnnn.00) and same title forms as the job; every name and number here is invented.",
+  "sources": {
+    "S1": "M634.00, Mech.pdf page 31 (schedule)",
+    "S2": "M622.00, Mech.pdf page 27 (schedule)",
+    "S3": "23 09 23, Specs.pdf page 12",
+    "Q1": "sequence section \u201cSEQUENCE OF OPERATION - CHILLED WATER PUMPS\u201d, Specs.pdf page 77",
+    "Q2": "sequence section \u201cA. General\u201d, Specs.pdf page 77",
+    "Q3": "sequence section \u201cSEQUENCE OF OPERATION - HOT WATER PUMPS\u201d, Specs.pdf page 78",
+    "Q4": "sequence section \u201cA. General\u201d, Specs.pdf page 78"
+  },
+  "units": [
+    {"prefix": "AHU", "name": "Air Handling Unit", "tags": "AHU-21 thru 23", "count": 3},
+    {"prefix": "ERV", "name": "Energy Recovery Ventilator", "tags": "ERV-4", "count": 1}
+  ],
+  "valves": {"prefix": "CV", "name": "Control Valve", "tags": "CV-31 thru 38", "count": 8},
+  "valve_schedule": {
+    "id": "S7", "title": "CONTROL VALVE SCHEDULE", "sheet": "M634.00", "page": 31,
+    "columns": ["TAG", "LOCATION", "SERVES", "VALVE TYPE"],
+    "rows": [
+      ["S11", "CV-31", "PENTHOUSE", "AHU-21", "GLOBE"],
+      ["S12", "CV-32", "PENTHOUSE", "AHU-21", "BALL"],
+      ["S13", "CV-33", "PENTHOUSE", "AHU-22", "GLOBE"],
+      ["S14", "CV-34", "PENTHOUSE", "AHU-22", "BALL"],
+      ["S15", "CV-35", "PENTHOUSE", "AHU-23", "GLOBE"],
+      ["S16", "CV-36", "PENTHOUSE", "AHU-23", "BALL"],
+      ["S17", "CV-37", "ROOF", "ERV-4", "GLOBE"],
+      ["S18", "CV-38", "ROOF", "ERV-4", "BALL"]
+    ],
+    "expected": {"AHU": ["CV-31", "CV-32", "CV-33", "CV-34", "CV-35", "CV-36"], "ERV": ["CV-37", "CV-38"]}
+  },
+  "pumps": {
+    "prefix": "P", "name": "Pump", "tags": "P-41 thru 46", "count": 6,
+    "sequences": [
+      {"id": "Q1", "title": "SEQUENCE OF OPERATION - CHILLED WATER PUMPS, P-41,43,45"},
+      {"id": "Q2", "title": "A. General:"},
+      {"id": "Q3", "title": "SEQUENCE OF OPERATION - HOT WATER PUMPS, P-42,44,46"},
+      {"id": "Q4", "title": "A. General:"}
+    ],
+    "expected": {"Chilled Water Pump": ["P-41", "P-43", "P-45"], "Hot Water Pump": ["P-42", "P-44", "P-46"]}
+  },
+  "count_questions": [
+    "Air Handling Unit (AHU): M622.00 lists 3 (AHU-21 thru 23); AHU-27 is also on M118.00; counted 4 (the count gave 3), confirm the count.",
+    "Exhaust Fan (EF): M622.00 lists 2 (EF-11, EF-12); confirm the count.",
+    "Air Handling Unit (AHU): the highest count is 4 per M118.00; 13 if every sheet is added up; confirm the count.",
+    "Which existing BMS is on site?"
+  ],
+  "repeated_lines": ["DDC Controller", "Discharge Air Temperature Sensor", "Mixed Air Temperature Sensor",
+                     "Freezestat", "Supply Fan Status", "Filter Differential Pressure Switch", "Smoke Detector",
+                     "Outside Air Damper Actuator", "Return Air Damper Actuator", "Static Pressure Sensor"]
+}

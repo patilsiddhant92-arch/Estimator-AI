@@ -363,17 +363,46 @@ def global_points_block(catalogue, data: dict | None = None, templates=None
 
 # --- the header -------------------------------------------------------------------
 
+# T-005 ruling 3 (estimator, 2026-10-11): "Quote #" is the job number and "Reference" the project name, both from the
+# job folder ("<job number>, <project name>"), the parent of "2. Takeoffs". The run is given the takeoff folder, so the
+# job folder is found by walking up from it. When there is none, both print as a red *** placeholder (the proposal
+# writer paints a value carrying *** red) and a flag asks for them: never the takeoff folder's name, never a bracket
+# fill-in.
+HEADER_PLACEHOLDER = "***"
+_TAKEOFFS_FOLDER = re.compile(r"^\s*(?:\d+\s*[.)]\s*)?take[\s-]?offs?\s*$", re.I)
+_JOB_NUMBER_FOLDER = re.compile(r"^\s*\d{2}-\d{3,}\b")
+
+
+def job_folder(root: Path) -> Path | None:
+    """The job folder of a takeoff folder: the parent of the "2. Takeoffs" folder at or above `root`; else the nearest
+    folder at or above `root` whose name opens with a job number ("26-0544, ..."), which is a job folder by its name
+    (the old app is given the job folder itself); else None."""
+    chain = [Path(root), *Path(root).parents]
+    for here, parent in zip(chain, chain[1:]):
+        # a takeoff subfolder itself named "Takeoff" sits under "2. Takeoffs": the job folder is above that one
+        if _TAKEOFFS_FOLDER.match(here.name) and parent.name and not _TAKEOFFS_FOLDER.match(parent.name):
+            return parent
+    return next((here for here in chain if _JOB_NUMBER_FOLDER.match(here.name)), None)
+
+
 def job_header(catalogue, reading, today: dt.date, data: dict | None = None) -> tuple[Header, list[str]]:
     """The cover page's table, and the flags for whatever had to be left PENDING."""
     settings = (data or _load(FRONT_END_FILE))["header"]
     flags: list[str] = []
-    folder = Path(catalogue.job.root).name
-    number, _, rest = folder.partition(",")
-    quote_number = number.strip() or catalogue.job.name
-    reference = rest.strip()
-    if not reference:
-        reference = settings["unnamed_reference"]
-        flags.append(f"Give the project name for the cover page — the job folder “{folder}” has only its number")
+    found = job_folder(Path(catalogue.job.root))
+    if found is None:
+        quote_number = reference = HEADER_PLACEHOLDER
+        flags.append(f"Give the job number and the project name for the cover page — the takeoff folder "
+                     f"“{Path(catalogue.job.root).name}” is not inside a job folder (the folder that holds "
+                     f"“2. Takeoffs”), so both print as {HEADER_PLACEHOLDER}")
+    else:
+        number, _, rest = found.name.partition(",")
+        quote_number = number.strip() or HEADER_PLACEHOLDER
+        reference = rest.strip()
+        if not reference:
+            reference = HEADER_PLACEHOLDER
+            flags.append(f"Give the project name for the cover page — the job folder “{found.name}” has only its "
+                         f"number")
 
     engineer = _engineer(catalogue, settings)
     if engineer is None:

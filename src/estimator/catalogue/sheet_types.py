@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import re
 from dataclasses import dataclass
+from functools import lru_cache
 from pathlib import Path
 
 from estimator.catalogue.register import PageRecord
@@ -98,3 +99,32 @@ def classify_sheet(record: PageRecord, block: TitleBlock, reading: SheetTypes | 
     return Sheet(record.document, record.page, block.number, block.title,
                  discipline_of(block.number, block.title, reading), types_of(block.title, reading),
                  block.source if block.title else None)
+
+
+# ---- demolition sheets (ruling 1 of 2026-10-11) ---------------------------------------------------------------------
+# A demolition plan shows the previous job's units (removed, existing to remain, relocated). Its units are left out of
+# every count unless the documents name work on the unit (`demolition_work` in sheet_types.json). A sheet whose title
+# also names new work ("DEMOLITION AND NEW WORK PLAN") is a new-work sheet too, and is counted.
+
+DEMOLITION = "Demolition"
+
+
+@lru_cache(maxsize=None)
+def _demolition_lists(path: str = str(SHEET_TYPES)) -> tuple[tuple[re.Pattern, ...], tuple[re.Pattern, ...]]:
+    data = json.loads(Path(path).read_text(encoding="utf-8"))
+    return (tuple(re.compile(p, re.I) for p in data.get("demolition_new_work", ())),
+            tuple(re.compile(p, re.I) for p in data.get("demolition_work", ())))
+
+
+def is_demolition(sheet) -> bool:
+    """A demolition sheet (sheet type "Demolition") whose title names no new work: its units are not counted."""
+    if DEMOLITION not in (getattr(sheet, "types", None) or ()):
+        return False
+    new_work, _work = _demolition_lists()
+    return not any(p.search(getattr(sheet, "title", None) or "") for p in new_work)
+
+
+def work_words() -> tuple[re.Pattern, ...]:
+    """The words that name work on a unit (refurbish, relocate, ...): a line naming a unit's tag and one of these keeps
+    that unit counted where a demolition sheet shows it."""
+    return _demolition_lists()[1]

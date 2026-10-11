@@ -31,6 +31,14 @@ Party = Literal["AME", "Unit Mfr.", "FA", "Mechanical Contractor", "Electrical C
 Severity = Literal["must_fix", "check"]
 FrontEndMode = Literal["new-system", "extend-existing"]
 DecisionAction = Literal["accept", "change", "delete"]
+# A device line the estimator must see (T-005 ruling 7): "future" for an item the documents mark FUTURE (it prints with
+# "(<mark_note>)" in red font), "notice" for an item to notice (the line prints red); "" for none.
+Mark = Literal["", "future", "notice"]
+
+# What the proposal prints for an existing BMS the documents do not name (rules.md "Front end mode"; the same fill-in as
+# assets/front_end.json existing_systems.unnamed): square brackets, so it reads as a blank to complete. The planner asks
+# for the name in a question; the model keeps `existing_system_name` None.
+UNNAMED_EXISTING = "[existing BMS name]"
 
 VERBS: tuple[str, ...] = get_args(Verb)
 CONTROLS: tuple[str, ...] = get_args(Control)
@@ -41,6 +49,7 @@ PARTIES: tuple[str, ...] = get_args(Party)
 SEVERITIES: tuple[str, ...] = get_args(Severity)
 FRONT_END_MODES: tuple[str, ...] = get_args(FrontEndMode)
 DECISION_ACTIONS: tuple[str, ...] = get_args(DecisionAction)
+MARKS: tuple[str, ...] = get_args(Mark)
 
 
 class ModelError(ValueError):
@@ -138,6 +147,15 @@ class Device(_Model):
                                          min_items=1))
     assumption: Assumption | None = field(default=None, **_doc("What was assumed and why; null when nothing was."))
     flag: Flag = field(default="none", **_doc("none, or why the estimator must look: quantity, ownership, assumed."))
+    # T-005c: additive, so both are optional in the AI's schema too (`optional`): an answer or a Job saved without them
+    # still reads, as ""
+    mark: Mark = field(default="", **_doc(
+        '"" for none; "future" when the documents mark the item FUTURE (the line prints with "(<mark_note>)" in red); '
+        '"notice" for an item the estimator must notice, e.g. one the factory furnishes (the line prints in red).',
+        optional=True))
+    mark_note: str = field(default="", **_doc(
+        'For a "future" mark: the words printed in brackets, e.g. "FUTURE AS PER control schematic on sheet M710.00"; '
+        '"" otherwise.', optional=True))
 
     def __post_init__(self) -> None:
         if not self.refs:
@@ -194,12 +212,27 @@ class ScopeException(_Model):
 
 @dataclass(frozen=True)
 class FrontEnd(_Model):
-    """The front-end block. `mode` picks the proposal template's opening (as `estimator.scope.FrontEnd.mode`)."""
+    """The front-end block. `mode` picks the proposal template's opening (as `estimator.scope.FrontEnd.mode`). The
+    planner fills `mode`, `existing_system_name`, `lines`, `notes` and `refs` from this job's documents; the front end's
+    writer (`bms.ai.write_front_end`, like a system's) fills `devices`, `clarifications`, `tech_hours` and
+    `no_scope_reason`."""
     mode: FrontEndMode = field(**_doc("new-system or extend-existing."))
-    existing_system_name: str | None = field(default=None, **_doc("The existing BMS, when extending one."))
+    existing_system_name: str | None = field(default=None, **_doc(
+        "The existing BMS, when extending one; null when the documents do not name it (the proposal prints a fill-in "
+        "and the planner asks for the name)."))
     devices: tuple[Device, ...] = field(default=(), **_doc("The front-end lines."))
     clarifications: tuple[Clarification, ...] = field(default=(), **_doc("At most one."))
     tech_hours: float | None = field(default=None, **_doc("The front end's tech hours."))
+    lines: tuple[str, ...] = field(default=(), **_doc(
+        "The planner's: what the reading found this job's documents call for in the front end, one entry each in the "
+        "reading's own words (a front-end line, or an item the documents give to another party); the writer writes "
+        "the devices from them and the evidence. Empty when the documents call for none."))
+    notes: tuple[str, ...] = field(default=(), **_doc(
+        "The planner's: the client notes for the front end the reading found, in its words."))
+    refs: tuple[Ref, ...] = field(default=(), **_doc(
+        "The planner's: the citations of those facts (the passages of this job's documents)."))
+    no_scope_reason: str | None = field(default=None, **_doc(
+        "When the writer wrote no front-end line: why, in plain words; null otherwise."))
 
 
 @dataclass(frozen=True)
@@ -346,7 +379,8 @@ def _from_json(tp, data, path: str):
 
 def json_schema(cls) -> dict:
     """The JSON Schema of a model class, for an AI step's structured answer. Every property is required (a field
-    with a default still has to be given), objects allow no other properties, nested classes are inlined."""
+    with a default still has to be given) except a field added later as optional (metadata `optional`: Device.mark
+    and mark_note, T-005c), objects allow no other properties, nested classes are inlined."""
     if not (dataclasses.is_dataclass(cls) and isinstance(cls, type)):
         raise TypeError(f"{cls!r} is not a model class")
     return _schema_of(cls, {})
@@ -373,7 +407,7 @@ def _schema_of(tp, meta: dict) -> dict:
         return {"type": "object",
                 "properties": {f.name: _schema_of(hints[f.name], dict(f.metadata))
                                for f in fields},
-                "required": [f.name for f in fields], "additionalProperties": False,
+                "required": [f.name for f in fields if not f.metadata.get("optional")], "additionalProperties": False,
                 **({"description": meta["doc"]} if meta.get("doc") else {})}
     if tp is str:
         return {"type": "string", **doc}
@@ -425,7 +459,7 @@ def schema_errors(value, schema: dict, path: str = "$") -> list[str]:
 
 
 __all__ = ["Verb", "Control", "Flag", "ClarificationKind", "AlternateKind", "Party", "Severity", "FrontEndMode",
-           "VERBS", "CONTROLS", "FLAGS", "CLARIFICATION_KINDS", "ALTERNATES", "PARTIES", "SEVERITIES",
-           "FRONT_END_MODES", "DecisionAction", "DECISION_ACTIONS", "ModelError", "Ref", "OtherCount", "Count", "Family", "Assumption", "Device",
+           "UNNAMED_EXISTING", "VERBS", "CONTROLS", "FLAGS", "CLARIFICATION_KINDS", "ALTERNATES", "PARTIES", "SEVERITIES",
+           "FRONT_END_MODES", "DecisionAction", "DECISION_ACTIONS", "Mark", "MARKS", "ModelError", "Ref", "OtherCount", "Count", "Family", "Assumption", "Device",
            "Clarification", "Served", "System", "ScopeException", "FrontEnd", "Header", "Job", "Finding", "Decision", "MODEL_CLASSES",
            "json_schema", "schema_errors"]

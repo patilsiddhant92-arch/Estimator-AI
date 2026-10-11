@@ -1,0 +1,25 @@
+{
+  "about": "T-005a regression fixture (NOTES 2026-10-11 rule 4). An INVENTED copy of the 26-0544 counting defects: a numbered unit tag drawn on four penthouse part plans of four trades (ductwork, piping, equipment, roof) was counted once per plan, and a unit drawn only on a demolition plan was counted. Same tag forms (AHU-n, a type tag FCU-n), same sheet-number form (Mnnn.00, MD nnn.00) and same title forms as the job; every name and number here is invented.",
+  "document": "Drawings/Mech.pdf",
+  "units": ["AHU-11", "AHU-12", "AHU-13", "AHU-14"],
+  "demolition_only_unit": "AHU-17",
+  "type_tag": "FCU-7",
+  "penthouse_plans": [
+    {"page": 1, "number": "M117.00", "title": "MECHANICAL CONSTRUCTION DUCTWORK PENTHOUSE PLAN"},
+    {"page": 2, "number": "M217.00", "title": "MECHANICAL CONSTRUCTION PIPING PENTHOUSE PLAN"},
+    {"page": 3, "number": "M317.00", "title": "MECHANICAL CONSTRUCTION EQUIPMENT PENTHOUSE PLAN"},
+    {"page": 4, "number": "M318.00", "title": "MECHANICAL CONSTRUCTION PENTHOUSE ROOF PLAN"}
+  ],
+  "schedule": {"page": 5, "number": "M612.00", "title": "MECHANICAL SCHEDULES", "heading": "AHU SCHEDULE"},
+  "type_plan": {"page": 8, "number": "M116.00", "title": "MECHANICAL CONSTRUCTION DUCTWORK FIRST FLOOR PLAN",
+                "labels": 9},
+  "demolition_plans": [
+    {"page": 6, "number": "MD 318.00", "title": "MECHANICAL DEMOLITION PENTHOUSE ROOF PLAN",
+     "text": ["AHU-17", "AHU-11"]},
+    {"page": 7, "number": "MD 116.00", "title": "MECHANICAL DEMOLITION DUCTWORK FIRST FLOOR PLAN",
+     "text": ["FCU-7", "FCU-7", "FCU-7", "FCU-7"]}
+  ],
+  "work_note": {"page": 9, "number": "M002.00", "title": "MECHANICAL GENERAL NOTES AND LEGENDS",
+                "text": "GENERAL NOTES\n1. REFURBISH EXISTING AHU-17 AND RELOCATE ITS SPACE SENSOR."},
+  "removal_note": "1. REMOVE EXISTING AHU-17 IN ITS ENTIRETY.\n2. FCU-7 EXISTING TO REMAIN."
+}

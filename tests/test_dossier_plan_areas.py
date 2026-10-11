@@ -137,12 +137,14 @@ def test_a_plan_whose_title_names_no_floor_adds_up_and_is_named(tmp_path):
               _sheet(3, "M-102", "HVAC SECOND FLOOR PLAN"), _sheet(4, "M-302", "ENLARGED PLAN SHEET 2")]
     catalogue = _catalogue(pages, sheets, [f"VAV-{n}" for n in range(1, 7)])
     d = build_dossier(catalogue, _reading(), tmp_path)
-    assert d.counts["VAV"]["plan_placements"] == 11
+    # T-005a (estimator ruling 2 of 2026-10-11): a numbered unit tag is one unit in the job: the 6 boxes, and the
+    # duplicates are named with the number they would make
+    assert d.counts["VAV"]["plan_placements"] == 6
     line = _line("VAV", d)
     assert "same plan as" not in line
     assert "M-101 and M-301 may show one plan" in line
-    assert "VAV-1 is on 2 plans (M-101, M-301), counted on each, 2" in line
-    assert "2 more tags so: each counted on every plan that shows it" in line      # VAV-5, VAV-6 (M-102, M-302)
+    assert "VAV-1 is on 2 plans (M-101, M-301), counted once, 1" in line and "once per plan), 2" in line
+    assert "2 more tags so: each counted once however many plans show it" in line      # VAV-5, VAV-6 (M-102, M-302)
 
 
 def test_the_same_floor_in_another_document_adds_up_every_box_and_every_type_place(tmp_path):
@@ -156,7 +158,7 @@ def test_the_same_floor_in_another_document_adds_up_every_box_and_every_type_pla
               _sheet(1, "B-101", "FIRST FLOOR PLAN", OTHER)]
     tags = ["VAV-1", "VAV-2", "VAV-3", "VAV-7", "VAV-8", "VAV-9", "EBB-A"]
     d = build_dossier(_catalogue(pages, sheets, tags, documents), _reading(), tmp_path)
-    assert d.counts["VAV"]["plan_placements"] == 9
+    assert d.counts["VAV"]["plan_placements"] == 6           # T-005a ruling 2: VAV-1..3 once in the job, VAV-7..9
     assert d.counts["EBB"]["plan_placements"] == 2 + 2 + 3
     assert "M-101 and C-101 may show one plan" in _line("EBB", d)
     assert "M-101 and C-101 may show one plan" in _line("VAV", d)
@@ -170,10 +172,10 @@ def test_a_unit_tag_on_the_plans_of_several_floors_counts_on_each_and_is_named(t
     sheets = [_sheet(1, "M-101", "HVAC FIRST FLOOR PLAN"), _sheet(2, "M-102", "HVAC SECOND FLOOR PLAN"),
               _sheet(3, "M-106", "HVAC ROOF PLAN"), _sheet(4, "M-601", "SCHEDULES", types=("Schedules",))]
     d = build_dossier(_catalogue(pages, sheets, ["EF-1"]), _reading([_schedule("EF SCHEDULE", ["EF-1"], 4)]), tmp_path)
-    assert d.counts["EF"]["plan_placements"] == 3
+    assert d.counts["EF"]["plan_placements"] == 1             # T-005a ruling 2: one unit in the job (FINAL-I: 3)
     line = _line("EF", d)
     assert "M-101 1; M-102 1; M-106 1" in line                # every sheet still listed
-    assert "if it is one unit shown on several plans, it is 1" in line
+    assert "EF-1 is on 3 plans (M-101, M-102, M-106), counted once, 1" in line and "once per plan), 3" in line
     assert "placements above the other counts, likely" not in line
 
 

@@ -11,27 +11,66 @@ from __future__ import annotations
 
 import copy
 import datetime as dt
+import json
+import re
+from functools import lru_cache
 from pathlib import Path
 
 from docx.document import Document as DocxDocument
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
-from docx.shared import Pt, Twips
+from docx.shared import Pt, RGBColor, Twips
 from docx.table import _Cell
 from docx.text.paragraph import Paragraph
+from docx.text.run import Run as DocxRun
 
 from estimator.files import open_docx
 from estimator.proposal import layout
 from estimator.proposal.layout import ParagraphFormat
 from estimator.proposal.word import WordLists
-from estimator.scope import Alternate, Block, Header, Item, Job, Run
+from estimator.scope import Alternate, Block, Header, Item, Job, LaborCondition, Run
 from estimator.text import squash
 
 _XML_SPACE = "{http://www.w3.org/XML/1998/namespace}space"
+RED = RGBColor(0xFF, 0x00, 0x00)        # a run the estimator must notice (`Run.red`, T-005e)
+
+# T-005e: the template's working-hours clarification and off-hours exclusion, and what replaces them when the job's
+# documents call for off-hours work or prevailing wage (`Job.labor_conditions`), in red, citing the documents
+NORMAL_HOURS = "All labor will be performed during normal business working hours"
+OFF_HOURS_EXCLUSION = "All off-hours or overtime labor"
+OFF_HOURS_CLARIFICATION = "All labor for the off-hours work the documents call for is included (As per {source})."
+WAGE_CLARIFICATION = "All labor is priced at prevailing wage rates, as the documents require (As per {source})."
 
 
 class TemplateError(ValueError):
     """The template has changed in a way the tool doesn't recognise."""
+
+
+# --- red marks (T-005 rulings 3, 4 and 7, estimator 2026-10-11) -------------------------------------------------------
+
+# A value the estimator must complete or look at prints in red with *** (the header's placeholder, an existing BMS that
+# is not one of AME's three, the "[existing BMS name]" fill-in). AME's three are the bid check's "platforms_we_bid"
+# (Honeywell WEBs, Johnson Controls FX / Facility Explorer, Niagara / Tridium): one list, read, never typed here.
+STARS = "***"
+_MANUFACTURERS = Path(__file__).resolve().parents[3] / "assets" / "reading_lists" / "manufacturers.json"
+
+
+@lru_cache(maxsize=1)
+def _ame_patterns() -> tuple[re.Pattern, ...]:
+    data = json.loads(_MANUFACTURERS.read_text(encoding="utf-8"))
+    return tuple(re.compile(p, re.I) for line in data["platforms_we_bid"] for p in line["patterns"])
+
+
+def ame_bms(name: str | None) -> bool:
+    """True when the existing BMS's name names one of the three lines AME works with (any part of a joined name
+    "Honeywell / Niagara N4" will do); False for any other maker, a bare "Honeywell" or "Johnson Controls", and the
+    bracket fill-in."""
+    return bool(name) and any(p.search(name) for p in _ame_patterns())
+
+
+def _paint_red(run) -> None:
+    """A run (its w:r element) in red; python-docx keeps the run properties in their schema order."""
+    DocxRun(run, None).font.color.rgb = RGBColor.from_string(layout.EXISTING_NAME_COLOUR)
 
 
 def write_proposal(job: Job, template_path: Path, out_path: Path) -> Path:
@@ -44,6 +83,7 @@ def write_proposal(job: Job, template_path: Path, out_path: Path) -> Path:
     _write_alternates(document, layout.ADD_ALTERNATES, job.add_alternates)
     _write_alternates(document, layout.DEDUCT_ALTERNATES, job.deduct_alternates)
     _add_named_exceptions(document, job.named_exceptions)
+    _write_labor_conditions(document, job.labor_conditions)
     out_path.parent.mkdir(parents=True, exist_ok=True)
     document.save(str(out_path))
     return out_path
@@ -139,6 +179,8 @@ def _set_after_label(paragraph: Paragraph, label: str, value: str) -> None:
     if not rest:
         raise TemplateError(f"nothing to fill after {label!r}")
     _set_run_text(rest[0], value)
+    if STARS in value:                   # a placeholder to complete (T-005 ruling 3): red
+        _paint_red(rest[0])
     for run in rest[1:]:
         run.getparent().remove(run)
 
@@ -221,7 +263,14 @@ def _delete_from_until(first: Paragraph, stop: Paragraph) -> None:
         element.getparent().remove(element)
 
 
-def _set_existing_name(heading: Paragraph, name: str) -> None:
+def _set_existing_name(heading: Paragraph, name: str, *, required: bool = True) -> None:
+    """Write `name` over the red sample in a paragraph. `required`: a paragraph with no red sample is a changed
+    template (refused); otherwise there is nothing to replace and it is left as it is. A name that is not one of AME's
+    three (`ame_bms`), the bracket fill-in included, prints red between *** (T-005 ruling 4); one of the three prints
+    in the paragraph's own colour."""
+    paint = not ame_bms(name)
+    if paint:
+        name = f"{STARS}{name}{STARS}"
     runs = heading._p.findall(qn("w:r"))
     red = []
     for run in runs:
@@ -229,6 +278,8 @@ def _set_existing_name(heading: Paragraph, name: str) -> None:
         if colour is not None and (colour.get(qn("w:val")) or "").upper() == layout.EXISTING_NAME_COLOUR:
             red.append(run)
     if not red:
+        if not required:
+            return
         raise TemplateError("the red placeholder for the existing system's name is gone")
     # The placeholder carries the spaces either side of the name ("Honeywell / Niagara N4 "); keep them.
     original = "".join(_run_text(run) for run in red)
@@ -242,6 +293,8 @@ def _set_existing_name(heading: Paragraph, name: str) -> None:
     if model is not None:
         first.insert(0, copy.deepcopy(model))
     _set_run_text(first, f"{before}{name}{after}")
+    if paint:
+        _paint_red(first)
     for run in red[1:]:
         run.getparent().remove(run)
 
@@ -261,6 +314,9 @@ def _keep_front_end(document: DocxDocument, job: Job) -> Paragraph:
     _delete_from_until(openings[0], openings[1])
     _delete_between(existing_heading, add_heading)
     _set_existing_name(existing_heading, job.front_end.existing_system_name)
+    # HP 25: the opening sentence ("... an extension of the existing District Wide BMS system.") carries a red sample
+    # name too. It names this job's existing system, never the template's sample.
+    _set_existing_name(openings[1], job.front_end.existing_system_name, required=False)
     return existing_heading
 
 
@@ -312,9 +368,11 @@ def _apply(paragraph: Paragraph, fmt: ParagraphFormat, runs: tuple[Run, ...]) ->
     if fmt.bold or fmt.size is not None:
         _mark_formatting(paragraph._p.get_or_add_pPr(), fmt)
     for part in runs:
-        run = paragraph.add_run(part.text)
+        run = paragraph.add_run(part.text)        # a "\n" in the text is a line break (short points, T-005 ruling 5)
         if fmt.bold or part.bold:
             run.bold = True
+        if part.red:                               # a line the estimator must notice (T-005 ruling 7)
+            run.font.color.rgb = RGBColor.from_string(layout.EXISTING_NAME_COLOUR)
         if fmt.size is not None:
             run.font.size = Pt(fmt.size)
         if fmt.font is not None:
@@ -403,3 +461,52 @@ def _add_named_exceptions(document: DocxDocument, exceptions: tuple[str, ...]) -
         _replace_text(Paragraph(clone, last._parent), text)
         cursor.addnext(clone)
         cursor = clone
+
+
+# --- off-hours work and prevailing wage (T-005e) --------------------------------------------------------------------
+
+def _make_red(paragraph: Paragraph) -> None:
+    for run in paragraph.runs:
+        run.font.color.rgb = RED
+
+
+def _clarification_after(cursor: Paragraph, text: str) -> Paragraph:
+    """A red clarification like the template's own (a copy of `cursor`'s paragraph, its text replaced), after it."""
+    clone = copy.deepcopy(cursor._p)
+    added = Paragraph(clone, cursor._parent)
+    _replace_text(added, text)
+    _make_red(added)
+    cursor._p.addnext(clone)
+    return added
+
+
+def _write_labor_conditions(document: DocxDocument, conditions: tuple[LaborCondition, ...]) -> None:
+    """When the job's documents call for off-hours work or prevailing wage, the proposal says so in red, citing them,
+    and never excludes it in silence: the working-hours clarification becomes the off-hours one, the off-hours
+    exclusion is taken out (the scope's "Labor Conditions" line carries it), and a prevailing-wage clarification follows
+    the first clarification. Nothing changes when there is no condition."""
+    if not conditions:
+        return
+    paragraphs = document.paragraphs
+    start = next(i for i, p in enumerate(paragraphs) if squash(p.text).startswith(layout.CLARIFICATIONS))
+    first = next((p for p in paragraphs[start + 1:] if squash(p.text)), None)
+    if first is None:
+        raise TemplateError("the clarifications section has no line")
+    by_kind = {c.kind: c for c in conditions}
+    cursor = first
+    off = by_kind.get("off-hours")
+    if off is not None:
+        text = OFF_HOURS_CLARIFICATION.format(source=off.source)
+        normal = next((p for p in paragraphs[start + 1:] if squash(p.text).startswith(NORMAL_HOURS)), None)
+        if normal is not None:
+            _replace_text(normal, text)
+            _make_red(normal)
+            cursor = normal
+        else:
+            cursor = _clarification_after(first, text)
+        for paragraph in document.paragraphs:
+            if squash(paragraph.text).startswith(OFF_HOURS_EXCLUSION):
+                paragraph._p.getparent().remove(paragraph._p)
+    wage = by_kind.get("prevailing-wage")
+    if wage is not None:
+        _clarification_after(cursor, WAGE_CLARIFICATION.format(source=wage.source))

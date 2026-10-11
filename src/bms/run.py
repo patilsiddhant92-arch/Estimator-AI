@@ -1,9 +1,13 @@
 """The rebuilt estimate, in its final order (design §5 "Integration"):
 
 read (the old app's staged reading) -> plan_job -> counts cross-check (text and vision, through the run's transport)
--> write_system per system -> the estimator's decisions -> validate -> qc_job -> revise_system (must_fix only, one
-round) -> validate -> review_page (with the count proofs) -> render -> the Word proposal, the price sheet and the
-Evidence Package (the Job's scope lines and findings beside the old reading tabs).
+-> write_system per system, then write_front_end (the front end is written like a system, from the passages the
+planner cited for it; nothing is asked when the documents call for none) -> the estimator's decisions -> validate ->
+qc_job -> revise_system (must_fix only, one round; revise_front_end for the front end's findings) -> validate ->
+the coverage gate (`bms.coverage.coverage`, once, on the final Job: a fact the ledger read that nothing in the Job
+cites is a `check` finding; it only reports, never changes the Job and never stops the run) -> review_page (with the
+count proofs; the gate's findings are its group "Not cited in the job") -> render -> the Word proposal, the price
+sheet and the Evidence Package (the Job's scope lines and findings beside the old reading tabs).
 
 The run waits at "count" while the vision count's sheet questions have no answer: the counts are part of each
 system's skeleton, so writing before they are in would ask the writer again once they arrive.
@@ -59,7 +63,9 @@ from estimator.writing.judge import Judge
 from bms import ai, ai_evidence
 from bms.citations import device_refs, job_ids, job_sheets, job_tags, source_sheets
 from bms.counts import counted_from, cross_check, flag_written_devices, publish_proofs
+from bms.coverage import coverage
 from bms.evidence import write_evidence
+from bms.labor import labor_conditions, labor_findings, with_labor, with_warranty
 from bms.model import Decision, Device, Finding, Header, Job, ModelError, System
 from bms.plan import plan_job
 from bms.playbook import load_playbook
@@ -86,7 +92,8 @@ class RunResult:
                                             # "revise", "done"; "render" only in the run state of a stop while printing
     waiting: int = 0
     job_file: Path | None = None            # out/<quote> Job.json: the Job model as last saved
-    findings: tuple[Finding, ...] = ()      # the final validate's findings plus the QC findings left open
+    findings: tuple[Finding, ...] = ()      # the final validate's findings, the QC findings left open and the coverage
+                                            # gate's (facts the job does not cite)
     review: Path | None = None              # out/Review.html
     proposal: Path | None = None
     price_sheet: Path | None = None
@@ -128,17 +135,30 @@ def _standing_accepts(entries: list[SavedDecision], key: str, job: Job | None = 
     return standing
 
 
+def _held_counts(decisions, key: str) -> tuple[str, ...]:
+    """The names of the families of system `key` whose count the estimator set (a family change among `decisions`):
+    a revise never changes them (HP 17)."""
+    return tuple(dict.fromkeys(d.family_name for d in decisions
+                               if d.system_key == key and d.action == "change" and d.family_name is not None))
+
+
 def _revised(system, findings, evidence, playbook, transport, job=None, decisions=None, ids=None, sheets=(),
-             source_sheets=None):
+             source_sheets=None, hold_counts=(), typed=frozenset()):
     """Revise, then flag quantity disagreements again. Devices accepted by the estimator stay accepted, unless a
-    decision in `decisions` changes a family count of this system (the new count flags the system again)."""
+    decision in `decisions` changes a family count of this system (the new count flags the system again). A revise
+    may correct a family's count (HP 17, `ai.revise_system`): every line still at the old count it was counted from
+    takes the new one (`_carry_new_counts`; a line in `typed` keeps the count the estimator typed), and a family in
+    `hold_counts` (the estimator set its count) keeps it."""
+    held = {"hold_counts": tuple(hold_counts)} if hold_counts else {}
     if job is None:
-        revised = ai.revise_system(system, findings, evidence, playbook, transport)
+        revised = ai.revise_system(system, findings, evidence, playbook, transport, **held)
     else:
         revised = ai.revise_system(system, findings, evidence, playbook, transport, tags=job_tags(job),
                                     ids=job_ids(job) if ids is None else ids, sheets=sheets,
                                     source_sheets=tuple(job.source_sheets) if source_sheets is None
-                                    else source_sheets)
+                                    else source_sheets, **held)
+    if revised.families != system.families:
+        revised = _carry_new_counts(system, revised, revised, frozenset(typed))
     flagged = flag_written_devices(revised)
     if not decisions:
         return flagged
@@ -230,6 +250,31 @@ def _count_note(decisions: tuple[Decision, ...] | list[Decision], key: str) -> s
         suffix = f" to {value}" if value is not None else ""
         lines.append(f"- {decision.action} the {decision.family_name} count{suffix}")
     return "\n".join(lines)
+
+
+def _asked_about_front_end(job: Job) -> Job:
+    """The job with one more question when the writer wrote no front-end line (HP 22): the estimator reads why, in
+    the writer's words, and says whether the job needs a front end. The documents call for none, or give all of it to
+    others; no standard line stands in."""
+    front = job.front_end
+    if front is None or front.devices or not (front.no_scope_reason or "").strip():
+        return job
+    reason = front.no_scope_reason.strip().rstrip(".")
+    question = (f"No front-end line was written: {reason}. If this job needs a front end, say what it is and where "
+                "the documents call for it.")
+    return dataclasses.replace(job, questions=tuple(dict.fromkeys((*job.questions, question))))
+
+
+def _coverage_findings(job: Job, ledger, dossier) -> tuple[list[Finding], tuple[str, ...]]:
+    """The coverage gate (`bms.coverage.coverage`) on the final job: a fact the ledger read that nothing in the job
+    cites is one `check` finding, for the review page and the Evidence Package. It only reports: the job is never
+    changed, and a fault in the gate never stops the run. It gives no finding then, and the console gets one plain
+    line that says so."""
+    try:
+        return coverage(job, ledger, dossier), ()
+    except Exception as error:      # report only: a fault here must not block an estimate that is otherwise done
+        return [], (f"Coverage: the check for facts the job does not cite could not run ({type(error).__name__}: "
+                    f"{error}). The other findings stand.",)
 
 
 def _check_this_system(decision: Decision) -> Finding:
@@ -326,11 +371,17 @@ def _workers() -> int:
     return max(1, min(4, os.cpu_count() or 1))
 
 
-def _untouched(finding: Finding, before: Job, after: Job) -> bool:
+def _untouched(finding: Finding, before: Job, after: Job, playbook=None) -> bool:
     """A QC finding the revise round left as it was: its device (or, for a finding about a whole system, the
-    system; for the front end or the whole job, everything) is the same after the revise. It stays open for the
-    estimator, since QC is not asked again."""
+    system; for a finding about the front end, its line or the front end; for the whole job, everything) is the same
+    after the revise. It stays open for the estimator, since QC is not asked again."""
     if not finding.system_key:
+        if ai.is_front_end_finding(finding, before.front_end, playbook):
+            old, new = before.front_end, after.front_end
+            if finding.device_id is None or new is None:
+                return old == new
+            device = {d.id: d for d in new.devices}.get(finding.device_id)
+            return device is not None and device == {d.id: d for d in old.devices}.get(finding.device_id)
         return True
     try:
         old, new = before.system(finding.system_key), after.system(finding.system_key)
@@ -439,7 +490,7 @@ def _estimate(job_folder: Path, out: Path, cache: Path, mode: Mode, known: dict)
     # 1. read: catalogue, reading, dossier, the ledger's staged passes (old app, unchanged)
     catalogue = catalogue_job(job_folder, cache, _workers())
     reading = read_job(catalogue, cache_dir=cache)
-    old_header, _ = job_header(catalogue, reading, dt.date.today())
+    old_header, header_flags = job_header(catalogue, reading, dt.date.today())
     quote = _safe_filename(old_header.quote_number)
     dossier = build_dossier(catalogue, reading, cache)
     known.update(quote=quote, job=str(dossier.job_name or ""))
@@ -460,6 +511,9 @@ def _estimate(job_folder: Path, out: Path, cache: Path, mode: Mode, known: dict)
     job = dataclasses.replace(job, header=Header(
         quote_number=old_header.quote_number, reference=old_header.reference, mep_engineer=old_header.mep_engineer,
         based_on=tuple(old_header.based_on), date=old_header.date.isoformat(), to=old_header.to),
+        # the header's flags (a cover-page value left as *** or as a placeholder) stay open questions beside the
+        # planner's, so the review page asks for them (T-005c review F2): the red mark alone is easy to miss
+        questions=tuple(dict.fromkeys((*job.questions, *header_flags))),
         # the sheets the ledger's sources name, once: a known sheet in a where and after a sheet word (FINAL-J) for
         # every writer, the validator and the renderer alike, so a writer's exact copy of its evidence's where is
         # never refused
@@ -485,10 +539,14 @@ def _estimate(job_folder: Path, out: Path, cache: Path, mode: Mode, known: dict)
     # 3. write every system (all are asked before stopping for answers)
     known["stage"] = "write"
     evidence = {s.key: ai.evidence_for(s, dossier) for s in job.systems}
-    # I, one set for every writer and the revise: every id of the job and of every system's evidence. A ref may
-    # cite only its system's evidence, so the final job's ids (the validator's and the renderer's I) are in it, and a
-    # text one writer accepts is never an issued id once a later system cites it.
-    evidence_ids = sorted(set().union(*(ai_evidence.cited_ids(e) for e in evidence.values())))
+    # the front end is written like a system (HP 22): its own evidence, from the passages the planner cited for it
+    taken = {s.key for s in job.systems}
+    front_evidence = ai.front_end_evidence(job.front_end, dossier, taken) if job.front_end is not None else ""
+    # I, one set for every writer and the revise: every id of the job and of every system's evidence (the front
+    # end's too). A ref may cite only its system's evidence, so the final job's ids (the validator's and the
+    # renderer's I) are in it, and a text one writer accepts is never an issued id once a later system cites it.
+    evidence_ids = sorted(set().union(ai_evidence.cited_ids(front_evidence),
+                                      *(ai_evidence.cited_ids(e) for e in evidence.values())))
 
     def issued(current: Job) -> tuple[str, ...]:
         return tuple(dict.fromkeys([*job_ids(current), *evidence_ids]))
@@ -513,6 +571,15 @@ def _estimate(job_folder: Path, out: Path, cache: Path, mode: Mode, known: dict)
                                 ids=issued(job), sheets=sheets(job), source_sheets=source(job))))
         except ai.NoAnswer as missing:
             pending.append(_not_answered(system.name, missing))
+    if job.front_end is not None:
+        try:
+            job = dataclasses.replace(job, front_end=ai.write_front_end(
+                job.front_end, front_evidence, playbook, transport, tags=job_tags(job), ids=issued(job),
+                sheets=sheets(job), source_sheets=source(job), taken=taken))
+        except ai.NoAnswer as missing:
+            pending.append(_not_answered(ai.FRONT_END_NAME, missing))
+        else:
+            job = _asked_about_front_end(job)
     save(job)
     if pending:
         return RunResult("waiting", "write", waiting=transport.waiting, job_file=job_file, messages=tuple(pending))
@@ -613,10 +680,21 @@ def _estimate(job_folder: Path, out: Path, cache: Path, mode: Mode, known: dict)
             job = job.with_system(_revised(system, [f for f in must_fix if f.system_key == key],
                                             evidence[key], playbook, transport, job,
                                             decisions=_standing_accepts(history, key, decided_from),
-                                            ids=issued(job), sheets=sheets(job), source_sheets=source(job)))
+                                            ids=issued(job), sheets=sheets(job), source_sheets=source(job),
+                                            hold_counts=_held_counts(decisions, key),
+                                            typed=_typed_counts(decisions, key, decided_from)))
 
         except ai.NoAnswer as missing:
             pending.append(_not_answered(system.name, missing))
+    # the front end is revised like a system (HP 22): its must_fix findings (they carry the whole job's key "")
+    front_findings = [f for f in must_fix if ai.is_front_end_finding(f, job.front_end, playbook)]
+    if front_findings:
+        try:
+            job = dataclasses.replace(job, front_end=ai.revise_front_end(
+                job.front_end, front_findings, front_evidence, playbook, transport, tags=job_tags(job),
+                ids=issued(job), sheets=sheets(job), source_sheets=source(job), taken=taken))
+        except ai.NoAnswer as missing:
+            pending.append(_not_answered(ai.FRONT_END_NAME, missing))
     # a device decision made on the page's (revised) wording that matched nothing the writer wrote is applied to
     # the revised job; one decision is never applied twice
     # (an accept a count change overrules is not applied late either)
@@ -657,23 +735,33 @@ def _estimate(job_folder: Path, out: Path, cache: Path, mode: Mode, known: dict)
         return RunResult("waiting", "revise", waiting=transport.waiting, job_file=job_file,
                          messages=(*notes, *pending))
     findings = validate(job, playbook)
-    open_qc = [f for f in qc if f.severity != "must_fix" or _untouched(f, written, job)]
+    open_qc = [f for f in qc if f.severity != "must_fix" or _untouched(f, written, job, playbook)]
     # the revised job's quotes, checked again: a revise that changed a line closes its QC finding, never the check
     known_qc = {(f.rule, f.system_key, f.device_id, f.what) for f in open_qc}
     open_qc += [f for f in ai.quote_findings(job, index, playbook)
                 if (f.rule, f.system_key, f.device_id, f.what) not in known_qc]
     id_cards = [_id_change_card(*found) for found in _ids_in_changes(job, decisions)]
+    # the coverage gate, once, on the final job: every write, revise and decision is in it (the late decisions too), and
+    # nothing changes it after this. It only reports, so it joins the open findings and changes nothing else
+    uncited, coverage_notes = _coverage_findings(job, ledger, dossier)
     all_findings = tuple([*id_cards, *findings, *open_qc, *unhonored_decisions(decided_from, early, job, copies=copies),
-                          *unhonored_decisions(revised_job, checked_late, job, copies=copies), *rechecks])
+                          *unhonored_decisions(revised_job, checked_late, job, copies=copies), *rechecks, *uncited])
 
     # 6. the review page, the render and the three documents
     known["stage"] = "render"
     manifest = publish_proofs(job, cache, out)
     if manifest is not None:
         print(f"Wrote {manifest}")
+    # T-005e: off-hours work and prevailing wage the documents call for: findings for the review page and the Evidence
+    # Package, and red lines in the proposal and the price sheet (with_labor below)
+    conditions = labor_conditions(getattr(catalogue, "overview", None))
+    all_findings = (*all_findings, *labor_findings(conditions))
     review = review_page(job, all_findings, out)
     print(f"Wrote {review}")
     draft = render(job, playbook)
+    draft = with_labor(draft, conditions)
+    # T-005e addendum: the Master Template's warranty lines in the front end, when the specification states it
+    draft = with_warranty(draft, getattr(catalogue, "overview", None))
     printed = {line.device_id: line.text for line in draft.lines if line.device_id}
     evidence_file = write_evidence(out / f"{quote} Evidence Package.xlsx", catalogue, reading, ledger, job,
                                    all_findings, printed)
@@ -688,4 +776,4 @@ def _estimate(job_folder: Path, out: Path, cache: Path, mode: Mode, known: dict)
         if stop is not None:
             return dataclasses.replace(stop, messages=(*notes, *stop.messages))
     return RunResult("done", "done", job_file=job_file, findings=all_findings, review=review, proposal=proposal,
-                     price_sheet=sheet, evidence=evidence_file, messages=notes)
+                     price_sheet=sheet, evidence=evidence_file, messages=(*notes, *coverage_notes))
