@@ -30,7 +30,8 @@ from estimator.writing.write import tag_list
 from bms.citations import SHEET, SourceIds, clarification_text, squash as _squash, strip_label
 from bms.model import CLARIFICATION_KINDS, UNNAMED_EXISTING, Clarification, Count, Device, FrontEnd, Job, Ref, System
 from bms import order as gem_module
-from bms.order import existing_lines, front_end_entries, front_end_rank, new_lines, position as gem_position
+from bms.order import (existing_lines, front_end_entries, front_end_rank, group_line, new_lines,
+                       position as gem_position)
 from estimator.proposal.layout import EXISTING_SYSTEM_HEADING
 from bms.playbook import DEFAULT_ORDER, Playbook, Shape
 
@@ -951,6 +952,9 @@ def _system_blocks(system: System, playbook: Playbook, out: list[RenderedLine], 
     else:
         headers = [_header_text(form, f.name, f.tags, f.count, playbook) + _header_counts(f.count, playbook, ids)
                    for f in families]
+    # T-005e evening correction (lead, 2026-10-11): the Master Template entry decides. Where it prints a group line
+    # over its stacked Qty headers ("Chilled Water System"), the block keeps it, unnumbered; where it prints none, none
+    group = group_line(shape.name if shape is not None else None) if len(headers) > 1 else ""
     reference = {n for n in (_printed(f.count) for f in families) if n is not None}
     pending = not families or any(_printed(f.count) is None for f in families)     # "Qty (##)": nothing is priced
     devices, left = _gem_devices(system, shape, playbook)       # T-005e addendum: valves, pump minimum (GEM v4)
@@ -961,11 +965,13 @@ def _system_blocks(system: System, playbook: Playbook, out: list[RenderedLine], 
     try:                                 # every field checked: a blank line, a negative quantity or tech hours
         items = _items(printed, pending) + [Item(kind="note", runs=(Run(text=n),)) for n in notes]
         last = len(headers) - 1
-        blocks = [Block(header=h, joined=i > 0, tech_hours=system.tech_hours if i == 0 else None,
+        blocks = [Block(header=h, joined=i > 0 or bool(group), tech_hours=system.tech_hours if i == 0 else None,
                         items=tuple(items) if i == last else ()) for i, h in enumerate(headers)]
+        if group:                        # the group line: no number, no hours, no lines (the hours stay on Qty 1)
+            blocks.insert(0, Block(header=group, numbered=False))
     except ValueError as error:          # pydantic's ValidationError is a ValueError
         raise RenderError(f"system {system.key}: {error}") from error
-    out += [RenderedLine(system.key, None, "header", h, None, None) for h in headers]
+    out += [RenderedLine(system.key, None, "header", h, None, None) for h in ([group] if group else []) + headers]
     out += _traced(system.key, printed, notes)
     out += [RenderedLine(system.key, None, "note", line, None, None) for line in left]
     return tuple(blocks)

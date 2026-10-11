@@ -147,16 +147,16 @@ def test_the_rep_line_stays_under_its_map_line_and_the_trio_prints_last(job, pla
 
 # ---- 1. the Master Template's format: sub-headings, the existing BMS front end -------------------------------------
 
-def test_a_grouped_system_gets_no_sub_heading(job, house):     # T-005e addendum: no sub-headings
+def test_a_grouped_system_gets_its_entrys_group_line(job, house):  # T-005e evening correction: as the entry prints
     pumps = System(key="CHW", name="Chilled Water System", shape="Chilled Water System", control="field",
                    families=(Family("Chiller", ("CH-1", "CH-2"), Count(value=2)),
                              Family("Chilled Water Pump", ("CHWP-1", "CHWP-2"), Count(value=2))),
                    devices=(dev(1, "DDC Controller", slot="controller", key="CHW", qty=1),))
     draft = render(replace(job, systems=(pumps,)), house)
     headers = [b.header for b in draft.scope.blocks]
-    assert headers[0].startswith("Qty (2) Chiller") and headers[1].startswith("Qty (2) Chilled Water Pump")
-    assert all(b.numbered for b in draft.scope.blocks) and draft.scope.blocks[1].joined is True
-    assert "Chilled Water System" not in [l.text for l in draft.lines]
+    assert headers[0] == "Chilled Water System" and not draft.scope.blocks[0].numbered
+    assert headers[1].startswith("Qty (2) Chiller") and headers[2].startswith("Qty (2) Chilled Water Pump")
+    assert all(b.numbered and b.joined for b in draft.scope.blocks[1:])
 
 
 def test_a_single_family_block_gets_no_sub_heading(job, house):

@@ -397,3 +397,147 @@ alone three times gave failed, passed, passed; the BOM test passed alone.
   front-end tests pick their own line).
 - Must fix 1: `tests/bms/test_t005e_addendum.py` and its fixture `tests/bms/fixtures/t005e_addendum_job.json`.
 - New: `tests/bms/test_review_t005e.py` (the lead's six tests, as sent).
+
+---
+
+## Evening corrections and wave2 merge (2026-10-11 evening)
+
+Sources read on `origin/lead/hark-inbox`: `HarkPro/inbox/README.md`, `T-005e-fixes.md`, `T-005e-review.md`,
+`NOTES-2026-10-11.md` ("Corrections (lead, 2026-10-11 evening)"), `HarkPro/STATUS.md`; `Brain/Master Template.docx`
+(read with python-docx).
+
+Commits on `hark/T-005e` after 5c3f1de:
+- `55fbc6e` Merge `origin/lead/wave2` (b6ea499: T-005c merged in 4ea8fa3 plus the lead's fixes). A merge commit, no
+  rebase, no force. **No conflicts.** The lead's T-005c fixes (Johnson FX patterns in
+  `assets/reading_lists/manufacturers.json`, header flags into `job.questions` in `src/bms/run.py:493,516`, the
+  schema rule in the spec) are taken as they are. `src/bms/run.py` merged on its own: the lead's hunk at l.493/516,
+  T-005e's at l.68 and l.756-764.
+- `a4acb1d` The evening corrections (below).
+- The commit that carries this section.
+
+### 1. Group lines follow the Master Template entry (tests first)
+- What the Master Template prints: an unnumbered group line over stacked Qty headers in the **Chilled Water System**
+  entries (two of them), the **Hot Water System** entries (two), **VRF System** and **Kitchen Exhaust Ventilation**.
+  The Heat Exchanger System, Condenser Water System, Fuel Oil Pump System, Split System and every single-header
+  entry print none.
+- `assets/gem_order.json:368` new `group_lines` (shape name -> the line's words, with an `about`).
+- `src/bms/order.py:182` `group_lines()`, `:187` `group_line(shape_name)` ("" when the entry prints none).
+- `src/bms/render.py:948` `_system_blocks`: the group line is worked out when the block stacks more than one Qty
+  header. `:961` it goes first as `Block(header=..., numbered=False)` with no items and no hours. The Qty headers are
+  `joined` under it, and the tech hours stay on the first Qty header (price sheet only). `:965` it is traced in
+  `draft.lines` as kind "header".
+- New `tests/bms/test_t005e_group_lines.py` (11 tests, invented tags ZCH-/ZHP-/ZIU-/ZKEF-...):
+  - `test_an_entry_with_a_group_line_keeps_it_over_its_stacked_headers` (4 cases: CHW, HW, VRF, KEV);
+  - `test_an_entry_without_a_group_line_prints_none` (3 cases: Heat Exchanger, Condenser Water, AHU);
+  - `test_a_single_family_block_gets_no_group_line`;
+  - `test_the_group_line_words_come_from_the_asset_and_name_real_shapes`;
+  - `test_the_price_sheet_prints_the_group_line_unnumbered_and_unpriced`;
+  - `test_one_short_star_line_per_item_several_per_block_and_no_tech_hour_line`. This one writes the proposal .docx:
+    it has 3 '*' lines in one block, no "tech hour" text, and no "Demolition Scope".
+- Tests changed with the correction, each commented "T-005e evening correction":
+  - `tests/bms/test_render.py` `test_vrf_stacks_one_header_per_family_over_one_set_of_lines` ("VRF System" first;
+    all three headers joined).
+  - `tests/bms/test_t005e_addendum.py` `test_the_master_template_group_line_over_stacked_headers` (was
+    `test_no_sub_headings_over_stacked_headers`).
+  - `tests/bms/test_t005e_format_order_labor.py` `test_a_grouped_system_gets_its_entrys_group_line` (was
+    `..._gets_no_sub_heading`).
+- This supersedes part A's "remove the sub-headings" and part C item 3.
+
+### 2. Demolition Scope
+None in the branch. `git diff origin/lead/wave2` on `src/` and `assets/` adds no Demolition block, slot or model
+field. The only "demolition" word is in the description of GEM position 20 in `assets/gem_order.json` (the
+plain-statement slot that already existed). The new proposal test checks that "Demolition Scope" is not printed.
+
+### 3. '*' lines and tech hours (rulings 14 and 16)
+The code already matched. `src/bms/render.py:843` `_notes` gives one short '*' line per item, several per block, in
+the Playbook's kind order. It no longer has a "one note per block" join. No tech-hour line is printed:
+`Block.tech_hours` goes to the price sheet's header row only. The new proposal test pins both.
+- Left as it is: the docstring of `bms.model.Clarification` still says "(one per block)". `model.py` is a contract
+  file, so I did not edit it (question 2).
+
+### 4. A lead test that failed on `origin/lead/wave2` itself
+`tests/bms/test_review_t005c.py::test_a_takeoff_subfolder_named_takeoff_does_not_become_the_job_folder` failed after
+the merge. It fails on a clean `git archive origin/lead/wave2` too ("2. Takeoffs" != "26-7102"). The cause:
+`job_folder` returned the parent of a ".../2. Takeoffs/Takeoff" subfolder, which is "2. Takeoffs".
+- Fix: `src/estimator/writing/front_end.py:383`. A takeoff folder whose parent is also a takeoffs folder is skipped,
+  so the walk goes on to the job folder. One condition.
+- This file is outside T-005e's list (question 1). All 26 tests of `test_review_t005c.py` pass now.
+
+### 5. T-005e-fixes.md re-checked against the merged code
+- Must fix 1 (the template order wins; GEM only for the catch-all slots): holds. The reviewer's order test passes.
+- Must fix 2 (the reviewer's 6 tests): `tests/bms/test_review_t005e.py`, **6 passed**.
+- Valve position feedback is GEM 10, and Furnish and Wire devices are classed by kind: holds
+  (`test_lines_get_their_gem_category_not_their_verb` and the reviewer's tests pass).
+- An overtime ban is not off-hours work: holds (`test_a_ban_on_overtime_is_not_off_hours_work` passes).
+- Sub-headings: corrected to follow each entry (part 1 above). This replaces the earlier "remove them".
+- Off-hours and prevailing-wage lines in the Evidence Package and Review.html: still wired through `labor_findings`
+  (`src/bms/run.py:757-758`, before the review page).
+- The afternoon rulings:
+  - 14 and 16: part 3 above.
+  - 15 ("Qty (#) <device>" in the line): unchanged from 5c3f1de.
+  - 17 (Demolition Scope): not added, as the lead's correction says.
+  - 19 (front-end house lines): unchanged.
+- run.py lines changed by T-005e, now that wave2 is merged:
+  - `src/bms/run.py:68`: the `bms.labor` import.
+  - `:756-758`: the labor conditions and their findings, before the review page.
+  - `:762`: `with_labor`.
+  - `:763-764`: `with_warranty`.
+  - No other run.py line is T-005e's. l.493 and l.516 are the lead's (b6ea499).
+- Kept from the branch's earlier merge of `origin/hark/T-005c` 21d5303: `tests/bms/test_t005c_fixture_regressions.py`
+  and its fixture `tests/bms/fixtures/t005c_proposal.json` (10 passed). Wave2 merged T-005c at f453c8c, so it does
+  not carry them. Drop them at merge if you don't want them.
+
+### 6. Tests (real output, 2026-10-11 evening, at the code of a4acb1d)
+Run in the worktree with `PYTHONPATH=$PWD/src ../../.venv/bin/python -m pytest <files> -q -n 2 -p no:cacheprovider`.
+Two sibling agents were running, and the load average was 5-7 on 2 CPUs, so the suite ran in chunks of files.
+`tests/bms/test_run.py` and `tests/test_review_final8_counts.py` ran on their own, and some later files one at a time
+(without `-n`).
+
+Touched files: `test_review_t005e.py test_t005e_group_lines.py test_review_t005c.py` gave `43 passed in 3.83s`.
+- `test_t005e_addendum`, `test_t005e_format_order_labor`, `test_review_t005e`, `test_review_t005c` and
+  `test_t005e_group_lines` together gave `113 passed in 4.58s`.
+- `test_render`, `test_front_end_name`, `test_t005c_proposal`, `test_run_front_end` and `test_render_count_notes`
+  gave `171 passed, 8 warnings in 27.23s`.
+
+**tests/bms** (100 files): **2682 passed, 7 failed, 2 skipped**. All 7 failures are the accepted baseline.
+
+| Files | Result | Failures |
+|---|---|---|
+| 1-20 | `5 failed, 681 passed, 18 warnings in 89.28s` | the 5 test_ai chat tests |
+| 21-42 | `711 passed, 14 warnings in 48.65s` | none |
+| 43-70 | `1 failed, 543 passed, 2 skipped, 26 warnings in 108.31s` | test_review_final3 `test_a_real_child_failing_with_the_resource_code_is_run_three_times_then_reported` |
+| 71-100, file by file | `747 passed`, `1 failed` | test_status_review `test_every_normal_exit_writes_the_state_whole_and_status_agrees`; alone it gives `1 failed, 13 passed in 27.26s` |
+
+In the last chunk, `test_run.py` gave `13 passed in 53.85s` and `13 passed in 41.30s` (two halves).
+
+**The rest** (`tests/*.py`, 104 files): **2309 passed, 8 skipped**. The failures are all accepted baseline:
+- files 1-60: `2 failed, 1107 passed, 1 skipped, 18 warnings in 34.88s`. The two are test_assets
+  `test_running_on_the_project_python` and test_main `test_the_output_folder_being_a_file_that_is_open_is_plain`.
+- files 61-104, file by file: `1202 passed`, 7 skipped. The only failures were in test_revert_audit and
+  test_revert_audit_review. `test_review_final8_counts.py` gave `121 passed in 73.06s`.
+
+**The revert_audit tests are load-flaky. They are not changed by this branch** (`git diff origin/lead/wave2` on
+`tools/` and on those tests is empty). Five runs of the two files together:
+
+| Run | Result |
+|---|---|
+| this worktree, 1 | `1 failed, 9 passed in 14.23s` |
+| this worktree, 2 | `10 passed in 15.04s` |
+| this worktree, 3 | `2 failed, 8 passed in 13.21s` |
+| clean `git archive origin/lead/wave2`, 1 | `1 failed, 9 passed in 12.89s` |
+| clean `git archive origin/lead/wave2`, 2 | `10 passed in 12.39s` |
+
+### Questions
+1. `src/estimator/writing/front_end.py:383` is outside T-005e's files. I fixed it because your
+   `test_review_t005c.py` test fails on `origin/lead/wave2` and Monday's job folder may have a "Takeoff" subfolder.
+   Keep it here, or take it on wave2 yourself?
+2. `bms.model.Clarification`'s docstring still says "(one per block)", against ruling 14. It is a contract file, so
+   it is yours to change.
+3. Group lines are printed only when the block stacks more than one Qty header, as the template shows them. The
+   Master Template also has captions over single headers: "Dryer Exhaust Fans DX", "UV", and the Gas Detection
+   "Gas Detection Panel (Garage/ Parking / Loading Dock system) Stand Alone Operation" over its stacked panel and fan
+   headers. I treated these as guidance captions and print none. Should any of them print? Each is one entry in
+   `assets/gem_order.json` `group_lines`. Gas Detection would need its words ruled, because "Stand Alone Operation"
+   is not true on every job.
+4. The Geothermal System shape: the template shows geothermal heat pumps under both a "Chilled Water System" and a
+   "Hot Water System" group line. The shape gets no group line for now.

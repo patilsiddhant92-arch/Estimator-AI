@@ -379,7 +379,8 @@ def job_folder(root: Path) -> Path | None:
     (the old app is given the job folder itself); else None."""
     chain = [Path(root), *Path(root).parents]
     for here, parent in zip(chain, chain[1:]):
-        if _TAKEOFFS_FOLDER.match(here.name) and parent.name:
+        # a takeoff subfolder itself named "Takeoff" sits under "2. Takeoffs": the job folder is above that one
+        if _TAKEOFFS_FOLDER.match(here.name) and parent.name and not _TAKEOFFS_FOLDER.match(parent.name):
             return parent
     return next((here for here in chain if _JOB_NUMBER_FOLDER.match(here.name)), None)
 

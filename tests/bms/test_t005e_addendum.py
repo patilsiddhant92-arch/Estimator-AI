@@ -93,12 +93,16 @@ def test_the_vfd_integration_group_prints_first(job, house):
         "Furnish BMS Communication Wiring to Chiller Factory Controls")
 
 
-# ---- format: no sub-headings, OR lines, one '*' note, quantity note on the line ------------------------------------
+# ---- format: group lines per entry, OR lines, one '*' note, quantity note on the line ------------------------------------
 
-def test_no_sub_headings_over_stacked_headers(draft):
-    assert lines(draft, "CHW", "header") == ["Qty (1) Chiller CH-1", "Qty (2) Chilled Water Pump CHWP-1, 2"]
-    assert lines(draft, "HW", "header") == ["Qty (2) Boiler B-1, 2", "Qty (2) Hot Water Pump HWP-1, 2"]
-    assert all(b.numbered for b in draft.scope.blocks)
+def test_the_master_template_group_line_over_stacked_headers(draft):
+    # T-005e evening correction (lead, 2026-10-11): "no sub-headings" was wrong as a general rule; the Chilled Water
+    # and Hot Water System entries print their group line over the stacked headers, so the blocks keep it
+    assert lines(draft, "CHW", "header") == ["Chilled Water System", "Qty (1) Chiller CH-1",
+                                             "Qty (2) Chilled Water Pump CHWP-1, 2"]
+    assert lines(draft, "HW", "header") == ["Hot Water System", "Qty (2) Boiler B-1, 2",
+                                            "Qty (2) Hot Water Pump HWP-1, 2"]
+    assert [b.header for b in draft.scope.blocks if not b.numbered] == ["Chilled Water System", "Hot Water System"]
 
 
 def test_alternatives_print_an_or_line_and_only_the_first_is_priced(draft):

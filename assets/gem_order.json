@@ -365,6 +365,13 @@
       ]
     }
   },
+  "group_lines": {
+    "about": "T-005e evening correction (lead, 2026-10-11): the Master Template entries that print an unnumbered group line over their stacked Qty headers ('Chilled Water System', 'Hot Water System', 'VRF System', 'Kitchen Exhaust Ventilation'). Keyed by shape name, the value is the line's words. Printed only when the block stacks more than one Qty header, as in the entry. An entry that prints no group line (Heat Exchanger System, Condenser Water System, Fuel Oil Pump System, every single-header entry) is not listed and prints none.",
+    "Chilled Water System": "Chilled Water System",
+    "Hot Water System": "Hot Water System",
+    "VRF System": "VRF System",
+    "Kitchen Exhaust Ventilation": "Kitchen Exhaust Ventilation"
+  },
   "catch_all_slots": {
     "about": "The Playbook's catch-all slots (rules.md 'Placing a device in a slot'): a line in one of them, or in a slot the shape lacks, is placed by the standard order, never printed after the valves by its slot's place.",
     "slots": [
