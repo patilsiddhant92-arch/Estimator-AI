@@ -515,11 +515,11 @@ def admit(prefix: str, entries, register, recount: dict | None = None,
             parts = _split_by_sheet((breakdown or {}).get(n, ""), n, register)
             if parts:
                 for reason, value, named in parts:
-                    if not any((a.value, a.reason) == (value, reason) for a in aside):
-                        aside.append(SetAside(
-                            family=family, value=value, ref=ref, reason=reason,
-                            note=f"{value} set aside ({reason}: {', '.join(named)}); {counted} {family} on the "
-                                 "new-work sheets"))
+                    # the same number and reason on other sheets is another part, kept (T-007b review)
+                    note = (f"{value} set aside ({reason}: {', '.join(named)}); {counted} {family} on the "
+                            "new-work sheets")
+                    if not any((a.value, a.reason, a.note) == (value, reason, note) for a in aside):
+                        aside.append(SetAside(family=family, value=value, ref=ref, reason=reason, note=note))
             else:
                 set_aside(n, ref, again.reason)
             if again.value:

@@ -839,7 +839,7 @@ def test_t007b_the_register_admits_a_sheet_the_code_types_as_demolition():
     admitted = tk.recount(fx.catalogue(), value)
     # MD-401 is read now: its AHU-6 label is no scheduled tag (the tags counted are the family's own), so the count
     # holds and the page was not skipped by its title
-    assert set(admitted) == set(plain)
+    assert admitted == plain              # the same counts: MD-401 repeats units of its area
     from estimator.reading.inventory import placements
     pages = tk.admissible_pages(value.sheets)
     md = next(s for s in fx.catalogue().sheets if s.number == "MD-401")
