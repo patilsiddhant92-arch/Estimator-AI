@@ -25,11 +25,12 @@ from estimator.scope import FrontEnd as ScopeFrontEnd
 from estimator.scope import Header as ScopeHeader
 from estimator.scope import Job as ScopeJob
 from estimator.reading.inventory import COUNT_CAUSE_WORDS, COUNT_CAUSES_LEAD
+from estimator.catalogue.tags import tag_prefix
 from estimator.writing.write import tag_list
 
 from bms.citations import SHEET, SourceIds, clarification_text, squash as _squash, strip_label
 from bms.model import (CLARIFICATION_KINDS, UNNAMED_EXISTING, Clarification, Count, DemolitionLine, Device, FrontEnd,
-                       Job, Ref, System)
+                       Job, Ref, SetAside, System)
 from bms import order as gem_module
 from bms.order import (existing_lines, front_end_entries, front_end_rank, group_line, new_lines,
                        position as gem_position)
@@ -174,6 +175,9 @@ def render(job: Job, playbook: Playbook) -> ProposalDraft:
       in the heading, as Labor Conditions has none). Each line is "Qty (N) <family> <action words>" and red, the same
       mark as a line the estimator must notice. A note follows the line after a comma. No demolition lines prints no
       such block. The alternates, and the Labor Conditions block that `bms.labor.with_labor` adds, print after it.
+    - `job.set_aside` (T-007): a "same unit labelled again" or "part plan of one area" set-aside prints one short "*"
+      line in its family's block, naming the sheets ("*AHU counted once on part plans M-403 and M-404",
+      `_count_note`); a "demolition sheet" set-aside prints none (the Demolition Scope carries those units).
     """
     if job.header is None:
         raise RenderError("the job has no header (quote number, reference, engineer, date)")
@@ -202,7 +206,7 @@ def render(job: Job, playbook: Playbook) -> ProposalDraft:
     for system in sorted(job.systems, key=lambda s: block_order(s, playbook)):      # stable: the plan's order kept
         printed: list[RenderedLine] = []
         mine = tuple(text for key, text in exception_lines if key and key == system.key)
-        blocks = _system_blocks(system, playbook, printed, ids, mine)
+        blocks = _system_blocks(system, playbook, printed, ids, mine, job.set_aside)
         if system.alternate in alternates and blocks:
             alternates[system.alternate].append(blocks)
         elif system.alternate == "base":
@@ -907,6 +911,65 @@ def _notes(clarifications: tuple[Clarification, ...], devices, playbook: Playboo
             for kind in _AFTER_LINES for text in dict.fromkeys(texts[kind])]
 
 
+# T-007 Task 2.6 (reduced; estimator ruling 14): a duplicate of one unit the takeoff set aside prints one short '*'
+# line in its family's block. A "demolition sheet" set-aside prints none: the Demolition Scope block carries those
+# units. The other reasons (future item, existing to remain, not a unit of this family) print none here either.
+DUPLICATE_WORDS = {"part plan of one area": " on part plans", "same unit labelled again": ", labelled again on"}
+COUNTED_ONCE = "*{family} counted once{words}"
+_SHEET_SPLIT = re.compile(r"\s*(?:[,;&/]|\band\b)\s*", re.IGNORECASE)
+
+
+def _family_prefix(tag: str) -> str:
+    match = re.match(r"[A-Z]+", tag_prefix(str(tag).strip().upper()))
+    return match.group(0) if match else ""
+
+
+def _sheets_named(texts: Sequence[str], ids: SourceIds, tags: frozenset[str] = frozenset()) -> list[str]:
+    """The printable sheet numbers the texts name, in order, each once ("M-403", "M-404"); a word whose letters are
+    one of the block's tag prefixes (`tags`: "EF" for "EF-2A") is a unit, never a sheet."""
+    found: list[str] = []
+    for text in texts:
+        for part in _SHEET_SPLIT.split(text or ""):
+            for word in part.split():
+                sheet = ids.sheet(word)
+                if sheet and _family_prefix(sheet) not in tags and sheet not in found:
+                    found.append(sheet)
+    return found
+
+
+def _count_note(system: System, set_aside: Sequence[SetAside], ids: SourceIds) -> list[str]:
+    """The block's '*' lines for the takeoff's set-asides: one short line per "same unit labelled again" or "part plan
+    of one area" set-aside of a family the block carries (its tags' prefix is the set-aside's family), never a
+    paragraph and never tech hours (rulings 14 and 16). The line names the sheets: "*AHU counted once on part plans
+    M-403 and M-404" (the ref's where, then the note's sheets). With no sheet to name it gives both numbers instead:
+    "*AHU counted once on part plans: 6 set aside, 5 counted". A "demolition sheet" set-aside prints no line."""
+    counts = {}
+    for family in system.families:
+        for tag in family.tags:
+            prefix = _family_prefix(tag)
+            if prefix:
+                counts.setdefault(prefix, _printed(family.count))
+    out: list[str] = []
+    for aside in set_aside:
+        words = DUPLICATE_WORDS.get(aside.reason)
+        family = _family_prefix(aside.family)
+        if words is None or not family or family not in counts:
+            continue
+        text = COUNTED_ONCE.format(family=aside.family.strip().upper(), words=words)
+        sheets = _sheets_named((aside.ref.where, aside.note), ids, frozenset(counts))
+        if sheets:
+            text = f"{text} {' and '.join(sheets)}" if len(sheets) <= 2 else \
+                f"{text} {', '.join(sheets[:-1])} and {sheets[-1]}"
+        else:
+            counted = counts[family]
+            text = f"{text.replace(', labelled again on', ', labelled again')}: {aside.value} set aside" + \
+                (f", {counted} counted" if counted is not None else "")
+        text = _squash(ids.without_issued(text)).strip()
+        if text and text not in out:
+            out.append(text)
+    return out
+
+
 # ---- a system --------------------------------------------------------------------------------------------------
 
 def _shape_of(system: System, playbook: Playbook) -> Shape | None:
@@ -972,10 +1035,11 @@ def block_order(system: System, playbook: Playbook) -> int:
 
 
 def _system_blocks(system: System, playbook: Playbook, out: list[RenderedLine], ids: SourceIds,
-                   exceptions: Sequence[str] = ()) -> tuple[Block, ...]:
+                   exceptions: Sequence[str] = (), set_aside: Sequence[SetAside] = ()) -> tuple[Block, ...]:
     """One block, or one header per family stacked over the shared lines (the lines sit under the last header,
     the tech hours on the first). A system with no lines prints no block: it is a note (`left_out_text`: its named
-    exception lines when it has any, which print among the proposal's exceptions)."""
+    exception lines when it has any, which print among the proposal's exceptions). The takeoff's duplicate set-asides
+    of the block's families print as '*' lines after its other notes (`_count_note`)."""
     if not system.devices:
         out += [RenderedLine(system.key, None, "note", line, None, None)
                 for line in left_out_text(system, exceptions).split("\n")]
@@ -1001,6 +1065,7 @@ def _system_blocks(system: System, playbook: Playbook, out: list[RenderedLine], 
     qty_notes = _qty_notes(devices, [f.count for f in families], playbook, ids)
     printed = _with_marks(_device_lines(devices, shape, system, playbook, reference, qty_notes), ids)
     notes = _notes(system.clarifications, system.devices, playbook, ids)
+    notes += [n for n in _count_note(system, set_aside, ids) if n not in notes]
     try:                                 # every field checked: a blank line, a negative quantity or tech hours
         items = _items(printed, pending) + [Item(kind="note", runs=(Run(text=n),)) for n in notes]
         last = len(headers) - 1

@@ -8,6 +8,8 @@ edited) with the new Job right after the bid check:
   its assumption (what and why) and its flag; the family counts and the block's clarification too.
 - "Findings": every finding of the validators and the QC left open (rule, system, device, severity, what, fix).
 - "Demolition Scope" (T-G1): one row per demolition line (family, action, count, note, refs as source id, quote, where).
+- "Set aside" (T-007): one row per count the takeoff set aside (family, number, reason, note with both numbers, its ref
+  as source id, quote, where), every reason, the demolition-sheet ones too.
 
 Plain data only: it writes what the Job holds, nothing internal is invented.
 """
@@ -22,15 +24,17 @@ from openpyxl.styles import Alignment
 from estimator.evidence.workbook import _table
 from estimator.evidence.workbook import write_evidence as write_old_evidence
 
-from bms.model import Count, Device, Finding, Job, Ref
+from bms.model import Count, Device, Finding, Job, Ref, SetAside
 from bms.render import COUNT_ADDED_UP, left_out_text
 
 SCOPE_TAB, FINDINGS_TAB, DEMOLITION_TAB = "Scope lines", "Findings", "Demolition Scope"
+SET_ASIDE_TAB = "Set aside"
 SCOPE_HEADINGS = ["System", "Device id", "Kind", "Printed line", "Slot", "Device", "Verb", "Furnished by",
                   "Installed by", "Wired by", "Quantity", "Other counts", "Citations (id, where, quote)",
                   "Assumption", "Flag"]
 FINDING_HEADINGS = ["Rule", "System", "Device", "Severity", "What", "Fix"]
 DEMOLITION_HEADINGS = ["Family", "Action", "Count", "Note", "Refs"]
+SET_ASIDE_HEADINGS = ["Family", "Set aside", "Reason", "Note (both numbers)", "Ref (id, quote, where)"]
 
 
 def _ref(ref: Ref) -> str:
@@ -111,17 +115,24 @@ def demolition_rows(job: Job) -> list[list]:
     return [[line.family, line.action, line.count, line.note, _demolition_refs(line.refs)] for line in job.demolition]
 
 
+def set_aside_rows(set_aside: Sequence[SetAside]) -> list[list]:
+    """One row per set-aside, in the takeoff's order: family, the number set aside, the reason, the note, its ref."""
+    return [[a.family, a.value, a.reason, a.note, _demolition_refs((a.ref,))] for a in set_aside]
+
+
 def write_evidence(path: Path, catalogue, reading, ledger, job: Job, findings: Sequence[Finding] = (),
                    printed: dict[str, str] | None = None) -> Path:
     """The Evidence Package at `path`: the old workbook from the catalogue, reading and ledger, with the Job's
-    Scope lines and the Findings as the second and third tabs, and the Demolition Scope as the fourth. `printed`
+    Scope lines and the Findings as the second and third tabs, the Demolition Scope as the fourth and the takeoff's
+    set-asides ("Set aside") as the fifth. `printed`
     maps a device id to its printed line (from `bms.render`)."""
     path = Path(path)
     write_old_evidence(path, catalogue, reading, ledger=ledger)
     book = load_workbook(str(path))
     tabs = ((SCOPE_TAB, SCOPE_HEADINGS, scope_rows(job, printed)),
             (FINDINGS_TAB, FINDING_HEADINGS, finding_rows(findings)),
-            (DEMOLITION_TAB, DEMOLITION_HEADINGS, demolition_rows(job)))
+            (DEMOLITION_TAB, DEMOLITION_HEADINGS, demolition_rows(job)),
+            (SET_ASIDE_TAB, SET_ASIDE_HEADINGS, set_aside_rows(job.set_aside)))
     for at, (title, headings, rows) in enumerate(tabs, start=1):
         sheet = book.create_sheet(title, at)
         _table(sheet, headings, rows or [["Nothing here."] + [None] * (len(headings) - 1)])
