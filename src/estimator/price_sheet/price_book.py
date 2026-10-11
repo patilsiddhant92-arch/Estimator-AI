@@ -1,7 +1,7 @@
 """The AME price book: what each device costs, and which device is the standard pick.
 
 Lookup is deliberately strict. A scope line is priced only when its name — with
-the list marker, the leading verb and any "(Qty. N Total)" taken off — is the
+the list marker, a leading "Qty (N)", the leading verb and any "(Qty. N Total)" taken off — is the
 same as a price book item's name, or when an estimator has confirmed the match
 in the alias file. Anything else is PRICE PENDING: guessing a price is the same
 failure as guessing a quantity.
@@ -33,6 +33,8 @@ _TABLES = {PARTS: ((2, 3),), PANELS: ((2, 3),), VALVES: ((2, 3), (8, 9))}   # (n
 _NOT_COMPLETED = "below is not completed"                                 # the book's own note above unfinished rows
 _SIZE_ONLY = re.compile(r'^[\d\s/&.\-]+"$')                                  # '1/2"', '1-1/4 & 1-1/2"'
 _VARIANT = "high performance"
+# "Qty (33) " and "Qty (##) " in front of the line (G-002). The end form below stays, for lines already written.
+_LINE_PREFIX = re.compile(r"^qty\s*\((?:\d+|##)\)\s*", re.IGNORECASE)
 # "(Qty. 6 Total)", "(Qty. ##)" and the old "– (Qty. 6 Total)": only a bracket that starts with "Qty" is taken off.
 _QUANTITY = re.compile(r"\s*(?:[–-]\s*)?\(qty\.?\s*(?:\d+|##)\s*(?:total)?\s*\).*$", re.IGNORECASE)
 # "install" and "install and wire" are deliberately not stripped: an install-only line's device
@@ -44,6 +46,7 @@ _VERB = re.compile(r"^(?:furnish and install|furnish and wire|furnish|provide)\s
 def price_key(text: str) -> str:
     """The part of a scope line that names the device, in lower case."""
     text = strip_list_marker(text)
+    text = _LINE_PREFIX.sub("", text)
     text = _QUANTITY.sub("", text)
     text = _VERB.sub("", text)
     return squash(text).casefold()

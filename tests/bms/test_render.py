@@ -77,7 +77,7 @@ def test_exhaust_fan_block_golden(draft):
         "Qty (3) Exhaust Fans EF-1 thru 3",
         "Furnish and Install DDC Controller",       # T-005e addendum: the shape's (Master Template's) order stands
         "Furnish Fan Start / Stop and Status",
-        "Furnish and Install Qty (2) Motorized Damper Actuator",      # T-005e: ruling 15, "Qty (#) <device>"
+        "Qty (2) Furnish and Install Motorized Damper Actuator",      # T-005e: ruling 15, "Qty (#) <device>"
     ]
 
 
@@ -98,7 +98,7 @@ def test_vrf_stacks_one_header_per_family_over_one_set_of_lines(draft):
 def test_unknown_count_prints_hashes_and_quantity_unknown(draft):
     cuh = texts(draft, "CUH")
     assert cuh[0] == "Qty (##) Cabinet Unit Heaters"
-    assert cuh[1] == "Furnish and Install Qty (##) Space Temperature Sensor"       # T-005e: ruling 15
+    assert cuh[1] == "Qty (##) Furnish and Install Space Temperature Sensor"       # T-005e: ruling 15
     assert cuh[2].startswith("*one sensor per heater, because ")      # T-005e: ruling 14, one "*" line per item
     assert cuh[3] == "*Cabinet unit heater quantity as per drawings"
 
@@ -171,7 +171,7 @@ def test_lines_follow_the_shape_order_not_the_device_order(job, playbook):
     shuffled = replace(ef, devices=tuple(reversed(ef.devices)))
     assert texts(render(one(job, shuffled), playbook), "EF")[1:] == [      # T-005e addendum: the shape's order
         "Furnish and Install DDC Controller", "Furnish Fan Start / Stop and Status",
-        "Furnish and Install Qty (2) Motorized Damper Actuator"]
+        "Qty (2) Furnish and Install Motorized Damper Actuator"]
 
 
 def test_the_higher_count_prints_even_when_value_is_lower(job, playbook):
@@ -487,7 +487,7 @@ def test_a_damper_family_under_a_fan_prints_no_header_of_its_own(job, playbook):
     assert [l.text for l in out.lines if l.system_key == "EF" and l.kind == "header"] == [
         "Qty (3) Exhaust Fans EF-1 thru 3"]
     assert ef_lines[1:] == ["Furnish and Install DDC Controller", "Furnish Fan Start / Stop and Status",
-                            "Furnish and Install Qty (2) Motorized Damper Actuator"]
+                            "Qty (2) Furnish and Install Motorized Damper Actuator"]
     assert texts(out, "MD")[0] == "Qty (4) Motorized Dampers"
     assert [b.header for b in out.scope.blocks] == ["Qty (3) Exhaust Fans EF-1 thru 3", "Qty (4) Motorized Dampers",
                                                    "Demolition Scope"]
@@ -508,7 +508,7 @@ def test_a_quantity_prints_only_when_it_differs_from_the_blocks_count(job, playb
     out = render(one(job, system([device(qty=2), device(qty=1, id="X.d2", slot="damper_actuator", name="Damper"),
                                   device(qty=2, id="X.d3", slot="damper_actuator", name="Damper B")])), playbook)
     assert texts(out, "EF")[1:] == ["Furnish and Install DDC Controller",
-                                    "Furnish and Install Qty (1) Damper", "Furnish and Install Damper B"]   # ruling 15
+                                    "Qty (1) Furnish and Install Damper", "Furnish and Install Damper B"]   # ruling 15
 
 
 def test_every_assumption_says_why_and_a_reason_may_lead_with_its_own_word(job, playbook):
@@ -545,7 +545,7 @@ def test_a_shapeless_system_prints_in_the_generic_form_in_device_order(job, play
     out = texts(render(one(job, system([d1, d2], shape="", families=(Family("Gas Detector", ("GD-1", "GD-2"),
                                                                               Count(value=3)),))), playbook), "EF")
     assert out == ["Qty (3) Exhaust Fans GD-1, 2", "Furnish and Install Gas Detector (Furnished by Others)",
-                   "Furnish and Install Qty (##) Gas Sensor"]          # (T-005e: ruling 15)
+                   "Qty (##) Furnish and Install Gas Sensor"]          # (T-005e: ruling 15)
 
 
 def test_a_slot_the_shape_lacks_still_prints_after_the_known_slots(job, playbook):
@@ -806,7 +806,7 @@ def test_a_line_whose_quantity_differs_from_the_block_count_is_priced_from_the_b
     sensor = device(id="EF.d2", slot="space_temp", name="Space Temperature Sensor", qty=6)
     out = render(_repo_job(system([device(id="EF.d1", qty=2), sensor])), pb)
     line = next(l.text for l in out.lines if l.device_id == "EF.d2")
-    assert "Qty (6) Space Temperature Sensor" in line and "–" not in line      # (T-005e: ruling 15)
+    assert "Qty (6) Furnish and Install Space Temperature Sensor" in line and "–" not in line      # (T-005e: ruling 15)
     path = write_price_sheet(out.scope, WORKUP_TEMPLATE, PriceBook.load(PRICE_BOOK, ALIASES), tmp_path / "s.xlsx")
     ws = load_workbook(path)["Price Sheet 1"]
     row = next(r for r in range(6, 397) if "Space Temperature Sensor" in str(ws.cell(r, 4).value or ""))
@@ -823,7 +823,7 @@ def test_a_line_whose_quantity_differs_from_the_block_count_is_priced_from_the_b
     sensor = device(id="EF.d2", slot="space_temp", name="Space Temperature Sensor", qty=6)
     out = render(_repo_job(system([device(id="EF.d1", qty=2), sensor])), pb)
     line = next(l.text for l in out.lines if l.device_id == "EF.d2")
-    assert "Qty (6) Space Temperature Sensor" in line and "–" not in line      # (T-005e: ruling 15)
+    assert "Qty (6) Furnish and Install Space Temperature Sensor" in line and "–" not in line      # (T-005e: ruling 15)
     path = write_price_sheet(out.scope, WORKUP_TEMPLATE, PriceBook.load(PRICE_BOOK, ALIASES), tmp_path / "s.xlsx")
     ws = load_workbook(path)["Price Sheet 1"]
     row = next(r for r in range(6, 397) if "Space Temperature Sensor" in str(ws.cell(r, 4).value or ""))
