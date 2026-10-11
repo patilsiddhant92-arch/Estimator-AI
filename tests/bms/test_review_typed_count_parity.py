@@ -19,7 +19,11 @@ NODE = pytest.mark.skipif(shutil.which("node") is None, reason="node not install
 # letters Python's re.IGNORECASE folds onto ASCII (the long s, the dotless i, the dotted capital I, the Kelvin sign)
 FOLDED = ["\u017fix", "\u017feven", "f\u0131ve", "f\u0130ve", "n\u0131ne", "\u017fixteen", "5 unit\u017f", "3 p\u0131ece",
           "3 \u0131tems", "5 UNIT\u017f", "\u212a"]
-SAMPLES = FOLDED + ["5 units", "two", "##", "", "6"]
+# space characters: JavaScript's \s and trim() take U+00A0, U+2003 and U+FEFF; Python's \s and strip() take U+001C to
+# U+001F and U+0085, which JavaScript does not
+SPACES = ["5\u00a0units", "5\u2003units", "\ufeff5", "5\ufeff", "5\ufeffunits", "5\x85units", "5\x1cunits", "\x1f5",
+          "5\x1f", "\x855", "\u20285 units\u2029", "5 units\u3000"]
+SAMPLES = FOLDED + SPACES + ["5 units", "two", "##", "", "6"]
 
 
 def run_js(tmp_path: Path, body: str):
@@ -43,8 +47,15 @@ def test_a_non_ascii_letter_is_no_count_word_and_no_unit_word(text):
 
 
 @NODE
-def test_the_page_and_python_agree_on_folded_letters(tmp_path):
+def test_the_page_and_python_agree_on_folded_letters_and_space_characters(tmp_path):
     read = run_js(tmp_path, f"console.log(JSON.stringify({json.dumps(SAMPLES)}.map(parseNumber)));")
     for text, parsed in zip(SAMPLES, read):
         kind, value = review._typed_count(text)
-        assert (parsed["kind"], parsed["value"] if kind == "number" else None) == (kind, value), repr(text)
+        assert (parsed["kind"], parsed["value"] if parsed["kind"] == "number" else None) == (kind, value), repr(text)
+
+
+@pytest.mark.parametrize("text, said", [("5\u00a0units", ("number", 5)), ("\ufeff5", ("number", 5)),
+                                        ("5\x85units", ("words", None)), ("5\x1cunits", ("words", None)),
+                                        ("\x1f5", ("words", None))])
+def test_python_takes_the_spaces_the_page_takes_and_no_other(text, said):
+    assert review._typed_count(text) == said
