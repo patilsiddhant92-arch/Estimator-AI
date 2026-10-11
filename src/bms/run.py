@@ -4,8 +4,10 @@ read (the old app's staged reading) -> plan_job -> counts cross-check (text and 
 -> write_system per system, then write_front_end (the front end is written like a system, from the passages the
 planner cited for it; nothing is asked when the documents call for none) -> the estimator's decisions -> validate ->
 qc_job -> revise_system (must_fix only, one round; revise_front_end for the front end's findings) -> validate ->
-review_page (with the count proofs) -> render -> the Word proposal, the price sheet and the Evidence Package (the Job's
-scope lines and findings beside the old reading tabs).
+the coverage gate (`bms.coverage.coverage`, once, on the final Job: a fact the ledger read that nothing in the Job
+cites is a `check` finding; it only reports, never changes the Job and never stops the run) -> review_page (with the
+count proofs; the gate's findings are its group "Not cited in the job") -> render -> the Word proposal, the price
+sheet and the Evidence Package (the Job's scope lines and findings beside the old reading tabs).
 
 The run waits at "count" while the vision count's sheet questions have no answer: the counts are part of each
 system's skeleton, so writing before they are in would ask the writer again once they arrive.
@@ -61,6 +63,7 @@ from estimator.writing.judge import Judge
 from bms import ai, ai_evidence
 from bms.citations import device_refs, job_ids, job_sheets, job_tags, source_sheets
 from bms.counts import counted_from, cross_check, flag_written_devices, publish_proofs
+from bms.coverage import coverage
 from bms.evidence import write_evidence
 from bms.model import Decision, Device, Finding, Header, Job, ModelError, System
 from bms.plan import plan_job
@@ -88,7 +91,8 @@ class RunResult:
                                             # "revise", "done"; "render" only in the run state of a stop while printing
     waiting: int = 0
     job_file: Path | None = None            # out/<quote> Job.json: the Job model as last saved
-    findings: tuple[Finding, ...] = ()      # the final validate's findings plus the QC findings left open
+    findings: tuple[Finding, ...] = ()      # the final validate's findings, the QC findings left open and the coverage
+                                            # gate's (facts the job does not cite)
     review: Path | None = None              # out/Review.html
     proposal: Path | None = None
     price_sheet: Path | None = None
@@ -258,6 +262,18 @@ def _asked_about_front_end(job: Job) -> Job:
     question = (f"No front-end line was written: {reason}. If this job needs a front end, say what it is and where "
                 "the documents call for it.")
     return dataclasses.replace(job, questions=tuple(dict.fromkeys((*job.questions, question))))
+
+
+def _coverage_findings(job: Job, ledger, dossier) -> tuple[list[Finding], tuple[str, ...]]:
+    """The coverage gate (`bms.coverage.coverage`) on the final job: a fact the ledger read that nothing in the job
+    cites is one `check` finding, for the review page and the Evidence Package. It only reports: the job is never
+    changed, and a fault in the gate never stops the run. It gives no finding then, and the console gets one plain
+    line that says so."""
+    try:
+        return coverage(job, ledger, dossier), ()
+    except Exception as error:      # report only: a fault here must not block an estimate that is otherwise done
+        return [], (f"Coverage: the check for facts the job does not cite could not run ({type(error).__name__}: "
+                    f"{error}). The other findings stand.",)
 
 
 def _check_this_system(decision: Decision) -> Finding:
@@ -721,8 +737,11 @@ def _estimate(job_folder: Path, out: Path, cache: Path, mode: Mode, known: dict)
     open_qc += [f for f in ai.quote_findings(job, index, playbook)
                 if (f.rule, f.system_key, f.device_id, f.what) not in known_qc]
     id_cards = [_id_change_card(*found) for found in _ids_in_changes(job, decisions)]
+    # the coverage gate, once, on the final job: every write, revise and decision is in it (the late decisions too), and
+    # nothing changes it after this. It only reports, so it joins the open findings and changes nothing else
+    uncited, coverage_notes = _coverage_findings(job, ledger, dossier)
     all_findings = tuple([*id_cards, *findings, *open_qc, *unhonored_decisions(decided_from, early, job, copies=copies),
-                          *unhonored_decisions(revised_job, checked_late, job, copies=copies), *rechecks])
+                          *unhonored_decisions(revised_job, checked_late, job, copies=copies), *rechecks, *uncited])
 
     # 6. the review page, the render and the three documents
     known["stage"] = "render"
@@ -746,4 +765,4 @@ def _estimate(job_folder: Path, out: Path, cache: Path, mode: Mode, known: dict)
         if stop is not None:
             return dataclasses.replace(stop, messages=(*notes, *stop.messages))
     return RunResult("done", "done", job_file=job_file, findings=all_findings, review=review, proposal=proposal,
-                     price_sheet=sheet, evidence=evidence_file, messages=notes)
+                     price_sheet=sheet, evidence=evidence_file, messages=(*notes, *coverage_notes))
