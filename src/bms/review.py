@@ -97,11 +97,24 @@ def _questions(job: Job, findings: Sequence[Finding]) -> list[_Question]:
     out: list[_Question] = []
     seq = 0
     by_device: dict[tuple[str, str], _Question] = {}
+    by_title: dict[tuple[str, str, str, str], _Question] = {}
 
     def add(**kw) -> None:
         nonlocal seq
         device_id = kw.get("device_id")
         key = (kw.get("system_key", ""), device_id) if device_id else None
+        same = None if device_id else (kw.get("system_key", ""), kw.get("level", ""), kw.get("family_name") or "",
+                                       squash_title(kw.get("title", "")))
+        if same is not None and same in by_title:
+            # T-005b (ruling 11): a card with no line of its own that asks what another card of the same block
+            # already asks (two passes giving one finding, one family named twice) is one card: its notes join it
+            current = by_title[same]
+            current.notes = tuple(dict.fromkeys(current.notes + tuple(kw.get("notes") or ())))
+            current.rank = min(current.rank, kw.get("rank", current.rank))
+            if current.finding_rule is None and kw.get("finding_rule"):
+                current.finding_rule = kw["finding_rule"]
+            current.refs = tuple(dict.fromkeys(current.refs + tuple(kw.get("refs") or ())))
+            return
         if key is not None and key in by_device:
             current = by_device[key]
             notes = tuple(note for note in kw.get("notes") or () if note not in current.notes)
@@ -134,6 +147,8 @@ def _questions(job: Job, findings: Sequence[Finding]) -> list[_Question]:
         out.append(question)
         if key is not None:
             by_device[key] = question
+        if same is not None:
+            by_title[same] = question
 
     scopes: list[tuple[str, Sequence[Device], Sequence]] = [(s.key, s.devices, s.families) for s in job.systems]
     if job.front_end is not None:
@@ -153,6 +168,7 @@ def _questions(job: Job, findings: Sequence[Finding]) -> list[_Question]:
             device=device, count=device.quantity if device else None, refs=device.refs if device else ())
 
     for key, devices, families in scopes:
+        family_cards: dict[str, _Question] = {}
         for family in families:
             count = family.count
             if count.others or count.value is None or _adds_up(count):
@@ -166,7 +182,17 @@ def _questions(job: Job, findings: Sequence[Finding]) -> list[_Question]:
                                f"{count.highest()} prints, {count.added_up.value} if every sheet is added up.")
                 add(system_key=key, rank=RANK_FLAGGED, title=f"How many {family.name} units?",
                     level="family", family_name=family.name, notes=tuple(why), count=count, refs=count.sources)
+                family_cards.setdefault(family.name, by_title[(key, "family", family.name,
+                                                               squash_title(f"How many {family.name} units?"))])
+        folded: dict[str, list[str]] = {}
         for device in devices:
+            home = _repeats_family_count(device, families, family_cards) if (key, device.id) not in by_device \
+                else None
+            if home is not None:
+                # T-005b (ruling 11): the line's only question is the family's count, asked once on the family card;
+                # the family's Accept or Change settles the line too (`_accept_clears`)
+                folded.setdefault(home, []).append(_device_title(device))
+                continue
             counted = bool(device.quantity.others)
             if device.flag != "none" or counted:
                 notes = []
@@ -183,7 +209,34 @@ def _questions(job: Job, findings: Sequence[Finding]) -> list[_Question]:
                     device_id=device.id,
                     notes=(f"Assumed: {device.assumption.what}", f"Why: {device.assumption.why}"),
                     count=device.quantity, refs=device.refs, device=device)
+        for name, titles in folded.items():
+            card = family_cards[name]
+            card.notes = card.notes + (
+                f"The lines counted from it print the same count, so they are not asked again; your answer here "
+                f"settles them too: {'; '.join(titles)}.",)
     return out
+
+
+def squash_title(text: object) -> str:
+    """A card's title as two cards compare it: spaces squashed, any case."""
+    return re.sub(r"\s+", " ", str(text or "")).strip().casefold()
+
+
+def _repeats_family_count(device: Device, families: Sequence[Family], cards: dict[str, _Question]) -> str | None:
+    """The name of the family whose count card already asks this line's only question, else None (T-005b, ruling 11).
+    The line is flagged for its count only (flag "quantity", no assumption), was counted from exactly one disputed
+    family that has a card (`counts.counted_from`, the rule the family's Accept clears it by), and its count is that
+    family's: the same number prints, and its other counts are among the family's."""
+    if device.flag != "quantity" or device.assumption is not None or device.quantity.value is None:
+        return None
+    homes = [f for f in families if f.count.others and counted_from(device, f)]
+    if len(homes) != 1 or homes[0].name not in cards:
+        return None
+    family = homes[0]
+    if device.quantity.highest() != family.count.highest():
+        return None
+    theirs = {o.value for o in family.count.others} | {family.count.value}
+    return family.name if all(o.value in theirs for o in device.quantity.others) else None
 
 
 def _adds_up(count: Count) -> bool:

@@ -22,7 +22,17 @@ the contract and not needed. The behaviours are those the estimator approved in 
   `Count.added_up` (never printed as the count; the proposal's "*" note names both numbers); a family split between
   blocks carries it in none, so one question names both numbers (`added_up_counts`);
 - unscheduled and sequence-only families, parts with no count, unmatched sequence sections and the ledger's own
-  questions become plain-words questions.
+  questions become plain-words questions;
+- control valves go under the unit they serve (a fact naming the valve's tag and one unit, a schedule's "serves"
+  column, plan proximity text, or a valve tag holding the unit's tag); a valve nothing ties to one unit is asked and
+  keeps its count in a block until answered (T-005b, ruling 8);
+- pumps are their own blocks split by service (chilled water, hot water, condenser water), read from the texts that
+  name their tags with one service; each block looks up its own shape; a pump no text gives a service is asked
+  (T-005b, ruling 9);
+- demolition work on controls the documents call for reaches the block it names (its citation joins the block's
+  passages, for the writer's removal line); work naming no block is asked; a unit the documents put off the BMS is
+  asked before its valves and sensors print (T-005 addendum);
+- a count question is asked once per family (`one_count_question_per_family`, ruling 11).
 """
 from __future__ import annotations
 
@@ -38,7 +48,7 @@ from bms import ai_evidence
 from bms.citations import without_ledger_brackets
 from bms.model import UNNAMED_EXISTING, Count, Family, FrontEnd, Job, Ref, ScopeException, Served, System
 from bms.plan_groups import family_of_tag, members, part_count, parts, split_apart, unread
-from bms.plan_read import NO_KIND, FamilyFacts, Reader, naming, names_in, squash, tag_words
+from bms.plan_read import NO_KIND, FamilyFacts, Reader, expand, naming, names_in, squash, tag_words
 from bms.playbook import Playbook, Shape
 
 GLOBAL_POINTS = "Global Points"
@@ -73,6 +83,32 @@ _NO_CONTROLS = re.compile(r"\bnot\s+in\s+contract\b|\bn\.?\s?i\.?\s?c\.?(?![a-z]
 _SERVES = re.compile(r"serves?\s+([A-Z][A-Z0-9-]+)")
 _NOTE_TOPICS = frozenset({"question", "exception", "alternate"})     # notes about the job, not about a system
 _TAG = re.compile(r"^[A-Za-z]{1,6}(?:-[A-Za-z0-9.]+)+$")
+# T-005b: control valves (ruling 8). A family is one when its name says valve and none of the kinds that are no control
+# valve (a balancing, relief or check valve is the mechanical contractor's), or when its prefix is a control valve's.
+_VALVE = re.compile(r"\bvalves?\b", re.I)
+_NOT_CONTROL_VALVE = re.compile(r"\b(?:balanc\w*|relief|safety|check|backflow|pressure[\s-]+reduc\w*|prv|isolation|"
+                                r"shut[\s-]*off|gas|fire|sprinkler)\b", re.I)
+_VALVE_PREFIXES = frozenset({"CV", "TCV", "ACV"})
+_TIE_KINDS = ("link", "location", "device", "note", "provider")      # the facts that can tie a valve to its unit
+# T-005b: pump services (ruling 9): the block name, the words that say it, the words its shape is looked up by
+_SERVICES = (
+    ("Chilled Water", re.compile(r"\bchilled[\s-]*water\b|\bchw[a-z]?\b|\bchilled\b", re.I), ("chilled", "water")),
+    ("Hot Water", re.compile(r"\bhot[\s-]*water\b|\bheating[\s-]+water\b|\bhhw[a-z]?\b|\bhw[a-z]?\b|\bboiler\b", re.I),
+     ("hot", "water")),
+    ("Condenser Water", re.compile(r"\bcondenser[\s-]*water\b|\bcw[a-z]?\b|\bcooling\s+tower\b", re.I),
+     ("condenser", "water")),
+)
+_DOMESTIC = re.compile(r"\bdomestic\b|\bdhw\b|\bplumbing\b|\bpotable\b", re.I)
+_PUMP = re.compile(r"\bpumps?\b", re.I)
+# T-005 addendum: demolition work on controls (a removal word and a controls word), and a unit put off the BMS
+_REMOVAL = re.compile(r"\b(?:remov\w*|demolish\w*|demolition|demo|dispos\w*|abandon\w*|safe[\s-]*off|"
+                      r"disconnect\w*)\b", re.I)
+_CONTROLS_WORK = re.compile(r"\bcontrols?\b|\bthermostats?\b|\bwiring\b|\bsensors?\b|\btubing\b|\bpneumatic\b|"
+                            r"\btransducers?\b|\bactuators?\b|\bbms\b|\bddc\b|\bbas\b|\binterfaces?\b", re.I)
+_OFF_BMS = re.compile(r"\bno\s+(?:bms|bas|ddc|ems)\s+(?:points?|connection|control)s?\b|"
+                      r"\bnot\s+(?:be\s+)?(?:connected|tied|wired|integrated)\s+(?:in)?to\s+(?:the\s+)?"
+                      r"(?:bms|bas|ddc|ems|building\s+(?:management|automation))\b|"
+                      r"\bnot\s+on\s+(?:the\s+)?(?:bms|bas|ddc|ems)\b|\bstand[\s-]*alone\b", re.I)
 
 
 # ---- the working form of a system -----------------------------------------------------------------------------
@@ -109,6 +145,7 @@ class _Draft:
     words: str = ""                             # the group's own words (its subject and members)
     extra_refs: list[Ref] = field(default_factory=list)
     ties: list[_Tie] = field(default_factory=list)  # a duct heater system: the units it serves
+    service: str = ""                           # a pump block (kind "pumps"): its service, "Chilled Water" (T-005b)
 
     def tags(self) -> list[str]:
         return [t for f in self.families for t in f.tags]
@@ -882,6 +919,8 @@ class _Planner:
             shape = self._shape_by_kind("duct heater") or self.playbook.shape_for(draft.name, draft.prefixes)
         elif draft.kind == "global":
             shape = self._shape_by_kind("global")
+        elif draft.kind == "pumps":
+            shape = self._pump_shape(draft)
         else:
             shape = self.playbook.shape_for(draft.name, draft.prefixes)
             if shape is not None and self._refused_by_name(draft, shape):
@@ -1139,6 +1178,283 @@ class _Planner:
                     "documents give no kind for it, so its block may gather other equipment of that kind. What are "
                     "these units, and are they in the BMS scope?")
 
+    # -- T-005b, ruling 9: pumps split by service
+
+    def _pump_shape(self, draft: _Draft) -> Shape | None:
+        """A pump block's own shape: the shape its name says ("Chilled Water Pump"), else the shape whose name or kind
+        words say its service ("Chilled Water System"), else the shape its prefix gives. The prefix comes last: one
+        prefix (P) serves every service, and each service block looks up its own."""
+        words = next((w for name, _, w in _SERVICES if name == draft.service), ())
+        return (self.playbook.shape_for(draft.name, ()) or (self._shape_by_kind(*words) if words else None)
+                or self.playbook.shape_for(draft.name, draft.prefixes))
+
+    def _texts_naming(self, kinds=_TIE_KINDS, schedules: bool = True, sequence: bool = False) -> list[tuple[str, Ref]]:
+        """The texts that can name a tag with what it serves or is on: the ledger's facts of `kinds` (subject and value;
+        never a note about the job: a question, an exception, an alternate), the sequence sections' titles, and the
+        dossier's schedule rows; each with its citation."""
+        out: list[tuple[str, Ref]] = []
+        for kind in kinds:
+            for fact in self.ledger.of_kind(kind):
+                subject = squash(fact.subject)
+                if kind == "note" and subject.casefold() in _NOTE_TOPICS:
+                    continue
+                out.append((f"{subject} {squash(fact.value)}", self.reader.fact_ref(fact)))
+        if sequence:
+            out += [(squash(f.subject), self.reader.fact_ref(f)) for f in self.ledger.of_kind("sequence_match")]
+        if schedules:
+            for entry in ai_evidence.parse(str(getattr(self.dossier, "text", "") or "")):
+                if entry.part != ai_evidence.SCHEDULES or not entry.sid:
+                    continue
+                body = squash(entry.body.split("\n", 1)[0])
+                if "|" in body:
+                    out.append((body, self.reader.ref(entry.sid, body)))
+        return out
+
+    def split_pumps(self, drafts: list[_Draft]) -> list[_Draft]:
+        """Each pump family (its name says pump; never a condensate pump) is planned by service: a text that names some
+        of its tags and says one service (a schedule row "P-1 | CHILLED WATER", a sequence title "CHILLED WATER PUMPS,
+        P-1,3,5") gives those tags that service. Pumps of two or more services become one block per service, named
+        "<Service> Pump", each with its own tags, its count one per tag, and the sequence sections of its service (a
+        section saying no service goes to every block; a lettered sub-section follows the section above it). Pumps of
+        one service keep one block that takes the service's name (when its own name is only "Pump") and shape. A pump
+        no text gives one service stays in a block of its own and is asked. A family counted by type (its count is
+        not one per tag) is not split: it is asked."""
+        out: list[_Draft] = []
+        texts: list[tuple[str, Ref]] | None = None
+        for draft in drafts:
+            fam = draft.families[0] if len(draft.families) == 1 else None
+            source = fam.source if fam is not None else None
+            if draft.kind != "single" or source is None or not _PUMP.search(squash(source.name)) or \
+                    _CONDENSATE.search(squash(source.name)) or _DOMESTIC.search(squash(source.name)):
+                out.append(draft)
+                continue
+            own = _services_said(source.name)
+            if len(own) == 1:                       # "Chilled Water Pump": its own name says its service
+                draft.kind, draft.service = "pumps", own[0]
+                out.append(draft)
+                continue
+            if texts is None:
+                texts = self._texts_naming(sequence=True)
+            said: dict[str, set[str]] = {}
+            for text, _ref in texts:
+                tags = _named_tags(text, source.prefix, fam.tags)
+                services = _services_said(_without_tags(text, source.prefix))
+                if tags and len(services) == 1:
+                    for tag in tags:
+                        said.setdefault(tag, set()).add(services[0])
+            service_of = {t: next(iter(said[t])) for t in fam.tags if len(said.get(t, ())) == 1}
+            if not service_of:
+                out.append(draft)
+                continue
+            services = list(dict.fromkeys(service_of[t] for t in fam.tags if t in service_of))
+            left = tuple(t for t in fam.tags if t not in service_of)
+            label = f"{fam.name} ({source.prefix})"
+            if len(services) == 1 and not left:
+                draft.kind, draft.service = "pumps", services[0]
+                if squash(source.name).casefold() in _GENERIC_KINDS or not _services_said(draft.name):
+                    draft.name = f"{services[0]} Pump"
+                    draft.families = [replace(fam, name=draft.name)]
+                out.append(draft)
+                continue
+            count = fam.count
+            if count.value is not None and count.value != len(fam.tags):
+                said_by = "; ".join(f"{s}: {tag_words([t for t in fam.tags if service_of.get(t) == s])}"
+                                    for s in services)
+                self.questions.append(
+                    f"{label}: {_came_from(count, count.value)} for {len(fam.tags)} tags, so it counts by type and is "
+                    f"not split by service ({said_by}). How many pumps of each service are there?")
+                out.append(draft)
+                continue
+            owners = self._section_services(draft.matches, source.prefix, service_of)
+            blocks = []
+            for service in services:
+                tags = tuple(t for t in fam.tags if service_of.get(t) == service)
+                name = f"{service} Pump"
+                part = _reduced(count, len(tags)) if count.value is not None else Count(None, count.sources)
+                blocks.append(_Draft(key=f"{draft.key} {service}", name=name, kind="pumps",
+                                     families=[_Fam(name, tags, part, fam.source)], prefixes=list(draft.prefixes),
+                                     matches=[m for m in draft.matches if owners.get(m.id) in (None, service)],
+                                     alternate=draft.alternate, exception=draft.exception,
+                                     extra_refs=list(draft.extra_refs), service=service))
+            split_said = "; ".join(f"{b.name} {tag_words(b.families[0].tags)} ({len(b.families[0].tags)})"
+                                   for b in blocks)
+            if count.others:
+                self.questions.append(f"{label}: {_came_from(count, len(fam.tags))}; split by service: {split_said}. "
+                                      "Confirm the counts.")
+            out += blocks
+            if left:
+                draft.families = [_Fam(fam.name, left, _reduced(count, len(left)) if count.value is not None
+                                       else count, fam.source)]
+                draft.matches = [m for m in draft.matches if owners.get(m.id) is None]
+                out.append(draft)
+                self.questions.append(
+                    f"{label}: the documents do not say which service {tag_words(left)} "
+                    f"{'is' if len(left) == 1 else 'are'} on (the others are split by service: {split_said}), so "
+                    f"{'it is' if len(left) == 1 else 'they are'} planned in a block of {'its' if len(left) == 1 else 'their'} "
+                    "own. Which service is each on?")
+        return out
+
+    def _section_services(self, matches: list[Fact], prefix: str, service_of: dict[str, str]) -> dict[str, str]:
+        """The service each sequence section of a pump family is about, by fact id: its title says one service (or
+        names tags of one service); a lettered sub-section ("A. General:") saying none follows the section above it.
+        A section saying none (and no section above it) is in none: every block reads it."""
+        owners: dict[str, str] = {}
+        current = None
+        for match in matches:
+            subject = squash(match.subject)
+            services = set(_services_said(_without_tags(subject, prefix)))
+            services |= {service_of[t] for t in _named_tags(subject, prefix, tuple(service_of)) if t in service_of}
+            if len(services) == 1:
+                current = owners[match.id] = next(iter(services))
+            elif not services and current is not None and _ENUMERATOR.match(subject):
+                owners[match.id] = current
+            else:
+                current = None
+        return owners
+
+    # -- T-005b, ruling 8: control valves under the unit they serve
+
+    def link_valves(self, drafts: list[_Draft]) -> list[_Draft]:
+        """Each control valve family (`_is_control_valve`) goes under the units its valves serve. A valve is tied to a
+        unit by a fact naming its tag and exactly one unit (a device or link fact, "AHU heating valve outputs
+        (CV-1 thru 10)"), by its schedule row whose other cells name exactly one unit (a "serves" column), by plan
+        proximity text (a location fact, "CV-1 at the AHU-1 heating coil"), or by its own tag holding the unit's tag
+        (CV-AHU-1). A valve two texts tie to two units, or one text ties to two, is tied to none. The unit's block
+        takes a family of its valves, counted one per tag and citing what tied them, and the valve family's sequence
+        passages. A family counted by type (its count is not one per tag) moves whole only when every tag goes to one
+        unit. The valves nothing ties stay in the valve block, its count less those placed (never lost), and are asked
+        which unit each serves."""
+        out = list(drafts)
+        texts: list[tuple[str, Ref]] | None = None
+        for valve in [d for d in drafts if self._valve_draft(d)]:
+            fam = valve.families[0]
+            source = fam.source
+            if not fam.tags:
+                continue
+            if texts is None:
+                texts = self._texts_naming()
+            units = [d for d in out if d is not valve and d.kind != "global" and not self._valve_draft(d)]
+            targets: dict[str, dict[int, list[Ref]]] = {}
+            torn: set[str] = set()                  # tags a text names with more than one unit
+            for text, ref in texts:
+                tags = _named_tags(text, source.prefix, fam.tags)
+                if not tags:
+                    continue
+                named = self._served_by(units, _without_tags(text, source.prefix))
+                for tag in tags:
+                    if len(named) > 1:
+                        torn.add(tag)
+                        continue
+                    for unit in named:
+                        targets.setdefault(tag, {}).setdefault(id(unit), []).append(ref)
+            unit_fact = self.ledger.find("unit", source.prefix)
+            for tag in fam.tags:
+                rest = tag[len(source.prefix):].lstrip("-") if tag.upper().startswith(source.prefix.upper()) else ""
+                held = [d for d in units if rest and any(t.upper() == rest.upper() for t in d.tags())]
+                if len(held) == 1 and unit_fact is not None:
+                    targets.setdefault(tag, {}).setdefault(id(held[0]), []).append(self.reader.fact_ref(unit_fact))
+            by_id = {id(d): d for d in units}
+            torn |= {t for t, found in targets.items() if len(found) > 1}
+            tied = {t: next(iter(found)) for t, found in targets.items() if len(found) == 1 and t not in torn}
+            count = fam.count
+            per_tag = count.value is None or count.value == len(fam.tags)
+            if not per_tag and not (len(tied) == len(fam.tags) and len(set(tied.values())) == 1):
+                tied = {}
+            moved: list[str] = []
+            for unit_id in dict.fromkeys(tied[t] for t in fam.tags if t in tied):
+                unit = by_id[unit_id]
+                tags = tuple(t for t in fam.tags if tied.get(t) == unit_id)
+                refs = tuple(dict.fromkeys(r for t in tags for r in targets[t][unit_id]))
+                part = Count(len(tags), refs) if per_tag else count
+                unit.families.append(_Fam(fam.name, tags, part, source, moved=True))
+                unit.matches += [m for m in valve.matches if m not in unit.matches]
+                moved += tags
+            left = tuple(t for t in fam.tags if t not in moved)
+            if not left:
+                out.remove(valve)
+                continue
+            if moved:
+                fam.tags, fam.count = left, (_reduced(count, len(left)) if count.value is not None else count)
+            one = len(left) == 1
+            why = ""
+            torn_left = [t for t in left if t in torn]
+            if torn_left:
+                why = (f" ({tag_words(torn_left)} {'is' if len(torn_left) == 1 else 'are'} named with more than one "
+                       "unit)")
+            elif not per_tag:
+                why = f" (its count, {count.value}, is not one per tag, so it moves only when every tag serves one unit)"
+            self.questions.append(
+                f"{fam.name} ({tag_words(left)}): the documents do not tie {'it' if one else 'them'} to the unit "
+                f"{'it serves' if one else 'each serves'} (no tag reference, schedule “serves” column or plan note "
+                f"names one unit){why}, so {'it is' if one else 'they are'} planned in a {valve.name} block until you "
+                "say. Which unit does each serve?")
+        return out
+
+    def _valve_draft(self, draft: _Draft) -> bool:
+        return draft.kind == "single" and len(draft.families) == 1 and draft.families[0].source is not None and \
+            _is_control_valve(draft.families[0].source)
+
+    @staticmethod
+    def _served_by(units: list[_Draft], text: str) -> list[_Draft]:
+        """The units a text names: those holding a tag it names, else those it names by key, prefix or a tag's
+        prefix. A valve is tied only when this is exactly one."""
+        text = squash(text)
+        named = _named(units, text)
+        by_tag = [d for d in named if any(naming(t).search(text) for t in d.tags())]
+        return by_tag or named
+
+    # -- T-005 addendum: demolition work, and units the documents put off the BMS
+
+    def demolition_work(self, drafts: list[_Draft]) -> None:
+        """Each fact calling for demolition work on controls (a removal word and a controls word: "remove and dispose
+        of the existing fan coil unit and associated controls") joins the passages of the block it names, so the
+        writer reads it and prints the removal line (rules.md "Miscellaneous responsibilities"). Work naming no block
+        is asked: it prints nowhere until it has one. Demolition of a unit alone (no controls word) is not controls
+        work and is left to the counts (ruling 1)."""
+        for kind in ("note", "provider", "device"):
+            for fact in self.ledger.of_kind(kind):
+                subject, value = squash(fact.subject), squash(fact.value)
+                if subject.casefold() in _NOTE_TOPICS:
+                    continue
+                words = f"{value} {squash(fact.quote)}"
+                if not (_REMOVAL.search(words) and _CONTROLS_WORK.search(words)):
+                    continue
+                ref = self.reader.fact_ref(fact)
+                named = _named(drafts, subject) or _named(drafts, value)
+                if named:
+                    if ref not in named[0].extra_refs:
+                        named[0].extra_refs.append(ref)
+                    continue
+                self.questions.append(
+                    f"The documents call for demolition work on controls that names no block of this plan: “{value}” "
+                    f"({_places((ref,))}: “{squash(fact.quote)}”). Which block carries its removal line? It prints "
+                    "only once it has one.")
+
+    def off_bms(self, systems: list[System], drafts: list[_Draft]) -> None:
+        """A unit a note or provider fact puts off the BMS ("no BMS points are listed", "not connected to the BMS", a
+        stand-alone thermostat) is asked once: control valves, pipe sensors and other BMS points print for it only where
+        the documents give them to AME. The question names the valves planned under it."""
+        for system, draft in zip(systems, drafts):
+            if draft.kind == "global":
+                continue
+            for fact in [*self.ledger.of_kind("note"), *self.ledger.of_kind("provider")]:
+                subject = squash(fact.subject)
+                if subject.casefold() in _NOTE_TOPICS or not any(d is draft for d in _named(drafts, subject)[:1]):
+                    continue
+                words = f"{squash(fact.value)} {squash(fact.quote)}"
+                if not _OFF_BMS.search(words):
+                    continue
+                valves = [f for f in draft.families if f.moved and f.source is not None
+                          and _is_control_valve(f.source)]
+                under = "".join(f" ({f.name} {tag_words(f.tags)} {'is' if len(f.tags) == 1 else 'are'} planned under "
+                                f"it)" for f in valves)
+                self.questions.append(
+                    f"The documents say {system.name} ({tag_words(draft.tags()) or system.key}) is not on the BMS: "
+                    f"“{squash(fact.value)}” ({_places((self.reader.fact_ref(fact),))}){under}. Control valves, pipe "
+                    "sensors and other BMS points print for it only where the documents give them to AME; confirm "
+                    "which, if any, are in AME's scope.")
+                break
+
     # -- families of one name are one block
 
     def merge_named(self, drafts: list[_Draft]) -> list[_Draft]:
@@ -1383,6 +1699,77 @@ def _pair_up(a: set[tuple[str, str]], b: set[tuple[str, str]]) -> bool:
 
 def _natural_key(text: str) -> list:
     return [int(part) if part.isdigit() else part for part in re.split(r"(\d+)", text)]
+
+
+def _services_said(text: str) -> list[str]:
+    """The pump services a text says, in `_SERVICES` order; a domestic (plumbing) hot water text says no hot water."""
+    text = squash(text)
+    found = [name for name, words, _ in _SERVICES if words.search(text)]
+    if _DOMESTIC.search(text):
+        found = [n for n in found if n != "Hot Water"]
+    return found
+
+
+def _tag_runs(prefix: str) -> re.Pattern:
+    """A run of a family's tags as a text writes them: "CV-1", "P-1,3,5", "CV-1 thru 10", "P-1 and P-2"."""
+    p = re.escape(prefix)
+    return re.compile(rf"(?<![A-Za-z0-9]){p}[- ]?[A-Za-z0-9.]+(?:-[A-Za-z0-9.]+)*"
+                      rf"(?:\s*(?:,|&|\band\b|\bthru\b|\bthrough\b|\bto\b)\s*(?:{p}[- ]?)?\d+[A-Za-z]?"
+                      rf"(?![A-Za-z0-9]))*", re.I)
+
+
+def _named_tags(text: str, prefix: str, tags) -> list[str]:
+    """The family's tags a text names, in the family's order: whole, in a list or in a range."""
+    text = squash(text)
+    found: set[str] = {t.upper() for t in tags if naming(t).search(text)}
+    for run in _tag_runs(prefix).findall(text):
+        run = re.sub(r"\s*(?:&|\band\b)\s*", ", ", run, flags=re.I)
+        run = re.sub(r"\s+(?:through|to)\s+", " thru ", run, flags=re.I)
+        run = re.sub(rf"^{re.escape(prefix)}\s+(?=\d)", f"{prefix}-", run, flags=re.I)
+        try:
+            found |= {t.upper() for t in expand([run])}
+        except (ValueError, IndexError):
+            continue
+    return [t for t in tags if t.upper() in found]
+
+
+def _without_tags(text: str, prefix: str) -> str:
+    """The text with the family's tag runs taken out (what is left says what they serve or are on)."""
+    return _tag_runs(prefix).sub(" ", squash(text))
+
+
+def _is_control_valve(family: FamilyFacts) -> bool:
+    name = squash(family.name)
+    if _NOT_CONTROL_VALVE.search(name):
+        return False
+    return bool(_VALVE.search(name)) or family.prefix.upper() in _VALVE_PREFIXES
+
+
+_COUNT_QUESTION = re.compile(r"^(?P<label>[^:;]{1,80}? \([A-Za-z0-9 ,.\-]+\)): (?P<body>.+?)[;,]\s*confirm the count\.?$",
+                             re.I | re.S)
+
+
+def one_count_question_per_family(questions) -> list[str]:
+    """Ruling 11: the count questions about one family ("Air Handling Unit (AHU): ...; confirm the count.") are one
+    question, in the place of the first, every reason kept in order; every other question as it is, each once."""
+    out: list[str] = []
+    merged: dict[str, tuple[int, list[str]]] = {}
+    for question in questions:
+        found = _COUNT_QUESTION.match(question or "")
+        if found is None:
+            if question and question not in out:
+                out.append(question)
+            continue
+        label, body = found.group("label"), found.group("body").strip()
+        if label.casefold() in merged:
+            at, bodies = merged[label.casefold()]
+            if body not in bodies:
+                bodies.append(body)
+                out[at] = f"{out[at].split(': ', 1)[0]}: {'; '.join(bodies)}; confirm the count."
+            continue
+        merged[label.casefold()] = (len(out), [body])
+        out.append(question)
+    return out
 
 
 def _suffixes(draft: _Draft) -> set[str]:
@@ -1648,22 +2035,26 @@ def plan_job(ledger: Ledger, catalogue: Catalogue, dossier: Dossier, playbook: P
     own = [squash(f.value) for f in ledger.of_kind("note") if squash(f.subject).casefold() == "question"]
     drafts = planner.drafts()
     planner.general_kind_tags(drafts)
+    drafts = planner.split_pumps(drafts)
     drafts = planner.gather_splits(drafts)
     drafts = planner.gather_heaters(drafts)
     drafts = planner.link_dampers(drafts)
     planner.place_seen(drafts)
+    drafts = planner.link_valves(drafts)
     drafts = planner.merge_named(drafts)
+    planner.demolition_work(drafts)
     planner.heater_sequences(drafts)
     drafts += planner.global_points(drafts)
     keys: set[str] = set()
     systems = _with_served([planner.system(d, keys, drafts) for d in drafts], drafts)
     planner.family_questions(systems, drafts)
+    planner.off_bms(systems, drafts)
     planner.added_tags()
     planner.added_up_counts(systems, drafts)
     planner.lost(drafts)
     front_end = _front_end(planner)
     exceptions = _exceptions(planner, systems, drafts)      # before the questions: it asks when the Playbook has no form
-    questions = own + planner.questions + _unmatched_sections(planner, drafts)
+    questions = one_count_question_per_family(own + planner.questions + _unmatched_sections(planner, drafts))
     name = ledger.job_name or getattr(dossier, "job_name", "") or ""
     return Job(name=name, systems=tuple(systems), front_end=front_end, exceptions=exceptions,
-               questions=tuple(dict.fromkeys(q for q in questions if q)))
+               questions=tuple(questions))
