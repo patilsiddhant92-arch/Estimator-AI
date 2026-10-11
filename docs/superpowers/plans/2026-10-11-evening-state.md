@@ -67,3 +67,5 @@ Decision: no interim rerun. One run of 26-0544 on Monday 2026-10-12 after T-007 
 when no agent uses `D:/EA-rebuild`, or run from there). Input folder: the job's `2. Takeoffs/1. Base Takeoff`.
 Permission rules: the estimator was given the `settings.local.json` allow list for push, merge, worktree, checkout.
 API mode: on hold until the estimator's admin answers.
+
+- Monday 2026-10-12 early morning: G-002 (quantity prefix) and T-007 (Stage 2 wiring, with lead fixes M1-M3, S1) merged; rebuild a6f7afc, full suite 5,321 passed. G-003 (price-sheet polish, user guide) in review. The 26-0544 run started from the main folder at about 04:00 into out/26-0544-r2.
