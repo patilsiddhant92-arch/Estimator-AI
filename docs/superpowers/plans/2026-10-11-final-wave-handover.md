@@ -4,6 +4,14 @@ Written by the Opus lead session at the end of 2026-10-11. Read this first, then
 (`rulings-2026-10-11-first-run`, `front-end-bms-names`, `private-repo-job-data-ok`, `rulings-2026-10-10`), and the
 Master Template and GEM in `Brain/`.
 
+## 0. First task for the Fable lead: review CLAUDE.md
+
+The estimator wants the Fable lead to review `CLAUDE.md` and edit it to suit this project and the final wave: remove
+rules that block good output or waste effort, keep the ones that protect quality (tests first, the Playbook is the
+estimator's, plan before large changes), and make it short and current. Show the estimator the changes in a few
+lines; edit after their yes. The Opus lead already relaxed four lines on 2026-10-11 (house lines from the Master
+Template, agent limits, quoting job lines in chat, the current plan).
+
 ## 1. State of the code
 
 - `rebuild` = ce07960 (pushed): Wave 1 fixes (schedule reading, titles, sequences, plan areas under ruling L1,
