@@ -162,3 +162,32 @@ training passage and the "prequalified ... Approved Integrator's section" passag
    and the writer is asked again (up to the usual 3 attempts).
 3. `PLAN_TEXT_LIMIT` 24,000 re-asks every reading pass on the next run (the dossier text changes). OK, or should the
    larger limit apply to the writer's evidence only?
+
+## Regression fixtures (NOTES 2026-10-11 rule 4)
+
+- `tests/bms/fixtures/t005d_evidence.json`: an invented copy of the two 26-0544 evidence defects (same sheet-number
+  form Mnnn.00, same title forms, same 7c sheet-text line form; an invented project title that names the system in
+  every title block, invented sheets, notes and FUTURE item).
+- `tests/bms/test_t005d_fixture_regressions.py` (7 tests) reads it. Six fail on the base 0e78113 (src exported from
+  git) and pass here; the seventh only checks that the fixture's BMS note sits past character 8,000:
+  - title-block phrase flooding the notes cap: `test_fixture_the_control_diagram_reaches_the_writer_before_the_plan_sheets`,
+    `test_fixture_a_sheet_named_only_by_its_title_block_is_not_a_note_of_the_unit`,
+    `test_fixture_every_tagged_plan_fits_the_notes_block_as_excerpts`, `test_fixture_the_future_item_is_listed_for_the_writer`;
+  - BMS notes past the 8k cut: `test_fixture_the_general_notes_sheet_is_long_enough_to_be_cut_at_8000`,
+    `test_fixture_the_bms_notes_past_8000_characters_stay_in_the_sheet_text`,
+    `test_fixture_the_front_end_writer_gets_the_bms_notes`.
+- The inline "Invented Hall" fixture in `test_t005d_writer.py` stays as it is. Note for the lead: its control-diagram
+  line (S40) and this report's root-cause section quote wording close to the job's drawings; the new fixture's text
+  is all invented.
+
+## Tests (NOTES 2026-10-11 rule 3)
+
+Run on this commit, PYTHONPATH=src, `-p no:cacheprovider`:
+
+- Files changed: `pytest tests/bms/test_t005d_fixture_regressions.py tests/bms/test_t005d_writer.py -q -n 2`
+  -> `36 passed in 5.41s`
+- `pytest tests/bms -q -n 2 -p no:cacheprovider` (one run, not chunked, while another agent's suite shared the CPUs):
+  `7 failed, 2536 passed, 2 skipped, 178 warnings in 607.54s (0:10:07)`
+  - **tests/bms pass count: 2536.**
+  - All 7 failures are accepted baseline: the 5 `test_ai.py` chat tests, `test_review_final3` resource code,
+    `test_status_review` normal-exit. No revert_audit test failed.
