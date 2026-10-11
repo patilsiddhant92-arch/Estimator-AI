@@ -80,6 +80,7 @@ class InventoryItem:
     types: tuple[str, ...] = ()   # a TYPE ONLY row's type codes ("CD", "EG"); empty on every other row
     summed: int | None = None     # ruling L1: what `quantity` would be if the plan sheets of one floor and area were
                                   # added up, set only when that is above `quantity` (the reason says both numbers)
+    summed_on: tuple[str, ...] = ()   # the plan sheets `summed` adds up (set with `summed`), for the family's flag
 
 
 @dataclass(frozen=True)
@@ -243,6 +244,9 @@ class Placements:
         numbers = f"{counted} counted, {summed} if the sheets were added up"
         if not self.same_plan:
             return numbers
+        if not self.per_place:     # ruling 2 of 2026-10-11: a numbered unit tag is one unit in the job
+            shows = "; ".join(f"{_names(group)} show the same unit tag" for group in self.same_plan)
+            return f"{shows}, one unit in the job, not added: {numbers}"
         shows = "; ".join(f"{_names(group)} show one floor and area" for group in self.same_plan)
         return f"{shows}, so each counts as one plan, not added: {numbers}"
 
@@ -562,6 +566,17 @@ def plan_count(found, groups: dict, per_place: bool, buildings: dict | None = No
     return total
 
 
+def sheets_apart(found) -> int:
+    """A numbered unit tag's count if each plan sheet that shows it showed its own unit: one per sheet, times the
+    floors that sheet stands for. Ruling 2 of 2026-10-11 counts the tag once in the job (`plan_count`); the lead's
+    ruling on the T-005a review keeps this higher number beside it, so the count's '*' note can print both numbers
+    and the sheets (`Placements.summed`, `InventoryItem.summed`, `FamilyTotal.summed`)."""
+    floors_of: dict[tuple, set] = defaultdict(set)
+    for key, _n, floors in found:
+        floors_of[key].update(floors)
+    return sum(max(1, len(floors)) for floors in floors_of.values())
+
+
 def plan_floors(catalogue, typicals: Sequence = ()) -> dict[tuple[str, str], frozenset[str]]:
     """(document, sheet number) -> the floors that plan stands for: a typical sheet's floor list (one with no
     number by (document, page), `sheet_floors`), else, for a sheet number on N pages of one document with the same
@@ -787,8 +802,12 @@ def placements(catalogue, tags: Iterable[str], typicals: Sequence = (),
             floors[tag][labels[key]] = max(1, len(own))
             found[tag].append((key, n, own))
 
-    def same_plan(mine: list) -> tuple[tuple[str, ...], ...]:
-        """The sheets of each plan group that show this tag on two or more of them (ruling L1)."""
+    def same_plan(mine: list, per_place: bool) -> tuple[tuple[str, ...], ...]:
+        """The sheets of each plan group that show this tag on two or more of them (ruling L1). A numbered unit tag
+        is one unit in the job (ruling 2 of 2026-10-11): every sheet that shows it is named, in one group."""
+        if not per_place:
+            names = tuple(dict.fromkeys(labels[key] for key, _n, _f in mine))
+            return (names,) if len(names) >= 2 else ()
         shown = {key for key, _n, _f in mine}
         named = [tuple(dict.fromkeys(labels[key] for key in group if key in shown))
                  for group in dict.fromkeys(groups.get(key, (key,)) for key, _n, _f in mine)]
@@ -798,13 +817,18 @@ def placements(catalogue, tags: Iterable[str], typicals: Sequence = (),
         mine = found.get(tag, [])
         per_place = bool(mine) and counted_per_place(tag, sum(n for _k, n, _f in mine), max(n for _k, n, _f in mine))
         # `summed` and `each_place_summed` are the same two counts with every sheet its own plan (no groups): the
-        # sheets added up, kept beside them so a drop that ruling L1 makes can print both numbers
+        # sheets added up, kept beside them so a drop that ruling L1 makes can print both numbers. A numbered unit
+        # tag's `summed` is each sheet its own unit (`sheets_apart`): ruling 2 counts it once, and the lead's ruling
+        # on the T-005a review keeps the higher number for the count's '*' note
+        apart = plan_count(mine, {}, per_place, buildings) if mine else 0
+        if mine and not per_place:
+            apart = max(apart, sheets_apart(mine))
         return Placements(dict(on_plans.get(tag, {})), dict(floors.get(tag, {})), dict(on_risers.get(tag, {})),
                           plan_count(mine, groups, per_place, buildings) if mine else 0, per_place,
                           plan_count(mine, groups, True) if mine else 0,
-                          plan_count(mine, {}, per_place, buildings) if mine else 0,
+                          apart,
                           plan_count(mine, {}, True) if mine else 0,
-                          same_plan(mine), dict(left_out.get(tag, {})))
+                          same_plan(mine, per_place), dict(left_out.get(tag, {})))
 
     return {tag: placed(tag) for tag in set(on_plans) | set(on_risers) | set(left_out)}
 
@@ -930,7 +954,8 @@ def _as_type(tag: str, kind: str, schedule: Schedule, row, placed: Placements | 
                              f"On the schedule ({label}) and counted {placed.count} times on the plans "
                              f"({placed.plans_text()}): a unit's tag counts once in the job, on each floor a typical "
                              f"plan stands for{said} — check the count", "confirm",
-                             summed=placed.summed if lowered else None)
+                             summed=placed.summed if lowered else None,
+                             summed_on=tuple(placed.on_plans) if lowered else ())
     else:
         return None
     count = _count_in(row.cells.get(column)) if column else None
@@ -953,7 +978,8 @@ def _as_type(tag: str, kind: str, schedule: Schedule, row, placed: Placements | 
         how += (f"; the riser diagrams show {sum(placed.on_risers.values())} ({placed.risers_text()}), "
                 f"a cross-check")
     return InventoryItem(tag, kind, "CONFIRMED" if count is not None else "PENDING", count, label, seen,
-                         f"{_A_TYPE} ({why}): {how}", action, summed=summed)
+                         f"{_A_TYPE} ({why}): {how}", action, summed=summed,
+                         summed_on=tuple(placed.on_plans) if summed and placed is not None else ())
 
 
 def _type_rows(schedule: Schedule, known: Collection[str]) -> list[InventoryItem] | None:
@@ -1139,7 +1165,8 @@ def build_inventory(catalogue, schedules: list[Schedule], typicals: Sequence = (
                 items.append(InventoryItem(tag, kind, "CONFIRMED", 1, label, seen,
                                            f"On the schedule ({where}) and on {_sheets(len(on_drawings))} "
                                            f"({_list(on_drawings)}){said}", "confirm" if lowered else "",
-                                           summed=plans.summed if lowered else None))
+                                           summed=plans.summed if lowered else None,
+                                           summed_on=tuple(plans.on_plans) if lowered else ()))
             else:
                 extra = f" (named only on {_list(seen)})" if seen else ""
                 items.append(InventoryItem(tag, kind, "MISSING", 1, label, seen,
@@ -1333,6 +1360,7 @@ def _totals(items: list[InventoryItem], schedules: list[Schedule], equipment: Eq
     by_prefix: dict[str, dict[str, list[str]]] = defaultdict(lambda: defaultdict(list))
     quantity: dict[str, int] = {}
     added: dict[str, int] = {}       # tag → its quantity if the plan sheets of one floor and area were added (L1)
+    added_on: dict[str, tuple[str, ...]] = {}     # tag → the plan sheets `added` adds up
     item_kinds: dict[str, str] = {}
     for item in items:
         if item.category != "TYPE ONLY":
@@ -1342,6 +1370,7 @@ def _totals(items: list[InventoryItem], schedules: list[Schedule], equipment: Eq
             quantity[item.tag] = item.quantity or 0
             if item.summed:
                 added[item.tag] = item.summed
+                added_on[item.tag] = item.summed_on
             item_kinds.setdefault(prefix, item.kind)
     order += sorted(p for p in by_prefix if p not in order
                     and any(by_prefix[p].get(c) for c in ("PENDING", "TYPE PENDING", *COUNTED)))
@@ -1377,7 +1406,11 @@ def _totals(items: list[InventoryItem], schedules: list[Schedule], equipment: Eq
         if summed > scheduled:           # ruling L1: the plan sheets of one floor and area were counted once
             lowered = sum(1 for t in counted if t in added)
             are = "tag is" if lowered == 1 else "tags are"
-            flags.append(f"{lowered} {are} drawn on more than one plan sheet of one floor and area, counted once, not "
+            # ruling 2 of 2026-10-11 and the lead's ruling on the T-005a review: a numbered unit tag is one unit in
+            # the job, across floors and areas too; the sheets it is on are named with both numbers
+            sheets = list(dict.fromkeys(s for t in counted for s in added_on.get(t, ())))
+            on = f" ({_list(sheets)})" if sheets else ""
+            flags.append(f"{lowered} {are} drawn on more than one plan sheet{on}, counted once, not "
                          f"added: {scheduled} units counted, {summed} if the sheets were added up — check")
         totals.append(FamilyTotal(kind, prefix, scheduled, compact_tags(counted), tuple(flags),
                                   summed if summed > scheduled else None))

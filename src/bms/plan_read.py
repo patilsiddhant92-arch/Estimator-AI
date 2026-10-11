@@ -210,6 +210,8 @@ class _PlanSheet:
 _SHEET_TEXT = "(sheet text)"          # how the dossier's source for a sheet's own text (7c) ends
 _COUNTS_SOURCE = "equipment counts for "     # how the dossier's source for a family's equipment counts line begins
 _SHEETS_ADDED_UP = "if the sheets were added up"   # the words of a family total's flag that names its sum (L1)
+# a counts line's note that names the family's sum beside its count: "1 counted, 2 if the sheets were added up"
+_LINE_SUM = re.compile(r"\b\d+ (?:units? )?counted, (\d+) " + re.escape(_SHEETS_ADDED_UP))
 _PLACE = re.compile(r"^(?:(?P<number>[^,]+), )?(?P<document>.+?) page (?P<page>\d+)$")
 
 
@@ -506,7 +508,7 @@ class Reader:
                           tuple(_unique([*count.others, OtherCount(count.value, count.sources[0])]))
                           if count.sources else count.others)
         stated = (added_up.summed, added_up.refs[0]) if added_up is not None and added_up.refs else None
-        count = self._with_sum(count, stated, self._total_sum(prefix))
+        count = self._with_sum(count, stated, self._total_sum(prefix), self._line_sum(prefix))
         sequence_only = count_fact is None and fact.stage == "sequence"
         plan_only = not sequence_only and (count_fact is None or not count_fact.was_settled)
         found = FamilyFacts(fact, prefix, short_name(fact.value, prefix), tags, count, plan_only, sequence_only,
@@ -525,6 +527,24 @@ class Reader:
         flag = next((f for f in total.flags if _SHEETS_ADDED_UP in f), None)
         source = self._counts_sources().get(total.prefix)
         return None if flag is None or source is None else (total.summed, self.ref(source, flag))
+
+    def _line_sum(self, prefix: str) -> tuple[int, Ref] | None:
+        """The lead's ruling on the T-005a review: a numbered unit tag is one unit in the job, across floors and areas
+        too, but the reduction prints. The family's equipment counts line says it in a reading note ("1 unit tag is
+        drawn on more than one plan sheet (M-101, M-102), counted once, not added: 1 counted, 2 if the sheets were
+        added up"), also for a family with no schedule (no `FamilyTotal`): the highest such number, cited by that
+        note (its words name the sheets). None when the line has none."""
+        source = self._counts_sources().get(squash(prefix))
+        if source is None:
+            return None
+        line = next((m.group(2) for m in map(_SOURCE_LINE.match, self.dossier_text.splitlines())
+                     if m and m.group(1) == source), "")
+        best = None
+        for note in line.split("; "):
+            said = _LINE_SUM.search(note)
+            if said and (best is None or int(said.group(1)) > best[0]):
+                best = (int(said.group(1)), self.ref(source, note.rstrip(".")))
+        return best
 
     def _counts_sources(self) -> dict[str, str]:
         """The dossier's equipment counts lines by family prefix: prefix -> the id of the first source that is that

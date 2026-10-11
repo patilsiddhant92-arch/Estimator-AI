@@ -991,6 +991,9 @@ def _counts(catalogue, reading, counted_pages: frozenset, multipliers: dict) -> 
     for prefix in air_notes:
         if prefix not in families:
             families[prefix] = _Family(air_only=True)
+    # the families whose inventory total already says its sheets-added-up number (`FamilyTotal.summed`, its flag is
+    # in the counts line): `_family_sum_note` does not say it twice
+    summed_totals = {t.prefix for t in getattr(reading, "totals", ()) or () if getattr(t, "summed", None)}
     for prefix, family in families.items():
         family.notes, family.causes = _placement_causes(prefix, family, seen_on, printed, placed, each_place[prefix],
                                                         typed, counted)
@@ -1002,7 +1005,8 @@ def _counts(catalogue, reading, counted_pages: frozenset, multipliers: dict) -> 
                    else "a unit's tag is counted once in the job")
             family.notes.append(f"the labels on the plan sheets add up to {labelled}; {how}, however often the plan "
                                 "labels it")
-        family.notes += _summed_notes(summed[prefix]) + _labelled_often_notes(labelled_often[prefix])
+        family.notes += (_family_sum_note(summed[prefix], family.placements, prefix in summed_totals)
+                         + _summed_notes(summed[prefix]) + _labelled_often_notes(labelled_often[prefix]))
         family.notes += _group_notes(prefix, groups, places, labels, per_place_of)
         family.notes += _doubt_notes(prefix, doubts, places, labels)
         family.notes += list(dict.fromkeys(unread[prefix]))
@@ -1106,6 +1110,22 @@ def _copy_counts(catalogue, read: list, tallies_of, code_patterns: dict, per_pla
 
 def _sheets_named(sheets: list[str]) -> str:
     return ", ".join(sheets[:CAUSE_EXAMPLES]) + (" …" if len(sheets) > CAUSE_EXAMPLES else "")
+
+
+def _family_sum_note(summed: list, placements: int, said: bool) -> list[str]:
+    """The family's note with both numbers when its numbered unit tags are on 2 or more plan sheets each (lead's
+    ruling on the T-005a review: a unit tag is one unit in the job, across floors and areas too, but the reduction
+    prints): the count, the count if each sheet's label were its own unit, and the sheets. The planner reads its
+    "N counted, M if the sheets were added up" into the count's '*' note (`plan_read`, `Count.added_up`). Not said
+    when the family's inventory total says it already (`said`)."""
+    extra = sum(each - count for _tag, _sheets, count, each in summed if each > count)
+    if said or not extra:
+        return []
+    tags = sum(1 for _tag, _sheets, count, each in summed if each > count)
+    sheets = list(dict.fromkeys(s for _tag, names, count, each in summed if each > count for s in names))
+    are = "tag is" if tags == 1 else "tags are"
+    return [f"{tags} unit {are} drawn on more than one plan sheet ({_sheets_named(sheets)}), counted once, not added: "
+            f"{placements} counted, {placements + extra} if the sheets were added up — check"]
 
 
 def _summed_notes(summed: list) -> list[str]:

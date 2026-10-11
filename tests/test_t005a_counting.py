@@ -105,7 +105,7 @@ def test_the_inventory_counts_a_unit_on_four_plans_once():
     catalogue, _reading_ = _penthouse()
     placed = placements(catalogue, UNITS)
     assert all(placed[tag].count == 1 for tag in UNITS)
-    assert placed["AHU-1"].summed == 1                           # no sheets-added-up number for a unit's tag
+    assert placed["AHU-1"].summed == 4                           # the lead's ruling: the sheets added up kept
 
 
 # ---- ruling 1: demolition sheets ----------------------------------------------------------------------------------

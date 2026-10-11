@@ -5,8 +5,9 @@ sheets add up to, both numbers stay in the data (`Placements.summed`, `Inventory
 and the reason says them, so a '*' note can print. Invented fixtures only.
 
 T-005a (estimator ruling 2 of 2026-10-11): a numbered unit tag is ONE unit in the whole job, however many plans show it.
-So a unit's tag counts once whatever the groups, and has no "if the sheets were added up" number: its other labels
-are duplicates, named in the dossier's counts line. A type's tag keeps ruling L1 and its sum."""
+So a unit's tag counts once whatever the groups. The lead's ruling on the T-005a review: the reduction prints, so the
+"if the sheets were added up" number (each sheet its own unit) and the sheets are kept for the count's '*' note. A
+type's tag keeps ruling L1 and its sum."""
 from pathlib import Path
 
 import pytest
@@ -154,7 +155,8 @@ def test_a_unit_on_the_ductwork_and_the_zoning_plan_of_one_floor_counts_once_and
     catalogue = _catalogue([SCHEDULES, _plan("M-201", "LEVEL 4 HVAC DUCTWORK PLAN", EIGHT),
                             _plan("M-301", "LEVEL 4 HVAC ZONING PLAN", EIGHT)])
     placed = placements(catalogue, ["VAV-1"])["VAV-1"]
-    assert (placed.count, placed.summed) == (1, 1)                       # T-005a: one unit in the job, no sum
+    # T-005a: one unit in the job; the lead's ruling on the review keeps the sum for the '*' note
+    assert (placed.count, placed.summed) == (1, 2)
     assert placed.same_plan == (("M-201", "M-301"),)
     assert placed.on_plans == {"M-201": 1, "M-301": 1}                    # every sheet still named with its own labels
 
@@ -165,8 +167,9 @@ def test_two_floors_each_drawn_for_two_trades_add_up_by_floor():
                             _plan("M-202", "LEVEL 5 HVAC DUCTWORK PLAN", "VAV-1"),
                             _plan("M-302", "LEVEL 5 HVAC ZONING PLAN", "VAV-1")])
     placed = placements(catalogue, ["VAV-1"])["VAV-1"]
-    assert (placed.count, placed.summed) == (1, 1)                       # T-005a: one unit in the job (was 2, 4)
-    assert placed.same_plan == (("M-201", "M-301"), ("M-202", "M-302"))
+    # T-005a: one unit in the job (was 2), the sheets added up kept (4), every sheet that shows the tag named
+    assert (placed.count, placed.summed) == (1, 4)
+    assert placed.same_plan == (("M-201", "M-301", "M-202", "M-302"),)
 
 
 def test_three_plans_of_one_floor_count_once_where_they_added_up_to_three():
@@ -174,7 +177,7 @@ def test_three_plans_of_one_floor_count_once_where_they_added_up_to_three():
                             _plan("M-301", "LEVEL 4 HVAC ZONING PLAN", "VAV-1"),
                             _plan("M-401", "LEVEL 4 CONTROLS PLAN", "VAV-1")])
     placed = placements(catalogue, ["VAV-1"])["VAV-1"]
-    assert (placed.count, placed.summed) == (1, 1)                       # T-005a: no sum for a unit's tag
+    assert (placed.count, placed.summed) == (1, 3)                       # T-005a: once, the sum kept for the note
     assert placed.same_plan == (("M-201", "M-301", "M-401"),)
 
 
@@ -198,11 +201,12 @@ def test_a_type_on_a_floor_with_another_sheet_of_it_adds_the_floors_up():
     assert (placed.count, placed.summed) == (8, 16)
 
 
-def test_sheets_of_other_floors_are_added_and_there_is_no_second_number():
+def test_sheets_of_other_floors_count_a_unit_once_and_keep_the_second_number():
     catalogue = _catalogue([SCHEDULES, _plan("M-201", "LEVEL 4 HVAC DUCTWORK PLAN", "VAV-1"),
                             _plan("M-202", "LEVEL 5 HVAC DUCTWORK PLAN", "VAV-1")])
     placed = placements(catalogue, ["VAV-1"])["VAV-1"]
-    assert (placed.count, placed.summed, placed.same_plan) == (1, 1, ())  # T-005a: one unit in the job (was 2)
+    # T-005a: one unit in the job (was 2); the lead's ruling on the review keeps the 2 and the sheets for the note
+    assert (placed.count, placed.summed, placed.same_plan) == (1, 2, (("M-201", "M-202"),))
 
 
 # ---- the inventory: the item, the family and the words ---------------------------------------------------
@@ -213,11 +217,13 @@ def test_every_unit_of_a_floor_drawn_for_two_trades_counts_once_and_says_both_nu
     catalogue = _catalogue([SCHEDULES, _plan("M-201", "LEVEL 4 HVAC DUCTWORK PLAN", four),
                             _plan("M-301", "LEVEL 4 HVAC ZONING PLAN", four)])
     items, totals, _flags = build_inventory(catalogue, [_schedule(*tags)])
-    # T-005a (ruling 2): one unit each in the job, and no sheets-added-up number for a unit's tag
-    assert [(i.tag, i.category, i.quantity, i.summed) for i in items] == [(t, "CONFIRMED", 1, None) for t in tags]
-    assert "if the sheets were added up" not in items[0].reason
+    # T-005a (ruling 2): one unit each in the job; the lead's ruling on the review keeps the sheets added up
+    assert [(i.tag, i.category, i.quantity, i.summed) for i in items] == [(t, "CONFIRMED", 1, 2) for t in tags]
+    assert "M-201 and M-301 show the same unit tag, one unit in the job" in items[0].reason
+    assert "1 counted, 2 if the sheets were added up" in items[0].reason
     [total] = totals
-    assert (total.prefix, total.scheduled, total.summed) == ("VAV", 4, None)
+    assert (total.prefix, total.scheduled, total.summed) == ("VAV", 4, 8)
+    assert any("(M-201, M-301)" in f and "4 units counted, 8 if the sheets were added up" in f for f in total.flags)
 
 
 def test_a_unit_on_one_sheet_only_has_no_second_number():
@@ -271,8 +277,8 @@ def test_a_unit_drawn_on_two_floors_each_for_two_trades_is_two_and_says_four():
                             _plan("M-302", "LEVEL 5 HVAC ZONING PLAN", "VAV-1")])
     items, totals, _flags = build_inventory(catalogue, [_schedule("VAV-1")])
     [item] = items
-    assert (item.quantity, item.summed) == (1, None)                     # T-005a: one unit in the job (was 2, 4)
-    assert (totals[0].scheduled, totals[0].summed) == (1, None)
+    assert (item.quantity, item.summed) == (1, 4)                        # T-005a: one unit in the job (was 2, 4)
+    assert (totals[0].scheduled, totals[0].summed) == (1, 4)
 
 
 def test_two_sheets_of_one_trade_and_floor_make_that_floor_too_uncertain_to_group_without_tag_evidence():
@@ -368,6 +374,6 @@ def test_the_family_flag_reaches_the_dossiers_counts_line_with_both_numbers(tmp_
                               backbone=(), versions=(), supersessions=(), inventory=tuple(items), legend=(), flags=())
     line = next(line for line in build_dossier(catalogue, reading, tmp_path).text.splitlines() if "] VAV (" in line)
     assert "plan placements 4 (M-201 4; M-301 4)" in line
-    # T-005a (ruling 2): no sheets-added-up number for unit tags; the duplicates are named per tag
-    assert "if the sheets were added up" not in line
+    # T-005a (ruling 2): one unit each; the lead's ruling on the review: the family's sum and sheets reach the line
+    assert "4 units counted, 8 if the sheets were added up" in line and "(M-201, M-301)" in line
     assert "VAV-1 is on 2 plans (M-201, M-301), counted once, 1" in line
