@@ -125,12 +125,12 @@ def test_the_defaults_written_into_the_wording_print_byte_identical(tmp_path):
 
 def test_the_counted_job_prints_as_before_with_the_sample_playbook():
     out = texts(render(counted_job(), load_playbook(SAMPLE)))
-    assert "Qty (12) Exhaust Fans EF-1, 2" in out
+    # T-005e (ruling 15): the other counts in brackets on the header, no "*Qty." note
+    assert "Qty (12) Exhaust Fans EF-1, 2 (12 per M-101; 4 per schedule rows; 3 and 2 per plan placements)" in out
     assert any(t.startswith("Furnish and Install CO Sensor") for t in out), out
     assert any(t.startswith("Furnish and Install Exhaust Fan Status Points") for t in out), out
     assert any(t.startswith("Furnish and Install IT Room FA Relay of the Fan") for t in out), out
-    [note] = [t for t in out if "(12) per M-101" in t]
-    assert "(12) per M-101; 4 per schedule rows; 3 and 2 per plan placements" in note
+    assert not any(t.startswith("*Qty.") for t in out), out                       # T-005e (ruling 15)
 
 
 # ---- each key changes its words ----------------------------------------------------------------------------------
@@ -140,14 +140,15 @@ def test_the_count_note_joiners_and_labels_come_from_the_wording(tmp_path):
         data["quantity"].update({"per": " from ", "and": " & ", "joiner": " | ",
                                  "labels": {"schedule_rows": "the schedule's rows", "plan_placements": "the plans"}})
     out = texts(render(counted_job(), playbook_with(tmp_path, change)))
-    [note] = [t for t in out if "(12) from M-101" in t]
-    assert "(12) from M-101 | 4 from the schedule's rows | 3 & 2 from the plans" in note
+    [note] = [t for t in out if "(12 from M-101" in t]                            # T-005e (ruling 15): on the header
+    assert "(12 from M-101 | 4 from the schedule's rows | 3 & 2 from the plans)" in note
 
 
 def test_the_generic_header_comes_from_the_wording(tmp_path):
     pb = playbook_with(tmp_path, lambda d: d["header"].update(generic="{name} {tags} (Qty {n})"))
     out = texts(render(counted_job(), pb))
-    assert "Exhaust Fans EF-1, 2 (Qty 12)" in out
+    # T-005e (ruling 15): the other counts in brackets after the header's form
+    assert "Exhaust Fans EF-1, 2 (Qty 12) (12 per M-101; 4 per schedule rows; 3 and 2 per plan placements)" in out
 
 
 def test_the_casing_lists_come_from_the_wording(tmp_path):

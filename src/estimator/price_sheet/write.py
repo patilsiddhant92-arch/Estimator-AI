@@ -9,6 +9,7 @@ total is never mistaken for a complete one.
 """
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 from openpyxl.styles import Font
@@ -17,6 +18,9 @@ from estimator.files import open_workbook
 from estimator.price_sheet.price_book import PriceBook
 from estimator.price_sheet.rows import FIRST_ROW, FLAG, HOURS, LAST_ROW, QUANTITY, SCOPE, UNIT_PRICE, Sheet, sheet_plan
 from estimator.scope import Job
+
+# a line's own quantity, "Qty (#) <device>" (estimator ruling 15, T-005e): not part of the device's name in the book
+_LINE_QTY = re.compile(r"\bQty \((?:\d+|#+)\)\s*")
 
 PRICE_PENDING = "PRICE PENDING"
 PRICE_NEEDS_REVIEW = "PRICE NEEDS REVIEW"   # the price book's own note questions this price
@@ -83,7 +87,7 @@ def _fill(ws, sheet: Sheet, book: PriceBook, labor: set[str] = frozenset()) -> i
             _flag(ws, r, QUANTITY_PENDING)     # a "(Qty. ##)" line: no quantity, so it is not priced
         if row.quantity is not None:
             ws.cell(r, QUANTITY).value = row.quantity
-            match = book.lookup(row.item.text)
+            match = book.lookup(_LINE_QTY.sub("", row.item.text))
             if match is None:
                 _flag(ws, r, PRICE_PENDING)
                 pending += 1

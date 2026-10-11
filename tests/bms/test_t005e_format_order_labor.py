@@ -170,7 +170,8 @@ def _fe(n: int, name: str, verb: str = "Furnish") -> Device:
 
 
 def test_an_existing_bms_front_end_prints_the_master_template_lines_in_its_order(job, playbook):
-    front = FrontEnd(mode="extend-existing", existing_system_name="Acme Net",
+    # T-005e (merge with T-005c): one of AME's three BMS names, so T-005c's red *** flag stays out of the lines
+    front = FrontEnd(mode="extend-existing", existing_system_name="Niagara N4",
                      devices=(_fe(1, "Necessary Training on New Controls"), _fe(2, "PC Workstation")))
     items = render(replace(job, front_end=front), playbook).scope.front_end.items
     assert [i.text for i in items] == [
@@ -183,29 +184,34 @@ def test_an_existing_bms_front_end_prints_the_master_template_lines_in_its_order
 
 
 def test_an_existing_front_end_the_documents_give_to_others_gets_no_template_line(job, playbook):
-    front = FrontEnd(mode="extend-existing", existing_system_name="Acme Net", lines=("front end by the owner",),
+    # T-005e (merge with T-005c): one of AME's three BMS names, so T-005c's red *** flag stays out of the lines
+    front = FrontEnd(mode="extend-existing", existing_system_name="Niagara N4", lines=("front end by the owner",),
                      no_scope_reason="The controls specification gives the whole front end to the owner.")
     assert render(replace(job, front_end=front), playbook).scope.front_end.items == ()
 
 
 def test_an_existing_front_end_with_nothing_in_the_documents_gets_no_template_line(job, playbook):
-    front = FrontEnd(mode="extend-existing", existing_system_name="Acme Net")     # (T-005c prints its own flag)
+    # T-005e (merge with T-005c): one of AME's three BMS names, so T-005c's red *** flag stays out of the lines
+    front = FrontEnd(mode="extend-existing", existing_system_name="Niagara N4")     # (T-005c prints its own flag)
     assert not any(i.text.startswith("Furnish") for i in render(replace(job, front_end=front),
                                                                    playbook).scope.front_end.items)
 
 
 def test_an_existing_front_end_the_reading_found_but_no_line_written_gets_the_template_lines(job, playbook):
-    front = FrontEnd(mode="extend-existing", existing_system_name="Acme Net", lines=("tie in to the existing BMS",))
+    # T-005e (merge with T-005c): one of AME's three BMS names, so T-005c's red *** flag stays out of the lines
+    front = FrontEnd(mode="extend-existing", existing_system_name="Niagara N4", lines=("tie in to the existing BMS",))
     assert [i.text for i in render(replace(job, front_end=front), playbook).scope.front_end.items] == [
         "Furnish Network Level Control Panel", "Furnish 3-D Graphics to match existing",
         "Furnish Necessary Training on New Controls"]
 
 
-def test_a_new_system_front_end_is_ordered_but_never_filled(job, playbook):
+def test_a_new_system_front_end_is_ordered_and_gets_the_template_default_lines(job, playbook):
     front = FrontEnd(mode="new-system", devices=(_fe(1, "Necessary Training on New Controls"), _fe(2, "BMS Server"),
                                                  _fe(3, "Network Level Control Panel")))
+    # T-005e: estimator ruling 19: the New front end's "Default" lines (3-D Graphics, training) print unless written
     assert [i.text for i in render(replace(job, front_end=front), playbook).scope.front_end.items] == [
-        "Furnish Network Level Control Panel", "Furnish BMS Server", "Furnish Necessary Training on New Controls"]
+        "Furnish Network Level Control Panel", "Furnish BMS Server", "Furnish 3-D Graphics",
+        "Furnish Necessary Training on New Controls"]
 
 
 # ---- 3. off-hours work and prevailing wage ----------------------------------------------------------------------

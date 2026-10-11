@@ -133,14 +133,15 @@ def test_a_future_line_prints_its_note_in_brackets_in_red(job, playbook):
 
 def test_a_future_line_with_no_note_still_says_future(job, playbook):
     front = FrontEnd(mode="new-system", devices=(_device(name="Airflow Station", mark="future"),))
-    (item,) = [i for i in _front_items(job, playbook, front) if i.kind == "line"]
+    # (T-005e: the new front end's Master Template default lines print too, ruling 19)
+    (item,) = [i for i in _front_items(job, playbook, front) if i.kind == "line" and "Airflow" in i.text]
     assert item.text.endswith("(FUTURE)") and item.runs[0].red
 
 
 def test_a_notice_line_prints_in_red_with_no_bracket(job, playbook):
     front = FrontEnd(mode="new-system", devices=(_device(name="Integral Drain Pan Level Sensor", mark="notice",
                                                          furnished_by="Unit Mfr."),))
-    (item,) = [i for i in _front_items(job, playbook, front) if i.kind == "line"]
+    (item,) = [i for i in _front_items(job, playbook, front) if i.kind == "line" and "Drain Pan" in i.text]
     assert item.runs[0].red and "FUTURE" not in item.text and item.text.endswith("Unit Mfr.)")    # its owner only
 
 

@@ -66,7 +66,9 @@
             }
           ],
           "assumption": null,
-          "flag": "none"
+          "flag": "none",
+          "mark": "",
+          "mark_note": ""
         },
         {
           "id": "AHU.d2",
@@ -90,7 +92,9 @@
             }
           ],
           "assumption": null,
-          "flag": "none"
+          "flag": "none",
+          "mark": "",
+          "mark_note": ""
         },
         {
           "id": "AHU.d3",
@@ -114,7 +118,9 @@
             }
           ],
           "assumption": null,
-          "flag": "none"
+          "flag": "none",
+          "mark": "",
+          "mark_note": ""
         },
         {
           "id": "AHU.d4",
@@ -138,7 +144,9 @@
             }
           ],
           "assumption": null,
-          "flag": "none"
+          "flag": "none",
+          "mark": "",
+          "mark_note": ""
         },
         {
           "id": "AHU.d5",
@@ -162,7 +170,9 @@
             }
           ],
           "assumption": null,
-          "flag": "none"
+          "flag": "none",
+          "mark": "",
+          "mark_note": ""
         },
         {
           "id": "AHU.d6",
@@ -186,7 +196,9 @@
             }
           ],
           "assumption": null,
-          "flag": "none"
+          "flag": "none",
+          "mark": "",
+          "mark_note": ""
         },
         {
           "id": "AHU.d7",
@@ -210,7 +222,9 @@
             }
           ],
           "assumption": null,
-          "flag": "none"
+          "flag": "none",
+          "mark": "",
+          "mark_note": ""
         },
         {
           "id": "AHU.d8",
@@ -234,7 +248,9 @@
             }
           ],
           "assumption": null,
-          "flag": "none"
+          "flag": "none",
+          "mark": "",
+          "mark_note": ""
         },
         {
           "id": "AHU.d9",
@@ -273,7 +289,9 @@
             }
           ],
           "assumption": null,
-          "flag": "none"
+          "flag": "none",
+          "mark": "",
+          "mark_note": ""
         },
         {
           "id": "AHU.d10",
@@ -297,7 +315,9 @@
             }
           ],
           "assumption": null,
-          "flag": "none"
+          "flag": "none",
+          "mark": "",
+          "mark_note": ""
         },
         {
           "id": "AHU.d11",
@@ -321,7 +341,9 @@
             }
           ],
           "assumption": null,
-          "flag": "none"
+          "flag": "none",
+          "mark": "",
+          "mark_note": ""
         },
         {
           "id": "AHU.d12",
@@ -345,7 +367,9 @@
             }
           ],
           "assumption": null,
-          "flag": "none"
+          "flag": "none",
+          "mark": "",
+          "mark_note": ""
         }
       ],
       "clarifications": [
@@ -420,7 +444,9 @@
             }
           ],
           "assumption": null,
-          "flag": "none"
+          "flag": "none",
+          "mark": "",
+          "mark_note": ""
         },
         {
           "id": "EF.d2",
@@ -444,7 +470,9 @@
             }
           ],
           "assumption": null,
-          "flag": "none"
+          "flag": "none",
+          "mark": "",
+          "mark_note": ""
         },
         {
           "id": "EF.d3",
@@ -468,7 +496,9 @@
             }
           ],
           "assumption": null,
-          "flag": "none"
+          "flag": "none",
+          "mark": "",
+          "mark_note": ""
         },
         {
           "id": "EF.d4",
@@ -492,7 +522,9 @@
             }
           ],
           "assumption": null,
-          "flag": "none"
+          "flag": "none",
+          "mark": "",
+          "mark_note": ""
         },
         {
           "id": "EF.d5",
@@ -516,7 +548,9 @@
             }
           ],
           "assumption": null,
-          "flag": "none"
+          "flag": "none",
+          "mark": "",
+          "mark_note": ""
         }
       ],
       "clarifications": [],
@@ -599,7 +633,9 @@
             }
           ],
           "assumption": null,
-          "flag": "none"
+          "flag": "none",
+          "mark": "",
+          "mark_note": ""
         },
         {
           "id": "CHW.d2",
@@ -623,7 +659,9 @@
             }
           ],
           "assumption": null,
-          "flag": "none"
+          "flag": "none",
+          "mark": "",
+          "mark_note": ""
         },
         {
           "id": "CHW.d3",
@@ -647,7 +685,9 @@
             }
           ],
           "assumption": null,
-          "flag": "none"
+          "flag": "none",
+          "mark": "",
+          "mark_note": ""
         },
         {
           "id": "CHW.d4",
@@ -671,7 +711,9 @@
             }
           ],
           "assumption": null,
-          "flag": "none"
+          "flag": "none",
+          "mark": "",
+          "mark_note": ""
         },
         {
           "id": "CHW.d5",
@@ -695,7 +737,9 @@
             }
           ],
           "assumption": null,
-          "flag": "none"
+          "flag": "none",
+          "mark": "",
+          "mark_note": ""
         }
       ],
       "clarifications": [],
@@ -779,7 +823,9 @@
             }
           ],
           "assumption": null,
-          "flag": "none"
+          "flag": "none",
+          "mark": "",
+          "mark_note": ""
         },
         {
           "id": "HW.d2",
@@ -803,7 +849,9 @@
             }
           ],
           "assumption": null,
-          "flag": "none"
+          "flag": "none",
+          "mark": "",
+          "mark_note": ""
         },
         {
           "id": "HW.d3",
@@ -827,7 +875,9 @@
             }
           ],
           "assumption": null,
-          "flag": "none"
+          "flag": "none",
+          "mark": "",
+          "mark_note": ""
         },
         {
           "id": "HW.d4",
@@ -851,7 +901,9 @@
             }
           ],
           "assumption": null,
-          "flag": "none"
+          "flag": "none",
+          "mark": "",
+          "mark_note": ""
         }
       ],
       "clarifications": [],
@@ -916,7 +968,9 @@
             }
           ],
           "assumption": null,
-          "flag": "none"
+          "flag": "none",
+          "mark": "",
+          "mark_note": ""
         },
         {
           "id": "RTU.d2",
@@ -940,7 +994,9 @@
             }
           ],
           "assumption": null,
-          "flag": "none"
+          "flag": "none",
+          "mark": "",
+          "mark_note": ""
         },
         {
           "id": "RTU.d3",
@@ -964,7 +1020,9 @@
             }
           ],
           "assumption": null,
-          "flag": "none"
+          "flag": "none",
+          "mark": "",
+          "mark_note": ""
         },
         {
           "id": "RTU.d4",
@@ -988,7 +1046,9 @@
             }
           ],
           "assumption": null,
-          "flag": "none"
+          "flag": "none",
+          "mark": "",
+          "mark_note": ""
         },
         {
           "id": "RTU.d5",
@@ -1012,7 +1072,9 @@
             }
           ],
           "assumption": null,
-          "flag": "none"
+          "flag": "none",
+          "mark": "",
+          "mark_note": ""
         }
       ],
       "clarifications": [],
@@ -1079,7 +1141,9 @@
             }
           ],
           "assumption": null,
-          "flag": "none"
+          "flag": "none",
+          "mark": "",
+          "mark_note": ""
         },
         {
           "id": "FSD.d2",
@@ -1103,7 +1167,9 @@
             }
           ],
           "assumption": null,
-          "flag": "none"
+          "flag": "none",
+          "mark": "",
+          "mark_note": ""
         },
         {
           "id": "FSD.d3",
@@ -1127,7 +1193,9 @@
             }
           ],
           "assumption": null,
-          "flag": "none"
+          "flag": "none",
+          "mark": "",
+          "mark_note": ""
         }
       ],
       "clarifications": [],
@@ -1139,7 +1207,7 @@
   ],
   "front_end": {
     "mode": "extend-existing",
-    "existing_system_name": "Invented Net N9",
+    "existing_system_name": "Niagara N4",
     "devices": [
       {
         "id": "FE.d1",
@@ -1163,7 +1231,9 @@
           }
         ],
         "assumption": null,
-        "flag": "none"
+        "flag": "none",
+        "mark": "",
+        "mark_note": ""
       }
     ],
     "clarifications": [],

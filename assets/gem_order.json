@@ -120,15 +120,26 @@
       ]
     },
     {
-      "position": 16,
+      "position": 10,
+      "verbs": [
+        "Furnish"
+      ],
       "words": [
-        "\\bvalves?\\b"
+        "\\bposition\\s+feedback\\b",
+        "\\bopen\\s*/\\s*clos(?:e|ed)\\s+status\\b",
+        "\\bend\\s+switch\\b",
+        "\\bvalve\\s+position\\b"
       ]
     },
     {
       "position": 16,
-      "verbs": [
-        "Furnish and Wire"
+      "words": [
+        "\\bvalves?\\b"
+      ],
+      "not_words": [
+        "\\bposition\\s+feedback\\b",
+        "\\bposition\\b",
+        "\\bend\\s+switch\\b"
       ]
     },
     {
@@ -142,7 +153,8 @@
         "\\bsensaphone\\b"
       ],
       "not_words": [
-        "\\bsetpoint\\b"
+        "\\bsetpoint\\b",
+        "\\brelays?\\b"
       ]
     },
     {
@@ -174,17 +186,6 @@
       ]
     },
     {
-      "position": 10,
-      "verbs": [
-        "Furnish"
-      ],
-      "words": [
-        "\\bposition\\s+feedback\\b",
-        "\\bopen\\s*/\\s*clos(?:e|ed)\\s+status\\b",
-        "\\bend\\s+switch\\b"
-      ]
-    },
-    {
       "position": 7,
       "words": [
         "\\bdampers?\\b",
@@ -210,6 +211,15 @@
         "\\bVFDs?\\b",
         "\\bvariable\\s+(?:frequency|speed)\\b",
         "\\bsafety\\s+stop\\b"
+      ]
+    },
+    {
+      "position": 8,
+      "verbs": [
+        "Furnish"
+      ],
+      "words": [
+        "\\bstart\\s*[/-]?\\s*stop\\b"
       ]
     },
     {
@@ -248,6 +258,12 @@
       "position": 2,
       "verbs": [
         "Furnish and Install"
+      ]
+    },
+    {
+      "position": 16,
+      "verbs": [
+        "Furnish and Wire"
       ]
     }
   ],
@@ -327,6 +343,19 @@
         },
         {
           "text": "Furnish 3-D Graphics to match existing",
+          "match": "graphics"
+        },
+        {
+          "text": "Furnish Necessary Training on New Controls",
+          "match": "training"
+        }
+      ]
+    },
+    "new_lines": {
+      "about": "A NEW system front end prints the Master Template's 'Default' lines (its New front end marks 3-D Graphics and Training 'Default', template ~58-61; estimator ruling 19, 2026-10-11 afternoon: the front-end section defines the standard lines). A line the writer wrote of the same entry stands. Not printed when the documents call for no front end, or the writer wrote no front-end line and said why.",
+      "lines": [
+        {
+          "text": "Furnish 3-D Graphics",
           "match": "graphics"
         },
         {

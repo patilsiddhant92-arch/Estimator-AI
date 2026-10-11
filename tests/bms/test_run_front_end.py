@@ -16,6 +16,7 @@ from bms.model import Job, Ref
 from test_run import _reach, job_folder  # noqa: F401  (job_folder is a fixture)
 
 FRONT_END_HEADING = "Front End Web Enabled BMS System"
+DEFAULT_FRONT_END = ("Furnish 3-D Graphics", "Furnish Necessary Training on New Controls")
 
 
 @pytest.fixture
@@ -71,7 +72,11 @@ def test_the_front_end_the_planner_finds_is_written_and_printed(job_folder, tmp_
     assert job.front_end.lines == ("Furnish an operator workstation",)            # the planner's fields stay
     lines = _proposal_lines(result)
     at = lines.index(FRONT_END_HEADING)
-    assert lines[at + 1].startswith("Furnish and Install Space Temperature Sensor")      # the fake answerer's line
+    # T-005e (ruling 19): the new front end prints the Master Template's default lines with the writer's line, in the
+    # template's order; (ruling 15) the line's quantity prints in it, "Qty (##)" while unknown
+    front = lines[at + 1:at + 2 + len(DEFAULT_FRONT_END)]
+    assert set(DEFAULT_FRONT_END) <= set(front), lines
+    assert any(line.startswith("Furnish and Install Qty (##) Space Temperature Sensor") for line in front), lines
     assert not [f for f in result.findings if f.system_key == "" and f.severity == "must_fix"]
 
 
@@ -96,7 +101,8 @@ def test_a_front_end_line_a_qc_finding_names_is_revised(job_folder, tmp_path, mo
     assert qc, "QC was never asked"
     assert ("write_system", "Front End (revise)", "revise") in requests
     assert [d.name for d in job.front_end.devices] == ["Operator Workstation"]
-    assert any(line.startswith("Furnish and Install Operator Workstation") for line in _proposal_lines(result))
+    # T-005e (ruling 15): the line's quantity prints in it, "Qty (##)" while unknown
+    assert any(line.startswith("Furnish and Install Qty (##) Operator Workstation") for line in _proposal_lines(result))
     # the finding is closed: QC is not asked again, and the line it named changed
     assert not [f for f in result.findings if f.device_id == "FE.d1" and f.severity == "must_fix"]
 

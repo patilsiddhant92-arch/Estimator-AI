@@ -31,7 +31,7 @@ from test_counts import _family as family_of
 from test_counts import _plan as counted_plan
 from test_counts import _sample_job
 from test_plan import L2_DUCT, L2_PIPE, L3_DUCT, PLAYBOOK, _cuh_job, _family, _ledger, _sheet_dossier
-from test_render_count_notes import PLAN, SCHEDULE, STATED, block, device, family, notes
+from test_render_count_notes import PLAN, SCHEDULE, STATED, block, device, family, headers, notes
 from test_review_typed_counts import NODE, decide
 from test_review_typed_counts import device_card, family_card
 
@@ -337,21 +337,25 @@ def test_the_note_names_both_numbers_and_the_printed_count_stays_the_highest(job
     system = block([family(count)], [device(Count(6))])
     draft = render(replace(job, systems=(system,)), playbook)
     shown = [l.text for l in draft.lines if l.system_key == "EF"]
-    assert shown[0] == "Qty (6) Exhaust Fans EF-1, 2"                    # the header: the highest, never the sum
-    assert shown[-1] == f"*Qty. (6) per M-101; {SAID}."
+    # the header: the highest, never the sum; T-005e (ruling 15): the other counts in brackets on it, no "*Qty." note
+    assert shown[0] == f"Qty (6) Exhaust Fans EF-1, 2 (6 per M-101; {SAID})"
+    assert not any(t.startswith("*Qty.") for t in shown)
     assert [l.quantity for l in draft.lines if l.system_key == "EF" and l.kind == "line"] == [6]
     assert "(9)" not in "\n".join(shown) and "Qty. 9" not in "\n".join(shown)
 
 
 def test_the_note_puts_the_sum_after_every_other_count(job, playbook):
     count = Count(6, (PLAN,), (OtherCount(4, SCHEDULE),), SUM)
-    found = notes(job, playbook, block([family(count)], [device(Count(6))]))
-    assert found == [f"*Qty. (6) per M-101; 4 per M-601; {SAID}."]
+    system = block([family(count)], [device(Count(6))])
+    assert notes(job, playbook, system) == []                                  # T-005e (ruling 15)
+    assert headers(job, playbook, system) == [f"6 per M-101; 4 per M-601; {SAID}"]
 
 
 def test_a_count_with_no_place_still_names_the_sum(job, playbook):
     count = Count(6, (), (), SUM)
-    assert notes(job, playbook, block([family(count)], [device(Count(6))])) == [f"*Qty. (6); {SAID}."]
+    system = block([family(count)], [device(Count(6))])
+    assert notes(job, playbook, system) == []                                  # T-005e (ruling 15)
+    assert headers(job, playbook, system) == [f"6; {SAID}"]
 
 
 @pytest.mark.parametrize("printed", [9, 10])
@@ -371,8 +375,11 @@ def test_an_unknown_count_names_no_sum(job, playbook):
 ], ids=["with the sum", "without the sum"])
 def test_a_line_that_carries_the_family_count_adds_no_second_note(job, playbook, carried):
     count = Count(6, (PLAN,), (OtherCount(4, SCHEDULE),), SUM)
-    found = notes(job, playbook, block([family(count)], [device(carried)]))
-    assert found == [f"*Qty. (6) per M-101; 4 per M-601; {SAID}."]
+    system = block([family(count)], [device(carried)])
+    assert notes(job, playbook, system) == []                                  # T-005e (ruling 15)
+    assert headers(job, playbook, system) == [f"6 per M-101; 4 per M-601; {SAID}"]
+    draft = render(replace(job, systems=(system,)), playbook)
+    assert [l.text for l in draft.lines if l.device_id == "X.d1"] == ["Furnish and Install DDC Controller"]
 
 
 def test_a_sum_on_a_line_alone_never_prints(job, playbook):
@@ -384,7 +391,8 @@ def test_a_sum_on_a_line_alone_never_prints(job, playbook):
 def test_each_family_of_a_block_names_its_own_sum(job, playbook):
     system = block([family(Count(6, (PLAN,), (), SUM), "Indoor Unit", ("IU-1",)),
                     family(Count(2, (SCHEDULE,)), "Branch Selector", ("BS-1",))], [device(Count(6))])
-    assert notes(job, playbook, system) == [f"*Qty. Indoor Unit (6) per M-101; {SAID}."]
+    assert notes(job, playbook, system) == []                                  # T-005e (ruling 15)
+    assert headers(job, playbook, system) == [f"6 per M-101; {SAID}", ""]
 
 
 def test_a_front_end_line_names_no_sum(job, playbook):
@@ -403,7 +411,9 @@ def test_the_planned_sum_reaches_the_clients_note(job, playbook):
     draft = render(shown, playbook)
     text = [l.text for l in draft.lines if l.system_key == system.key]
     assert text[0].startswith("Qty (4)")
-    assert text[-1] == "*Qty. (4) per M-101; 8 if every sheet of the same floor and area is added up."
+    # T-005e (ruling 15): the sum in brackets on the header, no "*Qty." note
+    assert text[0].endswith("(4 per M-101; 8 if every sheet of the same floor and area is added up)")
+    assert not any(t.startswith("*Qty.") for t in text)
 
 
 # ---- the validator: the sum is no count, so it is no count problem ---------------------------------------------------

@@ -56,12 +56,25 @@ def hours_of(quote: str) -> str:
     return f"{_clock(found.group(1))} to {_clock(found.group(2))}" if found else ""
 
 
+# a clause that forbids the work ("No overtime work is permitted", "work outside normal hours is not allowed") is no
+# call for it (T-005e review finding 5)
+_NEGATION = re.compile(r"\b(?:no|not|never|nor|without|prohibited|forbidden|disallowed)\b|\bshall\s+not\b|"
+                       r"\bcannot\b|\bcan't\b|\bwon't\b", re.I)
+_CLAUSES = re.compile(r"[.;:]\s+|\s+(?:but|however|except)\s+", re.I)
+
+
 def calls_for_off_hours(quote: str) -> bool:
-    """True when the quote calls for work outside normal hours: its words, or a time range starting in the evening."""
-    if _OFF_HOURS.search(quote or ""):
-        return True
-    found = _RANGE.search(quote or "")
-    return bool(found) and "P" in _clock(found.group(1))
+    """True when the quote calls for work outside normal hours: its words, or a time range starting in the evening,
+    in a clause that does not forbid it (a ban on overtime or off-hours work is no call for it)."""
+    for clause in _CLAUSES.split(quote or ""):
+        if _NEGATION.search(clause):
+            continue
+        if _OFF_HOURS.search(clause):
+            return True
+        found = _RANGE.search(clause)
+        if found and "P" in _clock(found.group(1)):
+            return True
+    return False
 
 
 def calls_for_prevailing_wage(quote: str) -> bool:
@@ -193,3 +206,21 @@ def with_warranty(draft, overview):
     at = max((n + 1 for n, line in enumerate(traced) if line.system_key == "" and line.kind != "note"), default=0)
     added = [RenderedLine("", None, "line", i.text, None, None) for i in items]
     return replace(draft, scope=scope, lines=(*traced[:at], *added, *traced[at:]))
+
+
+# ---- the labor conditions as findings: the Evidence Package's Findings tab and Review.html (T-005e review 8) ------
+
+LABOR_RULE = "Off-hours work and prevailing wage"      # the Playbook rule the T-005e report proposes
+
+
+def labor_findings(conditions):
+    """One "check" finding per condition, about the whole job (system key ""), so the estimator sees it on the review
+    page and in the Evidence Package's Findings tab, with the documents' words and where they are."""
+    from bms.model import Finding
+    what = {OFF_HOURS: "The documents call for off-hours work", PREVAILING_WAGE: "The documents call for prevailing wage"}
+    return tuple(Finding(rule=LABOR_RULE, system_key="", device_id=None, severity="check",
+                         what=f"{what.get(c.kind, c.kind)} ({c.source}): \u201c{c.quote}\u201d. The proposal prints "
+                              f"\u201c{c.text}\u201d in red.",
+                         fix="Price the labor premium on the price sheet (its row is flagged red). The line follows "
+                             "the documents: a decision on this card does not change it.")
+                 for c in tuple(conditions or ()))

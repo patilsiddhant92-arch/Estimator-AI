@@ -74,7 +74,8 @@ def _block_rows(block: Block, number: int | None, ref: tuple) -> list[Row]:
 
 def _item_row(item: Item, markers: dict[int, str], ref: tuple) -> Row:
     text = squash(item.text) if item.kind == "note" else f"{markers[item.depth]}  {squash(item.text)}"
-    pending = item.kind == "line" and item.quantity is None and LINE_QUANTITY_TO_FILL in item.text
+    pending = item.kind == "line" and item.quantity is None and (LINE_QUANTITY_TO_FILL in item.text
+                                                                   or COUNT_TO_FILL in item.text)   # T-005e: "Qty (##) <device>"
     return Row(text, hours=item.tech_hours, quantity=item.quantity, item=item, ref=ref, quantity_pending=pending,
                red=any(run.red for run in item.runs))
 

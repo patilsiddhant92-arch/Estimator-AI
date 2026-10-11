@@ -122,7 +122,8 @@ def test_a_disguised_issued_id_is_refused_must_fix_and_cut(kind, probe, token):
 @pytest.mark.parametrize("where", [p[1] for p in PROBES if p[0] == "where" and not p[1].startswith("Valve schedule")])
 def test_a_disguised_id_never_shows_in_the_quantity_note(where):
     job = _job_with("where", where)
-    note = " ".join(l.text for l in render(job, SAMPLE).lines if l.system_key == "EF" and "Qty. " in l.text)
+    # T-005e (ruling 15): the counts print on the "Qty (#)" lines, no "*Qty." note
+    note = " ".join(l.text for l in render(job, SAMPLE).lines if l.system_key == "EF" and "Qty (" in l.text)
     assert not re.search(r"[SQIFC]\d", _seen(note), re.IGNORECASE), note
 
 
@@ -137,8 +138,9 @@ def test_guard_the_probe_table_holds_at_least_thirty_forms():
 ])
 def test_a_disguised_sheet_in_a_where_prints_as_its_ascii_sheet(where, sheet):
     assert _verdicts("where", where, sheet) == ACCEPTED
+    # T-005e (ruling 15): the counts print on the "Qty (#)" lines, no "*Qty." note
     note = " ".join(l.text for l in render(_job_with("where", where), SAMPLE).lines
-                    if l.system_key == "EF" and "Qty. " in l.text)
+                    if l.system_key == "EF" and "Qty (" in l.text)
     assert sheet in note and note.isascii(), note
 
 

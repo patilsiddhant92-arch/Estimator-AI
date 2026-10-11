@@ -27,7 +27,8 @@ def test_a_type_tag_once_on_each_of_two_floors_is_a_typical_unit_on_each_plan(tm
             "or area they show: check the schedule's quantity") in line
     assert "different plans" not in line
     (note,) = _note(_family_count(catalogue, reading, "CUH", tmp_path), "Cabinet Unit Heater", ("CUH-A",))
-    assert "(2) per plan placements (likely a typical unit at each place)" in note
+    # T-005e (ruling 15): the counts in brackets on the line, no "*Qty." note
+    assert "(2 per plan placements (likely a typical unit at each place)" in note
     assert "drawn on two plan sheets" not in note
     # a unit's tag (a number in it) once on each of two floors: FINAL-I (lead ruling) adds the two floors' plans up,
     # 2 (FINAL-G 1), names EF-1 in the reading notes and claims no cause in the line's head

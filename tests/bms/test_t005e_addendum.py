@@ -50,7 +50,7 @@ def test_catch_all_lines_take_their_gem_place_among_the_template_lines(draft):
         "Furnish Supply Fan Start/Stop and Status",
         "Furnish Supply Fan VFD Control",
         "Furnish Supply Fan VFD Fault",                               # catch-all point: with the fan signals
-        "Furnish and Install Outside Air Damper Actuator (Qty. 4 per M-601; 2 per M-401)",
+        "Furnish and Install Qty (4) Outside Air Damper Actuator (4 per M-601; 2 per M-401)",   # ruling 15
         "Furnish and Wire Hot Water Control Valve and Actuator",      # written Furnish and Install (GEM v4 ~228)
         "Interlock with Associated Exhaust Fan Operation",            # other Wire / interlock (18)
         "Furnish BMS Communication Wiring to VFD Controls",           # the integration group (19)
@@ -110,18 +110,20 @@ def test_alternatives_print_an_or_line_and_only_the_first_is_priced(draft):
     assert [l.device_id for l in draft.lines if l.text == "OR"] == [None]
 
 
-def test_one_star_note_per_block(draft):
-    notes = lines(draft, "AHU", "note")
-    assert notes == ["*Confirm quantity: invented damper count; Note: Start/Stop via Fire Alarm System; "
-                     "Qty. (2) per M-601; 1 per M-201."]
-    for key in ("AHU", "EF", "CHW", "HW", "FSD"):
-        assert len([t for t in lines(draft, key, "note") if t.startswith("*")]) <= 1
+def test_one_short_star_line_per_item_and_no_quantity_note(draft):
+    # estimator ruling 14 (2026-10-11 afternoon): one short '*' line per item; ruling 15: no separate quantity note,
+    # the family's other counts print on its header line
+    assert lines(draft, "AHU", "note") == ["*Confirm quantity: invented damper count",
+                                           "**Start/Stop via Fire Alarm System"]
+    assert lines(draft, "AHU", "header") == ["Qty (2) Air Handling Units AHU-1, 2 (2 per M-601; 1 per M-201)"]
+    assert not any(t.startswith("*Qty") for l in draft.lines for t in [l.text])
 
 
-def test_a_device_count_note_goes_on_its_own_line(draft):
+def test_a_device_quantity_prints_in_its_own_line(draft):
+    # GEM v4 ~609 and estimator ruling 15: "Qty (#) <device>", its other counts after it
     damper = next(t for t in lines(draft, "AHU") if "Outside Air Damper" in t)
-    assert damper.endswith("(Qty. 4 per M-601; 2 per M-401)")
-    assert "M-401" not in lines(draft, "AHU", "note")[0]
+    assert damper == "Furnish and Install Qty (4) Outside Air Damper Actuator (4 per M-601; 2 per M-401)"
+    assert not any("M-401" in t for t in lines(draft, "AHU", "note"))
 
 
 # ---- pumps (GEM v4 ~346-351), valves (~228, ~291-294) ------------------------------------------------------------
@@ -169,7 +171,7 @@ def test_printed_texts_leaves_out_or_lines_and_added_lines(job, house):
 
 def test_the_existing_front_end_traces_its_tie_in_header_and_template_lines(draft):
     assert [(l.kind, l.text) for l in draft.lines if l.system_key == ""] == [
-        ("header", "Seamlessly Tie in to the Existing Invented Net N9 BMS"),
+        ("header", "Seamlessly Tie in to the Existing Niagara N4 BMS"),
         ("line", "Furnish Network Level Control Panel"),
         ("line", "Furnish 3-D Graphics to match existing"),
         ("line", "Furnish Necessary Training on New Controls")]
@@ -230,3 +232,38 @@ def test_the_proposal_and_price_sheet_write_the_or_line(draft, tmp_path):
     text = [p.text.strip() for p in Document(str(docx)).paragraphs]
     fsd = text.index("Low Voltage Interlock with Associated Unit Fan Starter")
     assert text[fsd + 1] == "OR"
+
+
+# ---- T-005e review (2026-10-11): should-fix items ----------------------------------------------------------------
+
+@pytest.mark.parametrize("text, verb, expected", [
+    ("Furnish Hot Water Valve Position Feedback", "Furnish", 10),     # GEM item 10, not the valves (16)
+    ("Furnish and Wire Leak Detector", "Furnish and Wire", 4),        # by what it is, not by its verb
+    ("Furnish and Wire Current Switch", "Furnish and Wire", 5),
+    ("Furnish and Wire Outside Air Damper Actuator", "Furnish and Wire", 7),
+    ("Furnish Heat Pump Start/Stop", "Furnish", 8),                   # a start/stop is a fan or pump signal
+    ("Furnish and Install Relay Panel", "Furnish and Install", 6),    # a relay panel is relays, not a controller
+    ("Furnish and Wire Steam Humidifier", "Furnish and Wire", 16),    # other Furnish and Wire devices: with the valves
+])
+def test_lines_get_their_gem_category_not_their_verb(text, verb, expected):
+    assert order.position(text, verb) == expected
+
+
+def test_an_overtime_ban_is_no_off_hours_work_but_a_call_beside_it_is():
+    from bms.labor import calls_for_off_hours
+    assert not calls_for_off_hours("Overtime is not permitted.")
+    assert not calls_for_off_hours("No work after hours shall be allowed without the Owner's written approval.")
+    assert calls_for_off_hours("No work in occupied areas by day; all such work shall be performed after hours.")
+    assert calls_for_off_hours("Work in the lobby shall be done between 6:00 PM and 6:00 AM.")
+
+
+def test_labor_conditions_reach_the_review_page_and_the_evidence_package_as_findings():
+    from bms.labor import LABOR_RULE, labor_findings
+    from estimator.scope import LaborCondition
+    condition = LaborCondition(kind="prevailing-wage", text="DE Prevailing Wage Labor Rates Included (As per Spec "
+                               "Section 00 73 46)", source="Spec Section 00 73 46",
+                               quote="Pay the invented prevailing wage rates.")
+    (finding,) = labor_findings((condition,))
+    assert finding.rule == LABOR_RULE and finding.system_key == "" and finding.device_id is None
+    assert finding.severity == "check" and "Spec Section 00 73 46" in finding.what and condition.quote in finding.what
+    assert labor_findings(()) == ()

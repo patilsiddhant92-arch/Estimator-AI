@@ -152,7 +152,8 @@ def test_guard_the_quantity_note_never_prints_an_id_that_is_no_known_sheet(where
     Playbook's labels and numbers; a writer's words reach it only through `place`, which drops any part holding an
     id-shaped token. So every id-shaped token it prints is a known sheet (here: a source sheet)."""
     job = _job_with("where", where)
-    note = " ".join(l.text for l in render(job, SAMPLE).lines if l.system_key == "EF" and "Qty. (" in l.text)
+    # T-005e (ruling 15): the counts print on the "Qty (#)" lines, no "*Qty." note
+    note = " ".join(l.text for l in render(job, SAMPLE).lines if l.system_key == "EF" and "Qty (" in l.text)
     printed = {m.group(0).upper() for m in ONE_ID.finditer(note)}
     assert printed <= set(SOURCE), (where, note)
 

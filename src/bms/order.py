@@ -12,7 +12,7 @@
 - `alternatives(shape_name)`, `alternative_word()`: the Master Template's "OR" groups of slots.
 - `minimum_points()`, `valve_rules()`: the words of the pump minimum and the valve rules.
 - `front_end_rank(text)`, `front_end_entry(text)`, `existing_lines()`: the Master Template's front-end order and its
-  "Extension of Existing" lines.
+  "Extension of Existing" lines; `new_lines()` its New front end's "Default" lines.
 
 The words live in the asset, never here. Pure functions; the asset is read once.
 """
@@ -60,6 +60,7 @@ class _Order:
     integration_first: frozenset[str]
     front_end: tuple[tuple[str, tuple[re.Pattern, ...]], ...]
     existing: tuple[tuple[str, str], ...]
+    new: tuple[tuple[str, str], ...]
     alternatives: dict
     alternative_word: str
     data: dict
@@ -85,6 +86,7 @@ def load(path: str = str(ASSET)) -> _Order:
                   integration_first=frozenset(data.get("integration", {}).get("first_slots", ())),
                   front_end=tuple((e["name"], _patterns(e["words"])) for e in front["order"]),
                   existing=tuple((line["text"], line["match"]) for line in front["existing_lines"]["lines"]),
+                  new=tuple((line["text"], line["match"]) for line in front.get("new_lines", {}).get("lines", ())),
                   alternatives={name: tuple(frozenset(g) for g in groups)
                                 for name, groups in alternatives.get("groups", {}).items()},
                   alternative_word=alternatives.get("word", "OR"), data=data)
@@ -152,6 +154,12 @@ def front_end_entry(text: str) -> str:
     return ""
 
 
+def front_end_entries(text: str) -> set[str]:
+    """Every Master Template front-end entry a line speaks to ("BMS Server Software and Graphics": server, graphics)."""
+    text = (text or "").strip()
+    return {name for name, words in load().front_end if any(w.search(text) for w in words)}
+
+
 def front_end_rank(text: str) -> int:
     """The line's place in the Master Template's front-end order; a line no entry matches ranks after them all."""
     names = [name for name, _ in load().front_end]
@@ -162,3 +170,8 @@ def front_end_rank(text: str) -> int:
 def existing_lines() -> tuple[tuple[str, str], ...]:
     """The Master Template's "Extension of Existing" lines in its order: (the line's text, the entry it matches)."""
     return load().existing
+
+
+def new_lines() -> tuple[tuple[str, str], ...]:
+    """The Master Template's New front-end "Default" lines in its order (3-D Graphics, Training): (text, entry)."""
+    return load().new
