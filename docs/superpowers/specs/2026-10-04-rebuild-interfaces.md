@@ -313,7 +313,8 @@ Constants: TECH_HOUR_BASES, SLOT_KINDS, DEFAULT_ROOT, COUNT_CAUSE_KEYS, DEFAULT_
 ## 5. The functions each workstream fills
 
 ### Workstream 2 — `bms.plan`
-`plan_job(ledger: Ledger, catalogue: Catalogue, dossier: Dossier, playbook: Playbook) -> Job` — the skeleton:
+`plan_job(ledger: Ledger, catalogue: Catalogue, dossier: Dossier, playbook: Playbook, register=None, typicals=()) -> Job`
+(`register`, `typicals`: takeoff Stage 2, T-007, keyword with defaults; None plans as before; see "Stage 2" below) — the skeleton:
 systems with key, name, shape (`playbook.shape_for`, or ""), control, families (tags, Count with highest value,
 sources, others, and `added_up`: the sum over the sheets of one floor and area (the stated counts, or the dossier's
 family total), ruling L1, set only while above the printed count; `plan_read.Reader.family`), sequence_refs,

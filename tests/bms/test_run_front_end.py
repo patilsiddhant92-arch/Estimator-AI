@@ -24,8 +24,8 @@ def with_front_end(monkeypatch):
     """The planner finds a front end in this job's documents: it cites the first passage of the dossier."""
     real = run.plan_job
 
-    def plan(ledger, catalogue, dossier, playbook):
-        job = real(ledger, catalogue, dossier, playbook)
+    def plan(ledger, catalogue, dossier, playbook, **kw):
+        job = real(ledger, catalogue, dossier, playbook, **kw)
         found = re.search(r"^\[(S\d+)\]\s+(.+)$", dossier.text, re.M)
         sid, words = found.group(1), " ".join(found.group(2).split()[:5])
         front = dataclasses.replace(job.front_end, lines=("Furnish an operator workstation",),
