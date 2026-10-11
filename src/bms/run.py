@@ -67,6 +67,7 @@ from bms.coverage import coverage
 from bms.evidence import write_evidence
 from bms.model import Decision, Device, Finding, Header, Job, ModelError, System
 from bms.plan import plan_job
+from bms.takeoff import attach_demolition
 from bms.playbook import load_playbook
 from bms.citations import SourceIds
 from bms.render import RenderError, render
@@ -507,6 +508,9 @@ def _estimate(job_folder: Path, out: Path, cache: Path, mode: Mode, known: dict)
     known["stage"] = "count"
     playbook = load_playbook()
     job = plan_job(ledger, catalogue, dossier, playbook)
+    # T-G1: the Demolition Scope from the units on the job. HarkPro's T-006 moves this call to where the
+    # takeoff register is attached.
+    job = attach_demolition(job)
     job = dataclasses.replace(job, header=Header(
         quote_number=old_header.quote_number, reference=old_header.reference, mep_engineer=old_header.mep_engineer,
         based_on=tuple(old_header.based_on), date=old_header.date.isoformat(), to=old_header.to),

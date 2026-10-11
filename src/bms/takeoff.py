@@ -5,7 +5,9 @@ The Demolition Scope builder below the mark is T-G1.
 """
 from __future__ import annotations
 
-from bms.model import DemolitionLine, Unit
+from dataclasses import replace
+
+from bms.model import DemolitionLine, Job, Unit
 
 # HarkPro: the takeoff reader goes above this line.
 
@@ -52,3 +54,12 @@ def demolition_lines(units: tuple[Unit, ...]) -> tuple[DemolitionLine, ...]:
         lines.append(DemolitionLine(family, action, group["count"], tuple(group["refs"]),
                                     "; ".join(group["notes"])))
     return tuple(lines)
+
+
+def attach_demolition(job: Job) -> Job:
+    """Set `Job.demolition` from the units on the job (T-G1).
+
+    The run calls this after `plan_job`. HarkPro's T-006 moves the call to the point where the takeoff register
+    is attached. A job with no units keeps an empty Demolition Scope.
+    """
+    return replace(job, demolition=demolition_lines(job.units))
