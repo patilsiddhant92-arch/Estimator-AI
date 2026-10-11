@@ -142,9 +142,12 @@ def test_the_mechanical_contractor_has_no_bracket_for_condensate_pumps_or_contro
     assert PLAYBOOK.wording.owner_brackets["Mechanical Contractor"] == " (Furnished by Mechanical Contractor)"
 
 
-def test_the_higher_count_rule_asks_for_the_quantity_note_with_both_numbers():
+def test_the_higher_count_rule_prints_the_other_counts_in_the_same_line():
+    # ruling 15 of 2026-10-11: no separate quantity note; the other counts print in the line
     text = plain(PLAYBOOK.rule("Higher count prints").text)
-    assert "prints in the block's \"*\" quantity note" in text and "with both numbers" in text
+    assert ("Every count that differs from the printed one prints in the same line "
+            "(see Quantities print in the line).") in text
+    assert "quantity note" not in text
 
 
 # ---- the shapes -----------------------------------------------------------------------------------------------------
