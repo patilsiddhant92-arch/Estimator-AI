@@ -46,7 +46,7 @@ def _system(key: str, name: str, shape: str, families: list[tuple[str, tuple[str
 
 def _draft(job, house, system):
     from dataclasses import replace
-    return render(replace(job, systems=(system,)), house)
+    return render(replace(job, systems=(system,), demolition=()), house)
 
 
 # the entries whose Master Template text prints a group line over the stacked Qty headers, with invented families
