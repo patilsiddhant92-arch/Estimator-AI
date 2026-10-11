@@ -1,0 +1,15 @@
+{
+  "about": "T-005c regression fixture (NOTES 2026-10-11 rule 4). An INVENTED copy of the 26-0544 proposal defects: the cover header was read from the takeoff folder's own name ('1. Base Takeoff') instead of the job folder that holds '2. Takeoffs', and an existing BMS that is not one of AME's three (Schneider) printed plain with no flag. Same folder forms ('<job no>, <project> - Rplc of ..., <state>' / '2. Takeoffs' / '1. Base Takeoff') as the job; every name and number here is invented.",
+  "job_folder": "26-8123, Invented Valley Library - Rplc of Rooftop Units & Unit Ventilators, PA",
+  "takeoff_roots": [
+    ["Jobs", "{job}", "2. Takeoffs", "1. Base Takeoff"],
+    ["Jobs", "{job}", "2. Takeoffs", "1. Base Takeoff", "Mech"],
+    ["Jobs", "{job}", "2. Takeoffs"]
+  ],
+  "expected_header": {"quote_number": "26-8123",
+                      "reference": "Invented Valley Library - Rplc of Rooftop Units & Unit Ventilators, PA"},
+  "never_printed": ["Base Takeoff", "2. Takeoffs", "[project name]"],
+  "no_job_folder_root": ["Jobs", "Loose Drawings", "1. Base Takeoff"],
+  "non_ame_bms": ["Schneider Electric", "Schneider EcoStruxure", "Schneider"],
+  "ame_bms": ["Niagara N4", "Honeywell WEBs"]
+}
