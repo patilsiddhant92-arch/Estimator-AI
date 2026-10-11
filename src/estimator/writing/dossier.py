@@ -56,7 +56,8 @@ IMAGE_VERSION = 1            # raise when the way pictures are rendered changes
 IMAGES_FOLDER = "dossier-images"
 PLAN_NOTES_LIMIT = 3_000     # characters of one sheet's notes in 7b
 PLAN_NOTE_DISCIPLINES = ("Mechanical", "Controls", "Plumbing")
-PLAN_TEXT_LIMIT = 8_000     # characters of one plan sheet's own text in 7c (repeats collapsed first)
+PLAN_TEXT_LIMIT = 24_000    # characters of one plan sheet's own text in 7c (repeats collapsed first; T-005d: 8,000 cut a
+                            # general notes sheet's BMS notes off)
 PLAN_TEXT_TOTAL = 400_000   # characters of all plan sheets' text in 7c
 
 _QUANTITY_HEADERS = ("QTY", "QUANTITY", "NO OF UNITS", "NO. OF UNITS", "NUMBER OF UNITS", "NO. REQ'D", "NO REQD",

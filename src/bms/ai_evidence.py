@@ -17,6 +17,10 @@ from bms.model import Ref, System
 
 JOB, SEQUENCE, POINTS, SCHEDULES, COUNTS, DEVICES, NOTES, SPEC = 1, 2, 3, 4, 5, 6, 7, 8
 NOTES_LIMIT = 12_000            # characters of notes naming the system, in one system's evidence
+EXCERPT_OVER = 1_500            # a plan sheet's text longer than this is given as excerpts about the system (T-005d)
+EXCERPT_REACH = 300             # characters each side of a mention in an excerpt
+EXCERPTS_MAX = 12               # excerpts of one sheet's text
+FACTS_MAX = 60                  # ledger facts listed in the checklist of one system's evidence
 SPEC_LIMIT = 12_000             # characters of controls spec passages, in one system's evidence
 RANGE_LIMIT = 200               # a tag range longer than this is not expanded
 
@@ -32,6 +36,30 @@ _DEVICE_SHEETS = re.compile(r"—\s*(.+)$")
 _PICTURE_ID = re.compile(r"\bI\d+\b")
 _INTEGRATION_WORDS = re.compile(r"integrat|gateway|bacnet|modbus|lonworks|interface|protocol", re.I)
 _SCHEDULE_NOTE = ("Note:", "Unit controls by:")
+# ---- T-005d: what the writer must see and act on (rulings 6, 7, 10; addendum) -------------------------------------
+SHEET_TEXT_PLACE = "7c PLAN SHEET TEXT"     # the place line the dossier puts over the plan sheets' own text
+# a sheet whose title says it draws the controls: its text is given whole and before any other sheet's
+_CONTROLS_SHEET = re.compile(r"\b(?:CONTROLS?|SEQUENCES?|POINTS?|DIAGRAMS?|SCHEMATICS?|BMS|BAS|ATC|DDC)\b", re.I)
+# words a passage marks an item with: FUTURE (ruling 7), shipped loose or field mounted (ruling 10), furnished in
+# the unit (an item to notice, ruling 7)
+_FUTURE = re.compile(r"\bFUTURE\b|[\[(]\s*future\s*[\])]")
+_LOOSE = re.compile(r"\bship(?:ped|s)?\s+loose\b|\bloose\b[^.]{0,30}\bfield\b|\bfield[\s-]+(?:mounted|installed)\b"
+                    r"|\bmounted\s+in\s+(?:the\s+)?(?:supply|return|exhaust|outside|outdoor|mixed)[\w\s]{0,12}duct\b",
+                    re.I)
+_NOTICE = re.compile(r"\b(?:integral|factory[\s-]*(?:furnished|installed|mounted|provided|wired)|furnished\s+(?:with|by)"
+                     r"\s+(?:the\s+)?(?:unit|manufacturer|factory))\b", re.I)
+_END_DEVICE = re.compile(r"\b(?:sensors?|(?<!disconnect )switch(?:es)?|thermostats?|detectors?|freezestats?|aquastats?|stats?|"
+                         r"actuators?|transmitters?|(?:flow|airflow|measuring)\s+stations?|relays?|monitors?|meters?|"
+                         r"transducers?)\b", re.I)
+# the front end's own words in a note: the BMS, its network, its graphics and training, integration
+_FRONT_END_TEXT = re.compile(r"\b(?:BMS|BAS|EMS|building\s+(?:management|automation)|front[\s-]*end|graphics?|"
+                             r"training|workstation|network|integrat\w*|BACnet|niagara|tridium|schneider|"
+                             r"controls?\s+(?:contractor|vendor))\b", re.I)
+# the front end's scope words in the sequence, the spec and the job's own passages: its lines (graphics, training, the
+# workstation, the network panel) and who may integrate (an approved or prequalified integrator: a question)
+_FRONT_END_SCOPE = re.compile(r"\b(?:front[\s-]*end|graphics?|training|workstations?|network\s+(?:area|level|server)?\s*"
+                              r"(?:controllers?|panels?)|integrators?|prequalified|pre-qualified|eligib\w*|"
+                              r"certified\s+(?:integrator|installer|contractor)|existing\s+(?:BMS|BAS|front))\b", re.I)
 # A name that is only a general kind of equipment says nothing about which units: "Pump" names every sump, booster
 # and circulation pump of the job. The planner asks about such a family (bms.plan) and reads this set too.
 GENERAL_KINDS = frozenset({"fan", "fans", "equipment", "unit", "units", "pump", "pumps", "heater", "heaters",
@@ -187,8 +215,11 @@ def _about(system: System) -> _About:
 
 # ---- one system's evidence ---------------------------------------------------------------------------------------
 
-def evidence(system: System, text: str, sources: dict[str, str], sections: dict, images, schedules=()) -> str:
-    """The evidence one system is written from (see `bms.ai.evidence_for`)."""
+def evidence(system: System, text: str, sources: dict[str, str], sections: dict, images, schedules=(),
+             ledger=None, front_end: bool = False) -> str:
+    """The evidence one system is written from (see `bms.ai.evidence_for`). `ledger` (the reading's facts) adds the
+    checklist of the controls facts about it (`_facts_checklist`); `front_end` is the front end's evidence, whose
+    notes are the ones in the front end's own words (the BMS, its network, graphics, training, integration)."""
     about = _about(system)
     entries = parse(text)
     by_part: dict[int, list[Entry]] = {}
@@ -245,7 +276,8 @@ def evidence(system: System, text: str, sources: dict[str, str], sections: dict,
         if heading and heading.group(1) not in wanted and about.names(heading.group(2)):
             wanted.append(heading.group(1))
     chosen = [e for e in sequence if (e.section in wanted and (e.sid or _SECTION.match(e.text)))
-              or (e.sid and (e.sid in cited or about.names(e.body)))]
+              or (e.sid and (e.sid in cited or about.names(e.body)
+                             or (front_end and _FRONT_END_SCOPE.search(e.body))))]
     block("The sequence of operation for this system:", chosen)
     in_sections = {sid for q in wanted if q in sections for sid in sections[q][1]}
 
@@ -276,14 +308,15 @@ def evidence(system: System, text: str, sources: dict[str, str], sections: dict,
             devices.append(entry)
     block("Devices counted on the plan sheets it is on:", devices)
 
-    # 5. the notes naming it
-    block("Notes that name it:", [e for e in by_part.get(NOTES, []) if e.sid and (e.sid in cited or about.names(e.body))],
-          NOTES_LIMIT)
+    # 5. the notes naming it: a controls sheet's text whole and first, a long plan sheet's text as excerpts about it,
+    # a note repeated word for word once (T-005d: the controls diagram reached no writer behind the plan sheets)
+    block("Notes that name it:", _notes(by_part.get(NOTES, []), about, cited, front_end), NOTES_LIMIT)
 
     # 6. the controls specification passages about it (and about integration, for an integrated system)
     integrated = system.control in ("integration", "packaged")
     block("Controls specification passages about it:",
           [e for e in by_part.get(SPEC, []) if e.sid and (e.sid in cited or about.names(e.body)
+                                                          or (front_end and _FRONT_END_SCOPE.search(e.body))
                                                           or (integrated and _INTEGRATION_WORDS.search(e.body)
                                                               and not _names_another(e.body, about, elsewhere)))],
           SPEC_LIMIT)
@@ -291,13 +324,21 @@ def evidence(system: System, text: str, sources: dict[str, str], sections: dict,
     # 7. who does what, for the whole job (ownership), and the job part's passages naming it
     block("Who does what (whole job) and the job's own passages about it:",
           [e for e in by_part.get(JOB, []) if e.sid and (e.sid in cited or e.body.startswith("Who does what")
-                                                         or about.names(e.body))])
+                                                         or about.names(e.body)
+                                                         or (front_end and _FRONT_END_SCOPE.search(e.body)))])
 
     # 8. anything else the planner cited
     rest = [e for e in entries if e.sid and e.sid in cited and e.sid not in given]
     block("Other passages cited for it:", rest)
 
-    # 9. the pictures it cites or its passages name
+    # 9. the checklists (T-005d): the words that mark an item, the end devices its unit schedules list, and the
+    # controls facts the reading found about it. Each ends as a line, the clarification or the no-scope reason.
+    out.extend(_marks_checklist(out))
+    out.extend(_end_devices_checklist(chosen_schedules, cited))
+    if ledger is not None:
+        out.extend(_facts_checklist(ledger, about, front_end))
+
+    # 10. the pictures it cites or its passages name
     named = set(re.findall(r"\bI\d+\b", "\n".join(out))) | {c for c in about.cited if _PICTURE_ID.fullmatch(c)}
     pictures = [(pid, image) for pid, image in _picture_ids(sources, images) if pid in named]
     if pictures:
@@ -305,6 +346,213 @@ def evidence(system: System, text: str, sources: dict[str, str], sections: dict,
         for pid, image in pictures:
             out.append(f"[{pid}] Picture: {sources.get(pid) or getattr(image, 'what', '')}. File: {image.path}")
     return "\n".join(out) + "\n"
+
+
+# ---- T-005d: the notes, the excerpts and the checklists --------------------------------------------------------
+
+def _sheet_title(entry: Entry) -> str:
+    """A plan sheet text entry's place and title: the words before its first colon."""
+    return entry.body.split(":", 1)[0]
+
+
+def _is_sheet_text(entry: Entry) -> bool:
+    return entry.place == SHEET_TEXT_PLACE
+
+
+def _is_controls_sheet(entry: Entry) -> bool:
+    return _is_sheet_text(entry) and bool(_CONTROLS_SHEET.search(_sheet_title(entry)))
+
+
+def _word_window(text: str, start: int, end: int) -> tuple[int, int]:
+    """The span widened by EXCERPT_REACH each side, to whole words."""
+    lo, hi = max(0, start - EXCERPT_REACH), min(len(text), end + EXCERPT_REACH)
+    while lo > 0 and not text[lo - 1].isspace():
+        lo -= 1
+    while hi < len(text) and not text[hi].isspace():
+        hi += 1
+    return lo, hi
+
+
+def _mentions(text: str, about: _About, front_end: bool) -> list[tuple[int, int]]:
+    """Where the text names the system (a tag, a range holding one, a name phrase), or the front end's words, and
+    where it marks an item (FUTURE, shipped loose)."""
+    spans: list[tuple[int, int]] = []
+    for m in _TAG.finditer(text):
+        if plain_tag(m.group(1) + m.group(2)) in about.tags:
+            spans.append(m.span())
+    for m in _RANGE.finditer(text):
+        if about.tags & tags_in(m.group(0)):
+            spans.append(m.span())
+    if not about.tags:          # a tagged system is found by its tags: its name is in every sheet's title block
+        for phrase in about.phrases:
+            spans += [m.span() for m in phrase.finditer(text)]
+    if front_end:
+        spans += [m.span() for m in _FRONT_END_TEXT.finditer(text)]
+    if spans:
+        spans += [m.span() for m in _FUTURE.finditer(text)] + [m.span() for m in _LOOSE.finditer(text)]
+    return sorted(spans)
+
+
+def _excerpt(entry: Entry, about: _About, front_end: bool) -> Entry:
+    """A long plan sheet's text as the excerpts about the system: each mention with EXCERPT_REACH characters each
+    side, joined where they meet, at most EXCERPTS_MAX, in the sheet's order, split by " … ". Each excerpt is the
+    sheet's own words, so a quote from one is in its source. A short text, or one with no mention, is kept whole."""
+    body = entry.body
+    head, colon, rest = body.partition(":")
+    if not colon or len(rest) <= EXCERPT_OVER:
+        return entry
+    spans = _mentions(rest, about, front_end)
+    if not spans:
+        return entry
+    windows: list[list[int]] = []
+    for start, end in spans:
+        lo, hi = _word_window(rest, start, end)
+        if windows and lo <= windows[-1][1]:
+            windows[-1][1] = max(windows[-1][1], hi)
+        else:
+            windows.append([lo, hi])
+    shown = windows[:EXCERPTS_MAX]
+    pieces = [" ".join(rest[lo:hi].split()) for lo, hi in shown]
+    more = len(windows) - len(shown)
+    tail = f" ({more} more excerpts not given)" if more > 0 else ""
+    text = f"[{entry.sid}] {head} (excerpts about it): … " + " … ".join(pieces) + " …" + tail
+    return Entry(entry.sid, text, entry.part, entry.place, entry.section)
+
+
+def _notes(entries: list[Entry], about: _About, cited: set[str], front_end: bool) -> list[Entry]:
+    """The notes for one system's evidence, in order of need: the cited ones, the controls sheets' text (whole: the
+    control diagram and its points), the notes, then the other plan sheets' text as excerpts about it. A note whose
+    words repeat an earlier one is given once (its first id), unless cited."""
+    def wanted(e: Entry) -> bool:
+        if not e.sid:
+            return False
+        if e.sid in cited:
+            return True
+        # a plan sheet's text names a tagged system by a tag: the project title in its title block ("replacement of
+        # air handling units") names it on every sheet
+        if (about.names_tag(e.body) if (about.tags and _is_sheet_text(e)) else about.names(e.body)):
+            return True
+        return front_end and bool(_FRONT_END_TEXT.search(e.body))
+
+    chosen = [e for e in entries if wanted(e)]
+    seen: set[str] = set()
+    unique: list[Entry] = []
+    for e in chosen:
+        key = " ".join(e.body.split()).casefold()
+        if key in seen and e.sid not in cited:
+            continue
+        seen.add(key)
+        unique.append(e)
+    first = [e for e in unique if e.sid in cited]
+    controls = [e for e in unique if e.sid not in cited and _is_controls_sheet(e)]
+    notes = [e for e in unique if e.sid not in cited and not _is_sheet_text(e)]
+    sheets = [_excerpt(e, about, front_end) for e in unique
+              if e.sid not in cited and _is_sheet_text(e) and not _is_controls_sheet(e)]
+    return first + controls + notes + sheets
+
+
+_SENTENCE_END = re.compile(r"(?<=[.;])\s+")
+
+
+def _windows(body: str, pattern: re.Pattern, reach: int = 120) -> list[str]:
+    """Each place `pattern` matches in the body, with up to `reach` characters each side, cut to whole words."""
+    found: list[str] = []
+    for m in pattern.finditer(body):
+        lo, hi = max(0, m.start() - reach), min(len(body), m.end() + reach)
+        while lo > 0 and not body[lo - 1].isspace():
+            lo -= 1
+        while hi < len(body) and not body[hi].isspace():
+            hi += 1
+        piece = " ".join(body[lo:hi].split())
+        if piece and piece not in found:
+            found.append(piece)
+    return found
+
+
+def _marks_checklist(lines: list[str]) -> list[str]:
+    """The passages of the evidence so far that mark an item FUTURE (ruling 7: its own line, mark "future") and the
+    ones that say an item is furnished integral or by the factory (mark "notice"), each as "[id] “words”": the
+    words are the passage's own, so they can be quoted."""
+    future: list[str] = []
+    notice: list[str] = []
+    for entry in parse("\n".join(lines)):
+        if not entry.sid or entry.sid.startswith("I"):
+            continue
+        body = entry.body
+        future += [f"[{entry.sid}] “{w}”" for w in _windows(body, _FUTURE)]
+        if _END_DEVICE.search(body):
+            notice += [f"[{entry.sid}] “{w}”" for w in _windows(body, _NOTICE, 80) if _END_DEVICE.search(w)]
+    out: list[str] = []
+    if future:
+        out += ["", "Items its passages mark FUTURE (an item of this system is a line of its own with mark \"future\" "
+                "and mark_note \"FUTURE AS PER <the document in a few words>\"):", *dict.fromkeys(future)]
+    if notice:
+        out += ["", "Devices its passages say are integral or furnished with the unit (the estimator must notice "
+                "each: when it is a line, mark it \"notice\"):", *list(dict.fromkeys(notice))[:20]]
+    return out
+
+
+def _end_devices_checklist(schedule_entries: Iterable[Entry], cited: set[str]) -> list[str]:
+    """The end devices its unit schedules list, in their rows and notes (ruling 10): the ids, so the writer reads each
+    into scope (a device shipped loose or mounted in the field is AME's to install and wire)."""
+    loose: list[str] = []
+    devices: list[str] = []
+    for entry in schedule_entries:
+        if not entry.sid:
+            continue
+        body = entry.body
+        if _LOOSE.search(body) and entry.sid not in loose:
+            loose.append(entry.sid)
+        elif _END_DEVICE.search(body) and entry.sid not in devices:
+            devices.append(entry.sid)
+    out: list[str] = []
+    if loose or devices:
+        out += ["", "End devices its unit schedules list (each ends as a line, or in the clarification; a device the "
+                "schedule says ships loose or is mounted in a duct or in the field is installed and wired by AME):"]
+        if loose:
+            out.append("- shipped loose or mounted in the field: " + ", ".join(loose))
+        if devices:
+            out.append("- listed with the unit (furnished with it; a line for one is marked \"notice\"): "
+                       + ", ".join(devices))
+    return out
+
+
+def _fact_text(fact) -> str:
+    value = "" if fact.value is None else " ".join(str(fact.value).split())
+    return f"{fact.kind.replace('_', ' ')} {fact.subject}" + (f" = {value}" if value else "")
+
+
+def _facts_checklist(ledger, about: _About, front_end: bool) -> list[str]:
+    """The controls facts the reading found about this system (the coverage gate's facts, `bms.coverage.SCOPE_KINDS`),
+    each as "[source id] “quote” — where (read as: kind subject = value)", so the writer ends each one as a line, the
+    clarification or the no-scope reason (critique flow step 5) instead of the gate finding it uncited afterwards."""
+    from bms.coverage import SCOPE_KINDS
+    from estimator.ledger.facts import where_short
+    lines: list[str] = []
+    for fact in getattr(ledger, "facts", {}).values():
+        if fact.kind not in SCOPE_KINDS:
+            continue
+        said = f"{fact.subject} {'' if fact.value is None else fact.value}"
+        mine = (fact.kind == "front_end") if front_end else (fact.kind != "front_end" and
+                                                              (about.names(said) or about.names_tag(fact.quote or "")))
+        if not mine:
+            continue
+        sid = str(fact.source_id or "").strip().strip("[]")
+        if not sid or not str(fact.quote or "").strip():
+            continue
+        where = where_short(getattr(ledger, "sources", {}).get(sid, ""))
+        line = f"[{sid}] “{' '.join(str(fact.quote).split())}”" + (f" — {where}" if where else "")
+        lines.append(f"{line} (read as: {_fact_text(fact)})")
+    lines = list(dict.fromkeys(lines))
+    if not lines:
+        return []
+    shown = lines[:FACTS_MAX]
+    out = ["", "Controls facts the reading found about it (each ends as a line that cites it, the block's "
+           "clarification, or the no_scope_reason; one that is not AME's work is left out and goes to the estimator):",
+           *shown]
+    if len(lines) > len(shown):
+        out.append(f"({len(lines) - len(shown)} more facts not listed)")
+    return out
 
 
 def _other_kinds(entries: list[Entry], about: _About) -> list[re.Pattern]:
@@ -530,6 +778,22 @@ def pictures(evidence_text: str) -> list[tuple[str, str, str]]:
     return [(m.group(1), m.group(2), m.group(3)) for m in _PICTURE_LINE.finditer(evidence_text or "")]
 
 
+# the evidence's blocks whose passages state facts a line may rest on without an assumption (ruling 6)
+STATED_TITLES = ("The sequence of operation for this system:", "Points list rows for its equipment:",
+                 "Its schedule rows and the schedules' notes:")
+
+
+def stated_ids(evidence_text: str) -> frozenset[str]:
+    """The source ids the evidence gives under its sequence, points list and schedule blocks."""
+    found: set[str] = set()
+    for chunk in (evidence_text or "").split("\n\n"):
+        title, _, rest = chunk.partition("\n")
+        if title.strip() in STATED_TITLES:
+            found |= {m.group(1) for m in _ENTRY_ID.finditer(rest)}
+    return frozenset(found)
+
+
+_ENTRY_ID = re.compile(r"^\[([A-Z]{1,3}\d+[a-z]?)\]", re.M)
 _CITED = re.compile(r"\[([A-Z]{1,3}\d+[a-z]?)\]")
 
 

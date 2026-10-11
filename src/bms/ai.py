@@ -78,6 +78,7 @@ QC_PART_LIMIT = 400_000             # characters of job and sources in one QC re
 SOURCE_TEXT_LIMIT = 20_000          # characters of one source's text in a QC request
 MAX_PROBLEMS = 8                    # problems named in a refusal
 PROMPTS = Path(__file__).resolve().parent / "prompts"
+LATE_DEVICE_FIELDS = {"mark": "", "mark_note": ""}     # Device fields added later (T-005c/T-005d): missing is empty
 LATE_FIELDS = {"no_scope_reason": None, "serves": []}  # System fields added after answers were written: missing
 #                                                       means this value
 CITES_RULE = RULE["cites"]          # the rule the mechanical quote check reports under
@@ -545,6 +546,24 @@ class ChatTransport(_IntakeLog):
         return NoAnswer(self.last_error, waiting=True)
 
 
+def _late_device_fields(answer, schema: dict) -> None:
+    """Fill the Device fields added to the contract after answers were written (`LATE_DEVICE_FIELDS`), in place, on
+    each device of a System answer whose schema has them: a cached answer from before stays usable."""
+    if not isinstance(answer, dict):
+        return
+    try:
+        device_schema = schema["properties"]["devices"]["items"]["properties"]
+    except (KeyError, TypeError):
+        return
+    for device in answer.get("devices") or ():
+        if isinstance(device, dict):
+            for name, empty in LATE_DEVICE_FIELDS.items():
+                if name in device_schema and name not in device:
+                    device[name] = empty
+            if isinstance(device.get("mark"), str):         # "Future" is "future": a slip of case, not a refusal
+                device["mark"] = device["mark"].strip().lower()
+
+
 def _read_answer(path: Path, schema: dict) -> tuple[dict | None, list[str]]:
     try:
         answer = json.loads(path.read_text(encoding="utf-8-sig"))
@@ -556,6 +575,7 @@ def _read_answer(path: Path, schema: dict) -> tuple[dict | None, list[str]]:
         for name, empty in LATE_FIELDS.items():     # a field added to the contract later: missing means empty
             if name in schema.get("properties", {}) and name not in answer:
                 answer[name] = json.loads(json.dumps(empty))
+    _late_device_fields(answer, schema)
     errors = schema_errors(answer, schema)
     return (None, errors) if errors else (answer, [])
 
@@ -687,6 +707,7 @@ def _answer_of(response, q: _Question) -> dict:
         for name, empty in LATE_FIELDS.items():     # a field added to the contract later: missing means empty
             if name in q.schema.get("properties", {}) and name not in answer:
                 answer[name] = json.loads(json.dumps(empty))
+    _late_device_fields(answer, q.schema)
     errors = schema_errors(answer, q.schema)
     if errors:
         raise _BadAnswer(f"the answer for {q.name} could not be read: {_problems(errors)}")
@@ -756,9 +777,24 @@ def evidence_for(system: System, dossier: Dossier) -> str:
 
     When the dossier carries the reading's schedule objects, each included schedule is a small table — its columns,
     then the rows for this system's tags — instead of the flat dossier lines. The source id stays at the start of
-    the title, of each row and of each note."""
+    the title, of each row and of each note.
+
+    T-005d: a controls sheet's own text (its title names controls, a sequence, points or a diagram) comes first among
+    the notes and whole; another long plan sheet's text is given as excerpts about the system; a note repeated word
+    for word is given once. Then the checklists: the passages that mark an item FUTURE or furnished integral with the
+    unit, the end devices its unit schedules list, and, with `ledger`, the controls facts the reading found about it
+    (the coverage gate's facts), so each one ends as a line, the clarification or the no-scope reason. `front_end`:
+    the front end's evidence (its notes are those in the front end's own words)."""
+    return system_evidence(system, dossier)
+
+
+def system_evidence(system: System, dossier: Dossier, ledger=None, *, front_end: bool = False) -> str:
+    """`evidence_for` with the reading's ledger (T-005d): the same passages, then the checklist of the controls facts
+    the reading found about the system, so the writer ends each as a line, the clarification or the no-scope reason
+    (the coverage gate reports what is still uncited after). `front_end`: the front end's evidence."""
     return ai_evidence.evidence(system, dossier.text, dict(dossier.sources or {}),
-                                _sections_of(dossier), dossier.images, dossier.schedules)
+                                _sections_of(dossier), dossier.images, dossier.schedules, ledger=ledger,
+                                front_end=front_end)
 
 
 def _sections_of(dossier: Dossier) -> dict:
@@ -1125,7 +1161,8 @@ def _check_system(answer, skeleton: System, shape: Shape | None, known: frozense
                   source_sheets: Sequence[str] = (),
                   index: Mapping[str, str] | None = None,
                   recount: bool = False, block: Mapping | None = None,
-                  revise: frozenset[str] = frozenset(), hold: frozenset[str] = frozenset()
+                  revise: frozenset[str] = frozenset(), hold: frozenset[str] = frozenset(),
+                  stated: frozenset[str] = frozenset()
                   ) -> tuple[System | None, list[str]]:
     """A System answer made usable, or the problems that stop it: the skeleton's fields win; untouched devices
     (`keep`) are put back as they were; labels come off the client texts (`_normalise`, each change added to
@@ -1138,7 +1175,14 @@ def _check_system(answer, skeleton: System, shape: Shape | None, known: frozense
     name devices) the block's clarifications, tech hours and no-scope reason are the original's (AI-10). With
     `revise` (a revise whose must_fix findings about the whole block ask for it, `_revisions`: "count",
     "alternate") the answer may correct a family's count or the alternate, each checked against the evidence
-    (`_corrections`); a family named in `hold` keeps its count."""
+    (`_corrections`); a family named in `hold` keeps its count.
+
+    T-005d: a device's mark is "", "future" or "notice"; a "future" line carries a mark_note "FUTURE AS PER <source>"
+    (filled from its ref's place when the answer gave none), a line quoting a passage that marks it FUTURE is marked
+    "future" on intake, and a mark_note is dropped from an unmarked line (`_marks`). An assumption that says a schedule,
+    the sequence or a points list states the fact, on a line citing one of them (`stated`: the evidence's ids of those
+    parts, `ai_evidence.stated_ids`), is no assumption: it is dropped and an "assumed" flag cleared (ruling 6). A flag
+    text that runs long is refused (`_length_problems`): the reason belongs in the Evidence Package."""
     from bms.counts import NO_SOURCE_QUOTE
     if not isinstance(answer, dict):
         return None, ["the answer is not a JSON object"]
@@ -1150,11 +1194,16 @@ def _check_system(answer, skeleton: System, shape: Shape | None, known: frozense
     if keep:
         answer = dict(answer, devices=_put_back(answer.get("devices"), keep, originals,
                                                 skeleton.families if recount else (), skeleton.key))
+    _late_device_fields(answer, json_schema(System))
     errors = schema_errors(answer, json_schema(System))
     if errors:
         return None, [f"it breaks the schema at {e.removeprefix('$.')}" for e in errors]
     kept_ids = {d.id for d in keep}
-    problems = _normalise(answer, skeleton, kept_ids, changes if changes is not None else [], known, tags, ids,
+    log = changes if changes is not None else []
+    mark_problems = _marks(answer["devices"], kept_ids, log)
+    _stated_not_assumed(answer["devices"], kept_ids, stated, log)
+    problems = mark_problems + _length_problems(answer, kept_ids)
+    problems += _normalise(answer, skeleton, kept_ids, changes if changes is not None else [], known, tags, ids,
                           sheets, source_sheets)
     for n, device in enumerate(answer["devices"]):
         value = device["quantity"]["value"]
@@ -1224,6 +1273,108 @@ def _check_system(answer, skeleton: System, shape: Shape | None, known: frozense
         return None, [str(error)]
 
 
+# ---- T-005d: marks, stated facts and short flags ---------------------------------------------------------------------
+
+MARKS = ("", "future", "notice")
+FUTURE_NOTE = "FUTURE AS PER"
+MARK_NOTE_LIMIT = 120               # characters of a mark_note
+ASSUMPTION_LIMIT = 300              # characters of an assumption's what and why together
+CLARIFICATION_LIMIT = 500           # characters of a clarification
+_FUTURE_WORD = re.compile(r"\bFUTURE\b|[\[(]\s*future\s*[\])]")
+_SHEET_LIKE = re.compile(r"^[A-Z]{1,3}[- ]?\d[\w.\-]*$")
+_STATED = re.compile(r"\b(?:schedules?|sequences?(?:\s+of\s+operations?)?|points?\s+lists?)\b[^.;]{0,40}?\b(?:states?|"
+                     r"stated|says|said|shows?|shown|calls?\s+for|specif(?:y|ies|ied)|requires?|indicates?|notes?|"
+                     r"gives?)\b", re.I)
+
+
+def _future_source(refs: Sequence[dict]) -> str:
+    """The document a FUTURE mark is as per, in a few words from its ref's place: "sheet M-710.00" for a sheet, else
+    the place as given (the first ref that quotes FUTURE, else the first ref)."""
+    ref = next((r for r in refs if _FUTURE_WORD.search(str(r.get("quote", "")))), refs[0] if refs else {})
+    place = str(ref.get("where", "")).split(",", 1)[0].strip()
+    if not place:
+        return "the drawings"
+    return f"sheet {place}" if _SHEET_LIKE.match(place) else place
+
+
+def _marks(devices: list[dict], kept_ids: set[str], changes: list[str]) -> list[str]:
+    """Each written device's mark and mark_note made usable, in place (ruling 7). A mark outside `MARKS` refuses the
+    answer. A line whose ref quotes a passage that marks it FUTURE is marked "future"; a "future" line's mark_note
+    starts "FUTURE AS PER" (its source's place when the answer gave none; the renderer adds the brackets); an unmarked
+    line keeps no mark_note. Each change is logged; a mark_note over MARK_NOTE_LIMIT characters refuses the answer."""
+    problems: list[str] = []
+    for n, device in enumerate(devices):
+        if device.get("id") in kept_ids:
+            continue
+        label = f"device {device.get('id') or n + 1}"
+        mark = str(device.get("mark") or "").strip().lower()
+        note = " ".join(str(device.get("mark_note") or "").split()).strip("()[] ")
+        if mark not in MARKS:
+            problems.append(f"{label} has the mark {device.get('mark')!r}: a mark is \"\", \"future\" or \"notice\"")
+            continue
+        refs = list(device.get("refs") or ())
+        if not mark and any(_FUTURE_WORD.search(str(r.get("quote", ""))) for r in refs):
+            mark = "future"
+            changes.append(f"{label}: marked future, as its source marks it FUTURE")
+        if mark == "future":
+            if not note:
+                note = f"{FUTURE_NOTE} {_future_source(refs)}"
+                changes.append(f"{label}: mark_note written as {note!r}")
+            elif not note.upper().startswith("FUTURE"):
+                new = f"{FUTURE_NOTE} {note}"
+                changes.append(f"{label}: mark_note {note!r} written as {new!r}")
+                note = new
+        elif not mark and note:
+            changes.append(f"{label}: mark_note {note!r} dropped: the line has no mark")
+            note = ""
+        if len(note) > MARK_NOTE_LIMIT:
+            problems.append(f"{label}'s mark_note runs to {len(note)} characters: keep it to the source, at most "
+                            f"{MARK_NOTE_LIMIT} (\"{FUTURE_NOTE} control schematic on sheet M-1.00\")")
+        device["mark"], device["mark_note"] = mark, note
+    return problems
+
+
+def _stated_not_assumed(devices: list[dict], kept_ids: set[str], stated: frozenset[str],
+                        changes: list[str]) -> None:
+    """Ruling 6: never "Assumed" when a cited schedule or sequence states the fact. An assumption whose words say a
+    schedule, the sequence or a points list states it, on a line that cites one of them (`stated`), is dropped in
+    place and an "assumed" flag cleared; each change is logged."""
+    if not stated:
+        return
+    for n, device in enumerate(devices):
+        assumption = device.get("assumption")
+        if device.get("id") in kept_ids or not assumption:
+            continue
+        words = f"{assumption.get('what', '')} {assumption.get('why', '')}"
+        cites = {str(r.get("source_id", "")).strip().strip("[]") for r in device.get("refs") or ()}
+        if _STATED.search(words) and cites & stated:
+            label = f"device {device.get('id') or n + 1}"
+            changes.append(f"{label}: assumption {words.strip()!r} dropped: the schedule or sequence it cites states it")
+            device["assumption"] = None
+            if device.get("flag") == "assumed":
+                device["flag"] = "none"
+
+
+def _length_problems(answer: dict, kept_ids: set[str]) -> list[str]:
+    """A flag text that runs long: an assumption over ASSUMPTION_LIMIT characters, a clarification over
+    CLARIFICATION_LIMIT. The flag stays short; the reason is in the line's refs and the Evidence Package."""
+    problems: list[str] = []
+    for n, device in enumerate(answer["devices"]):
+        assumption = device.get("assumption")
+        if device.get("id") in kept_ids or not assumption:
+            continue
+        size = len(str(assumption.get("what", "")).strip()) + len(str(assumption.get("why", "")).strip())
+        if size > ASSUMPTION_LIMIT:
+            problems.append(f"device {device.get('id') or n + 1}'s assumption runs to {size} characters: say what and "
+                            f"why in one short sentence, at most {ASSUMPTION_LIMIT} characters (the refs carry the rest)")
+    for clarification in answer["clarifications"]:
+        size = len(str(clarification.get("text", "")).strip())
+        if size > CLARIFICATION_LIMIT:
+            problems.append(f"its clarification runs to {size} characters: list the items in short points, at most "
+                            f"{CLARIFICATION_LIMIT} characters (the refs carry the reasons)")
+    return problems
+
+
 _PLAYBOOK_WORD = re.compile(r"\bplaybook\b|\bfinding\s+\d+\b", re.I)
 
 
@@ -1285,6 +1436,8 @@ def _normalise(answer: dict, skeleton: System, kept_ids: set[str], changes: list
             continue
         label = f"device {device.get('id') or n + 1}"
         check(f"{label}'s name", device.get("name"))
+        if str(device.get("mark_note") or "").strip():
+            check(f"{label}'s mark_note", device.get("mark_note"))
         for ref in _device_refs(device):                 # a where the writer typed: its place prints (L-D)
             named = ids.where_issued(str(ref.get("where") or ""))
             if named:
@@ -1517,11 +1670,12 @@ def _ask_system(transport, name: str, playbook: Playbook, step: str, prompt: str
     revise may correct, and the families whose count it may not (`_corrections`)."""
     changes: list[str] = []
     index = _sent_index(evidence)
+    stated = ai_evidence.stated_ids(evidence)
 
     def check(answer):
         changes.clear()                     # only the used answer's changes are logged
         return _check_system(answer, system, shape, known, keep, originals, changes, tags, ids, sheets,
-                             source_sheets, index, recount, block, revise, hold)
+                             source_sheets, index, recount, block, revise, hold, stated)
 
     written = _ask_checked(transport, WRITE_SYSTEM, name, playbook.rules_text, _instructions(step), prompt,
                            json_schema(System), extra, images, check)
@@ -1608,10 +1762,11 @@ def front_end_system(front: FrontEnd, taken: Iterable[str] = ()) -> System:
                   no_scope_reason=front.no_scope_reason)
 
 
-def front_end_evidence(front: FrontEnd, dossier: Dossier, taken: Iterable[str] = ()) -> str:
+def front_end_evidence(front: FrontEnd, dossier: Dossier, taken: Iterable[str] = (), ledger=None) -> str:
     """The evidence the front end is written from: the dossier passages its planner refs and its name point to
-    (`evidence_for` of `front_end_system`). Only this job's text."""
-    return evidence_for(front_end_system(front, taken), dossier)
+    (`evidence_for` of `front_end_system`), the notes in the front end's own words (the BMS, its network, graphics,
+    training, integration) and, with `ledger`, the front-end facts the reading found. Only this job's text."""
+    return system_evidence(front_end_system(front, taken), dossier, ledger, front_end=True)
 
 
 def is_front_end_finding(finding: Finding, front: FrontEnd | None, playbook: Playbook | None = None) -> bool:

@@ -31,6 +31,9 @@ Party = Literal["AME", "Unit Mfr.", "FA", "Mechanical Contractor", "Electrical C
 Severity = Literal["must_fix", "check"]
 FrontEndMode = Literal["new-system", "extend-existing"]
 DecisionAction = Literal["accept", "change", "delete"]
+# A device line the estimator must see (T-005 ruling 7): "future" for an item the documents mark FUTURE (it prints with
+# "(<mark_note>)" in red font), "notice" for an item to notice (the line prints red); "" for none.
+Mark = Literal["", "future", "notice"]
 
 # What the proposal prints for an existing BMS the documents do not name (rules.md "Front end mode"; the same fill-in as
 # assets/front_end.json existing_systems.unnamed): square brackets, so it reads as a blank to complete. The planner asks
@@ -46,6 +49,7 @@ PARTIES: tuple[str, ...] = get_args(Party)
 SEVERITIES: tuple[str, ...] = get_args(Severity)
 FRONT_END_MODES: tuple[str, ...] = get_args(FrontEndMode)
 DECISION_ACTIONS: tuple[str, ...] = get_args(DecisionAction)
+MARKS: tuple[str, ...] = get_args(Mark)
 
 
 class ModelError(ValueError):
@@ -143,6 +147,12 @@ class Device(_Model):
                                          min_items=1))
     assumption: Assumption | None = field(default=None, **_doc("What was assumed and why; null when nothing was."))
     flag: Flag = field(default="none", **_doc("none, or why the estimator must look: quantity, ownership, assumed."))
+    mark: Mark = field(default="", **_doc(
+        '"" for none; "future" when the documents mark the item FUTURE (the line prints with "(<mark_note>)" in red); '
+        '"notice" for an item the estimator must notice, e.g. one the factory furnishes (the line prints in red).'))
+    mark_note: str = field(default="", **_doc(
+        'For a "future" mark: the words printed in brackets, e.g. "FUTURE AS PER control schematic on sheet M710.00"; '
+        '"" otherwise.'))
 
     def __post_init__(self) -> None:
         if not self.refs:
@@ -446,6 +456,6 @@ def schema_errors(value, schema: dict, path: str = "$") -> list[str]:
 
 __all__ = ["Verb", "Control", "Flag", "ClarificationKind", "AlternateKind", "Party", "Severity", "FrontEndMode",
            "UNNAMED_EXISTING", "VERBS", "CONTROLS", "FLAGS", "CLARIFICATION_KINDS", "ALTERNATES", "PARTIES", "SEVERITIES",
-           "FRONT_END_MODES", "DecisionAction", "DECISION_ACTIONS", "ModelError", "Ref", "OtherCount", "Count", "Family", "Assumption", "Device",
+           "FRONT_END_MODES", "DecisionAction", "DECISION_ACTIONS", "Mark", "MARKS", "ModelError", "Ref", "OtherCount", "Count", "Family", "Assumption", "Device",
            "Clarification", "Served", "System", "ScopeException", "FrontEnd", "Header", "Job", "Finding", "Decision", "MODEL_CLASSES",
            "json_schema", "schema_errors"]
