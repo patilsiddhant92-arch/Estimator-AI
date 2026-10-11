@@ -72,6 +72,7 @@ class Block(_Model):
     tech_hours: float | None = Field(default=None, ge=0)
     joined: bool = False
     numbered: bool = True
+    key: str = ""          # "" on a Job saved before this field; "demolition" selects labor rows. The proposal does not print it.
 
 
 class FrontEnd(_Model):

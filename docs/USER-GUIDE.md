@@ -47,6 +47,27 @@ system, has an independent reviewer check the draft, revises what the reviewer f
 A run takes about 25 to 45 minutes of working time. Work is shared out to AI agents, and the models they use are in
 `.claude/run-job.json`. You do not switch models by hand.
 
+## What changed in the final wave
+
+Start a run from the main project folder, on the branch `rebuild`.
+
+The run waits at a takeoff stage. That stage is one AI request. The request classifies every sheet and lists every unit. In chat mode, answer that request the same way you answer the other requests. The next run uses your answer.
+
+The Demolition Scope block is the last block of the base bid. Add alternates, deduct alternates, and labor conditions print after it when the job has them.
+
+Red text means one of these:
+
+- The line is marked FUTURE.
+- The documents name a BMS that is not an AME BMS. AME works only with Honeywell WEBS, Johnson FX (Facility Explorer), or Niagara Tridium.
+- The documents call for off-hours work or for prevailing wage.
+- The line is one you must check. A notice mark, a demolition line, and the line "No front end information found" are red for this reason.
+
+The review page has one card per system. A count question is asked once for each family, on that system's card. The page also has a card for the front end and the whole job when those have questions.
+
+The 19 rulings of 2026-10-11 are recorded as rules in `playbook/rules.md`. That file does not use the word "ruling".
+
+When the proposal, the price sheet, and the Evidence Package are written, the run is done.
+
 ## What you get (in the out folder)
 
 | File | What it is |
