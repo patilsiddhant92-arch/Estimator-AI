@@ -78,7 +78,7 @@ You write the system's devices (its scope lines, in print order), its clarificat
 - Every device has mark and mark_note. mark is "" (nothing to mark), "future" or "notice"; mark_note is "" unless the mark is "future".
 - An item the documents mark FUTURE (on a control schematic, a plan or a schedule) is a line of its own, with mark "future" and mark_note “FUTURE AS PER <the document in a few words>”, for example “FUTURE AS PER control schematic on sheet M-9.01”. Name the device as the documents do, cite the passage that marks it FUTURE, and write it even when the sequence also calls for it. The renderer prints the mark_note in brackets, in red.
 - An item the estimator must notice is marked "notice": a device the unit schedule lists as furnished with the unit or integral to it (a drain pan level sensor, a freezestat, a filter switch) whose line rests on the schedule, and any line whose ownership the estimator has to check before pricing. Its mark_note is "". The renderer prints the line in red.
-- FUTURE marks the item it stands beside ("[FUTURE] SPACE SENSOR"). A FUTURE about something else ("CAP FOR FUTURE CONNECTION") marks no line.
+- FUTURE marks the item it stands beside (“[FUTURE] SPACE SENSOR”). A FUTURE about something else (“CAP FOR FUTURE CONNECTION”) marks no line.
 - The evidence lists the passages that mark an item FUTURE and the devices furnished with the unit under their own headings. Each item there that is this system's ends as a marked line, or as the clarification.
 
 ## End devices on unit schedules

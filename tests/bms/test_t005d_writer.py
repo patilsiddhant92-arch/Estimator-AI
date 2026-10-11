@@ -67,8 +67,8 @@ TEXT_LINES = [
     _plan_sheet(35, "M-104", 6),
     _plan_sheet(36, "M-105", 7),
     "[S40] M-701, Plans.pdf page 9 MECHANICAL CONTROL DIAGRAMS: AHU-1 Control Schematic SUPPLY FAN VFD SPEED AO "
-    "FREEZESTAT BI SUPPLY AIR DUCT DPS H L [FUTURE] SUPPLY AIR STATIC PRESSURE AI LOCATED 3/4 DISTANCE DOWN LONGEST "
-    "DUCT RUN INSTALL OUTDOOR AIR TEMPERATURE SENSOR ON NORTH FACE OF PENTHOUSE WALL",
+    "FREEZESTAT BI FILTER DP SWITCH BI [FUTURE] SUPPLY AIR STATIC PRESSURE AI MOUNT IN THE MAIN SUPPLY DUCT "
+    "OUTSIDE AIR TEMPERATURE SENSOR AI ON THE ROOF SCREEN WALL",
 ]
 SECTIONS = {"Q1": ("A. AIR HANDLING UNIT AHU-1", ("S3", "S4", "S5"))}
 
@@ -199,7 +199,7 @@ def _ledger():
                       "S99": "M-702, Plans.pdf page 10"}
     ledger.facts = {
         "F1": Fact("F1", "device", "outdoor air temperature sensor", "AHU-1", "S40",
-                   "INSTALL OUTDOOR AIR TEMPERATURE SENSOR ON NORTH FACE OF PENTHOUSE WALL", "details"),
+                   "OUTSIDE AIR TEMPERATURE SENSOR AI ON THE ROOF SCREEN WALL", "details"),
         "F2": Fact("F2", "device", "pump start/stop", "P-1", "S99", "PUMP START/ STOP", "details"),
         "F3": Fact("F3", "front_end", "training", None, "S5",
                    "Training of the Owner's personnel in the operation of all system controls", "spec"),
@@ -211,7 +211,7 @@ def _ledger():
 def test_the_controls_facts_of_the_system_are_a_checklist(dossier):
     text = ai.system_evidence(ahu(), dossier, _ledger())
     part = text.split("Controls facts the reading found about it", 1)[1]
-    assert "[S40] “INSTALL OUTDOOR AIR TEMPERATURE SENSOR ON NORTH FACE OF PENTHOUSE WALL” — M-701, Plans.pdf page 9" \
+    assert "[S40] “OUTSIDE AIR TEMPERATURE SENSOR AI ON THE ROOF SCREEN WALL” — M-701, Plans.pdf page 9" \
         in part and "read as: device outdoor air temperature sensor = AHU-1" in part
     assert "PUMP START" not in part and "Training" not in part and "a free note" not in part
     assert ai.evidence_for(ahu(), dossier) == ai.system_evidence(ahu(), dossier)     # no ledger: no checklist
@@ -223,7 +223,7 @@ def test_the_front_end_gets_its_facts_its_bms_notes_training_and_the_integrator_
     assert "INTEGRATE NEW HVAC EQUIPMENT INTO THE EXISTING ACME CONTROLS BMS VIA BACNET" in text      # past 2,700
     assert "[S5] C. Training" in text and "[S2]" in text and "prequalified" in text
     facts = text.split("Controls facts the reading found about it", 1)[1]
-    assert "read as: front end training" in facts and "OUTDOOR AIR" not in facts
+    assert "read as: front end training" in facts and "OUTSIDE AIR TEMPERATURE" not in facts
 
 
 def test_the_run_writes_from_the_evidence_with_the_ledger():
