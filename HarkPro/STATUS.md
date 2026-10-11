@@ -17,7 +17,7 @@ Priority order for HarkPro: T-005d fixes (if still open), T-006 report, then T-0
 | T-005a | Counting: demolition sheets, part-plan overlap, unit tags | OPEN | hark/T-005a | 2026-10-11 |
 | T-005b | Blocks and questions: valves, pumps, one question per family | OPEN | hark/T-005b | 2026-10-11 |
 | T-005c | Proposal and render: header, red BMS name, FUTURE marks | MERGED into lead/wave2 2026-10-11 (two lead fixes) | hark/T-005c | 2026-10-11 |
-| T-005d | Writer and evidence: no "Assumed", loose devices, text cut | OPEN (sent back, see T-005d-fixes.md) | hark/T-005d | 2026-10-11 |
+| T-005d | Writer and evidence: no "Assumed", loose devices, text cut | MERGED | hark/T-005d | 2026-10-11 |
 | T-005e | Master Template format, GEM order, off-hours, prevailing wage | OPEN (sent back, see T-005e-fixes.md) | hark/T-005e | 2026-10-11 |
-| T-006 | Takeoff pass, Stage 1: sheet classes and unit register, no count changes | IN REVIEW (hark/T-006 5ab09da; report missing: push it) | hark/T-006 | 2026-10-11 |
-| T-007 | Takeoff pass, Stage 2: the register binds counts and blocks (Tasks 2.1 to 2.5, 2.7, part of 2.6) | OPEN (waits for 'T-007 base ready') | hark/T-007 | 2026-10-11 |
+| T-006 | Takeoff pass, Stage 1: sheet classes and unit register, no count changes | MERGED | hark/T-006 | 2026-10-11 |
+| T-007 | Takeoff pass, Stage 2: the register binds counts and blocks (Tasks 2.1 to 2.5, 2.7, part of 2.6) | OPEN: T-007 base ready (origin/lead/wave2 at 6931eae) | hark/T-007 | 2026-10-11 |
