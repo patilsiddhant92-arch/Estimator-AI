@@ -58,7 +58,15 @@ _ITEM = re.compile(r"\b(?:sensors?|switch(?:es)?|thermostats?|detectors?|freezes
 FUTURE_REACH = 40               # characters each side of FUTURE an item word must be in
 # a sequence section heading that says it holds the whole job's points
 _GENERAL_HEADING = re.compile(r"\b(?:GENERAL|ALL\s+(?:SYSTEMS|EQUIPMENT|UNITS)|COMMON|GLOBAL|SYSTEM[\s-]*WIDE|"
-                              r"BUILDING[\s-]*WIDE|CHANGEOVER|OUTSIDE\s+AIR)\b", re.I)
+                              r"BUILDING[\s-]*WIDE|CHANGEOVER|OUTSIDE\s+AIR|(?:BMS|BAS|DDC|ATC|CONTROLS?)\s+"
+                              r"(?:SYSTEM|GENERAL|REQUIREMENTS|NETWORK|POINTS)|ALARMS?|SCHEDULING|TRENDS?|TRENDING|"
+                              r"(?:NIGHT\s+)?SETBACK|OCCUPANCY|GLOBAL\s+POINTS?)\b", re.I)
+# the words that name a kind of equipment (a family of its own): a sequence section or a fact that names one belongs
+# to that family's writer, not to every writer (lead fix 2, T-005d). Devices (valves, dampers, drives) are not here.
+_EQUIPMENT = re.compile(r"\b(?:units?|heaters?|fans?|pumps?|boilers?|chillers?|coils?|terminals?|vav|boxes|ahus?|"
+                        r"rtus?|ervs?|hrvs?|doas|vrf|splits?|condens(?:er|ers|ing)|towers?|exchangers?|humidifiers?|"
+                        r"furnaces?|radiators?|convectors?|curtains?|ventilators?|handlers?|cuhs?|uhs?|fcus?|efs?|"
+                        r"equipment|tanks?)\b", re.I)
 _LOOSE = re.compile(r"\bship(?:ped|s)?\s+loose\b|\bloose\b[^.]{0,30}\bfield\b|\bfield[\s-]+(?:mounted|installed)\b"
                     r"|\bmounted\s+in\s+(?:the\s+)?(?:supply|return|exhaust|outside|outdoor|mixed)[\w\s]{0,12}duct\b",
                     re.I)
@@ -305,9 +313,10 @@ def evidence(system: System, text: str, sources: dict[str, str], sections: dict,
     # 1b. job-wide facts (T-005d must fix 1): the sequence sections that name no unit tag (a global outside air
     # sensor, a changeover aquastat in "A. GENERAL") go to every writer, so the system that owns a point writes it
     # once and the others see that it exists; then the reading's facts that name no unit tag
-    block(JOB_WIDE_TITLE, _job_wide_sections(sequence, sections, given), JOB_WIDE_LIMIT)
+    families = _other_kinds(entries, about, skip=_GENERAL_HEADING)      # the job's other families' names
+    block(JOB_WIDE_TITLE, _job_wide_sections(sequence, sections, given, families), JOB_WIDE_LIMIT)
     if ledger is not None:
-        out.extend(_job_wide_facts(ledger, about, given, front_end))
+        out.extend(_job_wide_facts(ledger, about, given, front_end, families))
 
     # 2. the points list rows for its equipment
     block("Points list rows for its equipment:",
@@ -518,11 +527,22 @@ def _fit(entry: Entry, about: _About, front_end: bool, room: int, system: System
     return Entry(entry.sid, text, entry.part, entry.place, entry.section)
 
 
-def _job_wide_sections(sequence: list[Entry], sections: dict, given: set[str]) -> list[Entry]:
-    """The sequence sections that name no unit tag (T-005d must fix 1): a section whose heading names no tag and
-    whose heading says it is general ("A. GENERAL", "ALL SYSTEMS") or none of whose paragraphs names a tag. The
-    general ones first, each section whole (its heading line and paragraphs), in the dossier's order; a section
-    already given is skipped."""
+def _names_family(text: str, kinds: list[re.Pattern], own: str = "") -> bool:
+    """The words name a kind of equipment (`_EQUIPMENT`) or another family's name (`kinds`, from the job's section
+    headings and schedule titles; `own`, a section's own heading, is not counted against itself)."""
+    mine = _phrase(re.sub(r"^[A-Z0-9]{1,3}[.)]\s+", "", own)) if own else None
+    return bool(_EQUIPMENT.search(text)) or any(p.search(text) for p in kinds
+                                                 if mine is None or p.pattern != mine.pattern)
+
+
+def _job_wide_sections(sequence: list[Entry], sections: dict, given: set[str],
+                       kinds: list[re.Pattern] = ()) -> list[Entry]:
+    """The sequence sections that belong to no system (T-005d must fix 1; lead fix 2): a section whose heading names
+    no tag, and either its heading says it is general ("A. GENERAL", "ALL SYSTEMS", "BMS SYSTEM", "ALARMS") and
+    names no kind of equipment beside those words, or (another heading) neither its heading nor its first line
+    names a tag, a kind of equipment or another family's name (`kinds`). So "C. CABINET UNIT HEATERS" goes to that
+    family's writer only. The general ones first, each section whole (its heading line and paragraphs), in the
+    dossier's order; a section already given is skipped."""
     by_section: dict[str, list[Entry]] = {}
     headings: dict[str, str] = {}
     for entry in sequence:
@@ -544,16 +564,25 @@ def _job_wide_sections(sequence: list[Entry], sections: dict, given: set[str]) -
         if not paragraphs or all(e.sid in given for e in paragraphs):
             continue
         if _GENERAL_HEADING.search(title):
-            general += chosen
-        elif not any(tags_in(e.body) for e in paragraphs):
+            if not _names_family(_GENERAL_HEADING.sub(" ", title), kinds, title):
+                general += chosen
+            continue
+        bare = " ".join(re.sub(r"^[A-Z0-9]{1,3}[.)]\s+", "", title).split()).casefold()
+        first = next((e for e in paragraphs if " ".join(re.sub(r"^[A-Z0-9]{1,3}[.)]\s+", "", e.body).split())
+                      .casefold() != bare), None)
+        words = f"{title} {first.body if first is not None else ''}"
+        if not tags_in(words) and not _names_family(words, kinds, title) and \
+                not any(tags_in(e.body) for e in paragraphs):
             other += chosen
     return general + other
 
 
-def _job_wide_facts(ledger, about: _About, given: set[str], front_end: bool) -> list[str]:
-    """The reading's controls facts that name no unit tag (subject, value and quote), as "[id] “quote” — where (read
-    as: ...)", at most JOB_WIDE_FACTS_MAX, under their own heading: every writer sees them; the system that owns the
-    point writes it."""
+def _job_wide_facts(ledger, about: _About, given: set[str], front_end: bool,
+                    kinds: list[re.Pattern] = ()) -> list[str]:
+    """The reading's controls facts that belong to no system: no unit tag (subject, value and quote), and (lead fix
+    2) a subject and value that name no kind of equipment or other family (`_names_family`), as "[id] “quote” —
+    where (read as: ...)", at most JOB_WIDE_FACTS_MAX, under their own heading: every writer sees them; the system
+    that owns the point writes it."""
     from bms.coverage import SCOPE_KINDS
     from estimator.ledger.facts import where_short
     lines: list[str] = []
@@ -563,8 +592,10 @@ def _job_wide_facts(ledger, about: _About, given: set[str], front_end: bool) -> 
         said = f"{fact.subject} {'' if fact.value is None else fact.value} {fact.quote or ''}"
         if tags_in(said) or (not front_end and about.names(said)):
             continue
+        if _names_family(f"{fact.subject} {'' if fact.value is None else fact.value}", kinds):
+            continue                    # a cabinet unit heater's thermostat is that family's (lead fix 2)
         sid = str(fact.source_id or "").strip().strip("[]")
-        if not sid or not str(fact.quote or "").strip():
+        if not sid or sid in given or not str(fact.quote or "").strip():   # a passage given above: once
             continue
         where = where_short(getattr(ledger, "sources", {}).get(sid, ""))
         line = f"[{sid}] “{_cut(fact.quote, QUOTE_MAX)}”" + (f" — {where}" if where else "")
@@ -703,9 +734,10 @@ def _facts_checklist(ledger, about: _About, front_end: bool) -> list[str]:
     return out
 
 
-def _other_kinds(entries: list[Entry], about: _About) -> list[re.Pattern]:
+def _other_kinds(entries: list[Entry], about: _About, skip: re.Pattern | None = None) -> list[re.Pattern]:
     """The kinds of equipment the job's documents name that are not this system's: the sequence section headings
-    ("B. EXHAUST FANS") and the schedule titles ("VRF SCHEDULE"), as name phrases."""
+    ("B. EXHAUST FANS") and the schedule titles ("VRF SCHEDULE"), as name phrases. `skip`: names it matches are
+    left out (the general headings, for the job-wide facts)."""
     names: list[str] = []
     for entry in entries:
         heading = _SECTION.match(entry.text) if entry.sid is None else None
@@ -714,7 +746,8 @@ def _other_kinds(entries: list[Entry], about: _About) -> list[re.Pattern]:
         elif entry.part == SCHEDULES and entry.sid and " — " in entry.text.split("\n", 1)[0]:
             title = _ENTRY.sub(lambda m: m.group(2), entry.text.split("\n", 1)[0], count=1).split(" — ", 1)[0]
             names.append(re.sub(r"\s+(?:SCHEDULES?|LIST)$", "", title.strip(), flags=re.I))
-    phrases = (_phrase(n) for n in dict.fromkeys(names) if not about.names_phrase(n))
+    phrases = (_phrase(n) for n in dict.fromkeys(names)
+               if not about.names_phrase(n) and not (skip is not None and skip.search(n)))
     return [p for p in phrases if p is not None]
 
 

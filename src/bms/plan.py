@@ -43,6 +43,11 @@ from bms.playbook import Playbook, Shape
 
 GLOBAL_POINTS = "Global Points"
 _GLOBAL_WORDS = re.compile(r"\bglobal\b|\bsystem\s+points\b|\bbuilding[\s-]*wide\b", re.I)
+# the outside air points the whole job shares (lead fix 2, T-005d): one owner, the Global Points block, when the
+# sequence names one and no system claims it (no unit tag, no matched section)
+_OUTSIDE_AIR_POINT = re.compile(r"\b(?:outside|outdoor)[\s-]+air[\s-]+(?:temperature|temp|humidity|relative\s+humidity|"
+                                r"rh|enthalpy|dew[\s-]*point)\b|\b(?:OAT|OAH|OA[\s-]?RH)\b", re.I)
+_OUTSIDE_AIR_KINDS = ("device", "note", "sequence_match")
 SPLIT_SYSTEM = "Split System"
 VRF_SYSTEM = "VRF System"
 DUCT_HEATERS = "Duct Heaters"
@@ -1105,15 +1110,33 @@ class _Planner:
     def global_points(self, drafts: list[_Draft]) -> list[_Draft]:
         """A sequence section no system took whose title says it lists points for the whole job (global points,
         system points, building-wide points) is one "Global Points" system: that section its sequence, control
-        integration, one set for the job."""
+        integration, one set for the job. It also owns the sequence's outside air temperature and humidity points
+        that no system claims (`_outside_air_points`, lead fix 2), so the point prints once."""
         used = {m.id for d in drafts for m in d.matches}
         found = [f for f in self.ledger.of_kind("sequence_match")
                  if f.id not in used and _GLOBAL_WORDS.search(squash(f.subject))]
+        found += self._outside_air_points(used | {f.id for f in found})
         if not found:
             return []
         refs = tuple(dict.fromkeys(self.reader.fact_ref(f) for f in found))
         return [_Draft(key=GLOBAL_POINTS, name=GLOBAL_POINTS, kind="global",
                        families=[_Fam(GLOBAL_POINTS, (), Count(1, refs[:1]))], prefixes=[], matches=found)]
+
+    def _outside_air_points(self, used: set[str]) -> list[Fact]:
+        """The sequence's outside air temperature and humidity points that no system claims (lead fix 2, T-005d): a
+        fact of the sequence pass (or a section heading) naming one, with no unit tag in its subject, value or
+        quote, that no block's matches hold. The Global Points block owns them; each unit's writer sees the point
+        among the job-wide facts and leaves it to that block."""
+        found: list[Fact] = []
+        for kind in _OUTSIDE_AIR_KINDS:
+            for fact in self.ledger.of_kind(kind):
+                if fact.id in used or (kind != "sequence_match" and fact.stage != "sequence"):
+                    continue
+                said = " ".join((squash(fact.subject), "" if fact.value is None else squash(str(fact.value)),
+                                 str(fact.quote or "")))
+                if _OUTSIDE_AIR_POINT.search(said) and not ai_evidence.tags_in(said):
+                    found.append(fact)
+        return found
 
     # -- the questions each family raises where it lands
 

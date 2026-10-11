@@ -182,3 +182,80 @@ def test_a_future_word_about_something_else_does_not_mark_the_line(dossier, play
     device = _device("Unit Controller", "S21", "ZZ-7 CAP FOR FUTURE CONNECTION BY OTHERS", "M-101, Plans.pdf page 3")
     written, _ = _write(dossier, playbook, device)
     assert written.devices[0].mark == ""
+
+
+# ---- lead fix 2: job-wide means no system's; the outside air sensor has one owner, the Global Points block ------
+
+def _plan_job_with_a_heater_section():
+    from estimator.ledger.facts import SETTLED, Ledger
+    from bms.plan import GLOBAL_POINTS, plan_job
+    lines = list(LINES)
+    i = lines.index("== 4. SCHEDULES ==")
+    lines[i:i] = ["--- [Q3] C. CABINET UNIT HEATERS ---", "[S7] C. CABINET UNIT HEATERS",
+                  "[S8] Each cabinet unit heater shall cycle its fan on its own space thermostat."]
+    sections = dict(SECTIONS, Q3=("C. CABINET UNIT HEATERS", ("S7", "S8")))
+    dossier = Dossier("Invented Library", "\n".join(lines) + "\n", (), {}, (), {}, {}, {}, sections)
+    ledger = Ledger({"S3": "23 09 93, Specs.pdf page 3", "S11": "M-601, Plans.pdf page 6 (schedule)",
+                     "S13": "M-602, Plans.pdf page 7 (schedule)", "S8": "23 09 93, Specs.pdf page 3", "S20": "23 09 00, Specs.pdf page 2",
+                     "Q1": "sequence section “A. GENERAL”, Specs.pdf page 3",
+                     "Q2": "sequence section “B. AIR HANDLING UNIT ZZ-7”, Specs.pdf page 3",
+                     "Q3": "sequence section “C. CABINET UNIT HEATERS”, Specs.pdf page 3"})
+    ledger.job_name = "Invented Library"
+    ledger.add("front_end", "mode", "new-system", "S20", "provide a new building automation system", "spec", SETTLED)
+    ledger.add("front_end", "line", "Furnish an operator workstation", "S20", "provide one operator workstation",
+               "spec", SETTLED)
+    ledger.add("family", "ZZ", "Air Handling Unit", "S11", "ZZ Air Handling Unit", "schedules", SETTLED)
+    ledger.add("unit", "ZZ", "ZZ-7", "S11", "Tags: ZZ-7", "schedules", SETTLED)
+    ledger.add("count", "ZZ", 1, "S11", "ZZ rows 1", "schedules", SETTLED)
+    ledger.add("family", "CUH", "Cabinet Unit Heater", "S13", "CUH Cabinet Unit Heater", "schedules", SETTLED)
+    ledger.add("unit", "CUH", "CUH-1", "S13", "Tags: CUH-1", "schedules", SETTLED)
+    ledger.add("count", "CUH", 1, "S13", "CUH rows 1", "schedules", SETTLED)
+    ledger.add("sequence_match", "A. GENERAL", "", "Q1", "A. GENERAL", "sequence", SETTLED)
+    ledger.add("sequence_match", "B. AIR HANDLING UNIT ZZ-7", "ZZ", "Q2", "B. AIR HANDLING UNIT ZZ-7", "sequence",
+               SETTLED)
+    ledger.add("sequence_match", "C. CABINET UNIT HEATERS", "CUH", "Q3", "C. CABINET UNIT HEATERS", "sequence",
+               SETTLED)
+    ledger.add("device", "outside air temperature sensor", None, "S3",
+               "Provide one outside air temperature sensor for global use by all systems.", "sequence", SETTLED)
+    playbook = load_playbook(FIXTURES / "sample_playbook")
+    job = plan_job(ledger, None, Dossier("Invented Library", "", (), {}, (), {}, {}, {}), playbook)
+    by_key = {s.key: s for s in job.systems}
+    return job, by_key, GLOBAL_POINTS, dossier, ledger
+
+
+def test_the_ahu_writer_sees_the_general_section_and_not_the_heater_section():
+    _job, by_key, _gp, dossier, ledger = _plan_job_with_a_heater_section()
+    ahu = next(s for s in by_key.values() if any("ZZ-7" in f.tags for f in s.families))
+    text = ai.system_evidence(ahu, dossier, ledger)
+    assert "changeover aquastat on the common supply main" in text          # the GENERAL section
+    assert "cabinet unit heater shall cycle" not in text                    # that family's writer only
+    heater = next(s for s in by_key.values() if any("CUH-1" in f.tags for f in s.families))
+    assert "cabinet unit heater shall cycle" in ai.system_evidence(heater, dossier, ledger)
+
+
+def test_the_outside_air_sensor_is_owned_by_the_global_points_block_once():
+    _job, by_key, gp, dossier, ledger = _plan_job_with_a_heater_section()
+    assert gp in by_key                                                     # the plan gives it one owner
+    text = ai.system_evidence(by_key[gp], dossier, ledger)
+    assert text.count("Provide one outside air temperature sensor for global use by all systems.") == 1
+
+
+def test_a_heater_fact_with_no_tag_is_not_a_job_wide_fact():
+    from estimator.ledger.facts import SETTLED
+    _job, by_key, _gp, dossier, ledger = _plan_job_with_a_heater_section()
+    ledger.add("device", "cabinet unit heater space thermostat", None, "S8",
+               "Each cabinet unit heater shall cycle its fan on its own space thermostat.", "sequence", SETTLED)
+    ahu = next(s for s in by_key.values() if any("ZZ-7" in f.tags for f in s.families))
+    assert "cabinet unit heater space thermostat" not in ai.system_evidence(ahu, dossier, ledger)
+
+
+def test_a_section_that_names_another_family_is_not_job_wide_but_general_ones_are():
+    seq = ai_evidence.parse("\n".join([
+        "== 2. SEQUENCE OF OPERATION ==", "--- 23 09 93, Specs.pdf page 3 ---",
+        "--- [Q1] A. GENERAL ---", "[S2] A. GENERAL", "[S3] All systems shall be scheduled by the BMS.",
+        "--- [Q4] D. GENERAL - EXHAUST FANS ---", "[S9] D. GENERAL - EXHAUST FANS", "[S10] Fans shall run in occupied mode.",
+        "--- [Q5] E. NIGHT SETBACK ---", "[S11] E. NIGHT SETBACK", "[S12] Space set points shall reset at night.",
+        "--- [Q6] F. UNIT HEATERS ---", "[S13] F. UNIT HEATERS", "[S14] Heaters cycle on their thermostats."]))
+    chosen = ai_evidence._job_wide_sections([e for e in seq if e.part == ai_evidence.SEQUENCE], {}, set(), [])
+    ids = {e.sid for e in chosen if e.sid}
+    assert {"S3", "S12"} <= ids and not ids & {"S10", "S14"}

@@ -94,8 +94,11 @@ def test_the_general_sequence_section_is_given_under_job_wide_facts():
 
 def test_a_job_wide_fact_of_the_reading_is_listed_and_a_tagged_one_is_not():
     text = ai.system_evidence(_unit(), _dossier(), _Ledger())
-    part = text.split("Job-wide facts the reading found", 1)[1].split("\n\n", 1)[0]
-    assert "[S3] “Provide one outside air temperature sensor" in part
+    # lead fix 2: the passage is given once; when the job-wide sections already give it, the facts list does not
+    # repeat it
+    assert text.count("Provide one outside air temperature sensor") == 1
+    part = (text.split("Job-wide facts the reading found", 1)[1].split("\n\n", 1)[0]
+            if "Job-wide facts the reading found" in text else "")
     assert "WV-8" not in part
 
 
