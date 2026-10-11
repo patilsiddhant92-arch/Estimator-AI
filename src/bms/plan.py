@@ -1438,7 +1438,23 @@ def _with_served(systems: list[System], drafts: list[_Draft]) -> list[System]:
     return [replace(s, serves=tuple(serves[id(d)])) if id(d) in serves else s for s, d in zip(systems, drafts)]
 
 
+# The front end's equipment, as a provider fact's subject names it (rules.md "Front end lines cite the specification"):
+# the network level control panel, a workstation, a server, a portable operator terminal, a UPS, graphics and the IT
+# infrastructure (network switches, panels, fiber or ethernet). The Playbook's own list, in words a subject uses.
+_FRONT_END_ITEM = re.compile(
+    r"\bwork\s*stations?\b|\bservers?\b|\blaptops?\b|\btablets?\b|\bportable\s+(?:operator|terminal)|"
+    r"\boperator(?:'s|’s)?\s+(?:terminal|interface|station|computer|pc)\b|\bfront[\s-]*end\b|\bhead[\s-]*end\b|"
+    r"\bups\b|\buninterruptible\b|\bnetwork[\s-]+level\b|\bnetwork\s+(?:panel|controller|switch\w*|backbone|riser)\b|"
+    r"\b(?:ethernet|lan|managed|floor)\s+switch\w*|\bfib(?:er|re)\b|\bethernet\b|\bbackbone\b|"
+    r"\bit\s+infrastructure\b|\bgraphics?\b", re.I)
+
+
 def _front_end(planner: _Planner) -> FrontEnd:
+    """The front end the job's documents call for, planned from the ledger (HP 22, 186, 192d): its mode, the existing
+    system's name, and what the reading found the documents say about it, with citations, for the writer to write the
+    lines from (`bms.ai.write_front_end`): each front-end line and client note of the spec pass, and each provider
+    fact whose subject is a front-end item (who provides a workstation, a server, the network switches ...). The plan
+    holds no standard line; when the documents call for none, no front end is written and a question says so."""
     facts = planner.ledger.of_kind("front_end")
     by = lambda subject: [squash(f.value) for f in facts if squash(f.subject).casefold() == subject]  # noqa: E731
     mode = next((m for m in by("mode") if m in ("new-system", "extend-existing")), "")
@@ -1452,7 +1468,20 @@ def _front_end(planner: _Planner) -> FrontEnd:
         planner.questions.append("The documents say this job extends an existing BMS, but they do not name it. What "
                                  f"is the name of the existing BMS? The proposal prints {UNNAMED_EXISTING} in its "
                                  "place until you write the name.")
-    return FrontEnd(mode=mode, existing_system_name=existing if mode == "extend-existing" else None)
+    said = lambda subject: [f for f in facts if squash(f.subject).casefold() == subject and squash(f.value)]  # noqa: E731
+    lines, notes = said("line"), said("note")
+    given = [f for f in planner.ledger.of_kind("provider")
+             if squash(f.value) and _FRONT_END_ITEM.search(squash(f.subject))]
+    if not (lines or notes or given):
+        planner.questions.append("The documents call for no front-end equipment (a workstation, a server, a network "
+                                 "panel, graphics or the like), so no front end is written. If this job needs a "
+                                 "front end, say what it is and where the documents call for it.")
+    return FrontEnd(
+        mode=mode, existing_system_name=existing if mode == "extend-existing" else None,
+        lines=tuple(dict.fromkeys([*(squash(f.value) for f in lines),
+                                   *(f"{squash(f.subject)}: {squash(f.value)}" for f in given)])),
+        notes=tuple(dict.fromkeys(squash(f.value) for f in notes)),
+        refs=tuple(dict.fromkeys(planner.reader.fact_ref(f) for f in [*lines, *notes, *given] if f.source_id)))
 
 
 def _exceptions(planner: _Planner, systems: list[System], drafts: list[_Draft]) -> tuple[ScopeException, ...]:
@@ -1504,7 +1533,10 @@ def plan_job(ledger: Ledger, catalogue: Catalogue, dossier: Dossier, playbook: P
       branch-selector families; dampers linked to a fan are under that fan's system (not a system of their own);
       duct heaters in one place.
     - A system the documents name but AME does not do goes to `Job.exceptions`; open questions to `Job.questions`.
-    - `Job.front_end` is set (mode from the ledger's front_end facts); `Job.header` stays None (the run sets it).
+    - `Job.front_end` is set (mode and the existing system's name from the ledger's front_end facts; `lines`, `notes`
+      and `refs` what the front_end facts and the provider facts about front-end items say, with citations, for the
+      front end's writer; a question when the documents call for no front end, or name no existing BMS to extend);
+      `Job.header` stays None (the run sets it).
     - Every Ref's `source_id` is a ledger / dossier source id ("S41", "I2", "Q7", "F17"), its `quote` the exact
       words, its `where` the place (`ledger.sources[source_id]`, shortened by `estimator.ledger.facts.where_short`).
     - Pure: the same ledger, catalogue, dossier and Playbook give the same Job. No AI call.

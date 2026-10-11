@@ -1,9 +1,11 @@
 """The rebuilt estimate, in its final order (design §5 "Integration"):
 
 read (the old app's staged reading) -> plan_job -> counts cross-check (text and vision, through the run's transport)
--> write_system per system -> the estimator's decisions -> validate -> qc_job -> revise_system (must_fix only, one
-round) -> validate -> review_page (with the count proofs) -> render -> the Word proposal, the price sheet and the
-Evidence Package (the Job's scope lines and findings beside the old reading tabs).
+-> write_system per system, then write_front_end (the front end is written like a system, from the passages the
+planner cited for it; nothing is asked when the documents call for none) -> the estimator's decisions -> validate ->
+qc_job -> revise_system (must_fix only, one round; revise_front_end for the front end's findings) -> validate ->
+review_page (with the count proofs) -> render -> the Word proposal, the price sheet and the Evidence Package (the Job's
+scope lines and findings beside the old reading tabs).
 
 The run waits at "count" while the vision count's sheet questions have no answer: the counts are part of each
 system's skeleton, so writing before they are in would ask the writer again once they arrive.
@@ -245,6 +247,19 @@ def _count_note(decisions: tuple[Decision, ...] | list[Decision], key: str) -> s
     return "\n".join(lines)
 
 
+def _asked_about_front_end(job: Job) -> Job:
+    """The job with one more question when the writer wrote no front-end line (HP 22): the estimator reads why, in
+    the writer's words, and says whether the job needs a front end. The documents call for none, or give all of it to
+    others; no standard line stands in."""
+    front = job.front_end
+    if front is None or front.devices or not (front.no_scope_reason or "").strip():
+        return job
+    reason = front.no_scope_reason.strip().rstrip(".")
+    question = (f"No front-end line was written: {reason}. If this job needs a front end, say what it is and where "
+                "the documents call for it.")
+    return dataclasses.replace(job, questions=tuple(dict.fromkeys((*job.questions, question))))
+
+
 def _check_this_system(decision: Decision) -> Finding:
     """The check (severity "check", a model Severity) for an earlier delete that took effect, whose line is in no
     job any more, on a system that was asked again since: the line may be back in other words. About the system (no
@@ -339,11 +354,17 @@ def _workers() -> int:
     return max(1, min(4, os.cpu_count() or 1))
 
 
-def _untouched(finding: Finding, before: Job, after: Job) -> bool:
+def _untouched(finding: Finding, before: Job, after: Job, playbook=None) -> bool:
     """A QC finding the revise round left as it was: its device (or, for a finding about a whole system, the
-    system; for the front end or the whole job, everything) is the same after the revise. It stays open for the
-    estimator, since QC is not asked again."""
+    system; for a finding about the front end, its line or the front end; for the whole job, everything) is the same
+    after the revise. It stays open for the estimator, since QC is not asked again."""
     if not finding.system_key:
+        if ai.is_front_end_finding(finding, before.front_end, playbook):
+            old, new = before.front_end, after.front_end
+            if finding.device_id is None or new is None:
+                return old == new
+            device = {d.id: d for d in new.devices}.get(finding.device_id)
+            return device is not None and device == {d.id: d for d in old.devices}.get(finding.device_id)
         return True
     try:
         old, new = before.system(finding.system_key), after.system(finding.system_key)
@@ -498,10 +519,14 @@ def _estimate(job_folder: Path, out: Path, cache: Path, mode: Mode, known: dict)
     # 3. write every system (all are asked before stopping for answers)
     known["stage"] = "write"
     evidence = {s.key: ai.evidence_for(s, dossier) for s in job.systems}
-    # I, one set for every writer and the revise: every id of the job and of every system's evidence. A ref may
-    # cite only its system's evidence, so the final job's ids (the validator's and the renderer's I) are in it, and a
-    # text one writer accepts is never an issued id once a later system cites it.
-    evidence_ids = sorted(set().union(*(ai_evidence.cited_ids(e) for e in evidence.values())))
+    # the front end is written like a system (HP 22): its own evidence, from the passages the planner cited for it
+    taken = {s.key for s in job.systems}
+    front_evidence = ai.front_end_evidence(job.front_end, dossier, taken) if job.front_end is not None else ""
+    # I, one set for every writer and the revise: every id of the job and of every system's evidence (the front
+    # end's too). A ref may cite only its system's evidence, so the final job's ids (the validator's and the
+    # renderer's I) are in it, and a text one writer accepts is never an issued id once a later system cites it.
+    evidence_ids = sorted(set().union(ai_evidence.cited_ids(front_evidence),
+                                      *(ai_evidence.cited_ids(e) for e in evidence.values())))
 
     def issued(current: Job) -> tuple[str, ...]:
         return tuple(dict.fromkeys([*job_ids(current), *evidence_ids]))
@@ -526,6 +551,15 @@ def _estimate(job_folder: Path, out: Path, cache: Path, mode: Mode, known: dict)
                                 ids=issued(job), sheets=sheets(job), source_sheets=source(job))))
         except ai.NoAnswer as missing:
             pending.append(_not_answered(system.name, missing))
+    if job.front_end is not None:
+        try:
+            job = dataclasses.replace(job, front_end=ai.write_front_end(
+                job.front_end, front_evidence, playbook, transport, tags=job_tags(job), ids=issued(job),
+                sheets=sheets(job), source_sheets=source(job), taken=taken))
+        except ai.NoAnswer as missing:
+            pending.append(_not_answered(ai.FRONT_END_NAME, missing))
+        else:
+            job = _asked_about_front_end(job)
     save(job)
     if pending:
         return RunResult("waiting", "write", waiting=transport.waiting, job_file=job_file, messages=tuple(pending))
@@ -632,6 +666,15 @@ def _estimate(job_folder: Path, out: Path, cache: Path, mode: Mode, known: dict)
 
         except ai.NoAnswer as missing:
             pending.append(_not_answered(system.name, missing))
+    # the front end is revised like a system (HP 22): its must_fix findings (they carry the whole job's key "")
+    front_findings = [f for f in must_fix if ai.is_front_end_finding(f, job.front_end, playbook)]
+    if front_findings:
+        try:
+            job = dataclasses.replace(job, front_end=ai.revise_front_end(
+                job.front_end, front_findings, front_evidence, playbook, transport, tags=job_tags(job),
+                ids=issued(job), sheets=sheets(job), source_sheets=source(job), taken=taken))
+        except ai.NoAnswer as missing:
+            pending.append(_not_answered(ai.FRONT_END_NAME, missing))
     # a device decision made on the page's (revised) wording that matched nothing the writer wrote is applied to
     # the revised job; one decision is never applied twice
     # (an accept a count change overrules is not applied late either)
@@ -672,7 +715,7 @@ def _estimate(job_folder: Path, out: Path, cache: Path, mode: Mode, known: dict)
         return RunResult("waiting", "revise", waiting=transport.waiting, job_file=job_file,
                          messages=(*notes, *pending))
     findings = validate(job, playbook)
-    open_qc = [f for f in qc if f.severity != "must_fix" or _untouched(f, written, job)]
+    open_qc = [f for f in qc if f.severity != "must_fix" or _untouched(f, written, job, playbook)]
     # the revised job's quotes, checked again: a revise that changed a line closes its QC finding, never the check
     known_qc = {(f.rule, f.system_key, f.device_id, f.what) for f in open_qc}
     open_qc += [f for f in ai.quote_findings(job, index, playbook)

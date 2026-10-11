@@ -29,8 +29,10 @@ Two transports share the same steps:
 
 Request kinds (what `/run-job` dispatches on): `write_system` for both writing and revising a system (extra
 `"step": "write" | "revise"`, `"plan_key": system.key`, `"images"`; a revise request's "system" is the system's name
-with " (revise)"), `qc_job` for the QC pass (extra `"step": "qc"`). In chat mode the request's `system_prompt` is
-the Playbook rules text, a blank line, then the step's instructions (`src/bms/prompts/`).
+with " (revise)"; the front end is written and revised as a block of its own, "Front End" and "Front End (revise)",
+`plan_key` its key: `write_front_end`, `revise_front_end`), `qc_job` for the QC pass (extra `"step": "qc"`). In chat
+mode the request's `system_prompt` is the Playbook rules text, a blank line, then the step's instructions
+(`src/bms/prompts/`).
 
 Ground rules the steps hold: every device cites this job's evidence by id (an answer citing an id the evidence does
 not carry is refused); the Master Template shape is only the frame (slots and their print form, never a line);
@@ -47,7 +49,7 @@ import hashlib
 import json
 import os
 import re
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Protocol, runtime_checkable
@@ -56,8 +58,8 @@ from estimator.writing.dossier import Dossier
 from estimator.writing.judge import DEFAULT_MODEL, KEY_VARIABLE, MODEL_VARIABLE, _key, _plain
 
 from bms import ai_evidence
-from bms.model import (ALTERNATES, Count, Device, Family, Finding, Job, ModelError, OtherCount, Ref, System,
-                       json_schema, schema_errors)
+from bms.model import (ALTERNATES, Count, Device, Family, Finding, FrontEnd, Job, ModelError, OtherCount, Ref,
+                       System, json_schema, schema_errors)
 from bms.playbook import Playbook, Shape
 from bms.validate import RULE
 from bms.citations import WHERE_ADVICE, SourceIds, label_off, plan_refs, ref_sheets, system_tags
@@ -1572,6 +1574,147 @@ def revise_system(system: System, findings: Sequence[Finding], evidence: str, pl
                        revise=revise, hold=hold)
 
 
+# ---- the front end: written and revised as a block of its own (HP 22, 186, 192d) ----------------------------------------
+
+FRONT_END_KEY = "FE"                # the front end's key while it is written: its device ids are "FE.d1", "FE.d2" ...
+FRONT_END_NAME = "Front End"
+FRONT_END_TOPIC = "front end"       # the Playbook topic ("## Front end") whose rules are about it
+_FRONT_END_WORDS = re.compile(r"\bfront[\s-]*end\b", re.I)
+_EXCEPTION_WORDS = re.compile(r"\bnamed\s+exceptions?\b", re.I)
+
+
+def _front_end_key(front: FrontEnd, taken: Iterable[str] = ()) -> str:
+    """The key of the front end's block: the one its lines already carry in their ids, else FRONT_END_KEY, or that key
+    with a number when a system of the job has it (a device id is unique in the job)."""
+    for device in front.devices:
+        head, dot, _ = device.id.partition(".")
+        if dot and head:
+            return head
+    held, key, n = set(taken), FRONT_END_KEY, 1
+    while key in held:
+        n += 1
+        key = f"{FRONT_END_KEY}{n}"
+    return key
+
+
+def front_end_system(front: FrontEnd, taken: Iterable[str] = ()) -> System:
+    """The front end as a block the writer and the revise answer, and its evidence is chosen for: key FRONT_END_KEY, no
+    shape (its lines print in the generic form), the planner's front-end refs as its cited passages (so its evidence
+    carries the specification passages the reading found the front end in), integrated (so its evidence carries the
+    integration passages too), and the front end's own lines, clarifications, tech hours and reason."""
+    return System(key=_front_end_key(front, taken), name=FRONT_END_NAME, shape="", control="integration",
+                  families=(), sequence_refs=tuple(front.refs), devices=front.devices,
+                  clarifications=front.clarifications, tech_hours=front.tech_hours,
+                  no_scope_reason=front.no_scope_reason)
+
+
+def front_end_evidence(front: FrontEnd, dossier: Dossier, taken: Iterable[str] = ()) -> str:
+    """The evidence the front end is written from: the dossier passages its planner refs and its name point to
+    (`evidence_for` of `front_end_system`). Only this job's text."""
+    return evidence_for(front_end_system(front, taken), dossier)
+
+
+def is_front_end_finding(finding: Finding, front: FrontEnd | None, playbook: Playbook | None = None) -> bool:
+    """A finding about the front end. Its system key is the whole job's ("": the front end and the job's exceptions
+    share it), so it is one that names a front-end line, or names none and is about the front end as a whole: it is
+    under a rule of the Playbook's "Front end" part, says "front end" in its words, or is no finding about a named
+    exception (the validator's findings about the front end's own clarification name no line)."""
+    if front is None or finding.system_key != "":
+        return False
+    if finding.device_id is not None:
+        return finding.device_id in {d.id for d in front.devices}
+    rule = playbook.rules.get(finding.rule) if playbook is not None else None
+    if rule is not None and rule.topic.strip().casefold() == FRONT_END_TOPIC:
+        return True
+    words = f"{finding.what} {finding.fix}"
+    return bool(_FRONT_END_WORDS.search(words)) or not _EXCEPTION_WORDS.search(words)
+
+
+def _template_wording(mode: str) -> str:
+    """The Master Template's front-end lines for the mode, in its order (assets/front_end.json), for the writer as
+    house wording only: "" when the file cannot be read."""
+    from estimator.writing.front_end import FRONT_END_FILE, _load
+    try:
+        variant = _load(FRONT_END_FILE)["variants"][mode]
+    except (OSError, KeyError, ValueError, TypeError):
+        return ""
+    out = []
+    for line in variant:
+        parts = ", ".join(str(p).strip() for p in line.get("lines", ()) if str(p).strip())
+        out.append(f"- {str(line.get('text', '')).strip()}" + (f" (its parts: {parts})" if parts else ""))
+    return "\n".join(out)
+
+
+def _front_end_prompt(front: FrontEnd, system: System, evidence: str) -> str:
+    skeleton = {k: v for k, v in _skeleton_dict(system).items() if k != "serves"}
+    said = [f"The front end as the planner read it from this job's documents: mode {front.mode}"
+            + (f"; the existing BMS the documents name is {front.existing_system_name}"
+               if front.mode == "extend-existing" and front.existing_system_name else "") + "."]
+    said += (["What the documents call for, in the reading's words (write a line for each the documents call for, "
+              "citing its passage):", *(f"- {line}" for line in front.lines)]
+             if front.lines else ["The reading found no front-end line in the documents."])
+    if front.notes:
+        said += ["Client notes the reading found for the front end (they go in the front end's one note clarification, "
+                 "joined, only where a passage supports them):", *(f"- {note}" for note in front.notes)]
+    house = _template_wording(front.mode)
+    return "\n\n".join(p for p in [
+        "The block, as the planner set it up (copy these fields as they are):\n"
+        + json.dumps(skeleton, indent=1, ensure_ascii=False),
+        "\n".join(said),
+        ("The Master Template's front-end lines, in its order. This is house wording and order only: a line is "
+         "written only when the evidence calls for it, and a part is a line of its own:\n" + house) if house else "",
+        f"Answer with the whole block as JSON in the schema given; number the devices {system.key}.d1, "
+        f"{system.key}.d2 and so on, in print order.",
+        "The evidence:\n" + evidence.strip()] if p)
+
+
+def _onto(front: FrontEnd, written: System) -> FrontEnd:
+    """The front end with the lines, clarifications, tech hours and reason of its written block."""
+    return replace(front, devices=written.devices, clarifications=written.clarifications,
+                   tech_hours=written.tech_hours, no_scope_reason=written.no_scope_reason)
+
+
+def write_front_end(front: FrontEnd, evidence: str, playbook: Playbook, transport: Transport, *,
+                    tags: Sequence[str] = (), ids: Sequence[str] = (), sheets: Sequence[str] = (),
+                    source_sheets: Sequence[str] = (), taken: Iterable[str] = ()) -> FrontEnd:
+    """The front end with its `devices`, `clarifications`, `tech_hours` and `no_scope_reason` written from `evidence`
+    (`front_end_evidence`), as `write_system` writes a block: one WRITE_SYSTEM request (name "Front End", extra step
+    "write", plan_key the front end's key), the same schema and the same checks (every line cites this job's
+    evidence by id and quote, one clarification, a block with no line says why). The Master Template's front-end
+    lines are given as house wording only. `taken` are the keys of the job's systems (the front end's key avoids
+    them). Asked only when the planner carried something the documents say about the front end (`lines` or `notes`)
+    and nothing is written yet; else `front` is returned without asking. Raises NoAnswer as `write_system`."""
+    if front.devices or front.clarifications or front.no_scope_reason or not (front.lines or front.notes):
+        return front
+    system = front_end_system(front, taken)
+    images, listing = _pictures(evidence)
+    known = ai_evidence.cited_ids(evidence) | _ref_ids(ai_evidence.system_refs(system))
+    written = _ask_system(transport, FRONT_END_NAME, playbook, "write_front_end",
+                          _front_end_prompt(front, system, evidence),
+                          {"step": "write", "plan_key": system.key, "images": listing}, images, system, None, known,
+                          tags=tags, ids=ids, sheets=sheets, source_sheets=source_sheets, evidence=evidence)
+    return _onto(front, written)
+
+
+def revise_front_end(front: FrontEnd, findings: Sequence[Finding], evidence: str, playbook: Playbook,
+                     transport: Transport, *, tags: Sequence[str] = (), ids: Sequence[str] = (),
+                     sheets: Sequence[str] = (), source_sheets: Sequence[str] = (),
+                     taken: Iterable[str] = ()) -> FrontEnd:
+    """The front end revised for its `must_fix` findings (`is_front_end_finding`), one round, as `revise_system`
+    revises a block (the request's name is "Front End (revise)"); `front` unchanged, without asking, when there is
+    none. Raises NoAnswer."""
+    if not (front.devices or front.clarifications or front.lines or front.notes):
+        return front                        # the documents call for no front end: nothing to revise, none is written
+    system = front_end_system(front, taken)
+    mine = [replace(f, system_key=system.key) for f in findings
+            if f.severity == "must_fix" and is_front_end_finding(f, front, playbook)]
+    if not mine:
+        return front
+    revised = revise_system(system, mine, evidence, playbook, transport, tags=tags, ids=ids, sheets=sheets,
+                            source_sheets=source_sheets)
+    return _onto(front, revised)
+
+
 # ---- QC -------------------------------------------------------------------------------------------------------------
 
 def _qc_schema(job: Job, playbook: Playbook) -> dict:
@@ -1637,6 +1780,7 @@ def _quote_findings(job: Job, index: Mapping[str, str], rule: str) -> list[Findi
     out: list[Finding] = []
     # the planner's refs: of each system for its own lines, of the whole job for the front end and the exceptions
     planned_job = frozenset(_ref_ids([*(r for s in job.systems for r in ai_evidence.system_refs(s)),
+                                      *(job.front_end.refs if job.front_end is not None else ()),
                                       *(r for e in job.exceptions for r in e.refs)]))
     planned = planned_job
 
