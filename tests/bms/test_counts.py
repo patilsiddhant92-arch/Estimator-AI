@@ -476,9 +476,9 @@ def test_a_unit_on_two_floor_plans_adds_up_as_the_inventory_counts(tmp_path):
                                  (2, "M-102", "SECOND FLOOR PLAN", "EF-2 EF-5")])
     checked = counts.cross_check(_sample_job(), catalogue, tmp_path / "cache")
     ef = _family(checked, "EF", "Exhaust Fan").count
-    assert ef.value == 4 and ef.sources[0].where == ("M-101, Drawings.pdf page 1; M-102, Drawings.pdf page 2")
-    assert [r.source_id for r in ef.sources] == ["C1"] and ef.sources[0].quote == counts.LOCATED_QUOTE
-    assert [(o.value, o.ref.source_id) for o in ef.others] == [(3, "S6")]   # the planner's 3, kept as another count
+    # T-005a (estimator ruling 2 of 2026-10-11): a numbered unit tag is one unit in the job, so EF-2 on two floors'
+    # plans is one fan: EF-1, EF-2, EF-5 are 3, the planner's 3 (CNT-5 counted EF-2 on each plan: 4)
+    assert ef.value == 3 and not [o for o in ef.others if o.value != 3]
 
 
 # ---- cross_check with vision ----------------------------------------------------------------------------------
@@ -840,8 +840,8 @@ def test_a_twin_sheet_that_shows_no_tag_still_stops_the_other_trades_sheet_from_
                                  (2, "M-102", "LEVEL 3 HVAC DUCTWORK PLAN", FILLER),
                                  (3, "M-201", "LEVEL 3 HVAC PIPING PLAN", _L1_TEXT)])
     count = counts.cross_check(_ef_job(), catalogue, tmp_path / "cache").system("EF").families[0].count
-    assert count.value == 4
-    assert [o.value for o in count.others] == [2]
+    # T-005a (ruling 2): a unit's tag counts once in the job whatever the groups, so the check and the dossier agree
+    assert count.value == 2 and not count.others
 
 
 def test_the_groups_the_check_counts_with_are_the_inventorys_groups_of_every_plan_sheet(tmp_path):

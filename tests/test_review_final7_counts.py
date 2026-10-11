@@ -209,7 +209,11 @@ def test_a_second_floor_labelled_with_air_flows_still_counts_its_units(tmp_path)
     sheets = [_sheet(1, "M-101", "LEVEL 1 PLAN"), _sheet(2, "M-102", "LEVEL 2 PLAN"),
               _sheet(9, "M-601", "SCHEDULES", types=("Schedules",))]
     d = build_dossier(_catalogue(pages, sheets, units), _reading([_schedule("VAV SCHEDULE", units, 9)]), tmp_path)
-    assert d.counts["VAV"]["plan_placements"] == 6
+    # T-005a (estimator ruling 2 of 2026-10-11): a numbered unit tag is one unit in the job, so 3 as the schedule
+    # says, the second floor's labels still read (each named as a duplicate with both numbers)
+    assert d.counts["VAV"]["plan_placements"] == 3
+    assert "VAV-1 is on 2 plans (M-101, M-102), counted once, 1" in next(
+        line for line in d.text.splitlines() if "] VAV (" in line)
 
 
 # 32 invented plan texts: the inventory's plan count and the dossier's plan placements agree on every one (F7 closed)
@@ -277,4 +281,4 @@ def test_one_number_on_three_pages_where_only_two_are_alike_counts_every_page(tm
     reading.devices = tuple(DeviceCount("M-101", DWG, n, "Thermostat", "T", 1, 1, 1, True) for n in (1, 2, 3))
     d = build_dossier(catalogue, reading, tmp_path)
     assert d.device_totals["T"] == 3
-    assert d.counts["VAV"]["plan_placements"] == 10
+    assert d.counts["VAV"]["plan_placements"] == 7           # T-005a ruling 2: VAV-1 to 3 once in the job (was 10)

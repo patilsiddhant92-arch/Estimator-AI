@@ -127,9 +127,16 @@ TWO_TRADES = (inventory_plan("M-201", "LEVEL 4 HVAC DUCTWORK PLAN", FOUR),
 
 
 def vav_totals(*plans):
-    """The family totals the inventory gives four scheduled VAV boxes drawn on `plans`."""
+    """The family totals the inventory gives four scheduled VAV boxes drawn on `plans`. T-005a (estimator ruling 2 of
+    2026-10-11): a numbered unit tag is one unit in the job and carries no sheets-added-up number, so the schedule here
+    calls the rows types (a QTY column with no number): a type keeps ruling L1's sum, which these tests are about."""
+    from estimator.reading.schedules import Schedule, ScheduleRow
+
     catalogue = inventory_catalogue([SCHEDULES, *plans])
-    return build_inventory(catalogue, [inventory_schedule(*[f"VAV-{n}" for n in range(1, 5)])])[1]
+    tags = [f"VAV-{n}" for n in range(1, 5)]
+    typed = Schedule("Mech.pdf", 1, "M-601", "VAV SCHEDULE", ("TAG", "QTY"),
+                     tuple(ScheduleRow(t, {"TAG": t, "QTY": ""}, None, None) for t in tags), False, (), ())
+    return build_inventory(catalogue, [typed])[1]
 
 
 def vav_job(totals, count=4, sources=None, group=None, sheets=()):

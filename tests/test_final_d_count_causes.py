@@ -31,9 +31,10 @@ def test_a_type_tag_once_on_each_of_two_floors_is_a_typical_unit_on_each_plan(tm
     assert "(2 per plan placements (likely a typical unit at each place)" in note
     assert "drawn on two plan sheets" not in note
     # a unit's tag (a number in it) once on each of two floors: FINAL-I (lead ruling) adds the two floors' plans up,
-    # 2 (FINAL-G 1), names EF-1 in the reading notes and claims no cause in the line's head
+    # 2 (FINAL-G 1), names EF-1 in the reading notes and claims no cause in the line's head. T-005a (estimator ruling 2
+    # of 2026-10-11): a numbered unit tag is one unit in the job, 1, and the note names both numbers
     catalogue, reading = _two_floors("EF-1")
     line = _line("EF", build_dossier(catalogue, reading, tmp_path))
-    assert "plan placements 2 (" in line
+    assert "plan placements 1 (" in line and "once per plan), 2" in line
     assert "placements above the other counts, likely" not in line and "shown again" not in line
     assert "EF-1 is on 2 plans" in line.split("Reading notes:", 1)[1]

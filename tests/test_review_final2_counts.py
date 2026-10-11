@@ -82,8 +82,8 @@ def test_the_same_floor_named_two_ways_in_one_document_is_one_plan_for_two_trade
     d = build_dossier(catalogue, reading, tmp_path)
     assert d.counts["VAV"]["plan_placements"] == 6
     line = next(line for line in d.text.splitlines() if "] VAV (" in line)
-    assert "M-101 and M-201 counted as one plan, 3 (6 if they are two places)" in line
-    assert "M-102 and M-202 counted as one plan, 3 (6 if they are two places)" in line
+    # T-005a (ruling 2): unit tags are one unit each in the job, so the duplicates are named per tag
+    assert "VAV-1 is on 2 plans (M-101, M-201), counted once, 1" in line
 
 
 def test_a_type_tag_once_on_each_of_two_floors_is_not_called_one_unit_shown_again(tmp_path):

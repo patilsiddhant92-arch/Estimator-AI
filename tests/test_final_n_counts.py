@@ -81,8 +81,10 @@ def test_the_backstop_never_joins_two_plans_into_one_group_and_the_sum_is_said(t
     pages = [_page(DWG, 1, _lines("VAV-1", "VAV-2", "VAV-3")), _page(DWG, 2, _lines("VAV-1", "TO VAV-2", "TO VAV-3"))]
     sheets = [_sheet(1, "M-101", "HVAC FIRST FLOOR PLAN"), _sheet(2, "M-201", "HVAC FIRST FLOOR PLAN")]
     d = build_dossier(_catalogue(pages, sheets, ["VAV-1", "VAV-2", "VAV-3"]), _reading(), tmp_path)
-    assert d.counts["VAV"]["plan_placements"] == 6
-    assert "VAV-2 is on 2 plans" in _line("VAV", d) and "counted on each" in _line("VAV", d)
+    # T-005a (estimator ruling 2 of 2026-10-11): a numbered unit tag is one unit in the job, so 3 (FINAL-N: 6), and
+    # the counts line names the duplicates with both numbers
+    assert d.counts["VAV"]["plan_placements"] == 3
+    assert "VAV-2 is on 2 plans" in _line("VAV", d) and "if each plan's VAV-2 is its own unit (a type used once per plan), 2" in _line("VAV", d)
 
 
 # ---- F1 / F2 / F5: the copy test -----------------------------------------------------------------------------------

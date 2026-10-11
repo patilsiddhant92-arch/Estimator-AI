@@ -34,7 +34,7 @@ import pymupdf
 from estimator.catalogue.job import CONTROLS_DISCIPLINES, plans_printed_again
 from estimator.catalogue.pdf import clean_text
 from estimator.catalogue.register import EDGE
-from estimator.catalogue.sheet_types import SHEET_TYPES
+from estimator.catalogue.sheet_types import SHEET_TYPES, is_demolition
 from estimator.reading.pages import unreadable_page
 from estimator.reading.revisions import governing_pages, typical_places
 
@@ -150,6 +150,21 @@ def _words(page: pymupdf.Page) -> list[_Word]:
         parts = [p.strip(_PUNCTUATION) for p in clean_text(text).split()]
         words += [_Word(p, box.x0, box.y0, box.x1, box.y1, edge) for p in parts if p]
     return words
+
+
+def _demolition_flags(counts: list[DeviceCount], left_out: list[DeviceCount]) -> list[str]:
+    """One flag per label the demolition plans show (ruling 1 of 2026-10-11, T-005a: a demolition plan shows the
+    previous job's devices, so they are not counted), with both numbers: the count from the new-work plans and the
+    count with the demolition plans."""
+    flags = []
+    for label in dict.fromkeys(c.label for c in left_out):
+        mine = [c for c in left_out if c.label == label]
+        more = sum(c.total for c in mine)
+        now = sum(c.total for c in counts if c.label == label)
+        where = ", ".join(dict.fromkeys(c.sheet or f"{c.document.rsplit('/', 1)[-1]} page {c.page}" for c in mine))
+        flags.append(f"'{label}' {more} more on demolition sheets ({where}): left out of the count, {now}; with them, "
+                     f"{now + more} — counted only if the documents name work on these devices (relocation); check")
+    return flags
 
 
 def _is_plan(sheet, reading: DeviceList) -> bool:
@@ -348,6 +363,7 @@ def count_devices(catalogue, page_opener: PageOpener, legend: Sequence[LegendEnt
     counts: list[DeviceCount] = []
     flags: list[str] = []
     searched = 0
+    left_out: list[DeviceCount] = []    # ruling 1 (T-005a): labels on demolition plans, not counted, said with both numbers
     for sheet in catalogue.sheets:
         if not _is_plan(sheet, reading) or _is_legend(sheet, reading):
             continue
@@ -371,8 +387,10 @@ def count_devices(catalogue, page_opener: PageOpener, legend: Sequence[LegendEnt
             device = reading.labels[label]
             if label in reading.legend_decides and label in meanings:
                 device = meanings[label].capitalize()
-            counts.append(DeviceCount(sheet.number, sheet.document, sheet.page, device, label, tally[label],
-                                      floors, tally[label] * floors, label in meanings))
+            (left_out if is_demolition(sheet) else counts).append(
+                DeviceCount(sheet.number, sheet.document, sheet.page, device, label, tally[label], floors,
+                            tally[label] * floors, label in meanings))
+    flags += _demolition_flags(counts, left_out)
     if legend:
         missing: dict[str, list[str]] = defaultdict(list)
         for count in counts:

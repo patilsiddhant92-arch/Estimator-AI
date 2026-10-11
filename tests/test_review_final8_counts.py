@@ -825,7 +825,7 @@ def _f5_f4_type():
 ITEM_ROWS = [
     ("FINAL6 F1 EF-1 empty QUANTITY cell, drawn 3 times", _f6_f1, 3, None),
     ("FINAL6 F7 piping plan names VAV-2 and 3 in notes, schedule of 3", _f6_f7, 3, None),
-    ("FINAL6 F8 EF-1 on two plans, listed on two schedules", _f6_f8, 2, None),
+    ("FINAL6 F8 EF-1 on two plans, listed on two schedules", _f6_f8, 1, None),      # T-005a ruling 2: one unit
     ("FINAL5 F4 FCU-1 x3 on a typical of 10 floors", _f5_f4_typical, 10, 30),
     ("FINAL5 F4 scheduled EBB-A once on each of two floors", _f5_f4_type, 2, None),
 ]
