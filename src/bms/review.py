@@ -295,18 +295,28 @@ NUMBER_WORDS = ("zero", "one", "two", "three", "four", "five", "six", "seven", "
                 "twelve", "thirteen", "fourteen", "fifteen", "sixteen", "seventeen", "eighteen", "nineteen", "twenty")
 UNIT_WORDS = ("unit", "units", "no", "nos", "ea", "each", "pc", "pcs", "piece", "pieces", "item", "items", "qty")
 UNKNOWN_COUNT_PATTERN = r"^(?:##|unknown|not known|qty \(##\))$"
-# the whole text: the number (group 1), then at most one unit word, then at most one dot
-LEADING_COUNT_PATTERN = (r"^\s*([0-9]+|" + "|".join(NUMBER_WORDS) + r")"
-                         r"(?:\s+(?:" + "|".join(UNIT_WORDS) + r"))?\.?\s*$")
-_UNKNOWN_COUNT = re.compile(UNKNOWN_COUNT_PATTERN, re.IGNORECASE)
-_LEADING_COUNT = re.compile(LEADING_COUNT_PATTERN, re.IGNORECASE)
+# the spaces as the page's JavaScript knows them (its \s and its trim()): written out, because Python's \s and strip()
+# know others (U+001C to U+001F, U+0085) and not U+FEFF, so one text read two ways. T-003.
+_JS_SPACE_CLASS = r"[\t\n\v\f\r \u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000\ufeff]"
+JS_SPACES = ("\t\n\v\f\r \u00a0\u1680" + "".join(chr(c) for c in range(0x2000, 0x200B))
+             + "\u2028\u2029\u202f\u205f\u3000\ufeff")
+# the whole text: the number (group 1), then at most one unit word, then at most one dot. At most 15 digits: the page's
+# parseInt holds no more exactly (2**53), and Python's int() refuses more than 4300. T-003.
+LEADING_COUNT_PATTERN = (r"^" + _JS_SPACE_CLASS + r"*([0-9]{1,15}|" + "|".join(NUMBER_WORDS) + r")"
+                         r"(?:" + _JS_SPACE_CLASS + r"+(?:" + "|".join(UNIT_WORDS) + r"))?\.?"
+                         + _JS_SPACE_CLASS + r"*$")
+# ASCII case folding only: the page's RegExp "i" (no "u") never folds a letter above U+007F onto an ASCII one, but
+# Python's re.IGNORECASE folds four ("ſ", "ı", "İ", the Kelvin sign), so "ſix" was a count here and words on the page
+# (and its number word was in no list: a ValueError). T-003.
+_UNKNOWN_COUNT = re.compile(UNKNOWN_COUNT_PATTERN, re.IGNORECASE | re.ASCII)
+_LEADING_COUNT = re.compile(LEADING_COUNT_PATTERN, re.IGNORECASE | re.ASCII)
 
 
 def _typed_count(text: str) -> tuple[str, int | None]:
     """What a count typed in Change says: ("number", n) for a whole number alone or with one unit word,
     ("number", None) for "not known", ("words", None) for any other text (a number with other words after it is
     no count), ("none", None) for no text. The page reads it the same way (`parseNumber`)."""
-    said = (text or "").strip()
+    said = (text or "").strip(JS_SPACES)      # the page's trim()
     if not said:
         return ("none", None)
     if _UNKNOWN_COUNT.match(said):
@@ -833,8 +843,10 @@ def _with_typed_count(entry: SavedDecision, job: Job | None) -> SavedDecision:
 # number and one unit word and nothing else. Other words stay a rename ("2 pipe FCU"). So does a name the current page
 # saved: its `reason` is the count box text or "renamed to ...", never the name itself. (`UNIT_WORDS` is above, with
 # the typed count it belongs to.)
-_COUNT_NAME = re.compile(r"^\s*([0-9]+|" + "|".join(NUMBER_WORDS) + r")\s+(?:" + "|".join(UNIT_WORDS) + r")\.?\s*$",
-                         re.IGNORECASE)
+# (It reads as the count box does, `_LEADING_COUNT`: ASCII case folding, the page's spaces, at most 15 digits. Before,
+# a saved name "ſix units" or one of thousands of digits raised ValueError and stopped the run. T-003.)
+_COUNT_NAME = re.compile(r"^" + _JS_SPACE_CLASS + r"*([0-9]{1,15}|" + "|".join(NUMBER_WORDS) + r")" + _JS_SPACE_CLASS
+                         + r"+(?:" + "|".join(UNIT_WORDS) + r")\.?" + _JS_SPACE_CLASS + r"*$", re.IGNORECASE | re.ASCII)
 
 
 def _read_count_name(d: Decision, line: Device | None = None) -> Decision:
