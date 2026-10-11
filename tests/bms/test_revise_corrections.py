@@ -248,3 +248,24 @@ def test_the_run_keeps_the_count_the_estimator_set(job, raw, held, playbook):
     revised = run._revised(system, [_count_finding()], ai.evidence_for(system, held), playbook,
                            FakeTransport(_answer(raw, _count(4, [S44]))), job, hold_counts=("Exhaust Fan",))
     assert revised.families[0].count.value == 3
+
+
+def test_only_the_family_the_estimator_did_not_set_may_change(job, raw, held, playbook):
+    """A block of three families, the count of one of them the estimator's: a finding about the whole block still
+    corrects the others, and the writer is told which one it may not change."""
+    system = job.system("VRF")
+    answer = copy.deepcopy(raw["systems"][2])
+    cu = Ref("S10", "CU-1", "M-002, Drawings.pdf page 3")
+    indoor = Ref("S9", "FCU-1 THRU FCU-4", "M-002, Drawings.pdf page 3")
+    answer["families"][0]["count"] = _count(9, [indoor])                 # the estimator's family: ignored
+    answer["families"][1]["count"] = _count(2, [cu])                     # not held: corrected
+    finding = Finding("Higher count prints", "VRF", None, "must_fix", "The condensing unit count is low.",
+                      "Set the Condensing Unit count to 2.")
+    transport = FakeTransport(answer)
+    revised = ai.revise_system(system, [finding], ai.evidence_for(system, held), playbook, transport,
+                               hold_counts=("Indoor Unit",))
+    assert revised.families[0] == system.families[0]                       # held
+    assert revised.families[1].count.value == 2 and revised.families[1].count.others[0].value == 1
+    assert revised.families[2] == system.families[2]
+    prompt = transport.asked[0]["prompt"]
+    assert "may correct" in prompt and "Do not change the count of Indoor Unit: the estimator set it" in prompt
