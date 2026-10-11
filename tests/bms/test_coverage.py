@@ -2,7 +2,7 @@
 from estimator.ledger.facts import Ledger
 
 from bms.coverage import coverage
-from bms.model import (Clarification, Count, Device, Family, FrontEnd, Job, Ref, ScopeException, System)
+from bms.model import (Clarification, Count, Device, Family, FrontEnd, Job, OtherCount, Ref, ScopeException, System)
 
 
 def _ledger():
@@ -84,3 +84,55 @@ def test_the_gate_never_changes_the_job():
     before = job.to_json()
     coverage(job, _ledger(), None)
     assert job.to_json() == before
+
+
+def test_a_fact_with_no_value_prints_no_empty_brackets():
+    for value in (None, "", "  "):
+        ledger = Ledger({"S1": "M-1, Plans.pdf page 2 (x)"})
+        ledger.add("family", "ZZ", value, "S1", "ZZ-1 gizmo shown", "seed")
+        (finding,) = coverage(_job(), ledger)
+        assert "None" not in finding.what and "()" not in finding.what, repr(value)
+        assert "family “ZZ” was read at M-1, Plans.pdf page 2" in finding.what, repr(value)
+    ledger = Ledger({"S1": "M-1"})
+    ledger.add("device", "Odd point", 0, "S1", "ODD POINT ON PANEL", "seed")
+    (finding,) = coverage(_job(), ledger)
+    assert "“Odd point” (0) was read" in finding.what
+
+
+def test_a_unit_with_no_value_is_not_cited_by_the_word_none():
+    ledger = Ledger({"S1": "M-1"})
+    ledger.add("unit", "Unit x", None, "S1", "UX row", "schedules")
+    system = System(**{**_job().systems[0].__dict__,
+                       "clarifications": (Clarification("note", "None of the rooftop units is ours"),)})
+    assert len(coverage(Job("j", systems=(system,)), ledger)) == 1
+
+
+def test_a_unit_tag_inside_a_longer_tag_is_not_cited():
+    ledger = Ledger({"S1": "M-1"})
+    ledger.add("unit", "Unit one", "EF-1", "S1", "EF-1 row", "schedules")
+
+    def job(*tags):
+        family = Family("Exhaust fan", tags, Count(2))
+        return Job("j", systems=(System("EF", "Exhaust Fans", "shape", "field", (family,)),))
+
+    assert len(coverage(job("EF-10", "EF-11"), ledger)) == 1
+    assert coverage(job("EF-1", "EF-10"), ledger) == []
+
+
+def test_a_ref_in_a_family_or_line_count_cites_the_fact():
+    ledger = Ledger({"S1": "M-1"})
+    ledger.add("family", "GLY", "Glycol Feeder", "S1", "GLY Glycol Feeder", "seed")
+    ledger.add("device", "Odd point", 3, "S1", "ODD POINT 3 ON PANEL", "seed")
+    gly, odd = Ref("S1", "GLY Glycol Feeder", "M-1"), Ref("S1", "ODD POINT 3 ON PANEL", "M-1")
+    other = Ref("S9", "x", "M-9")
+
+    def uncited(family: Count, quantity: Count) -> list[str]:
+        line = Device("PKG.d1", "slot", "Panel point", "Furnish", "AME", "AME", "AME", quantity, (other,))
+        system = System("PKG", "Package", "shape", "field", (Family("Feeder", (), family),), devices=(line,))
+        return [f.what.split(":")[0] for f in coverage(Job("j", systems=(system,)), ledger)]
+
+    assert uncited(Count(1), Count(1)) == ["F1", "F2"]                                  # nothing else cites them
+    assert uncited(Count(1, (gly,)), Count(1)) == ["F2"]                                # a family's count source
+    assert uncited(Count(2, (other,), (OtherCount(1, gly),)), Count(1)) == ["F2"]       # a family's other count
+    assert uncited(Count(1), Count(3, (odd,))) == ["F1"]                                # a line's quantity source
+    assert uncited(Count(1), Count(4, (other,), (OtherCount(3, odd),))) == ["F1"]       # a line's other count
