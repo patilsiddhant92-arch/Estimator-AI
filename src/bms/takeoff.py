@@ -579,9 +579,6 @@ def attach_demolition(job: Job) -> Job:
 # ---- the writer sees the register (Stage 2, Task 2.5) -----------------------------------------------------------
 
 REGISTER_HEADING = "Takeoff register for this system"
-# a sheet that does not count, in the words of a set-aside reason (`SetAsideReason`)
-_KIND_REASON = {"demolition": "demolition sheet", "part_plan": "part plan of one area",
-                "enlarged_plan": "part plan of one area"}
 _PREFIX = re.compile(r"^([A-Za-z]+)")
 
 
@@ -607,40 +604,23 @@ def _plural(name: str) -> str:
 
 
 def _device_lines(job: Job, units: list[Unit], devices) -> list[str]:
-    """One line per device the reading counted on the sheets of the system's areas: the number on the sheets that
-    count, then the numbers set aside with their reason. A set-aside the job already carries for the device (by its
-    label or its name; Task 2.1's `device_tally`) is printed as it is; otherwise the counts on the sheets of those
-    areas that do not count are set aside, by the sheet's kind."""
+    """One line per device label the reading counted on the sheets of the system's areas (the areas of the sheets its
+    counted units are drawn on), by `device_tally` (Task 2.1): the number on the sheets that count, then the numbers
+    set aside with their reason, "Thermostats: 30 on the new-work sheets; 9 set aside (demolition sheet)"."""
     counted = {s.number for u in units if u.status in COUNTED_STATUSES for s in job.sheets if s.number in u.sheets}
     areas = {s.area for s in job.sheets if s.number in counted and s.area}
     if not areas:
         return []
-    kept: dict[tuple[str, str], int] = {}
-    aside: dict[tuple[str, str], dict[str, int]] = {}
-    for row in devices or ():
-        sheet = _sheet_of(job, row.document, row.page, row.sheet)
-        if sheet is None or sheet.area not in areas:
-            continue
-        key = (row.device, row.label)
-        number = row.total if getattr(row, "total", None) is not None else row.count
-        if sheet.counts_units:
-            kept[key] = kept.get(key, 0) + number
-        else:
-            reason = _KIND_REASON.get(sheet.kind, sheet.kind.replace("_", " "))
-            kept.setdefault(key, 0)
-            aside.setdefault(key, {})
-            aside[key][reason] = aside[key].get(reason, 0) + number
+    mine = [row for row in devices or ()
+            if (sheet := _sheet_of(job, row.document, row.page, row.sheet)) is not None and sheet.area in areas]
     lines = []
-    for key in kept:
-        device, label = key
-        on_job = [s for s in job.set_aside if s.family in (label, device)]
+    for label in dict.fromkeys(row.label for row in mine):
+        kept, aside = device_tally(mine, job.sheets, label)
         reasons: dict[str, int] = {}
-        if on_job:
-            for row in on_job:
-                reasons[row.reason] = reasons.get(row.reason, 0) + row.value
-        else:
-            reasons = aside.get(key, {})
-        line = f"{_plural(device)}: {kept[key]} on the new-work sheets"
+        for row in aside:
+            reasons[row.reason] = reasons.get(row.reason, 0) + row.value
+        device = next(row.device for row in mine if row.label == label)
+        line = f"{_plural(device)}: {kept} on the new-work sheets"
         line += "".join(f"; {n} set aside ({reason})" for reason, n in reasons.items())
         lines.append(line)
     return lines

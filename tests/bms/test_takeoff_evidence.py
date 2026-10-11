@@ -43,16 +43,13 @@ def test_the_fcu_register_holds_the_thermostats_kept_and_set_aside():
     assert "- FCU-1: new, count 55" in text
 
 
-def test_a_device_set_aside_on_the_job_is_the_one_printed():
-    """When the job carries the device's set-aside (Task 2.1's `device_tally`), that row is printed, not a recount."""
-    import dataclasses
-
-    from bms.model import Ref, SetAside
+def test_the_device_line_is_device_tally_s():
+    """The register's device line is Task 2.1's `device_tally` over the sheets of the system's areas (merge of T-007:
+    the helper's interim tally replaced)."""
     job = _job()
-    ref = Ref("S18", "T", "MD-201, Mech.pdf page 9")
-    job = dataclasses.replace(job, set_aside=(SetAside("T", 7, ref, "demolition sheet", "invented"),))
+    kept, (aside,) = takeoff.device_tally(fx.reading().devices, job.sheets, "T")
     text = takeoff.register_text(job, job.system("FCU"), fx.ledger(), devices=fx.reading().devices)
-    assert "Thermostats: 30 on the new-work sheets; 7 set aside (demolition sheet)" in text
+    assert f"Thermostats: {kept} on the new-work sheets; {aside.value} set aside ({aside.reason})" in text
 
 
 def test_no_register_gives_no_text():
