@@ -77,7 +77,8 @@ Direct commands (the CLI is `src/bms/__main__.py`):
 - The run writes the proposal (.docx), the price sheet (.xlsx), the Evidence Package (.xlsx), `Review.html`,
   `<quote> Job.json` and `<quote> Ledger.json` into the out folder. The estimator saves `decisions.json` there. The
   next run applies it.
-- Never print job content or paste a request or answer file into the chat. Say counts, kinds, system names and paths.
+- Do not paste whole request or answer files into the chat (they are long). Quoting job lines to discuss them with the
+  estimator is fine.
 
 ## Branches and commits
 
@@ -101,9 +102,11 @@ Direct commands (the CLI is `src/bms/__main__.py`):
    Keep FILE outside git. Outside agents never open `out/`, `Jobs/`, `.superpowers/` or `.claude/worktrees/`.
 2. The Playbook belongs to the estimator. Edit `playbook/rules.md`, `playbook/shapes.json` and `playbook/wording.json`
    only when the user says so. Otherwise propose the change. The Playbook wins over a check in code or in a test.
-3. The job's documents decide the scope. Every line cites this job. No standard lines. No fallback lines. No wording
-   from other jobs. The Master Template sets only the shape of a block. A count that is too low is the worst error:
-   the higher count prints, flagged, with every count named.
+3. The job's documents decide the scope. Every line cites this job. No fallback lines. No wording from other jobs.
+   The Master Template sets the format of a block and the house lines it always carries (for example the existing-BMS
+   front end: network control panel, graphics, training, warranty); the GEM v4 (`assets/gem/BMS_DDC_GEM_v4.txt`) sets
+   the order of points. A count that is too low is the worst error: the higher count prints, flagged, with every
+   count named.
 4. Keep the interface contracts in `docs/superpowers/specs/2026-10-04-rebuild-interfaces.md`. Only the lead changes
    `model.py`, `playbook.py`, `run.py`, `__main__.py`, the fixtures and the contract tests.
 5. Two folders outside the repo are read-only: `D:\AME Estimation` (the live job archive) and `D:\Estimation Assistant`
@@ -120,8 +123,10 @@ decide in the main thread. Give routine work to cheaper subagents, and tell each
 
 ## Cost rules for the lead (2026-10-10)
 
-- Run at most 2 agents at a time.
+- Run at most 2 build agents (executors) at a time. Scouts, verifiers and the short job-run subagents that answer one
+  AI request each may run up to 4 at a time. HarkPro's own agents do not count.
 - Every agent prompt says: "Do not start subagents or multi-agent review skills (no /code-review or /simplify fan-out)."
 - The lead runs one code review on the merged branch, not one per agent.
-- Do only work that is in the current plan. Ask the estimator before new work.
+- Do only work that is in the current plan (now `docs/superpowers/plans/2026-10-11-final-wave-handover.md` and the
+  architecture decision the estimator approves). Ask the estimator before new work outside it.
 - If you notice drift (many agents at once, or work outside the plan), stop and re-read these rules and the plan.
