@@ -19,13 +19,13 @@ from estimator.price_sheet.price_book import PriceBook
 from estimator.price_sheet.rows import FIRST_ROW, FLAG, HOURS, LAST_ROW, QUANTITY, SCOPE, UNIT_PRICE, Sheet, sheet_plan
 from estimator.scope import Job
 
-# a line's own quantity, "Qty (#) <device>" (estimator ruling 15, T-005e): not part of the device's name in the book
+# a line's own quantity in front, "Qty (#) <device line>" (estimator ruling 15, G-002): not part of the name in the book
 _LINE_QTY = re.compile(r"\bQty \((?:\d+|#+)\)\s*")
 
 PRICE_PENDING = "PRICE PENDING"
 PRICE_NEEDS_REVIEW = "PRICE NEEDS REVIEW"   # the price book's own note questions this price
 LABOR_PREMIUM = "LABOR PREMIUM - ESTIMATOR TO PRICE"   # off-hours work or prevailing wage the documents call for
-QUANTITY_PENDING = "QUANTITY PENDING"       # a "Qty (##)" block or a "(Qty. ##)" line: still to fill, unpriced
+QUANTITY_PENDING = "QUANTITY PENDING"       # a "Qty (##)" block or line: still to fill, unpriced
 BASE_LABEL = "Base Bid"
 MAX_SHEETS = 10
 _FLAG_FONT = Font(bold=True, color="C00000")
@@ -84,7 +84,7 @@ def _fill(ws, sheet: Sheet, book: PriceBook, labor: set[str] = frozenset()) -> i
         if row.count_pending:
             _flag(ws, r, QUANTITY_PENDING)     # its lines carry no quantity, so none of them is priced
         if row.quantity_pending:
-            _flag(ws, r, QUANTITY_PENDING)     # a "(Qty. ##)" line: no quantity, so it is not priced
+            _flag(ws, r, QUANTITY_PENDING)     # a "Qty (##)" line: no quantity, so it is not priced
         if row.quantity is not None:
             ws.cell(r, QUANTITY).value = row.quantity
             match = book.lookup(_LINE_QTY.sub("", row.item.text))
@@ -138,7 +138,7 @@ def _fill_summary(ws, job: Job, plan: list[Sheet], pending: int, counts: int = 0
                     "are not priced until the count is typed in.")
     if quantities:
         lines, have = ("line", "has") if quantities == 1 else ("lines", "have")
-        said.append(f"{quantities} {lines} {have} no quantity yet — (Qty. ##), marked {QUANTITY_PENDING}; "
+        said.append(f"{quantities} {lines} {have} no quantity yet — Qty (##), marked {QUANTITY_PENDING}; "
                     "not priced until the quantity is typed in.")
     for condition in job.labor_conditions:
         what = "Off-hours work" if condition.kind == "off-hours" else "Prevailing wage"
