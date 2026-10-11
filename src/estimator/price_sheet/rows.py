@@ -6,6 +6,7 @@ the proposal is written from (the one-list, two-documents guarantee).
 from __future__ import annotations
 
 import difflib
+import re
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -18,6 +19,8 @@ FIRST_ROW, LAST_ROW = 6, 396                               # the rows that hold 
 HOURS, QUANTITY, SCOPE, UNIT_PRICE, FLAG = 2, 3, 4, 5, 8   # columns B, C, D, E, H
 COUNT_TO_FILL = "Qty (##)"                                  # the house form of a count still to be filled
 LINE_QUANTITY_TO_FILL = "(Qty. ##)"                         # the house form of a line's quantity still to be filled
+DEMOLITION_HEADING = "Demolition Scope"                     # T-G1: labor rows under this heading, hours left blank
+_QTY_PREFIX = re.compile(r"^Qty \(\d+\) ")
 
 
 @dataclass(frozen=True)
@@ -49,7 +52,10 @@ def sheet_plan(job: Job) -> list[Sheet]:
     for j, item in enumerate(job.front_end.items):
         base.append(_item_row(item, markers, ("front_end", "items", j)))
     for i, block in enumerate(job.blocks):
-        base += _block_rows(block, next(numbers) if block.numbered else None, ("blocks", i))
+        if squash(block.header) == DEMOLITION_HEADING:
+            base += _demolition_rows(block, ("blocks", i))
+        else:
+            base += _block_rows(block, next(numbers) if block.numbered else None, ("blocks", i))
     sheets = [Sheet("Price Sheet 1", tuple(base))]
     for field, heading, name in (("add_alternates", layout.ADD_ALTERNATES, "ADD ALT"),
                                  ("deduct_alternates", layout.DEDUCT_ALTERNATES, "DEDUCT ALT")):
@@ -61,6 +67,22 @@ def sheet_plan(job: Job) -> list[Sheet]:
             title = name if len(alternates) == 1 else f"{name} {k + 1}"
             sheets.append(Sheet(title, tuple(rows)))
     return sheets
+
+
+def _labor_text(text: str) -> str:
+    """`<family> <action words>` from a Demolition Scope line. The proposal line is `Qty (N)` plus those words,
+    and a note after a comma. The price sheet description leaves both off."""
+    body = _QTY_PREFIX.sub("", squash(text))
+    return body.split(",", 1)[0].strip()
+
+
+def _demolition_rows(block: Block, ref: tuple) -> list[Row]:
+    """A heading row, then one labor row per line. Hours stay empty. The labor row is marked red."""
+    rows = [] if block.joined else [Row()]
+    rows.append(Row(DEMOLITION_HEADING, ref=ref))
+    for j, item in enumerate(block.items):
+        rows.append(Row(_labor_text(item.text), quantity=item.quantity, item=item, ref=ref + ("items", j), red=True))
+    return rows
 
 
 def _block_rows(block: Block, number: int | None, ref: tuple) -> list[Row]:

@@ -152,7 +152,7 @@ def test_a_grouped_system_gets_its_entrys_group_line(job, house):  # T-005e even
                    families=(Family("Chiller", ("CH-1", "CH-2"), Count(value=2)),
                              Family("Chilled Water Pump", ("CHWP-1", "CHWP-2"), Count(value=2))),
                    devices=(dev(1, "DDC Controller", slot="controller", key="CHW", qty=1),))
-    draft = render(replace(job, systems=(pumps,)), house)
+    draft = render(replace(job, systems=(pumps,), demolition=()), house)
     headers = [b.header for b in draft.scope.blocks]
     assert headers[0] == "Chilled Water System" and not draft.scope.blocks[0].numbered
     assert headers[1].startswith("Qty (2) Chiller") and headers[2].startswith("Qty (2) Chilled Water Pump")
@@ -163,7 +163,7 @@ def test_a_single_family_block_gets_no_sub_heading(job, house):
     one = System(key="CHW", name="Chilled Water System", shape="Chilled Water System", control="field",
                  families=(Family("Chiller", ("CH-1",), Count(value=1)),),
                  devices=(dev(1, "DDC Controller", slot="controller", key="CHW", qty=1),))
-    assert all(b.numbered for b in render(replace(job, systems=(one,)), house).scope.blocks)
+    assert all(b.numbered for b in render(replace(job, systems=(one,), demolition=()), house).scope.blocks)
 
 
 def _fe(n: int, name: str, verb: str = "Furnish") -> Device:

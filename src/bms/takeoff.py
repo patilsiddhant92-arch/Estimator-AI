@@ -30,8 +30,8 @@ from estimator.catalogue.job import CONTROLS_DISCIPLINES
 from estimator.catalogue.tags import label_keys, line_labels
 
 from bms import ai
-from bms.model import (COUNTED_STATUSES, FutureItem, Job, ModelError, Ref, SetAside, SheetClass, Unit, json_schema,
-                       schema_errors)
+from bms.model import (COUNTED_STATUSES, DemolitionLine, FutureItem, Job, ModelError, Ref, SetAside, SheetClass, Unit,
+                       json_schema, schema_errors)
 
 TAKEOFF_JOB = "takeoff_job"
 TAKEOFF_NAME = "Takeoff"
@@ -305,3 +305,56 @@ def save(takeoff: Takeoff, path: Path) -> bool:
 def load(path: Path) -> Takeoff:
     data = json.loads(Path(path).read_text(encoding="utf-8"))
     return Takeoff.from_dict({key: data.get(key) or [] for key in _KEYS})
+
+
+# ---- Demolition Scope (T-G1) -------------------------------------------------------------------------------
+
+# A unit of one of these statuses prints in the Demolition Scope. new and future do not.
+_ACTION = {
+    "demolish": "demo",
+    "demolish_with_work": "demo",
+    "existing_remain": "existing to remain",
+    "relocate": "relocation",
+}
+
+
+def demolition_lines(units: tuple[Unit, ...]) -> tuple[DemolitionLine, ...]:
+    """One Demolition Scope line per family, action and note, in the order the units first show that group.
+
+    demolish and demolish_with_work are "demo". existing_remain is "existing to remain". relocate is
+    "relocation". new and future give no line. A demolish unit has no note; the note of a demolish_with_work unit
+    is its reason text, so a unit with named work prints its own line, apart from the plain demo line, and units
+    with the same named work print together. A blank reason is no note. count is the sum of Unit.count. refs is
+    the union of the units' refs, in first-seen order.
+    """
+    groups: dict[tuple[str, str, str], dict] = {}
+    order: list[tuple[str, str, str]] = []
+    for unit in units:
+        action = _ACTION.get(unit.status)
+        if action is None:
+            continue
+        note = unit.reason.strip() if unit.status == "demolish_with_work" else ""
+        key = (unit.family, action, note)
+        group = groups.get(key)
+        if group is None:
+            group = {"count": 0, "refs": []}
+            groups[key] = group
+            order.append(key)
+        group["count"] += unit.count
+        for ref in unit.refs:
+            if ref not in group["refs"]:
+                group["refs"].append(ref)
+    lines = []
+    for family, action, note in order:
+        group = groups[(family, action, note)]
+        lines.append(DemolitionLine(family, action, group["count"], tuple(group["refs"]), note))
+    return tuple(lines)
+
+
+def attach_demolition(job: Job) -> Job:
+    """Set `Job.demolition` from the units on the job (T-G1).
+
+    The run calls this right after `takeoff.attach`, so the units are the takeoff register's. A job with no
+    units keeps an empty Demolition Scope.
+    """
+    return dataclasses.replace(job, demolition=demolition_lines(job.units))

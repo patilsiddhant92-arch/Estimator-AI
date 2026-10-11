@@ -28,7 +28,8 @@ from estimator.reading.inventory import COUNT_CAUSE_WORDS, COUNT_CAUSES_LEAD
 from estimator.writing.write import tag_list
 
 from bms.citations import SHEET, SourceIds, clarification_text, squash as _squash, strip_label
-from bms.model import CLARIFICATION_KINDS, UNNAMED_EXISTING, Clarification, Count, Device, FrontEnd, Job, Ref, System
+from bms.model import (CLARIFICATION_KINDS, UNNAMED_EXISTING, Clarification, Count, DemolitionLine, Device, FrontEnd,
+                       Job, Ref, System)
 from bms import order as gem_module
 from bms.order import (existing_lines, front_end_entries, front_end_rank, group_line, new_lines,
                        position as gem_position)
@@ -57,6 +58,9 @@ NO_FRONT_END = "No front end information found"
 # a device marked "future" prints "(<mark_note>)" after its line, in red; "(FUTURE)" when it has no note
 FUTURE_WORD = "FUTURE"
 RED_MARKS = ("future", "notice")
+# the Demolition Scope (T-G1): the last block. "demo" prints as written; the other actions print in these words.
+DEMOLITION_HEADING = "Demolition Scope"
+_ACTION_WORDS = {"demo": "demo", "existing to remain": "Existing to Remain", "relocation": "Relocation"}
 # a "*" line longer than this prints as short points: the first after the label, each other on its own "- " line
 LONG_CLARIFICATION = 150
 _ABBREVIATIONS = {"mfr", "mfrs", "spec", "specs", "sec", "no", "nos", "e.g", "i.e", "etc", "inc", "co", "corp",
@@ -166,6 +170,10 @@ def render(job: Job, playbook: Playbook) -> ProposalDraft:
       estimator's red flags of T-005 ruling 4 in the front end (`_front_end_flags`: "No front end information found",
       the AME_ONLY_FLAG line). A "future" device prints "(<mark_note>)" after its line and a "future" or "notice"
       device prints red (`_with_marks`, `_items`); a "*" line over LONG_CLARIFICATION prints as short points.
+    - `job.demolition` prints as the last block of the base bid, headed "Demolition Scope" (no quantity and no number
+      in the heading, as Labor Conditions has none). Each line is "Qty (N) <family> <action words>" and red, the same
+      mark as a line the estimator must notice. A note follows the line after a comma. No demolition lines prints no
+      such block. The alternates, and the Labor Conditions block that `bms.labor.with_labor` adds, print after it.
     """
     if job.header is None:
         raise RenderError("the job has no header (quote number, reference, engineer, date)")
@@ -200,6 +208,11 @@ def render(job: Job, playbook: Playbook) -> ProposalDraft:
         elif system.alternate == "base":
             base.extend(blocks)
         (lines if system.alternate == "base" else after[system.alternate]).extend(printed)
+    demo = _demolition_block(job, ids)
+    if demo is not None:
+        base.append(demo)
+        lines.append(RenderedLine("", None, "header", demo.header, None, None))
+        lines += [RenderedLine("", None, "line", item.text, None, item.quantity) for item in demo.items]
     lines += after["add"] + after["deduct"]
     adds, deducts = (_alternates(alternates[side], playbook) for side in ("add", "deduct"))
     try:
@@ -214,6 +227,32 @@ def render(job: Job, playbook: Playbook) -> ProposalDraft:
         raise RenderError(str(error)) from error
     lines = [replace(line, text=_xml_safe(line.text)) for line in lines]
     return ProposalDraft(scope=scope, lines=tuple(lines))
+
+
+def _demolition_block(job: Job, ids: SourceIds) -> Block | None:
+    """The Demolition Scope, or None when the job has no demolition lines.
+
+    The heading carries no quantity and takes no number (`numbered=False`, as Labor Conditions: the price sheet
+    gives it none). Each line uses the block-line style (`Item` kind "line") and is red, as a marked line is
+    (`Run.red`). "demo" stays "demo"; the other actions print as `Existing to Remain` and `Relocation`. A note
+    follows after a comma. The note goes through the same issued-id cut as other client text.
+    """
+    if not job.demolition:
+        return None
+    items = []
+    for line in job.demolition:
+        text = _demolition_text(line, ids)
+        items.append(Item(kind="line", depth=1, runs=(Run(text=text, red=True),), quantity=line.count))
+    return Block(header=DEMOLITION_HEADING, items=tuple(items), numbered=False)
+
+
+def _demolition_text(line: DemolitionLine, ids: SourceIds) -> str:
+    words = _ACTION_WORDS[line.action]
+    text = f"Qty ({line.count}) {line.family} {words}"
+    note = _squash(ids.without_issued(line.note)).strip()
+    if note:
+        text = f"{text}, {note}"
+    return text
 
 
 def _alternates(found: list[tuple[Block, ...]], playbook: Playbook) -> list[Alternate]:

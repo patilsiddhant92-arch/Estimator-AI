@@ -7,6 +7,7 @@ edited) with the new Job right after the bid check:
   the printed count: `Count.added_up`), every citation (source id, where: sheet / spec section / page, and the quote),
   its assumption (what and why) and its flag; the family counts and the block's clarification too.
 - "Findings": every finding of the validators and the QC left open (rule, system, device, severity, what, fix).
+- "Demolition Scope" (T-G1): one row per demolition line (family, action, count, note, refs as source id, quote, where).
 
 Plain data only: it writes what the Job holds, nothing internal is invented.
 """
@@ -24,11 +25,12 @@ from estimator.evidence.workbook import write_evidence as write_old_evidence
 from bms.model import Count, Device, Finding, Job, Ref
 from bms.render import COUNT_ADDED_UP, left_out_text
 
-SCOPE_TAB, FINDINGS_TAB = "Scope lines", "Findings"
+SCOPE_TAB, FINDINGS_TAB, DEMOLITION_TAB = "Scope lines", "Findings", "Demolition Scope"
 SCOPE_HEADINGS = ["System", "Device id", "Kind", "Printed line", "Slot", "Device", "Verb", "Furnished by",
                   "Installed by", "Wired by", "Quantity", "Other counts", "Citations (id, where, quote)",
                   "Assumption", "Flag"]
 FINDING_HEADINGS = ["Rule", "System", "Device", "Severity", "What", "Fix"]
+DEMOLITION_HEADINGS = ["Family", "Action", "Count", "Note", "Refs"]
 
 
 def _ref(ref: Ref) -> str:
@@ -99,17 +101,28 @@ def finding_rows(findings: Sequence[Finding]) -> list[list]:
     return [[f.rule, f.system_key or "Whole job", f.device_id, f.severity, f.what, f.fix] for f in findings]
 
 
+def _demolition_refs(refs: Sequence[Ref]) -> str:
+    """Each citation as source id, quote, where. One citation per line."""
+    return "\n".join(f'{ref.source_id or "-"} | "{ref.quote}" | {ref.where or "-"}' for ref in refs)
+
+
+def demolition_rows(job: Job) -> list[list]:
+    """One row per Demolition Scope line: family, action, count, note, and its citations."""
+    return [[line.family, line.action, line.count, line.note, _demolition_refs(line.refs)] for line in job.demolition]
+
+
 def write_evidence(path: Path, catalogue, reading, ledger, job: Job, findings: Sequence[Finding] = (),
                    printed: dict[str, str] | None = None) -> Path:
     """The Evidence Package at `path`: the old workbook from the catalogue, reading and ledger, with the Job's
-    Scope lines and the Findings as the second and third tabs. `printed` maps a device id to its printed line
-    (from `bms.render`)."""
+    Scope lines and the Findings as the second and third tabs, and the Demolition Scope as the fourth. `printed`
+    maps a device id to its printed line (from `bms.render`)."""
     path = Path(path)
     write_old_evidence(path, catalogue, reading, ledger=ledger)
     book = load_workbook(str(path))
-    for at, (title, headings, rows) in enumerate(((SCOPE_TAB, SCOPE_HEADINGS, scope_rows(job, printed)),
-                                                  (FINDINGS_TAB, FINDING_HEADINGS, finding_rows(findings))),
-                                                 start=1):
+    tabs = ((SCOPE_TAB, SCOPE_HEADINGS, scope_rows(job, printed)),
+            (FINDINGS_TAB, FINDING_HEADINGS, finding_rows(findings)),
+            (DEMOLITION_TAB, DEMOLITION_HEADINGS, demolition_rows(job)))
+    for at, (title, headings, rows) in enumerate(tabs, start=1):
         sheet = book.create_sheet(title, at)
         _table(sheet, headings, rows or [["Nothing here."] + [None] * (len(headings) - 1)])
         for row in sheet.iter_rows(min_row=2):

@@ -14,6 +14,8 @@ count is unknown and prints "Qty (##)". The enumerations below are the only valu
 The takeoff register (takeoff pass plan 2026-10-11) sits on the Job: `sheets` (what each drawing sheet is), `units` (the
 units the documents show), `set_aside` (the counts set aside, with both numbers) and `future_items`. `bms.takeoff`
 fills it. Stage 1 only stores it: no count reads it. A Job saved before the fields loads with all four empty.
+
+`Job.demolition` (T-G1) holds the Demolition Scope lines. A Job saved before the field loads with it empty.
 """
 from __future__ import annotations
 
@@ -44,6 +46,8 @@ SheetKind = Literal["new_work", "demolition", "part_plan", "enlarged_plan", "ris
 UnitStatus = Literal["new", "demolish", "demolish_with_work", "existing_remain", "relocate", "future"]
 SetAsideReason = Literal["demolition sheet", "same unit labelled again", "part plan of one area", "future item",
                          "existing to remain", "not a unit of this family"]
+# what a Demolition Scope line says the job does with that family (T-G1)
+DemolitionAction = Literal["demo", "existing to remain", "relocation"]
 
 # What the proposal prints for an existing BMS the documents do not name (rules.md "Front end mode"; the same fill-in as
 # assets/front_end.json existing_systems.unnamed): square brackets, so it reads as a blank to complete. The planner asks
@@ -63,6 +67,7 @@ MARKS: tuple[str, ...] = get_args(Mark)
 SHEET_KINDS: tuple[str, ...] = get_args(SheetKind)
 UNIT_STATUSES: tuple[str, ...] = get_args(UnitStatus)
 SET_ASIDE_REASONS: tuple[str, ...] = get_args(SetAsideReason)
+DEMOLITION_ACTIONS: tuple[str, ...] = get_args(DemolitionAction)
 # the unit statuses whose units count toward a family's number (ruling 17: a unit shown for removal, kept as it is,
 # relocated or marked future does not; those print in the Demolition Scope or as future items)
 COUNTED_STATUSES: tuple[str, ...] = ("new",)
@@ -327,6 +332,24 @@ class FutureItem(_Model):
 
 
 @dataclass(frozen=True)
+class DemolitionLine(_Model):
+    """One line of the Demolition Scope (T-G1): units that are not new work, grouped by family and action.
+
+    `action` is the printed work: "demo", "existing to remain" or "relocation". `count` is how many units the line
+    covers. `refs` cites this job (at least one). `note` names demolition work when the documents name it; empty
+    when they do not."""
+    family: str = field(**_doc('The ledger family prefix, e.g. "AHU".'))
+    action: DemolitionAction = field(**_doc('demo, existing to remain or relocation.'))
+    count: int = field(**_doc("How many units this line covers."))
+    refs: tuple[Ref, ...] = field(**_doc("The citations from this job for this line (at least one).", min_items=1))
+    note: str = field(default="", **_doc("Named demolition work, in the documents' words; empty when none."))
+
+    def __post_init__(self) -> None:
+        if not self.refs:
+            raise ModelError("demolition line has no ref: every demolition line rests on a citation from this job")
+
+
+@dataclass(frozen=True)
 class Job(_Model):
     """The whole job."""
     name: str
@@ -346,6 +369,8 @@ class Job(_Model):
     units: tuple[Unit, ...] = ()
     set_aside: tuple[SetAside, ...] = ()
     future_items: tuple[FutureItem, ...] = ()
+    # the Demolition Scope (T-G1): one line per family and action. () on a Job saved before the field.
+    demolition: tuple[DemolitionLine, ...] = ()
 
     def system(self, key: str) -> System:
         for system in self.systems:
@@ -391,7 +416,7 @@ class Decision(_Model):
 
 
 MODEL_CLASSES = (Ref, OtherCount, Count, Family, Assumption, Device, Clarification, Served, System, ScopeException,
-                 FrontEnd, Header, Job, Finding, Decision, SheetClass, Unit, SetAside, FutureItem)
+                 FrontEnd, Header, Job, Finding, Decision, SheetClass, Unit, SetAside, FutureItem, DemolitionLine)
 
 # ---- JSON round-trip -----------------------------------------------------------------------------------------
 
@@ -554,6 +579,7 @@ __all__ = ["Verb", "Control", "Flag", "ClarificationKind", "AlternateKind", "Par
            "UNNAMED_EXISTING", "VERBS", "CONTROLS", "FLAGS", "CLARIFICATION_KINDS", "ALTERNATES", "PARTIES", "SEVERITIES",
            "FRONT_END_MODES", "DecisionAction", "DECISION_ACTIONS", "Mark", "MARKS", "ModelError", "Ref", "OtherCount", "Count", "Family", "Assumption", "Device",
            "Clarification", "Served", "System", "ScopeException", "FrontEnd", "Header", "Job", "Finding", "Decision", "MODEL_CLASSES",
-           "SheetKind", "UnitStatus", "SetAsideReason", "SHEET_KINDS", "UNIT_STATUSES", "SET_ASIDE_REASONS",
-           "COUNTED_STATUSES", "SheetClass", "Unit", "SetAside", "FutureItem",
+           "SheetKind", "UnitStatus", "SetAsideReason", "DemolitionAction", "SHEET_KINDS", "UNIT_STATUSES",
+           "SET_ASIDE_REASONS", "DEMOLITION_ACTIONS",
+           "COUNTED_STATUSES", "SheetClass", "Unit", "SetAside", "FutureItem", "DemolitionLine",
            "json_schema", "schema_errors"]

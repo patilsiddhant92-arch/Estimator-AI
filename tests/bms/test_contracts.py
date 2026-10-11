@@ -14,10 +14,10 @@ from pathlib import Path
 import pytest
 
 from bms import ai, counts, plan, render, review, run, validate
-from bms.model import (ALTERNATES, CLARIFICATION_KINDS, CONTROLS, COUNTED_STATUSES, FLAGS, PARTIES, SET_ASIDE_REASONS,
-                       SHEET_KINDS, UNIT_STATUSES, VERBS, Count, Decision, Device, Finding, FutureItem, Job,
-                       ModelError, OtherCount, Ref, Served, SetAside, SheetClass, System, Unit, json_schema,
-                       schema_errors)
+from bms.model import (ALTERNATES, CLARIFICATION_KINDS, CONTROLS, COUNTED_STATUSES, DEMOLITION_ACTIONS, FLAGS, PARTIES,
+                       SET_ASIDE_REASONS, SHEET_KINDS, UNIT_STATUSES, VERBS, Count, Decision, DemolitionLine, Device,
+                       Finding, FutureItem, Job, ModelError, OtherCount, Ref, Served, SetAside, SheetClass, System,
+                       Unit, json_schema, schema_errors)
 from bms.playbook import Playbook, PlaybookError, load_playbook
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -150,6 +150,42 @@ def test_a_count_may_carry_the_sum_of_the_sheets_of_one_floor_and_area():
     assert Count.from_dict(old).added_up is None                  # a Job saved before the field still loads
     with pytest.raises(ModelError, match="added_up"):
         Count.from_dict({**count.to_dict(), "added_up": 8})
+
+
+def test_demolition_lines_round_trip(raw, job):
+    """T-G1: a DemolitionLine round-trips, and the Job schema takes the block as stored."""
+    (line,) = job.demolition
+    assert isinstance(line, DemolitionLine)
+    assert (line.family, line.action, line.count, line.note) == ("EF", "demo", 2, "")
+    assert line.refs[0].source_id == "S15"
+    assert DemolitionLine.from_dict(json.loads(json.dumps(line.to_dict()))) == line
+    assert Job.from_json(job.to_json()).demolition == job.demolition
+    assert DEMOLITION_ACTIONS == ("demo", "existing to remain", "relocation")
+    schema = json_schema(DemolitionLine)
+    assert list(schema["properties"]) == ["family", "action", "count", "refs", "note"]
+    assert schema["properties"]["action"]["enum"] == list(DEMOLITION_ACTIONS)
+    assert schema["properties"]["refs"]["minItems"] == 1
+    assert schema_errors(raw["demolition"][0], schema) == []
+    assert json_schema(Job)["properties"]["demolition"]["items"] == schema
+
+
+def test_old_job_without_demolition_loads(raw):
+    del raw["demolition"]
+    assert Job.from_dict(raw).demolition == ()
+    assert Job("Empty").to_dict()["demolition"] == []
+
+
+def test_a_demolition_line_needs_a_ref(raw):
+    with pytest.raises(ModelError, match="no ref"):
+        DemolitionLine("EF", "demo", 1, ())
+    bad = copy.deepcopy(raw)
+    bad["demolition"][0]["refs"] = []
+    with pytest.raises(ModelError, match=r"demolition\[0\]: .*no ref"):
+        Job.from_dict(bad)
+    bad = copy.deepcopy(raw)
+    bad["demolition"][0]["action"] = "remove"
+    with pytest.raises(ModelError, match=r"demolition\[0\]\.action"):
+        Job.from_dict(bad)
 
 
 def test_finding_and_decision_round_trip():
