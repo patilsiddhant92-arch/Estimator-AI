@@ -58,6 +58,7 @@ missing required key, wrong type or a value outside an enumeration raises `Model
 | `Severity` | "must_fix", "check" | `SEVERITIES` |
 | `FrontEndMode` | "new-system", "extend-existing" | `FRONT_END_MODES` |
 | `DecisionAction` | "accept", "change", "delete" | `DECISION_ACTIONS` |
+| `DemolitionAction` | "demo", "existing to remain", "relocation" | `DEMOLITION_ACTIONS` |
 
 `UNNAMED_EXISTING = "[existing BMS name]"` is a constant of the model, not an enumeration. It is the fill-in the
 proposal prints for an existing BMS that the documents do not name (rules.md "Front end mode"; the same text as
@@ -121,14 +122,21 @@ FrontEnd:       mode: FrontEndMode, existing_system_name: str | None = None, dev
                   the documents call for none: lines and notes are empty and nothing is written.
 Header:         quote_number: str, reference: str, mep_engineer: str, based_on: tuple[str], date: str (ISO),
                 to: str = "All Bidders"                                     # mirrors estimator.scope.Header
+DemolitionLine: family: str, action: DemolitionAction, count: int,
+                refs: tuple[Ref] (>= 1, enforced: ModelError), note: str = ""
+                  One line of the Demolition Scope (T-G1). action is what the line says: "demo", "existing to remain"
+                  or "relocation". count is how many units the line covers. refs cites this job (at least one).
+                  note names demolition work when the documents name it; "" when they do not.
 Job:            name: str, systems: tuple[System] = (), front_end: FrontEnd | None = None,
                 exceptions: tuple[ScopeException] = (), questions: tuple[str] = (), header: Header | None = None,
-                source_sheets: tuple[str] = ()
+                source_sheets: tuple[str] = (), demolition: tuple[DemolitionLine] = ()
                   source_sheets: the id-shaped sheet numbers the ledger's sources' wheres name (upper case, sorted;
                   set once by the run, `bms.citations.source_sheets`); not part of K (`job_sheets`, the planner's
                   wheres) since FINAL-J: a known sheet only in a where and right after a sheet word in client text
                   (`SourceIds.source_sheets`); a bare one that is an issued id stays refused / must_fix / cut. () on an
                   old Job.json.
+                  demolition (T-G1): the Demolition Scope lines, one per family and action. () on a Job saved before
+                  the field.
                   job.system(key) -> System (KeyError); job.with_system(system) -> Job (replaced by key).
 Finding:        rule: str, system_key: str, device_id: str | None, severity: Severity, what: str, fix: str
                   rule = a Playbook rule name (### heading); system_key "" for the front end / whole job.
