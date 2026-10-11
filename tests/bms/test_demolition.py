@@ -35,7 +35,7 @@ def test_the_fixture_answer_is_one_ahu_demo_and_one_ef_demo():
     assert all(line.refs and line.refs[0].source_id == "F13" for line in lines)
 
 
-def test_lines_group_by_family_and_action():
+def test_lines_group_by_family_action_and_note():
     shown = Ref("S1", "AHU-6 shown for demolition", "MD-101, Mech.pdf page 6")
     work = Ref("S2", "remove the existing controls", "MD-101, Mech.pdf page 6")
     remain = Ref("S3", "FCU-2 to remain", "M-201, Mech.pdf page 7")
@@ -50,23 +50,38 @@ def test_lines_group_by_family_and_action():
     )
     lines = demolition_lines(units)
     assert [(line.family, line.action, line.count, line.note) for line in lines] == [
-        ("AHU", "demo", 3, "existing controls removed"),
+        ("AHU", "demo", 1, ""),
+        ("AHU", "demo", 2, "existing controls removed"),         # named work: its own line, apart from the plain demo
         ("FCU", "existing to remain", 4, ""),
         ("VAV", "relocation", 1, ""),
     ]
-    assert lines[0].refs == (shown, work)
+    assert lines[0].refs == (shown,) and lines[1].refs == (work,)
 
 
-def test_named_work_reasons_join_in_unit_order():
+def test_each_named_work_gets_its_own_line_in_unit_order():
     ref = Ref("S1", "demo", "MD-1, Mech.pdf page 1")
     units = (
         _unit("AHU", "demolish_with_work", reason="existing controls removed", refs=(ref,)),
         _unit("AHU", "demolish_with_work", tag="AHU-2", reason="pneumatic tubing removed", refs=(ref,)),
-        _unit("AHU", "demolish_with_work", tag="AHU-3", reason="  ", refs=(ref,)),
+        _unit("AHU", "demolish_with_work", tag="AHU-3", reason="  ", refs=(ref,)),  # blank: the plain line
     )
-    (line,) = demolition_lines(units)
-    assert line.count == 3 and line.refs == (ref,)
-    assert line.note == "existing controls removed; pneumatic tubing removed"
+    lines = demolition_lines(units)
+    assert [(line.count, line.note) for line in lines] == [
+        (1, "existing controls removed"), (1, "pneumatic tubing removed"), (1, "")]
+    assert all(line.refs == (ref,) for line in lines)
+
+
+def test_plain_demolish_units_and_units_with_the_same_named_work_print_together():
+    ref = Ref("S1", "demo", "MD-1, Mech.pdf page 1")
+    units = (
+        _unit("AHU", "demolish", 1, "AHU-1", refs=(ref,)),
+        _unit("AHU", "demolish_with_work", 1, "AHU-2", "existing controls removed", (ref,)),
+        _unit("AHU", "demolish", 2, "AHU-3", refs=(ref,)),
+        _unit("AHU", "demolish_with_work", 1, "AHU-4", "  existing controls removed ", (ref,)),
+    )
+    lines = demolition_lines(units)
+    assert [(line.count, line.note) for line in lines] == [(3, ""), (2, "existing controls removed")]
+    assert all(line.refs == (ref,) for line in lines)
 
 
 def test_no_units_gives_no_lines():

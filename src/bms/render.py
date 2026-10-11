@@ -170,9 +170,10 @@ def render(job: Job, playbook: Playbook) -> ProposalDraft:
       estimator's red flags of T-005 ruling 4 in the front end (`_front_end_flags`: "No front end information found",
       the AME_ONLY_FLAG line). A "future" device prints "(<mark_note>)" after its line and a "future" or "notice"
       device prints red (`_with_marks`, `_items`); a "*" line over LONG_CLARIFICATION prints as short points.
-    - `job.demolition` prints as the last block, headed "Demolition Scope" (no quantity in the heading). Each line
-      is "Qty (N) <family> <action words>" and red, the same mark as a line the estimator must notice. A note
-      follows the line after a comma. No demolition lines prints no such block.
+    - `job.demolition` prints as the last block of the base bid, headed "Demolition Scope" (no quantity and no number
+      in the heading, as Labor Conditions has none). Each line is "Qty (N) <family> <action words>" and red, the same
+      mark as a line the estimator must notice. A note follows the line after a comma. No demolition lines prints no
+      such block. The alternates, and the Labor Conditions block that `bms.labor.with_labor` adds, print after it.
     """
     if job.header is None:
         raise RenderError("the job has no header (quote number, reference, engineer, date)")
@@ -231,9 +232,10 @@ def render(job: Job, playbook: Playbook) -> ProposalDraft:
 def _demolition_block(job: Job, ids: SourceIds) -> Block | None:
     """The Demolition Scope, or None when the job has no demolition lines.
 
-    The heading carries no quantity. Each line uses the block-line style (`Item` kind "line") and is red, as a
-    marked line is (`Run.red`). "demo" stays "demo"; the other actions print as `Existing to Remain` and
-    `Relocation`. A note follows after a comma. The note goes through the same issued-id cut as other client text.
+    The heading carries no quantity and takes no number (`numbered=False`, as Labor Conditions: the price sheet
+    gives it none). Each line uses the block-line style (`Item` kind "line") and is red, as a marked line is
+    (`Run.red`). "demo" stays "demo"; the other actions print as `Existing to Remain` and `Relocation`. A note
+    follows after a comma. The note goes through the same issued-id cut as other client text.
     """
     if not job.demolition:
         return None
@@ -241,7 +243,7 @@ def _demolition_block(job: Job, ids: SourceIds) -> Block | None:
     for line in job.demolition:
         text = _demolition_text(line, ids)
         items.append(Item(kind="line", depth=1, runs=(Run(text=text, red=True),), quantity=line.count))
-    return Block(header=DEMOLITION_HEADING, items=tuple(items))
+    return Block(header=DEMOLITION_HEADING, items=tuple(items), numbered=False)
 
 
 def _demolition_text(line: DemolitionLine, ids: SourceIds) -> str:

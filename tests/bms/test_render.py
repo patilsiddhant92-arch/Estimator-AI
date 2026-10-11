@@ -86,7 +86,7 @@ def test_vrf_stacks_one_header_per_family_over_one_set_of_lines(draft):
     # over the stacked headers, unnumbered
     assert texts(draft, "VRF")[:4] == ["VRF System", "Qty (4) Indoor Unit FCU-1 thru 4", "Qty (1) Condensing Unit CU-1",
                                        "Qty (2) Branch Selector BS-1, 2 (2 per M-102; 1 per M-002)"]
-    assert [b.header for b in draft.scope.blocks if not b.numbered] == ["VRF System"]
+    assert [b.header for b in draft.scope.blocks if not b.numbered] == ["VRF System", "Demolition Scope"]
     blocks = [b for b in draft.scope.blocks if b.header.startswith(("Qty (4) Indoor", "Qty (1) Cond", "Qty (2) Branch"))]
     assert [b.joined for b in blocks] == [True, True, True]     # T-005e: joined under the group line
     assert blocks[0].items == () and blocks[1].items == () and blocks[2].items

@@ -319,36 +319,35 @@ _ACTION = {
 
 
 def demolition_lines(units: tuple[Unit, ...]) -> tuple[DemolitionLine, ...]:
-    """One Demolition Scope line per family and action, in the order the units first show that pair.
+    """One Demolition Scope line per family, action and note, in the order the units first show that group.
 
     demolish and demolish_with_work are "demo". existing_remain is "existing to remain". relocate is
-    "relocation". new and future give no line. count is the sum of Unit.count. refs is the union of the
-    units' refs, in first-seen order. note joins the reason text of each demolish_with_work unit with "; ".
-    A blank reason is left out of the note.
+    "relocation". new and future give no line. A demolish unit has no note; the note of a demolish_with_work unit
+    is its reason text, so a unit with named work prints its own line, apart from the plain demo line, and units
+    with the same named work print together. A blank reason is no note. count is the sum of Unit.count. refs is
+    the union of the units' refs, in first-seen order.
     """
-    groups: dict[tuple[str, str], dict] = {}
-    order: list[tuple[str, str]] = []
+    groups: dict[tuple[str, str, str], dict] = {}
+    order: list[tuple[str, str, str]] = []
     for unit in units:
         action = _ACTION.get(unit.status)
         if action is None:
             continue
-        key = (unit.family, action)
+        note = unit.reason.strip() if unit.status == "demolish_with_work" else ""
+        key = (unit.family, action, note)
         group = groups.get(key)
         if group is None:
-            group = {"count": 0, "refs": [], "notes": []}
+            group = {"count": 0, "refs": []}
             groups[key] = group
             order.append(key)
         group["count"] += unit.count
         for ref in unit.refs:
             if ref not in group["refs"]:
                 group["refs"].append(ref)
-        if unit.status == "demolish_with_work" and unit.reason.strip():
-            group["notes"].append(unit.reason.strip())
     lines = []
-    for family, action in order:
-        group = groups[(family, action)]
-        lines.append(DemolitionLine(family, action, group["count"], tuple(group["refs"]),
-                                    "; ".join(group["notes"])))
+    for family, action, note in order:
+        group = groups[(family, action, note)]
+        lines.append(DemolitionLine(family, action, group["count"], tuple(group["refs"]), note))
     return tuple(lines)
 
 
