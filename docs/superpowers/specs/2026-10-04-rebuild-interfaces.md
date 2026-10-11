@@ -65,10 +65,9 @@ missing required key, wrong type or a value outside an enumeration raises `Model
 
 `Flag` has no "future" value: `Device.mark` (T-005c) carries a future item. The last three enumerations are the
 takeoff register's (takeoff pass plan 2026-10-11). `COUNTED_STATUSES` is a constant tuple of the model, not an
-enumeration: the unit statuses whose units count toward a family's number. In the model today it is
-`("new", "relocate")`; the amended plan (T-006-plan.md, Task 1.1) makes it `("new",)` and adds `DemolitionAction`,
-`DEMOLITION_ACTIONS` and `DEMOLITION_OF`, which are not in the model yet. Stage 1 reads none of them: no count
-changes.
+enumeration: the unit statuses whose units count toward a family's number. It is `("new",)` (ruling 17: a
+demolished, existing, relocated or future unit never enters the new-work counts). The Demolition Scope types
+(`DemolitionAction`, `Job.demolition`) come with T-G1. Stage 1 reads none of them: no count changes.
 
 `UNNAMED_EXISTING = "[existing BMS name]"` is a constant of the model, not an enumeration. It is the fill-in the
 proposal prints for an existing BMS that the documents do not name (rules.md "Front end mode"; the same text as
@@ -156,10 +155,13 @@ SheetClass:     document: str, page: int, number: str, kind: SheetKind, area: st
                   plain words, one area name for every sheet of one place, "" off plans; counts_units: the units and
                   devices drawn on it count for this job.
 Unit:           family: str, tag: str, labels: tuple[str], status: UnitStatus, count: int, sheets: tuple[str],
-                refs: tuple[Ref] (>= 1, enforced: ModelError), serves: str = "", service: str = "", reason: str = ""
+                refs: tuple[Ref] (>= 1, enforced: ModelError), serves: str = "", service: str = "",
+                with_plant: bool = False, reason: str = ""
                   one unit, or one type tag, the documents show. tag as the schedule prints it; count 1 for a numbered
                   unit, the places for a type tag; sheets the counted sheets it is drawn on; serves the unit it serves
-                  ("AHU-2" for a valve); service "chilled water", "hot water" or "".
+                  ("AHU-2" for a valve); service "chilled water", "hot water" or ""; with_plant true when the pump is
+                  drawn and scheduled as part of a plant that is in scope (ruling 18). The takeoff schemas are strict:
+                  the AI gives every key; a row saved without with_plant loads with False.
 SetAside:       family: str, value: int, ref: Ref, reason: SetAsideReason, note: str = ""
                   a count in the ledger that is not the family's number, with its source; note gives both numbers.
 FutureItem:     family: str, item: str, refs: tuple[Ref]

@@ -63,9 +63,9 @@ MARKS: tuple[str, ...] = get_args(Mark)
 SHEET_KINDS: tuple[str, ...] = get_args(SheetKind)
 UNIT_STATUSES: tuple[str, ...] = get_args(UnitStatus)
 SET_ASIDE_REASONS: tuple[str, ...] = get_args(SetAsideReason)
-# the unit statuses whose units count toward a family's number (a unit shown for removal, kept as it is or marked
-# future does not)
-COUNTED_STATUSES: tuple[str, ...] = ("new", "relocate")
+# the unit statuses whose units count toward a family's number (ruling 17: a unit shown for removal, kept as it is,
+# relocated or marked future does not; those print in the Demolition Scope or as future items)
+COUNTED_STATUSES: tuple[str, ...] = ("new",)
 
 
 class ModelError(ValueError):
@@ -294,6 +294,9 @@ class Unit(_Model):
     serves: str = field(default="", **_doc('The unit it serves, e.g. "AHU-2" for a control valve; empty when none.'))
     service: str = field(default="", **_doc(
         'The service it is on, e.g. "chilled water" or "hot water"; empty when none.'))
+    with_plant: bool = field(default=False, **_doc(
+        "True when the pump is drawn and scheduled as part of a plant that is in this job's scope (then serves names "
+        "the plant's unit); false for a remote pump or any other unit (ruling 18)."))
     reason: str = field(default="", **_doc("Why, in one short sentence."))
 
     def __post_init__(self) -> None:

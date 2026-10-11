@@ -169,5 +169,6 @@ def takeoff_answer(request: dict) -> dict:
         quantity = _QUANTITY.search(found["cells"])
         units.append({"family": re.match(r"[A-Za-z]*", tag).group(0) or tag, "tag": tag, "labels": [tag],
                       "status": "new", "count": int(quantity.group(1)) if quantity else 1, "sheets": [],
-                      "refs": [ref], "serves": "", "service": "", "reason": ""})
+                      "refs": [ref], "serves": "", "service": "", "with_plant": False,
+                      "reason": ""})
     return {"sheets": sheets, "units": units, "set_aside": [], "future_items": [], "questions": []}

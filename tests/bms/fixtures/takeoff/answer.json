@@ -118,6 +118,7 @@
       ],
       "serves": "",
       "service": "",
+      "with_plant": false,
       "reason": "Scheduled, and drawn on the new work plans."
     },
     {
@@ -136,6 +137,7 @@
       ],
       "serves": "",
       "service": "",
+      "with_plant": false,
       "reason": "Scheduled, and drawn on the new work plans."
     },
     {
@@ -154,6 +156,7 @@
       ],
       "serves": "",
       "service": "",
+      "with_plant": false,
       "reason": "Scheduled, and drawn on the new work plans."
     },
     {
@@ -172,6 +175,7 @@
       ],
       "serves": "",
       "service": "",
+      "with_plant": false,
       "reason": "Scheduled, and drawn on the new work plans."
     },
     {
@@ -190,6 +194,7 @@
       ],
       "serves": "",
       "service": "",
+      "with_plant": false,
       "reason": "Scheduled, and drawn on the new work plans."
     },
     {
@@ -208,6 +213,7 @@
       ],
       "serves": "",
       "service": "",
+      "with_plant": false,
       "reason": "Existing unit shown for removal on MD-401; the documents name no controls work on it."
     },
     {
@@ -226,6 +232,7 @@
       ],
       "serves": "",
       "service": "",
+      "with_plant": false,
       "reason": "Scheduled, and drawn on the new work plans."
     },
     {
@@ -244,6 +251,7 @@
       ],
       "serves": "",
       "service": "",
+      "with_plant": false,
       "reason": "Scheduled, and drawn on the new work plans."
     },
     {
@@ -262,6 +270,7 @@
       ],
       "serves": "",
       "service": "",
+      "with_plant": false,
       "reason": "Scheduled, and drawn on the new work plans."
     },
     {
@@ -280,6 +289,7 @@
       ],
       "serves": "",
       "service": "",
+      "with_plant": false,
       "reason": "Scheduled, and drawn on the new work plans."
     },
     {
@@ -298,6 +308,7 @@
       ],
       "serves": "",
       "service": "",
+      "with_plant": false,
       "reason": "Scheduled, and drawn on the new work plans."
     },
     {
@@ -316,6 +327,7 @@
       ],
       "serves": "",
       "service": "",
+      "with_plant": false,
       "reason": "Existing unit shown for removal on MD-401; the documents name no controls work on it."
     },
     {
@@ -334,6 +346,7 @@
       ],
       "serves": "",
       "service": "",
+      "with_plant": false,
       "reason": "Scheduled, and drawn on the new work plans."
     },
     {
@@ -352,6 +365,7 @@
       ],
       "serves": "",
       "service": "",
+      "with_plant": false,
       "reason": "A typical unit: 25 places on M-201 and 30 on M-202."
     }
   ],

@@ -374,6 +374,7 @@
       "refs": [{"source_id": "S7", "quote": "MD-1 interlocked with EF-1", "where": "M-101, Drawings.pdf page 2"}],
       "serves": "",
       "service": "",
+      "with_plant": false,
       "reason": "Scheduled, and drawn on the new work plan."
     }
   ],

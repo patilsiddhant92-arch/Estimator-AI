@@ -53,7 +53,7 @@ def test_enumerations_are_the_design_values():
     assert UNIT_STATUSES == ("new", "demolish", "demolish_with_work", "existing_remain", "relocate", "future")
     assert SET_ASIDE_REASONS == ("demolition sheet", "same unit labelled again", "part plan of one area", "future item",
                                  "existing to remain", "not a unit of this family")
-    assert COUNTED_STATUSES == ("new", "relocate")
+    assert COUNTED_STATUSES == ("new",)                 # ruling 17: relocated units print in the Demolition Scope
 
 
 def test_fixture_round_trips_losslessly(raw, job):
@@ -280,13 +280,14 @@ def test_takeoff_schemas_are_strict_for_structured_outputs(raw):
     assert list(json_schema(SheetClass)["properties"]) == ["document", "page", "number", "kind", "area",
                                                            "counts_units", "reason", "refs"]
     assert list(json_schema(Unit)["properties"]) == ["family", "tag", "labels", "status", "count", "sheets", "refs",
-                                                     "serves", "service", "reason"]
+                                                     "serves", "service", "with_plant", "reason"]
     assert list(json_schema(SetAside)["properties"]) == ["family", "value", "ref", "reason", "note"]
     assert list(json_schema(FutureItem)["properties"]) == ["family", "item", "refs"]
     sheet = json_schema(SheetClass)["properties"]
     assert sheet["counts_units"]["type"] == "boolean" and sheet["kind"]["enum"] == list(SHEET_KINDS)
     assert json_schema(Unit)["properties"]["status"]["enum"] == list(UNIT_STATUSES)
     assert json_schema(Unit)["properties"]["refs"]["minItems"] == 1
+    assert json_schema(Unit)["properties"]["with_plant"]["type"] == "boolean"
     assert json_schema(SetAside)["properties"]["reason"]["enum"] == list(SET_ASIDE_REASONS)
 
 
