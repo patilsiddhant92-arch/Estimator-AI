@@ -26,7 +26,7 @@ written.
 ### No standard or fallback lines
 There is no "AME standard" line and no fallback line. A line is never added because systems of this kind usually
 have it, because the Master Template lists it, or to fill a gap. If the documents are silent, the line is not
-written; if the gap matters, ask the estimator a question.
+written; if the gap matters, ask the estimator a question. The front end house lines are the one exception.
 
 ### Nothing from other jobs
 Wording, devices, counts and examples come only from this job. Never reuse a line, a note or a quantity from
@@ -212,13 +212,14 @@ exclusion; or a device with real cost has no named party and no default fits. Qu
 
 ### Higher count prints
 When the documents give different counts, the highest count prints, flagged, and every other count is named with
-where it is. The estimator decides on review. Every count that differs from the printed one prints in the block's
-"*" quantity note, beside the printed count, with both numbers and where each one is: "*Qty. (6) per the schedule;
-4 per plan placements." The note is written whenever two counts differ.
+where it is. The estimator decides on review. Every count that differs from the printed one prints in the same line
+(see Quantities print in the line).
 
 ### Never undershoot
 Never print a count lower than one the documents give. Never invent a number. An unknown count prints "Qty (##)"
-in a header and "(Qty. ##)" on a line, flagged to confirm.
+in a header and "(Qty. ##)" on a line, flagged to confirm. The only exceptions, here and in Higher count prints, are
+the units on demolition sheets, whose count moves to Demolition Scope with its number, and a duplicate label of one
+unit on two part plans, which a short "*" line names with both numbers.
 
 ### Line quantity
 A line's quantity prints only when it differs from the block's count, as "(Qty. N Total)". Identical lines for
@@ -230,6 +231,23 @@ heat tracing, glycol feed, a gas booster) is printed in the base bid with its in
 the clarification "*Quantity per plumbing drawings" (or the drawings of the trade that shows it). It is never held
 back as a question only.
 
+### Demolition Scope
+A demolition plan shows the previous job's units: removed, remaining or relocated. Their count never goes into the
+new-work blocks. It prints in one block headed "Demolition Scope", the last block of the scope, in lines such as "Qty
+(n) AHU demo", "Qty (n) FCU Existing to Remain" and "Qty (n) VAV Relocation". Named work on such a unit, such as
+refurbishing it or relocating its sensors or thermostat, is a line of this block.
+
+### One unit on two part plans counts once
+One unit can show on two part plans that share an area. Count it once. The other labels are duplicates of the same
+unit. A short "*" line gives both numbers.
+
+### Quantities print in the line
+A quantity prints in the line it counts. The block heading keeps "Qty (#) <system>". A device line inside a block
+starts with its count, "Qty (#) <device>", when the device count differs from the block count (for example "Qty (33)
+Furnish and Install Space Temperature Sensor"). It is never a bracket "(Qty. N Total)" at the end of the line. There
+is no separate quantity note. When two counts differ, the line prints the highest and names each other count with
+where it is, in brackets, for example "(4 per plan placements)".
+
 ## Clarifications and assumptions
 
 ### One clarification per block
@@ -237,14 +255,14 @@ A block has at most one "*" clarification of each kind, naming the lines it cove
 ownership to confirm and the assumptions made. Do not put a bracket on every line; the per-line detail stays in the
 Evidence Package. When a block needs several items of one kind, they are joined in that kind's one line. Its forms:
 "*Confirm quantity: ...", "*Confirm ownership: ...", "*Assumed: ...", "*Quantity per <trade> drawings", and
-"**<note>" for client notes. The quantity note naming the block's other counts is its own "*" line after them.
+"**<note>" for client notes. Each "*" line is one short line, never a paragraph. Several "*" lines in one block are
+fine when each is a different item. A "*" line that the estimator must see prints in red.
 
 ### Joining into the one clarification
 Each kind prints as one line, in a fixed order after the block's lines: to confirm, assumed, per drawings, client
-notes. The items of one kind are joined with "; " in that kind's form. Last comes the quantity note, on its own
-line, naming every other count of the block with where it is (none dropped; a count with no place still prints).
-Example: "*Confirm quantity: 4 per schedule", then "*Assumed: relay by AME, as the sequence asks for a stop", then
-"**Start/Stop via Fire Alarm System". The front end block follows the same rule.
+notes. The items of one kind are joined with "; " in that kind's form. Example: "*Confirm quantity: 4 per schedule",
+then "*Assumed: relay by AME, as the sequence asks for a stop", then "**Start/Stop via Fire Alarm System". The front
+end block follows the same rule.
 
 ### Every assumption says why
 Every assumption says what was assumed and why, in a few plain words naming the document or the missing
@@ -289,7 +307,17 @@ controls contractor is written AME.
 
 ### Questions for the estimator
 What the documents cannot settle and that changes the price is a question for the estimator, kept off the
-proposal. A question never replaces a line the documents call for; a missing count prints "Qty (##)" and asks.
+proposal. A question never replaces a line the documents call for; a missing count prints "Qty (##)" and asks. A
+question is asked once. A question that holds for a whole family is asked once for the family, never per unit or per
+line.
+
+### A stated fact is not an assumption
+When a schedule or the sequence states a fact, write it as stated and cite it. Never print "Assumed" for it.
+
+### Red flags for the estimator
+An item the documents mark FUTURE prints as its normal line, then "(FUTURE AS PER <source>)" in red font, naming the
+sheet or section. An item the estimator must notice, such as an integral drain pan level sensor that the factory
+furnishes, is highlighted red in the scope. Red marks what the estimator must see.
 
 ## Packaged units
 
@@ -338,9 +366,11 @@ is taken into account. AME's task is the right ownership on each line, not resta
 A device the unit manufacturer furnishes and ships loose (space sensor or thermostat, supply air temperature
 sensor, supply static pressure sensor and the like) is written "Install and Wire <device> (Furnished by Unit Mfr.)"
 on its own line, wired to the unit's own controller. Write out every manufacturer-furnished device the job names
-that AME installs or wires. "Wire <device> (Furnished by Unit Mfr.)" is only for a device the manufacturer already
-mounts. When unsure whether it is mounted, write Install and Wire. This is for a unit on the manufacturer's
-controls. When AME provides the controls of the unit, see Unit control devices when AME provides the controls.
+that AME installs or wires. A unit schedule (an ERV, an RTU or any other unit) can list end devices shipped loose, in
+a column or a note. Read it, and write each one as a line. "Wire <device> (Furnished by Unit Mfr.)" is only for a
+device the manufacturer already mounts. When unsure whether it is mounted, write Install and Wire. This is for a unit
+on the manufacturer's controls. When AME provides the controls of the unit, see Unit control devices when AME
+provides the controls.
 
 ### Shipped-loose devices not named
 When the documents say the unit ships devices loose but do not name them and no submittal is in hand, write one
@@ -517,9 +547,10 @@ The front end is either a new web-enabled BMS ("Front End Web Enabled BMS System
 from the documents; when they do not name it, print "[existing BMS name]" and flag it.
 
 ### Front end lines cite the specification
-Each front end line (network level control panel, PC workstation, BMS server, portable operator terminal, UPS,
-3-D graphics, training, IT infrastructure) is written only when this job's specification calls for it, with its
-citation. Graphics on a tie-in are "to match existing".
+The house front end lines are the standard lines that the Master Template's front end section defines, with the
+reason for each. Write each one as that section says and cite that section. Every other front end line (PC
+workstation, BMS server, portable operator terminal, UPS, IT infrastructure) is written only when this job's
+specification calls for it, with its citation. Graphics on a tie-in are "to match existing".
 
 ### Front end items by others
 When the documents give the workstation, server or network switches to the owner or others in the same sentence,
@@ -542,6 +573,15 @@ ALARMS VIA EMAIL AND SMS TEXT)".
 Warranty scope is written only when the specification states the warranty and its length; an extended maintenance
 contract only when it states the extra years.
 
+### Existing BMS the house works with
+AME works only with Honeywell WEBS, Johnson FX and Niagara Tridium. Those names print plain. Any other name prints in
+red as "***<name>***" wherever it appears: in the front end heading and in the opening sentence. The front end then
+gets one flag line: "***AME works only with Honeywell WEBS, Johnson FX (Facility Explorer) or Niagara Tridium front
+ends". The fill-in "[existing BMS name]" prints the same way, with no flag line.
+
+### No front end called for
+When the documents call for no front end, the front end of the proposal says "No front end information found".
+
 ## Exceptions and alternates
 
 ### Named exceptions
@@ -558,6 +598,11 @@ A system is an add or deduct alternate only when the documents say so. Otherwise
 ### Exclusions
 Work another party furnishes, installs and wires goes to the exclusions, one plain line each, only items relevant
 to this job.
+
+### Off-hours work and prevailing wage
+When the documents name off-hours work (for example 6 PM to 6 AM) or prevailing wage, add each to the proposal and to
+the price sheet, highlighted red. Never exclude either one silently. The standard exclusion "All off-hours or overtime
+labor" does not stand against it.
 
 ## Tech hours
 
@@ -578,14 +623,15 @@ A system with no Master Template hours that AME only integrates (a generator, he
 panel integration) is 4 hours per integration.
 
 ### Tech hours never print
-Tech hours go to the price sheet only, never into a line or a note.
+Tech hours go to the price sheet only, never into a line or a note. The Master Template's tech-hour lines ("**tech
+hour: ...") are guidance for the estimate, not lines of the proposal.
 
 ## Shapes and wording
 
 ### Template gives shape only
 The Master Template (shapes.json) sets only the shape of a block: the header form, the order of lines and the
 wording form of a line. It never says that a line exists. A slot is a place a line prints when, and only when, this
-job's documents put a device there.
+job's documents put a device there. The front end house lines are the one exception.
 
 ### Placing a device in a slot
 Put each device in the slot of its block's shape that matches it. Several devices may share a slot: one line per
@@ -626,4 +672,19 @@ in the standard order, under a header "Qty (n) <name> <tags>". Every rule in thi
 
 ### One system one block
 Each system the documents describe is its own block, from its own sequence section; systems are never collapsed
-into one block, except as the VRF and split rule and the dampers rules say.
+into one block, except as the VRF and split rule, the dampers rules and the valves rule say.
+
+### Proposal header
+"Quote #" is the job number and "Reference" is the project name, both from the name of the job folder, never the
+takeoff folder. Never print a bracket placeholder such as "[project name]". When the job folder gives no project name,
+print "***" in red and ask the estimator.
+
+### Valves under their unit
+A control valve and its actuator are written in the block of the unit they serve (an air handler, a fan coil), never
+in a separate valve system. The plans, risers and sequence show which unit. When none can be traced, ask the
+estimator.
+
+### Pumps by plant or by service
+When the plant (chillers, boilers or the like) is in the job's scope and the pumps serve it, the pumps are part of the
+plant block. When the job shows remote pumps, each service is its own block: chilled water pumps in one, hot water
+pumps in another. The documents decide. The block header makes clear which case it is.
