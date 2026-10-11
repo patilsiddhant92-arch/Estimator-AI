@@ -52,6 +52,9 @@ def _ledger() -> Ledger:
     ledger = Ledger(SOURCES)
     ledger.job_name = "Invented Job"
     ledger.add("front_end", "mode", "new-system", "S4", "provide a new building automation system", "spec", SETTLED)
+    # the documents call for a front end (a job with none gets a question, `test_front_end_write`)
+    ledger.add("front_end", "line", "Furnish an operator workstation", "S4", "provide one operator workstation",
+               "spec", SETTLED)
     return ledger
 
 

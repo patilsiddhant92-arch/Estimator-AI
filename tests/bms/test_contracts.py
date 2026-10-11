@@ -309,7 +309,7 @@ SIGNATURES = {
                       "source_sheets"],   # optional, kw-only (source_sheets: FINAL-J)
     ai.qc_job: ["job", "evidence_index", "playbook", "transport"],
     ai.revise_system: ["system", "findings", "evidence", "playbook", "transport", "tags", "ids", "sheets",
-                       "source_sheets"],   # as write_system
+                       "source_sheets", "hold_counts"],   # as write_system; hold_counts: families the estimator set
     ai.evidence_for: ["system", "dossier"],
     ai.evidence_index: ["dossier"],
     counts.count_tags: ["image_path", "tag_pattern", "transport"],      # transport: optional, keyword-only

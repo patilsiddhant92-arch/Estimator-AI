@@ -32,6 +32,11 @@ Severity = Literal["must_fix", "check"]
 FrontEndMode = Literal["new-system", "extend-existing"]
 DecisionAction = Literal["accept", "change", "delete"]
 
+# What the proposal prints for an existing BMS the documents do not name (rules.md "Front end mode"; the same fill-in as
+# assets/front_end.json existing_systems.unnamed): square brackets, so it reads as a blank to complete. The planner asks
+# for the name in a question; the model keeps `existing_system_name` None.
+UNNAMED_EXISTING = "[existing BMS name]"
+
 VERBS: tuple[str, ...] = get_args(Verb)
 CONTROLS: tuple[str, ...] = get_args(Control)
 FLAGS: tuple[str, ...] = get_args(Flag)
@@ -194,12 +199,27 @@ class ScopeException(_Model):
 
 @dataclass(frozen=True)
 class FrontEnd(_Model):
-    """The front-end block. `mode` picks the proposal template's opening (as `estimator.scope.FrontEnd.mode`)."""
+    """The front-end block. `mode` picks the proposal template's opening (as `estimator.scope.FrontEnd.mode`). The
+    planner fills `mode`, `existing_system_name`, `lines`, `notes` and `refs` from this job's documents; the front end's
+    writer (`bms.ai.write_front_end`, like a system's) fills `devices`, `clarifications`, `tech_hours` and
+    `no_scope_reason`."""
     mode: FrontEndMode = field(**_doc("new-system or extend-existing."))
-    existing_system_name: str | None = field(default=None, **_doc("The existing BMS, when extending one."))
+    existing_system_name: str | None = field(default=None, **_doc(
+        "The existing BMS, when extending one; null when the documents do not name it (the proposal prints a fill-in "
+        "and the planner asks for the name)."))
     devices: tuple[Device, ...] = field(default=(), **_doc("The front-end lines."))
     clarifications: tuple[Clarification, ...] = field(default=(), **_doc("At most one."))
     tech_hours: float | None = field(default=None, **_doc("The front end's tech hours."))
+    lines: tuple[str, ...] = field(default=(), **_doc(
+        "The planner's: what the reading found this job's documents call for in the front end, one entry each in the "
+        "reading's own words (a front-end line, or an item the documents give to another party); the writer writes "
+        "the devices from them and the evidence. Empty when the documents call for none."))
+    notes: tuple[str, ...] = field(default=(), **_doc(
+        "The planner's: the client notes for the front end the reading found, in its words."))
+    refs: tuple[Ref, ...] = field(default=(), **_doc(
+        "The planner's: the citations of those facts (the passages of this job's documents)."))
+    no_scope_reason: str | None = field(default=None, **_doc(
+        "When the writer wrote no front-end line: why, in plain words; null otherwise."))
 
 
 @dataclass(frozen=True)
@@ -425,7 +445,7 @@ def schema_errors(value, schema: dict, path: str = "$") -> list[str]:
 
 
 __all__ = ["Verb", "Control", "Flag", "ClarificationKind", "AlternateKind", "Party", "Severity", "FrontEndMode",
-           "VERBS", "CONTROLS", "FLAGS", "CLARIFICATION_KINDS", "ALTERNATES", "PARTIES", "SEVERITIES",
+           "UNNAMED_EXISTING", "VERBS", "CONTROLS", "FLAGS", "CLARIFICATION_KINDS", "ALTERNATES", "PARTIES", "SEVERITIES",
            "FRONT_END_MODES", "DecisionAction", "DECISION_ACTIONS", "ModelError", "Ref", "OtherCount", "Count", "Family", "Assumption", "Device",
            "Clarification", "Served", "System", "ScopeException", "FrontEnd", "Header", "Job", "Finding", "Decision", "MODEL_CLASSES",
            "json_schema", "schema_errors"]

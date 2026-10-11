@@ -198,7 +198,7 @@ def test_a_subline_with_its_parent_is_clean():
 # House text that carries its own verb (Interlock, Tie-in, Map, Monitor, a wiring phrase, a work statement), the
 # wordings a slot with no {verb} and no "under" may have.
 OWN_VERB_TEXT = {
-    "Run 24V Power Loop to VAVs",
+    "Run 24V Power Loop to VAVs (Mentioned 24 V Wiring Control by BMS Contractor)",
     "Interlock with {device}{owner}",
     "Interlock with Associated {device} Operation",
     "Interlock wiring to {device}{owner}",
@@ -207,6 +207,7 @@ OWN_VERB_TEXT = {
     "Interlock Fan Operation with {device}",
     "Low Voltage Control Interlock w/ {device}",
     "Tie-in {device}{owner}",
+    "Tie-in Condensate Pump Float Switch (Furnished by Mfr.)",
     "Tie in Mfr. {device}",
     "Tie into BMS",
     "Tie-in mfr. Provided Sensors and End-Devices via Terminal Strip",

@@ -6,10 +6,11 @@ import re
 from dataclasses import dataclass, field, replace
 from functools import lru_cache
 
-from estimator.catalogue.tags import STATED_MOST
+from estimator.catalogue.tags import STATED_MOST, is_type_tag, label_key
 from estimator.ledger.facts import Fact, Ledger, where_short
 from estimator.reading.inventory import _names
 
+from bms import ai_evidence
 from bms.model import Count, OtherCount, Ref
 
 _SPACES = re.compile(r"\s+")
@@ -39,27 +40,57 @@ def number(value) -> int | None:
     return int(text) if text.isdigit() else None
 
 
+_A_TAG = r"[A-Za-z]{1,6}(?:-[A-Za-z0-9.]+)+"
+# a range as a drawing may word it, "EF-1 through EF-5", "EF-1 to 5", "EF-1 - EF-5" (a dash set apart by spaces);
+# `expand_tags` reads only "thru"
+_RANGE_WORDED = re.compile(rf"(?<![A-Za-z0-9\-])({_A_TAG})\s+(through|thru|to|[-–—])\s+({_A_TAG}|\d+[A-Za-z]?)"
+                           rf"(?![A-Za-z0-9]|-[A-Za-z0-9])", re.I)
+_LAST_NUMBER = re.compile(r"^(.*?)\d+$")
+
+
+def _as_thru(match: re.Match) -> str:
+    """The range written "LOW thru HIGH" when its two ends are one numbered series (the same text before the last
+    number: "EF-1" and "EF-5"; a bare number is the high end only after a word, "EF-1 to 5", never after a dash:
+    "VAV-3 - 4 PLACES" is no range); any other pair ("AHU-1 to VAV-3") as written."""
+    low, joiner, high = match.groups()
+    stem = _LAST_NUMBER.match(low)
+    ends = _LAST_NUMBER.match(high)
+    if stem is None:
+        return match.group(0)
+    bare = high.isdigit() and joiner.isalpha()
+    return f"{low} thru {high}" if bare or (ends is not None and ends.group(1) == stem.group(1)) else match.group(0)
+
+
 def expand(tags) -> list[str]:
+    """Every tag, one by one (`estimator.writing.assemble.expand_tags`), a range written "through", "to" or with a
+    spaced dash read as the "thru" range it is."""
     from estimator.writing.assemble import expand_tags
-    return expand_tags(tags)
+    items = [tags] if isinstance(tags, str) else list(tags or ())
+    return expand_tags([_RANGE_WORDED.sub(_as_thru, str(item)) for item in items])
 
 
 # A count stated after a tag, in every form the catalogue reads on a line of its own (`estimator.catalogue.tags`
-# `_STATED`, ruled FINAL-O: a stated multiplier is a placement count): "CUH-A (TYP. OF 4)", "CUH-A TYP OF 4",
-# "CUH-A (4)", "CUH-A 4 PLACES", "CUH-A x4", "CUH-A×4", and "CUH-Ax4" (a small x only, and only after a known tag:
-# `times_form`). The catalogue's patterns are anchored to the whole rest of a line, so they cannot scan a group
-# fact or a sheet's text; these are the same forms, unanchored. The count is the first group that matched. As in the
-# catalogue, a TYP, bracket or PLACES count over STATED_MOST is not read ("CD-1 (200)" is a size or a note, not 200
-# places); "x" and "×" are read at any size, as before.
-TIMES_AFTER = (r"(?:\s*\(\s*TYP(?:ICAL)?\.?\s*OF\s+(\d+)\s*\.?\s*\)"
-               r"|\s+TYP(?:ICAL)?\.?\s*OF\s+(\d+)"
+# `_STATED`, ruled FINAL-O: a stated multiplier is a placement count): "CUH-A (TYP. OF 4)", "CUH-A (TYP. OF 4
+# PLACES)", "CUH-A TYP OF 4", "CUH-A (4)", "CUH-A(4)", "CUH-A 4 PLACES", "CUH-A x4", "CUH-A×4", and "CUH-Ax4" (a small
+# x only, and only after a known tag: `times_form`). The catalogue's patterns are anchored to the whole rest of a
+# line, so they cannot scan a group fact or a sheet's text; these are the same forms, unanchored. The count is the
+# first group that matched. As in the catalogue, a TYP, bracket or PLACES count over STATED_MOST is not read ("CD-1
+# (200)" is a size or a note, not 200 places); "x" and "×" are read at any size, as before.
+_PLACES_WORD = r"(?:PLACES|PLCS?|LOCATIONS)"
+TIMES_AFTER = (rf"(?:\s*\(\s*TYP(?:ICAL)?\.?\s*OF\s+(\d+)(?:\s*{_PLACES_WORD}\.?)?\s*\.?\s*\)"
+               rf"|\s+TYP(?:ICAL)?\.?\s*OF\s+(\d+)(?:\s*{_PLACES_WORD}\.?)?"
                r"|\s*\(\s*(\d+)\s*\)"
-               r"|\s+(\d+)\s*(?:PLACES|PLCS?|LOCATIONS)\.?"
+               rf"|\s+(\d+)\s*{_PLACES_WORD}\.?"
                r"|\s*×\s*(\d+)"
                r"|\s+x\s*(\d+))"
                r"(?![A-Za-z0-9]|\.\d)")                     # never the X of "TX1", nor a decimal such as "x4.5"
 GLUED_TIMES = r"(?-i:x)(\d+)(?![A-Za-z0-9]|\.\d)"            # "CUH-Ax4": a small x glued to a tag
-_A_TAG = r"[A-Za-z]{1,6}(?:-[A-Za-z0-9.]+)+"
+# A count before a tag, "4x CUH-A", "4 × CUH-A", "4×CUH-A" (HP 8), read as the "x" forms are: at any size, and a zero
+# states no count. Its digits start a word (never the tail of "24X24" or of a dotted number), and a dash is no count:
+# "2-VAV-4" is one VAV-4 (FINAL-N). The tag is not the start of a longer one ("CUH-A-1", "CUH-AB").
+COUNT_BEFORE = r"(?<![A-Za-z0-9.\-])(\d+)\s*[x×]\s*"
+_AFTER_TAG = r"(?![A-Za-z0-9]|-[A-Za-z0-9])"
+_COUNT_THEN_TAG = re.compile(rf"{COUNT_BEFORE}({_A_TAG}){_AFTER_TAG}", re.I)
 _TAG_STATED = re.compile(rf"(?<![A-Za-z0-9\-])({_A_TAG}){TIMES_AFTER}", re.I)
 _TAG_GLUED = re.compile(rf"(?<![A-Za-z0-9\-])({_A_TAG}){GLUED_TIMES}")
 
@@ -77,10 +108,12 @@ def stated_number(match: re.Match, first: int = 1) -> int | None:
 
 def times_form(text: str, known=()) -> str:
     """The text with each count stated after a tag written as "TAG ×N" (TIMES_AFTER), so one reading of "×N" reads
-    every form; a bracket that only states a count goes, so "CUH (CUH-A (4), CUH-B)" lists two tags. A glued
-    "CUH-Ax4" is split only when CUH-A is one of the `known` tags and "CUH-Ax4" itself is not (a tag such as
-    "VAV-2X1" stays whole)."""
+    every form; a bracket that only states a count goes, so "CUH (CUH-A (4), CUH-B)" lists two tags. A count before a
+    tag ("4x CUH-A") is written "CUH-A ×4" too. A glued "CUH-Ax4" is split only when CUH-A is one of the `known`
+    tags and "CUH-Ax4" itself is not (a tag such as "VAV-2X1" stays whole)."""
     keys = {t.casefold() for t in known}
+    text = _COUNT_THEN_TAG.sub(lambda m: f"{m.group(2).rstrip('.')} ×{m.group(1)}" if int(m.group(1)) > 0
+                               else m.group(0), text)
     text = _TAG_STATED.sub(lambda m: m.group(0) if stated_number(m, 2) is None
                            else f"{m.group(1)} ×{stated_number(m, 2)}", text)
     return _TAG_GLUED.sub(lambda m: f"{m.group(1)} ×{m.group(2)}"
@@ -162,6 +195,7 @@ class FamilyFacts:
     was: int | None = None                 # the count before those tags raised it
     added_refs: tuple[Ref, ...] = ()       # where the added tags are
     added_up: AddedUp | None = None        # ruling L1 lowered the stated counts on the plan sheets: both numbers
+    beyond: tuple[str, ...] = ()           # unit tags of the fact's own list past its count, which that list raised
 
 
 @dataclass(frozen=True)
@@ -214,6 +248,7 @@ class Reader:
         self._plans: dict[str, _PlanSheet] | None = None
         self._groups: dict | None = None
         self._counts_ids: dict[str, str] | None = None
+        self._schedule_list: list[_Schedule] | None = None
 
     # refs
     def where(self, source_id: str, depth: int = 0) -> str:
@@ -326,28 +361,33 @@ class Reader:
 
     def _tag_times_on_sheets(self, tags: tuple[str, ...]) -> list[tuple[str, dict[str, int], Ref]]:
         """Each dossier line that states a count after one of the family's tags ("TAG ×N", "TAG xN", "TAGxN",
-        "TAG (TYP. OF N)", "TAG (N)", "TAG N PLACES": TIMES_AFTER): (its source id, the count stated for each tag on
-        it in capitals, summed over the line, its ref: the source line's id, the words as printed). Only tags with a
-        dash are looked for. The dossier's own equipment counts lines are not read: their reading notes name a type
-        tag's placements ("CUH-A 4 places, 4 on M-101"), which TIMES_AFTER also reads as a stated count, and those
-        placements are the plan sheets' counts again, not more units (the counts line's `plan placements` clause is
-        read from the count facts: `counts_clauses`)."""
+        "TAG (TYP. OF N)", "TAG (TYP. OF N PLACES)", "TAG (N)", "TAG N PLACES": TIMES_AFTER) or before it ("Nx TAG":
+        COUNT_BEFORE): (its source id, the count stated for each tag on it in capitals, summed over the line, its ref:
+        the source line's id, the words as printed). Only tags with a dash are looked for. The dossier's own equipment
+        counts lines are not read: their reading notes name a type tag's placements ("CUH-A 4 places, 4 on M-101"),
+        which TIMES_AFTER also reads as a stated count, and those placements are the plan sheets' counts again, not
+        more units (the counts line's `plan placements` clause is read from the count facts: `counts_clauses`)."""
         wanted = [t for t in tags if "-" in t]
         if not wanted or not self.dossier_text:
             return []
         names = "|".join(re.escape(t) for t in sorted(wanted, key=len, reverse=True))
-        pattern = re.compile(rf"(?<![A-Za-z0-9\-])({names})(?:{TIMES_AFTER}|{GLUED_TIMES})", re.I)
+        after = re.compile(rf"(?<![A-Za-z0-9\-])({names})(?:{TIMES_AFTER}|{GLUED_TIMES})", re.I)
+        before = re.compile(rf"{COUNT_BEFORE}({names}){_AFTER_TAG}", re.I)
         found: list[tuple[str, dict[str, int], Ref]] = []
         for line in self.dossier_text.splitlines():
             head = _SOURCE_LINE.match(line)
             if not head or self.dossier_sources.get(head.group(1), "").startswith(_COUNTS_SOURCE):
                 continue
-            said = [m for m in pattern.finditer(head.group(2)) if stated_number(m, 2) is not None]
+            # each count read: (where it starts, its tag in capitals, the count, the words as printed)
+            said = [(m.start(), m.group(1).upper(), stated_number(m, 2), squash(m.group(0)))
+                    for m in after.finditer(head.group(2)) if stated_number(m, 2) is not None]
+            said += [(m.start(), m.group(2).upper(), int(m.group(1)), squash(m.group(0)))
+                     for m in before.finditer(head.group(2)) if int(m.group(1)) > 0]
             if said:
                 per_tag: dict[str, int] = {}
-                for m in said:
-                    per_tag[m.group(1).upper()] = per_tag.get(m.group(1).upper(), 0) + stated_number(m, 2)
-                quote = " ... ".join(squash(m.group(0)) for m in said)
+                for _at, tag, n, _words in said:
+                    per_tag[tag] = per_tag.get(tag, 0) + n
+                quote = " ... ".join(words for _at, _tag, _n, words in sorted(said, key=lambda s: s[0]))
                 found.append((head.group(1), per_tag, self.ref(head.group(1), quote)))
         return found
 
@@ -432,10 +472,16 @@ class Reader:
         count_fact = self.ledger.find("count", prefix)
         count, added_up = self._family_count(prefix, tags)
         was = count.value
-        if added and count.value is not None and count.value < len(tags):
-            # one per tag (never undershoot): the old number is kept beside it, and the planner asks with both
+        units = _unit_tags(listed)
+        wanted = len(tags) if added else len(units)
+        beyond: tuple[str, ...] = ()
+        if count.value is not None and count.value < wanted:
+            # one per tag (never undershoot): a later pass's tags, or the tags of the fact's own list past its count
+            # (the plans' range is in the list: "EF-1 thru EF-5" beside a count of 3). The old number is kept beside
+            # the new one, and the planner asks with both
+            beyond = () if added else units[count.value:]
             raised = (self.fact_ref(unit), *added_refs)
-            count = Count(len(tags), tuple(_unique(list(raised))),
+            count = Count(wanted, tuple(_unique(list(raised))),
                           tuple(_unique([*count.others, OtherCount(count.value, count.sources[0])]))
                           if count.sources else count.others)
         stated = (added_up.summed, added_up.refs[0]) if added_up is not None and added_up.refs else None
@@ -443,7 +489,7 @@ class Reader:
         sequence_only = count_fact is None and fact.stage == "sequence"
         plan_only = not sequence_only and (count_fact is None or not count_fact.was_settled)
         found = FamilyFacts(fact, prefix, short_name(fact.value, prefix), tags, count, plan_only, sequence_only,
-                            added, len(listed), was, added_refs, added_up)
+                            added, len(listed), was, added_refs, added_up, beyond)
         self._families[prefix.casefold()] = found
         return found
 
@@ -567,9 +613,42 @@ class Reader:
         return None
 
     def alternate(self, *names: str) -> str:
+        """The bid alternate the documents make of the system these names call: "add" or "deduct" when an "alternate"
+        note of the ledger naming one of them says so (the note wins), else when the title of the schedule that lists
+        its family says so (`_title_alternate`); "base" when neither does."""
         fact = self.note("alternate", *names)
-        value = squash(fact.value).casefold() if fact else ""
-        return "add" if value.startswith("add") else "deduct" if value.startswith("deduct") else "base"
+        if fact is not None:
+            value = squash(fact.value).casefold()
+            return "add" if value.startswith("add") else "deduct" if value.startswith("deduct") else "base"
+        return self._title_alternate(names)
+
+    def _title_alternate(self, names: tuple[str, ...]) -> str:
+        """The side of the alternate the titles of the schedules listing the families these names are the prefixes of
+        say (`alternate_in`; HP 23), when every such schedule says the same one. A schedule lists a family when a row
+        begins with one of its tags, or when a fact of the family cites its title, a row or a note. A family on
+        schedules that disagree (a base one and an alternate one) is "base": nothing says which of its units are the
+        alternate, so no part of the base bid is taken out of it."""
+        sides: list[str] = []
+        for name in dict.fromkeys(squash(n) for n in names if squash(n)):
+            family = self.family_by_prefix(name)
+            if family is None:
+                continue
+            tags = {label_key(t) for t in family.tags}
+            cited = self._cited(family.prefix)
+            sides += [alternate_in(s.title) or "base" for s in self._schedules() if tags & s.firsts or cited & s.ids]
+        return sides[0] if sides and len(set(sides)) == 1 else "base"
+
+    def _cited(self, prefix: str) -> set[str]:
+        """The source ids the family's own facts (family, unit and count, each with its contradictions) cite."""
+        key = squash(prefix).casefold()
+        return {sid for f in self.ledger.facts.values()
+                if f.kind in ("family", "unit", "count") and squash(f.subject).casefold() == key
+                for sid in (f.source_id, *(c.source_id for c in f.contradictions))}
+
+    def _schedules(self) -> list[_Schedule]:
+        if self._schedule_list is None:
+            self._schedule_list = _schedules_of(self.dossier_text)
+        return self._schedule_list
 
     def exception(self, *names: str) -> str:
         fact = self.note("exception", *names)
@@ -581,6 +660,65 @@ _COUNTS_CLAUSE = re.compile(r"\b(schedule rows|quantity column total|distinct ta
                             re.I)
 
 
+# ---- a bid alternate a schedule's title names (HP 23) ---------------------------------------------------------------
+
+_ALT = r"alt(?:ernates?)?\b\.?"
+_ADD_ALTERNATE = re.compile(rf"\b(?:add|additive|added)\.?[\s-]+{_ALT}", re.I)
+_DEDUCT_ALTERNATE = re.compile(rf"\b(?:deduct|deductive|deducted)\.?[\s-]+{_ALT}", re.I)
+_NOT_ALTERNATE = re.compile(r"\b(?:no|not|non|without)\s+(?:an?\s+)?$", re.I)
+
+
+def alternate_in(title: str) -> str:
+    """"add" or "deduct" when a schedule's title says it is that bid alternate ("ADD ALTERNATE", "ADD ALT. NO. 2",
+    "ADDITIVE ALTERNATE #1", "DEDUCT ALTERNATE", "DEDUCTIVE ALTERNATE"); "" when it says none, or says both, or says it
+    is not one ("NO ADD ALTERNATE"). An alternate that is only numbered ("ALTERNATE #1") says no side: never
+    invented."""
+    title = squash(title)
+    sides = {side for side, pattern in (("add", _ADD_ALTERNATE), ("deduct", _DEDUCT_ALTERNATE))
+             for m in pattern.finditer(title) if not _NOT_ALTERNATE.search(title[:m.start()])}
+    return sides.pop() if len(sides) == 1 else ""
+
+
+@dataclass(frozen=True)
+class _Schedule:
+    """A schedule of the dossier's schedule part: its title (the words of its title line before its place), the source
+    ids of its title line, rows and notes, and the label keys of the tags its rows begin with."""
+    title: str
+    ids: frozenset[str]
+    firsts: frozenset[str]
+
+
+_SCHEDULE_NOTES = ("Note:", "Unit controls by:")       # how the dossier's lines of a schedule's notes begin
+_ENTRY_ID = re.compile(r"^\[[A-Za-z]{1,4}\d+[a-z]?\]\s?")
+_ROW_COUNT = re.compile(r"\(\d+ rows?\b[^)]*\)\s*$")    # the end of a title line: "(2 rows)", "(1 row; type rows)"
+
+
+def _schedules_of(text: str) -> list[_Schedule]:
+    """The schedules in the schedule part of the dossier text, as `estimator.writing.dossier` writes them: a title line
+    with its place and row count ("[S1] AIR PURIFIER (ADD ALTERNATE) — M-401, Drawings.pdf page 7 (2 rows)"), then its
+    rows ("[S6] AP-1 | AHU-1", or "[S6] AP-1" alone when the schedule has one column; the row of an existing unit ends
+    "(EXISTING)"; a first cell may name a range) and its notes. Entries in any other part are no schedule's."""
+    found: list[_Schedule] = []
+    title, ids, firsts = None, set(), set()
+    for entry in ai_evidence.parse(text):
+        if entry.part != ai_evidence.SCHEDULES or entry.sid is None:
+            continue
+        line = _ENTRY_ID.sub("", entry.body.split("\n", 1)[0])      # an entry of several lines keeps its id in `body`
+        if line.startswith(_SCHEDULE_NOTES):
+            ids.add(entry.sid)
+        elif " — " in line and ("|" not in line or _ROW_COUNT.search(line)):
+            if title is not None:
+                found.append(_Schedule(title, frozenset(ids), frozenset(firsts)))
+            title, ids, firsts = squash(line.split(" — ", 1)[0]), {entry.sid}, set()
+        else:
+            cell = re.sub(r"\([^()]*\)\s*$", "", line.split("|", 1)[0]).strip()
+            ids.add(entry.sid)
+            firsts |= {label_key(tag) for tag in [cell, *expand([cell])] if tag}
+    if title is not None:
+        found.append(_Schedule(title, frozenset(ids), frozenset(firsts)))
+    return found
+
+
 def counts_clauses(quote: str) -> list[tuple[str, int]]:
     """The numbered clauses of an equipment counts line ("schedule rows 2; ...; plan placements 55 (...); riser 1"),
     each as its words and its number ("plan placements 55", 55); a zero is no count. [] for any other quote."""
@@ -590,3 +728,14 @@ def counts_clauses(quote: str) -> list[tuple[str, int]]:
 
 def _unique(items: list) -> list:
     return list(dict.fromkeys(items))
+
+
+def _unit_tags(tags) -> tuple[str, ...]:
+    """The tags that each name one unit, each once in any case, in order: a letter and a digit and no space (a note
+    such as "roof fans" is no tag), and not a type's tag (`is_type_tag`: CUH-A and AC-3.0 name a kind used at many
+    places, so a list of them is no count of units)."""
+    found: dict[str, str] = {}
+    for tag in map(squash, tags):
+        if tag and " " not in tag and re.search(r"[A-Za-z]", tag) and re.search(r"\d", tag) and not is_type_tag(tag):
+            found.setdefault(tag.upper(), tag)
+    return tuple(found.values())

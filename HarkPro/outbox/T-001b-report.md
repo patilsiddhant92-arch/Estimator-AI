@@ -41,3 +41,22 @@
 
 5. Questions: should a tag in a unit fact's contradictions (e.g. a plan's "EF-1 thru 4" against the schedule's
    "EF-1 thru 3") also cite it? This branch says no.
+
+
+## Rebase onto lead/wave2 (T-001b-rebase, 2026-10-11)
+
+- Merged origin/lead/wave2 (28a966c) into hark/T-001b. Conflicts only in src/bms/coverage.py and
+  tests/bms/test_coverage.py, resolved as follows:
+  - coverage.py: kept this branch's `_cited` (family and unit facts cited only by a ref or their own tags) and its
+    `expand` import; kept wave2's `_said` and its finding text (no "(None)" or "()"); dropped this branch's `_value`
+    as a duplicate; `_count_refs` is None-safe and includes `added_up.ref`; the family count refs are added once.
+  - test_coverage.py: kept both sides' tests (no name clash).
+- `PYTHONPATH=src pytest tests/bms/test_coverage.py -q`: 27 passed.
+- Full suite `PYTHONPATH=src pytest tests -q -n 2` (Python 3.13): 9 failed, 4821 passed, 10 skipped.
+  The 9 failures are all in the known baseline of unchanged origin/rebuild (they fail there too):
+  5 in tests/bms/test_ai.py (the chat tests), tests/bms/test_review_final3.py::test_a_real_child_failing_with_the_resource_code_is_run_three_times_then_reported,
+  tests/test_assets.py::test_running_on_the_project_python, tests/test_main.py::test_the_output_folder_being_a_file_that_is_open_is_plain,
+  and the flaky tests/test_revert_audit_review.py::test_a_test_file_saved_with_a_utf8_bom_is_audited.
+  No failure is outside the baseline. These are Windows/sandbox-only; on the lead's PC they should pass.
+- `pytest tests/bms` alone was not run separately (the sandbox was loaded by five parallel tasks); tests/bms is
+  part of the full run above.
