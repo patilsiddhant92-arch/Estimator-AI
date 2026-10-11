@@ -44,7 +44,7 @@ def job(raw) -> Job:
 def test_enumerations_are_the_design_values():
     assert VERBS == ("Furnish and Install", "Furnish", "Furnish and Wire", "Install and Wire", "Wire")
     assert CONTROLS == ("packaged", "field", "integration", "none")
-    assert FLAGS == ("none", "quantity", "ownership", "assumed", "future")
+    assert FLAGS == ("none", "quantity", "ownership", "assumed")
     assert CLARIFICATION_KINDS == ("confirm", "assumed", "per_drawings", "note")
     assert ALTERNATES == ("base", "add", "deduct")
     assert PARTIES == ("AME", "Unit Mfr.", "FA", "Mechanical Contractor", "Electrical Contractor", "Others", "Owner")
@@ -229,16 +229,6 @@ def test_a_takeoff_row_may_leave_out_only_the_fields_that_have_a_default(raw):
         assert all(getattr(row, f.name) == f.default for f in optional)       # the default fills what was left out
     assert [f.name for f in dataclasses.fields(Unit) if f.default is dataclasses.MISSING] == [
         "family", "tag", "labels", "status", "count", "sheets", "refs"]
-
-
-def test_a_line_the_documents_call_future_carries_the_future_flag(raw):
-    raw["systems"][1]["devices"][0]["flag"] = "future"
-    assert Job.from_dict(raw).systems[1].devices[0].flag == "future"
-    assert schema_errors(raw["systems"][1], json_schema(System)) == []
-    assert json_schema(System)["properties"]["devices"]["items"]["properties"]["flag"]["enum"] == list(FLAGS)
-    raw["systems"][1]["devices"][0]["flag"] = "soon"
-    with pytest.raises(ModelError, match=r"systems\[1\]\.devices\[0\]\.flag"):
-        Job.from_dict(raw)
 
 
 # ---- the JSON Schema ---------------------------------------------------------------------------------------------

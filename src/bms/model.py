@@ -28,7 +28,7 @@ from typing import Literal, Union, get_args, get_origin, get_type_hints
 
 Verb = Literal["Furnish and Install", "Furnish", "Furnish and Wire", "Install and Wire", "Wire"]
 Control = Literal["packaged", "field", "integration", "none"]
-Flag = Literal["none", "quantity", "ownership", "assumed", "future"]
+Flag = Literal["none", "quantity", "ownership", "assumed"]
 ClarificationKind = Literal["confirm", "assumed", "per_drawings", "note"]
 AlternateKind = Literal["base", "add", "deduct"]
 Party = Literal["AME", "Unit Mfr.", "FA", "Mechanical Contractor", "Electrical Contractor", "Others", "Owner"]
