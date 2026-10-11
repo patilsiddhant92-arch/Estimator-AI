@@ -922,3 +922,26 @@ def test_a_run_says_it_wrote_each_file_it_touched_under_out(job_folder, tmp_path
                  out / "run state.json"):
         assert path.exists(), path
         assert f"Wrote {path}" in printed.splitlines(), path
+
+
+# ---- the cover page's own question (T-005c review F2) ----------------------------------------------------------------
+
+def test_a_folder_with_no_job_number_puts_the_cover_page_question_on_the_review_page(tmp_path, monkeypatch):
+    """A takeoff folder that is in no job folder (no "2. Takeoffs" above it, no job number in a name) prints *** for the
+    job number and the project name. The run keeps the header's flag as an open question, in the job and on the
+    review page: it used to drop the flag, so the estimator had only the red mark to go by."""
+    from bms.model import Job
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    root = tmp_path / "Loose PDFs"
+    make_pdf(root / "1. Base Takeoff" / "Mech.pdf", _schedule_sheet(), PLAN)
+    make_pdf(root / "1. Base Takeoff" / "230993.pdf", SEQUENCE)
+    out, cache = tmp_path / "out", tmp_path / "cache"
+    result = _reach(root, out, cache, "never")
+    assert result.status == "done"
+    job = Job.from_json(result.job_file.read_text(encoding="utf-8"))
+    assert (job.header.quote_number, job.header.reference) == ("***", "***")
+    (asked,) = [q for q in job.questions if q.startswith("Give the job number and the project name")]
+    assert "Loose PDFs" in asked                    # the question names the folder it could not read a job from
+    page = result.review.read_text(encoding="utf-8")
+    assert "Open questions for the client" in page
+    assert "Give the job number and the project name for the cover page" in page
