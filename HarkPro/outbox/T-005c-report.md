@@ -12,8 +12,8 @@
   above the takeoff folder whose name opens with a job number (`^\d{2}-\d{3,}`). That second rule keeps the old app
   working, because it is given the job folder itself. If neither exists, it returns None.
 - `front_end.py:387-405` `job_header`: Quote # is the text before the first comma of the job folder's name, and
-  Reference is the text after it (26-0544 gives "26-0544" and "Monmouth County Courthouse - Rplc of Air Handling &
-  Fan Coil Units, NJ"). If there is no job folder, both print `***` and a flag asks for the job number and project
+  Reference is the text after it (26-0544 gives "26-0544" and the project name after the comma; job text removed
+  from this report on 2026-10-11, README rule 3). If there is no job folder, both print `***` and a flag asks for the job number and project
   name. A job folder that has only a number gives Reference `***` and a flag. The takeoff folder's name and
   "[project name]" are never printed. `assets/front_end.json` `header.unnamed_reference` is no longer read for the
   reference.
@@ -136,3 +136,30 @@ Full suite (`-n 2 -p no:cacheprovider`, run in two chunks):
    That hunk will conflict with mine. Please keep mine (the Literal, the docs, and `optional` in the schema) so that
    older answers still pass schema_errors.
 4. Does a FUTURE item get priced? Right now it is priced like any other line.
+
+## Regression fixtures (NOTES 2026-10-11 rule 4)
+
+- `tests/bms/fixtures/t005c_proposal.json`: an invented copy of the 26-0544 proposal defects (the same folder forms
+  "<job no>, <project> - Rplc of ..., <state>" / "2. Takeoffs" / "1. Base Takeoff"; invented names and numbers; a
+  Schneider existing BMS).
+- `tests/bms/test_t005c_fixture_regressions.py` (10 tests) reads it:
+  - header from the takeoff folder name: `test_fixture_header_comes_from_the_job_folder_not_the_takeoff_folder`
+    (3 depths), `test_fixture_header_with_no_job_folder_prints_red_placeholders_and_asks`;
+  - Schneider printed plain: `test_fixture_a_schneider_bms_is_not_ames_and_gets_one_red_flag` (3 names),
+    `test_fixture_ames_own_bms_names_get_no_flag` (2 names), `test_fixture_schneider_prints_red_between_stars_in_the_heading`.
+- The inline tests in `test_t005c_proposal.py` stay as they are. Its `JOB` folder name copies the job's project name
+  form word for word except the county; the new fixture uses an invented project.
+- This report's ruling 3 paragraph quoted the real job folder name; that text is removed above (it is still in the
+  history of commit f453c8c).
+
+## Tests (NOTES 2026-10-11 rule 3)
+
+Run on this commit, PYTHONPATH=src, `-p no:cacheprovider`:
+
+- Files changed: `pytest tests/bms/test_t005c_fixture_regressions.py tests/bms/test_t005c_proposal.py -q -n 2`
+  -> `42 passed in 5.03s`
+- `pytest tests/bms -q -n 2 -p no:cacheprovider` (one run, not chunked, while another agent's suite shared the CPUs):
+  `6 failed, 2543 passed, 2 skipped, 178 warnings in 508.14s (0:08:28)`
+  - **tests/bms pass count: 2543.**
+  - All 6 failures are accepted baseline: 4 `test_ai.py` chat tests (the 5th passed this time),
+    `test_review_final3` resource code, `test_status_review` normal-exit. No revert_audit test failed.
