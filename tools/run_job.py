@@ -1,7 +1,7 @@
 """Helper for the /run-job skill. No AI, no subagents.
 
     python tools/run_job.py status JOB --out OUT [--cache CACHE] [--app bms|estimator]
-    python tools/run_job.py check ANSWER_FILE REQUEST_FILE
+    python tools/run_job.py check [--no-count] ANSWER_FILE REQUEST_FILE
 
 `status` runs the estimate in chat mode: the rebuilt app by default (`python -m bms estimate --mode chat`; exit 2
 while requests wait, exit 1 when the run stops with nothing left to answer, 0 when done), or with `--app estimator`
@@ -17,6 +17,7 @@ The waiting block also gives `exit` (the estimate's exit code) and `stage` (the 
 `check` only reads JSON (no estimator import); a rebuilt app's request (one with a `step`) is held to its whole
 schema with `bms.model.schema_errors` (loaded from this checkout's `src`).
 Failed checks and rejected answers are counted per request key in OUT/.run-job-attempts.json.
+`check --no-count` counts nothing: a subagent checks its own answer with it, so only the lead's check counts.
 """
 import argparse
 import json
@@ -125,6 +126,8 @@ def cmd_check(args) -> int:
         print("ok")
         return 0
     print(message)
+    if getattr(args, "no_count", False):
+        return 1
     try:
         key = _load(args.request).get("key")
         marker = Path(args.request).resolve().parent / OUT_MARKER
@@ -268,6 +271,8 @@ def main(argv=None) -> int:
     ck = sub.add_parser("check")
     ck.add_argument("answer", type=Path)
     ck.add_argument("request", type=Path)
+    ck.add_argument("--no-count", action="store_true",
+                    help="a failed check adds no attempt (a subagent's check of its own answer)")
     args = parser.parse_args(argv)
     return cmd_status(args) if args.command == "status" else cmd_check(args)
 

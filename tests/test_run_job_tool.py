@@ -188,3 +188,50 @@ def test_check_imports_bms_from_this_checkouts_src_ahead_of_the_install_path(mon
     monkeypatch.setattr(sys, "path", [p for p in sys.path if p != src])
     assert run_job._schema_errors({}, {"type": "object"}) == []
     assert sys.path[0] == src
+
+
+def _failing_check(tmp_path):
+    """A request that names its out folder (the marker `status` writes) and an answer that fails its check. Gives a
+    function that runs `check` on them with the flags passed, one that reads the attempt counts, and the answer file."""
+    out, requests = tmp_path / "out", tmp_path / "requests"
+    out.mkdir()
+    requests.mkdir()
+    (requests / ".run-job-out").write_text(str(out), encoding="utf-8")
+    request, answer = requests / "k.json", tmp_path / "a.json"
+    request.write_text(json.dumps({"key": "k", "kind": "read_pass", "schema": {"required": ["facts"], "properties": {}}}),
+                       encoding="utf-8")
+    answer.write_text(json.dumps({"note": "no facts"}), encoding="utf-8")
+
+    def check(*flags):
+        return subprocess.run([sys.executable, "tools/run_job.py", "check", *flags, str(answer), str(request)],
+                              capture_output=True, text=True)
+
+    def attempts():
+        path = out / ".run-job-attempts.json"
+        return json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
+
+    return check, attempts, answer
+
+
+def test_a_failed_check_adds_one_attempt_for_its_request(tmp_path):
+    check, attempts, _ = _failing_check(tmp_path)
+    assert check().returncode == 1 and attempts() == {"k": 1}
+    assert check().returncode == 1 and attempts() == {"k": 2}
+
+
+def test_a_failed_check_with_no_count_leaves_the_attempt_count_unchanged(tmp_path):
+    """A subagent checks its own answer with --no-count, so only the lead's check counts: one attempt per round."""
+    check, attempts, answer = _failing_check(tmp_path)
+    run = check("--no-count")
+    assert run.returncode == 1 and "facts" in run.stdout and attempts() == {}       # the message still comes out
+    assert check().returncode == 1 and attempts() == {"k": 1}
+    assert check("--no-count").returncode == 1 and attempts() == {"k": 1}
+    answer.write_text(json.dumps({"facts": []}), encoding="utf-8")
+    ok = check("--no-count")
+    assert ok.returncode == 0 and ok.stdout.strip() == "ok"
+
+
+def test_the_skill_has_the_subagent_check_with_no_count_and_the_lead_check_without():
+    text = Path(".claude/skills/run-job/SKILL.md").read_text(encoding="utf-8")
+    commands = [line for line in text.splitlines() if "tools/run_job.py check" in line]
+    assert len(commands) == 2 and "--no-count" in commands[0] and "--no-count" not in commands[1]

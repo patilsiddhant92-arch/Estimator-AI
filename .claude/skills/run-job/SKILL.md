@@ -55,7 +55,8 @@ Read `.claude/run-job.json`: `judge_model` (reading passes), `writer_model` (wri
       Do not type JSON by hand into a file. Do not use a heredoc or an editor tool to write <answer_file>.
    3. Put each scratch file, such as your script, in <scratch>. Make that folder yourself. Do not use a shared temp
       folder.
-   4. After you write <answer_file>, run `.venv/Scripts/python.exe tools/run_job.py check "<answer_file>" "<path>"`.
+   4. After you write <answer_file>, run
+      `.venv/Scripts/python.exe tools/run_job.py check --no-count "<answer_file>" "<path>"`.
       If the check fails, fix the answer and run the check again. Report only after the check prints `ok`.
    5. Do not start subagents or review skills. Do not run the estimator. Report in fewer than 100 words: the path of
       <answer_file>, the real output of the check, and any doubt about the evidence."
