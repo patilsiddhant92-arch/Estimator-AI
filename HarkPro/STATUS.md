@@ -20,4 +20,4 @@ Priority order for HarkPro: T-005d fixes (if still open), T-006 report, then T-0
 | T-005d | Writer and evidence: no "Assumed", loose devices, text cut | MERGED | hark/T-005d | 2026-10-11 |
 | T-005e | Master Template format, GEM order, off-hours, prevailing wage | MERGED into lead/wave2 and rebuild 2026-10-12 (with lead fixes) | hark/T-005e | 2026-10-11 |
 | T-006 | Takeoff pass, Stage 1: sheet classes and unit register, no count changes | MERGED | hark/T-006 | 2026-10-11 |
-| T-007 | Takeoff pass, Stage 2: the register binds counts and blocks (Tasks 2.1 to 2.5, 2.7, part of 2.6) | OPEN: T-007 base ready. origin/lead/wave2 is now 5b1bd74 (adds the Demolition Scope: src/bms/takeoff.py gained demolition_lines/attach_demolition at the end, model.py gained DemolitionLine and Job.demolition). If you started on 6931eae, merge origin/lead/wave2 into hark/T-007 before you push. | hark/T-007 | 2026-10-11 |
+| T-007 | Takeoff pass, Stage 2: the register binds counts and blocks (Tasks 2.1 to 2.5, 2.7, part of 2.6) | OPEN: T-007 base ready (5b1bd74). In progress at HarkPro since 02:10; incremental pushes requested. | hark/T-007 | 2026-10-12 |
