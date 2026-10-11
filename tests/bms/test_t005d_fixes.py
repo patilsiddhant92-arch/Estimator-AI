@@ -175,10 +175,23 @@ def test_future_items_needs_an_item_word_or_the_device_name():
 
 # ---- should fix 2: an ownership assumption against a stated schedule row is dropped ---------------------------------
 
-def test_an_ownership_assumption_against_the_schedule_row_is_dropped_whatever_its_reason(playbook):
+def test_an_ownership_assumption_against_the_schedule_row_becomes_an_ownership_flag(playbook):
+    # lead fix 1 (2026-10-11): the line says AME, the row says the manufacturer: never a silent drop
     device = _device("Unit Controller", "S11", "UNIT CONTROLLER PROVIDED BY THE UNIT MANUFACTURER, FACTORY WIRED",
                      "M-602, Plans.pdf page 6", flag="assumed",
                      assumption={"what": "controller furnished by AME for the factory to wire",
+                                 "why": "the controls specification gives unit controllers to the contractor"})
+    written, transport = _write(playbook, device)
+    line = written.devices[0]
+    assert line.flag == "ownership" and line.furnished_by == "AME"
+    assert "AME" in line.assumption.what and "Unit Mfr." in line.assumption.why
+    assert any("kept as an ownership flag" in change for _, change in transport.notes)
+
+
+def test_an_ownership_assumption_the_schedule_row_agrees_with_is_dropped_whatever_its_reason(playbook):
+    device = _device("Unit Controller", "S11", "UNIT CONTROLLER PROVIDED BY THE UNIT MANUFACTURER",
+                     "M-602, Plans.pdf page 6", flag="assumed", verb="Install and Wire", furnished_by="Unit Mfr.",
+                     assumption={"what": "controller furnished by the manufacturer",
                                  "why": "the controls specification gives unit controllers to the contractor"})
     written, transport = _write(playbook, device)
     assert written.devices[0].assumption is None and written.devices[0].flag == "none"

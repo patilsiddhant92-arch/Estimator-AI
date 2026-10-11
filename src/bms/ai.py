@@ -1362,14 +1362,77 @@ def _marks(devices: list[dict], kept_ids: set[str], changes: list[str]) -> list[
     return problems
 
 
+# who a passage says furnishes, installs or wires an item (lead fix 1): the party words, in the model's party names
+_PARTY_WORDS = (
+    (re.compile(r"\b(?:(?:temperature\s+)?controls?|BMS|BAS|ATC|DDC|EMS)\s+(?:contractor|vendor|subcontractor)\b|"
+                r"\bdiv(?:ision)?\.?\s*23\s*09\b|\bAME\b", re.I), "AME"),
+    (re.compile(r"\bunit\s+(?:manufacturer|mfr)\b|\bmanufacturer\b|\bfactory\b|\bequipment\s+(?:supplier|vendor)\b",
+                re.I), "Unit Mfr."),
+    (re.compile(r"\bmechanical\s+contractor\b|\bdiv(?:ision)?\.?\s*23\b(?!\s*09)", re.I), "Mechanical Contractor"),
+    (re.compile(r"\belectrical\s+contractor\b|\bdiv(?:ision)?\.?\s*26\b", re.I), "Electrical Contractor"),
+    (re.compile(r"\bfire\s+alarm\b", re.I), "FA"),
+    (re.compile(r"\bothers\b", re.I), "Others"),
+    (re.compile(r"\bowner\b", re.I), "Owner"),
+)
+_ROLE = {"furnished": "furnished_by", "provided": "furnished_by", "supplied": "furnished_by",
+         "installed": "installed_by", "mounted": "installed_by", "wired": "wired_by"}
+_ROLE_WORDS = {"furnished_by": "furnished", "installed_by": "installed", "wired_by": "wired"}
+_ROLE_VERBS = {"furnished_by": "furnish", "installed_by": "install", "wired_by": "wire"}
+_OWNER_CLAUSE = re.compile(r"\b(furnished|provided|supplied|installed|mounted|wired)\s+(?:and\s+"
+                           r"(furnished|provided|supplied|installed|mounted|wired)\s+)?by\s+([^,.;:()]{2,60})", re.I)
+_FACTORY_ROLE = re.compile(r"\bfactory[\s-]*(furnished|provided|supplied|installed|mounted|wired)\b", re.I)
+
+
+def _party_of(words: str) -> str | None:
+    """The model's party a few words name ("the unit manufacturer" is "Unit Mfr."), or None."""
+    for pattern, party in _PARTY_WORDS:
+        if pattern.search(words):
+            return party
+    return None
+
+
+def stated_parties(quote: str) -> dict[str, str]:
+    """Who a passage says furnishes, installs or wires the item: {"furnished_by": "Unit Mfr.", ...}, from "furnished
+    by the unit manufacturer", "provided and installed by the electrical contractor", "factory mounted". A role the
+    passage names twice with two parties is left out (the passage does not settle it)."""
+    found: dict[str, set[str]] = {}
+    for m in _OWNER_CLAUSE.finditer(str(quote or "")):
+        party = _party_of(m.group(3))
+        if party is None:
+            continue
+        for verb in (m.group(1), m.group(2)):
+            if verb:
+                found.setdefault(_ROLE[verb.lower()], set()).add(party)
+    for m in _FACTORY_ROLE.finditer(str(quote or "")):
+        found.setdefault(_ROLE[m.group(1).lower()], set()).add("Unit Mfr.")
+    return {role: next(iter(parties)) for role, parties in found.items() if len(parties) == 1}
+
+
+def _ownership_conflicts(device: dict, refs: Sequence[dict]) -> list[tuple[str, str, str]]:
+    """Each (role, the line's party, the cited passage's party) where a cited stated passage names another party
+    for a role than the line gives (lead fix 1)."""
+    out: list[tuple[str, str, str]] = []
+    for ref in refs:
+        for role, party in stated_parties(str(ref.get("quote", ""))).items():
+            mine = str(device.get(role) or "")
+            if mine and mine != party and (role, mine, party) not in out:
+                out.append((role, mine, party))
+    return out
+
+
 def _stated_not_assumed(devices: list[dict], kept_ids: set[str], stated: frozenset[str],
                         changes: list[str]) -> None:
     """Ruling 6: never "Assumed" when a cited schedule or sequence states the fact. On a line that cites one of them
     (`stated`), an assumption is dropped in place and an "assumed" flag cleared when its words say the source states
     it (in a clause with no negation, must fix 3), or when it is about who furnishes, installs or wires the item and
     a cited stated passage's quote states that, whatever reason it gives (the specification, should fix 2). An
-    assumption whose words say the source is silent ("the schedule does not state the quantity") stays. Each change
-    is logged."""
+    assumption whose words say the source is silent ("the schedule does not state the quantity") stays.
+
+    Lead fix 1: an assumption is never dropped from a line whose parties contradict the cited stated passage (the
+    line says furnished by AME, the schedule row says by the unit manufacturer). That line keeps an "ownership" flag
+    (a "quantity" flag stays first) and its assumption names both parties, so the review page asks who is right. An
+    ownership assumption is dropped only when the cited passage names the parties and the line agrees with them.
+    Each change is logged."""
     if not stated:
         return
     for n, device in enumerate(devices):
@@ -1383,16 +1446,30 @@ def _stated_not_assumed(devices: list[dict], kept_ids: set[str], stated: frozens
         if not refs:
             continue
         said = _says_stated(words)
-        owner = (not _says_silent(words) and bool(_ABOUT_OWNER.search(what))
-                 and any(_STATES_OWNER.search(str(r.get("quote", ""))) for r in refs))
-        if said or owner:
-            label = f"device {device.get('id') or n + 1}"
-            reason = ("the schedule or sequence it cites states it" if said else
-                      "the schedule or sequence it cites states who furnishes, installs or wires it")
-            changes.append(f"{label}: assumption {words.strip()!r} dropped: {reason}")
-            device["assumption"] = None
-            if device.get("flag") == "assumed":
-                device["flag"] = "none"
+        about_owner = not _says_silent(words) and bool(_ABOUT_OWNER.search(what))
+        owner = about_owner and any(stated_parties(str(r.get("quote", ""))) for r in refs)
+        if not (said or owner):
+            continue
+        label = f"device {device.get('id') or n + 1}"
+        conflicts = _ownership_conflicts(device, refs)
+        if conflicts:
+            mine = ", ".join(f"{_ROLE_WORDS[role]} by {party}" for role, party, _ in conflicts)
+            theirs = ", ".join(f"{_ROLE_WORDS[role]} by {party}" for role, _, party in conflicts)
+            roles = " and ".join(dict.fromkeys(_ROLE_VERBS[role] for role, _, _ in conflicts))
+            device["assumption"] = {"what": f"this line has it {mine}"[:ASSUMPTION_LIMIT // 2],
+                                    "why": f"the cited schedule or sequence says {theirs}; confirm who will {roles} it"
+                                    [:ASSUMPTION_LIMIT // 2]}
+            if device.get("flag") != "quantity":
+                device["flag"] = "ownership"
+            changes.append(f"{label}: assumption {words.strip()!r} kept as an ownership flag: the line has it {mine}, "
+                           f"the cited passage {theirs}")
+            continue
+        reason = ("the schedule or sequence it cites states it" if said else
+                  "the schedule or sequence it cites states who furnishes, installs or wires it")
+        changes.append(f"{label}: assumption {words.strip()!r} dropped: {reason}")
+        device["assumption"] = None
+        if device.get("flag") in ("assumed", "ownership"):
+            device["flag"] = "none"
 
 
 _POINT_SPLIT = re.compile(r"(?<=[.;!?])\s+|\s*\n+\s*|\s+-\s+|\s*•\s*")

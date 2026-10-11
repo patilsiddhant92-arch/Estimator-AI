@@ -119,7 +119,44 @@ def test_an_assumption_against_a_stated_schedule_fact_is_not_kept(dossier, playb
                      assumption={"what": "controller furnished by AME to the unit manufacturer for factory mounting",
                                  "why": "the controls specification has the contractor furnish unit controllers"})
     written, _ = _write(dossier, playbook, device)
-    assert written.devices[0].assumption is None and written.devices[0].flag != "assumed"
+    line = written.devices[0]
+    # never "Assumed" against the stated row ...
+    assert line.flag != "assumed"
+    # ... and never a silent contradiction (lead fix 1): the line says AME, the row says the unit manufacturer, so the
+    # line keeps an ownership flag whose words name both parties, for the review page
+    assert line.furnished_by == "AME" and line.flag == "ownership"
+    assert line.assumption is not None
+    words = f"{line.assumption.what} {line.assumption.why}"
+    assert "AME" in words and "Unit Mfr." in words
+
+
+def test_an_ownership_assumption_the_stated_row_agrees_with_is_dropped(dossier, playbook):
+    """The line already follows the row (furnished and mounted by the manufacturer): the assumption is not needed."""
+    device = _device("Unit Controller", "S11", "UNIT CONTROLLER FURNISHED BY THE UNIT MANUFACTURER, FACTORY MOUNTED",
+                     "M-601, Plans.pdf page 6", flag="assumed", verb="Wire", furnished_by="Unit Mfr.",
+                     installed_by="Unit Mfr.",
+                     assumption={"what": "controller furnished by the unit manufacturer",
+                                 "why": "the controls specification has the contractor furnish unit controllers"})
+    written, _ = _write(dossier, playbook, device)
+    assert written.devices[0].assumption is None and written.devices[0].flag == "none"
+
+
+def test_the_review_page_shows_the_ownership_flag_with_both_parties(dossier, playbook):
+    from bms import review
+    device = _device("Unit Controller", "S11", "UNIT CONTROLLER FURNISHED BY THE UNIT MANUFACTURER, FACTORY MOUNTED",
+                     "M-601, Plans.pdf page 6", flag="assumed",
+                     assumption={"what": "controller furnished by AME to the unit manufacturer for factory mounting",
+                                 "why": "the controls specification has the contractor furnish unit controllers"})
+    written, _ = _write(dossier, playbook, device)
+    import dataclasses
+    import json
+    from bms.model import Job
+    job = Job.from_dict(json.loads((FIXTURES / "sample_job.json").read_text(encoding="utf-8")))
+    job = dataclasses.replace(job, systems=(*job.systems, written))
+    (card,) = [q for q in review._questions(job, []) if q.system_key == "ZZ" and q.device_id == "ZZ.d1"]
+    text = " ".join(card.notes)
+    assert "Who furnishes, installs or wires this line is not settled." in text
+    assert "AME" in text and "Unit Mfr." in text
 
 
 def test_an_assumption_that_says_the_schedule_does_not_state_the_value_is_kept(dossier, playbook):
