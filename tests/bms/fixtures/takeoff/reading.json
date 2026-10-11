@@ -1,0 +1,267 @@
+{
+  "schedules": [
+    {
+      "document": "Mech.pdf",
+      "page": 1,
+      "sheet": "M-601",
+      "title": "AIR HANDLING UNIT SCHEDULE",
+      "headers": ["TAG", "AREA SERVED", "SUPPLY CFM"],
+      "rows": [
+        {
+          "tag": "AHU-1",
+          "cells": {
+            "TAG": "AHU-1",
+            "AREA SERVED": "ATTIC",
+            "SUPPLY CFM": "3500"
+          },
+          "manufacturer": null,
+          "model": null,
+          "existing": false,
+          "kind": null,
+          "shares": 1
+        },
+        {
+          "tag": "AHU-2",
+          "cells": {
+            "TAG": "AHU-2",
+            "AREA SERVED": "ATTIC",
+            "SUPPLY CFM": "4000"
+          },
+          "manufacturer": null,
+          "model": null,
+          "existing": false,
+          "kind": null,
+          "shares": 1
+        },
+        {
+          "tag": "AHU-3",
+          "cells": {
+            "TAG": "AHU-3",
+            "AREA SERVED": "ATTIC",
+            "SUPPLY CFM": "4500"
+          },
+          "manufacturer": null,
+          "model": null,
+          "existing": false,
+          "kind": null,
+          "shares": 1
+        },
+        {
+          "tag": "AHU-4",
+          "cells": {
+            "TAG": "AHU-4",
+            "AREA SERVED": "ATTIC",
+            "SUPPLY CFM": "5000"
+          },
+          "manufacturer": null,
+          "model": null,
+          "existing": false,
+          "kind": null,
+          "shares": 1
+        },
+        {
+          "tag": "AHU-5",
+          "cells": {
+            "TAG": "AHU-5",
+            "AREA SERVED": "ATTIC",
+            "SUPPLY CFM": "5500"
+          },
+          "manufacturer": null,
+          "model": null,
+          "existing": false,
+          "kind": null,
+          "shares": 1
+        }
+      ],
+      "type_only": false,
+      "notes": [],
+      "controls_by": [],
+      "from_text": false,
+      "source": "table",
+      "passive": false
+    },
+    {
+      "document": "Mech.pdf",
+      "page": 1,
+      "sheet": "M-601",
+      "title": "EXHAUST FAN SCHEDULE",
+      "headers": ["TAG", "SERVICE", "CFM"],
+      "rows": [
+        {
+          "tag": "EF-1",
+          "cells": {
+            "TAG": "EF-1",
+            "SERVICE": "GENERAL EXHAUST",
+            "CFM": "700"
+          },
+          "manufacturer": null,
+          "model": null,
+          "existing": false,
+          "kind": null,
+          "shares": 1
+        },
+        {
+          "tag": "EF-2",
+          "cells": {
+            "TAG": "EF-2",
+            "SERVICE": "GENERAL EXHAUST",
+            "CFM": "800"
+          },
+          "manufacturer": null,
+          "model": null,
+          "existing": false,
+          "kind": null,
+          "shares": 1
+        },
+        {
+          "tag": "EF-3",
+          "cells": {
+            "TAG": "EF-3",
+            "SERVICE": "GENERAL EXHAUST",
+            "CFM": "900"
+          },
+          "manufacturer": null,
+          "model": null,
+          "existing": false,
+          "kind": null,
+          "shares": 1
+        },
+        {
+          "tag": "EF-4",
+          "cells": {
+            "TAG": "EF-4",
+            "SERVICE": "GENERAL EXHAUST",
+            "CFM": "1000"
+          },
+          "manufacturer": null,
+          "model": null,
+          "existing": false,
+          "kind": null,
+          "shares": 1
+        },
+        {
+          "tag": "EF-5",
+          "cells": {
+            "TAG": "EF-5",
+            "SERVICE": "GENERAL EXHAUST",
+            "CFM": "1100"
+          },
+          "manufacturer": null,
+          "model": null,
+          "existing": false,
+          "kind": null,
+          "shares": 1
+        }
+      ],
+      "type_only": false,
+      "notes": [],
+      "controls_by": [],
+      "from_text": false,
+      "source": "table",
+      "passive": false
+    },
+    {
+      "document": "Mech.pdf",
+      "page": 1,
+      "sheet": "M-601",
+      "title": "ENERGY RECOVERY UNIT SCHEDULE",
+      "headers": ["TAG", "SERVICE", "CFM"],
+      "rows": [
+        {
+          "tag": "ERU-1",
+          "cells": {
+            "TAG": "ERU-1",
+            "SERVICE": "OUTSIDE AIR",
+            "CFM": "2500"
+          },
+          "manufacturer": null,
+          "model": null,
+          "existing": false,
+          "kind": null,
+          "shares": 1
+        }
+      ],
+      "type_only": false,
+      "notes": [],
+      "controls_by": [],
+      "from_text": false,
+      "source": "table",
+      "passive": false
+    },
+    {
+      "document": "Mech.pdf",
+      "page": 1,
+      "sheet": "M-601",
+      "title": "FAN COIL UNIT SCHEDULE",
+      "headers": ["TAG", "QTY", "CFM"],
+      "rows": [
+        {
+          "tag": "FCU-1",
+          "cells": {
+            "TAG": "FCU-1",
+            "QTY": "",
+            "CFM": "400"
+          },
+          "manufacturer": null,
+          "model": null,
+          "existing": false,
+          "kind": null,
+          "shares": 1
+        }
+      ],
+      "type_only": false,
+      "notes": [],
+      "controls_by": [],
+      "from_text": false,
+      "source": "table",
+      "passive": false
+    }
+  ],
+  "devices": [
+    {
+      "sheet": "M-201",
+      "document": "Mech.pdf",
+      "page": 7,
+      "device": "Thermostat",
+      "label": "T",
+      "count": 14,
+      "floors": 1,
+      "total": 14,
+      "in_legend": true
+    },
+    {
+      "sheet": "M-202",
+      "document": "Mech.pdf",
+      "page": 8,
+      "device": "Thermostat",
+      "label": "T",
+      "count": 16,
+      "floors": 1,
+      "total": 16,
+      "in_legend": true
+    },
+    {
+      "sheet": "MD-201",
+      "document": "Mech.pdf",
+      "page": 9,
+      "device": "Thermostat",
+      "label": "T",
+      "count": 9,
+      "floors": 1,
+      "total": 9,
+      "in_legend": true
+    }
+  ],
+  "notes": [
+    {
+      "sheet": "MD-401",
+      "document": "Mech.pdf",
+      "page": 6,
+      "block": "KEY NOTES",
+      "number": "1",
+      "text": "EXISTING AHU-6 AND EF-6 TO BE REMOVED",
+      "controls": false,
+      "who": ""
+    }
+  ]
+}
