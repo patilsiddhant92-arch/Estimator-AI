@@ -369,3 +369,18 @@ def test_save_and_load(tmp_path):
     takeoff.save(register, path)
     assert json.loads(path.read_text(encoding="utf-8"))["version"] == 1
     assert takeoff.load(path) == register
+
+
+# ---- Task 1.4: the prompt ---------------------------------------------------------------------------------------------
+
+def test_the_takeoff_prompt_carries_the_amended_ruling_list():
+    text = (Path(takeoff.__file__).parent / "prompts" / "takeoff_job.md").read_text(encoding="utf-8")
+    rulings = text.split("## The estimator's rulings of 2026-10-11", 1)[1].split("## Plain words", 1)[0]
+    numbers = [int(line.split(".", 1)[0]) for line in rulings.splitlines() if line[:1].isdigit()]
+    assert numbers == [1, 2, 6, 7, 8, 9, 10, 14, 15, 17, 18]
+    assert text.startswith("You are the takeoff reader of a building controls (BMS / DDC) estimate for AME.")
+    for heading in ("## Sheets", "## Units", "## Counts set aside", "## Future items", "## Questions", "## Citations"):
+        assert heading in text
+    # the plan's words, with its examples in “ ”: a straight-quoted capitalised phrase in a prompt is a rule citation
+    # (`playbook_lint.prompt_rule_names`), and "Demolition Scope" or "Level 2 east" is no Playbook rule
+    assert '"' not in text and "“Demolition Scope”" in text and "(“Attic”, “Level 2 east”)" in text
