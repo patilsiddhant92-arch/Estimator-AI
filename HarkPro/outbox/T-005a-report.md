@@ -112,3 +112,38 @@ Inventory totals agree (AHU 5, EF 5, ERV 1, FCU 55). P 12 and CV 12 unchanged.
    Is AHU-6 kept with new valves and pumps (then work is named on it and it counts), or are these schedule leftovers?
 3. Should demolition-sheet thermostats come back when a general note says thermostats are relocated (no tag on the
    note)? Today they stay out with a flag giving both numbers.
+
+## Regression fixtures (NOTES 2026-10-11 rule 4) and seams (rule 5)
+
+- `tests/bms/fixtures/t005a_counting.json`: an invented copy of the two 26-0544 counting defects (same tag forms
+  AHU-n / FCU-n, same sheet-number form Mnnn.00 / MD nnn.00, same title forms; invented names and numbers): four
+  units on four penthouse plans of four trades, a unit drawn only on a demolition roof plan, a type tag with labels on
+  a demolition floor plan, a note naming work on the demolition unit, and a removal-only note.
+- `tests/bms/test_t005a_fixture_regressions.py` (10 tests) reads it:
+  - defect 1 (a unit on four plans counted 4x): `test_fixture_unit_on_four_penthouse_plans_counts_once`,
+    `test_fixture_inventory_counts_each_unit_once`;
+  - defect 2 (a demolition-only unit counted): `test_fixture_demolition_only_unit_is_left_out_with_both_numbers`,
+    `test_fixture_type_tag_labels_on_a_demolition_plan_are_left_out`,
+    `test_fixture_demolition_unit_with_work_named_is_counted`, `test_fixture_removal_line_names_no_work`,
+    `test_fixture_inventory_leaves_the_demolition_unit_out`;
+  - rule 5, the seams are kept and callable with explicit sources (none was folded away; no code changed):
+    `test_seam_placements_reads_only_the_pages_it_is_given` (`inventory.placements(..., pages=...)`),
+    `test_seam_plan_count_takes_explicit_groups` (`inventory.plan_count(..., groups=...)`),
+    `test_seam_plan_read_count_takes_an_explicit_list_of_sources` (`plan_read.Reader._count(facts, extra)`).
+- The inline tests in `tests/test_t005a_counting.py` stay as they are. Note: they use the job's own sheet numbers
+  (M114.00, M214.00, M314.00, M315.00, MD 315.00); the new fixture uses invented ones.
+
+## Tests (NOTES 2026-10-11 rule 3)
+
+Run on this commit, PYTHONPATH=src, `-p no:cacheprovider`:
+
+- Files changed: `pytest tests/bms/test_t005a_fixture_regressions.py tests/bms/test_t005a_plan_read.py -q -n 2`
+  -> `12 passed in 3.53s`
+- `pytest tests/bms -q -n 2 -p no:cacheprovider` (one run, not chunked; this also re-verifies the code commit b1372ea
+  and the report commit 2d93d06):
+  `6 failed, 2513 passed, 2 skipped, 178 warnings in 340.02s (0:05:40)`
+  - **tests/bms pass count: 2513.**
+  - All 6 failures are accepted baseline: 4 `test_ai.py` chat tests (`test_chat_refuses_an_answer_that_breaks_the_schema`,
+    `test_a_cached_answer_clears_a_request_left_behind_by_a_killed_run`, `test_every_cleanup_is_logged_beside_the_cache`,
+    `test_write_system_through_the_chat_rejects_and_asks_again`; the 5th chat test passed this time),
+    `test_review_final3` resource code, `test_status_review` normal-exit. No revert_audit test failed.
