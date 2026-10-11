@@ -229,6 +229,9 @@ def render(job: Job, playbook: Playbook) -> ProposalDraft:
     return ProposalDraft(scope=scope, lines=tuple(lines))
 
 
+DEMOLITION_KEY = "demolition"   # sheet_plan selects labor rows by this key, not by the heading text
+
+
 def _demolition_block(job: Job, ids: SourceIds) -> Block | None:
     """The Demolition Scope, or None when the job has no demolition lines.
 
@@ -243,7 +246,7 @@ def _demolition_block(job: Job, ids: SourceIds) -> Block | None:
     for line in job.demolition:
         text = _demolition_text(line, ids)
         items.append(Item(kind="line", depth=1, runs=(Run(text=text, red=True),), quantity=line.count))
-    return Block(header=DEMOLITION_HEADING, items=tuple(items), numbered=False)
+    return Block(header=DEMOLITION_HEADING, items=tuple(items), numbered=False, key=DEMOLITION_KEY)
 
 
 def _demolition_text(line: DemolitionLine, ids: SourceIds) -> str:

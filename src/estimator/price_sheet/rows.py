@@ -19,7 +19,8 @@ FIRST_ROW, LAST_ROW = 6, 396                               # the rows that hold 
 HOURS, QUANTITY, SCOPE, UNIT_PRICE, FLAG = 2, 3, 4, 5, 8   # columns B, C, D, E, H
 COUNT_TO_FILL = "Qty (##)"                                  # the house form of a count still to be filled
 LINE_QUANTITY_TO_FILL = "(Qty. ##)"                         # the older end form of a line's quantity still to fill
-DEMOLITION_HEADING = "Demolition Scope"                     # T-G1: labor rows under this heading, hours left blank
+DEMOLITION_HEADING = "Demolition Scope"                     # T-G1: the heading text. It does not select the labor rows.
+DEMOLITION_KEY = "demolition"                               # Block.key that selects the labor rows
 HOURS_BY_ESTIMATOR = "HOURS BY ESTIMATOR"                   # a Demolition Scope labor row with a known count
 _QTY_PREFIX = re.compile(r"^Qty \(\d+\) ")
 
@@ -54,7 +55,7 @@ def sheet_plan(job: Job) -> list[Sheet]:
     for j, item in enumerate(job.front_end.items):
         base.append(_item_row(item, markers, ("front_end", "items", j)))
     for i, block in enumerate(job.blocks):
-        if squash(block.header) == DEMOLITION_HEADING:
+        if block.key == DEMOLITION_KEY:
             base += _demolition_rows(block, ("blocks", i))
         else:
             base += _block_rows(block, next(numbers) if block.numbered else None, ("blocks", i))
