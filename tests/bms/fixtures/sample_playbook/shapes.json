@@ -8,7 +8,7 @@
       "family_names": ["Rooftop Unit"],
       "line_order": ["comm_wiring", "map_points", "rep_assist", "shipped_loose"],
       "slot_kinds": {"comm_wiring": "integration", "map_points": "integration", "rep_assist": "integration", "shipped_loose": "device"},
-      "wording": {"comm_wiring": "{verb} {device}", "map_points": "Map Available Points Via Mfr. Provided BMS Interface", "rep_assist": "AME requires mfr. Rep to assist in integration, cost to be incurred by mech contractor", "shipped_loose": "{verb} {device}{owner}{qty}"},
+      "wording": {"comm_wiring": "{verb} {device}", "map_points": "Map Available Points Via Mfr. Provided BMS Interface", "rep_assist": "AME requires mfr. Rep to assist in integration, cost to be incurred by mech contractor", "shipped_loose": "{verb} {device}{owner}"},
       "under": {"rep_assist": "map_points"},
       "tech_hours": {"per": "unit", "hours": 2, "when": []}
     },
@@ -19,7 +19,7 @@
       "family_names": ["Exhaust Fan"],
       "line_order": ["interlock", "controller", "start_stop_status", "damper_actuator"],
       "slot_kinds": {"interlock": "interlock", "controller": "device", "start_stop_status": "point", "damper_actuator": "device"},
-      "wording": {"interlock": "Interlock with {device}", "controller": "{verb} {device}{owner}{qty}", "start_stop_status": "{verb} {device}{owner}", "damper_actuator": "{verb} {device}{owner}{qty}"},
+      "wording": {"interlock": "Interlock with {device}", "controller": "{verb} {device}{owner}", "start_stop_status": "{verb} {device}{owner}", "damper_actuator": "{verb} {device}{owner}"},
       "tech_hours": {"per": "unit", "hours": null, "when": [{"if": ["controller"], "hours": 4}]}
     },
     {
@@ -40,7 +40,7 @@
       "family_names": ["Duct Heater"],
       "line_order": ["discharge_temperature", "heater_control"],
       "slot_kinds": {"discharge_temperature": "device", "heater_control": "point"},
-      "wording": {"discharge_temperature": "{verb} {device}{owner}{qty}", "heater_control": "{verb} {device}{owner}"},
+      "wording": {"discharge_temperature": "{verb} {device}{owner}", "heater_control": "{verb} {device}{owner}"},
       "tech_hours": {"per": "unit", "hours": 2, "when": []}
     },
     {
@@ -50,7 +50,7 @@
       "family_names": ["Cabinet Unit Heater"],
       "line_order": ["space_temperature", "control_valve"],
       "slot_kinds": {"space_temperature": "device", "control_valve": "device"},
-      "wording": {"space_temperature": "{verb} {device}{owner}{qty}", "control_valve": "{verb} {device}{owner}{qty}"},
+      "wording": {"space_temperature": "{verb} {device}{owner}", "control_valve": "{verb} {device}{owner}"},
       "tech_hours": {"per": "unit", "hours": 1, "when": []}
     }
   ]
