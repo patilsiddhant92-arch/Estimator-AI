@@ -113,8 +113,10 @@ def test_an_opening_with_no_red_sample_is_left_as_it_is(bare_job, proposal_templ
         run.font.color.rgb = None
     template = tmp_path / "t.docx"
     document.save(str(template))
-    job = bare_job.model_copy(update={"front_end": FrontEnd(mode="extend-existing", existing_system_name="Acme")})
-    assert "Seamlessly Tie in to the Existing Acme BMS" in _texts(write_proposal(job, template, tmp_path / "p.docx"))
+    # one of AME's three, so the name prints plain (a name that is not prints red between ***, T-005 ruling 4)
+    job = bare_job.model_copy(update={"front_end": FrontEnd(mode="extend-existing", existing_system_name="Niagara N4")})
+    assert "Seamlessly Tie in to the Existing Niagara N4 BMS" in _texts(write_proposal(job, template,
+                                                                                     tmp_path / "p.docx"))
 
 
 def test_scope_heading_suffix(bare_job, proposal_template, tmp_path):

@@ -481,7 +481,7 @@ def test_a_folder_with_only_a_number_and_no_firm_is_pending():
     pages = [PageRecord(MECH, 1, "text", "", 0, True, _title_block("Engineer of Record:", "Texas Engineering Firm F-99999"))]
     header, flags = job_header(_catalogue(folder="26-0445", sheets=sheets, pages=pages), versions, TODAY)
     assert header.quote_number == "26-0445"
-    assert header.reference == "[project name]"
+    assert header.reference == "***"            # T-005 ruling 3: never "[project name]"
     assert header.mep_engineer == "[MEP engineer]"
     assert header.based_on == ("M-001 Thru M-002",)            # no "Dated: [date]" placeholder printed
     assert len(flags) == 3

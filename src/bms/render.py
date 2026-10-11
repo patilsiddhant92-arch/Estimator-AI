@@ -19,6 +19,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass, field, replace
 
 from estimator.price_sheet.write import PriceSheetError, check_fit
+from estimator.proposal.write import ame_bms
 from estimator.scope import Alternate, Block, Item, Run
 from estimator.scope import FrontEnd as ScopeFrontEnd
 from estimator.scope import Header as ScopeHeader
@@ -41,6 +42,49 @@ BECAUSE = "because "
 _REASON_LEADS = ("as ", "since ", "given that ", "because ")
 
 assert set(_AFTER_LINES) == set(CLARIFICATION_KINDS)
+
+# ---- T-005c (estimator rulings of 2026-10-11, 4, 5 and the printing of 7): the renderer's own words ------------------
+# (wording.json keys proposed to the Playbook in HarkPro/outbox/T-005c-report.md)
+# the one flag line of a front end whose existing BMS is not one of AME's three (`estimator.proposal.write.ame_bms`)
+AME_ONLY_FLAG = ("***AME works only with Honeywell WEBS, Johnson FX (Facility Explorer) or Niagara Tridium "
+                 "front ends")
+# the front end when the documents call for none (no front-end line from the reading, none written)
+NO_FRONT_END = "No front end information found"
+# a device marked "future" prints "(<mark_note>)" after its line, in red; "(FUTURE)" when it has no note
+FUTURE_WORD = "FUTURE"
+RED_MARKS = ("future", "notice")
+# a "*" line longer than this prints as short points: the first after the label, each other on its own "- " line
+LONG_CLARIFICATION = 150
+_ABBREVIATIONS = {"mfr", "mfrs", "spec", "specs", "sec", "no", "nos", "e.g", "i.e", "etc", "inc", "co", "corp",
+                  "approx", "dwg", "dwgs", "fig", "div", "vol", "st", "ft", "min", "max", "ref", "typ", "incl", "qty",
+                  "vs", "dept", "bldg", "mech", "elec"}
+_POINT_BREAK = re.compile(r"([.;])\s+")
+_WORD_BEFORE = re.compile(r"([A-Za-z.]+)$")
+
+
+def short_points(text: str) -> str:
+    """A long "*" line as short points (T-005 ruling 5): split after each sentence (". " before a capital, never after
+    an abbreviation such as "Mfr." or "Spec.") and each "; ", the first point after the line's label, each other on a
+    line of its own after "- " (a line break in the one note, so the words are never cut or reworded). A line of at most
+    LONG_CLARIFICATION characters, or one sentence, is given back as it is."""
+    text = (text or "").strip()
+    if len(text) <= LONG_CLARIFICATION:
+        return text
+    pieces, start = [], 0
+    for match in _POINT_BREAK.finditer(text):
+        if match.group(1) == ".":
+            word = _WORD_BEFORE.search(text[start:match.start()])
+            if not text[match.end():match.end() + 1].isupper():
+                continue
+            if word and (len(word.group(1).strip(".")) <= 1 or word.group(1).lower().strip(".") in _ABBREVIATIONS):
+                continue
+        pieces.append(text[start:match.start()])
+        start = match.end()
+    pieces.append(text[start:])
+    pieces = [p.strip().rstrip(" .;") for p in pieces if p.strip(" .;")]
+    if len(pieces) < 2:
+        return text
+    return "\n".join([pieces[0]] + [f"- {p}" for p in pieces[1:]])
 
 
 class RenderError(ValueError):
@@ -109,7 +153,10 @@ def render(job: Job, playbook: Playbook) -> ProposalDraft:
       `scope.deduct_alternates`, each labelled "ALT #k: <name>" (adds and deducts numbered apart);
       `job.exceptions` become `scope.named_exceptions`; `job.front_end` the FrontEnd.
     - A system with no shape is rendered in the generic form "{verb} {device}{owner}{qty}" in device order.
-    - Never adds a line that is not a field of the Job (nothing internal reaches the client document).
+    - Never adds a line that is not a field of the Job (nothing internal reaches the client document), except the
+      estimator's red flags of T-005 ruling 4 in the front end (`_front_end_flags`: "No front end information found",
+      the AME_ONLY_FLAG line). A "future" device prints "(<mark_note>)" after its line and a "future" or "notice"
+      device prints red (`_with_marks`, `_items`); a "*" line over LONG_CLARIFICATION prints as short points.
     """
     if job.header is None:
         raise RenderError("the job has no header (quote number, reference, engineer, date)")
@@ -645,8 +692,9 @@ def printed_texts(system: System, shape: Shape | None, playbook: Playbook, ids: 
         reference = {n for n in (_printed(f.count) for f in _header_families(system)) if n is not None}
     else:
         reference = {1}
-    return [(p.device.id, p.text) for p in _device_lines(_named(system.devices, ids), shape,
-                                                          system if system.key else None, playbook, reference)]
+    return [(p.device.id, p.text) for p in _with_marks(_device_lines(_named(system.devices, ids), shape,
+                                                                      system if system.key else None, playbook,
+                                                                      reference), ids)]
 
 
 # ---- the "*" clarifications --------------------------------------------------------------------------------------
@@ -669,7 +717,7 @@ def _notes(clarifications: tuple[Clarification, ...], devices, counts: list[Coun
     for kind in _AFTER_LINES:
         unique = list(dict.fromkeys(texts[kind]))
         if unique:
-            out.append(_fill(playbook.wording.clarifications[kind], text="; ".join(unique)))
+            out.append(short_points(_fill(playbook.wording.clarifications[kind], text="; ".join(unique))))
     note = _count_note(counts, playbook, ids, names)
     if note:
         out.append(note)
@@ -760,7 +808,7 @@ def _system_blocks(system: System, playbook: Playbook, out: list[RenderedLine], 
         headers = [_header_text(form, f.name, f.tags, f.count, playbook) for f in families]
     reference = {n for n in (_printed(f.count) for f in families) if n is not None}
     pending = not families or any(_printed(f.count) is None for f in families)     # "Qty (##)": nothing is priced
-    printed = _device_lines(_named(system.devices, ids), shape, system, playbook, reference)
+    printed = _with_marks(_device_lines(_named(system.devices, ids), shape, system, playbook, reference), ids)
     named = len(system.families) > 1             # more than one family: each family's part names its family
     notes = _notes(system.clarifications, system.devices,
                    [f.count for f in system.families] + _line_counts(system.devices), playbook, ids,
@@ -778,8 +826,21 @@ def _system_blocks(system: System, playbook: Playbook, out: list[RenderedLine], 
 
 
 def _items(printed: list[_Printed], pending: bool) -> list[Item]:
-    return [Item(kind="line", depth=p.depth, runs=(Run(text=p.text),),
+    return [Item(kind="line", depth=p.depth, runs=(Run(text=p.text, red=p.device.mark in RED_MARKS),),
                  quantity=p.quantity if (p.priced and not pending) else None) for p in printed]
+
+
+def _with_marks(printed: list[_Printed], ids: SourceIds) -> list[_Printed]:
+    """The printed lines with a "future" device's "(<mark_note>)" after its words (T-005 ruling 7: "(FUTURE AS PER
+    control schematic on sheet M710.00)"; "(FUTURE)" with no note). The note goes through the safety net every client
+    text goes through (`SourceIds.without_issued`). `_items` prints a "future" or "notice" line in red."""
+    out = []
+    for p in printed:
+        if p.device.mark == "future":
+            note = _squash(ids.without_issued(p.device.mark_note or "")).strip(" ()") or FUTURE_WORD
+            p = replace(p, text=f"{p.text} ({note})")
+        out.append(p)
+    return out
 
 
 def _traced(key: str, printed: list[_Printed], notes: list[str]) -> list[RenderedLine]:
@@ -799,15 +860,31 @@ def existing_system_name(front: FrontEnd) -> str | None:
     return _squash(front.existing_system_name or "") or UNNAMED_EXISTING
 
 
+def _front_end_flags(front: FrontEnd, printed: list[_Printed]) -> list[str]:
+    """The front end's red lines (T-005 ruling 4): "No front end information found" when the documents call for none
+    (no line from the reading, none written); the one AME_ONLY_FLAG line when the existing BMS the documents name is
+    not one of AME's three (the unnamed fill-in has the planner's question instead)."""
+    flags = []
+    if not printed and not front.lines:
+        flags.append(NO_FRONT_END)
+    name = existing_system_name(front)
+    if name and name != UNNAMED_EXISTING and not ame_bms(name):
+        flags.append(AME_ONLY_FLAG)
+    return flags
+
+
 def _front_end(front: FrontEnd | None, playbook: Playbook, out: list[RenderedLine],
                ids: SourceIds) -> ScopeFrontEnd:
     if front is None:
-        return ScopeFrontEnd(mode="new-system")
-    printed = _device_lines(_named(front.devices, ids), None, None, playbook, {1})
+        out.append(RenderedLine("", None, "note", NO_FRONT_END, None, None))
+        return ScopeFrontEnd(mode="new-system", items=(Item(kind="note", runs=(Run(text=NO_FRONT_END, red=True),)),))
+    printed = _with_marks(_device_lines(_named(front.devices, ids), None, None, playbook, {1}), ids)
     notes = _notes(front.clarifications, front.devices, _line_counts(front.devices), playbook, ids)
-    out += _traced("", printed, notes)
+    red_notes = _front_end_flags(front, printed)
+    out += _traced("", printed, notes) + [RenderedLine("", None, "note", n, None, None) for n in red_notes]
     try:
-        items = _items(printed, False) + [Item(kind="note", runs=(Run(text=n),)) for n in notes]
+        items = (_items(printed, False) + [Item(kind="note", runs=(Run(text=n),)) for n in notes]
+                 + [Item(kind="note", runs=(Run(text=n, red=True),)) for n in red_notes])
         return ScopeFrontEnd(mode=front.mode, existing_system_name=existing_system_name(front),
                              items=tuple(items), tech_hours=front.tech_hours)
     except ValueError as error:

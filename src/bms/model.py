@@ -147,12 +147,15 @@ class Device(_Model):
                                          min_items=1))
     assumption: Assumption | None = field(default=None, **_doc("What was assumed and why; null when nothing was."))
     flag: Flag = field(default="none", **_doc("none, or why the estimator must look: quantity, ownership, assumed."))
+    # T-005c: additive, so both are optional in the AI's schema too (`optional`): an answer or a Job saved without them
+    # still reads, as ""
     mark: Mark = field(default="", **_doc(
         '"" for none; "future" when the documents mark the item FUTURE (the line prints with "(<mark_note>)" in red); '
-        '"notice" for an item the estimator must notice, e.g. one the factory furnishes (the line prints in red).'))
+        '"notice" for an item the estimator must notice, e.g. one the factory furnishes (the line prints in red).',
+        optional=True))
     mark_note: str = field(default="", **_doc(
         'For a "future" mark: the words printed in brackets, e.g. "FUTURE AS PER control schematic on sheet M710.00"; '
-        '"" otherwise.'))
+        '"" otherwise.', optional=True))
 
     def __post_init__(self) -> None:
         if not self.refs:
@@ -376,7 +379,8 @@ def _from_json(tp, data, path: str):
 
 def json_schema(cls) -> dict:
     """The JSON Schema of a model class, for an AI step's structured answer. Every property is required (a field
-    with a default still has to be given), objects allow no other properties, nested classes are inlined."""
+    with a default still has to be given) except a field added later as optional (metadata `optional`: Device.mark
+    and mark_note, T-005c), objects allow no other properties, nested classes are inlined."""
     if not (dataclasses.is_dataclass(cls) and isinstance(cls, type)):
         raise TypeError(f"{cls!r} is not a model class")
     return _schema_of(cls, {})
@@ -403,7 +407,7 @@ def _schema_of(tp, meta: dict) -> dict:
         return {"type": "object",
                 "properties": {f.name: _schema_of(hints[f.name], dict(f.metadata))
                                for f in fields},
-                "required": [f.name for f in fields], "additionalProperties": False,
+                "required": [f.name for f in fields if not f.metadata.get("optional")], "additionalProperties": False,
                 **({"description": meta["doc"]} if meta.get("doc") else {})}
     if tp is str:
         return {"type": "string", **doc}

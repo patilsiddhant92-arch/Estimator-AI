@@ -2,7 +2,7 @@
   "about": "The bid check's reading list (design §8). Everything is matched ignoring case, except a name marked exact_case (because in lower case it is an ordinary word). not_controls_words mark a passage as being about security, life-safety or another non-HVAC system — outside a controls spec section, a passage matching one of these doesn't count as a controls mention, even if it also uses a controls word like BMS. Add a manufacturer here, never in code.",
   "platforms_we_bid": [
     {"name": "Honeywell WEBs", "patterns": ["\\bWEBs(?:[- ]?N4)?\\b", "\\bWEBStation\\b"]},
-    {"name": "Johnson Controls FX", "patterns": ["\\bJohnson\\s+Controls\\b[^\\n]{0,60}?\\bFX\\b", "\\bFX\\s?(?:Server|Supervisory|Supervisor|Workbench|PCG|PCX|PCV|PCA|80|90)\\b", "\\bFacility\\s+Explorer\\b"]},
+    {"name": "Johnson Controls FX", "patterns": ["\\bJohnson\\s+Controls\\b[^\\n]{0,60}?\\bFX\\b", "\\b(?:Johnson|JCI)\\s+FX\\b", "\\bFX[-\\s]?(?:Server|Supervisory|Supervisor|Workbench|PCG|PCX|PCV|PCA|\\d{2,3})\\b", "\\bFacility\\s+Explorer\\b"]},
     {"name": "Niagara N4", "patterns": ["\\bNiagara\\b", "\\bTridium\\b", "\\bN4\\s+Framework\\b"]}
   ],
   "on_an_approved_list": [

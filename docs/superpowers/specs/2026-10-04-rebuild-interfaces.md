@@ -151,7 +151,9 @@ card (an earlier delete that may be back re-worded) is a `check` (REVIEW-FINAL F
 
 - `json_schema(cls) -> dict` — the schema of any model class, in the form Anthropic structured outputs accept:
   every object lists all its properties in `required` (fields with defaults too) and has
-  `additionalProperties: false`; nullable fields are `anyOf [X, {"type": "null"}]`; enumerations are
+  `additionalProperties: false`. The one exception: a field marked `optional` in its metadata (today `Device.mark`
+  and `Device.mark_note`, added by T-005c with the default `""`) is left out of `required`, so an answer or a saved
+  Job without it still reads. Nullable fields are `anyOf [X, {"type": "null"}]`; enumerations are
   `{"type": "string", "enum": [...]}`; `Device.refs` has `minItems: 1`; nested classes are inlined (no `$ref`);
   each field of Ref, OtherCount, Count, Family, Assumption, Device, Clarification, Served, System, ScopeException,
   FrontEnd and Finding carries a `description`; the fields of Job, Header and Decision carry none (the planner and

@@ -11,7 +11,7 @@ import pytest
 from bms.model import (Assumption, Clarification, Count, Device, Family, FrontEnd, Job, OtherCount, Ref,
                        ScopeException, System)
 from bms.playbook import load_playbook
-from bms.render import ProposalDraft, RenderedLine, RenderError, render
+from bms.render import AME_ONLY_FLAG, ProposalDraft, RenderedLine, RenderError, render
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures"
 ROOT = Path(__file__).resolve().parents[2]
@@ -558,7 +558,9 @@ def test_extend_existing_front_end_and_deduct_alternate(job, playbook):
                   clarifications=(Clarification("note", "tie to the old head end"),), tech_hours=2.0)
     out = render(replace(job, front_end=fe, systems=(system([device()], alternate="deduct"),)), playbook)
     assert out.scope.front_end.existing_system_name == "Old BMS"
-    assert [i.text for i in out.scope.front_end.items] == ["Furnish and Install Link", "*tie to the old head end"]
+    # T-005 ruling 4: "Old BMS" is not one of AME's three, so the front end ends with the one red flag line
+    assert [i.text for i in out.scope.front_end.items] == ["Furnish and Install Link", "*tie to the old head end",
+                                                           AME_ONLY_FLAG]
     assert len(out.scope.deduct_alternates) == 1 and out.scope.blocks == ()
 
 
@@ -644,7 +646,7 @@ def test_global_points_print_first_and_qty_hash_systems_after_the_equipment():
     assert headers[0] == "Qty (1) Global Points"
     assert headers[1].endswith("EF-1, 2") and headers[2].endswith("EF-8, 9")       # the plan's order kept
     assert headers[3].startswith("Qty (##)")
-    keys = list(dict.fromkeys(l.system_key for l in out.lines))
+    keys = list(dict.fromkeys(l.system_key for l in out.lines if l.system_key))   # "" is the front end (T-005c)
     assert keys == ["GP", "EF", "EF2", "SEQ"]
 
 

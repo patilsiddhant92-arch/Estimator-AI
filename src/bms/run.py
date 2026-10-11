@@ -489,7 +489,7 @@ def _estimate(job_folder: Path, out: Path, cache: Path, mode: Mode, known: dict)
     # 1. read: catalogue, reading, dossier, the ledger's staged passes (old app, unchanged)
     catalogue = catalogue_job(job_folder, cache, _workers())
     reading = read_job(catalogue, cache_dir=cache)
-    old_header, _ = job_header(catalogue, reading, dt.date.today())
+    old_header, header_flags = job_header(catalogue, reading, dt.date.today())
     quote = _safe_filename(old_header.quote_number)
     dossier = build_dossier(catalogue, reading, cache)
     known.update(quote=quote, job=str(dossier.job_name or ""))
@@ -510,6 +510,9 @@ def _estimate(job_folder: Path, out: Path, cache: Path, mode: Mode, known: dict)
     job = dataclasses.replace(job, header=Header(
         quote_number=old_header.quote_number, reference=old_header.reference, mep_engineer=old_header.mep_engineer,
         based_on=tuple(old_header.based_on), date=old_header.date.isoformat(), to=old_header.to),
+        # the header's flags (a cover-page value left as *** or as a placeholder) stay open questions beside the
+        # planner's, so the review page asks for them (T-005c review F2): the red mark alone is easy to miss
+        questions=tuple(dict.fromkeys((*job.questions, *header_flags))),
         # the sheets the ledger's sources name, once: a known sheet in a where and after a sheet word (FINAL-J) for
         # every writer, the validator and the renderer alike, so a writer's exact copy of its evidence's where is
         # never refused
