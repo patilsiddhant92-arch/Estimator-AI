@@ -102,6 +102,17 @@ def test_a_range_the_plans_show_beyond_the_schedule_adds_its_tags_in_any_wording
                      "(the count gave 3), confirm the count.")
 
 
+@pytest.mark.parametrize("said", ["EF-4 thru EF-6", "EF-4 through EF-6", "EF-4 to 6", "EF-4 - EF-6"])
+def test_plan_only_tags_worded_as_a_range_are_each_placed_and_asked(said):
+    ledger = _ledger()
+    _family(ledger, "EF", "Exhaust Fan", "EF-1 thru 3", 3)
+    ledger.add("unit", "seen on plans, not scheduled", said, "S2", said.upper(), "plans", "added")
+    job = _plan(ledger)
+    tags = [t for s in job.systems for f in s.families for t in f.tags]
+    assert tags == ["EF-1", "EF-2", "EF-3", "EF-4", "EF-5", "EF-6"]          # no tag is "EF-4 through EF-6"
+    assert _asked(job, "EF-4 thru 6") and "seen on the drawings but on no schedule" in _asked(job, "EF-4 thru 6")[0]
+
+
 def test_a_range_that_is_not_one_numbered_series_is_not_read_as_a_range():
     ledger = _ledger()
     _family(ledger, "EF", "Exhaust Fan", "EF-1 thru EF-3", 3)
