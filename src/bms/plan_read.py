@@ -6,7 +6,7 @@ import re
 from dataclasses import dataclass, field, replace
 from functools import lru_cache
 
-from estimator.catalogue.tags import STATED_MOST
+from estimator.catalogue.tags import STATED_MOST, is_type_tag
 from estimator.ledger.facts import Fact, Ledger, where_short
 from estimator.reading.inventory import _names
 
@@ -39,9 +39,33 @@ def number(value) -> int | None:
     return int(text) if text.isdigit() else None
 
 
+_A_TAG = r"[A-Za-z]{1,6}(?:-[A-Za-z0-9.]+)+"
+# a range as a drawing may word it, "EF-1 through EF-5", "EF-1 to 5", "EF-1 - EF-5" (a dash set apart by spaces);
+# `expand_tags` reads only "thru"
+_RANGE_WORDED = re.compile(rf"(?<![A-Za-z0-9\-])({_A_TAG})\s+(through|thru|to|[-–—])\s+({_A_TAG}|\d+[A-Za-z]?)"
+                           rf"(?![A-Za-z0-9]|-[A-Za-z0-9])", re.I)
+_LAST_NUMBER = re.compile(r"^(.*?)\d+$")
+
+
+def _as_thru(match: re.Match) -> str:
+    """The range written "LOW thru HIGH" when its two ends are one numbered series (the same text before the last
+    number: "EF-1" and "EF-5"; a bare number is the high end only after a word, "EF-1 to 5", never after a dash:
+    "VAV-3 - 4 PLACES" is no range); any other pair ("AHU-1 to VAV-3") as written."""
+    low, joiner, high = match.groups()
+    stem = _LAST_NUMBER.match(low)
+    ends = _LAST_NUMBER.match(high)
+    if stem is None:
+        return match.group(0)
+    bare = high.isdigit() and joiner.isalpha()
+    return f"{low} thru {high}" if bare or (ends is not None and ends.group(1) == stem.group(1)) else match.group(0)
+
+
 def expand(tags) -> list[str]:
+    """Every tag, one by one (`estimator.writing.assemble.expand_tags`), a range written "through", "to" or with a
+    spaced dash read as the "thru" range it is."""
     from estimator.writing.assemble import expand_tags
-    return expand_tags(tags)
+    items = [tags] if isinstance(tags, str) else list(tags or ())
+    return expand_tags([_RANGE_WORDED.sub(_as_thru, str(item)) for item in items])
 
 
 # A count stated after a tag, in every form the catalogue reads on a line of its own (`estimator.catalogue.tags`
@@ -59,7 +83,6 @@ TIMES_AFTER = (r"(?:\s*\(\s*TYP(?:ICAL)?\.?\s*OF\s+(\d+)\s*\.?\s*\)"
                r"|\s+x\s*(\d+))"
                r"(?![A-Za-z0-9]|\.\d)")                     # never the X of "TX1", nor a decimal such as "x4.5"
 GLUED_TIMES = r"(?-i:x)(\d+)(?![A-Za-z0-9]|\.\d)"            # "CUH-Ax4": a small x glued to a tag
-_A_TAG = r"[A-Za-z]{1,6}(?:-[A-Za-z0-9.]+)+"
 _TAG_STATED = re.compile(rf"(?<![A-Za-z0-9\-])({_A_TAG}){TIMES_AFTER}", re.I)
 _TAG_GLUED = re.compile(rf"(?<![A-Za-z0-9\-])({_A_TAG}){GLUED_TIMES}")
 
@@ -162,6 +185,7 @@ class FamilyFacts:
     was: int | None = None                 # the count before those tags raised it
     added_refs: tuple[Ref, ...] = ()       # where the added tags are
     added_up: AddedUp | None = None        # ruling L1 lowered the stated counts on the plan sheets: both numbers
+    beyond: tuple[str, ...] = ()           # unit tags of the fact's own list past its count, which that list raised
 
 
 @dataclass(frozen=True)
@@ -432,10 +456,16 @@ class Reader:
         count_fact = self.ledger.find("count", prefix)
         count, added_up = self._family_count(prefix, tags)
         was = count.value
-        if added and count.value is not None and count.value < len(tags):
-            # one per tag (never undershoot): the old number is kept beside it, and the planner asks with both
+        units = _unit_tags(listed)
+        wanted = len(tags) if added else len(units)
+        beyond: tuple[str, ...] = ()
+        if count.value is not None and count.value < wanted:
+            # one per tag (never undershoot): a later pass's tags, or the tags of the fact's own list past its count
+            # (the plans' range is in the list: "EF-1 thru EF-5" beside a count of 3). The old number is kept beside
+            # the new one, and the planner asks with both
+            beyond = () if added else units[count.value:]
             raised = (self.fact_ref(unit), *added_refs)
-            count = Count(len(tags), tuple(_unique(list(raised))),
+            count = Count(wanted, tuple(_unique(list(raised))),
                           tuple(_unique([*count.others, OtherCount(count.value, count.sources[0])]))
                           if count.sources else count.others)
         stated = (added_up.summed, added_up.refs[0]) if added_up is not None and added_up.refs else None
@@ -443,7 +473,7 @@ class Reader:
         sequence_only = count_fact is None and fact.stage == "sequence"
         plan_only = not sequence_only and (count_fact is None or not count_fact.was_settled)
         found = FamilyFacts(fact, prefix, short_name(fact.value, prefix), tags, count, plan_only, sequence_only,
-                            added, len(listed), was, added_refs, added_up)
+                            added, len(listed), was, added_refs, added_up, beyond)
         self._families[prefix.casefold()] = found
         return found
 
@@ -590,3 +620,14 @@ def counts_clauses(quote: str) -> list[tuple[str, int]]:
 
 def _unique(items: list) -> list:
     return list(dict.fromkeys(items))
+
+
+def _unit_tags(tags) -> tuple[str, ...]:
+    """The tags that each name one unit, each once in any case, in order: a letter and a digit and no space (a note
+    such as "roof fans" is no tag), and not a type's tag (`is_type_tag`: CUH-A and AC-3.0 name a kind used at many
+    places, so a list of them is no count of units)."""
+    found: dict[str, str] = {}
+    for tag in map(squash, tags):
+        if tag and " " not in tag and re.search(r"[A-Za-z]", tag) and re.search(r"\d", tag) and not is_type_tag(tag):
+            found.setdefault(tag.upper(), tag)
+    return tuple(found.values())

@@ -1019,12 +1019,23 @@ class _Planner:
     def added_tags(self) -> None:
         """Each family whose tag list a later pass contradicted with tags the list lacks (the plans show EF-4
         where the schedule lists EF-1 thru 3) keeps those tags (the Reader joins both lists) and is asked once,
-        naming both numbers: how many the list gives and how many were counted."""
+        naming both numbers: how many the list gives and how many were counted. A family whose own list gives more
+        unit tags than its count (the list is EF-1 thru 5, the count 3: the plans' range is in the list) is asked
+        once too, naming the count, the tags beyond it and the count raised to one per tag (HP 7)."""
         for fact in self.reader.family_facts():
             family = self.reader.family(fact)
-            if not family.added:
+            if not family.added and not family.beyond:
                 continue
             unit = self.reader.ledger.find("unit", family.prefix)
+            if not family.added:
+                said = next((o for o in family.count.others if o.value == family.was), None)
+                self.questions.append(
+                    f"{family.name} ({family.prefix}): {_places((self.reader.fact_ref(unit),))} lists "
+                    f"{family.count.value} ({squash(unit.value)}), but the count is {family.was} per "
+                    f"{_places((said.ref,)) if said else 'the documents'}; {', '.join(family.beyond)} "
+                    f"{'is' if len(family.beyond) == 1 else 'are'} beyond that count; counted {family.count.value} "
+                    f"(the count gave {family.was}), confirm the count.")
+                continue
             head = (f"{family.name} ({family.prefix}): {_places((self.reader.fact_ref(unit),))} lists "
                     f"{family.listed} ({squash(unit.value)}); {', '.join(family.added)} "
                     f"{'is' if len(family.added) == 1 else 'are'} also on {_places(family.added_refs)}")
