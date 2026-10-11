@@ -229,7 +229,7 @@ def test_the_front_end_gets_its_facts_its_bms_notes_training_and_the_integrator_
 def test_the_run_writes_from_the_evidence_with_the_ledger():
     from bms import run
     source = inspect.getsource(run._estimate)
-    assert "ai.system_evidence(s, dossier, ledger)" in source
+    assert "ai.system_evidence(s, dossier, ledger, register=" in source      # takeoff Task 2.5: the register first
     assert "ai.front_end_evidence(job.front_end, dossier, taken, ledger)" in source
 
 

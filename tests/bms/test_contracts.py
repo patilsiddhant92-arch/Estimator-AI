@@ -464,7 +464,7 @@ SIGNATURES = {
     ai.qc_job: ["job", "evidence_index", "playbook", "transport"],
     ai.revise_system: ["system", "findings", "evidence", "playbook", "transport", "tags", "ids", "sheets",
                        "source_sheets", "hold_counts"],   # as write_system; hold_counts: families the estimator set
-    ai.evidence_for: ["system", "dossier"],
+    ai.evidence_for: ["system", "dossier", "register"],
     ai.evidence_index: ["dossier"],
     counts.count_tags: ["image_path", "tag_pattern", "transport"],      # transport: optional, keyword-only
     counts.cross_check: ["job", "catalogue", "cache", "transport"],     # transport: optional, keyword-only

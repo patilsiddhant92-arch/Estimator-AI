@@ -240,10 +240,11 @@ def _about(system: System) -> _About:
 # ---- one system's evidence ---------------------------------------------------------------------------------------
 
 def evidence(system: System, text: str, sources: dict[str, str], sections: dict, images, schedules=(),
-             ledger=None, front_end: bool = False) -> str:
+             ledger=None, front_end: bool = False, register: str = "") -> str:
     """The evidence one system is written from (see `bms.ai.evidence_for`). `ledger` (the reading's facts) adds the
     checklist of the controls facts about it (`_facts_checklist`); `front_end` is the front end's evidence, whose
-    notes are the ones in the front end's own words (the BMS, its network, graphics, training, integration)."""
+    notes are the ones in the front end's own words (the BMS, its network, graphics, training, integration).
+    `register` (takeoff Task 2.5: `bms.takeoff.register_text`) is printed first, before everything else."""
     about = _about(system)
     entries = parse(text)
     by_part: dict[int, list[Entry]] = {}
@@ -253,7 +254,9 @@ def evidence(system: System, text: str, sources: dict[str, str], sections: dict,
     elsewhere = _other_kinds(entries, about)
     sections = sections or {}
     given: set[str] = set()
-    out = [f"Evidence for {system.name} (system {system.key}), from this job's documents only. Each passage starts "
+    head = [register.rstrip("\n"), ""] if register.strip() else []     # the takeoff register, first (Task 2.5)
+    out = [*head,
+           f"Evidence for {system.name} (system {system.key}), from this job's documents only. Each passage starts "
            "with its source id in square brackets; cite a passage by that id."]
 
     def block(title: str, chosen: Iterable[Entry], limit: int | None = None, whole: bool = False) -> None:
@@ -373,7 +376,7 @@ def evidence(system: System, text: str, sources: dict[str, str], sections: dict,
 
     # 9. the checklists (T-005d): the words that mark an item, the end devices its unit schedules list, and the
     # controls facts the reading found about it. Each ends as a line, the clarification or the no-scope reason.
-    out.extend(_marks_checklist(out))
+    out.extend(_marks_checklist(out[len(head):]))     # the passages only: the register lists its own future items
     out.extend(_end_devices_checklist(chosen_schedules, cited))
     if ledger is not None:
         out.extend(_facts_checklist(ledger, about, front_end))
