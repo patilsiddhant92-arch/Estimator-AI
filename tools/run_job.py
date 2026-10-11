@@ -1,11 +1,13 @@
 """Helper for the /run-job skill. No AI, no subagents.
 
     python tools/run_job.py status JOB --out OUT [--cache CACHE] [--app bms|estimator]
-    python tools/run_job.py check ANSWER_FILE REQUEST_FILE
+    python tools/run_job.py check [--no-count] ANSWER_FILE REQUEST_FILE
 
 `status` runs the estimate in chat mode: the rebuilt app by default (`python -m bms estimate --mode chat`; exit 2
 while requests wait, exit 1 when the run stops with nothing left to answer, 0 when done), or with `--app estimator`
 the old app (`python -m estimator estimate --ai chat`).
+The child runs with this checkout's `src` first on PYTHONPATH: the venv's editable install can name another
+checkout, and a run from a worktree would load that checkout's code.
 It prints the tool's summary, then one JSON block listing the requests still waiting for an answer (kinds
 `read_pass`, `count_tags`, `write_system`, `qc_job`) and the proposal path once it is written. A request still present although its answer file
 exists was rejected by the estimator: it is listed with `"rejected": true` and the estimator's reason, its answer
@@ -13,11 +15,13 @@ file is deleted and an attempt is counted. A rebuilt app's request also lists it
 when an earlier answer was refused, the `problem` the next answer must fix.
 The waiting block also gives `exit` (the estimate's exit code) and `stage` (the rebuilt app's step it waits at).
 `check` only reads JSON (no estimator import); a rebuilt app's request (one with a `step`) is held to its whole
-schema with `bms.model.schema_errors`.
+schema with `bms.model.schema_errors` (loaded from this checkout's `src`).
 Failed checks and rejected answers are counted per request key in OUT/.run-job-attempts.json.
+`check --no-count` counts nothing: a subagent checks its own answer with it, so only the lead's check counts.
 """
 import argparse
 import json
+import os
 import re
 import subprocess
 import sys
@@ -47,7 +51,7 @@ def _schema_errors(answer, schema: dict) -> list | None:
     """Every way the answer breaks the schema (bms.model.schema_errors), or None when bms cannot be imported."""
     try:
         if str(ROOT / "src") not in sys.path:
-            sys.path.append(str(ROOT / "src"))
+            sys.path.insert(0, str(ROOT / "src"))     # first: the editable install's .pth can name another checkout
         from bms.model import schema_errors
     except ImportError:
         return None
@@ -122,6 +126,8 @@ def cmd_check(args) -> int:
         print("ok")
         return 0
     print(message)
+    if getattr(args, "no_count", False):
+        return 1
     try:
         key = _load(args.request).get("key")
         marker = Path(args.request).resolve().parent / OUT_MARKER
@@ -215,12 +221,21 @@ def estimate_command(job: Path, out: Path, cache: Path, app: str = "bms") -> lis
             "--ai", "chat"]
 
 
+def child_env() -> dict:
+    """The environment of the estimate child: this checkout's `src` first on PYTHONPATH, before any PYTHONPATH the
+    caller set. A venv's editable install can name another checkout (a .pth file); PYTHONPATH wins over it."""
+    env = dict(os.environ)
+    env["PYTHONPATH"] = os.pathsep.join(filter(None, [str(ROOT / "src"), env.get("PYTHONPATH")]))
+    return env
+
+
 def cmd_status(args) -> int:
     out = args.out
     out.mkdir(parents=True, exist_ok=True)
     cache = args.cache or out / ".cache"
     cmd = estimate_command(args.job, out, cache, getattr(args, "app", "bms") or "bms")
-    run = subprocess.run(cmd, cwd=ROOT, capture_output=True, text=True, encoding="utf-8", errors="replace")
+    run = subprocess.run(cmd, cwd=ROOT, env=child_env(), capture_output=True, text=True, encoding="utf-8",
+                         errors="replace")
     text = (run.stdout or "") + (run.stderr or "")
     print(text.rstrip())
     requests = Path(cache) / "judge-chat" / "requests"
@@ -256,6 +271,8 @@ def main(argv=None) -> int:
     ck = sub.add_parser("check")
     ck.add_argument("answer", type=Path)
     ck.add_argument("request", type=Path)
+    ck.add_argument("--no-count", action="store_true",
+                    help="a failed check adds no attempt (a subagent's check of its own answer)")
     args = parser.parse_args(argv)
     return cmd_status(args) if args.command == "status" else cmd_check(args)
 
