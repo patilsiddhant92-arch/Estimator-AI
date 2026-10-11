@@ -672,6 +672,15 @@ planner's, and one question per family whose printed count fell below the code's
 <N> print from the new-work sheets; the code counted <M>." `attach` keeps the planner's set-asides after the
 register's. With no register nothing changes.
 
+Task 2.3 (blocks from the register), in `plan_job` after `link_dampers`: `serve_units` moves a family whose register
+units all serve tags of one other block into that block whole (control valves under their air handlers, a family of
+that block); for pumps only the `with_plant` units move, into the plant's block, counted one per tag. Then
+`split_by_service`: a block whose remote units (`with_plant` false) carry two or more services becomes one block per
+service, named "<Service> <kind>" ("Chilled Water Pump", "Hot Water Pump"; the T-005b service names), kind "pumps"
+for a pump family, each counted one per tag; a `with_plant` pump never leaves its plant. Before the systems are
+built, `register_tags` keeps in each family only the tags of its counted units when the register has rows for it.
+The text-based `split_pumps` and `link_valves` (T-005b) still run for families the register does not place.
+
 ### Workstream 1 — the Playbook content
 Fills `playbook/rules.md` (the topics above; each rule a `###` short name; the practice rules of design §2.7 carry
 over unchanged in meaning; replaces the two `<!-- sample -->` rules), `playbook/shapes.json` (one entry per Master

@@ -602,3 +602,108 @@ def test_attach_keeps_the_planner_s_set_asides():
     ledger = _ledger_with_placements(AHU=(21, "M-401 5; M-402 5; M-403 3; M-404 3; MD-401 5"))
     job = _plan_registered(ledger)
     assert takeoff.attach(job, _register()).set_aside == job.set_aside
+
+
+# ---- Stage 2, Task 2.3: tags, valves under units, pumps split ----------------------------------------------------------
+# The fixture plus five control valves CV-1..5 serving AHU-1..5, and four pumps: P-1 (chilled water) and P-2 (hot
+# water) drawn alone (`with_plant` false), P-3 and P-4 scheduled with boiler B-1 (`with_plant` true, serving B-1).
+# Every name and number is invented. The ledger gains each family's facts; the register gains each unit's row.
+
+_EXTRA_SOURCES = {"S20": "M-601 CONTROL VALVE SCHEDULE, Mech.pdf page 1", "S21": "M-601 PUMP SCHEDULE, Mech.pdf page 1",
+                  "S22": "M-601 BOILER SCHEDULE, Mech.pdf page 1"}
+_EXTRA_FAMILIES = (("CV", "Control Valve", 5, "CV-1 thru 5", "S20"), ("P", "Pump", 4, "P-1 thru 4", "S21"),
+                   ("B", "Boiler", 1, "B-1", "S22"))
+
+
+def _fact(n: int, kind: str, subject: str, value, source: str, quote: str) -> dict:
+    return {"id": f"F{n}", "kind": kind, "subject": subject, "value": value, "source_id": source, "quote": quote,
+            "stage": "schedules", "state": "settled", "contradictions": [], "was_settled": True}
+
+
+def _extended_ledger() -> Ledger:
+    data = fx.ledger().to_dict()
+    data["sources"].update(_EXTRA_SOURCES)
+    n = 16
+    for prefix, name, count, tags, source in _EXTRA_FAMILIES:
+        data["facts"] += [_fact(n, "family", prefix, name, source, f"{name.upper()} SCHEDULE"),
+                          _fact(n + 1, "count", prefix, count, source, f"{prefix} ({name}): schedule rows {count}"),
+                          _fact(n + 2, "unit", prefix, tags, source, tags)]
+        n += 3
+    return Ledger.from_dict(data)
+
+
+def _extended_register(**changes) -> takeoff.Takeoff:
+    facts = {prefix: f"F{18 + 3 * i}" for i, (prefix, *_rest) in enumerate(_EXTRA_FAMILIES)}
+
+    def unit(family, tag, **kw):
+        row = {"family": family, "tag": tag, "labels": [tag], "status": "new", "count": 1, "sheets": ["M-401"],
+               "refs": [{"source_id": facts[family], "quote": tag.split("-")[0], "where": "M-601"}],
+               "serves": "", "service": "", "with_plant": False, "reason": ""}
+        row.update(kw)
+        row.update(changes.get(tag.replace("-", "_"), {}))
+        return Unit.from_dict(row)
+
+    rows = [unit("CV", f"CV-{n}", serves=f"AHU-{n}", service="hot water") for n in range(1, 6)]
+    rows += [unit("P", "P-1", service="chilled water"), unit("P", "P-2", service="hot water"),
+             unit("P", "P-3", service="hot water", with_plant=True, serves="B-1"),
+             unit("P", "P-4", service="hot water", with_plant=True, serves="B-1"), unit("B", "B-1")]
+    base = _register()
+    return dataclasses.replace(base, units=(*base.units, *rows))
+
+
+def _extended_job(register=None) -> Job:
+    return plan_job(_extended_ledger(), fx.catalogue(), fx.dossier(), PLAYBOOK,
+                    register=register if register is not None else _extended_register())
+
+
+def _system(job, name):
+    return next(s for s in job.systems if s.name == name)
+
+
+def test_the_unit_headers_carry_the_counted_units_tags():
+    job = _extended_job()
+    ahu = _system(job, "Air Handling Unit")
+    assert ahu.families[0].tags == tuple(f"AHU-{n}" for n in range(1, 6)) and ahu.families[0].count.value == 5
+    # a demolished unit leaves the header too
+    job = _extended_job(dataclasses.replace(_extended_register(), units=tuple(
+        dataclasses.replace(u, status="demolish", reason="Invented.") if u.tag == "EF-5" else u
+        for u in _extended_register().units)))
+    assert _system(job, "Exhaust Fan").families[0].tags == tuple(f"EF-{n}" for n in range(1, 5))
+
+
+def test_control_valves_that_serve_the_air_handlers_are_a_family_in_their_block():
+    job = _extended_job()
+    ahu = _system(job, "Air Handling Unit")
+    assert [f.name for f in ahu.families] == ["Air Handling Unit", "Control Valve"]
+    valves = ahu.families[1]
+    assert valves.tags == tuple(f"CV-{n}" for n in range(1, 6)) and valves.count.value == 5
+    assert not [s for s in job.systems if s.key == "CV"]
+    assert not [q for q in job.questions if "Control Valve" in q]
+
+
+def test_plant_pumps_stay_with_their_plant_and_remote_pumps_split_by_service():
+    job = _extended_job()
+    boiler = next(s for s in job.systems if s.key == "B")
+    assert [(f.name, f.tags, f.count.value) for f in boiler.families] == [
+        ("Boiler", ("B-1",), 1), ("Pump", ("P-3", "P-4"), 2)]
+    chilled, hot = _system(job, "Chilled Water Pump"), _system(job, "Hot Water Pump")
+    assert [(f.tags, f.count.value) for f in chilled.families] == [(("P-1",), 1)]
+    assert [(f.tags, f.count.value) for f in hot.families] == [(("P-2",), 1)]
+    # no pump block is left over, and every pump is in exactly one block
+    pumps = [t for s in job.systems for f in s.families for t in f.tags if t.startswith("P-")]
+    assert sorted(pumps) == ["P-1", "P-2", "P-3", "P-4"]
+    assert not [s for s in job.systems if s.key == "P"]
+
+
+def test_a_plant_pump_never_leaves_its_plant_and_one_service_is_not_split():
+    register = _extended_register(P_1={"service": "hot water"})
+    job = _extended_job(register)
+    assert [f.tags for f in next(s for s in job.systems if s.key == "B").families] == [("B-1",), ("P-3", "P-4")]
+    pumps = [s for s in job.systems if any(t.startswith("P-") for f in s.families for t in f.tags) and s.key != "B"]
+    assert len(pumps) == 1 and pumps[0].families[0].tags == ("P-1", "P-2")
+
+
+def test_without_a_register_the_blocks_are_the_code_s():
+    job = plan_job(_extended_ledger(), fx.catalogue(), fx.dossier(), PLAYBOOK)
+    assert any(s.key == "P" for s in job.systems)
+    assert [f.name for f in _system(job, "Air Handling Unit").families] == ["Air Handling Unit"]

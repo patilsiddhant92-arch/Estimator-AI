@@ -1337,6 +1337,106 @@ class _Planner:
                 current = None
         return owners
 
+    # -- takeoff Stage 2, Task 2.3: the register's units decide what serves what and which service a pump is on
+
+    def _register_units(self) -> dict[str, object]:
+        """The register's units by plain tag (`bms.takeoff.Unit`); {} with no register."""
+        units = getattr(self.register, "units", ()) or ()
+        return {_plain_tag(u.tag): u for u in units}
+
+    def serve_units(self, drafts: list[_Draft]) -> list[_Draft]:
+        """The register's `serves` moves a family into the block of the unit it serves (rulings 8 and 18): a family
+        whose register units all serve tags of one other block moves into it whole, its count and sequence passages
+        with it (control valves under their air handlers). For pumps only the units drawn with an in-scope plant
+        (`with_plant` true) move, into the plant's block, counted one per tag; a remote pump stays. A block left with
+        no family is gone. No register: unchanged."""
+        units = self._register_units()
+        if not units:
+            return drafts
+
+        def holder(tag: str) -> _Draft | None:
+            held = [d for d in drafts if any(_plain_tag(t) == _plain_tag(tag) for t in d.tags())]
+            return held[0] if len(held) == 1 else None
+
+        for draft in list(drafts):
+            for fam in list(draft.families):
+                source = fam.source
+                rows = [units[_plain_tag(t)] for t in fam.tags if _plain_tag(t) in units]
+                if source is None or not rows:
+                    continue
+                pump = bool(_PUMP.search(squash(source.name))) and not _CONDENSATE.search(squash(source.name))
+                movers = [u for u in rows if u.serves and (u.with_plant or not pump)]
+                if not movers or (not pump and len(movers) != len(fam.tags)):
+                    continue
+                targets = {id(t): t for t in (holder(u.serves) for u in movers) if t is not None and t is not draft}
+                if len(targets) != 1 or len([u for u in movers if holder(u.serves) in targets.values()]) != len(movers):
+                    continue
+                target = next(iter(targets.values()))
+                moving = tuple(t for t in fam.tags if _plain_tag(t) in {_plain_tag(u.tag) for u in movers})
+                if len(moving) == len(fam.tags):
+                    target.families.append(_Fam(fam.name, fam.tags, fam.count, source, moved=True))
+                    draft.families.remove(fam)
+                else:
+                    refs = tuple(dict.fromkeys(r for u in movers for r in u.refs))
+                    target.families.append(_Fam(fam.name, moving, Count(len(moving), refs), source, moved=True))
+                    left = tuple(t for t in fam.tags if t not in moving)
+                    fam.tags = left
+                    fam.count = _reduced(fam.count, len(left)) if fam.count.value is not None else fam.count
+                target.matches += [m for m in draft.matches if m not in target.matches]
+            if not draft.families:
+                drafts.remove(draft)
+        return drafts
+
+    def split_by_service(self, drafts: list[_Draft]) -> list[_Draft]:
+        """A block whose remote units (`with_plant` false) carry two or more services in the register becomes one
+        block per service, named the service and the kind word ("Chilled Water Pump"), each with its own tags and a
+        count of one per tag; tags with no service stay in the block. A unit with `with_plant` true never moves here.
+        No register: unchanged."""
+        units = self._register_units()
+        if not units:
+            return drafts
+        out: list[_Draft] = []
+        for draft in drafts:
+            fam = draft.families[0] if len(draft.families) == 1 else None
+            rows = [units.get(_plain_tag(t)) for t in fam.tags] if fam is not None and fam.source is not None else []
+            service_of = {t: _service_name(u.service) for t, u in zip(fam.tags, rows)
+                          if u is not None and not u.with_plant and u.service.strip()} if rows else {}
+            services = list(dict.fromkeys(service_of[t] for t in fam.tags if t in service_of)) if rows else []
+            if len(services) < 2:
+                out.append(draft)
+                continue
+            kind = _singular(fam.source.name) if fam.source.name else fam.source.prefix
+            pump = bool(_PUMP.search(squash(fam.source.name)))
+            for service in services:
+                tags = tuple(t for t in fam.tags if service_of.get(t) == service)
+                refs = tuple(dict.fromkeys(r for t in tags for r in units[_plain_tag(t)].refs))
+                name = f"{service} {kind}"
+                out.append(_Draft(key=f"{draft.key} {service}", name=name, kind="pumps" if pump else draft.kind,
+                                  families=[_Fam(name, tags, Count(len(tags), refs), fam.source)],
+                                  prefixes=list(draft.prefixes), matches=list(draft.matches),
+                                  alternate=draft.alternate, exception=draft.exception,
+                                  extra_refs=list(draft.extra_refs), service=service))
+            left = tuple(t for t in fam.tags if t not in service_of)
+            if left:
+                fam.tags = left
+                fam.count = _reduced(fam.count, len(left)) if fam.count.value is not None else fam.count
+                out.append(draft)
+        return out
+
+    def register_tags(self, drafts: list[_Draft]) -> None:
+        """Each family's tags are the tags of its counted units (`COUNTED_STATUSES`) when the register has rows for
+        the family: a unit the register does not count leaves the header."""
+        units = self._register_units()
+        if not units:
+            return
+        from bms.model import COUNTED_STATUSES
+
+        for draft in drafts:
+            for fam in draft.families:
+                known = [units.get(_plain_tag(t)) for t in fam.tags]
+                if any(u is not None for u in known):
+                    fam.tags = tuple(t for t, u in zip(fam.tags, known) if u is None or u.status in COUNTED_STATUSES)
+
     # -- T-005b, ruling 8: control valves under the unit they serve
 
     def link_valves(self, drafts: list[_Draft]) -> list[_Draft]:
@@ -1544,6 +1644,19 @@ def _says_kind(shape: Shape, name: str) -> bool:
     them."""
     kind = " ".join(re.findall(r"[a-z0-9]+", (name or "").lower()))
     return any(re.search(rf"\b{re.escape(w)}(?:s|es)?\b", kind) for w in shape.kind_words)
+
+
+def _plain_tag(tag: str) -> str:
+    return re.sub(r"[\s\-_]", "", str(tag or "")).upper()
+
+
+def _service_name(service: str) -> str:
+    """The register's service words as a block name: "chilled water" -> "Chilled Water" (the T-005b names)."""
+    words = " ".join(str(service or "").split())
+    for name, said, _ in _SERVICES:
+        if said.search(words):
+            return name
+    return words.title()
 
 
 def _reduced(count: Count, new: int) -> Count:
@@ -2091,11 +2204,14 @@ def plan_job(ledger: Ledger, catalogue: Catalogue, dossier: Dossier, playbook: P
     drafts = planner.gather_splits(drafts)
     drafts = planner.gather_heaters(drafts)
     drafts = planner.link_dampers(drafts)
+    drafts = planner.serve_units(drafts)            # takeoff Stage 2, Task 2.3: the register's serves and services
+    drafts = planner.split_by_service(drafts)
     planner.place_seen(drafts)
     drafts = planner.link_valves(drafts)
     drafts = planner.merge_named(drafts)
     planner.demolition_work(drafts)
     planner.heater_sequences(drafts)
+    planner.register_tags(drafts)
     drafts += planner.global_points(drafts)
     keys: set[str] = set()
     systems = _with_served([planner.system(d, keys, drafts) for d in drafts], drafts)
