@@ -300,10 +300,11 @@ def test_a_count_note_place_is_a_sheet_never_an_id_and_a_stale_note_is_not_rewri
     lines = [l.text for l in render(j, pb).lines if l.system_key == "EF"]
     if where.startswith("S141,"):
         # ruling 2026-10-05: this job's own ref names S141 as a sheet, so S141 is the sheet, kept everywhere
-        assert lines[-2:] == ["**Valves per S141", "*Qty. (5) per S141; 3 per M-101."], lines
+        # T-005e addendum: ONE "*" clarification per block (GEM v4 ~548)
+        assert lines[-1:] == ["*Note: Valves per S141; Qty. (5) per S141; 3 per M-101."], lines
         return
-    assert lines[-2:] == ["**Valves per", f"*Qty. (5) per {place}; 3 per M-101." if place else
-                          "*Qty. (5); 3 per M-101."], lines
+    assert lines[-1:] == [f"*Note: Valves per; Qty. (5) per {place}; 3 per M-101." if place else
+                          "*Note: Valves per; Qty. (5); 3 per M-101."], lines      # (T-005e: one "*" line)
     assert not any(token in " ".join(lines) for token in ("S9", "S141"))
 
 

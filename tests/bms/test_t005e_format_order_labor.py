@@ -73,8 +73,8 @@ def texts(draft, key: str) -> list[str]:
     ("Install and Wire Space Thermostat (Furnished by Unit Mfr.)", "Install and Wire", 17),
     ("Wire Supply Fan Flow Transmitter (Furnished by Others)", "Wire", 18),
     ("Wire Duct Smoke Detector Relay (Relay Furnished by FA)", "Wire", 13),
-    ("Furnish BMS Communication Wiring to Factory Controls", "Furnish", 20),
-    ("Map Available Points Via Mfr. Provided BMS Interface", None, 20),
+    ("Furnish BMS Communication Wiring to Factory Controls", "Furnish", 19),     # GEM v4: integration 19
+    ("Map Available Points Via Mfr. Provided BMS Interface", None, 19),
 ])
 def test_each_line_takes_its_gem_position(text, verb, expected):
     assert order.position(text, verb) == expected
@@ -82,12 +82,14 @@ def test_each_line_takes_its_gem_position(text, verb, expected):
 
 def test_slot_kinds_place_interlocks_wiring_and_integration():
     assert order.position("Interlock with Associated AHU Operation", None, "other_interlock", "interlock") == 18
-    assert order.position("Demolition of Existing Pneumatic Tubing", None, "other_wiring", "wiring") == 19
+    # GEM v4: the Miscellaneous Responsibilities (20) after the integration group (19)
+    assert order.position("Demolition of Existing Pneumatic Tubing", None, "other_wiring", "wiring") == 20
+    assert order.position("Wire Existing Panel to New Controller", "Wire", "other_wiring", "wiring") == 18
     assert order.position("Run 24V Power Loop to VAVs", None, "power_loop", "wiring") == 12
-    assert order.position("anything", "Furnish", "comm_wiring", "integration") == 20
+    assert order.position("anything", "Furnish", "comm_wiring", "integration") == 19
 
 
-def test_an_air_handler_prints_in_the_gem_order_not_the_writers(job, house):
+def test_an_air_handler_prints_in_the_master_template_order_not_the_writers(job, house):
     # the writer's order, scrambled: integration first, valve, start/stop, sensor, damper, controller, filter, Install
     # and Wire, safety switch, leak
     devices = [
@@ -107,16 +109,18 @@ def test_an_air_handler_prints_in_the_gem_order_not_the_writers(job, house):
     ahu = System(key="AHU", name="Air Handling Units", shape="Air Handling Unit", control="field",
                  families=(Family("Air Handling Unit", ("AHU-1", "AHU-2"), Count(value=2)),), devices=tuple(devices))
     out = texts(render(replace(job, systems=(ahu,)), house), "AHU")
+    # T-005e addendum (GEM v4 ~396-402): the Master Template entry (the shape) sets the order of its own slots; the
+    # catch-all Install and Wire line is placed by the standard order (17: after the valves); integration last
     assert out[1:] == [
         "Furnish and Install DDC Controller",
-        "Furnish and Install Supply Air Temperature Sensor",      # sensors in the shape's (Master Template's) order
+        "Furnish and Install Supply Air Temperature Sensor",
         "Furnish and Install Mixed Air Temperature Sensor",
-        "Furnish and Install Freezestat",
-        "Furnish and Install Leak Sensor",
-        "Furnish and Install Outside Air Damper Actuator",
         "Furnish Supply Fan Start/Stop and Status",
+        "Furnish and Install Freezestat",
         "Furnish and Wire Filter DP Switch",
+        "Furnish and Install Outside Air Damper Actuator",
         "Furnish and Wire Hot Water Control Valve and Actuator",
+        "Furnish and Install Leak Sensor",
         "Install and Wire Duct Smoke Detector (Furnished by Unit Mfr.)",
         "Furnish BMS Communication Wiring to Factory Controls",
     ]
@@ -142,15 +146,16 @@ def test_the_rep_line_stays_under_its_map_line_and_the_trio_prints_last(job, pla
 
 # ---- 1. the Master Template's format: sub-headings, the existing BMS front end -------------------------------------
 
-def test_a_grouped_system_gets_the_master_template_sub_heading(job, house):
+def test_a_grouped_system_gets_no_sub_heading(job, house):     # T-005e addendum: no sub-headings
     pumps = System(key="CHW", name="Chilled Water System", shape="Chilled Water System", control="field",
                    families=(Family("Chiller", ("CH-1", "CH-2"), Count(value=2)),
                              Family("Chilled Water Pump", ("CHWP-1", "CHWP-2"), Count(value=2))),
                    devices=(dev(1, "DDC Controller", slot="controller", key="CHW", qty=1),))
     draft = render(replace(job, systems=(pumps,)), house)
     headers = [b.header for b in draft.scope.blocks]
-    assert headers[0] == "Chilled Water System" and headers[1].startswith("Qty (2) Chiller")
-    assert draft.scope.blocks[0].numbered is False and draft.scope.blocks[1].joined is True
+    assert headers[0].startswith("Qty (2) Chiller") and headers[1].startswith("Qty (2) Chilled Water Pump")
+    assert all(b.numbered for b in draft.scope.blocks) and draft.scope.blocks[1].joined is True
+    assert "Chilled Water System" not in [l.text for l in draft.lines]
 
 
 def test_a_single_family_block_gets_no_sub_heading(job, house):

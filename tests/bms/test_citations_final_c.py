@@ -173,7 +173,8 @@ def test_r4_a_writers_where_naming_an_issued_id_after_a_sheet_word_prints_no_pla
     j = _other_count(job, "Sheet S141, Mechanical.pdf page 3")
     printed = _ef_lines(j)
     # (ruling D6, 2026-10-07)
-    assert "*Qty. (2) per M-001; 1 elsewhere in the documents." in printed, printed
+    # T-005e addendum: a device's other counts print on its own line (GEM v4 ~609)
+    assert "(Qty. 2 per M-001; 1 elsewhere in the documents)" in printed, printed
     assert not _prints(printed, "S141"), printed
     assert "per ;" not in printed and "per )" not in printed and not re.search(r"\bper\s*$", printed), printed
 

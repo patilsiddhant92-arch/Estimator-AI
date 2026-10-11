@@ -153,3 +153,43 @@ def with_labor(draft, conditions):
     traced = [RenderedLine(LABOR_KEY, None, "header", block.header, None, None)]
     traced += [RenderedLine(LABOR_KEY, None, "line", item.text, None, None) for item in block.items]
     return replace(draft, scope=scope, lines=(*draft.lines, *traced))
+
+
+# ---- the warranty lines of the front end (T-005e addendum: the Master Template's front end, template ~83-86) -----
+
+WARRANTY_WORDS = re.compile(r"\bwarranty\b", re.I)
+
+
+def warranty_items(overview) -> tuple[Item, ...]:
+    """The Master Template's warranty lines ("Warranty scope of work-", the one-year preventative maintenance
+    contract, and the extension when the documents give its years), printed only when the Spec overview finds the
+    warranty with its length stated (rules.md "Warranty lines"; the wording is assets/front_end.json "warranty", the
+    old writer's `estimator.writing.front_end._warranty`). () when there is no overview or no warranty."""
+    if overview is None or not getattr(overview, "services", None):
+        return ()
+    from estimator.writing.front_end import FRONT_END_FILE, _load, _warranty
+    return tuple(_warranty(overview, _load(FRONT_END_FILE)["warranty"], [], []))
+
+
+def with_warranty(draft, overview):
+    """The draft with the warranty lines after the front end's lines (before its "*" clarification), traced under the
+    front end (system key ""); the same draft when the documents state no warranty, or the writer already wrote a
+    warranty line. Raises `bms.render.RenderError` when the front end can no longer be printed."""
+    from bms.render import RenderedLine, RenderError
+    items = warranty_items(overview)
+    front = draft.scope.front_end
+    if not items or any(WARRANTY_WORDS.search(i.text) for i in front.items if i.kind == "line"):
+        return draft
+    lines = [i for i in front.items if i.kind == "line"]
+    notes = [i for i in front.items if i.kind != "line"]
+    data = draft.scope.model_dump()
+    data["front_end"] = {**front.model_dump(), "items": [i.model_dump() for i in (*lines, *items, *notes)]}
+    try:
+        scope = ScopeJob.model_validate(data)
+        check_fit(scope)
+    except (ValueError, PriceSheetError) as error:      # pydantic's ValidationError is a ValueError
+        raise RenderError(f"the warranty lines cannot be printed: {error}") from error
+    traced = list(draft.lines)
+    at = max((n + 1 for n, line in enumerate(traced) if line.system_key == "" and line.kind != "note"), default=0)
+    added = [RenderedLine("", None, "line", i.text, None, None) for i in items]
+    return replace(draft, scope=scope, lines=(*traced[:at], *added, *traced[at:]))

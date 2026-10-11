@@ -102,8 +102,10 @@ def test_a_front_end_line_names_its_other_counts(job, playbook):
                                                             others=(OtherCount(1, SCHEDULE),)))
     front = replace(job.front_end, devices=(line,))
     draft = render(replace(job, front_end=front), playbook)
-    assert [l.text for l in draft.lines if l.system_key == "" and l.kind == "note"] == [
-        "*Qty. (3) per M-101; 1 per M-601."]
+    # T-005e addendum: a device's other counts print on its own line (GEM v4 ~609), not in a "*" note
+    assert [l.text for l in draft.lines if l.system_key == "" and l.kind == "note"] == []
+    assert [l.text for l in draft.lines if l.system_key == "" and l.kind == "line"][0].endswith(
+        "(Qty. 3 per M-101; 1 per M-601)")
 
 
 # ---- the silent cases this run closed ------------------------------------------------------------------------------
@@ -118,8 +120,11 @@ def test_a_printed_count_below_the_highest_with_no_source_is_named(job, playbook
 
 def test_a_device_quantity_below_the_highest_with_no_source_is_named(job, playbook):
     quantity = Count(value=2, sources=(), others=(OtherCount(5, PLAN),))
-    found = notes(job, playbook, block([family(Count(value=5, sources=(PLAN,)))], [device(quantity)]))
-    assert found == ["*Qty. (5) per M-101; 2 elsewhere in the documents."]
+    system = block([family(Count(value=5, sources=(PLAN,)))], [device(quantity)])
+    assert notes(job, playbook, system) == []           # T-005e addendum: on the device's own line (GEM v4 ~609)
+    draft = render(replace(job, systems=(system,)), playbook)
+    assert [l.text for l in draft.lines if l.device_id == "X.d1"] == [
+        "Furnish and Install DDC Controller (Qty. 5 per M-101; 2 elsewhere in the documents)"]
 
 
 def test_a_zero_below_the_highest_is_named_not_dropped(job, playbook):

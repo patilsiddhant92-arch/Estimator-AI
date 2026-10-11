@@ -65,29 +65,28 @@ def test_rooftop_block_golden(draft):
         "Furnish BMS Communication Wiring to RTU Factory Controls",
         "Map Available Points Via Mfr. Provided BMS Interface",
         "AME requires mfr. Rep to assist in integration, cost to be incurred by mech contractor",
-        "*one detector per unit, because the schedule note names a detector for each unit without a count",
-        "*Unit count carried at 2; the roof plan shows 1",
-        "*Qty. (2) per M-001; 1 per M-101.",
+        # T-005e addendum: ONE "*" clarification per block (GEM v4 ~548), its parts joined, a client note led by "Note:"
+        "*one detector per unit, because the schedule note names a detector for each unit without a count; "
+        "Note: Unit count carried at 2; the roof plan shows 1; Qty. (2) per M-001; 1 per M-101.",
     ]
 
 
 def test_exhaust_fan_block_golden(draft):
     assert texts(draft, "EF") == [
         "Qty (3) Exhaust Fans EF-1 thru 3",
-        "Furnish and Install DDC Controller",
-        "Furnish and Install Motorized Damper Actuator (Qty. 2)",      # T-005e: GEM order, dampers before fan signals
+        "Furnish and Install DDC Controller",       # T-005e addendum: the shape's (Master Template's) order stands
         "Furnish Fan Start / Stop and Status",
+        "Furnish and Install Motorized Damper Actuator (Qty. 2)",
     ]
 
 
 def test_vrf_stacks_one_header_per_family_over_one_set_of_lines(draft):
-    # T-005e: the Master Template's unnumbered "VRF System" sub-heading over the stacked headers
-    assert texts(draft, "VRF")[:4] == ["VRF System", "Qty (4) Indoor Unit FCU-1 thru 4", "Qty (1) Condensing Unit CU-1",
+    # T-005e addendum: no sub-heading over the stacked headers (heading "Qty (#) <system>" only)
+    assert texts(draft, "VRF")[:3] == ["Qty (4) Indoor Unit FCU-1 thru 4", "Qty (1) Condensing Unit CU-1",
                                        "Qty (2) Branch Selector BS-1, 2"]
-    heading = next(b for b in draft.scope.blocks if b.header == "VRF System")
-    assert not heading.numbered and not heading.joined and heading.items == () and heading.tech_hours is None
+    assert all(b.numbered for b in draft.scope.blocks)
     blocks = [b for b in draft.scope.blocks if b.header.startswith(("Qty (4) Indoor", "Qty (1) Cond", "Qty (2) Branch"))]
-    assert [b.joined for b in blocks] == [True, True, True]
+    assert [b.joined for b in blocks] == [False, True, True]
     assert blocks[0].items == () and blocks[1].items == () and blocks[2].items
     assert blocks[0].tech_hours == 6.0 and blocks[2].tech_hours is None
     assert "Furnish BMS Communication Wiring to VRF Factory Controls" in texts(draft, "VRF")
@@ -98,14 +97,14 @@ def test_unknown_count_prints_hashes_and_quantity_unknown(draft):
     cuh = texts(draft, "CUH")
     assert cuh[0] == "Qty (##) Cabinet Unit Heaters"
     assert cuh[1] == "Furnish and Install Space Temperature Sensor (Qty. ##)"
-    assert cuh[2].startswith("*one sensor per heater, because ")
-    assert cuh[3] == "*Cabinet unit heater quantity as per drawings"
+    assert cuh[2].startswith("*one sensor per heater, because ")      # T-005e addendum: one "*" line per block
+    assert cuh[2].endswith("; Cabinet unit heater quantity as per drawings") and len(cuh) == 3
 
 
 def test_confirm_note_and_count_note_for_vrf(draft):
     notes = [l.text for l in draft.lines if l.system_key == "VRF" and l.kind == "note"]
-    assert notes == ["*Branch selector count: 2 on the plan picture, 1 on the schedule - to be confirmed",
-                     "*Qty. Branch Selector (2) per M-102; 1 per M-002."]   # (ruling D6, 2026-10-07)
+    assert notes == ["*Branch selector count: 2 on the plan picture, 1 on the schedule - to be confirmed; "   # (T-005e:
+                     "Qty. Branch Selector (2) per M-102; 1 per M-002."]   # one line) (ruling D6, 2026-10-07)
 
 
 def test_front_end_exceptions_and_alternates(draft):
@@ -165,9 +164,9 @@ def test_pure_same_job_same_text(job, playbook):
 def test_lines_follow_the_shape_order_not_the_device_order(job, playbook):
     ef = job.system("EF")
     shuffled = replace(ef, devices=tuple(reversed(ef.devices)))
-    assert texts(render(one(job, shuffled), playbook), "EF")[1:] == [      # T-005e: the GEM order of points first
-        "Furnish and Install DDC Controller", "Furnish and Install Motorized Damper Actuator (Qty. 2)",
-        "Furnish Fan Start / Stop and Status"]
+    assert texts(render(one(job, shuffled), playbook), "EF")[1:] == [      # T-005e addendum: the shape's order
+        "Furnish and Install DDC Controller", "Furnish Fan Start / Stop and Status",
+        "Furnish and Install Motorized Damper Actuator (Qty. 2)"]
 
 
 def test_the_higher_count_prints_even_when_value_is_lower(job, playbook):
@@ -210,7 +209,8 @@ def test_count_note_is_one_line_per_block_beside_the_confirm(job, playbook):
     d = device(qty=3, quantity=Count(3, others=(OtherCount(2, Ref("S2", "q", "Q-1, A.pdf page 1")),)))
     clar = (Clarification("confirm", "Confirm quantity: 3 fans carried per the schedule"),)
     out = texts(render(one(job, system([d], families=(fam,), shape="", clarifications=clar)), pb), "EF")
-    assert out[-2:] == ["*Confirm quantity: 3 fans carried per the schedule", "*Qty. (3); 2 per Q-1."]
+    # T-005e addendum: the one "*" clarification carries the quantity note (GEM v4 ~548)
+    assert out[-1:] == ["*Confirm quantity: 3 fans carried per the schedule; Qty. (3); 2 per Q-1."]
 
 
 # ---- the clarification labels (the text's own label is not printed twice) -------------------------------------
@@ -314,8 +314,9 @@ def test_a_where_that_holds_an_id_never_prints(job):
     fams = (Family("Exhaust Fan", ("EF-1",), Count(3, (Ref("F17", "x", "Ledger fact F17"),),
                                                   (OtherCount(2, Ref("S2", "q", "M-101, Invented.pdf page 2")),))),)
     out = texts(render(one(job, system([a], families=fams, clarifications=clar)), pb), "EF")
-    assert "*Confirm the invented damper count per" in out
-    assert "*Assumed: one invented actuator, because the actuator is shown on and in" in out
+    # T-005e addendum: one "*" line per block, its parts joined
+    assert "*Confirm the invented damper count per; Assumed: one invented actuator, because the actuator is shown on " \
+           "and in; Qty. (3); 2 per M-101." in out
     for line in out:
         assert not re.search(r"\b(?:F17|I3|S8)\b", line), line
 
@@ -432,12 +433,12 @@ def test_device_names_and_named_exceptions_lose_an_issued_id_token_only(job):
     d = device(name="Control Valve per S141", refs=(S141,))
     j = replace(one(job, system([d])), exceptions=(ScopeException("EF", "Fire alarm by others per S141", (S141,)),))
     out = render(j, pb)
-    assert texts(out, "EF")[1] == "Furnish and Install Control Valve per"
+    assert texts(out, "EF")[1] == "Furnish and Wire Control Valve per"      # (T-005e: a valve is Furnish and Wire)
     assert out.scope.named_exceptions == ("Fire alarm by others per",)
     j2 = replace(one(job, system([device(name="Control Valve per S999", refs=(S141,))])),
                  exceptions=(ScopeException("EF", "Fire alarm by others (S141)", ()),))
     out2 = render(j2, pb)
-    assert texts(out2, "EF")[1] == "Furnish and Install Control Valve per S999"         # unissued: as written
+    assert texts(out2, "EF")[1] == "Furnish and Wire Control Valve per S999"         # unissued: as written
     assert out2.scope.named_exceptions == ("Fire alarm by others ( )",)                 # the token only
 
 
@@ -480,9 +481,8 @@ def test_a_damper_family_under_a_fan_prints_no_header_of_its_own(job, playbook):
     ef_lines = texts(out, "EF")
     assert [l.text for l in out.lines if l.system_key == "EF" and l.kind == "header"] == [
         "Qty (3) Exhaust Fans EF-1 thru 3"]
-    assert ef_lines[1:] == ["Furnish and Install DDC Controller",       # T-005e: GEM order
-                            "Furnish and Install Motorized Damper Actuator (Qty. 2)",
-                            "Furnish Fan Start / Stop and Status"]
+    assert ef_lines[1:] == ["Furnish and Install DDC Controller", "Furnish Fan Start / Stop and Status",
+                            "Furnish and Install Motorized Damper Actuator (Qty. 2)"]
     assert texts(out, "MD")[0] == "Qty (4) Motorized Dampers"
     assert [b.header for b in out.scope.blocks] == ["Qty (3) Exhaust Fans EF-1 thru 3", "Qty (4) Motorized Dampers"]
 
@@ -516,11 +516,12 @@ def test_an_assumption_without_its_why_is_refused(job, playbook):
         render(one(job, system([bad])), playbook)
 
 
-def test_one_star_line_per_kind_in_a_fixed_order(job, playbook):
+def test_one_star_line_per_block_its_kinds_in_a_fixed_order(job, playbook):
+    # T-005e addendum: ONE "*" clarification per block (GEM v4 ~548), the kinds in the Playbook's order
     clar = (Clarification("note", "n1"), Clarification("per_drawings", "p1"), Clarification("confirm", "c1"),
             Clarification("confirm", "c2"), Clarification("assumed", "a1"), Clarification("note", "n2"))
     out = texts(render(one(job, system([device()], clarifications=clar)), playbook), "EF")
-    assert out[2:] == ["*c1; c2 - to be confirmed", "*a1", "*p1 as per drawings", "*n1; n2"]
+    assert out[2:] == ["*c1; c2 - to be confirmed; a1; p1 as per drawings; Note: n1; Note: n2"]
 
 
 def test_owner_brackets_come_from_the_wording(job, playbook):

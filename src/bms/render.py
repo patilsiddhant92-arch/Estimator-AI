@@ -28,7 +28,9 @@ from estimator.writing.write import tag_list
 
 from bms.citations import SHEET, SourceIds, clarification_text, squash as _squash, strip_label
 from bms.model import CLARIFICATION_KINDS, UNNAMED_EXISTING, Clarification, Count, Device, FrontEnd, Job, Ref, System
-from bms.order import existing_lines, front_end_entry, front_end_rank, position as gem_position, sub_heading
+from bms import order as gem_module
+from bms.order import existing_lines, front_end_entry, front_end_rank, position as gem_position
+from estimator.proposal.layout import EXISTING_SYSTEM_HEADING
 from bms.playbook import DEFAULT_ORDER, Playbook, Shape
 
 SEQUENCE_ONLY_ORDER = 20            # a block whose count prints "Qty (##)": after the equipment (shapes.json "order")
@@ -111,8 +113,11 @@ def render(job: Job, playbook: Playbook) -> ProposalDraft:
       `job.exceptions` become `scope.named_exceptions`; `job.front_end` the FrontEnd.
     - A system with no shape is rendered in the generic form "{verb} {device}{owner}{qty}" in device order.
     - Never adds a line that is not a field of the Job (nothing internal reaches the client document), except the
-      Master Template's existing-BMS front-end lines T-005e names (`_existing_template_lines`). The off-hours work
-      and prevailing wage the documents call for are added after, by `bms.labor.with_labor`.
+      Master Template's existing-BMS front-end lines T-005e names (`_existing_template_lines`), its "OR" line between
+      two alternatives, and the pump VFD Control GEM v4 always writes (`_gem_devices`). GEM v4 also prints a valve
+      Furnish and Wire and leaves out a valve inside a factory-controlled unit (a note in `lines`). The off-hours work,
+      prevailing wage and warranty the documents call for are added after, by `bms.labor.with_labor` and
+      `with_warranty`.
     """
     if job.header is None:
         raise RenderError("the job has no header (quote number, reference, engineer, date)")
@@ -524,6 +529,7 @@ class _Printed:
     verb: str | None
     quantity: int | None       # the device's quantity (None when unknown)
     priced: bool               # the price sheet prices it (AME furnishes, installs or wires it; not an interlock)
+    marker: bool = False       # the Master Template's "OR" line between two alternatives (no device of its own)
 
 
 _PLACEHOLDER = re.compile(r"\{[a-z_]+\}")
@@ -572,22 +578,31 @@ def line_form(device: Device, shape: Shape | None, playbook: Playbook) -> str:
 
 
 def _device_lines(devices, shape: Shape | None, system: System | None, playbook: Playbook,
-                  reference: set[int]) -> list[_Printed]:
-    """The devices as printed lines, in the GEM order of points (T-005e, `bms.order.position`: controller, sensors,
-    switches, leak, current switches, relays, dampers, fan and pump signals, primary equipment signals, feedback, other
-    outputs, power wiring, fire alarm, filters, airflow stations, valves, Install and Wire, Wire and interlocks, plain
-    work statements, the integration lines last), then the shape's line order (the Master Template's), then the order
-    given. The front end (no shape, no system) follows the Master Template's front-end order instead
-    (`bms.order.front_end_rank`). A device of a sub-line slot
-    (the shape's `under`) prints one level in, directly after its parent: the nearest device of the parent slot
-    listed before it (else the last one listed), with no verb; with no parent device it prints in its own slot's
-    place. A line of the integration trio whose slot the shape sets under no parent (a block with no shape) prints
-    at the trio's own depth (wording.json integration_trio.depths: the rep line one level in). Every line prints its
-    slot's wording (integration lines too: the comm wiring line names its controls,
-    the map and rep lines are house text). A line carries a quantity form only when its slot's wording has {qty}
-    and its quantity is unknown or not the block's own count."""
+                  reference: set[int], qty_notes: dict[str, str] | None = None) -> list[_Printed]:
+    """The devices as printed lines, in the order GEM v4 sets (T-005e addendum, `bms.order`):
+    - a block with a shape prints its template slots in the shape's line order (its Master Template entry, GEM v4
+      ~396-402), then the order given;
+    - the standard order (`bms.order.position`: controller, sensors, switches, leak, current switches, relays,
+      dampers, fan and pump signals, primary equipment signals, feedback, other outputs, power wiring, fire alarm,
+      filters, airflow stations, valves, Install and Wire, other Wire and interlocks) places every other line: a
+      catch-all slot's line or a slot the shape lacks goes after the template's last line of its position, else
+      between the template lines of a lower and a higher position (`bms.order.place`), never after the valves by its
+      slot's place; a block with no shape is in the standard order throughout;
+    - the integration group is always last within the scope (19; the VFD group first), then the Miscellaneous
+      Responsibilities (20: the plain work statements of the other_wiring slot, with no verb);
+    - the front end (no shape, no system) follows the Master Template's front-end order (`bms.order.front_end_rank`).
+    A device of a sub-line slot (the shape's `under`) prints one level in, directly after its parent: the nearest
+    device of the parent slot listed before it (else the last one listed), with no verb; with no parent device it
+    prints in its own slot's place. A line of the integration trio whose slot the shape sets under no parent (a block
+    with no shape) prints at the trio's own depth (wording.json integration_trio.depths: the rep line one level in).
+    Every line prints its slot's wording. A line carries a quantity form only when its slot's wording has {qty} and its
+    quantity is unknown or not the block's own count; `qty_notes` (device id -> the quantity note) puts a device's
+    other counts on its own line instead (GEM v4 ~609). Two lines of one Master Template "OR" group printed next to
+    each other get an "OR" line between them, and only the first is priced (`bms.order.alternatives`)."""
     devices = list(devices)
-    order = {slot: i for i, slot in enumerate(shape.line_order)} if shape is not None else {}
+    qty_notes = qty_notes or {}
+    line_order = shape.line_order if shape is not None else ()
+    slot_index = {slot: i for i, slot in enumerate(line_order)}
     under = shape.under if shape is not None else {}
     casing = _casing(playbook)
     what = _title(system.name, casing) if system is not None and system.control == "integration" else ""
@@ -603,7 +618,9 @@ def _device_lines(devices, shape: Shape | None, system: System | None, playbook:
         fixed = house_lines.get(_plain(device.name))     # a house line printed as written (line_form chose it)
         qty = ""
         if "{qty}" in form:
-            if number is None:
+            if device.id in qty_notes:
+                qty = qty_notes[device.id]
+            elif number is None:
                 qty = quantity_words["unknown"]
             elif number not in reference:
                 qty = quantity_words["line"].format(n=number)
@@ -615,12 +632,38 @@ def _device_lines(devices, shape: Shape | None, system: System | None, playbook:
             text = form
         worded.append((text, form, device.verb if "{verb}" in form else None))
 
-    def rank(i: int) -> tuple:
+    def kind_of(i: int) -> str | None:
+        return shape.slot_kinds.get(devices[i].slot) if shape is not None else None
+
+    def gem(i: int) -> int:
         text, _, verb = worded[i]
+        return gem_position(text, verb, devices[i].slot, kind_of(i))
+
+    gem_integration = gem_module.INTEGRATION
+
+    def last_group(i: int) -> bool:          # the integration group, then the Miscellaneous Responsibilities
+        return kind_of(i) == "integration" or gem(i) >= gem_integration
+
+    # the template lines (a shape's own slots; not a sub-line, not the integration group) in the shape's order
+    template = sorted((i for i in range(len(devices)) if shape is not None and devices[i].slot not in under
+                       and not gem_module.is_catch_all(devices[i].slot, line_order) and not last_group(i)),
+                      key=lambda i: (slot_index[devices[i].slot], i))
+    template_at = {i: k for k, i in enumerate(template)}
+    template_positions = [gem(i) for i in template]
+
+    def rank(i: int) -> tuple:
         if front_end:
-            return (front_end_rank(text),)
-        kind = shape.slot_kinds.get(devices[i].slot) if shape is not None else None
-        return (gem_position(text, verb, devices[i].slot, kind), order.get(devices[i].slot, len(order)))
+            return (front_end_rank(worded[i][0]), 0.0, 0, 0)
+        p = gem(i)
+        if last_group(i):
+            p = gem_integration if kind_of(i) == "integration" else p
+            group = gem_module.integration_rank(devices[i].slot) if p == gem_integration else 0
+            return (1, float(p), group, slot_index.get(devices[i].slot, len(slot_index)))
+        if shape is None:
+            return (0, float(p), 0, 0)
+        if i in template_at:
+            return (0, float(template_at[i]), 0, 0)
+        return (0, gem_module.place(template_positions, p), p, slot_index.get(devices[i].slot, len(slot_index)))
 
     keys: dict[int, tuple] = {}
 
@@ -644,40 +687,146 @@ def _device_lines(devices, shape: Shape | None, system: System | None, playbook:
         return found
 
     ranked = sorted(range(len(devices)), key=key)
+    groups = gem_module.alternatives(shape.name if shape is not None else None)
     out: list[_Printed] = []
+    previous: Device | None = None              # the last top-level line printed
     for i in ranked:
         device = devices[i]
         text, form, verb = worded[i]
-        slot_kind = shape.slot_kinds.get(device.slot) if shape is not None else None
+        slot_kind = kind_of(i)
         acts = "AME" in (device.furnished_by, device.installed_by, device.wired_by)
         depth = len(key(i))
         if device.slot not in under and form in trio:   # a trio line the shape sets under no parent: the trio's
             depth = trio[form]                          # own depth (the rep line one level in, RND-13)
-        out.append(_Printed(text, depth, device, verb, _printed(device.quantity),
-                            acts and slot_kind != "interlock"))
+        priced = acts and slot_kind != "interlock"
+        if depth == 1 and previous is not None and previous.slot != device.slot and any(
+                {previous.slot, device.slot} <= group for group in groups):
+            out.append(_Printed(gem_module.alternative_word(), 1, device, None, None, False, marker=True))
+            priced = False                  # an alternative to the line above: only the first is priced
+        out.append(_Printed(text, depth, device, verb, _printed(device.quantity), priced))
+        if depth == 1:
+            previous = device
     return out
 
 
 def printed_texts(system: System, shape: Shape | None, playbook: Playbook, ids: SourceIds) -> list[tuple[str, str]]:
     """Each line a system's devices print, as (device id, text), in print order: the text the proposal prints, an
     issued id taken out of a name as `_system_blocks` does. The front end (a system with no key) counts its lines
-    against 1 and names no equipment, as `_front_end` does. The validator's line-length check reads it (VAL-14)."""
+    against 1 and names no equipment, as `_front_end` does. The validator's line-length check reads it (VAL-14). The
+    "OR" lines and the lines GEM v4 adds (`_gem_devices`: a pump's VFD Control) are not the writer's: left out."""
     if system.key:
         reference = {n for n in (_printed(f.count) for f in _header_families(system)) if n is not None}
+        devices, _ = _gem_devices(system, shape, playbook)
+        counts = [f.count for f in system.families]
     else:
         reference = {1}
-    return [(p.device.id, p.text) for p in _device_lines(_named(system.devices, ids), shape,
-                                                          system if system.key else None, playbook, reference)]
+        devices, counts = list(system.devices), []
+    named = _named(devices, ids)
+    notes = _qty_notes(named, counts, playbook, ids)
+    own = {d.id for d in system.devices}
+    return [(p.device.id, p.text) for p in _device_lines(named, shape, system if system.key else None, playbook,
+                                                          reference, notes)
+            if not p.marker and p.device.id in own]
+
+
+# ---- what GEM v4 decides about a line (T-005e addendum) ----------------------------------------------------------
+
+def _is_valve(name: str) -> bool:
+    words = gem_module.valve_rules()
+    return bool(re.search(words.get("words", r"\bvalves?\b"), name or "", re.I)) and not (
+        words.get("not_words") and re.search(words["not_words"], name or "", re.I))
+
+
+def _gem_devices(system: System, shape: Shape | None, playbook: Playbook) -> tuple[list[Device], list[str]]:
+    """The system's devices as GEM v4 prints them, and the lines left out (for the Evidence Package's note):
+    - a valve is always Furnish and Wire (GEM v4 ~228): one written Furnish and Install prints Furnish and Wire;
+    - a valve inside a factory-controlled unit (packaged or integration control) that the unit maker furnishes and AME
+      does not install is not a controls line (GEM v4 ~291, ~294): left out;
+    - a pump AME's own DDC controller runs always gets VFD Control with its Start/Stop and Status (GEM v4 ~346-349):
+      a block under field control whose pump Start/Stop line has no VFD Control line for that pump gets one, citing
+      the Start/Stop line's sources (`bms.order.minimum_points`). Fault and speed feedback are never added.
+    Pure: the Job is not changed."""
+    rules = gem_module.valve_rules()
+    factory = system.control in tuple(rules.get("factory_controls", ("packaged", "integration")))
+    out: list[Device] = []
+    left: list[str] = []
+    for d in system.devices:
+        if _is_valve(d.name):
+            if factory and d.furnished_by == "Unit Mfr." and d.installed_by != "AME":
+                left.append(_fill(rules.get("left_out", "{line}: left out"), line=_title(d.name, _casing(playbook))))
+                continue
+            if d.verb == "Furnish and Install":
+                d = replace(d, verb="Furnish and Wire")
+        out.append(d)
+    return out + _pump_minimums(system, shape, out), left
+
+
+def _pump_minimums(system: System, shape: Shape | None, devices: list[Device]) -> list[Device]:
+    if system.control != "field":
+        return []
+    words = gem_module.minimum_points()
+    if not words:
+        return []
+    pump, start, vfd, not_control = (re.compile(words[k], re.I) for k in ("pump", "start_stop", "vfd_control",
+                                                                          "not_control"))
+    controls = [d.name for d in devices if vfd.search(d.name) and not not_control.search(d.name)]
+    starts = [d for d in devices if d.verb == "Furnish" and d.furnished_by == "AME" and pump.search(d.name)
+              and start.search(d.name)]
+    added: list[Device] = []
+    for d in starts:
+        stem = _squash(re.sub(words["stem_end"], "", d.name, flags=re.I))
+        if not stem:
+            continue
+        mine = [c for c in controls if stem.lower() in c.lower()]
+        if mine or (len(starts) == 1 and any(pump.search(c) for c in controls)):
+            continue
+        line_order = shape.line_order if shape is not None else ()
+        slot = next((s for s in (d.slot.replace("start_stop", "vfd_control"), d.slot.replace("start_stop", "vfd"))
+                     if s != d.slot and s in line_order), "other_point" if "other_point" in line_order else d.slot)
+        added.append(replace(d, id=f"{d.id}.vfd", slot=slot, name=words["line"].format(pump=stem), assumption=None,
+                             flag="none"))
+    return added
+
+
+# ---- the quantity notes on a device's own line (GEM v4 ~609) -------------------------------------------------------
+
+LINE_COUNT_NOTE = " (Qty. {counts})"    # a device's own other counts, on its line: " (Qty. 3 per M-101; 2 per M-201)"
+
+
+def _qty_notes(devices, family_counts: list[Count], playbook: Playbook, ids: SourceIds) -> dict[str, str]:
+    """device id -> the quantity note its own line carries (GEM v4 ~609: "Quantity notes ... stay with the device's
+    own line"): its count's part ("3 per M-101; 2 per M-201") when it names other counts that no family of the block
+    already names. A family's count stays in the block's one clarification."""
+    words = _count_words(playbook)
+    families = {_count_part(c, ids, _count_causes(c, playbook), words, with_sum=False) for c in family_counts}
+    families.discard("")
+    out: dict[str, str] = {}
+    for d in devices:
+        count = replace(d.quantity, added_up=None)
+        part = _count_part(count, ids, _count_causes(count, playbook), words)
+        if not part or part in families:
+            continue
+        # through the safety net the block's quantity note goes through (`_count_note`): an issued id is taken out
+        out[d.id] = ids.without_issued(LINE_COUNT_NOTE.format(counts=re.sub(r"^\((\d+)\)", r"\1", part)),
+                                       place=True)
+    return out
 
 
 # ---- the "*" clarifications --------------------------------------------------------------------------------------
 
+NOTE_LEAD = "Note: "           # a client note joined after the other parts of the one clarification (rules.md)
+
+
 def _notes(clarifications: tuple[Clarification, ...], devices, counts: list[Count],
            playbook: Playbook, ids: SourceIds, names: list[str] | None = None) -> list[str]:
-    """One "*" line per kind, after the lines: confirm, assumed (every assumption with its why), per drawings, the
-    note line; then the one quantity note naming every other count (and the sum ruling L1 left out of a family's
-    count). A text's own leading label is not printed twice, an issued source id left in a stale text never prints
-    (the token alone is taken out: no sentence is rewritten), and a text is never cut."""
+    """The block's ONE "*" clarification (GEM v4 ~547-550, "one '*' clarification per block"; NOTES 2026-10-11 rule
+    7), after the lines, [] when there is nothing to say. Its parts, in the Playbook's order: confirm, assumed (every
+    assumption with its why), per drawings, the client notes, then the quantity note naming every other count of the
+    block's families (and the sum ruling L1 left out of a family's count). The items of one kind are joined with "; "
+    in that kind's form; the parts are joined with "; " behind one "*", a client note led by "Note: " (rules.md
+    "Client notes"). A block with only client notes keeps the note form ("**..."). A text's own leading label is not
+    printed twice, an issued source id left in a stale text never prints (the token alone is taken out: no sentence
+    is rewritten), and a text is never cut. A device's own other counts go on its line (`_qty_notes`), not here."""
     texts: dict[str, list[str]] = {kind: [] for kind in CLARIFICATION_KINDS}
     for c in clarifications:
         text = _trim(clarification_text(c.kind, c.text, ids))
@@ -686,15 +835,25 @@ def _notes(clarifications: tuple[Clarification, ...], devices, counts: list[Coun
     for device in devices:
         if device.assumption is not None:
             texts["assumed"].append(_reason(device.assumption, ids, playbook))
-    out = []
+    filled: list[tuple[str, str]] = []           # (kind, the kind's line in its own form)
     for kind in _AFTER_LINES:
         unique = list(dict.fromkeys(texts[kind]))
         if unique:
-            out.append(_fill(playbook.wording.clarifications[kind], text="; ".join(unique)))
+            filled.append((kind, _fill(playbook.wording.clarifications[kind], text="; ".join(unique))))
     note = _count_note(counts, playbook, ids, names)
     if note:
-        out.append(note)
-    return out
+        filled.append(("quantity", note))
+    if not filled:
+        return []
+    if len(filled) == 1:
+        return [filled[0][1]]
+    parts = []
+    for kind, line in filled:
+        if kind == "note":
+            parts += [NOTE_LEAD + t for t in dict.fromkeys(texts["note"])]
+        else:
+            parts.append(line.lstrip("*").strip())
+    return ["*" + "; ".join(parts)]
 
 
 # ---- a system --------------------------------------------------------------------------------------------------
@@ -779,26 +938,27 @@ def _system_blocks(system: System, playbook: Playbook, out: list[RenderedLine], 
                                 family.count if family else Count(value=None), playbook)]
     else:
         headers = [_header_text(form, f.name, f.tags, f.count, playbook) for f in families]
-    # T-005e: the Master Template's unnumbered sub-heading over the stacked headers of a grouped system
-    heading = sub_heading(shape.name if shape is not None else None) if len(headers) > 1 else ""
     reference = {n for n in (_printed(f.count) for f in families) if n is not None}
     pending = not families or any(_printed(f.count) is None for f in families)     # "Qty (##)": nothing is priced
-    printed = _device_lines(_named(system.devices, ids), shape, system, playbook, reference)
+    devices, left = _gem_devices(system, shape, playbook)       # T-005e addendum: valves, pump minimum (GEM v4)
+    devices = _named(devices, ids)
+    qty_notes = _qty_notes(devices, [f.count for f in system.families], playbook, ids)
+    printed = _device_lines(devices, shape, system, playbook, reference, qty_notes)
     named = len(system.families) > 1             # more than one family: each family's part names its family
     notes = _notes(system.clarifications, system.devices,
-                   [f.count for f in system.families] + _line_counts(system.devices), playbook, ids,
+                   [f.count for f in system.families]
+                   + _line_counts(d for d in devices if d.id not in qty_notes), playbook, ids,
                    [_title(f.name, _casing(playbook)) if named else "" for f in system.families])
     try:                                 # every field checked: a blank line, a negative quantity or tech hours
         items = _items(printed, pending) + [Item(kind="note", runs=(Run(text=n),)) for n in notes]
         last = len(headers) - 1
-        blocks = [Block(header=h, joined=i > 0 or bool(heading), tech_hours=system.tech_hours if i == 0 else None,
+        blocks = [Block(header=h, joined=i > 0, tech_hours=system.tech_hours if i == 0 else None,
                         items=tuple(items) if i == last else ()) for i, h in enumerate(headers)]
-        if heading:
-            blocks.insert(0, Block(header=heading, numbered=False))
     except ValueError as error:          # pydantic's ValidationError is a ValueError
         raise RenderError(f"system {system.key}: {error}") from error
-    out += [RenderedLine(system.key, None, "header", h, None, None) for h in ([heading] if heading else []) + headers]
+    out += [RenderedLine(system.key, None, "header", h, None, None) for h in headers]
     out += _traced(system.key, printed, notes)
+    out += [RenderedLine(system.key, None, "note", line, None, None) for line in left]
     return tuple(blocks)
 
 
@@ -808,7 +968,8 @@ def _items(printed: list[_Printed], pending: bool) -> list[Item]:
 
 
 def _traced(key: str, printed: list[_Printed], notes: list[str]) -> list[RenderedLine]:
-    lines = [RenderedLine(key, p.device.id, "line", p.text, p.verb, p.quantity) for p in printed]
+    lines = [RenderedLine(key, None if p.marker else p.device.id, "line", p.text, p.verb, p.quantity)
+             for p in printed]
     return lines + [RenderedLine(key, None, "note", n, None, None) for n in notes]
 
 
@@ -842,8 +1003,11 @@ def _front_end(front: FrontEnd | None, playbook: Playbook, out: list[RenderedLin
                ids: SourceIds) -> ScopeFrontEnd:
     if front is None:
         return ScopeFrontEnd(mode="new-system")
-    printed = _device_lines(_named(front.devices, ids), None, None, playbook, {1})
-    notes = _notes(front.clarifications, front.devices, _line_counts(front.devices), playbook, ids)
+    devices = _named(front.devices, ids)
+    qty_notes = _qty_notes(devices, [], playbook, ids)
+    printed = _device_lines(devices, None, None, playbook, {1}, qty_notes)
+    notes = _notes(front.clarifications, front.devices,
+                   _line_counts(d for d in devices if d.id not in qty_notes), playbook, ids)
     added = _existing_template_lines(front, printed)
     # one list in the Master Template's front-end order: the writer's lines and the template's existing-BMS lines
     merged = sorted([(front_end_rank(p.text), n, p) for n, p in enumerate(printed)]
@@ -857,6 +1021,10 @@ def _front_end(front: FrontEnd | None, playbook: Playbook, out: list[RenderedLin
         else:
             traced += _traced("", [entry], [])
             lines += _items([entry], False)
+    if front.mode == "extend-existing":       # the Master Template's tie-in header (template ~77): the proposal
+        # writer prints it from the mode (estimator.proposal.layout.front_end_heading); traced here for the review
+        traced.insert(0, RenderedLine("", None, "header",
+                                      f"{EXISTING_SYSTEM_HEADING} {existing_system_name(front)} BMS", None, None))
     out += traced + _traced("", [], notes)
     try:
         items = lines + [Item(kind="note", runs=(Run(text=n),)) for n in notes]
