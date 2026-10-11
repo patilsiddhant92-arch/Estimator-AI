@@ -12,4 +12,8 @@ Everything the writer's rules say still holds: every line cites this job's evide
 
 Source ids ("S141", "Q7", "I2", "F17") belong only in refs: no device name, assumption, clarification or no_scope_reason prints one. Name the document in a few plain words and cite it as a Ref. Wrong: valves per S141. Right: valves per the mechanical schedule. An answer with a source id in any of those texts is refused and asked again, with the id named. A tag the documents give (a fan "F1") or a sheet number ("sheet S101") is not a source id.
 
+<!-- T-005d -->
+Marks and stated facts (rulings 6 and 7): keep each device's mark and mark_note unless a finding is about them. A line the documents mark FUTURE keeps mark "future" and mark_note “FUTURE AS PER <the document in a few words>”; a line to notice keeps mark "notice". Never answer a finding with an assumption that a schedule or the sequence states: cite that passage instead and give no assumption.
+<!-- end of T-005d -->
+
 Answer with the whole revised system as JSON in the schema given.

@@ -1,0 +1,26 @@
+{
+  "about": "T-005d regression fixture (NOTES 2026-10-11 rule 4). An INVENTED copy of the 26-0544 evidence defects: every plan sheet's title block carried a project title that names the system ('... OF AIR HANDLING UNITS AND ...'), so all plan sheets were picked as the unit's notes and filled the notes cap before the control diagram sheet's turn; and the general notes sheet's BMS notes sat past character 8,000 of its text, where the dossier cut it. Same sheet-number form (Mnnn.00), same title forms and the same 7c sheet-text line form as the job; every name, number and sentence here is invented.",
+  "job": "Invented Town Hall",
+  "document": "Mech.pdf",
+  "title_block": "TOWNSHIP OF INVENTED - RENOVATIONS OF AIR HANDLING UNITS AND UNIT HEATERS AT INVENTED TOWN HALL",
+  "unit_tag": "AHU-7",
+  "filler_words": "alpha bravo charlie delta echo foxtrot golf hotel",
+  "filler_repeat": 60,
+  "general_notes": {"sid": 50, "number": "M002.00", "page": 2, "title": "MECHANICAL GENERAL NOTES AND LEGENDS",
+                    "filler_blocks": 6,
+                    "bms_note": "BUILDING MANAGEMENT SYSTEM (BMS) NOTES: 1. CONNECT THE NEW AIR HANDLERS TO THE EXISTING ZEBRA CONTROLS BMS OVER BACNET MS/TP. 2. THE CONTROLS CONTRACTOR SHALL PROVIDE EVERY CONTROLLER AND SENSOR NEEDED."},
+  "plain_plans": [
+    {"sid": 51, "number": "M120.00", "page": 3, "title": "MECHANICAL CONSTRUCTION BASEMENT PLAN"}
+  ],
+  "tagged_plans": [
+    {"sid": 52, "number": "M121.00", "page": 4, "title": "MECHANICAL CONSTRUCTION DUCTWORK FIRST FLOOR PLAN"},
+    {"sid": 53, "number": "M122.00", "page": 5, "title": "MECHANICAL CONSTRUCTION DUCTWORK SECOND FLOOR PLAN"},
+    {"sid": 54, "number": "M221.00", "page": 6, "title": "MECHANICAL CONSTRUCTION PIPING FIRST FLOOR PLAN"},
+    {"sid": 55, "number": "M222.00", "page": 7, "title": "MECHANICAL CONSTRUCTION PIPING SECOND FLOOR PLAN"},
+    {"sid": 56, "number": "M321.00", "page": 8, "title": "MECHANICAL CONSTRUCTION EQUIPMENT ROOF PLAN"}
+  ],
+  "keynote": "KEY NOTE 4 ROUTE AHU-7 CONDENSATE TO THE ROOF DRAIN",
+  "controls_sheet": {"sid": 60, "number": "M720.00", "page": 12, "title": "MECHANICAL CONTROLS DIAGRAMS",
+                     "text": "AHU-7 Control Diagram RETURN FAN VFD SPEED AO LOW LIMIT THERMOSTAT BI [FUTURE] RETURN AIR CO2 SENSOR AI MOUNT IN RETURN DUCT AT THE FAN INLET PROVIDE ONE OUTSIDE AIR HUMIDITY SENSOR AT THE ROOF INTAKE"},
+  "future_quote": "[FUTURE] RETURN AIR CO2 SENSOR"
+}

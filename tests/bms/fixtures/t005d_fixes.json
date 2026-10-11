@@ -1,0 +1,41 @@
+{
+  "_about": "T-005d fixes (lead review 2026-10-11): invented copies of the failing patterns. Invented names, tags and sheet numbers only; no job text.",
+  "job": "Invented Annex",
+  "lines": [
+    "JOB DOSSIER — Invented Annex",
+    "== 1. JOB ==",
+    "[S1] Who does what (by the Owner) — “The owner furnishes the network switches.”",
+    "== 2. SEQUENCE OF OPERATION ==",
+    "--- 23 09 93, Specs.pdf page 2 ---",
+    "--- [Q1] A. GENERAL ---",
+    "[S2] A. GENERAL",
+    "[S3] Provide one outside air temperature sensor for global use by all systems.",
+    "[S4] Provide a changeover aquastat on the common supply main to index heating or cooling mode.",
+    "--- [Q2] B. AIR HANDLING UNIT QX-3 ---",
+    "[S5] B. AIR HANDLING UNIT QX-3",
+    "[S6] The BMS shall start the supply fan VFD of QX-3 and hold duct static pressure.",
+    "--- [Q3] C. EXHAUST FAN WV-8 ---",
+    "[S7] C. EXHAUST FAN WV-8",
+    "[S8] The BMS shall start WV-8 with the occupancy schedule.",
+    "== 4. SCHEDULES ==",
+    "[S10] AIR HANDLING UNITS — M-602, Plans.pdf page 6 (1 row)",
+    "    Columns: TAG | CONTROLS",
+    "[S11] QX-3 | UNIT CONTROLLER PROVIDED BY THE UNIT MANUFACTURER, FACTORY WIRED",
+    "[S12] Note: 1. FILTER SWITCH QUANTITY BY OTHERS.",
+    "== 7. NOTES ==",
+    "--- 7c PLAN SHEET TEXT ---",
+    "[S20] M-902, Plans.pdf page 9 CONTROL DIAGRAMS: QX-3 CONTROL SCHEMATIC [FUTURE] SPACE CO2 SENSOR AI ",
+    "[S21] M-111, Plans.pdf page 3 MECHANICAL PLAN: QX-3 BLANK FLANGE FOR FUTURE CONNECTION BY OTHERS."
+  ],
+  "controls_filler": "RETURN FAN VFD AO STATUS BI ",
+  "controls_repeat": 600,
+  "sections": {"Q1": ["A. GENERAL", ["S2", "S3", "S4"]], "Q2": ["B. AIR HANDLING UNIT QX-3", ["S5", "S6"]],
+               "Q3": ["C. EXHAUST FAN WV-8", ["S7", "S8"]]},
+  "unit": {"key": "QX", "name": "Air Handling Units", "family": "Air Handling Unit", "tag": "QX-3"},
+  "facts": [
+    {"id": "F1", "kind": "device", "subject": "outside air temperature sensor", "value": null, "source_id": "S3",
+     "quote": "Provide one outside air temperature sensor for global use by all systems."},
+    {"id": "F2", "kind": "device", "subject": "exhaust fan start", "value": "WV-8", "source_id": "S8",
+     "quote": "The BMS shall start WV-8 with the occupancy schedule."}
+  ]
+}

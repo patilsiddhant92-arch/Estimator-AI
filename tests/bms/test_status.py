@@ -357,3 +357,21 @@ def test_findings_are_read_from_the_rule_spans_only(tmp_path):
         encoding="utf-8")
     text = "\n".join(check(out, cache).lines)
     assert "1 for Wire & tag" in text and "not a finding" not in text
+
+
+# ---- the takeoff pass (plan 2026-10-11, Task 1.5) -------------------------------------------------------------------
+
+def test_a_waiting_takeoff_request_reports_the_takeoff_stage(tmp_path):
+    out, cache = tmp_path / "out", tmp_path / "cache"
+    _write(out / "00-0000 Ledger.json", {"job_name": "Invented A", "complete": True, "stopped_at": ""})
+    _write(cache / "judge-chat" / "requests" / "t.json",
+           {"kind": "takeoff_job", "step": "takeoff", "system": "Takeoff", "job": "Invented A",
+            "answer_file": str(cache / "judge-chat" / "answers" / "t.json")})
+    text = "\n".join(check(out, cache).lines)
+    assert "Stage: takeoff" in text and "1 takeoff_job request(s): Takeoff" in text
+
+
+def test_the_takeoff_stage_sorts_between_read_and_count():
+    from bms.status import _KIND_STAGE, _ORDER, _STEP_STAGE
+    assert _ORDER.index("read") < _ORDER.index("takeoff") == _ORDER.index("read") + 1 < _ORDER.index("count")
+    assert _KIND_STAGE["takeoff_job"] == "takeoff" and _STEP_STAGE["takeoff"] == "takeoff"

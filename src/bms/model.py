@@ -8,8 +8,12 @@ check, the review page edits and the renderer prints. Frozen dataclasses; every 
 - `schema_errors(value, schema)` is the small schema check the AI steps run on an answer before `from_dict`
   (`jsonschema` is not a dependency): it understands exactly the keywords `json_schema` produces.
 
-Every Device carries at least one Ref (enforced at construction). `Count.value` None means the count is unknown and
-prints "Qty (##)". The enumerations below are the only values allowed.
+Every Device carries at least one Ref (enforced at construction), and so does every Unit. `Count.value` None means the
+count is unknown and prints "Qty (##)". The enumerations below are the only values allowed.
+
+The takeoff register (takeoff pass plan 2026-10-11) sits on the Job: `sheets` (what each drawing sheet is), `units` (the
+units the documents show), `set_aside` (the counts set aside, with both numbers) and `future_items`. `bms.takeoff`
+fills it. Stage 1 only stores it: no count reads it. A Job saved before the fields loads with all four empty.
 """
 from __future__ import annotations
 
@@ -34,6 +38,12 @@ DecisionAction = Literal["accept", "change", "delete"]
 # A device line the estimator must see (T-005 ruling 7): "future" for an item the documents mark FUTURE (it prints with
 # "(<mark_note>)" in red font), "notice" for an item to notice (the line prints red); "" for none.
 Mark = Literal["", "future", "notice"]
+# the takeoff register's enumerations (takeoff pass plan 2026-10-11)
+SheetKind = Literal["new_work", "demolition", "part_plan", "enlarged_plan", "riser", "schedule", "detail",
+                    "control_diagram", "other"]
+UnitStatus = Literal["new", "demolish", "demolish_with_work", "existing_remain", "relocate", "future"]
+SetAsideReason = Literal["demolition sheet", "same unit labelled again", "part plan of one area", "future item",
+                         "existing to remain", "not a unit of this family"]
 
 # What the proposal prints for an existing BMS the documents do not name (rules.md "Front end mode"; the same fill-in as
 # assets/front_end.json existing_systems.unnamed): square brackets, so it reads as a blank to complete. The planner asks
@@ -50,6 +60,12 @@ SEVERITIES: tuple[str, ...] = get_args(Severity)
 FRONT_END_MODES: tuple[str, ...] = get_args(FrontEndMode)
 DECISION_ACTIONS: tuple[str, ...] = get_args(DecisionAction)
 MARKS: tuple[str, ...] = get_args(Mark)
+SHEET_KINDS: tuple[str, ...] = get_args(SheetKind)
+UNIT_STATUSES: tuple[str, ...] = get_args(UnitStatus)
+SET_ASIDE_REASONS: tuple[str, ...] = get_args(SetAsideReason)
+# the unit statuses whose units count toward a family's number (ruling 17: a unit shown for removal, kept as it is,
+# relocated or marked future does not; those print in the Demolition Scope or as future items)
+COUNTED_STATUSES: tuple[str, ...] = ("new",)
 
 
 class ModelError(ValueError):
@@ -154,7 +170,7 @@ class Device(_Model):
         '"notice" for an item the estimator must notice, e.g. one the factory furnishes (the line prints in red).',
         optional=True))
     mark_note: str = field(default="", **_doc(
-        'For a "future" mark: the words printed in brackets, e.g. "FUTURE AS PER control schematic on sheet M710.00"; '
+        'For a "future" mark: the words printed in brackets, e.g. "FUTURE AS PER control schematic on sheet M-9.01"; '
         '"" otherwise.', optional=True))
 
     def __post_init__(self) -> None:
@@ -247,6 +263,70 @@ class Header(_Model):
 
 
 @dataclass(frozen=True)
+class SheetClass(_Model):
+    """What one drawing sheet is, as the takeoff reader decided: its kind, the place it shows and whether the units and
+    devices drawn on it count for this job (takeoff pass plan 2026-10-11)."""
+    document: str = field(**_doc('The drawing file as the dossier names it, e.g. "Mech.pdf".'))
+    page: int = field(**_doc("The page of that file, counted from 1."))
+    number: str = field(**_doc('The sheet number as listed, e.g. "M-401"; empty when the sheet has none.'))
+    kind: SheetKind = field(**_doc("new_work, demolition, part_plan, enlarged_plan, riser, schedule, detail, "
+                                   "control_diagram or other."))
+    area: str = field(**_doc('The place the sheet shows, in plain words, e.g. "Attic" or "Level 2 east": one area name '
+                             "for every sheet of one place; empty for a sheet that is not a plan."))
+    counts_units: bool = field(**_doc("True when the units and devices drawn on this sheet count for this job."))
+    reason: str = field(**_doc("Why, in one short sentence."))
+    refs: tuple[Ref, ...] = field(default=(), **_doc(
+        "The citations behind the decision, when it rests on a passage (a demolition sheet that counts, for example)."))
+
+
+@dataclass(frozen=True)
+class Unit(_Model):
+    """One unit, or one type tag, the documents show, as the takeoff reader decided: what it is, whether it counts and
+    the passages that say so. Like a Device, it rests on at least one Ref (enforced at construction)."""
+    family: str = field(**_doc('The ledger family prefix, e.g. "AHU".'))
+    tag: str = field(**_doc('The tag as the schedule prints it; a type tag ("FCU-1") for a typical unit.'))
+    labels: tuple[str, ...] = field(**_doc("Every label the sheets show for it."))
+    status: UnitStatus = field(**_doc("new, demolish, demolish_with_work, existing_remain, relocate or future."))
+    count: int = field(**_doc("1 for a numbered unit; for a type tag, the places it is drawn on the counted sheets."))
+    sheets: tuple[str, ...] = field(**_doc("The counted sheets it is drawn on."))
+    refs: tuple[Ref, ...] = field(**_doc("The citations from this job that show this unit (at least one).",
+                                         min_items=1))
+    serves: str = field(default="", **_doc('The unit it serves, e.g. "AHU-2" for a control valve; empty when none.'))
+    service: str = field(default="", **_doc(
+        'The service it is on, e.g. "chilled water" or "hot water"; empty when none.'))
+    with_plant: bool = field(default=False, **_doc(
+        "True when the pump is drawn and scheduled as part of a plant that is in this job's scope (then serves names "
+        "the plant's unit); false for a remote pump or any other unit (ruling 18)."))
+    reason: str = field(default="", **_doc("Why, in one short sentence."))
+
+    def __post_init__(self) -> None:
+        if not self.refs:
+            raise ModelError(f"unit {self.tag!r} has no ref: every unit row rests on a citation from this job")
+
+
+@dataclass(frozen=True)
+class SetAside(_Model):
+    """A count in the ledger that the takeoff reader says is not the family's number (it counts a demolition sheet, the
+    same unit twice, a future item and so on), with the source of that number and why. Both numbers stay visible."""
+    family: str = field(**_doc('The ledger family prefix, e.g. "AHU".'))
+    value: int = field(**_doc("The number that is set aside."))
+    ref: Ref = field(**_doc("The source of that number."))
+    reason: SetAsideReason = field(**_doc(
+        "demolition sheet, same unit labelled again, part plan of one area, future item, existing to remain or not a "
+        "unit of this family."))
+    note: str = field(default="", **_doc(
+        'Both numbers in plain words, e.g. "21 plan placements set aside; 5 units on the new-work sheets".'))
+
+
+@dataclass(frozen=True)
+class FutureItem(_Model):
+    """A unit or device the documents mark as future work."""
+    family: str = field(**_doc('The ledger family prefix, e.g. "AHU".'))
+    item: str = field(**_doc('The item in plain words, e.g. "outside airflow measuring station".'))
+    refs: tuple[Ref, ...] = field(**_doc("The citations that mark it future."))
+
+
+@dataclass(frozen=True)
 class Job(_Model):
     """The whole job."""
     name: str
@@ -260,6 +340,12 @@ class Job(_Model):
     # sheet word only, never bare in client text (FINAL-J, `citations.SourceIds.source_sheets`); the intake, the
     # validator and the renderer read them alike. () on a Job saved before the field.
     source_sheets: tuple[str, ...] = ()
+    # the takeoff register (`bms.takeoff`): what each sheet is, the units the documents show, the counts set aside and
+    # the items marked future. Stage 1 of the takeoff pass stores it and no count reads it. () on a Job saved before them.
+    sheets: tuple[SheetClass, ...] = ()
+    units: tuple[Unit, ...] = ()
+    set_aside: tuple[SetAside, ...] = ()
+    future_items: tuple[FutureItem, ...] = ()
 
     def system(self, key: str) -> System:
         for system in self.systems:
@@ -305,7 +391,7 @@ class Decision(_Model):
 
 
 MODEL_CLASSES = (Ref, OtherCount, Count, Family, Assumption, Device, Clarification, Served, System, ScopeException,
-                 FrontEnd, Header, Job, Finding, Decision)
+                 FrontEnd, Header, Job, Finding, Decision, SheetClass, Unit, SetAside, FutureItem)
 
 # ---- JSON round-trip -----------------------------------------------------------------------------------------
 
@@ -359,6 +445,10 @@ def _from_json(tp, data, path: str):
             return tp(**kwargs)
         except ModelError as error:
             raise ModelError(f"{path}: {error}") from None
+    if tp is bool:
+        if not isinstance(data, bool):
+            raise ModelError(f"{path}: expected true or false, got {data!r}")
+        return data
     if tp is float:
         if isinstance(data, bool) or not isinstance(data, (int, float)):
             raise ModelError(f"{path}: expected a number, got {data!r}")
@@ -411,6 +501,8 @@ def _schema_of(tp, meta: dict) -> dict:
                 **({"description": meta["doc"]} if meta.get("doc") else {})}
     if tp is str:
         return {"type": "string", **doc}
+    if tp is bool:
+        return {"type": "boolean", **doc}
     if tp is int:
         return {"type": "integer", **doc}
     if tp is float:
@@ -462,4 +554,6 @@ __all__ = ["Verb", "Control", "Flag", "ClarificationKind", "AlternateKind", "Par
            "UNNAMED_EXISTING", "VERBS", "CONTROLS", "FLAGS", "CLARIFICATION_KINDS", "ALTERNATES", "PARTIES", "SEVERITIES",
            "FRONT_END_MODES", "DecisionAction", "DECISION_ACTIONS", "Mark", "MARKS", "ModelError", "Ref", "OtherCount", "Count", "Family", "Assumption", "Device",
            "Clarification", "Served", "System", "ScopeException", "FrontEnd", "Header", "Job", "Finding", "Decision", "MODEL_CLASSES",
+           "SheetKind", "UnitStatus", "SetAsideReason", "SHEET_KINDS", "UNIT_STATUSES", "SET_ASIDE_REASONS",
+           "COUNTED_STATUSES", "SheetClass", "Unit", "SetAside", "FutureItem",
            "json_schema", "schema_errors"]

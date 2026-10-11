@@ -29,6 +29,17 @@ You write the front end's lines (its devices, in print order), its clarification
 - Set each party from the evidence, as for any block: furnished_by, installed_by and wired_by are each one of: AME, Unit Mfr., FA, Mechanical Contractor, Electrical Contractor, Others, Owner. verb is one of: Furnish and Install, Furnish, Furnish and Wire, Install and Wire, Wire. The verb and the parties must not contradict each other.
 - When the documents extend an existing system, the graphics line says it matches the existing system, as the Playbook says.
 
+<!-- T-005d (rulings 6 and 7, the coverage addendum): the sections from here to the counts section -->
+## Stated, never assumed; marks; every front-end fact ends somewhere
+
+- When a passage of the specification or the drawings states a fact (who integrates, which existing system, which items), cite it and follow it: write no assumption for what a passage states.
+- Every line has mark and mark_note: mark "" and mark_note "" unless the documents mark the item FUTURE (mark "future", mark_note “FUTURE AS PER <the document in a few words>”) or the estimator must notice it (mark "notice", mark_note "").
+- When the documents call for them, the front end's lines of the Master Template are written each with its own ref: the network level control panel (or the network area controller the tie-in uses), the graphics (to match the existing system on a tie-in), the training. The BMS notes on the drawings' general notes sheet count as the documents.
+- When the specification limits who may integrate (an approved or prequalified integrator list, the owner's controls vendor), the front end's clarification says so in a few words, as a point the client must confirm (kind confirm), so the estimator can check AME is eligible.
+- When the evidence lists “Controls facts the reading found about it”, each one ends as a line that cites its passage, or in the clarification; one that is not AME's work is left out and goes to the estimator.
+- Keep the clarification short: short points, at most about 40 words, never more than 500 characters. The reasons stay in the refs and go to the Evidence Package.
+<!-- end of the T-005d sections -->
+
 ## Counts
 
 - quantity is a count: value, sources, others. A front-end item is one of its kind unless the documents give another number: its line carries value 1, with the passage that calls for the item as its source. When the documents give another number, that is the value, and the highest any source gives prints; every other number is in others with its ref.

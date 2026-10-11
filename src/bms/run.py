@@ -1,6 +1,8 @@
 """The rebuilt estimate, in its final order (design §5 "Integration"):
 
-read (the old app's staged reading) -> plan_job -> counts cross-check (text and vision, through the run's transport)
+read (the old app's staged reading) -> takeoff (`bms.takeoff`: one whole-job AI step returns the sheet classes and the
+unit register; stored on the Job, it changes no count) -> plan_job -> counts cross-check (text and vision, through
+the run's transport)
 -> write_system per system, then write_front_end (the front end is written like a system, from the passages the
 planner cited for it; nothing is asked when the documents call for none) -> the estimator's decisions -> validate ->
 qc_job -> revise_system (must_fix only, one round; revise_front_end for the front end's findings) -> validate ->
@@ -60,7 +62,7 @@ from estimator.writing.dossier import build_dossier
 from estimator.writing.front_end import job_header
 from estimator.writing.judge import Judge
 
-from bms import ai, ai_evidence
+from bms import ai, ai_evidence, takeoff
 from bms.citations import device_refs, job_ids, job_sheets, job_tags, source_sheets
 from bms.counts import counted_from, cross_check, flag_written_devices, publish_proofs
 from bms.coverage import coverage
@@ -88,8 +90,9 @@ class RunResult:
     """What one run did. `status` "waiting": chat requests wait for answers (`waiting` of them, at `stage`);
     "done": the proposal, price sheet and Evidence Package are written."""
     status: Status
-    stage: str                              # the last step reached: "read", "count", "write", "decisions", "qc",
-                                            # "revise", "done"; "render" only in the run state of a stop while printing
+    stage: str                              # the last step reached: "read", "takeoff", "count", "write", "decisions",
+                                            # "qc", "revise", "done"; "render" only in the run state of a stop while
+                                            # printing
     waiting: int = 0
     job_file: Path | None = None            # out/<quote> Job.json: the Job model as last saved
     findings: tuple[Finding, ...] = ()      # the final validate's findings, the QC findings left open and the coverage
@@ -504,9 +507,22 @@ def _estimate(job_folder: Path, out: Path, cache: Path, mode: Mode, known: dict)
         return RunResult("waiting", "read", waiting=judge.waiting,
                          messages=(f"Reading stopped at the {ledger.stopped_at} pass: waiting for its answer.",))
 
+    # 1b. the takeoff pass: one whole-job AI step returns the register (sheet classes, unit rows). Stage 1 stores it on
+    # the Job; no count reads it.
+    known["stage"] = "takeoff"
+    playbook = load_playbook()
+    transport = (ai.ChatTransport(cache, job=dossier.job_name) if mode == "chat" else ai.ApiTransport(cache))
+    try:
+        register = takeoff.take_off(ledger, catalogue, reading, dossier, playbook, transport)
+    except ai.NoAnswer as missing:
+        return RunResult("waiting", "takeoff", waiting=transport.waiting,
+                         messages=(_not_answered("Takeoff", missing),))
+    takeoff_file = out / f"{quote} Takeoff.json"
+    if takeoff.save(register, takeoff_file):
+        print(f"Wrote {takeoff_file}")
+
     # 2. plan, then the counts cross-check
     known["stage"] = "count"
-    playbook = load_playbook()
     job = plan_job(ledger, catalogue, dossier, playbook)
     job = dataclasses.replace(job, header=Header(
         quote_number=old_header.quote_number, reference=old_header.reference, mep_engineer=old_header.mep_engineer,
@@ -518,7 +534,7 @@ def _estimate(job_folder: Path, out: Path, cache: Path, mode: Mode, known: dict)
         # every writer, the validator and the renderer alike, so a writer's exact copy of its evidence's where is
         # never refused
         source_sheets=source_sheets(ledger.sources, getattr(dossier, "sources", None) or {}))
-    transport = (ai.ChatTransport(cache, job=dossier.job_name) if mode == "chat" else ai.ApiTransport(cache))
+    job = takeoff.attach(job, register)
     asked = transport.waiting
     job = cross_check(job, catalogue, cache, transport=transport)
     job_file = out / f"{quote} Job.json"
@@ -538,10 +554,11 @@ def _estimate(job_folder: Path, out: Path, cache: Path, mode: Mode, known: dict)
 
     # 3. write every system (all are asked before stopping for answers)
     known["stage"] = "write"
-    evidence = {s.key: ai.evidence_for(s, dossier) for s in job.systems}
+    evidence = {s.key: ai.system_evidence(s, dossier, ledger) for s in job.systems}   # with its facts checklist (T-005d)
     # the front end is written like a system (HP 22): its own evidence, from the passages the planner cited for it
     taken = {s.key for s in job.systems}
-    front_evidence = ai.front_end_evidence(job.front_end, dossier, taken) if job.front_end is not None else ""
+    front_evidence = (ai.front_end_evidence(job.front_end, dossier, taken, ledger) if job.front_end is not None
+                      else "")
     # I, one set for every writer and the revise: every id of the job and of every system's evidence (the front
     # end's too). A ref may cite only its system's evidence, so the final job's ids (the validator's and the
     # renderer's I) are in it, and a text one writer accepts is never an issued id once a later system cites it.

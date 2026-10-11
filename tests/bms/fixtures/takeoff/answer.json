@@ -1,0 +1,387 @@
+{
+  "sheets": [
+    {
+      "document": "Mech.pdf",
+      "page": 1,
+      "number": "M-601",
+      "kind": "schedule",
+      "area": "",
+      "counts_units": false,
+      "reason": "Schedule sheet: it draws no units.",
+      "refs": []
+    },
+    {
+      "document": "Mech.pdf",
+      "page": 2,
+      "number": "M-401",
+      "kind": "new_work",
+      "area": "Attic",
+      "counts_units": true,
+      "reason": "New work ductwork plan of the attic.",
+      "refs": []
+    },
+    {
+      "document": "Mech.pdf",
+      "page": 3,
+      "number": "M-402",
+      "kind": "new_work",
+      "area": "Attic",
+      "counts_units": true,
+      "reason": "New work piping plan of the same attic.",
+      "refs": []
+    },
+    {
+      "document": "Mech.pdf",
+      "page": 4,
+      "number": "M-403",
+      "kind": "part_plan",
+      "area": "Attic",
+      "counts_units": true,
+      "reason": "New work equipment plan, part A of the attic.",
+      "refs": []
+    },
+    {
+      "document": "Mech.pdf",
+      "page": 5,
+      "number": "M-404",
+      "kind": "part_plan",
+      "area": "Attic",
+      "counts_units": true,
+      "reason": "New work equipment plan, part B of the attic.",
+      "refs": []
+    },
+    {
+      "document": "Mech.pdf",
+      "page": 6,
+      "number": "MD-401",
+      "kind": "demolition",
+      "area": "Attic",
+      "counts_units": false,
+      "reason": "Demolition plan of the attic: the units shown are existing.",
+      "refs": []
+    },
+    {
+      "document": "Mech.pdf",
+      "page": 7,
+      "number": "M-201",
+      "kind": "new_work",
+      "area": "Level 1",
+      "counts_units": true,
+      "reason": "New work plan of the first floor.",
+      "refs": []
+    },
+    {
+      "document": "Mech.pdf",
+      "page": 8,
+      "number": "M-202",
+      "kind": "new_work",
+      "area": "Level 2",
+      "counts_units": true,
+      "reason": "New work plan of the second floor.",
+      "refs": []
+    },
+    {
+      "document": "Mech.pdf",
+      "page": 9,
+      "number": "MD-201",
+      "kind": "demolition",
+      "area": "Level 1",
+      "counts_units": false,
+      "reason": "Demolition plan of the first floor: the thermostats shown are existing.",
+      "refs": []
+    },
+    {
+      "document": "Mech.pdf",
+      "page": 10,
+      "number": "M-701",
+      "kind": "control_diagram",
+      "area": "",
+      "counts_units": false,
+      "reason": "Control diagram: it shows no placements, and the measuring station on it is marked future.",
+      "refs": []
+    }
+  ],
+  "units": [
+    {
+      "family": "AHU",
+      "tag": "AHU-1",
+      "labels": ["AHU-1"],
+      "status": "new",
+      "count": 1,
+      "sheets": ["M-401", "M-402", "M-403"],
+      "refs": [
+        {
+          "source_id": "F3",
+          "quote": "AHU-1",
+          "where": "M-601 AIR HANDLING UNIT SCHEDULE, Mech.pdf page 1"
+        }
+      ],
+      "serves": "",
+      "service": "",
+      "with_plant": false,
+      "reason": "Scheduled, and drawn on the new work plans."
+    },
+    {
+      "family": "AHU",
+      "tag": "AHU-2",
+      "labels": ["AHU-2"],
+      "status": "new",
+      "count": 1,
+      "sheets": ["M-401", "M-402", "M-403"],
+      "refs": [
+        {
+          "source_id": "F3",
+          "quote": "AHU-2",
+          "where": "M-601 AIR HANDLING UNIT SCHEDULE, Mech.pdf page 1"
+        }
+      ],
+      "serves": "",
+      "service": "",
+      "with_plant": false,
+      "reason": "Scheduled, and drawn on the new work plans."
+    },
+    {
+      "family": "AHU",
+      "tag": "AHU-3",
+      "labels": ["AHU-3"],
+      "status": "new",
+      "count": 1,
+      "sheets": ["M-401", "M-402", "M-403", "M-404"],
+      "refs": [
+        {
+          "source_id": "F3",
+          "quote": "AHU-3",
+          "where": "M-601 AIR HANDLING UNIT SCHEDULE, Mech.pdf page 1"
+        }
+      ],
+      "serves": "",
+      "service": "",
+      "with_plant": false,
+      "reason": "Scheduled, and drawn on the new work plans."
+    },
+    {
+      "family": "AHU",
+      "tag": "AHU-4",
+      "labels": ["AHU-4"],
+      "status": "new",
+      "count": 1,
+      "sheets": ["M-401", "M-402", "M-404"],
+      "refs": [
+        {
+          "source_id": "F3",
+          "quote": "AHU-4",
+          "where": "M-601 AIR HANDLING UNIT SCHEDULE, Mech.pdf page 1"
+        }
+      ],
+      "serves": "",
+      "service": "",
+      "with_plant": false,
+      "reason": "Scheduled, and drawn on the new work plans."
+    },
+    {
+      "family": "AHU",
+      "tag": "AHU-5",
+      "labels": ["AHU-5"],
+      "status": "new",
+      "count": 1,
+      "sheets": ["M-401", "M-402", "M-404"],
+      "refs": [
+        {
+          "source_id": "F3",
+          "quote": "AHU-5",
+          "where": "M-601 AIR HANDLING UNIT SCHEDULE, Mech.pdf page 1"
+        }
+      ],
+      "serves": "",
+      "service": "",
+      "with_plant": false,
+      "reason": "Scheduled, and drawn on the new work plans."
+    },
+    {
+      "family": "AHU",
+      "tag": "AHU-6",
+      "labels": ["(D)AHU-6"],
+      "status": "demolish",
+      "count": 1,
+      "sheets": [],
+      "refs": [
+        {
+          "source_id": "F13",
+          "quote": "AHU-6 and EF-6 are existing units shown for demolition only",
+          "where": "KEY NOTES 1, MD-401, Mech.pdf page 6"
+        }
+      ],
+      "serves": "",
+      "service": "",
+      "with_plant": false,
+      "reason": "Existing unit shown for removal on MD-401; the documents name no controls work on it."
+    },
+    {
+      "family": "EF",
+      "tag": "EF-1",
+      "labels": ["EF-1"],
+      "status": "new",
+      "count": 1,
+      "sheets": ["M-401", "M-403"],
+      "refs": [
+        {
+          "source_id": "F6",
+          "quote": "EF-1",
+          "where": "M-601 EXHAUST FAN SCHEDULE, Mech.pdf page 1"
+        }
+      ],
+      "serves": "",
+      "service": "",
+      "with_plant": false,
+      "reason": "Scheduled, and drawn on the new work plans."
+    },
+    {
+      "family": "EF",
+      "tag": "EF-2",
+      "labels": ["EF-2"],
+      "status": "new",
+      "count": 1,
+      "sheets": ["M-401", "M-403"],
+      "refs": [
+        {
+          "source_id": "F6",
+          "quote": "EF-2",
+          "where": "M-601 EXHAUST FAN SCHEDULE, Mech.pdf page 1"
+        }
+      ],
+      "serves": "",
+      "service": "",
+      "with_plant": false,
+      "reason": "Scheduled, and drawn on the new work plans."
+    },
+    {
+      "family": "EF",
+      "tag": "EF-3",
+      "labels": ["EF-3"],
+      "status": "new",
+      "count": 1,
+      "sheets": ["M-401", "M-403", "M-404"],
+      "refs": [
+        {
+          "source_id": "F6",
+          "quote": "EF-3",
+          "where": "M-601 EXHAUST FAN SCHEDULE, Mech.pdf page 1"
+        }
+      ],
+      "serves": "",
+      "service": "",
+      "with_plant": false,
+      "reason": "Scheduled, and drawn on the new work plans."
+    },
+    {
+      "family": "EF",
+      "tag": "EF-4",
+      "labels": ["EF-4"],
+      "status": "new",
+      "count": 1,
+      "sheets": ["M-401", "M-404"],
+      "refs": [
+        {
+          "source_id": "F6",
+          "quote": "EF-4",
+          "where": "M-601 EXHAUST FAN SCHEDULE, Mech.pdf page 1"
+        }
+      ],
+      "serves": "",
+      "service": "",
+      "with_plant": false,
+      "reason": "Scheduled, and drawn on the new work plans."
+    },
+    {
+      "family": "EF",
+      "tag": "EF-5",
+      "labels": ["EF-5"],
+      "status": "new",
+      "count": 1,
+      "sheets": ["M-401", "M-404"],
+      "refs": [
+        {
+          "source_id": "F6",
+          "quote": "EF-5",
+          "where": "M-601 EXHAUST FAN SCHEDULE, Mech.pdf page 1"
+        }
+      ],
+      "serves": "",
+      "service": "",
+      "with_plant": false,
+      "reason": "Scheduled, and drawn on the new work plans."
+    },
+    {
+      "family": "EF",
+      "tag": "EF-6",
+      "labels": ["(D)EF-6"],
+      "status": "demolish",
+      "count": 1,
+      "sheets": [],
+      "refs": [
+        {
+          "source_id": "F13",
+          "quote": "AHU-6 and EF-6 are existing units shown for demolition only",
+          "where": "KEY NOTES 1, MD-401, Mech.pdf page 6"
+        }
+      ],
+      "serves": "",
+      "service": "",
+      "with_plant": false,
+      "reason": "Existing unit shown for removal on MD-401; the documents name no controls work on it."
+    },
+    {
+      "family": "ERU",
+      "tag": "ERU-1",
+      "labels": ["ERU-1"],
+      "status": "new",
+      "count": 1,
+      "sheets": ["M-401", "M-402", "M-404"],
+      "refs": [
+        {
+          "source_id": "F9",
+          "quote": "ERU-1",
+          "where": "M-601 ENERGY RECOVERY UNIT SCHEDULE, Mech.pdf page 1"
+        }
+      ],
+      "serves": "",
+      "service": "",
+      "with_plant": false,
+      "reason": "Scheduled, and drawn on the new work plans."
+    },
+    {
+      "family": "FCU",
+      "tag": "FCU-1",
+      "labels": ["FCU-1"],
+      "status": "new",
+      "count": 55,
+      "sheets": ["M-201", "M-202"],
+      "refs": [
+        {
+          "source_id": "F14",
+          "quote": "FCU-1 is a typical unit drawn 25 times on M-201 and 30 on M-202",
+          "where": "M-201, Mech.pdf page 7"
+        }
+      ],
+      "serves": "",
+      "service": "",
+      "with_plant": false,
+      "reason": "A typical unit: 25 places on M-201 and 30 on M-202."
+    }
+  ],
+  "set_aside": [],
+  "future_items": [
+    {
+      "family": "AHU",
+      "item": "outside airflow measuring station",
+      "refs": [
+        {
+          "source_id": "F15",
+          "quote": "AHU OUTSIDE AIRFLOW MEASURING STATION (FUTURE)",
+          "where": "M-701, Mech.pdf page 10"
+        }
+      ]
+    }
+  ],
+  "questions": []
+}
