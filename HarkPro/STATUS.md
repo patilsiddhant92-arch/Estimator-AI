@@ -4,7 +4,7 @@ Only the lead edits this file.
 
 Lead: Fable session, from 2026-10-11 afternoon.
 
-Priority order for HarkPro: T-005e fixes, T-005d fixes, then T-007 when STATUS says 'T-007 base ready'. The estimator wants the app ready for a job run on Monday 2026-10-13.
+Priority order for HarkPro: T-005d fixes (if still open), T-006 report, then T-007 when STATUS says 'T-007 base ready'. The estimator wants the app ready for a job run on Monday 2026-10-13.
 
 | Task | Title | Status | Branch | Updated |
 |---|---|---|---|---|
@@ -19,5 +19,5 @@ Priority order for HarkPro: T-005e fixes, T-005d fixes, then T-007 when STATUS s
 | T-005c | Proposal and render: header, red BMS name, FUTURE marks | MERGED into lead/wave2 2026-10-11 (two lead fixes) | hark/T-005c | 2026-10-11 |
 | T-005d | Writer and evidence: no "Assumed", loose devices, text cut | OPEN (sent back, see T-005d-fixes.md) | hark/T-005d | 2026-10-11 |
 | T-005e | Master Template format, GEM order, off-hours, prevailing wage | OPEN (sent back, see T-005e-fixes.md) | hark/T-005e | 2026-10-11 |
-| T-006 | Takeoff pass, Stage 1: sheet classes and unit register, no count changes | REASSIGNED to Grok (grok/T-G2) | hark/T-006 | 2026-10-11 |
+| T-006 | Takeoff pass, Stage 1: sheet classes and unit register, no count changes | IN REVIEW (hark/T-006 5ab09da; report missing: push it) | hark/T-006 | 2026-10-11 |
 | T-007 | Takeoff pass, Stage 2: the register binds counts and blocks (Tasks 2.1 to 2.5, 2.7, part of 2.6) | OPEN (waits for 'T-007 base ready') | hark/T-007 | 2026-10-11 |
