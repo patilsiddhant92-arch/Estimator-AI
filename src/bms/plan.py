@@ -1357,10 +1357,13 @@ class _Planner:
             torn |= {t for t, found in targets.items() if len(found) > 1}
             tied = {t: next(iter(found)) for t, found in targets.items() if len(found) == 1 and t not in torn}
             count = fam.count
-            per_tag = count.value is None or count.value == len(fam.tags)
+            # one per tag: the count that must print (the highest) is the number of tags; a higher count from any
+            # source is no per-tag count, and the family then moves whole with its own count (the highest prints)
+            per_tag = count.highest() is None or count.highest() == len(fam.tags)
             if not per_tag and not (len(tied) == len(fam.tags) and len(set(tied.values())) == 1):
                 tied = {}
             moved: list[str] = []
+            placed: list[str] = []                  # "AHU CV-1, CV-2 (2)": where the valves went, for the question
             for unit_id in dict.fromkeys(tied[t] for t in fam.tags if t in tied):
                 unit = by_id[unit_id]
                 tags = tuple(t for t in fam.tags if tied.get(t) == unit_id)
@@ -1369,6 +1372,14 @@ class _Planner:
                 unit.families.append(_Fam(fam.name, tags, part, source, moved=True))
                 unit.matches += [m for m in valve.matches if m not in unit.matches]
                 moved += tags
+                placed.append(f"{unit.name} {tag_words(tags)} ({len(tags)})")
+            if moved and count.others:
+                # the sources give other counts: one question names every number (the highest prints)
+                numbers = ", ".join(f"{o.value} per {_places((o.ref,))}" for o in count.others)
+                printed = (f"{len(fam.tags)} tags, planned under their units by tag ({'; '.join(placed)})"
+                           if per_tag else f"{count.highest()} prints, the family moved whole ({'; '.join(placed)})")
+                self.questions.append(f"{fam.name} ({source.prefix}): {count.value} per {_places(count.sources)}, "
+                                      f"also {numbers}; {printed}; confirm the count.")
             left = tuple(t for t in fam.tags if t not in moved)
             if not left:
                 out.remove(valve)
