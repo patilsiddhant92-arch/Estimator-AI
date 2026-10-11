@@ -247,10 +247,15 @@ _SPLIT_TAG = re.compile(rf"[{_DASH}][^\S\r\n]*\r?\n[^\S\r\n]*")   # a tag split 
 _NUMBERED = re.compile(r"^(.*?)(\d+)$")
 _COUNT_BEFORE = re.compile(r"^\d+\s*[-xX×*]\s*(?=[A-Z])")
 # a count stated after a tag, the line's only other words (FINAL-O, REVIEW-FINAL8 H3, ruled: a stated multiplier is a
-# placement count): "CUH-A (TYP. OF 4)", "CUH-A TYP OF 4", "CUH-A x4", "CUH-A (4)", "CUH-A 4 PLACES"
+# placement count): "CUH-A (TYP. OF 4)", "CUH-A (TYP. OF 4 PLACES)", "CUH-A TYP OF 4", "CUH-A x4", "CUH-A (4)",
+# "CUH-A(4)", "CUH-A 4 PLACES"; or before it (HP 8): "4x CUH-A", "4 × CUH-A". A dash is no count ("2-VAV-4" is one
+# VAV-4).
 STATED_MOST = 50                                   # the most places a stated count reads; more is one place, said
 _HEAD_AND_REST = re.compile(r"^\s*(\S+)\s+(.*?\S)\s*$")
-_STATED = (re.compile(r"^TYP(?:ICAL)?\.?\s*OF\s+(?P<n>[^\s()]+)\.?$", re.I),
+_GLUED_BRACKET = re.compile(r"^\s*([^\s(]+)(\(.*\))\s*$")                      # "CUH-A(4)": no space before the bracket
+_COUNT_FIRST = re.compile(r"^\s*(?P<n>\d+)\s*[xX×]\s*(?P<tag>\S+)\s*$")         # "4x CUH-A", "4×CUH-A"
+_PLACES_WORD = r"(?:\s*(?:PLACES|PLCS?|LOCATIONS)\.?)?"
+_STATED = (re.compile(rf"^TYP(?:ICAL)?\.?\s*OF\s+(?P<n>[^\s()]+?)\.?{_PLACES_WORD}$", re.I),
            re.compile(r"^[X×]\s*(?P<n>\d+)$", re.I),
            re.compile(r"^(?P<n>\d+)\s*(?:PLACES|PLCS?|LOCATIONS)\.?$", re.I))
 _STATED_IN_BRACKETS = re.compile(r"^(?P<n>\d+)$")
@@ -369,24 +374,34 @@ def _line_tally(line: str, keys: Mapping[str, str]) -> Counter:
     return tally
 
 
+def _read_count(n: str) -> int | None:
+    return int(n) if n.isdigit() and 0 < int(n) <= STATED_MOST else None
+
+
 def _stated(line: str, keys: Mapping[str, str]) -> tuple[str, int | None] | None:
-    """(the tag, its stated count) of a line that is a tag and a count of its places and nothing else; the count is
-    None when it is not read (not a number, zero, or over STATED_MOST). None when the line is no such line."""
-    found = _HEAD_AND_REST.match(line)
-    if found is None:
-        return None
-    tag = _token_tag(found.group(1), keys)
-    if tag is None:
-        return None
-    rest, bracketed = found.group(2).strip(), False
-    if rest.startswith("(") and rest.endswith(")"):
-        rest, bracketed = rest[1:-1].strip(), True
-    patterns = _STATED + ((_STATED_IN_BRACKETS,) if bracketed else ())
-    match = next((m for m in (p.match(rest) for p in patterns) if m), None)
-    if match is None:
-        return None
-    n = match.group("n")
-    return tag, (int(n) if n.isdigit() and 0 < int(n) <= STATED_MOST else None)
+    """(the tag, its stated count) of a line that is a tag and a count of its places and nothing else, the count after
+    the tag (a space or none before a bracket: "CUH-A (4)", "CUH-A(4)") or before it ("4x CUH-A"); the count is None
+    when it is not read (not a number, zero, or over STATED_MOST). None when the line is no such line."""
+    first = _COUNT_FIRST.match(line)
+    if first is not None:
+        tag = _token_tag(first.group("tag"), keys)
+        if tag is not None:
+            return tag, _read_count(first.group("n"))
+    # both splits are tried: "CUH-A(TYP. OF 4)" is read as the tag "CUH-A(TYP." (its "(TYP." is label noise) and "OF 4)"
+    # by the first, and as the tag "CUH-A" and "(TYP. OF 4)" by the second, which is the one that states a count
+    for pattern in (_HEAD_AND_REST, _GLUED_BRACKET):
+        found = pattern.match(line)
+        tag = _token_tag(found.group(1), keys) if found is not None else None
+        if tag is None:
+            continue
+        rest, bracketed = found.group(2).strip(), False
+        if rest.startswith("(") and rest.endswith(")"):
+            rest, bracketed = rest[1:-1].strip(), True
+        patterns = _STATED + ((_STATED_IN_BRACKETS,) if bracketed else ())
+        match = next((m for m in (p.match(rest) for p in patterns) if m), None)
+        if match is not None:
+            return tag, _read_count(match.group("n"))
+    return None
 
 
 def unread_counts(text: str, keys: Mapping[str, str]) -> list[tuple[str, str]]:

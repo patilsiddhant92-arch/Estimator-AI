@@ -69,20 +69,27 @@ def expand(tags) -> list[str]:
 
 
 # A count stated after a tag, in every form the catalogue reads on a line of its own (`estimator.catalogue.tags`
-# `_STATED`, ruled FINAL-O: a stated multiplier is a placement count): "CUH-A (TYP. OF 4)", "CUH-A TYP OF 4",
-# "CUH-A (4)", "CUH-A 4 PLACES", "CUH-A x4", "CUH-A×4", and "CUH-Ax4" (a small x only, and only after a known tag:
-# `times_form`). The catalogue's patterns are anchored to the whole rest of a line, so they cannot scan a group
-# fact or a sheet's text; these are the same forms, unanchored. The count is the first group that matched. As in the
-# catalogue, a TYP, bracket or PLACES count over STATED_MOST is not read ("CD-1 (200)" is a size or a note, not 200
-# places); "x" and "×" are read at any size, as before.
-TIMES_AFTER = (r"(?:\s*\(\s*TYP(?:ICAL)?\.?\s*OF\s+(\d+)\s*\.?\s*\)"
-               r"|\s+TYP(?:ICAL)?\.?\s*OF\s+(\d+)"
+# `_STATED`, ruled FINAL-O: a stated multiplier is a placement count): "CUH-A (TYP. OF 4)", "CUH-A (TYP. OF 4
+# PLACES)", "CUH-A TYP OF 4", "CUH-A (4)", "CUH-A(4)", "CUH-A 4 PLACES", "CUH-A x4", "CUH-A×4", and "CUH-Ax4" (a small
+# x only, and only after a known tag: `times_form`). The catalogue's patterns are anchored to the whole rest of a
+# line, so they cannot scan a group fact or a sheet's text; these are the same forms, unanchored. The count is the
+# first group that matched. As in the catalogue, a TYP, bracket or PLACES count over STATED_MOST is not read ("CD-1
+# (200)" is a size or a note, not 200 places); "x" and "×" are read at any size, as before.
+_PLACES_WORD = r"(?:PLACES|PLCS?|LOCATIONS)"
+TIMES_AFTER = (rf"(?:\s*\(\s*TYP(?:ICAL)?\.?\s*OF\s+(\d+)(?:\s*{_PLACES_WORD}\.?)?\s*\.?\s*\)"
+               rf"|\s+TYP(?:ICAL)?\.?\s*OF\s+(\d+)(?:\s*{_PLACES_WORD}\.?)?"
                r"|\s*\(\s*(\d+)\s*\)"
-               r"|\s+(\d+)\s*(?:PLACES|PLCS?|LOCATIONS)\.?"
+               rf"|\s+(\d+)\s*{_PLACES_WORD}\.?"
                r"|\s*×\s*(\d+)"
                r"|\s+x\s*(\d+))"
                r"(?![A-Za-z0-9]|\.\d)")                     # never the X of "TX1", nor a decimal such as "x4.5"
 GLUED_TIMES = r"(?-i:x)(\d+)(?![A-Za-z0-9]|\.\d)"            # "CUH-Ax4": a small x glued to a tag
+# A count before a tag, "4x CUH-A", "4 × CUH-A", "4×CUH-A" (HP 8), read as the "x" forms are: at any size, and a zero
+# states no count. Its digits start a word (never the tail of "24X24" or of a dotted number), and a dash is no count:
+# "2-VAV-4" is one VAV-4 (FINAL-N). The tag is not the start of a longer one ("CUH-A-1", "CUH-AB").
+COUNT_BEFORE = r"(?<![A-Za-z0-9.\-])(\d+)\s*[x×]\s*"
+_AFTER_TAG = r"(?![A-Za-z0-9]|-[A-Za-z0-9])"
+_COUNT_THEN_TAG = re.compile(rf"{COUNT_BEFORE}({_A_TAG}){_AFTER_TAG}", re.I)
 _TAG_STATED = re.compile(rf"(?<![A-Za-z0-9\-])({_A_TAG}){TIMES_AFTER}", re.I)
 _TAG_GLUED = re.compile(rf"(?<![A-Za-z0-9\-])({_A_TAG}){GLUED_TIMES}")
 
@@ -100,10 +107,12 @@ def stated_number(match: re.Match, first: int = 1) -> int | None:
 
 def times_form(text: str, known=()) -> str:
     """The text with each count stated after a tag written as "TAG ×N" (TIMES_AFTER), so one reading of "×N" reads
-    every form; a bracket that only states a count goes, so "CUH (CUH-A (4), CUH-B)" lists two tags. A glued
-    "CUH-Ax4" is split only when CUH-A is one of the `known` tags and "CUH-Ax4" itself is not (a tag such as
-    "VAV-2X1" stays whole)."""
+    every form; a bracket that only states a count goes, so "CUH (CUH-A (4), CUH-B)" lists two tags. A count before a
+    tag ("4x CUH-A") is written "CUH-A ×4" too. A glued "CUH-Ax4" is split only when CUH-A is one of the `known`
+    tags and "CUH-Ax4" itself is not (a tag such as "VAV-2X1" stays whole)."""
     keys = {t.casefold() for t in known}
+    text = _COUNT_THEN_TAG.sub(lambda m: f"{m.group(2).rstrip('.')} ×{m.group(1)}" if int(m.group(1)) > 0
+                               else m.group(0), text)
     text = _TAG_STATED.sub(lambda m: m.group(0) if stated_number(m, 2) is None
                            else f"{m.group(1)} ×{stated_number(m, 2)}", text)
     return _TAG_GLUED.sub(lambda m: f"{m.group(1)} ×{m.group(2)}"
@@ -350,28 +359,33 @@ class Reader:
 
     def _tag_times_on_sheets(self, tags: tuple[str, ...]) -> list[tuple[str, dict[str, int], Ref]]:
         """Each dossier line that states a count after one of the family's tags ("TAG ×N", "TAG xN", "TAGxN",
-        "TAG (TYP. OF N)", "TAG (N)", "TAG N PLACES": TIMES_AFTER): (its source id, the count stated for each tag on
-        it in capitals, summed over the line, its ref: the source line's id, the words as printed). Only tags with a
-        dash are looked for. The dossier's own equipment counts lines are not read: their reading notes name a type
-        tag's placements ("CUH-A 4 places, 4 on M-101"), which TIMES_AFTER also reads as a stated count, and those
-        placements are the plan sheets' counts again, not more units (the counts line's `plan placements` clause is
-        read from the count facts: `counts_clauses`)."""
+        "TAG (TYP. OF N)", "TAG (TYP. OF N PLACES)", "TAG (N)", "TAG N PLACES": TIMES_AFTER) or before it ("Nx TAG":
+        COUNT_BEFORE): (its source id, the count stated for each tag on it in capitals, summed over the line, its ref:
+        the source line's id, the words as printed). Only tags with a dash are looked for. The dossier's own equipment
+        counts lines are not read: their reading notes name a type tag's placements ("CUH-A 4 places, 4 on M-101"),
+        which TIMES_AFTER also reads as a stated count, and those placements are the plan sheets' counts again, not
+        more units (the counts line's `plan placements` clause is read from the count facts: `counts_clauses`)."""
         wanted = [t for t in tags if "-" in t]
         if not wanted or not self.dossier_text:
             return []
         names = "|".join(re.escape(t) for t in sorted(wanted, key=len, reverse=True))
-        pattern = re.compile(rf"(?<![A-Za-z0-9\-])({names})(?:{TIMES_AFTER}|{GLUED_TIMES})", re.I)
+        after = re.compile(rf"(?<![A-Za-z0-9\-])({names})(?:{TIMES_AFTER}|{GLUED_TIMES})", re.I)
+        before = re.compile(rf"{COUNT_BEFORE}({names}){_AFTER_TAG}", re.I)
         found: list[tuple[str, dict[str, int], Ref]] = []
         for line in self.dossier_text.splitlines():
             head = _SOURCE_LINE.match(line)
             if not head or self.dossier_sources.get(head.group(1), "").startswith(_COUNTS_SOURCE):
                 continue
-            said = [m for m in pattern.finditer(head.group(2)) if stated_number(m, 2) is not None]
+            # each count read: (where it starts, its tag in capitals, the count, the words as printed)
+            said = [(m.start(), m.group(1).upper(), stated_number(m, 2), squash(m.group(0)))
+                    for m in after.finditer(head.group(2)) if stated_number(m, 2) is not None]
+            said += [(m.start(), m.group(2).upper(), int(m.group(1)), squash(m.group(0)))
+                     for m in before.finditer(head.group(2)) if int(m.group(1)) > 0]
             if said:
                 per_tag: dict[str, int] = {}
-                for m in said:
-                    per_tag[m.group(1).upper()] = per_tag.get(m.group(1).upper(), 0) + stated_number(m, 2)
-                quote = " ... ".join(squash(m.group(0)) for m in said)
+                for _at, tag, n, _words in said:
+                    per_tag[tag] = per_tag.get(tag, 0) + n
+                quote = " ... ".join(words for _at, _tag, _n, words in sorted(said, key=lambda s: s[0]))
                 found.append((head.group(1), per_tag, self.ref(head.group(1), quote)))
         return found
 
