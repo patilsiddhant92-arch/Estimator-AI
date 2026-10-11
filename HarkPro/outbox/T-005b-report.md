@@ -179,3 +179,31 @@ All 9 failures are accepted baseline tests:
 The two revert_audit baseline tests passed this time.
 
 Nothing failed outside the baseline.
+
+## Regression fixtures (NOTES 2026-10-11 rule 4)
+
+- `tests/bms/fixtures/t005b_blocks.json`: an invented copy of the 26-0544 planning defects (same tag forms CV-n, P-n,
+  AHU-n, ERV-n, same sheet-number form Mnnn.00, the valve schedule's TAG / LOCATION / SERVES / VALVE TYPE columns,
+  pump tags as comma lists in the sequence section titles; invented names and numbers).
+- `tests/bms/test_t005b_fixture_regressions.py` (4 tests) reads it:
+  - valves as a block of their own: `test_fixture_valves_go_under_the_unit_their_schedule_serves_column_names`
+    (8 valves, 6 under three AHUs and 2 under the ERV, no CV block, no question);
+  - pumps of two services in one block: `test_fixture_pumps_split_into_one_block_per_service` (chilled water and hot
+    water blocks, each with its shape and its own sequence sections);
+  - repeated questions: `test_fixture_count_questions_on_one_family_are_asked_once` (plan side) and
+    `test_fixture_review_page_shows_one_card_for_lines_that_repeat_the_family_count` (10 repeating lines, one card).
+- The inline tests in `test_t005b_plan_blocks.py` / `test_t005b_review_once.py` stay as they are. Note for the lead:
+  `test_demolition_work_on_a_unit_reaches_its_block_and_work_naming_none_is_asked` quotes a removal note naming the
+  job's control center abbreviation (TCMC); the new fixture does not cover demolition work.
+
+## Tests (NOTES 2026-10-11 rule 3)
+
+Run on this commit, PYTHONPATH=src, `-p no:cacheprovider`:
+
+- Files changed: `pytest tests/bms/test_t005b_fixture_regressions.py tests/bms/test_t005b_plan_blocks.py
+  tests/bms/test_t005b_review_once.py -q -n 2` -> `25 passed in 3.05s`
+- `pytest tests/bms -q -n 2 -p no:cacheprovider` (one run, not chunked):
+  `6 failed, 2526 passed, 2 skipped, 178 warnings in 404.84s (0:06:44)`
+  - **tests/bms pass count: 2526.**
+  - All 6 failures are accepted baseline: the 5 `test_ai.py` chat tests and `test_review_final3` resource code.
+    `test_status_review` and the revert_audit tests passed this time.
