@@ -65,6 +65,7 @@ from bms.citations import device_refs, job_ids, job_sheets, job_tags, source_she
 from bms.counts import counted_from, cross_check, flag_written_devices, publish_proofs
 from bms.coverage import coverage
 from bms.evidence import write_evidence
+from bms.labor import labor_conditions, with_labor
 from bms.model import Decision, Device, Finding, Header, Job, ModelError, System
 from bms.plan import plan_job
 from bms.playbook import load_playbook
@@ -751,6 +752,8 @@ def _estimate(job_folder: Path, out: Path, cache: Path, mode: Mode, known: dict)
     review = review_page(job, all_findings, out)
     print(f"Wrote {review}")
     draft = render(job, playbook)
+    # T-005e: off-hours work and prevailing wage the documents call for, in red in the proposal and the price sheet
+    draft = with_labor(draft, labor_conditions(getattr(catalogue, "overview", None)))
     printed = {line.device_id: line.text for line in draft.lines if line.device_id}
     evidence_file = write_evidence(out / f"{quote} Evidence Package.xlsx", catalogue, reading, ledger, job,
                                    all_findings, printed)

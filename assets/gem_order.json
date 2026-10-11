@@ -1,0 +1,87 @@
+{
+  "about": "The order of points inside a block (T-005e, estimator 2026-10-11): the GEM v3.2 'SOW ORDER - STANDARD TEMPLATE' positions, as playbook/rules.md 'Standard order' words them (its wiring runs and plain work statements print before the integration lines). Each printed line gets the position of the first rule below that it matches; lines of one position keep the shape's slot order (the Master Template's), then the writer's order. A sub-line stays directly under its parent line. Read by src/bms/order.py. Every pattern is a regular expression matched without regard to case on the line as printed (verb included). Edit the words here, never in code.",
+
+  "positions": {
+    "1": "DDC controller (and the panel or timeclock a block is built on)",
+    "2": "field sensors and transmitters",
+    "3": "safety and pressure switches",
+    "4": "leak detectors",
+    "5": "standalone current switches",
+    "6": "interposing relays",
+    "7": "damper actuators",
+    "8": "fan and pump signals: start/stop and status, VFD control, VFD fault, VFD speed feedback, safety stop",
+    "9": "primary equipment signals: boiler, chiller, cooling tower enable, status, fault",
+    "10": "position feedback and open/closed status",
+    "11": "other hardwired outputs",
+    "12": "power wiring",
+    "13": "fire alarm Wire lines",
+    "14": "Furnish and Wire filter switches",
+    "15": "Furnish and Wire airflow stations",
+    "16": "Furnish and Wire valves (and valves with any verb)",
+    "17": "Install and Wire",
+    "18": "other Wire lines, interlocks and tie-ins",
+    "19": "wiring runs and plain work statements (demolition, coordination, testing)",
+    "20": "the integration lines, always last (VFD group first, as the shape orders them)"
+  },
+
+  "rules": [
+    {"position": 20, "slot_kinds": ["integration"]},
+    {"position": 20, "words": ["\\bBMS\\s+communication\\s+wiring\\b", "^map\\s+available\\s+points\\b", "\\brequires\\s+mfr\\.?\\s+rep\\b"]},
+    {"position": 12, "words": ["\\bpower\\s+loop\\b", "\\b24\\s*-?\\s*V\\b", "\\btransformers?\\b", "\\bpower\\s+wiring\\b"]},
+    {"position": 13, "slots": ["fire_alarm"]},
+    {"position": 13, "verbs": ["Wire"], "words": ["\\bfire\\s+alarm\\b", "\\bFA\\b", "\\bsmoke\\b"]},
+    {"position": 18, "slot_kinds": ["interlock"]},
+    {"position": 18, "words": ["^(?:low\\s+voltage\\s+)?interlock\\b", "^tie[- ]?in\\b", "^necessary\\s+low\\s+voltage\\b"]},
+    {"position": 19, "slot_kinds": ["wiring"]},
+    {"position": 17, "verbs": ["Install and Wire"]},
+    {"position": 18, "verbs": ["Wire"]},
+    {"position": 14, "verbs": ["Furnish and Wire", "Furnish and Install"], "words": ["\\bfilters?\\b"]},
+    {"position": 15, "verbs": ["Furnish and Wire"], "words": ["\\bair\\s*flow\\s+(?:measuring\\s+|monitoring\\s+)?stations?\\b", "\\bflow\\s+measuring\\s+stations?\\b", "\\bAFMS\\b"]},
+    {"position": 16, "words": ["\\bvalves?\\b"]},
+    {"position": 16, "verbs": ["Furnish and Wire"]},
+    {"position": 1, "words": ["\\bcontrollers?\\b", "\\bDDC\\b", "\\bpanels?\\b", "\\benclosures?\\b", "\\btime\\s*clocks?\\b", "\\bsensaphone\\b"], "not_words": ["\\bsetpoint\\b"]},
+    {"position": 4, "words": ["\\bleak\\b"]},
+    {"position": 5, "words": ["\\bcurrent\\s+(?:switch|sensor|transducer)e?s?\\b", "\\bCTs?\\b"]},
+    {"position": 5, "verbs": ["Furnish and Install"], "words": ["\\bstatus\\b"]},
+    {"position": 6, "words": ["\\brelays?\\b"]},
+    {"position": 10, "verbs": ["Furnish"], "words": ["\\bposition\\s+feedback\\b", "\\bopen\\s*/\\s*clos(?:e|ed)\\s+status\\b", "\\bend\\s+switch\\b"]},
+    {"position": 7, "words": ["\\bdampers?\\b", "\\bactuators?\\b"]},
+    {"position": 3, "words": ["\\bswitch(?:es)?\\b", "\\bfreeze\\s*-?\\s*stats?\\b", "\\bfirestats?\\b", "\\baquastats?\\b", "\\b(?:high|low)\\s+limit\\b"]},
+    {"position": 8, "verbs": ["Furnish"], "words": ["\\bVFDs?\\b", "\\bvariable\\s+(?:frequency|speed)\\b", "\\bsafety\\s+stop\\b"]},
+    {"position": 9, "verbs": ["Furnish"], "words": ["\\bboilers?\\b", "\\bchillers?\\b", "\\bcooling\\s+towers?\\b", "\\bheat\\s+pumps?\\b", "\\bgeothermal\\b", "\\bcondensing\\s+units?\\b"]},
+    {"position": 8, "verbs": ["Furnish"], "words": ["\\bfans?\\b", "\\bpumps?\\b", "\\bwheels?\\b", "\\bstart\\s*/\\s*stop\\b"]},
+    {"position": 11, "verbs": ["Furnish"]},
+    {"position": 2, "verbs": ["Furnish and Install"]}
+  ],
+  "default_position": 11,
+
+  "front_end": {
+    "about": "The Master Template's front-end order (New, then Extension of Existing): a line takes the rank of the first entry whose words it matches; a line no entry matches prints after them, in the writer's order.",
+    "order": [
+      {"name": "network level control panel", "words": ["\\bnetwork\\s+(?:level\\s+)?(?:control\\s+)?(?:panels?|controllers?)\\b", "\\bbuilding\\s+level\\s+controllers?\\b", "\\bsupervisory\\s+controllers?\\b", "\\bJACE\\b", "\\bNAC\\b"]},
+      {"name": "PC workstation", "words": ["\\bworkstations?\\b", "\\bfront[- ]end\\s+PCs?\\b", "\\boperator\\s+(?:PC|computer)\\b"]},
+      {"name": "BMS server", "words": ["\\bservers?\\b"]},
+      {"name": "portable operator terminal", "words": ["\\bPOT\\b", "\\blaptops?\\b", "\\btablets?\\b", "\\bportable\\s+operator"]},
+      {"name": "UPS", "words": ["\\bUPS\\b", "\\bbattery\\s+back-?\\s*up\\b"]},
+      {"name": "graphics", "words": ["\\bgraphics?\\b"]},
+      {"name": "training", "words": ["\\btraining\\b"]},
+      {"name": "IT infrastructure", "words": ["\\bIT\\s+infrastructure\\b", "\\bnetwork\\s+switch(?:es)?\\b", "^panels?$", "\\bfib(?:er|re)\\b", "\\bethernet\\b"]}
+    ],
+    "existing_lines": {
+      "about": "An EXISTING BMS front end (mode extend-existing) prints the Master Template's 'Extension of Existing' lines, in its order. A line the writer wrote from this job's documents that matches one (its 'match' words) stands, citing the job; a template line the job does not speak to is printed in the template's words. Not printed when the writer wrote no front-end line and said why (the documents give the whole front end to others).",
+      "lines": [
+        {"text": "Furnish Network Level Control Panel", "match": "network level control panel"},
+        {"text": "Furnish 3-D Graphics to match existing", "match": "graphics"},
+        {"text": "Furnish Necessary Training on New Controls", "match": "training"}
+      ]
+    }
+  },
+
+  "sub_headings": {
+    "about": "The Master Template prints an unnumbered sub-heading over the stacked Qty headers of these systems (its 'Chilled Water System', 'Hot Water System', 'VRF System', 'Kitchen Exhaust Ventilation'). Keyed by shape name; printed only when the block stacks more than one Qty header.",
+    "Chilled Water System": "Chilled Water System",
+    "Hot Water System": "Hot Water System",
+    "VRF System": "VRF System",
+    "Kitchen Exhaust Ventilation": "Kitchen Exhaust Ventilation"
+  }
+}

@@ -60,10 +60,11 @@ def one(job: Job, sys: System) -> Job:
 def test_rooftop_block_golden(draft):
     assert texts(draft, "RTU") == [
         "Qty (2) Rooftop Units RTU-1, 2",
+        # T-005e: the GEM order of points: Install and Wire before the integration lines, which are always last
+        "Install and Wire Duct Smoke Detector (Furnished by Unit Mfr.)",
         "Furnish BMS Communication Wiring to RTU Factory Controls",
         "Map Available Points Via Mfr. Provided BMS Interface",
         "AME requires mfr. Rep to assist in integration, cost to be incurred by mech contractor",
-        "Install and Wire Duct Smoke Detector (Furnished by Unit Mfr.)",
         "*one detector per unit, because the schedule note names a detector for each unit without a count",
         "*Unit count carried at 2; the roof plan shows 1",
         "*Qty. (2) per M-001; 1 per M-101.",
@@ -74,16 +75,19 @@ def test_exhaust_fan_block_golden(draft):
     assert texts(draft, "EF") == [
         "Qty (3) Exhaust Fans EF-1 thru 3",
         "Furnish and Install DDC Controller",
+        "Furnish and Install Motorized Damper Actuator (Qty. 2)",      # T-005e: GEM order, dampers before fan signals
         "Furnish Fan Start / Stop and Status",
-        "Furnish and Install Motorized Damper Actuator (Qty. 2)",
     ]
 
 
 def test_vrf_stacks_one_header_per_family_over_one_set_of_lines(draft):
-    assert texts(draft, "VRF")[:3] == ["Qty (4) Indoor Unit FCU-1 thru 4", "Qty (1) Condensing Unit CU-1",
+    # T-005e: the Master Template's unnumbered "VRF System" sub-heading over the stacked headers
+    assert texts(draft, "VRF")[:4] == ["VRF System", "Qty (4) Indoor Unit FCU-1 thru 4", "Qty (1) Condensing Unit CU-1",
                                        "Qty (2) Branch Selector BS-1, 2"]
+    heading = next(b for b in draft.scope.blocks if b.header == "VRF System")
+    assert not heading.numbered and not heading.joined and heading.items == () and heading.tech_hours is None
     blocks = [b for b in draft.scope.blocks if b.header.startswith(("Qty (4) Indoor", "Qty (1) Cond", "Qty (2) Branch"))]
-    assert [b.joined for b in blocks] == [False, True, True]
+    assert [b.joined for b in blocks] == [True, True, True]
     assert blocks[0].items == () and blocks[1].items == () and blocks[2].items
     assert blocks[0].tech_hours == 6.0 and blocks[2].tech_hours is None
     assert "Furnish BMS Communication Wiring to VRF Factory Controls" in texts(draft, "VRF")
@@ -136,8 +140,8 @@ def test_tech_hours_go_on_the_block_header(draft):
 def test_item_quantities_price_only_what_ame_acts_on_and_never_under_a_hash_count(draft):
     blocks = {b.header: b for b in draft.scope.blocks}
     rtu = blocks["Qty (2) Rooftop Units RTU-1, 2"]
-    assert [i.quantity for i in rtu.items][:4] == [2, 2, None, 2]      # the rep line is the mechanical contractor's
-    assert [i.depth for i in rtu.items][:4] == [1, 1, 2, 1]            # the rep line sits one level in, under its map line
+    assert [i.quantity for i in rtu.items][:4] == [2, 2, 2, None]      # the rep line is the mechanical contractor's
+    assert [i.depth for i in rtu.items][:4] == [1, 1, 1, 2]            # the rep line sits one level in, under its map line
     assert all(i.quantity is None for i in blocks["Qty (##) Cabinet Unit Heaters"].items)
     assert all(i.quantity is None for i in rtu.items if i.kind == "note")
 
@@ -161,9 +165,9 @@ def test_pure_same_job_same_text(job, playbook):
 def test_lines_follow_the_shape_order_not_the_device_order(job, playbook):
     ef = job.system("EF")
     shuffled = replace(ef, devices=tuple(reversed(ef.devices)))
-    assert texts(render(one(job, shuffled), playbook), "EF")[1:] == [
-        "Furnish and Install DDC Controller", "Furnish Fan Start / Stop and Status",
-        "Furnish and Install Motorized Damper Actuator (Qty. 2)"]
+    assert texts(render(one(job, shuffled), playbook), "EF")[1:] == [      # T-005e: the GEM order of points first
+        "Furnish and Install DDC Controller", "Furnish and Install Motorized Damper Actuator (Qty. 2)",
+        "Furnish Fan Start / Stop and Status"]
 
 
 def test_the_higher_count_prints_even_when_value_is_lower(job, playbook):
@@ -476,8 +480,9 @@ def test_a_damper_family_under_a_fan_prints_no_header_of_its_own(job, playbook):
     ef_lines = texts(out, "EF")
     assert [l.text for l in out.lines if l.system_key == "EF" and l.kind == "header"] == [
         "Qty (3) Exhaust Fans EF-1 thru 3"]
-    assert ef_lines[1:] == ["Furnish and Install DDC Controller", "Furnish Fan Start / Stop and Status",
-                            "Furnish and Install Motorized Damper Actuator (Qty. 2)"]
+    assert ef_lines[1:] == ["Furnish and Install DDC Controller",       # T-005e: GEM order
+                            "Furnish and Install Motorized Damper Actuator (Qty. 2)",
+                            "Furnish Fan Start / Stop and Status"]
     assert texts(out, "MD")[0] == "Qty (4) Motorized Dampers"
     assert [b.header for b in out.scope.blocks] == ["Qty (3) Exhaust Fans EF-1 thru 3", "Qty (4) Motorized Dampers"]
 
@@ -525,12 +530,13 @@ def test_owner_brackets_come_from_the_wording(job, playbook):
 
 
 def test_a_shapeless_system_prints_in_the_generic_form_in_device_order(job, playbook):
+    # (T-005e: in the GEM order of points first: two sensors keep the device order)
     d1 = device(name="Gas Detector", qty=3, furnished_by="Others", slot="x")
-    d2 = device(id="X.d2", name="Panel", qty=None, slot="y")
+    d2 = device(id="X.d2", name="Gas Sensor", qty=None, slot="y")
     out = texts(render(one(job, system([d1, d2], shape="", families=(Family("Gas Detector", ("GD-1", "GD-2"),
                                                                               Count(value=3)),))), playbook), "EF")
     assert out == ["Qty (3) Exhaust Fans GD-1, 2", "Furnish and Install Gas Detector (Furnished by Others)",
-                   "Furnish and Install Panel (Qty. ##)"]
+                   "Furnish and Install Gas Sensor (Qty. ##)"]
 
 
 def test_a_slot_the_shape_lacks_still_prints_after_the_known_slots(job, playbook):
@@ -558,7 +564,10 @@ def test_extend_existing_front_end_and_deduct_alternate(job, playbook):
                   clarifications=(Clarification("note", "tie to the old head end"),), tech_hours=2.0)
     out = render(replace(job, front_end=fe, systems=(system([device()], alternate="deduct"),)), playbook)
     assert out.scope.front_end.existing_system_name == "Old BMS"
-    assert [i.text for i in out.scope.front_end.items] == ["Furnish and Install Link", "*tie to the old head end"]
+    # T-005e: an existing BMS front end prints the Master Template's existing-BMS lines, then the writer's own
+    assert [i.text for i in out.scope.front_end.items] == [
+        "Furnish Network Level Control Panel", "Furnish 3-D Graphics to match existing",
+        "Furnish Necessary Training on New Controls", "Furnish and Install Link", "*tie to the old head end"]
     assert len(out.scope.deduct_alternates) == 1 and out.scope.blocks == ()
 
 

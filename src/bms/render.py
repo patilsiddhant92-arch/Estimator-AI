@@ -28,6 +28,7 @@ from estimator.writing.write import tag_list
 
 from bms.citations import SHEET, SourceIds, clarification_text, squash as _squash, strip_label
 from bms.model import CLARIFICATION_KINDS, UNNAMED_EXISTING, Clarification, Count, Device, FrontEnd, Job, Ref, System
+from bms.order import existing_lines, front_end_entry, front_end_rank, position as gem_position, sub_heading
 from bms.playbook import DEFAULT_ORDER, Playbook, Shape
 
 SEQUENCE_ONLY_ORDER = 20            # a block whose count prints "Qty (##)": after the equipment (shapes.json "order")
@@ -109,7 +110,9 @@ def render(job: Job, playbook: Playbook) -> ProposalDraft:
       `scope.deduct_alternates`, each labelled "ALT #k: <name>" (adds and deducts numbered apart);
       `job.exceptions` become `scope.named_exceptions`; `job.front_end` the FrontEnd.
     - A system with no shape is rendered in the generic form "{verb} {device}{owner}{qty}" in device order.
-    - Never adds a line that is not a field of the Job (nothing internal reaches the client document).
+    - Never adds a line that is not a field of the Job (nothing internal reaches the client document), except the
+      Master Template's existing-BMS front-end lines T-005e names (`_existing_template_lines`). The off-hours work
+      and prevailing wage the documents call for are added after, by `bms.labor.with_labor`.
     """
     if job.header is None:
         raise RenderError("the job has no header (quote number, reference, engineer, date)")
@@ -570,7 +573,12 @@ def line_form(device: Device, shape: Shape | None, playbook: Playbook) -> str:
 
 def _device_lines(devices, shape: Shape | None, system: System | None, playbook: Playbook,
                   reference: set[int]) -> list[_Printed]:
-    """The devices as printed lines: in the shape's line order, then the order given. A device of a sub-line slot
+    """The devices as printed lines, in the GEM order of points (T-005e, `bms.order.position`: controller, sensors,
+    switches, leak, current switches, relays, dampers, fan and pump signals, primary equipment signals, feedback, other
+    outputs, power wiring, fire alarm, filters, airflow stations, valves, Install and Wire, Wire and interlocks, plain
+    work statements, the integration lines last), then the shape's line order (the Master Template's), then the order
+    given. The front end (no shape, no system) follows the Master Template's front-end order instead
+    (`bms.order.front_end_rank`). A device of a sub-line slot
     (the shape's `under`) prints one level in, directly after its parent: the nearest device of the parent slot
     listed before it (else the last one listed), with no verb; with no parent device it prints in its own slot's
     place. A line of the integration trio whose slot the shape sets under no parent (a block with no shape) prints
@@ -581,37 +589,14 @@ def _device_lines(devices, shape: Shape | None, system: System | None, playbook:
     devices = list(devices)
     order = {slot: i for i, slot in enumerate(shape.line_order)} if shape is not None else {}
     under = shape.under if shape is not None else {}
-    keys: dict[int, tuple] = {}
-
-    def parent_index(i: int) -> int | None:
-        parent = under.get(devices[i].slot)
-        if parent is None:
-            return None
-        before = [j for j in range(i) if devices[j].slot == parent]
-        anywhere = [j for j, d in enumerate(devices) if d.slot == parent and j != i]
-        return before[-1] if before else (anywhere[-1] if anywhere else None)
-
-    def key(i: int, seen: frozenset = frozenset()) -> tuple:
-        if i in keys:
-            return keys[i]
-        parent = parent_index(i)
-        if parent is None or parent in seen:
-            found = ((order.get(devices[i].slot, len(order)), i),)
-        else:
-            found = key(parent, seen | {i}) + ((i,),)
-        keys[i] = found
-        return found
-
-    ranked = sorted(range(len(devices)), key=key)
     casing = _casing(playbook)
     what = _title(system.name, casing) if system is not None and system.control == "integration" else ""
     quantity_words = playbook.wording.quantity
     house_lines, _ = _fixed_texts(playbook, shape)
     trio = dict(zip(playbook.wording.integration_trio, playbook.wording.integration_depths))
-    out: list[_Printed] = []
-    for i in ranked:
-        device = devices[i]
-        slot_kind = shape.slot_kinds.get(device.slot) if shape is not None else None
+    front_end = shape is None and system is None
+    worded: list[tuple[str, str, str | None]] = []      # per device: (its text, its form, its verb when printed)
+    for device in devices:
         number = _printed(device.quantity)
         owner = _owner(device, playbook)
         form = line_form(device, shape, playbook)
@@ -628,12 +613,48 @@ def _device_lines(devices, shape: Shape | None, system: System | None, playbook:
             text = _squash(form + owner)             # a shape's house line another party furnishes keeps its bracket
         else:
             text = form
-        verb = device.verb if "{verb}" in form else None
+        worded.append((text, form, device.verb if "{verb}" in form else None))
+
+    def rank(i: int) -> tuple:
+        text, _, verb = worded[i]
+        if front_end:
+            return (front_end_rank(text),)
+        kind = shape.slot_kinds.get(devices[i].slot) if shape is not None else None
+        return (gem_position(text, verb, devices[i].slot, kind), order.get(devices[i].slot, len(order)))
+
+    keys: dict[int, tuple] = {}
+
+    def parent_index(i: int) -> int | None:
+        parent = under.get(devices[i].slot)
+        if parent is None:
+            return None
+        before = [j for j in range(i) if devices[j].slot == parent]
+        anywhere = [j for j, d in enumerate(devices) if d.slot == parent and j != i]
+        return before[-1] if before else (anywhere[-1] if anywhere else None)
+
+    def key(i: int, seen: frozenset = frozenset()) -> tuple:
+        if i in keys:
+            return keys[i]
+        parent = parent_index(i)
+        if parent is None or parent in seen:
+            found = ((*rank(i), i),)
+        else:
+            found = key(parent, seen | {i}) + ((i,),)
+        keys[i] = found
+        return found
+
+    ranked = sorted(range(len(devices)), key=key)
+    out: list[_Printed] = []
+    for i in ranked:
+        device = devices[i]
+        text, form, verb = worded[i]
+        slot_kind = shape.slot_kinds.get(device.slot) if shape is not None else None
         acts = "AME" in (device.furnished_by, device.installed_by, device.wired_by)
         depth = len(key(i))
         if device.slot not in under and form in trio:   # a trio line the shape sets under no parent: the trio's
             depth = trio[form]                          # own depth (the rep line one level in, RND-13)
-        out.append(_Printed(text, depth, device, verb, number, acts and slot_kind != "interlock"))
+        out.append(_Printed(text, depth, device, verb, _printed(device.quantity),
+                            acts and slot_kind != "interlock"))
     return out
 
 
@@ -758,6 +779,8 @@ def _system_blocks(system: System, playbook: Playbook, out: list[RenderedLine], 
                                 family.count if family else Count(value=None), playbook)]
     else:
         headers = [_header_text(form, f.name, f.tags, f.count, playbook) for f in families]
+    # T-005e: the Master Template's unnumbered sub-heading over the stacked headers of a grouped system
+    heading = sub_heading(shape.name if shape is not None else None) if len(headers) > 1 else ""
     reference = {n for n in (_printed(f.count) for f in families) if n is not None}
     pending = not families or any(_printed(f.count) is None for f in families)     # "Qty (##)": nothing is priced
     printed = _device_lines(_named(system.devices, ids), shape, system, playbook, reference)
@@ -768,11 +791,13 @@ def _system_blocks(system: System, playbook: Playbook, out: list[RenderedLine], 
     try:                                 # every field checked: a blank line, a negative quantity or tech hours
         items = _items(printed, pending) + [Item(kind="note", runs=(Run(text=n),)) for n in notes]
         last = len(headers) - 1
-        blocks = [Block(header=h, joined=i > 0, tech_hours=system.tech_hours if i == 0 else None,
+        blocks = [Block(header=h, joined=i > 0 or bool(heading), tech_hours=system.tech_hours if i == 0 else None,
                         items=tuple(items) if i == last else ()) for i, h in enumerate(headers)]
+        if heading:
+            blocks.insert(0, Block(header=heading, numbered=False))
     except ValueError as error:          # pydantic's ValidationError is a ValueError
         raise RenderError(f"system {system.key}: {error}") from error
-    out += [RenderedLine(system.key, None, "header", h, None, None) for h in headers]
+    out += [RenderedLine(system.key, None, "header", h, None, None) for h in ([heading] if heading else []) + headers]
     out += _traced(system.key, printed, notes)
     return tuple(blocks)
 
@@ -799,15 +824,42 @@ def existing_system_name(front: FrontEnd) -> str | None:
     return _squash(front.existing_system_name or "") or UNNAMED_EXISTING
 
 
+def _existing_template_lines(front: FrontEnd, printed: list[_Printed]) -> list[str]:
+    """The Master Template's "Extension of Existing" lines (network level control panel, 3-D graphics to match
+    existing, training: `bms.order.existing_lines`) that an EXISTING BMS front end prints and the writer's lines do not
+    already carry (T-005e): a written line of the same entry stands, citing this job. None for a new system, when the
+    documents call for no front end (no line from the reading, none written: T-005c's "No front end information
+    found"), or when the writer wrote no front-end line and said why (the documents give the front end to others)."""
+    if front.mode != "extend-existing" or not (front.devices or front.lines):
+        return []
+    if not front.devices and _squash(front.no_scope_reason or ""):
+        return []
+    have = {front_end_entry(p.text) for p in printed}
+    return [text for text, entry in existing_lines() if entry not in have]
+
+
 def _front_end(front: FrontEnd | None, playbook: Playbook, out: list[RenderedLine],
                ids: SourceIds) -> ScopeFrontEnd:
     if front is None:
         return ScopeFrontEnd(mode="new-system")
     printed = _device_lines(_named(front.devices, ids), None, None, playbook, {1})
     notes = _notes(front.clarifications, front.devices, _line_counts(front.devices), playbook, ids)
-    out += _traced("", printed, notes)
+    added = _existing_template_lines(front, printed)
+    # one list in the Master Template's front-end order: the writer's lines and the template's existing-BMS lines
+    merged = sorted([(front_end_rank(p.text), n, p) for n, p in enumerate(printed)]
+                    + [(front_end_rank(text), -1, text) for text in added], key=lambda e: (e[0], e[1] < 0, e[1]))
+    traced: list[RenderedLine] = []
+    lines: list[Item] = []
+    for _, _, entry in merged:
+        if isinstance(entry, str):
+            traced.append(RenderedLine("", None, "line", entry, None, 1))
+            lines.append(Item(kind="line", depth=1, runs=(Run(text=entry),), quantity=1))
+        else:
+            traced += _traced("", [entry], [])
+            lines += _items([entry], False)
+    out += traced + _traced("", [], notes)
     try:
-        items = _items(printed, False) + [Item(kind="note", runs=(Run(text=n),)) for n in notes]
+        items = lines + [Item(kind="note", runs=(Run(text=n),)) for n in notes]
         return ScopeFrontEnd(mode=front.mode, existing_system_name=existing_system_name(front),
                              items=tuple(items), tech_hours=front.tech_hours)
     except ValueError as error:

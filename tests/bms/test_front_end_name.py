@@ -43,7 +43,8 @@ def test_an_existing_bms_with_no_name_renders_with_the_plain_placeholder(job, pl
     draft = render(replace(job, front_end=front), playbook)
     assert draft.scope.front_end.mode == "extend-existing"
     assert draft.scope.front_end.existing_system_name == UNNAMED_EXISTING == "[existing BMS name]"
-    assert [i.text for i in draft.scope.front_end.items] == ["Furnish and Install Link"]
+    assert [i.text for i in draft.scope.front_end.items][-1] == "Furnish and Install Link"     # (T-005e: after the
+    # Master Template's existing-BMS lines)
 
 
 def test_a_named_existing_bms_prints_its_own_name(job, playbook):
