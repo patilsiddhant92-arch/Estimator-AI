@@ -17,6 +17,12 @@ from bms.model import Ref, System
 
 JOB, SEQUENCE, POINTS, SCHEDULES, COUNTS, DEVICES, NOTES, SPEC = 1, 2, 3, 4, 5, 6, 7, 8
 NOTES_LIMIT = 12_000            # characters of notes naming the system, in one system's evidence
+CONTROLS_LIMIT = 60_000         # characters of controls sheets' text (whole, else excerpts) in one system's evidence
+CONTROLS_MIN = 1_500            # a controls sheet is given in at least this many characters, or the run stops
+JOB_WIDE_LIMIT = 8_000          # characters of the job-wide sequence sections (they name no unit tag), in each evidence
+JOB_WIDE_FACTS_MAX = 30         # job-wide ledger facts (they name no unit tag) listed in each evidence
+MARKS_MAX = 20                  # passages listed in each marks checklist (FUTURE; integral with the unit)
+QUOTE_MAX = 300                 # characters of a fact's quote in a checklist
 EXCERPT_OVER = 1_500            # a plan sheet's text longer than this is given as excerpts about the system (T-005d)
 EXCERPT_REACH = 300             # characters each side of a mention in an excerpt
 EXCERPTS_MAX = 12               # excerpts of one sheet's text
@@ -43,6 +49,16 @@ _CONTROLS_SHEET = re.compile(r"\b(?:CONTROLS?|SEQUENCES?|POINTS?|DIAGRAMS?|SCHEM
 # words a passage marks an item with: FUTURE (ruling 7), shipped loose or field mounted (ruling 10), furnished in
 # the unit (an item to notice, ruling 7)
 _FUTURE = re.compile(r"\bFUTURE\b|[\[(]\s*future\s*[\])]")
+# what an item is: FUTURE marks an item only when one of these is beside it ("FUTURE SUPPLY AIR STATIC PRESSURE AI",
+# "[FUTURE] SPACE SENSOR"); "CAP FOR FUTURE CONNECTION" marks no item (should fix 1)
+_ITEM = re.compile(r"\b(?:sensors?|switch(?:es)?|thermostats?|detectors?|freezestats?|aquastats?|stats?|actuators?|"
+                   r"transmitters?|stations?|relays?|monitors?|meters?|transducers?|valves?|dampers?|vfds?|drives?|"
+                   r"fans?|pumps?|controllers?|panels?|points?|alarms?|status|pressure|temperature|humidity|flow|"
+                   r"level|co2|ai|ao|bi|bo|units?|coils?|heaters?|boilers?|chillers?|starters?)\b", re.I)
+FUTURE_REACH = 40               # characters each side of FUTURE an item word must be in
+# a sequence section heading that says it holds the whole job's points
+_GENERAL_HEADING = re.compile(r"\b(?:GENERAL|ALL\s+(?:SYSTEMS|EQUIPMENT|UNITS)|COMMON|GLOBAL|SYSTEM[\s-]*WIDE|"
+                              r"BUILDING[\s-]*WIDE|CHANGEOVER|OUTSIDE\s+AIR)\b", re.I)
 _LOOSE = re.compile(r"\bship(?:ped|s)?\s+loose\b|\bloose\b[^.]{0,30}\bfield\b|\bfield[\s-]+(?:mounted|installed)\b"
                     r"|\bmounted\s+in\s+(?:the\s+)?(?:supply|return|exhaust|outside|outdoor|mixed)[\w\s]{0,12}duct\b",
                     re.I)
@@ -232,12 +248,17 @@ def evidence(system: System, text: str, sources: dict[str, str], sections: dict,
     out = [f"Evidence for {system.name} (system {system.key}), from this job's documents only. Each passage starts "
            "with its source id in square brackets; cite a passage by that id."]
 
-    def block(title: str, chosen: Iterable[Entry], limit: int | None = None) -> None:
+    def block(title: str, chosen: Iterable[Entry], limit: int | None = None, whole: bool = False) -> None:
+        """The entries under `title`, at most `limit` characters. `whole` (the controls sheets): an entry that does
+        not fit is given as excerpts about the system, and a sheet that cannot be given in CONTROLS_MIN characters
+        stops the run with a plain message: a controls sheet is never dropped silently (T-005d must fix 2)."""
         lines: list[str] = []
         used, left, place = 0, 0, None
         for entry in chosen:
             if entry.sid and entry.sid in given:
                 continue
+            if whole and limit is not None and entry.sid and used + len(entry.text) > limit:
+                entry = _fit(entry, about, front_end, limit - used, system)
             if limit is not None and entry.sid and used + len(entry.text) > limit:
                 left += 1
                 continue
@@ -281,6 +302,13 @@ def evidence(system: System, text: str, sources: dict[str, str], sections: dict,
     block("The sequence of operation for this system:", chosen)
     in_sections = {sid for q in wanted if q in sections for sid in sections[q][1]}
 
+    # 1b. job-wide facts (T-005d must fix 1): the sequence sections that name no unit tag (a global outside air
+    # sensor, a changeover aquastat in "A. GENERAL") go to every writer, so the system that owns a point writes it
+    # once and the others see that it exists; then the reading's facts that name no unit tag
+    block(JOB_WIDE_TITLE, _job_wide_sections(sequence, sections, given), JOB_WIDE_LIMIT)
+    if ledger is not None:
+        out.extend(_job_wide_facts(ledger, about, given, front_end))
+
     # 2. the points list rows for its equipment
     block("Points list rows for its equipment:",
           [e for e in by_part.get(POINTS, []) if e.sid and (e.sid in cited or e.sid in in_sections
@@ -310,7 +338,10 @@ def evidence(system: System, text: str, sources: dict[str, str], sections: dict,
 
     # 5. the notes naming it: a controls sheet's text whole and first, a long plan sheet's text as excerpts about it,
     # a note repeated word for word once (T-005d: the controls diagram reached no writer behind the plan sheets)
-    block("Notes that name it:", _notes(by_part.get(NOTES, []), about, cited, front_end), NOTES_LIMIT)
+    notes = _notes(by_part.get(NOTES, []), about, cited, front_end)
+    block("Controls sheets that name it (control diagrams, points, sequences):",
+          [e for e in notes if _is_controls_sheet(e)], CONTROLS_LIMIT, whole=True)
+    block("Notes that name it:", [e for e in notes if not _is_controls_sheet(e)], NOTES_LIMIT)
 
     # 6. the controls specification passages about it (and about integration, for an integrated system)
     integrated = system.control in ("integration", "packaged")
@@ -393,13 +424,13 @@ def _mentions(text: str, about: _About, front_end: bool) -> list[tuple[int, int]
     return sorted(spans)
 
 
-def _excerpt(entry: Entry, about: _About, front_end: bool) -> Entry:
+def _excerpt(entry: Entry, about: _About, front_end: bool, force: bool = False) -> Entry:
     """A long plan sheet's text as the excerpts about the system: each mention with EXCERPT_REACH characters each
     side, joined where they meet, at most EXCERPTS_MAX, in the sheet's order, split by " … ". Each excerpt is the
     sheet's own words, so a quote from one is in its source. A short text, or one with no mention, is kept whole."""
     body = entry.body
     head, colon, rest = body.partition(":")
-    if not colon or len(rest) <= EXCERPT_OVER:
+    if not colon or (len(rest) <= EXCERPT_OVER and not force):
         return entry
     spans = _mentions(rest, about, front_end)
     if not spans:
@@ -453,6 +484,122 @@ def _notes(entries: list[Entry], about: _About, cited: set[str], front_end: bool
 
 _SENTENCE_END = re.compile(r"(?<=[.;])\s+")
 
+JOB_WIDE_TITLE = "Job-wide facts:"
+_NAME_STOP = frozenset({"and", "the", "for", "with", "per", "new", "existing", "furnish", "install", "wire", "wiring",
+                        "unit", "units", "system", "systems", "device", "devices", "all", "each"})
+
+
+def _cut(text: str, limit: int) -> str:
+    """The text cut to at most `limit` characters at a word, with " …" when cut."""
+    text = " ".join(str(text or "").split())
+    if len(text) <= limit:
+        return text
+    head = text[:max(0, limit - 2)]
+    head = head.rsplit(" ", 1)[0] if " " in head else head
+    return head + " …"
+
+
+def _fit(entry: Entry, about: _About, front_end: bool, room: int, system: System) -> Entry:
+    """A controls sheet's text in at most `room` characters: whole when it fits, else the excerpts about the system
+    (`_excerpt`), else those cut at a word with a note that the rest is not given. Under CONTROLS_MIN characters
+    there is no useful room left: the run stops with a plain message naming the sheet (T-005d must fix 2)."""
+    if len(entry.text) <= room:
+        return entry
+    shown = _excerpt(entry, about, front_end, force=True)
+    if len(shown.text) <= room:
+        return shown
+    if room < CONTROLS_MIN:
+        raise ValueError(f"Stopped: the controls sheet {_sheet_title(entry)} ({len(entry.text):,} characters) does not "
+                         f"fit the evidence for {system.name}: its controls sheets already use the "
+                         f"{CONTROLS_LIMIT:,} characters bms.ai_evidence.CONTROLS_LIMIT allows. Raise it, or split "
+                         "the system, and run again.")
+    note = " (cut: the rest of the sheet is not given here)"
+    text = _cut(shown.text, room - len(note)) + note
+    return Entry(entry.sid, text, entry.part, entry.place, entry.section)
+
+
+def _job_wide_sections(sequence: list[Entry], sections: dict, given: set[str]) -> list[Entry]:
+    """The sequence sections that name no unit tag (T-005d must fix 1): a section whose heading names no tag and
+    whose heading says it is general ("A. GENERAL", "ALL SYSTEMS") or none of whose paragraphs names a tag. The
+    general ones first, each section whole (its heading line and paragraphs), in the dossier's order; a section
+    already given is skipped."""
+    by_section: dict[str, list[Entry]] = {}
+    headings: dict[str, str] = {}
+    for entry in sequence:
+        if not entry.section:
+            continue
+        heading = _SECTION.match(entry.text) if entry.sid is None else None
+        if heading:
+            headings.setdefault(entry.section, heading.group(2))
+            by_section.setdefault(entry.section, []).insert(0, entry)
+        elif entry.sid:
+            by_section.setdefault(entry.section, []).append(entry)
+    general: list[Entry] = []
+    other: list[Entry] = []
+    for q, chosen in by_section.items():
+        title = headings.get(q) or (sections.get(q, ("",))[0] if sections else "")
+        if tags_in(title):
+            continue
+        paragraphs = [e for e in chosen if e.sid]
+        if not paragraphs or all(e.sid in given for e in paragraphs):
+            continue
+        if _GENERAL_HEADING.search(title):
+            general += chosen
+        elif not any(tags_in(e.body) for e in paragraphs):
+            other += chosen
+    return general + other
+
+
+def _job_wide_facts(ledger, about: _About, given: set[str], front_end: bool) -> list[str]:
+    """The reading's controls facts that name no unit tag (subject, value and quote), as "[id] “quote” — where (read
+    as: ...)", at most JOB_WIDE_FACTS_MAX, under their own heading: every writer sees them; the system that owns the
+    point writes it."""
+    from bms.coverage import SCOPE_KINDS
+    from estimator.ledger.facts import where_short
+    lines: list[str] = []
+    for fact in getattr(ledger, "facts", {}).values():
+        if fact.kind not in SCOPE_KINDS or fact.kind == "front_end":
+            continue
+        said = f"{fact.subject} {'' if fact.value is None else fact.value} {fact.quote or ''}"
+        if tags_in(said) or (not front_end and about.names(said)):
+            continue
+        sid = str(fact.source_id or "").strip().strip("[]")
+        if not sid or not str(fact.quote or "").strip():
+            continue
+        where = where_short(getattr(ledger, "sources", {}).get(sid, ""))
+        line = f"[{sid}] “{_cut(fact.quote, QUOTE_MAX)}”" + (f" — {where}" if where else "")
+        lines.append(f"{line} (read as: {_fact_text(fact)})")
+    lines = list(dict.fromkeys(lines))
+    if not lines:
+        return []
+    shown = lines[:JOB_WIDE_FACTS_MAX]
+    out = ["", "Job-wide facts the reading found (they name no unit tag): write one as a line only when this system "
+           "owns the point (its sequence, points list or a control diagram puts it here); otherwise leave it to the "
+           "system that owns it.", *shown]
+    if len(lines) > len(shown):
+        out.append(f"({len(lines) - len(shown)} more job-wide facts not listed)")
+    return out
+
+
+def _name_words(name: str) -> list[re.Pattern]:
+    words = [w for w in re.findall(r"[a-z0-9]+", (name or "").lower()) if len(w) >= 3 and w not in _NAME_STOP]
+    stems = dict.fromkeys(re.sub(r"(?:es|s)$", "", w) if len(w) > 4 else w for w in words)
+    return [re.compile(rf"\b{re.escape(stem)}\w*", re.I) for stem in stems]
+
+
+def future_items(text: str, name: str | None = None) -> list[tuple[int, int]]:
+    """Where the text marks an item FUTURE (T-005d should fix 1): each FUTURE with, within FUTURE_REACH characters
+    of it, an item word (`_ITEM`) or, given `name`, one of that device name's words. "ZZ-7 CAP FOR FUTURE
+    CONNECTION" marks no item."""
+    text = str(text or "")
+    words = _name_words(name) if name is not None else []
+    found: list[tuple[int, int]] = []
+    for m in _FUTURE.finditer(text):
+        near = text[max(0, m.start() - FUTURE_REACH):m.start()] + " " + text[m.end():m.end() + FUTURE_REACH]
+        if (any(w.search(near) for w in words) if name is not None else _ITEM.search(near)):
+            found.append(m.span())
+    return found
+
 
 def _windows(body: str, pattern: re.Pattern, reach: int = 120) -> list[str]:
     """Each place `pattern` matches in the body, with up to `reach` characters each side, cut to whole words."""
@@ -479,16 +626,17 @@ def _marks_checklist(lines: list[str]) -> list[str]:
         if not entry.sid or entry.sid.startswith("I"):
             continue
         body = entry.body
-        future += [f"[{entry.sid}] “{w}”" for w in _windows(body, _FUTURE)]
+        if future_items(body):
+            future += [f"[{entry.sid}] “{w}”" for w in _windows(body, _FUTURE) if future_items(w)]
         if _END_DEVICE.search(body):
             notice += [f"[{entry.sid}] “{w}”" for w in _windows(body, _NOTICE, 80) if _END_DEVICE.search(w)]
     out: list[str] = []
     if future:
         out += ["", "Items its passages mark FUTURE (an item of this system is a line of its own with mark \"future\" "
-                "and mark_note \"FUTURE AS PER <the document in a few words>\"):", *dict.fromkeys(future)]
+                "and mark_note \"FUTURE AS PER <the document in a few words>\"):", *list(dict.fromkeys(future))[:MARKS_MAX]]
     if notice:
         out += ["", "Devices its passages say are integral or furnished with the unit (the estimator must notice "
-                "each: when it is a line, mark it \"notice\"):", *list(dict.fromkeys(notice))[:20]]
+                "each: when it is a line, mark it \"notice\"):", *list(dict.fromkeys(notice))[:MARKS_MAX]]
     return out
 
 
@@ -512,8 +660,8 @@ def _end_devices_checklist(schedule_entries: Iterable[Entry], cited: set[str]) -
         if loose:
             out.append("- shipped loose or mounted in the field: " + ", ".join(loose))
         if devices:
-            out.append("- listed with the unit (furnished with it; a line for one is marked \"notice\"): "
-                       + ", ".join(devices))
+            out.append("- names an end device (the passage says who furnishes it; when it says the unit or the factory "
+                       "furnishes it, a line for it is marked \"notice\"): " + ", ".join(devices))
     return out
 
 
@@ -541,7 +689,7 @@ def _facts_checklist(ledger, about: _About, front_end: bool) -> list[str]:
         if not sid or not str(fact.quote or "").strip():
             continue
         where = where_short(getattr(ledger, "sources", {}).get(sid, ""))
-        line = f"[{sid}] “{' '.join(str(fact.quote).split())}”" + (f" — {where}" if where else "")
+        line = f"[{sid}] “{_cut(fact.quote, QUOTE_MAX)}”" + (f" — {where}" if where else "")
         lines.append(f"{line} (read as: {_fact_text(fact)})")
     lines = list(dict.fromkeys(lines))
     if not lines:
@@ -780,7 +928,7 @@ def pictures(evidence_text: str) -> list[tuple[str, str, str]]:
 
 # the evidence's blocks whose passages state facts a line may rest on without an assumption (ruling 6)
 STATED_TITLES = ("The sequence of operation for this system:", "Points list rows for its equipment:",
-                 "Its schedule rows and the schedules' notes:")
+                 "Its schedule rows and the schedules' notes:", "Job-wide facts:")
 
 
 def stated_ids(evidence_text: str) -> frozenset[str]:

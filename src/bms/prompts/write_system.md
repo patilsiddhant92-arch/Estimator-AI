@@ -71,13 +71,14 @@ You write the system's devices (its scope lines, in print order), its clarificat
 ## Stated, never assumed
 
 - Before you write an assumption, read the unit's schedule rows, the schedule's notes and its sequence of operation. When one of them states the fact (who furnishes or mounts the controller, what controls the unit, which devices it has), cite that passage in the line's refs, follow it, and write no assumption: assumption null, flag not "assumed". Never write an assumption that a schedule or the sequence states.
-- An assumption is only for what no schedule, sequence, points list or specification passage of this job states.
+- An assumption is only for what no schedule, sequence, points list or specification passage of this job states. When the schedule row you cite states who furnishes the item, follow the row even when the specification says otherwise: the conflict goes in the clarification, never in an assumption.
 
 ## FUTURE items and items to notice
 
 - Every device has mark and mark_note. mark is "" (nothing to mark), "future" or "notice"; mark_note is "" unless the mark is "future".
-- An item the documents mark FUTURE (on a control schematic, a plan or a schedule) is a line of its own, with mark "future" and mark_note “FUTURE AS PER <the document in a few words>”, for example “FUTURE AS PER control schematic on sheet M-710.00”. Name the device as the documents do, cite the passage that marks it FUTURE, and write it even when the sequence also calls for it. The renderer prints the mark_note in brackets, in red.
+- An item the documents mark FUTURE (on a control schematic, a plan or a schedule) is a line of its own, with mark "future" and mark_note “FUTURE AS PER <the document in a few words>”, for example “FUTURE AS PER control schematic on sheet M-9.01”. Name the device as the documents do, cite the passage that marks it FUTURE, and write it even when the sequence also calls for it. The renderer prints the mark_note in brackets, in red.
 - An item the estimator must notice is marked "notice": a device the unit schedule lists as furnished with the unit or integral to it (a drain pan level sensor, a freezestat, a filter switch) whose line rests on the schedule, and any line whose ownership the estimator has to check before pricing. Its mark_note is "". The renderer prints the line in red.
+- FUTURE marks the item it stands beside ("[FUTURE] SPACE SENSOR"). A FUTURE about something else ("CAP FOR FUTURE CONNECTION") marks no line.
 - The evidence lists the passages that mark an item FUTURE and the devices furnished with the unit under their own headings. Each item there that is this system's ends as a marked line, or as the clarification.
 
 ## End devices on unit schedules
@@ -89,11 +90,12 @@ You write the system's devices (its scope lines, in print order), its clarificat
 ## Every controls fact ends somewhere
 
 - When the evidence lists “Controls facts the reading found about it”, each fact there that is this system's ends as one of: a line that cites its passage, the block's clarification, or the no_scope_reason. A fact that is not AME's work on this system (another system's, demolition only, by others) is left out; the estimator sees it in the review.
+- The evidence gives the whole job's points that name no unit tag under “Job-wide facts” (the general sequence sections, a global outside air sensor, a changeover aquastat) and “Job-wide facts the reading found”. Write one as a line of this system only when this system owns it: its own sequence, points list or control diagram puts the point here, or the point serves only this system. Otherwise leave it out: the system that owns it prints it once, and you know it exists.
 - Lines often missed, written whenever this job's evidence calls for them: an outside air temperature sensor (a global point), a freezestat, a duct smoke detector status, a fan's VFD start, speed and fault points, a changeover aquastat or pipe temperature sensor, a pump's start, status and water temperatures.
 
 ## Short flags
 
-- A flag text is short. An assumption's what and why together are at most about 25 words (never more than 300 characters); a clarification lists its items in short points, at most about 40 words (never more than 500 characters); a mark_note names only the source. The reason and the detail stay in the line's refs and go to the Evidence Package; an answer with a longer text is refused.
+- A flag text is short. An assumption's what and why together are at most about 25 words (never more than 300 characters); a clarification lists its items in short points, at most about 40 words (never more than 500 characters); a mark_note names only the source. The reason and the detail stay in the line's refs and go to the Evidence Package; a longer text is cut to its first points by the code, so put the most important point first.
 <!-- end of the T-005d sections -->
 
 ## Duct heaters in one place

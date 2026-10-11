@@ -1181,8 +1181,9 @@ def _check_system(answer, skeleton: System, shape: Shape | None, known: frozense
     (filled from its ref's place when the answer gave none), a line quoting a passage that marks it FUTURE is marked
     "future" on intake, and a mark_note is dropped from an unmarked line (`_marks`). An assumption that says a schedule,
     the sequence or a points list states the fact, on a line citing one of them (`stated`: the evidence's ids of those
-    parts, `ai_evidence.stated_ids`), is no assumption: it is dropped and an "assumed" flag cleared (ruling 6). A flag
-    text that runs long is refused (`_length_problems`): the reason belongs in the Evidence Package."""
+    parts, `ai_evidence.stated_ids`), is no assumption: it is dropped and an "assumed" flag cleared (ruling 6); so is
+    an ownership assumption against a cited stated passage that states the owner; one that says the source is silent
+    stays. A flag text that runs long is shortened to points, never refused (`_shorten_flags`)."""
     from bms.counts import NO_SOURCE_QUOTE
     if not isinstance(answer, dict):
         return None, ["the answer is not a JSON object"]
@@ -1202,7 +1203,8 @@ def _check_system(answer, skeleton: System, shape: Shape | None, known: frozense
     log = changes if changes is not None else []
     mark_problems = _marks(answer["devices"], kept_ids, log)
     _stated_not_assumed(answer["devices"], kept_ids, stated, log)
-    problems = mark_problems + _length_problems(answer, kept_ids)
+    _shorten_flags(answer, kept_ids, log)
+    problems = list(mark_problems)
     problems += _normalise(answer, skeleton, kept_ids, changes if changes is not None else [], known, tags, ids,
                           sheets, source_sheets)
     for n, device in enumerate(answer["devices"]):
@@ -1285,10 +1287,33 @@ _SHEET_LIKE = re.compile(r"^[A-Z]{1,3}[- ]?\d[\w.\-]*$")
 _STATED = re.compile(r"\b(?:schedules?|sequences?(?:\s+of\s+operations?)?|points?\s+lists?)\b[^.;]{0,40}?\b(?:states?|"
                      r"stated|says|said|shows?|shown|calls?\s+for|specif(?:y|ies|ied)|requires?|indicates?|notes?|"
                      r"gives?)\b", re.I)
+# words that say a source is silent: "the schedule does not state the quantity", "shows no count", "without a count"
+# (T-005d must fix 3): such an assumption is real and stays
+_NEGATION = re.compile(r"\b(?:not|no|never|none|nor|neither|without|lacks?|lacking|silent|missing|absent|unstated|"
+                       r"unclear|unknown)\b|n't\b", re.I)
+_CLAUSE = re.compile(r"[^.;:,()]+")
+# a passage that states who furnishes, installs or wires an item (T-005d should fix 2)
+_STATES_OWNER = re.compile(r"\b(?:furnished|provided|supplied|installed|mounted|wired)\s+(?:and\s+\w+\s+)?by\b|"
+                           r"\bby\s+(?:others|the\s+(?:unit\s+)?manufacturer|the\s+factory|the\s+owner|"
+                           r"div(?:ision)?\.?\s*\d+|the\s+[\w\s]{0,20}?contractor)\b|"
+                           r"\bfactory[\s-]*(?:furnished|installed|mounted|provided|wired)\b", re.I)
+# an assumption about who furnishes, installs or wires an item
+_ABOUT_OWNER = re.compile(r"\b(?:furnish\w*|provid\w*|suppl(?:y|ied|ies)|install\w*|wir(?:e|ed|es|ing)|mount\w*|"
+                          r"owner|manufacturer|factory|contractor|by\s+(?:AME|others))\b", re.I)
+
+
+def _says_stated(words: str) -> bool:
+    """The words say a schedule, the sequence or a points list states the fact, in a clause with no negation."""
+    return any(_STATED.search(clause) and not _NEGATION.search(clause) for clause in _CLAUSE.findall(words or ""))
+
+
+def _says_silent(words: str) -> bool:
+    """The words say a source is silent ("the schedule does not state the quantity")."""
+    return bool(_NEGATION.search(words or ""))
 
 
 def _future_source(refs: Sequence[dict]) -> str:
-    """The document a FUTURE mark is as per, in a few words from its ref's place: "sheet M-710.00" for a sheet, else
+    """The document a FUTURE mark is as per, in a few words from its ref's place: "sheet M-9.01" for a sheet, else
     the place as given (the first ref that quotes FUTURE, else the first ref)."""
     ref = next((r for r in refs if _FUTURE_WORD.search(str(r.get("quote", "")))), refs[0] if refs else {})
     place = str(ref.get("where", "")).split(",", 1)[0].strip()
@@ -1313,7 +1338,10 @@ def _marks(devices: list[dict], kept_ids: set[str], changes: list[str]) -> list[
             problems.append(f"{label} has the mark {device.get('mark')!r}: a mark is \"\", \"future\" or \"notice\"")
             continue
         refs = list(device.get("refs") or ())
-        if not mark and any(_FUTURE_WORD.search(str(r.get("quote", ""))) for r in refs):
+        # only a quote whose FUTURE is beside the device's own words marks the line (should fix 1): "CAP FOR FUTURE
+        # CONNECTION" on a controller's sheet marks no controller
+        if not mark and any(ai_evidence.future_items(str(r.get("quote", "")), str(device.get("name") or ""))
+                            for r in refs):
             mark = "future"
             changes.append(f"{label}: marked future, as its source marks it FUTURE")
         if mark == "future":
@@ -1336,43 +1364,86 @@ def _marks(devices: list[dict], kept_ids: set[str], changes: list[str]) -> list[
 
 def _stated_not_assumed(devices: list[dict], kept_ids: set[str], stated: frozenset[str],
                         changes: list[str]) -> None:
-    """Ruling 6: never "Assumed" when a cited schedule or sequence states the fact. An assumption whose words say a
-    schedule, the sequence or a points list states it, on a line that cites one of them (`stated`), is dropped in
-    place and an "assumed" flag cleared; each change is logged."""
+    """Ruling 6: never "Assumed" when a cited schedule or sequence states the fact. On a line that cites one of them
+    (`stated`), an assumption is dropped in place and an "assumed" flag cleared when its words say the source states
+    it (in a clause with no negation, must fix 3), or when it is about who furnishes, installs or wires the item and
+    a cited stated passage's quote states that, whatever reason it gives (the specification, should fix 2). An
+    assumption whose words say the source is silent ("the schedule does not state the quantity") stays. Each change
+    is logged."""
     if not stated:
         return
     for n, device in enumerate(devices):
         assumption = device.get("assumption")
         if device.get("id") in kept_ids or not assumption:
             continue
-        words = f"{assumption.get('what', '')} {assumption.get('why', '')}"
-        cites = {str(r.get("source_id", "")).strip().strip("[]") for r in device.get("refs") or ()}
-        if _STATED.search(words) and cites & stated:
+        what, why = str(assumption.get("what", "") or ""), str(assumption.get("why", "") or "")
+        words = f"{what} {why}"
+        refs = [r for r in device.get("refs") or ()
+                if str(r.get("source_id", "")).strip().strip("[]") in stated]
+        if not refs:
+            continue
+        said = _says_stated(words)
+        owner = (not _says_silent(words) and bool(_ABOUT_OWNER.search(what))
+                 and any(_STATES_OWNER.search(str(r.get("quote", ""))) for r in refs))
+        if said or owner:
             label = f"device {device.get('id') or n + 1}"
-            changes.append(f"{label}: assumption {words.strip()!r} dropped: the schedule or sequence it cites states it")
+            reason = ("the schedule or sequence it cites states it" if said else
+                      "the schedule or sequence it cites states who furnishes, installs or wires it")
+            changes.append(f"{label}: assumption {words.strip()!r} dropped: {reason}")
             device["assumption"] = None
             if device.get("flag") == "assumed":
                 device["flag"] = "none"
 
 
-def _length_problems(answer: dict, kept_ids: set[str]) -> list[str]:
-    """A flag text that runs long: an assumption over ASSUMPTION_LIMIT characters, a clarification over
-    CLARIFICATION_LIMIT. The flag stays short; the reason is in the line's refs and the Evidence Package."""
-    problems: list[str] = []
+_POINT_SPLIT = re.compile(r"(?<=[.;!?])\s+|\s*\n+\s*|\s+-\s+|\s*•\s*")
+
+
+def _points(text: str, limit: int) -> str:
+    """A text shortened to at most `limit` characters as short points (T-005d should fix 4): its sentences, clauses
+    and list items in order, joined with "; ", as many as fit; a first point longer than the limit is cut at a word
+    with " …". A text within the limit is returned as it was."""
+    text = str(text or "").strip()
+    if len(text) <= limit:
+        return text
+    points = [" ".join(p.split()).rstrip(".;, ") for p in _POINT_SPLIT.split(text)]
+    points = [p for p in points if p]
+    kept: list[str] = []
+    for point in points:
+        joined = "; ".join([*kept, point])
+        if len(joined) > limit:
+            break
+        kept.append(point)
+    if kept:
+        return "; ".join(kept)
+    head = (points[0] if points else text)[:max(1, limit - 2)]
+    return (head.rsplit(" ", 1)[0] if " " in head else head) + " …"
+
+
+def _shorten_flags(answer: dict, kept_ids: set[str], changes: list[str]) -> None:
+    """A flag text that runs long is shortened in place to points, never refused (T-005d should fix 4: a refusal
+    after max attempts stopped the run): an assumption's what and why together to ASSUMPTION_LIMIT characters (what
+    first, at most half when both are long), a clarification to CLARIFICATION_LIMIT. The reason stays in the line's
+    refs and the Evidence Package; QC reads the length as a "check". Each change is logged."""
     for n, device in enumerate(answer["devices"]):
         assumption = device.get("assumption")
-        if device.get("id") in kept_ids or not assumption:
+        if device.get("id") in kept_ids or not isinstance(assumption, dict):
             continue
-        size = len(str(assumption.get("what", "")).strip()) + len(str(assumption.get("why", "")).strip())
-        if size > ASSUMPTION_LIMIT:
-            problems.append(f"device {device.get('id') or n + 1}'s assumption runs to {size} characters: say what and "
-                            f"why in one short sentence, at most {ASSUMPTION_LIMIT} characters (the refs carry the rest)")
+        what = str(assumption.get("what", "") or "").strip()
+        why = str(assumption.get("why", "") or "").strip()
+        if len(what) + len(why) <= ASSUMPTION_LIMIT:
+            continue
+        half = ASSUMPTION_LIMIT // 2
+        new_what = _points(what, max(half, ASSUMPTION_LIMIT - len(why)) if len(why) < half else half)
+        new_why = _points(why, ASSUMPTION_LIMIT - len(new_what))
+        assumption["what"], assumption["why"] = new_what, new_why
+        changes.append(f"device {device.get('id') or n + 1}: assumption shortened to points "
+                       f"({len(what) + len(why)} to {len(new_what) + len(new_why)} characters)")
     for clarification in answer["clarifications"]:
-        size = len(str(clarification.get("text", "")).strip())
-        if size > CLARIFICATION_LIMIT:
-            problems.append(f"its clarification runs to {size} characters: list the items in short points, at most "
-                            f"{CLARIFICATION_LIMIT} characters (the refs carry the reasons)")
-    return problems
+        text = str(clarification.get("text", "") or "").strip()
+        if len(text) > CLARIFICATION_LIMIT:
+            clarification["text"] = _points(text, CLARIFICATION_LIMIT)
+            changes.append(f"clarification shortened to points ({len(text)} to {len(clarification['text'])} "
+                           "characters)")
 
 
 _PLAYBOOK_WORD = re.compile(r"\bplaybook\b|\bfinding\s+\d+\b", re.I)

@@ -137,8 +137,9 @@ def _write(dossier, playbook, *answers, system=None):
 def test_the_control_diagram_sheet_reaches_the_writer_before_the_plan_sheets(dossier):
     text = ai.evidence_for(ahu(), dossier)
     assert "[S40] M-701" in text and "[FUTURE] SUPPLY AIR STATIC PRESSURE" in text
-    notes = text.split("Notes that name it:", 1)[1]
-    assert notes.index("[S40]") < notes.index("[S32]")          # the controls sheet first, whole
+    controls = text.split("Controls sheets that name it", 1)[1].split("Notes that name it:", 1)[0]
+    assert "[S40] M-701" in controls and "[S32]" not in controls    # the controls sheet first, whole, own block
+    assert text.index("Controls sheets that name it") < text.index("[S32]")
 
 
 def test_a_title_block_phrase_does_not_make_a_plan_sheet_name_a_tagged_system(dossier):
@@ -179,7 +180,7 @@ def test_the_end_devices_of_the_unit_schedule_are_listed(dossier):
     text = ai.evidence_for(ahu(), dossier)
     part = text.split("End devices its unit schedules list", 1)[1]
     loose = next(l for l in part.splitlines() if l.startswith("- shipped loose"))
-    listed = next(l for l in part.splitlines() if l.startswith("- listed with the unit"))
+    listed = next(l for l in part.splitlines() if l.startswith("- names an end device"))
     assert "S13" in loose and "S14" in loose
     assert "S12" in listed and "notice" in listed
     assert "S15" not in part                                    # a disconnect switch is no end device
@@ -325,19 +326,30 @@ def test_an_assumption_on_a_line_citing_no_schedule_or_sequence_is_kept(dossier,
 
 # ---- the intake: short flags (addendum) ----------------------------------------------------------------------------
 
-def test_a_long_assumption_is_refused(dossier, playbook):
-    device = _device(1, *FUTURE_SENSOR, flag="assumed",
-                     assumption={"what": "one sensor per unit " * 10, "why": "the control schematic shows one " * 10})
-    with pytest.raises(ai.NoAnswer) as refused:
-        _write(dossier, playbook, _answer(device))
-    assert "assumption runs to" in refused.value.reason
+def test_a_long_assumption_is_shortened_to_points_never_refused(dossier, playbook):
+    """T-005d should fix 4: a long flag text no longer stops the run after max attempts; it is cut to points."""
+    what = "one sensor per unit. " + "the sensor sits in the supply duct. " * 8
+    why = "the control schematic shows one sensor. " + "the schedule is silent on the count. " * 8
+    device = _device(1, *FUTURE_SENSOR, flag="assumed", assumption={"what": what, "why": why})
+    written, transport = _write(dossier, playbook, _answer(device))
+    assumption = written.devices[0].assumption
+    assert len(assumption.what) + len(assumption.why) <= ai.ASSUMPTION_LIMIT
+    assert assumption.what.startswith("one sensor per unit") and assumption.why.startswith("the control schematic")
+    assert any("shortened" in change for _, change in transport.notes)
 
 
-def test_a_long_clarification_is_refused(dossier, playbook):
-    with pytest.raises(ai.NoAnswer) as refused:
-        _write(dossier, playbook, _answer(_device(1, *FUTURE_SENSOR),
-                                          clarifications=[{"kind": "note", "text": "the sensors are listed " * 30}]))
-    assert "clarification runs to" in refused.value.reason
+def test_a_long_clarification_is_shortened_to_points_never_refused(dossier, playbook):
+    text = "; ".join(f"sensor {n} is listed on the unit schedule" for n in range(1, 30))
+    written, transport = _write(dossier, playbook, _answer(_device(1, *FUTURE_SENSOR),
+                                                           clarifications=[{"kind": "note", "text": text}]))
+    shown = written.clarifications[0].text
+    assert len(shown) <= ai.CLARIFICATION_LIMIT and shown.startswith("sensor 1 is listed on the unit schedule; sensor 2")
+    assert any("shortened" in change for _, change in transport.notes)
+
+
+def test_one_long_point_is_cut_at_a_word():
+    shown = ai._points("x" * 20 + " " + "word " * 200, 60)
+    assert len(shown) <= 60 and shown.endswith(" …")
 
 
 # ---- the prompts -----------------------------------------------------------------------------------------------

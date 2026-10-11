@@ -832,7 +832,7 @@ def _items(printed: list[_Printed], pending: bool) -> list[Item]:
 
 def _with_marks(printed: list[_Printed], ids: SourceIds) -> list[_Printed]:
     """The printed lines with a "future" device's "(<mark_note>)" after its words (T-005 ruling 7: "(FUTURE AS PER
-    control schematic on sheet M710.00)"; "(FUTURE)" with no note). The note goes through the safety net every client
+    control schematic on sheet M-9.01)"; "(FUTURE)" with no note). The note goes through the safety net every client
     text goes through (`SourceIds.without_issued`). `_items` prints a "future" or "notice" line in red."""
     out = []
     for p in printed:

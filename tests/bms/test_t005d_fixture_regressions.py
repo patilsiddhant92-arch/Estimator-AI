@@ -57,8 +57,9 @@ def test_fixture_the_control_diagram_reaches_the_writer_before_the_plan_sheets()
     c = F["controls_sheet"]
     text = ai.evidence_for(_unit(), _dossier())
     assert f"[S{c['sid']}] {c['number']}" in text and F["future_quote"] in text
-    notes = text.split("Notes that name it:", 1)[1]
-    assert notes.index(f"[S{c['sid']}]") < notes.index(f"[S{F['tagged_plans'][0]['sid']}]")
+    controls = text.split("Controls sheets that name it", 1)[1].split("Notes that name it:", 1)[0]
+    assert f"[S{c['sid']}]" in controls                             # its own block, whole, before the notes
+    assert text.index("Controls sheets that name it") < text.index(f"[S{F['tagged_plans'][0]['sid']}]")
 
 
 def test_fixture_a_sheet_named_only_by_its_title_block_is_not_a_note_of_the_unit():

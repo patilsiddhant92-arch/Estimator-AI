@@ -154,7 +154,7 @@ class Device(_Model):
         '"notice" for an item the estimator must notice, e.g. one the factory furnishes (the line prints in red).',
         optional=True))
     mark_note: str = field(default="", **_doc(
-        'For a "future" mark: the words printed in brackets, e.g. "FUTURE AS PER control schematic on sheet M710.00"; '
+        'For a "future" mark: the words printed in brackets, e.g. "FUTURE AS PER control schematic on sheet M-9.01"; '
         '"" otherwise.', optional=True))
 
     def __post_init__(self) -> None:
