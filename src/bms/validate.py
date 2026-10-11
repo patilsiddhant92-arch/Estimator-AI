@@ -391,12 +391,13 @@ def _unknown(system, shape, job, playbook) -> Iterator[Hit]:
     if family is not None:
         yield (None, "check", f"The {family.name} count is unknown and carries no clarification",
                "Add one 'per drawings' or 'confirm' clarification to the block.")
-    # a line whose wording prints its quantity, with the quantity unknown, prints "(Qty. ##)". The render module is
-    # imported here, not at the top: `bms status` loads this module through the Playbook lint and must work when
-    # the estimate stack (render, the price sheet) cannot import.
-    from bms.render import line_form
+    # a line whose wording prints its quantity, with the quantity unknown, prints "Qty (##)" in front. The render
+    # module is imported here, not at the top: `bms status` loads this module through the Playbook lint and must
+    # work when the estimate stack (render, the price sheet) cannot import.
+    from bms.render import line_form, line_prints_quantity
     for d in system.devices:
-        if d.quantity.highest() is None and "{qty}" in line_form(d, shape, playbook):
+        kind = shape.slot_kinds.get(d.slot) if shape is not None else None
+        if d.quantity.highest() is None and line_prints_quantity(line_form(d, shape, playbook), kind):
             yield (d.id, "check", f"{d.name}: its quantity is unknown and the block carries no clarification",
                    "Give the count from the evidence, or add one 'per drawings' or 'confirm' clarification to the "
                    "block.")
