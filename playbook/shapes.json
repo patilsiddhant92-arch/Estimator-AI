@@ -72,7 +72,7 @@
         "hot_water_valve": "{verb} {device}{owner}{qty}",
         "electric_heat_enable": "{verb} {device}{owner}{qty}",
         "electric_heat_scr": "{verb} {device}{owner}{qty}",
-        "power_loop": "Run 24V Power Loop to VAVs",
+        "power_loop": "Run 24V Power Loop to VAVs (Mentioned 24 V Wiring Control by BMS Contractor)",
         "transformer": "{verb} {device}{owner}{qty}",
         "other_device": "{verb} {device}{owner}{qty}",
         "other_point": "{verb} {device}{owner}{qty}",
@@ -580,11 +580,12 @@
       "applies_to": {"prefixes": ["EF", "GEF"], "kind_words": ["exhaust fan"]},
       "header": "Qty ({n}) Exhaust Fans {tags}",
       "family_names": ["Exhaust Fan"],
-      "line_order": ["interlock", "controller", "space_temperature", "duct_static", "start_stop_status", "vfd_control", "damper_actuator", "other_device", "other_point", "fire_alarm", "other_valve", "other_install_and_wire", "other_wire", "other_interlock", "other_wiring", "vfd_comm_wiring", "vfd_map_points", "vfd_rep_assist", "comm_wiring", "map_points", "rep_assist"],
+      "line_order": ["interlock", "controller", "space_temperature", "space_thermostat", "duct_static", "start_stop_status", "vfd_control", "damper_actuator", "other_device", "other_point", "fire_alarm", "other_valve", "other_install_and_wire", "other_wire", "other_interlock", "other_wiring", "vfd_comm_wiring", "vfd_map_points", "vfd_rep_assist", "comm_wiring", "map_points", "rep_assist"],
       "slot_kinds": {
         "interlock": "interlock",
         "controller": "device",
         "space_temperature": "device",
+        "space_thermostat": "device",
         "duct_static": "device",
         "start_stop_status": "point",
         "vfd_control": "point",
@@ -608,6 +609,7 @@
         "interlock": "Interlock with Associated {device} Operation",
         "controller": "{verb} {device}{owner}{qty}",
         "space_temperature": "{verb} {device}{owner}{qty}",
+        "space_thermostat": "{verb} {device}{owner}{qty}",
         "duct_static": "{verb} {device}{owner}{qty}",
         "start_stop_status": "{verb} {device}{owner}{qty}",
         "vfd_control": "{verb} {device}{owner}{qty}",
@@ -628,7 +630,7 @@
         "rep_assist": "AME requires mfr. Rep to assist in integration, cost to be incurred by mech contractor"
       },
       "under": {"rep_assist": "map_points", "vfd_rep_assist": "vfd_map_points"},
-      "tech_hours": {"per": "unit", "hours": null, "when": [{"if": ["controller"], "hours": 4}]}
+      "tech_hours": {"per": "unit", "hours": null, "when": [{"if": ["controller"], "hours": 4}, {"if": ["start_stop_status"], "hours": 4}, {"if": ["vfd_control"], "hours": 4}, {"if": ["other_point"], "hours": 4}]}
     },
     {
       "name": "Stair / Elevator Vent",
@@ -1873,7 +1875,7 @@
         "leak_sensor": "{verb} {device}{owner}{qty}",
         "ram_module": "{verb} {device}{owner}{qty}",
         "vrf_comm_wiring": "VRF Communication Wiring",
-        "condensate_float_switch": "Tie-in {device}{owner}",
+        "condensate_float_switch": "Tie-in Condensate Pump Float Switch (Furnished by Mfr.)",
         "leak_detection_wiring": "{verb} {device}{owner}{qty}",
         "central_controller": "{verb} {device}{owner}{qty}",
         "other_device": "{verb} {device}{owner}{qty}",
@@ -1929,7 +1931,7 @@
         "bms_space_sensor": "{verb} {device}{owner}{qty}",
         "leak_sensor": "{verb} {device}{owner}{qty}",
         "ram_module": "{verb} {device}{owner}{qty}",
-        "condensate_float_switch": "Tie-in {device}{owner}",
+        "condensate_float_switch": "Tie-in Condensate Pump Float Switch (Furnished by Mfr.)",
         "indoor_outdoor_interlock": "Low Voltage Interlock Wiring between Indoor and Outdoor Unit",
         "leak_detection_wiring": "{verb} {device}{owner}{qty}",
         "other_device": "{verb} {device}{owner}{qty}",
@@ -1987,7 +1989,7 @@
         "bms_space_sensor": "{verb} {device}{owner}{qty}",
         "leak_sensor": "{verb} {device}{owner}{qty}",
         "ram_module": "{verb} {device}{owner}{qty}",
-        "condensate_float_switch": "Tie-in {device}{owner}",
+        "condensate_float_switch": "Tie-in Condensate Pump Float Switch (Furnished by Mfr.)",
         "condenser_isolation_valve": "{verb} {device}{owner}{qty}",
         "condenser_interlock": "Condenser Interlock Wiring",
         "other_device": "{verb} {device}{owner}{qty}",
@@ -2050,7 +2052,7 @@
       "applies_to": {"prefixes": [], "kind_words": ["front end"]},
       "header": "Qty ({n}) {name}",
       "family_names": ["Front End"],
-      "line_order": ["network_panel", "workstation", "server", "portable_terminal", "ups", "graphics", "training", "it_infrastructure", "other_device"],
+      "line_order": ["network_panel", "workstation", "server", "portable_terminal", "ups", "graphics", "training", "it_infrastructure", "lighting_interface", "other_device"],
       "slot_kinds": {
         "network_panel": "device",
         "workstation": "device",
@@ -2060,6 +2062,7 @@
         "graphics": "device",
         "training": "device",
         "it_infrastructure": "device",
+        "lighting_interface": "wiring",
         "other_device": "device"
       },
       "wording": {
@@ -2071,6 +2074,7 @@
         "graphics": "{verb} {device}{owner}{qty}",
         "training": "{verb} {device}{owner}{qty}",
         "it_infrastructure": "{verb} {device}{owner}{qty}",
+        "lighting_interface": "Interface Lighting Control System (By Others) With Front End BMS Via Manufacturer Provided BMS Interface",
         "other_device": "{verb} {device}{owner}{qty}"
       },
       "tech_hours": {"per": "fixed", "hours": null, "when": []}
