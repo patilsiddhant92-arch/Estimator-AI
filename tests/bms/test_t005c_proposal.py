@@ -147,8 +147,8 @@ def test_a_notice_line_prints_in_red_with_no_bracket(job, playbook):
 def test_a_marked_line_in_a_system_block_prints_red_too(job, playbook):
     system = job.systems[1]
     device = replace(system.devices[0], mark="future", mark_note="FUTURE AS PER sheet M-710")
-    marked = replace(job, systems=tuple(replace(s, devices=(device, *s.devices[1:])) if s.key == system.key else s
-                                        for s in job.systems))
+    marked = replace(job, demolition=(), systems=tuple(
+        replace(s, devices=(device, *s.devices[1:])) if s.key == system.key else s for s in job.systems))
     draft = render(marked, playbook)
     lines = [i for b in draft.scope.blocks for i in b.items if i.kind == "line"]
     red = [i for i in lines if i.runs[0].red]

@@ -1,10 +1,23 @@
 """The Demolition Scope (T-G1). Every name here is invented."""
 from __future__ import annotations
 
+import json
+from dataclasses import replace
+from pathlib import Path
+
 import takeoff_fixture as fx
 
-from bms.model import Ref, Unit
+from bms.model import DemolitionLine, Job, Ref, Unit
+from bms.playbook import load_playbook
+from bms.render import render
 from bms.takeoff import demolition_lines
+
+FIXTURES = Path(__file__).resolve().parent / "fixtures"
+PLAYBOOK = load_playbook(FIXTURES / "sample_playbook")
+
+
+def _sample() -> Job:
+    return Job.from_dict(json.loads((FIXTURES / "sample_job.json").read_text(encoding="utf-8")))
 
 
 def _unit(family: str, status: str, count: int = 1, tag: str = "", reason: str = "",
@@ -58,3 +71,27 @@ def test_named_work_reasons_join_in_unit_order():
 
 def test_no_units_gives_no_lines():
     assert demolition_lines(()) == ()
+
+
+def test_two_demolition_lines_render_as_the_last_block():
+    ref = Ref("S1", "shown for removal", "MD-101, Drawings.pdf page 6")
+    lines = (
+        DemolitionLine("AHU", "demo", 2, (ref,), "existing controls removed"),
+        DemolitionLine("FCU", "existing to remain", 3, (ref,)),
+    )
+    out = render(replace(_sample(), demolition=lines), PLAYBOOK)
+    block = out.scope.blocks[-1]
+    assert block.header == "Demolition Scope"
+    assert [item.text for item in block.items] == [
+        "Qty (2) AHU demo, existing controls removed",
+        "Qty (3) FCU Existing to Remain",
+    ]
+    assert all(item.runs[0].red and item.quantity == line.count for item, line in zip(block.items, lines))
+    moved = render(replace(_sample(), demolition=(DemolitionLine("VAV", "relocation", 1, (ref,)),)), PLAYBOOK)
+    assert [item.text for item in moved.scope.blocks[-1].items] == ["Qty (1) VAV Relocation"]
+
+
+def test_a_job_with_no_demolition_lines_renders_no_block():
+    out = render(replace(_sample(), demolition=()), PLAYBOOK)
+    assert [block.header for block in out.scope.blocks if block.header == "Demolition Scope"] == []
+    assert all(line.text != "Demolition Scope" for line in out.lines)
