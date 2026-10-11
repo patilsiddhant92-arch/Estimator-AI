@@ -524,7 +524,9 @@ def _estimate(job_folder: Path, out: Path, cache: Path, mode: Mode, known: dict)
 
     # 2. plan, then the counts cross-check
     known["stage"] = "count"
-    job = plan_job(ledger, catalogue, dossier, playbook)
+    # takeoff Stage 2 (T-007): the register binds the counts and the blocks (`plan_job(register=...)`)
+    job = plan_job(ledger, catalogue, dossier, playbook, register=register,
+                   typicals=getattr(reading, "typicals", ()) or ())
     job = dataclasses.replace(job, header=Header(
         quote_number=old_header.quote_number, reference=old_header.reference, mep_engineer=old_header.mep_engineer,
         based_on=tuple(old_header.based_on), date=old_header.date.isoformat(), to=old_header.to),
@@ -536,6 +538,9 @@ def _estimate(job_folder: Path, out: Path, cache: Path, mode: Mode, known: dict)
         # never refused
         source_sheets=source_sheets(ledger.sources, getattr(dossier, "sources", None) or {}))
     job = takeoff.attach(job, register)
+    # the devices counted on sheets whose units do not count (thermostats on a demolition plan) are set aside too
+    job = takeoff.attach_device_set_asides(job, getattr(reading, "devices", ()) or (),
+                                           getattr(dossier, "sheet_pages", None) or {})
     job = attach_demolition(job)    # T-G1: the Demolition Scope from the register's units
     asked = transport.waiting
     job = cross_check(job, catalogue, cache, transport=transport)

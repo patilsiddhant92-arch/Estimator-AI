@@ -703,7 +703,10 @@ old app).
 `retire_requests` → `estimator.ledger.run.read_job` (saves `<quote> Ledger.json`; stops "waiting" at "read" when
 incomplete) → `load_playbook` → the takeoff pass (`bms.takeoff.take_off` through the run's transport; stops
 "waiting" at "takeoff" while its request has no answer; saves `<quote> Takeoff.json` when it changed) → `plan_job`
-→ header set → `takeoff.attach` (Stage 1: the register is stored on the Job and changes no count) → `cross_check`
+(Stage 2, T-007: `plan_job(..., register=<the register>, typicals=reading.typicals)`, so the register binds the
+counts and blocks; after `takeoff.attach`, `takeoff.attach_device_set_asides(job, reading.devices,
+dossier.sheet_pages)` adds each device label's set-asides from the sheets whose units do not count)
+→ header set → `takeoff.attach` → `cross_check`
 → `write_system` per system, then `write_front_end` (the front end is written like a system, from
 `front_end_evidence`, the passages the planner cited for it; nothing is asked when the documents call for none;
 when its writer writes no line, `no_scope_reason` holds why and one question asks the estimator whether the job

@@ -374,6 +374,14 @@ def device_tally(devices, sheets, label: str, sheet_pages: dict | None = None) -
     return kept, aside
 
 
+def attach_device_set_asides(job: Job, devices, sheet_pages: dict | None = None) -> Job:
+    """The job with every device label's set-asides (`device_tally` over `job.sheets`) after its own, each once."""
+    labels = list(dict.fromkeys(d.label for d in devices or ()))
+    found = [a for label in labels for a in device_tally(devices, job.sheets, label, sheet_pages)[1]]
+    new = tuple(a for a in found if a not in job.set_aside)
+    return dataclasses.replace(job, set_aside=(*job.set_aside, *new)) if new else job
+
+
 # ---- Task 2.2: the sources a family's count may use ---------------------------------------------------------------
 
 # the counts cross-check's quotes (`bms.counts.LOCATED_QUOTE`, `SEEN_QUOTE`), kept here so this module needs no import

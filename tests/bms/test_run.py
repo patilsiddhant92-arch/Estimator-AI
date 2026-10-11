@@ -982,9 +982,9 @@ def test_a_run_waits_at_takeoff_after_reading(job_folder, tmp_path, monkeypatch)
     assert {u.tag for u in job.units} >= {"VAV-1", "VAV-2", "VAV-3", "VAV-4"}
 
 
-def test_takeoff_changes_no_count(job_folder, tmp_path, monkeypatch):
-    """The Job a run saves after the counts cross-check has the family counts of plan_job and cross_check on the
-    same inputs without a takeoff."""
+def test_the_run_plans_with_the_register(job_folder, tmp_path, monkeypatch):
+    """Stage 2 (T-007): the run plans with the register (`plan_job(register=...)`). The Job a run saves after the
+    counts cross-check has the family counts of plan_job with that register and cross_check on the same inputs."""
     from bms import ai, run
     from bms.counts import cross_check
     from bms.model import Job
@@ -993,24 +993,26 @@ def test_takeoff_changes_no_count(job_folder, tmp_path, monkeypatch):
     seen: dict = {}
     real_plan = run.plan_job
 
-    def spy(ledger, catalogue, dossier, playbook):
-        seen.update(ledger=ledger, catalogue=catalogue, dossier=dossier, playbook=playbook)
-        return real_plan(ledger, catalogue, dossier, playbook)
+    def spy(ledger, catalogue, dossier, playbook, **kw):
+        seen.update(ledger=ledger, catalogue=catalogue, dossier=dossier, playbook=playbook, **kw)
+        return real_plan(ledger, catalogue, dossier, playbook, **kw)
     monkeypatch.setattr(run, "plan_job", spy)
     out, cache = tmp_path / "out", tmp_path / "cache"
     result = _reach(job_folder, out, cache, "write")
     assert result.stage == "write"
     saved = Job.from_json(result.job_file.read_text(encoding="utf-8"))
     assert saved.units and saved.sheets                              # the register is on the job
+    assert seen["register"] is not None and seen["register"].units == saved.units
 
-    without = plan_job(seen["ledger"], seen["catalogue"], seen["dossier"], seen["playbook"])
-    assert without.units == () and without.sheets == ()
+    again = plan_job(seen["ledger"], seen["catalogue"], seen["dossier"], seen["playbook"],
+                     register=seen["register"], typicals=seen["typicals"])
+    assert again.units == saved.units and again.sheets == saved.sheets
     transport = ai.ChatTransport(cache, job=seen["dossier"].job_name)    # the count answers are cached
-    without = cross_check(without, seen["catalogue"], cache, transport=transport)
+    again = cross_check(again, seen["catalogue"], cache, transport=transport)
 
     def counts(job):
         return {(s.key, f.name): f.count for s in job.systems for f in s.families}
-    assert counts(saved) == counts(without) and counts(saved)
+    assert counts(saved) == counts(again) and counts(saved)
 
 
 def test_a_run_with_demolish_units_writes_the_demolition_block(job_folder, tmp_path, monkeypatch):

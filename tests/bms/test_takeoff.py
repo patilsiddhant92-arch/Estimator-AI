@@ -707,3 +707,10 @@ def test_without_a_register_the_blocks_are_the_code_s():
     job = plan_job(_extended_ledger(), fx.catalogue(), fx.dossier(), PLAYBOOK)
     assert any(s.key == "P" for s in job.systems)
     assert [f.name for f in _system(job, "Air Handling Unit").families] == ["Air Handling Unit"]
+
+
+def test_the_run_sets_the_devices_of_the_excluded_sheets_aside():
+    job = takeoff.attach_device_set_asides(_registered_job(), fx.reading().devices, fx.dossier().sheet_pages)
+    assert [(a.family, a.value, a.reason, a.ref.source_id) for a in job.set_aside] == [("T", 9, "demolition sheet",
+                                                                                        "S18")]
+    assert takeoff.attach_device_set_asides(job, fx.reading().devices, fx.dossier().sheet_pages) == job
