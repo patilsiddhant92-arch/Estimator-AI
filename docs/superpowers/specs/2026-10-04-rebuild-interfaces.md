@@ -30,6 +30,7 @@ dependency without the controller (`jsonschema` and `yaml` are not installed —
 | `src/bms/review.py` | `review_page`, `load_decisions`, `apply_decisions`; the decisions history: `SavedDecision`, `load_history`, `save_history`, `merge_decisions(history, saved, *, job=None)`, `apply_seen`, `copies_seen`, `held_back`, `unhonored_decisions`, `system_digest`, `accept_families`; `DECISIONS_FILE`, `DECISIONS_HISTORY`, `NOT_CITED_GROUP` (the heading of the coverage group) | workstream 7 |
 | `tools/measure.py` | `measure`, `MeasureResult`, `LineMatch` | workstream 7 |
 | `src/bms/coverage.py` | `coverage(job, ledger, dossier=None) -> list[Finding]` (the coverage gate: one `check` Finding, rule `"coverage"`, for each ledger fact of a scope kind that nothing in the job cites; pure, report only), `RULE`, `SCOPE_KINDS` | HarkPro T-001 (reviewed by the lead); `run` calls it |
+| `src/bms/takeoff.py` | the takeoff pass (plan 2026-10-11, Stage 1): `take_off`, `prompt`, `answer_schema`, `check_answer`, `attach`, `save`, `load`, `Takeoff`, `TAKEOFF_JOB`, `TAKEOFF_LIMIT`; its prompt `src/bms/prompts/takeoff_job.md` | HarkPro T-006 (reviewed by the lead) |
 | `src/bms/run.py` | `estimate`, `RunResult` (the orchestration) | controller |
 | `src/bms/status.py` | `check(out, cache) -> Status` (exit code and plain lines), `Status`, `RUN_STATE` (`"run state.json"`) | controller |
 | `src/bms/doctor.py` | `run_doctor` and its checks (Python, dependencies, `.claude/run-job.json` models, Playbook, cache folder) | controller |
@@ -58,6 +59,16 @@ missing required key, wrong type or a value outside an enumeration raises `Model
 | `Severity` | "must_fix", "check" | `SEVERITIES` |
 | `FrontEndMode` | "new-system", "extend-existing" | `FRONT_END_MODES` |
 | `DecisionAction` | "accept", "change", "delete" | `DECISION_ACTIONS` |
+| `SheetKind` | "new_work", "demolition", "part_plan", "enlarged_plan", "riser", "schedule", "detail", "control_diagram", "other" | `SHEET_KINDS` |
+| `UnitStatus` | "new", "demolish", "demolish_with_work", "existing_remain", "relocate", "future" | `UNIT_STATUSES` |
+| `SetAsideReason` | "demolition sheet", "same unit labelled again", "part plan of one area", "future item", "existing to remain", "not a unit of this family" | `SET_ASIDE_REASONS` |
+
+`Flag` has no "future" value: `Device.mark` (T-005c) carries a future item. The last three enumerations are the
+takeoff register's (takeoff pass plan 2026-10-11). `COUNTED_STATUSES` is a constant tuple of the model, not an
+enumeration: the unit statuses whose units count toward a family's number. In the model today it is
+`("new", "relocate")`; the amended plan (T-006-plan.md, Task 1.1) makes it `("new",)` and adds `DemolitionAction`,
+`DEMOLITION_ACTIONS` and `DEMOLITION_OF`, which are not in the model yet. Stage 1 reads none of them: no count
+changes.
 
 `UNNAMED_EXISTING = "[existing BMS name]"` is a constant of the model, not an enumeration. It is the fill-in the
 proposal prints for an existing BMS that the documents do not name (rules.md "Front end mode"; the same text as
@@ -139,9 +150,28 @@ Finding:        rule: str, system_key: str, device_id: str | None, severity: Sev
 Decision:       system_key: str, action: DecisionAction, device_id: str | None = None, family_name: str | None = None,
                 device: Device | None = None, count: Count | None = None, finding_rule: str | None = None,
                 reason: str = "", was: Device | None = None
+SheetClass:     document: str, page: int, number: str, kind: SheetKind, area: str, counts_units: bool, reason: str,
+                refs: tuple[Ref] = ()
+                  what one drawing sheet is, as the takeoff reader decided. number "" when the sheet has none; area
+                  plain words, one area name for every sheet of one place, "" off plans; counts_units: the units and
+                  devices drawn on it count for this job.
+Unit:           family: str, tag: str, labels: tuple[str], status: UnitStatus, count: int, sheets: tuple[str],
+                refs: tuple[Ref] (>= 1, enforced: ModelError), serves: str = "", service: str = "", reason: str = ""
+                  one unit, or one type tag, the documents show. tag as the schedule prints it; count 1 for a numbered
+                  unit, the places for a type tag; sheets the counted sheets it is drawn on; serves the unit it serves
+                  ("AHU-2" for a valve); service "chilled water", "hot water" or "".
+SetAside:       family: str, value: int, ref: Ref, reason: SetAsideReason, note: str = ""
+                  a count in the ledger that is not the family's number, with its source; note gives both numbers.
+FutureItem:     family: str, item: str, refs: tuple[Ref]
+                  a unit or device the documents mark future.
 ```
 
-`MODEL_CLASSES` lists them all.
+`Job` also carries the takeoff register (takeoff pass plan 2026-10-11), after `source_sheets`, each defaulted:
+`sheets: tuple[SheetClass] = ()`, `units: tuple[Unit] = ()`, `set_aside: tuple[SetAside] = ()`,
+`future_items: tuple[FutureItem] = ()`. A Job saved before them loads with all four `()`. `bms.takeoff.attach` sets
+them; in Stage 1 nothing reads them, so no count changes.
+
+`MODEL_CLASSES` lists them all (the four takeoff classes last).
 
 `Finding.severity` is only ever `must_fix` or `check`, the run's own findings too: the run's "check this system"
 card (an earlier delete that may be back re-worded) is a `check` (REVIEW-FINAL F2: the run built it as
@@ -163,6 +193,10 @@ card (an earlier delete that may be back re-worded) is a `check` (REVIEW-FINAL F
   ask for the front end as a System (`ai.front_end_system`). `qc_job` answers
   `{"type": "object", "properties": {"findings": {"type": "array", "items": json_schema(Finding)}},
   "required": ["findings"], "additionalProperties": false}`.
+- The takeoff step answers `bms.takeoff.answer_schema()`: an object with the arrays `sheets`
+  (items `json_schema(SheetClass)`), `units` (`json_schema(Unit)`), `set_aside` (`json_schema(SetAside)`),
+  `future_items` (`json_schema(FutureItem)`) and `questions` (strings), all five required,
+  `additionalProperties: false`.
 - `schema_errors(value, schema) -> list[str]` — every way a JSON value breaks a schema (type, enum, properties,
   required, additionalProperties false, items, minItems, anyOf). Run it on an AI answer before `from_dict`.
 
@@ -551,6 +585,42 @@ families an accept is about (a count change of any of them overrules the accept)
 `MeasureResult(matched: tuple[(LineMatch, LineMatch)], missed: tuple[LineMatch], extra: tuple[LineMatch])`,
 `.share_matched`, `.summary()`; `LineMatch(system, device, verb, quantity)`. Held-out jobs only, never to tune.
 
+### Workstream 8 — `bms.takeoff` (takeoff pass plan 2026-10-11, Stage 1)
+```
+TAKEOFF_JOB = "takeoff_job"; TAKEOFF_NAME = "Takeoff"; TAKEOFF_LIMIT = 600_000      # characters of one request
+@dataclass(frozen=True) class Takeoff: sheets: tuple[SheetClass], units: tuple[Unit], set_aside: tuple[SetAside],
+                                       future_items: tuple[FutureItem], questions: tuple[str]
+answer_schema() -> dict
+prompt(ledger: Ledger, catalogue: Catalogue, reading, dossier: Dossier) -> str
+check_answer(answer, ledger, catalogue, reading, index: Mapping[str, str]) -> tuple[Takeoff | None, list[str]]
+take_off(ledger, catalogue, reading, dossier, playbook: Playbook, transport: Transport) -> Takeoff   # raises NoAnswer
+attach(job: Job, takeoff: Takeoff) -> Job
+save(takeoff: Takeoff, path: Path) -> bool; load(path: Path) -> Takeoff
+```
+One request, kind `takeoff_job`, name "Takeoff", extra `{"step": "takeoff"}`, instructions `playbook.rules_text`
+(the cached first system block in API mode), system prompt `prompts/takeoff_job.md`, no pictures, asked through
+`ai._ask_checked` with `check_answer`, so a refused answer is asked again (chat: on the next run) up to
+`max_attempts`. `prompt` is deterministic: seven sections, each under a `## ` heading line, in this order: "Ledger
+facts" (`ledger.table()`), "What each reading pass understood" (`- <pass>: <text>`), "Sheets" (the sheets of
+`CONTROLS_DISCIPLINES`, by document and page: `<document> | page <n> | <number or -> | <title> | code guess: <types
+or none> | text: <7c id or -> | labels: <TAG xN, ...>`, the labels by `tags.line_labels`, "none" when there are
+none), "Schedules" (`<sheet> <title>`, then `TAG: col=value; ...` per row), "Notes on the sheets" (`<sheet> <block>
+<number>: <text>`), "Sequence sections" (`<Q id>: <heading>`) and "Devices counted on the sheets" (`<sheet> <device>
+(<label>) <count>`). A prompt over `TAKEOFF_LIMIT` raises `ValueError` ("Stopped: the takeoff request is too long
+(N characters) ..."); it is never cut. `check_answer` runs `schema_errors`, then each class's `from_dict` (a
+`ModelError` is a problem), then refuses, naming the item: a listed sheet left out, a sheet given twice, a sheet
+that is not listed; a `new_work`, `demolition`, `part_plan` or `enlarged_plan` sheet with no area; a demolition sheet
+with `counts_units` true and no ref; two rows for one (family, tag); `serves` naming no unit row; a ref whose id is
+no ledger fact or source of the job (`ai.evidence_index(dossier)`), or whose quote (`ai.quote_in`) is not in that
+fact's quote and value or that source's text; and the schedule floor: every scheduled tag (one row per tag, as the
+reading lists them) has a unit row; a scheduled unit whose status is not in `COUNTED_STATUSES`, or whose count is
+below its floor (1 per row, or the row's numeric QTY / QUANTITY column), needs a reason and a ref to a passage other
+than its own schedule. `attach` replaces `sheets`, `units`, `set_aside` and `future_items` only. `save` writes
+`{"version": 1, "sheets": [...], "units": [...], "set_aside": [...], "future_items": [...], "questions": [...]}`
+whole or not at all (`ai._write_json`) and returns True; a file that already holds the same register is left as it
+is (False): every later run reads the same cached answer.
+Stage 1 changes no count: the register is stored, and no count, block or line reads it.
+
 ### Workstream 1 — the Playbook content
 Fills `playbook/rules.md` (the topics above; each rule a `###` short name; the practice rules of design §2.7 carry
 over unchanged in meaning; replaces the two `<!-- sample -->` rules), `playbook/shapes.json` (one entry per Master
@@ -571,10 +641,13 @@ old app).
 `estimate(job_folder: Path, out: Path, cache: Path, mode: "chat"|"api" = "chat") -> RunResult`, in order:
 `catalogue_job` → `estimator.reading.job.read_job` → `job_header` → `build_dossier` → `Judge` +
 `retire_requests` → `estimator.ledger.run.read_job` (saves `<quote> Ledger.json`; stops "waiting" at "read" when
-incomplete) → `load_playbook` → `plan_job` → header set → `cross_check` → `write_system` per system, then
-`write_front_end` (the front end is written like a system, from `front_end_evidence`, the passages the planner cited
-for it; nothing is asked when the documents call for none; when its writer writes no line, `no_scope_reason` holds
-why and one question asks the estimator whether the job needs a front end) (all asked, then stop "waiting" at
+incomplete) → `load_playbook` → the takeoff pass (`bms.takeoff.take_off` through the run's transport; stops
+"waiting" at "takeoff" while its request has no answer; saves `<quote> Takeoff.json` when it changed) → `plan_job`
+→ header set → `takeoff.attach` (Stage 1: the register is stored on the Job and changes no count) → `cross_check`
+→ `write_system` per system, then `write_front_end` (the front end is written like a system, from
+`front_end_evidence`, the passages the planner cited for it; nothing is asked when the documents call for none;
+when its writer writes no line, `no_scope_reason` holds why and one question asks the estimator whether the job
+needs a front end) (all asked, then stop "waiting" at
 "write" if any NoAnswer; saves `<quote> Job.json`) → `load_history` + `load_decisions`
 (a malformed file stops at "decisions") → `merge_decisions(job=)` → save the history → `apply_seen` (every
 decision of the history) → `rewrite_for_count` for each system whose family counts the decisions changed, then the
@@ -592,9 +665,9 @@ decisions history held when a run last saved it, 0 when none was saved yet, so a
 from a first save; the "running" state carries `version`, `status`, `quote`, `job` and `decisions`). Prints
 `Wrote <path>` for every file.
 `RunResult(status: "waiting"|"done", stage, waiting=0, job_file=None, findings=(), review=None, proposal=None,
-price_sheet=None, evidence=None, messages=())`. `stage` is `read`, `count`, `write`, `decisions`, `qc`, `revise`
-or `done`. `decisions` is a bad decisions file (or a history that cannot be saved): the run stops in words and
-waits for no request. `render` appears only in the run state: a proposal that cannot be printed
+price_sheet=None, evidence=None, messages=())`. `stage` is `read`, `takeoff`, `count`, `write`, `decisions`, `qc`,
+`revise` or `done`. `decisions` is a bad decisions file (or a history that cannot be saved): the run stops in words
+and waits for no request. `render` appears only in the run state: a proposal that cannot be printed
 (`bms.render.RenderError`) ends the run as stopped (status "waiting", nothing waiting, a "Stopped:" message) and
 the error reaches the caller.
 `python -m bms estimate` exits 0 when done, 2 when requests are waiting, and 1 when it stops with nothing to answer
@@ -633,6 +706,12 @@ got, with the same exit codes as `estimate` (0 done, 2 waiting, 1 stopped, not f
   this job, Higher count prints, One clarification per block, Every assumption says why, Packaged units,
   Shipped-loose devices, Dampers under their fan, Duct heaters in one place, VRF and split as one block.
   Workstreams test against it, not against `playbook/` (which workstream 1 is changing).
+- `tests/bms/fixtures/takeoff/` with `tests/bms/takeoff_fixture.py` — the invented takeoff job "Invented Hall"
+  (00-1111, `Mech.pdf`, ten sheets): `sheets.json`, `reading.json`, `ledger.json` and `answer.json` (the correct
+  register). `catalogue()`, `reading()`, `ledger()`, `dossier()` and `answer()` build the objects the code takes;
+  it reproduces the per-area overcount (plan placements 16 for five scheduled AHUs and five EFs).
+  `takeoff_answer(request)` answers any takeoff request from its prompt alone (every sheet `new_work`, one `new` unit
+  per scheduled tag): the run tests' answerer.
 
 ## 8. Files each workstream owns (and must not touch outside)
 
@@ -645,6 +724,7 @@ got, with the same exit codes as `estimate` (0 done, 2 waiting, 1 stopped, not f
 | 5 | `src/bms/ai.py` (+ `src/bms/ai_*.py`, `src/bms/prompts/`), `tools/run_job.py`, `.claude/skills/run-job/SKILL.md` | `tests/bms/test_ai.py` |
 | 6 | `src/bms/counts.py` (+ `src/bms/counts_*.py`) | `tests/bms/test_counts.py` |
 | 7 | `src/bms/review.py` (+ `src/bms/review_*.py`), `tools/measure.py` | `tests/bms/test_review.py`, `tests/bms/test_measure.py` |
+| 8 | `src/bms/takeoff.py`, `src/bms/prompts/takeoff_job.md` | `tests/bms/test_takeoff.py` |
 
 A workstream keeps its public signatures exactly as above (the contract tests check them); private helpers are
 free. New fixtures go under `tests/bms/fixtures/<workstream>/`, invented only.
