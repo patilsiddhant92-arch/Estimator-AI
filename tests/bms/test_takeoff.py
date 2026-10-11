@@ -123,6 +123,7 @@ def test_fixture_answer_is_the_register_of_this_job():
 import copy  # noqa: E402
 import dataclasses  # noqa: E402
 import json  # noqa: E402
+import re  # noqa: E402
 
 import pytest  # noqa: E402
 
@@ -411,3 +412,377 @@ def test_the_run_tests_answerer_answers_a_takeoff_request_the_checks_keep():
     assert [u.tag for u in value.units] == [*(f"AHU-{n}" for n in range(1, 6)), *(f"EF-{n}" for n in range(1, 6)),
                                             "ERU-1", "FCU-1"]
     assert {u.refs[0].source_id for u in value.units} == {"F3", "F6", "F9", "F12"}
+
+
+# ---- Stage 2, Task 2.1: count over admissible sheets ------------------------------------------------------------------
+
+def _register() -> takeoff.Takeoff:
+    """The fixture's correct register, as the checks keep it."""
+    register, problems = _check(fx.answer())
+    assert problems == []
+    return register
+
+
+def _registered_job() -> Job:
+    """The fixture planned without the register, then the register put on it (the Stage 1 run order)."""
+    return takeoff.attach(_planned(), _register())
+
+
+def _key(number: str) -> tuple[str, int]:
+    return ("Mech.pdf", SHEET_NUMBERS.index(number) + 1)
+
+
+def test_admissible_pages_are_the_sheets_whose_units_count():
+    pages = takeoff.admissible_pages(_registered_job().sheets)
+    assert pages == frozenset(_key(n) for n in ("M-401", "M-402", "M-403", "M-404", "M-201", "M-202"))
+
+
+def test_area_groups_map_the_four_attic_sheets_to_one_group():
+    groups = takeoff.area_groups(_registered_job().sheets)
+    attic = tuple(_key(n) for n in ("M-401", "M-402", "M-403", "M-404"))
+    assert all(groups[key] == attic for key in attic)
+    # one area per floor; the demolition sheets and the sheets that are no plan are in no group
+    assert groups[_key("M-201")] == (_key("M-201"),) and groups[_key("M-202")] == (_key("M-202"),)
+    assert not {_key(n) for n in ("MD-401", "MD-201", "M-601", "M-701")} & set(groups)
+
+
+def test_placements_over_the_admissible_pages_with_the_area_groups():
+    job = _registered_job()
+    pages, groups = takeoff.admissible_pages(job.sheets), takeoff.area_groups(job.sheets)
+    for prefix, tags, total in (("AHU", [f"AHU-{n}" for n in range(1, 6)], 5),
+                                ("EF", [f"EF-{n}" for n in range(1, 6)], 5), ("ERU", ["ERU-1"], 1),
+                                ("FCU", ["FCU-1"], 55)):
+        found = placements(fx.catalogue(), tags, pages=pages, groups=groups)
+        assert sum(p.count for p in found.values()) == total, prefix
+        # MD-401 is read nowhere: no plan count, no group, nothing left out from it
+        assert all("MD-401" not in p.on_plans and "MD-401" not in p.demolition for p in found.values()), prefix
+        assert all("MD-401" not in names for p in found.values() for group in p.same_plan for names in group)
+
+
+def test_the_groups_keyword_replaces_the_code_s_plan_groups():
+    """Given groups, `placements` reads them in place of `plan_groups`: two sheets of one type tag in one given group
+    count once (the most of one sheet), not added."""
+    job = _registered_job()
+    pages = takeoff.admissible_pages(job.sheets)
+    one = {_key("M-201"): (_key("M-201"), _key("M-202")), _key("M-202"): (_key("M-201"), _key("M-202"))}
+    (found,) = placements(fx.catalogue(), ["FCU-1"], pages=pages, groups=one).values()
+    assert found.count == 30
+    (found,) = placements(fx.catalogue(), ["FCU-1"], pages=pages, groups={}).values()
+    assert found.count == 55
+    (found,) = placements(fx.catalogue(), ["FCU-1"], pages=pages).values()
+    assert found.count == 55
+
+
+def test_device_tally_keeps_the_thermostats_of_the_new_work_sheets():
+    kept, aside = takeoff.device_tally(fx.reading().devices, _registered_job().sheets, "T")
+    assert kept == 30
+    (one,) = aside
+    assert (one.family, one.value, one.reason) == ("T", 9, "demolition sheet")
+    assert one.ref.where == "MD-201, Mech.pdf page 9" and one.ref.quote == "T"
+    assert one.note == "9 thermostats on MD-201 set aside (demolition sheet); 30 on the new-work sheets"
+
+
+def test_device_tally_cites_the_sheet_text_when_the_dossier_gives_it():
+    pages = fx.dossier().sheet_pages
+    kept, (one,) = takeoff.device_tally(fx.reading().devices, _registered_job().sheets, "T", pages)
+    assert kept == 30 and one.ref.source_id == "S18"
+
+
+def test_device_tally_with_no_register_keeps_every_count():
+    kept, aside = takeoff.device_tally(fx.reading().devices, (), "T")
+    assert (kept, aside) == (39, [])
+
+
+# ---- Stage 2, Task 2.2: admissible sources in the planner --------------------------------------------------------------
+
+def _plan_registered(ledger=None, register=None) -> Job:
+    return plan_job(ledger or fx.ledger(), fx.catalogue(), fx.dossier(), PLAYBOOK,
+                    register=register if register is not None else _register())
+
+
+def _how_many(job, prefix: str) -> list[str]:
+    return [q for q in job.questions if q.startswith(f"How many {prefix} units?")]
+
+
+def _ledger_with_placements(**placed) -> Ledger:
+    """The fixture ledger as the code counted the attic before T-005a: each family's counts line says more plan
+    placements than there are units (the same unit on the part plans of one area, added up). Invented numbers."""
+    data = fx.ledger().to_dict()
+    for fact in data["facts"]:
+        if fact["kind"] == "count" and fact["subject"] in placed:
+            n, sheets = placed[fact["subject"]]
+            fact["quote"] = re.sub(r"plan placements \d+ \([^)]*\)", f"plan placements {n} ({sheets})", fact["quote"])
+    return Ledger.from_dict(data)
+
+
+def _answer_with(**status) -> dict:
+    """The fixture answer with some units' status changed, each with a reason and a ref that sets it aside."""
+    answer = fx.answer()
+    for tag, value in status.items():
+        unit = _unit(answer, tag.replace("_", "-"))
+        unit.update(status=value, reason="Invented: shown for removal on the demolition plan.",
+                    refs=[{"source_id": "F13", "quote": "EXISTING AHU-6 AND EF-6 TO BE REMOVED",
+                           "where": "MD-401, Mech.pdf page 6"}])
+    return answer
+
+
+def test_the_register_prints_the_new_work_counts():
+    job = _plan_registered()
+    counts = _counts(job)
+    names = ("Air Handling Unit", "Exhaust Fan", "Energy Recovery Unit", "Fan Coil Unit")
+    assert [counts[name].value for name in names] == [5, 5, 1, 55]
+    # the register is on the planned job; the code's counts already equal it on this base (T-005a), so nothing is set
+    # aside and nothing is asked about the counts
+    register = _register()
+    assert (job.sheets, job.units, job.future_items) == (register.sheets, register.units, register.future_items)
+    assert job.set_aside == ()
+    assert not [q for q in job.questions if q.startswith("How many ")]
+    # the register entry is one of the printed count's sources: the first new unit's citation
+    assert register.units[0].refs[0] in counts["Air Handling Unit"].sources
+
+
+def test_without_a_register_nothing_changes():
+    plain, registered = _planned(), plan_job(fx.ledger(), fx.catalogue(), fx.dossier(), PLAYBOOK, register=None)
+    assert plain == registered and plain.set_aside == () and plain.units == ()
+
+
+def test_the_code_s_higher_placement_counts_are_set_aside_with_both_numbers():
+    ledger = _ledger_with_placements(AHU=(21, "M-401 5; M-402 5; M-403 3; M-404 3; MD-401 5"),
+                                     EF=(16, "M-401 5; M-403 3; M-404 3; MD-401 5"),
+                                     ERU=(3, "M-401 1; M-402 1; M-404 1"))
+    before = _counts(plan_job(ledger, fx.catalogue(), fx.dossier(), PLAYBOOK))
+    assert [before[n].value for n in ("Air Handling Unit", "Exhaust Fan", "Energy Recovery Unit")] == [21, 16, 3]
+    job = _plan_registered(ledger)
+    counts = _counts(job)
+    assert [counts[n].value for n in ("Air Handling Unit", "Exhaust Fan", "Energy Recovery Unit", "Fan Coil Unit")] \
+        == [5, 5, 1, 55]
+    # the dropped numbers print nowhere in the count: they are set aside, each with its source and both numbers
+    assert 21 not in {o.value for o in counts["Air Handling Unit"].others}
+    aside = {(a.family, a.value): a for a in job.set_aside}
+    assert set(aside) == {("AHU", 21), ("EF", 16), ("ERU", 3)}
+    assert {a.reason for a in aside.values()} == {"part plan of one area"}
+    assert aside[("AHU", 21)].ref.source_id == "S5" and aside[("AHU", 21)].ref.quote == "plan placements 21"
+    assert aside[("AHU", 21)].note == "21 set aside (part plan of one area); 5 AHU on the new-work sheets"
+    # one question per family whose printed count fell below the code's count, in the lead's words
+    assert _how_many(job, "AHU") == ["How many AHU units? 5 print from the new-work sheets; the code counted 21."]
+    assert _how_many(job, "EF") == ["How many EF units? 5 print from the new-work sheets; the code counted 16."]
+    assert _how_many(job, "ERU") == ["How many ERU units? 1 print from the new-work sheets; the code counted 3."]
+    assert _how_many(job, "FCU") == []
+
+
+def test_a_demolished_scheduled_unit_prints_below_the_schedule_with_one_question():
+    register, problems = _check(_answer_with(AHU_5="demolish"))
+    assert problems == []                    # the floor holds: the row cites the passage that sets it aside
+    job = _plan_registered(register=register)
+    family = next(f for s in job.systems for f in s.families if f.name == "Air Handling Unit")
+    assert family.count.value == 4 and family.tags == ("AHU-1", "AHU-2", "AHU-3", "AHU-4")
+    aside = [a for a in job.set_aside if a.family == "AHU"]
+    assert [(a.value, a.reason) for a in aside] == [(5, "demolition sheet")]
+    assert aside[0].note == "5 set aside (demolition sheet); 4 AHU on the new-work sheets"
+    assert _how_many(job, "AHU") == ["How many AHU units? 4 print from the new-work sheets; the code counted 5."]
+    assert len([q for q in job.questions if "AHU" in q and q.startswith("How many")]) == 1
+
+
+def test_a_count_the_register_sets_aside_is_dropped_and_not_repeated():
+    ledger = _ledger_with_placements(AHU=(21, "M-401 5; M-402 5; M-403 3; M-404 3; MD-401 5"))
+    answer = fx.answer()
+    answer["set_aside"] = [{"family": "AHU", "value": 21, "reason": "part plan of one area",
+                            "ref": {"source_id": "S5", "quote": "plan placements 21", "where": "equipment counts"},
+                            "note": "21 plan placements set aside; 5 units on the new-work sheets"}]
+    register = takeoff.Takeoff(**{k: tuple(getattr(_register(), k)) for k in ("sheets", "units", "future_items",
+                                                                             "questions")},
+                               set_aside=(SetAside.from_dict(answer["set_aside"][0]),))
+    job = _plan_registered(ledger, register)
+    assert _counts(job)["Air Handling Unit"].value == 5
+    assert [(a.family, a.value, a.note) for a in job.set_aside] == [
+        ("AHU", 21, "21 plan placements set aside; 5 units on the new-work sheets")]
+
+
+def test_attach_keeps_the_planner_s_set_asides():
+    ledger = _ledger_with_placements(AHU=(21, "M-401 5; M-402 5; M-403 3; M-404 3; MD-401 5"))
+    job = _plan_registered(ledger)
+    assert takeoff.attach(job, _register()).set_aside == job.set_aside
+
+
+# ---- Stage 2, Task 2.3: tags, valves under units, pumps split ----------------------------------------------------------
+# The fixture plus five control valves CV-1..5 serving AHU-1..5, and four pumps: P-1 (chilled water) and P-2 (hot
+# water) drawn alone (`with_plant` false), P-3 and P-4 scheduled with boiler B-1 (`with_plant` true, serving B-1).
+# Every name and number is invented. The ledger gains each family's facts; the register gains each unit's row.
+
+_EXTRA_SOURCES = {"S20": "M-601 CONTROL VALVE SCHEDULE, Mech.pdf page 1", "S21": "M-601 PUMP SCHEDULE, Mech.pdf page 1",
+                  "S22": "M-601 BOILER SCHEDULE, Mech.pdf page 1"}
+_EXTRA_FAMILIES = (("CV", "Control Valve", 5, "CV-1 thru 5", "S20"), ("P", "Pump", 4, "P-1 thru 4", "S21"),
+                   ("B", "Boiler", 1, "B-1", "S22"))
+
+
+def _fact(n: int, kind: str, subject: str, value, source: str, quote: str) -> dict:
+    return {"id": f"F{n}", "kind": kind, "subject": subject, "value": value, "source_id": source, "quote": quote,
+            "stage": "schedules", "state": "settled", "contradictions": [], "was_settled": True}
+
+
+def _extended_ledger() -> Ledger:
+    data = fx.ledger().to_dict()
+    data["sources"].update(_EXTRA_SOURCES)
+    n = 16
+    for prefix, name, count, tags, source in _EXTRA_FAMILIES:
+        data["facts"] += [_fact(n, "family", prefix, name, source, f"{name.upper()} SCHEDULE"),
+                          _fact(n + 1, "count", prefix, count, source, f"{prefix} ({name}): schedule rows {count}"),
+                          _fact(n + 2, "unit", prefix, tags, source, tags)]
+        n += 3
+    return Ledger.from_dict(data)
+
+
+def _extended_register(**changes) -> takeoff.Takeoff:
+    facts = {prefix: f"F{18 + 3 * i}" for i, (prefix, *_rest) in enumerate(_EXTRA_FAMILIES)}
+
+    def unit(family, tag, **kw):
+        row = {"family": family, "tag": tag, "labels": [tag], "status": "new", "count": 1, "sheets": ["M-401"],
+               "refs": [{"source_id": facts[family], "quote": tag.split("-")[0], "where": "M-601"}],
+               "serves": "", "service": "", "with_plant": False, "reason": ""}
+        row.update(kw)
+        row.update(changes.get(tag.replace("-", "_"), {}))
+        return Unit.from_dict(row)
+
+    rows = [unit("CV", f"CV-{n}", serves=f"AHU-{n}", service="hot water") for n in range(1, 6)]
+    rows += [unit("P", "P-1", service="chilled water"), unit("P", "P-2", service="hot water"),
+             unit("P", "P-3", service="hot water", with_plant=True, serves="B-1"),
+             unit("P", "P-4", service="hot water", with_plant=True, serves="B-1"), unit("B", "B-1")]
+    base = _register()
+    return dataclasses.replace(base, units=(*base.units, *rows))
+
+
+def _extended_job(register=None) -> Job:
+    return plan_job(_extended_ledger(), fx.catalogue(), fx.dossier(), PLAYBOOK,
+                    register=register if register is not None else _extended_register())
+
+
+def _system(job, name):
+    return next(s for s in job.systems if s.name == name)
+
+
+def test_the_unit_headers_carry_the_counted_units_tags():
+    job = _extended_job()
+    ahu = _system(job, "Air Handling Unit")
+    assert ahu.families[0].tags == tuple(f"AHU-{n}" for n in range(1, 6)) and ahu.families[0].count.value == 5
+    # a demolished unit leaves the header too
+    job = _extended_job(dataclasses.replace(_extended_register(), units=tuple(
+        dataclasses.replace(u, status="demolish", reason="Invented.") if u.tag == "EF-5" else u
+        for u in _extended_register().units)))
+    assert _system(job, "Exhaust Fan").families[0].tags == tuple(f"EF-{n}" for n in range(1, 5))
+
+
+def test_control_valves_that_serve_the_air_handlers_are_a_family_in_their_block():
+    job = _extended_job()
+    ahu = _system(job, "Air Handling Unit")
+    assert [f.name for f in ahu.families] == ["Air Handling Unit", "Control Valve"]
+    valves = ahu.families[1]
+    assert valves.tags == tuple(f"CV-{n}" for n in range(1, 6)) and valves.count.value == 5
+    assert not [s for s in job.systems if s.key == "CV"]
+    assert not [q for q in job.questions if "Control Valve" in q]
+
+
+def test_plant_pumps_stay_with_their_plant_and_remote_pumps_split_by_service():
+    job = _extended_job()
+    boiler = next(s for s in job.systems if s.key == "B")
+    assert [(f.name, f.tags, f.count.value) for f in boiler.families] == [
+        ("Boiler", ("B-1",), 1), ("Pump", ("P-3", "P-4"), 2)]
+    chilled, hot = _system(job, "Chilled Water Pump"), _system(job, "Hot Water Pump")
+    assert [(f.tags, f.count.value) for f in chilled.families] == [(("P-1",), 1)]
+    assert [(f.tags, f.count.value) for f in hot.families] == [(("P-2",), 1)]
+    # no pump block is left over, and every pump is in exactly one block
+    pumps = [t for s in job.systems for f in s.families for t in f.tags if t.startswith("P-")]
+    assert sorted(pumps) == ["P-1", "P-2", "P-3", "P-4"]
+    assert not [s for s in job.systems if s.key == "P"]
+
+
+def test_a_plant_pump_never_leaves_its_plant_and_one_service_is_not_split():
+    register = _extended_register(P_1={"service": "hot water"})
+    job = _extended_job(register)
+    assert [f.tags for f in next(s for s in job.systems if s.key == "B").families] == [("B-1",), ("P-3", "P-4")]
+    pumps = [s for s in job.systems if any(t.startswith("P-") for f in s.families for t in f.tags) and s.key != "B"]
+    assert len(pumps) == 1 and pumps[0].families[0].tags == ("P-1", "P-2")
+
+
+def test_without_a_register_the_blocks_are_the_code_s():
+    job = plan_job(_extended_ledger(), fx.catalogue(), fx.dossier(), PLAYBOOK)
+    assert any(s.key == "P" for s in job.systems)
+    assert [f.name for f in _system(job, "Air Handling Unit").families] == ["Air Handling Unit"]
+
+
+def test_the_run_sets_the_devices_of_the_excluded_sheets_aside():
+    job = takeoff.attach_device_set_asides(_registered_job(), fx.reading().devices, fx.dossier().sheet_pages)
+    assert [(a.family, a.value, a.reason, a.ref.source_id) for a in job.set_aside] == [("T", 9, "demolition sheet",
+                                                                                        "S18")]
+    assert takeoff.attach_device_set_asides(job, fx.reading().devices, fx.dossier().sheet_pages) == job
+
+
+# ---- Stage 2, Task 2.7: end to end on the invented fixture ------------------------------------------------------------
+
+def _written(job: Job) -> Job:
+    """A stand-in for the writers (no transport): one controller line per block, and on the fan coil block the space
+    sensors at the thermostat count of the new-work sheets (`device_tally`), each citing the fixture."""
+    from bms.model import Count, Device, Header, Ref
+
+    ref = Ref("S1", "AIR HANDLING UNIT SCHEDULE", "M-601, Mech.pdf page 1")
+    kept, _aside = takeoff.device_tally(fx.reading().devices, job.sheets, "T")
+    systems = []
+    for system in job.systems:
+        shape = PLAYBOOK.shapes.get(system.shape) if system.shape else None
+        slot = shape.line_order[0] if shape is not None else "controller"
+        devices = [Device(f"{system.key}.d1", slot, "DDC Controller", "Furnish and Install", "AME", "AME", "AME",
+                          Count(system.families[0].count.value, (ref,)), (ref,))]
+        if system.key == "FCU":
+            devices.append(Device("FCU.d2", slot, "Space Temperature Sensor", "Furnish and Install", "AME", "AME",
+                                  "AME", Count(kept, (ref,)), (ref,)))
+        systems.append(dataclasses.replace(system, devices=tuple(devices)))
+    return dataclasses.replace(job, systems=tuple(systems),
+                               header=Header("00-1111", "Invented Hall", "Invented", ("Mech.pdf",), "2026-10-12"))
+
+
+def test_takeoff_end_to_end(tmp_path):
+    from bms.counts import cross_check
+    from bms.render import render
+
+    register = _extended_register()
+    job = plan_job(_extended_ledger(), fx.catalogue(), fx.dossier(), PLAYBOOK, register=register)
+    job = takeoff.attach(job, register)
+    job = takeoff.attach_device_set_asides(job, fx.reading().devices, fx.dossier().sheet_pages)
+    job = takeoff.attach_demolition(job)
+    job = cross_check(job, fx.catalogue(), tmp_path / "cache")          # no transport: the located-text count only
+    counts = {f.name: f.count.value for s in job.systems for f in s.families}
+    assert [counts[n] for n in ("Air Handling Unit", "Exhaust Fan", "Energy Recovery Unit", "Fan Coil Unit")] == \
+        [5, 5, 1, 55]
+    draft = render(_written(job), PLAYBOOK)
+    headers = [line.text for line in draft.lines if line.kind == "header"]
+    assert "Qty (5) Air Handling Unit AHU-1 thru 5" in headers and "Qty (5) Exhaust Fan EF-1 thru 5" in headers
+    assert "Qty (1) Energy Recovery Unit ERU-1" in headers
+    assert any(h.startswith("Qty (55) Fan Coil Unit FCU-1") for h in headers)
+    # the thermostats print at 30: the 9 on the demolition plan are set aside
+    (sensor,) = [line for line in draft.lines if line.device_id == "FCU.d2"]
+    assert "Space Temperature Sensor" in sensor.text and sensor.quantity == 30
+    assert [(a.family, a.value, a.reason) for a in job.set_aside] == [("T", 9, "demolition sheet")]
+    # the valves are inside the air handler block; two pump blocks print for the remote pumps; the plant's pumps
+    # stay in the boiler block
+    blocks = [b.header for b in draft.scope.blocks]
+    at = blocks.index("Qty (5) Air Handling Unit AHU-1 thru 5")
+    assert blocks[at + 1] == "Qty (5) Control Valve CV-1 thru 5" and draft.scope.blocks[at + 1].joined
+    assert "Qty (1) Chilled Water Pump P-1" in blocks and "Qty (1) Hot Water Pump P-2" in blocks
+    assert blocks.index("Qty (2) Pump P-3, 4") == blocks.index("Qty (1) Boiler B-1") + 1
+    # the Demolition Scope is the last block before the alternates; AHU-6 and EF-6 are in no header or count
+    assert blocks[-1] == "Demolition Scope"
+    demo = [i.runs[0].text for i in draft.scope.blocks[-1].items]
+    assert demo == ["Qty (1) AHU demo", "Qty (1) EF demo"]
+    assert not any("AHU-6" in h or "EF-6" in h or "thru 6" in h for h in headers)
+    assert all("AHU-6" not in f.tags and "EF-6" not in f.tags for s in job.systems for f in s.families)
+    # at most one count question per family, in the lead's form
+    asked = [q for q in job.questions if q.startswith("How many ")]
+    assert len(asked) == len({q.split(" units?")[0] for q in asked})
+    # the writer's evidence carries the register (Task 2.5) and the Evidence Package lists every set-aside (Task 2.6)
+    from bms.evidence import set_aside_rows
+
+    fcu = takeoff.register_text(job, job.system("FCU"), _extended_ledger(), devices=fx.reading().devices)
+    assert "Thermostats: 30 on the new-work sheets; 9 set aside (demolition sheet)" in fcu
+    assert len(set_aside_rows(job.set_aside)) == len(job.set_aside) == 1
+    # the set-asides and the demolition lines are in Job.json
+    saved = Job.from_json(job.to_json())
+    assert saved.set_aside == job.set_aside and saved.demolition == job.demolition and saved.units == job.units

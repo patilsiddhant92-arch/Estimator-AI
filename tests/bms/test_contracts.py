@@ -456,7 +456,7 @@ def test_broken_json_names_the_file(tmp_path):
 # ---- the stubs' signatures (the brief, exactly) --------------------------------------------------------------
 
 SIGNATURES = {
-    plan.plan_job: ["ledger", "catalogue", "dossier", "playbook"],
+    plan.plan_job: ["ledger", "catalogue", "dossier", "playbook", "register", "typicals"],   # T-007: the register
     validate.validate: ["job", "playbook"],
     render.render: ["job", "playbook"],
     ai.write_system: ["system", "evidence", "playbook", "transport", "tags", "ids", "sheets",
@@ -464,7 +464,7 @@ SIGNATURES = {
     ai.qc_job: ["job", "evidence_index", "playbook", "transport"],
     ai.revise_system: ["system", "findings", "evidence", "playbook", "transport", "tags", "ids", "sheets",
                        "source_sheets", "hold_counts"],   # as write_system; hold_counts: families the estimator set
-    ai.evidence_for: ["system", "dossier"],
+    ai.evidence_for: ["system", "dossier", "register"],
     ai.evidence_index: ["dossier"],
     counts.count_tags: ["image_path", "tag_pattern", "transport"],      # transport: optional, keyword-only
     counts.cross_check: ["job", "catalogue", "cache", "transport"],     # transport: optional, keyword-only

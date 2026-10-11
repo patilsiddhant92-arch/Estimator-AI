@@ -46,7 +46,7 @@ from estimator.writing.write import tag_list
 
 from bms import ai_evidence
 from bms.citations import without_ledger_brackets
-from bms.model import UNNAMED_EXISTING, Count, Family, FrontEnd, Job, Ref, ScopeException, Served, System
+from bms.model import UNNAMED_EXISTING, Count, Family, FrontEnd, Job, Ref, ScopeException, Served, SetAside, System
 from bms.plan_groups import family_of_tag, members, part_count, parts, split_apart, unread
 from bms.plan_read import NO_KIND, FamilyFacts, Reader, expand, naming, names_in, squash, tag_words
 from bms.playbook import Playbook, Shape
@@ -171,11 +171,14 @@ def _lead(subject: str) -> str:
 
 
 class _Planner:
-    def __init__(self, ledger: Ledger, dossier: Dossier | None, playbook: Playbook) -> None:
+    def __init__(self, ledger: Ledger, dossier: Dossier | None, playbook: Playbook, register=None,
+                 recount: dict | None = None) -> None:
         self.ledger = ledger
         self.playbook = playbook
+        self.register = register
+        self._held: set[str] = set()    # the families `_parts_hold` already set aside and asked about
         self.reader = Reader(ledger, getattr(dossier, "sources", None) or {}, getattr(dossier, "text", "") or "",
-                             getattr(dossier, "families", ()) or ())
+                             getattr(dossier, "families", ()) or (), register=register, recount=recount)
         self.dossier = dossier
         self.questions: list[str] = []
         self._texts: dict[str, str] | None = None
@@ -1244,6 +1247,7 @@ class _Planner:
         not one per tag) is not split: it is asked."""
         out: list[_Draft] = []
         texts: list[tuple[str, Ref]] | None = None
+        units = self._register_units()          # takeoff Stage 2 (T-007): the register's rows, {} with no register
         for draft in drafts:
             fam = draft.families[0] if len(draft.families) == 1 else None
             source = fam.source if fam is not None else None
@@ -1266,13 +1270,24 @@ class _Planner:
                     for tag in tags:
                         said.setdefault(tag, set()).add(services[0])
             service_of = {t: next(iter(said[t])) for t in fam.tags if len(said.get(t, ())) == 1}
+            # takeoff Stage 2 (T-007 review S1): a remote pump's register row (`with_plant` false) gives its service and
+            # wins over a text; a pump drawn with its in-scope plant (`with_plant` true) is in no service block (it
+            # stays here and `serve_units` moves it into its plant)
+            rows = {t: units.get(_plain_tag(t)) for t in fam.tags}
+            plant = {t for t, u in rows.items() if u is not None and u.with_plant}
+            service_of.update({t: _service_name(u.service) for t, u in rows.items()
+                               if u is not None and not u.with_plant and u.service.strip()})
+            for tag in plant:
+                service_of.pop(tag, None)
             if not service_of:
                 out.append(draft)
                 continue
             services = list(dict.fromkeys(service_of[t] for t in fam.tags if t in service_of))
-            left = tuple(t for t in fam.tags if t not in service_of)
+            left = tuple(t for t in fam.tags if t not in service_of and t not in plant)
             label = f"{fam.name} ({source.prefix})"
-            if len(services) == 1 and not left:
+            # each tag's count: its register row's (a type tag or a quantity column counts more than one), else one
+            each = self._unit_counts(fam.tags)
+            if len(services) == 1 and not left and not plant:
                 draft.kind, draft.service = "pumps", services[0]
                 if squash(source.name).casefold() in _GENERIC_KINDS or not _services_said(draft.name):
                     draft.name = f"{services[0]} Pump"
@@ -1280,9 +1295,16 @@ class _Planner:
                 out.append(draft)
                 continue
             count = fam.count
-            if count.value is not None and count.value != len(fam.tags):
-                said_by = "; ".join(f"{s}: {tag_words([t for t in fam.tags if service_of.get(t) == s])}"
-                                    for s in services)
+            said_by = "; ".join(f"{s}: {tag_words([t for t in fam.tags if service_of.get(t) == s])}"
+                                for s in services)
+            if any(rows.values()):
+                # T-007 review M1: the register's unit counts must hold the family's count, else no split (the guard
+                # below, with the register's total set aside and asked)
+                with_plant = f"; with the plant: {tag_words([t for t in fam.tags if t in plant])}" if plant else ""
+                if not self._parts_hold(fam, sum(each.values()), label, said_by + with_plant):
+                    out.append(draft)
+                    continue
+            elif count.value is not None and count.value != len(fam.tags):
                 self.questions.append(
                     f"{label}: {_came_from(count, count.value)} for {len(fam.tags)} tags, so it counts by type and is "
                     f"not split by service ({said_by}). How many pumps of each service are there?")
@@ -1293,23 +1315,26 @@ class _Planner:
             for service in services:
                 tags = tuple(t for t in fam.tags if service_of.get(t) == service)
                 name = f"{service} Pump"
-                part = _reduced(count, len(tags)) if count.value is not None else Count(None, count.sources)
+                part = (_reduced(count, sum(each[t] for t in tags)) if count.value is not None
+                        else Count(None, count.sources))
                 blocks.append(_Draft(key=f"{draft.key} {service}", name=name, kind="pumps",
                                      families=[_Fam(name, tags, part, fam.source)], prefixes=list(draft.prefixes),
                                      matches=[m for m in draft.matches if owners.get(m.id) in (None, service)],
                                      alternate=draft.alternate, exception=draft.exception,
                                      extra_refs=list(draft.extra_refs), service=service))
-            split_said = "; ".join(f"{b.name} {tag_words(b.families[0].tags)} ({len(b.families[0].tags)})"
-                                   for b in blocks)
+            split_said = "; ".join(f"{b.name} {tag_words(b.families[0].tags)} "
+                                   f"({sum(each[t] for t in b.families[0].tags)})" for b in blocks)
             if count.others:
                 self.questions.append(f"{label}: {_came_from(count, len(fam.tags))}; split by service: {split_said}. "
                                       "Confirm the counts.")
             out += blocks
-            if left:
-                draft.families = [_Fam(fam.name, left, _reduced(count, len(left)) if count.value is not None
-                                       else count, fam.source)]
+            rest = tuple(t for t in fam.tags if t in left or t in plant)   # the plant pumps stay for `serve_units`
+            if rest:
+                draft.families = [_Fam(fam.name, rest, _reduced(count, sum(each[t] for t in rest))
+                                       if count.value is not None else count, fam.source)]
                 draft.matches = [m for m in draft.matches if owners.get(m.id) is None]
                 out.append(draft)
+            if left:
                 self.questions.append(
                     f"{label}: the documents do not say which service {tag_words(left)} "
                     f"{'is' if len(left) == 1 else 'are'} on (the others are split by service: {split_said}), so "
@@ -1334,6 +1359,121 @@ class _Planner:
             else:
                 current = None
         return owners
+
+    # -- takeoff Stage 2, Task 2.3: the register's units decide what serves what and which service a pump is on
+
+    def _register_units(self) -> dict[str, object]:
+        """The register's units by plain tag (`bms.takeoff.Unit`); {} with no register."""
+        units = getattr(self.register, "units", ()) or ()
+        return {_plain_tag(u.tag): u for u in units}
+
+    def serve_units(self, drafts: list[_Draft]) -> list[_Draft]:
+        """The register's `serves` moves a family into the block of the unit it serves (rulings 8 and 18): a family
+        whose register units all serve tags of one other block moves into it whole, its count and sequence passages
+        with it (control valves under their air handlers). For pumps only the units drawn with an in-scope plant
+        (`with_plant` true) move, into the plant's block, each counted by its register row (`Unit.count`); a remote
+        pump stays. A part move never lowers the family's count: when the register's units do not add up to it,
+        nothing moves, the lower number is set aside and one question asks (`_parts_hold`). Control valves are not
+        moved here: `link_valves` (T-005b) ties each to the unit its register row serves. A block left with no family
+        is gone. No register: unchanged."""
+        units = self._register_units()
+        if not units:
+            return drafts
+
+        def holder(tag: str) -> _Draft | None:
+            held = [d for d in drafts if any(_plain_tag(t) == _plain_tag(tag) for t in d.tags())]
+            return held[0] if len(held) == 1 else None
+
+        for draft in list(drafts):
+            if self._valve_draft(draft):
+                continue                # T-007 review S1: `link_valves` reads the register's serves
+            for fam in list(draft.families):
+                source = fam.source
+                rows = [units[_plain_tag(t)] for t in fam.tags if _plain_tag(t) in units]
+                if source is None or not rows:
+                    continue
+                pump = bool(_PUMP.search(squash(source.name))) and not _CONDENSATE.search(squash(source.name))
+                movers = [u for u in rows if u.serves and (u.with_plant or not pump)]
+                if not movers or (not pump and len(movers) != len(fam.tags)):
+                    continue
+                targets = {id(t): t for t in (holder(u.serves) for u in movers) if t is not None and t is not draft}
+                if len(targets) != 1 or len([u for u in movers if holder(u.serves) in targets.values()]) != len(movers):
+                    continue
+                target = next(iter(targets.values()))
+                moving = tuple(t for t in fam.tags if _plain_tag(t) in {_plain_tag(u.tag) for u in movers})
+                if len(moving) == len(fam.tags):
+                    target.families.append(_Fam(fam.name, fam.tags, fam.count, source, moved=True))
+                    draft.families.remove(fam)
+                    target.matches += [m for m in draft.matches if m not in target.matches]
+                else:
+                    # T-007 review M1, M2: each unit counts by its register row; the family's count must hold. The
+                    # remote pumps' sequence passages stay with them
+                    left = tuple(t for t in fam.tags if t not in moving)
+                    each = self._unit_counts(fam.tags)
+                    said = f"with the plant: {tag_words(moving)}; remote: {tag_words(left)}"
+                    if not self._parts_hold(fam, sum(each.values()), f"{fam.name} ({source.prefix})", said):
+                        continue
+                    refs = tuple(dict.fromkeys(r for u in movers for r in u.refs))
+                    target.families.append(_Fam(fam.name, moving, Count(sum(each[t] for t in moving), refs), source,
+                                                moved=True))
+                    fam.tags = left
+                    fam.count = (_reduced(fam.count, sum(each[t] for t in left)) if fam.count.value is not None
+                                 else fam.count)
+            if not draft.families:
+                drafts.remove(draft)
+        return drafts
+
+    def _unit_counts(self, tags) -> dict[str, int]:
+        """Each tag's count by the register (`Unit.count`: a type tag, or a tag with a quantity column, counts more
+        than one); one for a tag with no register row, as the planner counts one per tag (T-007 review M2)."""
+        units = self._register_units()
+        return {t: (units[_plain_tag(t)].count if _plain_tag(t) in units else 1) for t in tags}
+
+    def _parts_hold(self, fam: _Fam, total: int, label: str, said: str) -> bool:
+        """T-007 review M1: a family the register splits by service or moves to its plant is counted by its units'
+        `Unit.count`s (`total`). The higher of `total` and the family's count prints; a count never drops in silence.
+        When the two differ, the lower is set aside with both numbers (`Job.set_aside`) and one question asks, in the
+        form `one_count_question_per_family` joins. True: the split may go on (`total` is the same or higher); False:
+        the family's count is higher, so the family is not split or moved (T-005b's guard in `split_pumps`)."""
+        count = fam.count
+        if count.value is None or count.value == total:
+            return True
+        family = fam.source.prefix if fam.source is not None else fam.name
+        keep = count.value > total
+        if family in self._held:          # one set-aside and one question per family (a later step sees it again)
+            return not keep
+        self._held.add(family)
+        lower, higher = (total, count.value) if keep else (count.value, total)
+        ref = count.sources[0] if count.sources else Ref(source_id="", quote="", where="")
+        note = (f"{lower} set aside (the takeoff's units add up to {total}, the family's count is {count.value}); "
+                f"{higher} {family} print")
+        aside = SetAside(family=family, value=lower, ref=ref, reason="not a unit of this family", note=note)
+        if aside not in self.reader.set_aside:
+            self.reader.set_aside.append(aside)
+        if keep:
+            question = (f"{label}: {_came_from(count, count.value)} for {len(fam.tags)} tags, but the takeoff's units "
+                        f"add up to {total} ({said}), so it is not split by service or moved; {count.value} print; "
+                        "confirm the count.")
+        else:
+            question = (f"{label}: the takeoff's units add up to {total} ({said}), above "
+                        f"{_came_from(count, count.value)}; {total} print; confirm the count.")
+        if question not in self.questions:
+            self.questions.append(question)
+        return not keep
+
+    def register_tags(self, drafts: list[_Draft]) -> None:
+        """Each family's tags are the tags of its counted units (`COUNTED_STATUSES`) when the register has rows for
+        the family: a unit the register does not count leaves the header."""
+        units = self._register_units()
+        if not units:
+            return
+        from bms.model import COUNTED_STATUSES
+
+        for draft in drafts:
+            for fam in draft.families:
+                known = [units.get(_plain_tag(t)) for t in fam.tags]
+                if any(u is not None for u in known):
+                    fam.tags = tuple(t for t, u in zip(fam.tags, known) if u is None or u.status in COUNTED_STATUSES)
 
     # -- T-005b, ruling 8: control valves under the unit they serve
 
@@ -1376,6 +1516,16 @@ class _Planner:
                 held = [d for d in units if rest and any(t.upper() == rest.upper() for t in d.tags())]
                 if len(held) == 1 and unit_fact is not None:
                     targets.setdefault(tag, {}).setdefault(id(held[0]), []).append(self.reader.fact_ref(unit_fact))
+            # takeoff Stage 2 (T-007 review S1): the register row's `serves` ties a valve to the one block holding that
+            # unit; it wins over the texts
+            register = self._register_units()
+            for tag in fam.tags:
+                row = register.get(_plain_tag(tag))
+                held = [d for d in units if row is not None and row.serves
+                        and any(_plain_tag(t) == _plain_tag(row.serves) for t in d.tags())]
+                if len(held) == 1:
+                    targets[tag] = {id(held[0]): list(row.refs)}
+                    torn.discard(tag)
             by_id = {id(d): d for d in units}
             torn |= {t for t, found in targets.items() if len(found) > 1}
             tied = {t: next(iter(found)) for t, found in targets.items() if len(found) == 1 and t not in torn}
@@ -1542,6 +1692,19 @@ def _says_kind(shape: Shape, name: str) -> bool:
     them."""
     kind = " ".join(re.findall(r"[a-z0-9]+", (name or "").lower()))
     return any(re.search(rf"\b{re.escape(w)}(?:s|es)?\b", kind) for w in shape.kind_words)
+
+
+def _plain_tag(tag: str) -> str:
+    return re.sub(r"[\s\-_]", "", str(tag or "")).upper()
+
+
+def _service_name(service: str) -> str:
+    """The register's service words as a block name: "chilled water" -> "Chilled Water" (the T-005b names)."""
+    words = " ".join(str(service or "").split())
+    for name, said, _ in _SERVICES:
+        if said.search(words):
+            return name
+    return words.title()
 
 
 def _reduced(count: Count, new: int) -> Count:
@@ -2041,8 +2204,17 @@ def _unmatched_sections(planner: _Planner, drafts: list[_Draft]) -> list[str]:
     return asks
 
 
-def plan_job(ledger: Ledger, catalogue: Catalogue, dossier: Dossier, playbook: Playbook) -> Job:
+def plan_job(ledger: Ledger, catalogue: Catalogue, dossier: Dossier, playbook: Playbook, register=None,
+             typicals=()) -> Job:
     """The Job skeleton from the completed ledger (`ledger.complete` is True).
+
+    `register` (takeoff pass Stage 2): the takeoff register (`bms.takeoff.Takeoff`, or anything with its `sheets`,
+    `units`, `set_aside` and `future_items`). With it, a family with register rows counts only from the sources the
+    register admits (`bms.takeoff.admit`, plan Task 2.2: its plan placements counted again over the admitted sheets by
+    their areas, `bms.takeoff.recount`, the floors of `typicals` applied); every number set aside is in
+    `Job.set_aside` with its source and both numbers, after the register's own; a family whose printed count fell
+    below the code's count gets one question ("How many <family> units? <N> print from the new-work sheets; the code
+    counted <M>."); the Job carries the register's `sheets`, `units` and `future_items`. None: nothing changes.
 
     Contract:
     - One System per block the job calls for, each with `key` (unique), `name`, `shape` (a Playbook shape name via
@@ -2067,7 +2239,12 @@ def plan_job(ledger: Ledger, catalogue: Catalogue, dossier: Dossier, playbook: P
       words, its `where` the place (`ledger.sources[source_id]`, shortened by `estimator.ledger.facts.where_short`).
     - Pure: the same ledger, catalogue, dossier and Playbook give the same Job. No AI call.
     """
-    planner = _Planner(ledger, dossier, playbook)
+    if register is not None:
+        from bms import takeoff
+
+        planner = _Planner(ledger, dossier, playbook, register, takeoff.recount(catalogue, register, typicals))
+    else:
+        planner = _Planner(ledger, dossier, playbook)
     own = [squash(f.value) for f in ledger.of_kind("note") if squash(f.subject).casefold() == "question"]
     drafts = planner.drafts()
     planner.general_kind_tags(drafts)
@@ -2075,11 +2252,13 @@ def plan_job(ledger: Ledger, catalogue: Catalogue, dossier: Dossier, playbook: P
     drafts = planner.gather_splits(drafts)
     drafts = planner.gather_heaters(drafts)
     drafts = planner.link_dampers(drafts)
+    drafts = planner.serve_units(drafts)            # takeoff Stage 2, Task 2.3: the register's serves (plant pumps)
     planner.place_seen(drafts)
     drafts = planner.link_valves(drafts)
     drafts = planner.merge_named(drafts)
     planner.demolition_work(drafts)
     planner.heater_sequences(drafts)
+    planner.register_tags(drafts)
     drafts += planner.global_points(drafts)
     keys: set[str] = set()
     systems = _with_served([planner.system(d, keys, drafts) for d in drafts], drafts)
@@ -2090,7 +2269,14 @@ def plan_job(ledger: Ledger, catalogue: Catalogue, dossier: Dossier, playbook: P
     planner.lost(drafts)
     front_end = _front_end(planner)
     exceptions = _exceptions(planner, systems, drafts)      # before the questions: it asks when the Playbook has no form
-    questions = one_count_question_per_family(own + planner.questions + _unmatched_sections(planner, drafts))
+    questions = one_count_question_per_family(own + planner.questions + planner.reader.count_questions
+                                              + _unmatched_sections(planner, drafts))
     name = ledger.job_name or getattr(dossier, "job_name", "") or ""
-    return Job(name=name, systems=tuple(systems), front_end=front_end, exceptions=exceptions,
-               questions=tuple(questions))
+    job = Job(name=name, systems=tuple(systems), front_end=front_end, exceptions=exceptions,
+              questions=tuple(questions))
+    if register is None:
+        return job
+    given = tuple(getattr(register, "set_aside", ()) or ())
+    return replace(job, sheets=tuple(register.sheets), units=tuple(register.units),
+                   set_aside=(*given, *(a for a in planner.reader.set_aside if a not in given)),
+                   future_items=tuple(getattr(register, "future_items", ()) or ()))

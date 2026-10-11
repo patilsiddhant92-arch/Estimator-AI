@@ -257,8 +257,15 @@ class _Titled:
 
 class Reader:
     def __init__(self, ledger: Ledger, dossier_sources: dict | None = None, dossier_text: str = "",
-                 totals=()) -> None:
+                 totals=(), register=None, recount: dict | None = None) -> None:
         self.ledger = ledger
+        # the takeoff register (takeoff pass Stage 2, Task 2.2; `bms.takeoff.Takeoff` or a Job carrying its fields)
+        # and each register family's plan placements over the sheets it admits (`bms.takeoff.recount`): a family
+        # with register rows counts only from the sources the register admits. None: nothing changes.
+        self.register = register
+        self.recount = dict(recount or {})
+        self.set_aside: list = []           # the numbers the register set aside (`bms.takeoff.SetAside`), in order
+        self.count_questions: list[str] = []   # one per family whose printed count fell below the code's count
         self.dossier_sources = dict(dossier_sources or {})
         self.dossier_text = str(dossier_text or "")
         # the dossier's family totals (`Dossier.families`, the inventory's `FamilyTotal`s) by prefix: ruling L1's
@@ -318,10 +325,21 @@ class Reader:
                     out.append((n, (self.ref(sid, clause),)))
         return out
 
-    def _count(self, facts: list[Fact], extra: list[tuple[int, tuple[Ref, ...]]]) -> Count:
+    def _count(self, facts: list[Fact], extra: list[tuple[int, tuple[Ref, ...]]], prefix: str = "") -> Count:
         """The Count of every number the facts and the extra entries give: the highest prints, its refs are the
-        sources, every other number is kept with its ref."""
+        sources, every other number is kept with its ref. With a register and the family's `prefix`, only the entries
+        the register admits (`bms.takeoff.admit`); each number it sets aside is kept in `set_aside`, and a printed
+        count below the code's count asks one question for the family."""
         entries = [e for f in facts for e in self._entries(f)] + list(extra)
+        if prefix and self.register is not None and entries:
+            from bms import takeoff
+
+            code = max(n for n, _ in entries)
+            entries, aside = takeoff.admit(prefix, entries, self.register, self.recount)
+            self.set_aside += [a for a in aside if a not in self.set_aside]
+            question = takeoff.count_question(prefix, max((n for n, _ in entries), default=None), code)
+            if question and question not in self.count_questions:
+                self.count_questions.append(question)
         if not entries:
             return Count(None, (self.fact_ref(facts[0]),) if facts else ())
         top = max(n for n, _ in entries)
@@ -354,7 +372,7 @@ class Reader:
             extra.append((counted, refs))
         if not own and not extra:
             return Count(None), None
-        return self._count(own, extra), added_up
+        return self._count(own, extra, prefix), added_up
 
     def zero_only(self, prefix: str) -> bool:
         """True when the family's count facts give 0 and no other number (a schedule that says 0 for a family that
@@ -490,6 +508,13 @@ class Reader:
             return self._families[prefix.casefold()]
         unit = self.ledger.find("unit", prefix)
         listed = tuple(expand([squash(unit.value)])) if unit is not None and squash(unit.value) else ()
+        if self.register is not None:
+            # takeoff Stage 2: a unit the register does not count (demolish, existing, relocate, future) is no tag of
+            # the family's new work
+            from bms import takeoff
+
+            out = takeoff.uncounted_tags(self.register, prefix)
+            listed = tuple(t for t in listed if re.sub(r"[\s\-_]", "", t).upper() not in out)
         added, added_refs = self._added_tags(unit, listed)
         tags = listed + added
         count_fact = self.ledger.find("count", prefix)

@@ -284,9 +284,11 @@ def take_off(ledger, catalogue, reading, dossier, playbook, transport) -> Takeof
 
 
 def attach(job: Job, takeoff: Takeoff) -> Job:
-    """The job with the register on it: `sheets`, `units`, `set_aside` and `future_items` only. No count changes."""
-    return dataclasses.replace(job, sheets=takeoff.sheets, units=takeoff.units, set_aside=takeoff.set_aside,
-                               future_items=takeoff.future_items)
+    """The job with the register on it: `sheets`, `units`, `set_aside` and `future_items` only. No count changes.
+    The set-asides the planner already made from the register (Stage 2, `admit`) are kept after the register's own."""
+    planned = tuple(a for a in job.set_aside if a not in takeoff.set_aside)
+    return dataclasses.replace(job, sheets=takeoff.sheets, units=takeoff.units,
+                               set_aside=(*takeoff.set_aside, *planned), future_items=takeoff.future_items)
 
 
 def save(takeoff: Takeoff, path: Path) -> bool:
@@ -305,6 +307,220 @@ def save(takeoff: Takeoff, path: Path) -> bool:
 def load(path: Path) -> Takeoff:
     data = json.loads(Path(path).read_text(encoding="utf-8"))
     return Takeoff.from_dict({key: data.get(key) or [] for key in _KEYS})
+
+
+# ---- Stage 2: the register binds the counts (plan Tasks 2.1 to 2.5) ------------------------------------------
+
+def _sheet_key(sheet) -> tuple[str, int]:
+    return (sheet.document, int(sheet.page))
+
+
+def admissible_pages(sheets) -> frozenset[tuple[str, int]]:
+    """The (document, page) of every sheet whose units and devices count for this job (`counts_units` true)."""
+    return frozenset(_sheet_key(s) for s in sheets or () if s.counts_units)
+
+
+def area_groups(sheets) -> dict[tuple[str, int], tuple[tuple[str, int], ...]]:
+    """(document, page) -> the sheets of its area, in the form `inventory.plan_groups` returns: the counted sheets
+    (`counts_units` true) that name one area (the same words, any case) share one tuple, in (document, page) order.
+    A counted sheet with no area is a group of its own; a sheet whose units do not count is in no group (it is
+    never read for a count, `admissible_pages`)."""
+    counted = sorted((s for s in sheets or () if s.counts_units), key=_sheet_key)
+    members: dict[str, list[tuple[str, int]]] = {}
+    for sheet in counted:
+        area = " ".join(sheet.area.split()).casefold()
+        members.setdefault(area or f"\0{sheet.document}\0{sheet.page}", []).append(_sheet_key(sheet))
+    return {key: tuple(keys) for keys in members.values() for key in keys}
+
+
+def plural(word: str) -> str:
+    """ "Thermostat" -> "thermostats": a device name as a count's plain words."""
+    word = " ".join(str(word or "").split()).lower()
+    return word if not word or word.endswith("s") else f"{word}s"
+
+
+def aside_reason(sheet) -> str:
+    """Why the counts of a sheet whose units do not count are set aside, in the register's words."""
+    return {"demolition": "demolition sheet", "part_plan": "part plan of one area",
+            "enlarged_plan": "same unit labelled again"}.get(getattr(sheet, "kind", ""), "not a unit of this family")
+
+
+def device_tally(devices, sheets, label: str, sheet_pages: dict | None = None) -> tuple[int, list[SetAside]]:
+    """The devices labelled `label` (`reading.devices`, the `DeviceCount`s) counted over the sheets the register
+    admits: (the total of the counted sheets, one `SetAside` per sheet whose units do not count). A device counted on
+    a sheet the register does not list is kept (the register decides only the sheets it classed). With no register
+    sheets every count is kept. `sheet_pages` (`Dossier.sheet_pages`, 7c id -> (document, page)) gives each set-aside
+    its sheet text's source id; without it the id is empty."""
+    by_key = {_sheet_key(s): s for s in sheets or ()}
+    ids = {(doc, int(page)): sid for sid, (doc, page) in (sheet_pages or {}).items()}
+    mine = [d for d in devices or () if d.label == label]
+    kept = 0
+    out: list[tuple] = []
+    for d in mine:
+        sheet = by_key.get((d.document, int(d.page)))
+        if sheet is None or sheet.counts_units:
+            kept += d.total
+        else:
+            out.append((d, sheet))
+    aside = []
+    for d, sheet in out:
+        reason = aside_reason(sheet)
+        where = (f"{d.sheet}, {d.document} page {d.page}" if d.sheet else f"{d.document} page {d.page}")
+        aside.append(SetAside(family=label, value=d.total,
+                              ref=Ref(source_id=ids.get((d.document, int(d.page)), ""), quote=label, where=where),
+                              reason=reason,
+                              note=f"{d.total} {plural(d.device)} on {d.sheet or where} set aside ({reason}); {kept} on the "
+                                   "new-work sheets"))
+    return kept, aside
+
+
+def attach_device_set_asides(job: Job, devices, sheet_pages: dict | None = None) -> Job:
+    """The job with every device label's set-asides (`device_tally` over `job.sheets`) after its own, each once."""
+    labels = list(dict.fromkeys(d.label for d in devices or ()))
+    found = [a for label in labels for a in device_tally(devices, job.sheets, label, sheet_pages)[1]]
+    new = tuple(a for a in found if a not in job.set_aside)
+    return dataclasses.replace(job, set_aside=(*job.set_aside, *new)) if new else job
+
+
+# ---- Task 2.2: the sources a family's count may use ---------------------------------------------------------------
+
+# the counts cross-check's quotes (`bms.counts.LOCATED_QUOTE`, `SEEN_QUOTE`), kept here so this module needs no import
+# of the cross-check
+_SHEET_COUNTS = ("located on the sheet text", "counted on the sheet picture")
+_PLACEMENTS = "plan placements"
+# why a scheduled unit that is not counted takes its schedule's number out of the count
+_STATUS_REASON = {"demolish": "demolition sheet", "demolish_with_work": "demolition sheet",
+                  "existing_remain": "existing to remain", "relocate": "existing to remain", "future": "future item"}
+QUESTION = "How many {family} units? {printed} print from the new-work sheets; the code counted {counted}."
+
+
+@dataclass(frozen=True)
+class Recount:
+    """A family's plan placements counted again over the sheets the register admits, by its areas (Task 2.1): the
+    count, and why a different placement count of the code is set aside."""
+    value: int
+    reason: str
+
+
+def _plain_family(family: str) -> str:
+    return re.sub(r"\s+", "", str(family or "")).upper()
+
+
+def family_rows(register, family: str) -> list[Unit]:
+    """The register's unit rows of one family (by its prefix, any case)."""
+    key = _plain_family(family)
+    return [u for u in getattr(register, "units", ()) or () if _plain_family(u.family) == key]
+
+
+def counted_tags(register, family: str) -> tuple[str, ...]:
+    """The tags of the family's units whose status counts (`COUNTED_STATUSES`), in register order."""
+    return tuple(dict.fromkeys(u.tag for u in family_rows(register, family) if u.status in COUNTED_STATUSES))
+
+
+def uncounted_tags(register, family: str) -> frozenset[str]:
+    """The tags (plain) of the family's units whose status does not count: they are in no new-work count."""
+    return frozenset(_plain(u.tag) for u in family_rows(register, family) if u.status not in COUNTED_STATUSES)
+
+
+def recount(catalogue, register, typicals=()) -> dict[str, Recount]:
+    """Each register family's plan placements (prefix in capitals -> `Recount`): the family's counted tags placed over
+    the sheets the register admits (`admissible_pages`, the governing pages only) and counted by its areas
+    (`area_groups`), the floors of the typical sheets applied. The reason a different code count is set aside: a
+    sheet the register does not count is one the code counted ("demolition sheet", or its kind's reason), else the
+    code added up sheets of one area ("part plan of one area"). Only the sheets the code counted decide it (the code
+    already reads no demolition plan, T-005a).. Empty with no register sheets."""
+    from estimator.reading.inventory import placements
+    from estimator.reading.revisions import governing_pages, typical_places
+
+    sheets = tuple(getattr(register, "sheets", ()) or ())
+    if not sheets:
+        return {}
+    pages = admissible_pages(sheets) & governing_pages(catalogue, (), typical_places(typicals))
+    groups = area_groups(sheets)
+    by_number = {s.number: s for s in sheets if s.number}
+    out: dict[str, Recount] = {}
+    for family in dict.fromkeys(_plain_family(u.family) for u in getattr(register, "units", ()) or ()):
+        tags = counted_tags(register, family)
+        if not tags:
+            out[family] = Recount(0, "demolition sheet")
+            continue
+        found = placements(catalogue, tags, typicals, pages=pages, groups=groups)
+        code = placements(catalogue, tags, typicals)
+        shown = {name for p in code.values() for name in p.on_plans}     # the sheets the code counted
+        excluded = [by_number[name] for name in shown if name in by_number and not by_number[name].counts_units]
+        out[family] = Recount(sum(p.count for p in found.values()),
+                              aside_reason(excluded[0]) if excluded else "part plan of one area")
+    return out
+
+
+def _on_excluded_sheets(where: str, sheets) -> bool:
+    """A cross-check count whose place names only sheets whose units do not count."""
+    named = [s for s in sheets if s.number and re.search(rf"(?<![\w-]){re.escape(s.number)}(?![\w-])", where or "")]
+    return bool(named) and not any(s.counts_units for s in named)
+
+
+def admit(prefix: str, entries, register, recount: dict | None = None) -> tuple[list, list[SetAside]]:
+    """The numbers a family's count may print from, by the register (Task 2.2): `entries` are (number, refs) as the
+    planner reads them (`plan_read.Reader._entries`). Returns (the entries kept, the numbers set aside).
+
+    With no register, or no register row of the family, every entry is kept and nothing is set aside. Otherwise:
+    - an entry the register sets aside (its family, number and source) is dropped (it is already in the register's
+      set-asides);
+    - a cross-check count whose sheets all have `counts_units` false is set aside;
+    - a number above the register's count that the family's uncounted units account for (a scheduled unit the
+      register shows for removal, kept as it is, relocated or future, each cited) is set aside for their reason;
+    - a "plan placements" number that differs from the recount over the admitted sheets (`recount`) is set aside
+      and the recount kept in its place (none when the recount is 0);
+    - the register's own count is added: the sum of `Unit.count` over the family's units whose status counts,
+      citing the first such unit's refs.
+    The highest kept entry prints (the planner's rule, unchanged)."""
+    rows = family_rows(register, prefix) if register is not None else []
+    if not rows:
+        return list(entries), []
+    sheets = tuple(getattr(register, "sheets", ()) or ())
+    given = [a for a in getattr(register, "set_aside", ()) or () if _plain_family(a.family) == _plain_family(prefix)]
+    counted_rows = [u for u in rows if u.status in COUNTED_STATUSES]
+    counted = sum(u.count for u in counted_rows)
+    uncounted = [u for u in rows if u.status not in COUNTED_STATUSES]
+    explained = counted + sum(u.count for u in uncounted)
+    again = (recount or {}).get(_plain_family(prefix))
+    register_refs = tuple(counted_rows[0].refs) if counted_rows else ()
+    kept: list = []
+    aside: list[SetAside] = []
+    family = rows[0].family
+
+    def set_aside(n: int, ref: Ref, reason: str) -> None:
+        if not any((a.value, a.reason) == (n, reason) for a in aside):
+            aside.append(SetAside(family=family, value=n, ref=ref, reason=reason,
+                                  note=f"{n} set aside ({reason}); {counted} {family} on the new-work sheets"))
+
+    for n, refs in entries:
+        ref = refs[0] if refs else Ref(source_id="", quote="", where="")
+        sid = str(ref.source_id).strip().strip("[]")
+        if any(a.value == n and str(a.ref.source_id).strip().strip("[]") == sid for a in given):
+            continue
+        if ref.quote in _SHEET_COUNTS and _on_excluded_sheets(ref.where, sheets):
+            set_aside(n, ref, aside_reason(next(s for s in sheets if s.number and s.number in ref.where)))
+            continue
+        if uncounted and counted < n <= explained:
+            set_aside(n, ref, _STATUS_REASON.get(uncounted[0].status, "not a unit of this family"))
+            continue
+        if str(ref.quote).startswith(_PLACEMENTS) and again is not None and again.value != n:
+            set_aside(n, ref, again.reason)
+            if again.value:
+                kept.append((again.value, register_refs or tuple(refs)))
+            continue
+        kept.append((n, tuple(refs)))
+    if counted_rows:
+        kept.append((counted, register_refs))
+    return kept, aside
+
+
+def count_question(family: str, printed: int | None, counted: int | None) -> str | None:
+    """The one question for a family whose printed count fell below the code's count (Task 2.2), else None."""
+    if printed is None or counted is None or printed >= counted:
+        return None
+    return QUESTION.format(family=family, printed=printed, counted=counted)
 
 
 # ---- Demolition Scope (T-G1) -------------------------------------------------------------------------------
@@ -358,3 +574,107 @@ def attach_demolition(job: Job) -> Job:
     units keeps an empty Demolition Scope.
     """
     return dataclasses.replace(job, demolition=demolition_lines(job.units))
+
+
+# ---- the writer sees the register (Stage 2, Task 2.5) -----------------------------------------------------------
+
+REGISTER_HEADING = "Takeoff register for this system"
+_PREFIX = re.compile(r"^([A-Za-z]+)")
+
+
+def _system_prefixes(job: Job, system, ledger) -> set[str]:
+    """The ledger family prefixes of the system's families: from their tags, and from the ledger's family facts whose
+    value is the family's name."""
+    found: set[str] = set()
+    names = {family.name for family in system.families}
+    for family in system.families:
+        found |= {m.group(1) for tag in family.tags if (m := _PREFIX.match(tag))}
+    facts = getattr(ledger, "facts", None) or {}
+    found |= {str(f.subject) for f in facts.values() if f.kind == "family" and str(f.value) in names}
+    return found
+
+
+def _sheet_of(job: Job, document: str, page: int, number: str):
+    return next((s for s in job.sheets if (s.document, s.page) == (document, page)),
+                next((s for s in job.sheets if number and s.number == number), None))
+
+
+def _plural(name: str) -> str:
+    return name if name.endswith("s") else f"{name}s"
+
+
+def _device_lines(job: Job, units: list[Unit], devices) -> list[str]:
+    """One line per device label the reading counted on the sheets of the system's areas (the areas of the sheets its
+    counted units are drawn on), by `device_tally` (Task 2.1): the number on the sheets that count, then the numbers
+    set aside with their reason, "Thermostats: 30 on the new-work sheets; 9 set aside (demolition sheet)"."""
+    counted = {s.number for u in units if u.status in COUNTED_STATUSES for s in job.sheets if s.number in u.sheets}
+    areas = {s.area for s in job.sheets if s.number in counted and s.area}
+    if not areas:
+        return []
+    mine = [row for row in devices or ()
+            if (sheet := _sheet_of(job, row.document, row.page, row.sheet)) is not None and sheet.area in areas]
+    lines = []
+    for label in dict.fromkeys(row.label for row in mine):
+        kept, aside = device_tally(mine, job.sheets, label)
+        reasons: dict[str, int] = {}
+        for row in aside:
+            reasons[row.reason] = reasons.get(row.reason, 0) + row.value
+        device = next(row.device for row in mine if row.label == label)
+        line = f"{_plural(device)}: {kept} on the new-work sheets"
+        line += "".join(f"; {n} set aside ({reason})" for reason, n in reasons.items())
+        lines.append(line)
+    return lines
+
+
+def register_text(job: Job, system, ledger, devices=()) -> str:
+    """The takeoff register of one system, for its writer's evidence (`ai_evidence.evidence(register=...)`): the unit
+    rows of its families (and the rows that serve its units), with their status, count, sheets, reason and ledger ids;
+    the items the takeoff lists as future; the counts set aside for its families; one line per device counted on the
+    sheets of its areas (`devices`: the reading's device counts, kept on the sheets that count and set aside on the
+    others); what the plans pass understood; then the passages the register cites, as "- [F3] “quote” — where" (never a
+    passage line of the evidence, which starts with its id). ""
+    when the job has no register for the system. Deterministic."""
+    prefixes = _system_prefixes(job, system, ledger)
+    units = [u for u in job.units if u.family in prefixes]
+    tags = {u.tag for u in units}
+    units += [u for u in job.units if u not in units and u.serves and u.serves in tags]
+    future = [f for f in job.future_items if f.family in prefixes]
+    if not units and not future:
+        return ""
+    refs: list[Ref] = []
+
+    def cite(found) -> str:
+        for ref in found:
+            if ref not in refs:
+                refs.append(ref)
+        ids = dict.fromkeys(f"[{r.source_id.strip('[] ')}]" for r in found)
+        return f" {' '.join(ids)}" if ids else ""
+
+    out = [f"{REGISTER_HEADING} (one pass over every sheet of the job). Only a unit with status “new” counts in "
+           "this block; a demolished, existing or relocated unit is in the Demolition Scope, never in this block."]
+    if units:
+        out.append("Units:")
+        for unit in units:
+            drawn = f", drawn on {', '.join(unit.sheets)}" if unit.sheets else ""
+            serves = f", serves {unit.serves}" if unit.serves else ""
+            service = f", {unit.service}" if unit.service else ""
+            reason = f" {unit.reason.strip()}" if unit.reason.strip() else ""
+            out.append(f"- {unit.tag}: {unit.status}, count {unit.count}{drawn}{serves}{service}.{reason}"
+                       f"{cite(unit.refs)}")
+    if future:
+        out.append("Future items (each is a line marked future):")
+        out += [f"- {f.family}: {f.item}{cite(f.refs)}" for f in future]
+    aside = [s for s in job.set_aside if s.family in prefixes]
+    if aside:
+        out.append("Counts set aside (not in this block's count):")
+        out += [f"- {s.family} {s.value} ({s.reason}){': ' + s.note if s.note else ''}{cite((s.ref,))}"
+                for s in aside]
+    out += _device_lines(job, units, devices)
+    plans = (getattr(ledger, "understanding", None) or {}).get("plans", "")
+    if plans:
+        out.append(f"What the plans pass understood: {plans}")
+    if refs:
+        # "- " first: these are the register's citations, never passages of the evidence (`ai_evidence._ENTRY`)
+        out.append("The passages the register cites (each is given above under its own id, or in the ledger):")
+        out += [f"- [{r.source_id.strip('[] ')}] “{r.quote}” — {r.where}" for r in refs]
+    return "\n".join(out) + "\n"
