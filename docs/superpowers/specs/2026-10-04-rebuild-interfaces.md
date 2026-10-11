@@ -30,7 +30,7 @@ dependency without the controller (`jsonschema` and `yaml` are not installed —
 | `src/bms/review.py` | `review_page`, `load_decisions`, `apply_decisions`; the decisions history: `SavedDecision`, `load_history`, `save_history`, `merge_decisions(history, saved, *, job=None)`, `apply_seen`, `copies_seen`, `held_back`, `unhonored_decisions`, `system_digest`, `accept_families`; `DECISIONS_FILE`, `DECISIONS_HISTORY`, `NOT_CITED_GROUP` (the heading of the coverage group) | workstream 7 |
 | `tools/measure.py` | `measure`, `MeasureResult`, `LineMatch` | workstream 7 |
 | `src/bms/coverage.py` | `coverage(job, ledger, dossier=None) -> list[Finding]` (the coverage gate: one `check` Finding, rule `"coverage"`, for each ledger fact of a scope kind that nothing in the job cites; pure, report only), `RULE`, `SCOPE_KINDS` | HarkPro T-001 (reviewed by the lead); `run` calls it |
-| `src/bms/takeoff.py` | the takeoff pass (plan 2026-10-11, Stage 1): `take_off`, `prompt`, `answer_schema`, `check_answer`, `attach`, `save`, `load`, `Takeoff`, `TAKEOFF_JOB`, `TAKEOFF_LIMIT`; its prompt `src/bms/prompts/takeoff_job.md` | HarkPro T-006 (reviewed by the lead) |
+| `src/bms/takeoff.py` | the takeoff pass (plan 2026-10-11, Stage 1): `take_off`, `prompt`, `answer_schema`, `check_answer`, `attach`, `save`, `load`, `register_text` (Stage 2, Task 2.5), `Takeoff`, `TAKEOFF_JOB`, `TAKEOFF_LIMIT`; its prompt `src/bms/prompts/takeoff_job.md` | HarkPro T-006 (reviewed by the lead) |
 | `src/bms/run.py` | `estimate`, `RunResult` (the orchestration) | controller |
 | `src/bms/status.py` | `check(out, cache) -> Status` (exit code and plain lines), `Status`, `RUN_STATE` (`"run state.json"`) | controller |
 | `src/bms/doctor.py` | `run_doctor` and its checks (Python, dependencies, `.claude/run-job.json` models, Playbook, cache folder) | controller |
@@ -296,7 +296,7 @@ Constants: TECH_HOUR_BASES, SLOT_KINDS, DEFAULT_ROOT, COUNT_CAUSE_KEYS, DEFAULT_
 | `sheet_key(number) -> str` (a sheet number as two are compared, D8: "M-101", "M101" and "M 101" are one sheet; the dot between digits is kept; for comparing only, never printed) | `estimator.catalogue.title_block` | catalogue |
 | `JobReading`; `read_job(catalogue, page_opener=None, cache_dir=None, judge=None)` | `estimator.reading.job` | run |
 | `Dossier` (job_name, text, images: tuple[DossierImage], sources: dict id→where, families, device_totals, counts, stats, sections, schedules, sheet_pages: dict 7c id→(document, page)); `build_dossier(catalogue, reading, cache_dir)`; `sheet_pictures(catalogue, cache_dir, keys, what)`; `plan_areas` (re-exported from `estimator.reading.inventory`) | `estimator.writing.dossier` | run, plan, ai, counts |
-| `plan_areas(plans: [(sheet, tags)]) -> {(document, page): area}` (retired, FINAL-G: every sheet its own area); `plan_area_doubts(plans, areas=None) -> [((document, page), (document, page))]` (a hint only); `is_type_tag(tag)`, `counted_per_place(tag, places, most_on_one_sheet, code=False)`; `plan_groups(plans, codes=()) -> {(document, page): group}` (a group is the tuple of its sheets' (document, page); ruling L1: sheets of one document that show the same floor and area for other trades are one group, `_same_floor_and_area`, with no tag evidence), `plan_count(found, groups, per_place) -> int`, `plan_floors(catalogue, typicals=()) -> {(document, number): floors}` (a typical sheet with no number is keyed by (document, page), RD-13), `sheet_floors(floor_sets, sheet) -> frozenset[str]` (the floors a sheet stands for in `plan_floors`, by (document, number) or, with no number, (document, page); empty for one floor), `counting_pages(catalogue, governing) -> pages`, `first_pages(catalogue) -> {(document, page): first page}` (the pages that only repeat an alike number, FINAL-N), `sheet_labels(sheets) -> {(document, page): label}` (FINAL-I, the one counting rule); `placements(catalogue, tags, typicals=(), pages=None) -> {tag: Placements}` (ruling L1: `Placements.count` and, where the rule made it lower than the sheets add up to, `summed`, `each_place`, `each_place_summed` and `same_plan` (the sheets of each group of 2 or more that show the tag), `same_plan_note(counted, summed)` giving both numbers; `InventoryItem.summed` and `FamilyTotal.summed` likewise, set only when above the count); `COUNT_CAUSES_LEAD`, `COUNT_CAUSE_WORDS` (`typical`, `labelled_twice`; `SAME_PLAN` removed, FINAL-H) | `estimator.reading.inventory` | dossier, render |
+| `plan_areas(plans: [(sheet, tags)]) -> {(document, page): area}` (retired, FINAL-G: every sheet its own area); `plan_area_doubts(plans, areas=None) -> [((document, page), (document, page))]` (a hint only); `is_type_tag(tag)`, `counted_per_place(tag, places, most_on_one_sheet, code=False)`; `plan_groups(plans, codes=()) -> {(document, page): group}` (a group is the tuple of its sheets' (document, page); ruling L1: sheets of one document that show the same floor and area for other trades are one group, `_same_floor_and_area`, with no tag evidence), `plan_count(found, groups, per_place) -> int`, `plan_floors(catalogue, typicals=()) -> {(document, number): floors}` (a typical sheet with no number is keyed by (document, page), RD-13), `sheet_floors(floor_sets, sheet) -> frozenset[str]` (the floors a sheet stands for in `plan_floors`, by (document, number) or, with no number, (document, page); empty for one floor), `counting_pages(catalogue, governing) -> pages`, `first_pages(catalogue) -> {(document, page): first page}` (the pages that only repeat an alike number, FINAL-N), `sheet_labels(sheets) -> {(document, page): label}` (FINAL-I, the one counting rule); `placements(catalogue, tags, typicals=(), pages=None, groups=None) -> {tag: Placements}` (`groups`, takeoff Stage 2 Task 2.1: the plan groups to count by, in `plan_groups`'s form, used in place of `plan_groups` when given; ruling L1: `Placements.count` and, where the rule made it lower than the sheets add up to, `summed`, `each_place`, `each_place_summed` and `same_plan` (the sheets of each group of 2 or more that show the tag), `same_plan_note(counted, summed)` giving both numbers; `InventoryItem.summed` and `FamilyTotal.summed` likewise, set only when above the count); `COUNT_CAUSES_LEAD`, `COUNT_CAUSE_WORDS` (`typical`, `labelled_twice`; `SAME_PLAN` removed, FINAL-H) | `estimator.reading.inventory` | dossier, render |
 | `Ledger` (sources, facts: dict[id, Fact], understanding, complete, stopped_at, job_name, refused; `of_kind`, `about`, `find`, `printed_count`, `to_dict`/`from_dict`/`load`); `Fact` (id, kind, subject, value, source_id, quote, stage, state, contradictions, was_settled); `Contradiction`; `KINDS`; `where_short` | `estimator.ledger.facts` | plan |
 | `read_job(judge, dossier, catalogue, save_to=None, limit=None, pictures=True, picture_cap=24) -> Ledger` (imported as `read_ledger`; the brief's "read_ledger") | `estimator.ledger.run` | run |
 | `ledger_plan`, `count_note`, `place_words` (the old planner, for reference / reuse) | `estimator.ledger.to_plan` | plan (may import) |
@@ -313,7 +313,8 @@ Constants: TECH_HOUR_BASES, SLOT_KINDS, DEFAULT_ROOT, COUNT_CAUSE_KEYS, DEFAULT_
 ## 5. The functions each workstream fills
 
 ### Workstream 2 — `bms.plan`
-`plan_job(ledger: Ledger, catalogue: Catalogue, dossier: Dossier, playbook: Playbook) -> Job` — the skeleton:
+`plan_job(ledger: Ledger, catalogue: Catalogue, dossier: Dossier, playbook: Playbook, register=None, typicals=()) -> Job`
+(`register`, `typicals`: takeoff Stage 2, T-007, keyword with defaults; None plans as before; see "Stage 2" below) — the skeleton:
 systems with key, name, shape (`playbook.shape_for`, or ""), control, families (tags, Count with highest value,
 sources, others, and `added_up`: the sum over the sheets of one floor and area (the stated counts, or the dossier's
 family total), ruling L1, set only while above the printed count; `plan_read.Reader.family`), sequence_refs,
@@ -499,7 +500,8 @@ class Transport(Protocol):
 class ChatTransport:  __init__(cache_dir: Path, job: str, handoff_dir: Path | None = None)
 class ApiTransport:   __init__(cache_dir: Path, model: str | None = None, client=None)
 WRITE_SYSTEM = "write_system"; QC_JOB = "qc_job"; STEPS = ("write", "revise"); CHAT_MODEL = "claude (chat)"
-evidence_for(system: System, dossier: Dossier) -> str
+evidence_for(system: System, dossier: Dossier, register: str = "") -> str      # register (takeoff Task 2.5): printed first
+system_evidence(system: System, dossier: Dossier, ledger=None, *, front_end: bool = False, register: str = "") -> str
 evidence_index(dossier: Dossier) -> dict[str, str]
 write_system(system: System, evidence: str, playbook: Playbook, transport: Transport, *, tags: Sequence[str] = (), ids: Sequence[str] = (), sheets: Sequence[str] = (), source_sheets: Sequence[str] = ()) -> System
 qc_job(job: Job, evidence_index: Mapping[str, str], playbook: Playbook, transport: Transport) -> list[Finding]
@@ -606,6 +608,7 @@ check_answer(answer, ledger, catalogue, reading, index: Mapping[str, str]) -> tu
 take_off(ledger, catalogue, reading, dossier, playbook: Playbook, transport: Transport) -> Takeoff   # raises NoAnswer
 attach(job: Job, takeoff: Takeoff) -> Job
 save(takeoff: Takeoff, path: Path) -> bool; load(path: Path) -> Takeoff
+register_text(job: Job, system: System, ledger, devices=()) -> str   # Stage 2, Task 2.5
 ```
 One request, kind `takeoff_job`, name "Takeoff", extra `{"step": "takeoff"}`, instructions `playbook.rules_text`
 (the cached first system block in API mode), system prompt `prompts/takeoff_job.md`, no pictures, asked through
@@ -626,11 +629,64 @@ fact's quote and value or that source's text; and the schedule floor: every sche
 reading lists them) has a unit row; a scheduled unit whose status is not in `COUNTED_STATUSES`, or whose count is
 below its floor (1 per row, or the row's numeric QTY / QUANTITY column), needs a reason and a ref to a passage other
 than its own schedule and its own schedule row (by the source's name: "<sheet> <title>, ..." or "<title> row <tag>, ...";
-a fact counts by its own source; the schedule's notes are other passages). `attach` replaces `sheets`, `units`, `set_aside` and `future_items` only. `save` writes
+a fact counts by its own source; the schedule's notes are other passages). `attach` replaces `sheets`, `units`, `set_aside` and `future_items` only. `register_text` (Task 2.5) is the register of one system for its writer: the heading "Takeoff register for this system", the unit rows of the system's family prefixes (from its families' tags and the ledger's family facts) and the rows that `serve` its units (`- <tag>: <status>, count <n>, drawn on <sheets>. <reason> [ids]`), the future items of those families, the job's set-asides of those families, one line per device the reading counted on the sheets of the system's areas (`devices`: the reading's `DeviceCount` rows; "<Devices>: <kept> on the new-work sheets; <n> set aside (<reason>)", by `device_tally` over the device rows on the sheets of those areas: kept on the `counts_units` sheets, set aside from the others by the sheet's kind), what the plans pass understood (`ledger.understanding["plans"]`), then the cited passages as `- [F3] “quote” — where` (never a passage line, which starts with its id); "" when the job has no unit row or future item for the system. `ai_evidence.evidence(..., register="")` prints it first, before the "Evidence for" line, and the FUTURE checklist reads the passages only; `ai.evidence_for` and `ai.system_evidence` pass it, and the run passes `register_text(job, system, ledger, devices=reading.devices)` to `system_evidence` for every system. `save` writes
 `{"version": 1, "sheets": [...], "units": [...], "set_aside": [...], "future_items": [...], "questions": [...]}`
 whole or not at all (`ai._write_json`) and returns True; a file that already holds the same register is left as it
 is (False): every later run reads the same cached answer.
 Stage 1 changes no count: the register is stored, and no count, block or line reads it.
+
+Stage 2 (T-007) makes the register binding. Task 2.1:
+```
+admissible_pages(sheets) -> frozenset[(document, page)]        # the sheets with counts_units true
+area_groups(sheets) -> {(document, page): (document, page), ...}   # counted sheets of one area share one tuple
+device_tally(devices, sheets, label, sheet_pages=None) -> (kept: int, [SetAside])
+```
+`area_groups` is in `inventory.plan_groups`'s form: the counted sheets naming one area (same words, any case) share
+one tuple in (document, page) order; a counted sheet with no area is its own group; a sheet whose units do not count
+is in no group. `device_tally` sums the `DeviceCount.total`s of `label` over the sheets the register admits (a sheet
+the register does not list is kept) and gives one `SetAside` per sheet whose units do not count: family the label,
+value its total, ref (the sheet text's 7c id from `sheet_pages`, else "", quote the label, where "<sheet>, <document>
+page <n>"), reason by the sheet's kind (`aside_reason`: demolition -> "demolition sheet", part_plan -> "part plan of
+one area", enlarged_plan -> "same unit labelled again", else "not a unit of this family"), note "<n> <devices> on
+<sheet> set aside (<reason>); <kept> on the new-work sheets".
+
+Task 2.2 (the planner reads the register):
+```
+recount(catalogue, register, typicals=()) -> {PREFIX: Recount(value, reason)}
+admit(prefix, entries, register, recount=None) -> (kept entries, [SetAside])
+count_question(family, printed, counted) -> str | None
+family_rows(register, family); counted_tags(register, family); uncounted_tags(register, family)
+plan_job(ledger, catalogue, dossier, playbook, register=None, typicals=()) -> Job
+Reader(ledger, dossier_sources=None, dossier_text="", totals=(), register=None, recount=None)
+```
+`recount` places each register family's counted tags over `admissible_pages` (and the governing pages) by
+`area_groups`, the typical floors applied; its reason is "demolition sheet" (or the kind's reason) when a sheet the
+code counted is one the register does not count, else "part plan of one area". `admit` keeps every entry when the
+register has no row of the family; otherwise it drops an entry the register's own set-asides name (family, number,
+source id), sets aside a cross-check count whose sheets all have `counts_units` false, sets aside a number above
+the register's count that the family's uncounted units (not in `COUNTED_STATUSES`) account for (reason by their
+status: demolish / demolish_with_work "demolition sheet", existing_remain / relocate "existing to remain", future
+"future item"), replaces a "plan placements" number that differs from the recount by the recount (the number set
+aside), and adds the register's count (the sum of `Unit.count` of the counted units, citing the first one's refs).
+Each set-aside's note is "<n> set aside (<reason>); <count> <family> on the new-work sheets". The highest kept entry
+prints. `Reader.family` drops the register's uncounted tags from the family's tags. With a register `plan_job`
+returns the Job with the register's `sheets`, `units` and `future_items`, `set_aside` the register's then the
+planner's, and one question per family whose printed count fell below the code's count: "How many <family> units?
+<N> print from the new-work sheets; the code counted <M>." `attach` keeps the planner's set-asides after the
+register's. With no register nothing changes.
+
+Task 2.3 (blocks from the register; T-007 review fixes). The register feeds T-005b's own paths:
+`split_pumps` takes a remote pump's service from its register row (`with_plant` false; the row wins over a text) and
+never puts a `with_plant` pump in a service block; only pump families split (a valve keeps its name). `link_valves`
+ties each control valve to the one block holding the unit its register row `serves` (the row wins over a text).
+After `link_dampers`, `serve_units` moves a non-valve family whose register units all serve tags of one other block
+into it whole, and a pump family's `with_plant` units into the plant's block. Every split or part move counts each
+tag by its register row (`Unit.count`; one for a tag with no row). A count never drops in silence (`_parts_hold`):
+when the units' total differs from the family's count, the higher prints, the lower is set aside on `Job.set_aside`
+(reason "not a unit of this family", the note giving both numbers) and one "<Family> (<PREFIX>): ...; confirm the
+count." question asks; when the family's count is the higher, the family is neither split nor moved (T-005b's
+guard). Before the systems are built, `register_tags` keeps in each family only the tags of its counted units when
+the register has rows for it.
 
 ### Workstream 1 — the Playbook content
 Fills `playbook/rules.md` (the topics above; each rule a `###` short name; the practice rules of design §2.7 carry
@@ -654,7 +710,10 @@ old app).
 `retire_requests` → `estimator.ledger.run.read_job` (saves `<quote> Ledger.json`; stops "waiting" at "read" when
 incomplete) → `load_playbook` → the takeoff pass (`bms.takeoff.take_off` through the run's transport; stops
 "waiting" at "takeoff" while its request has no answer; saves `<quote> Takeoff.json` when it changed) → `plan_job`
-→ header set → `takeoff.attach` (Stage 1: the register is stored on the Job and changes no count) → `cross_check`
+(Stage 2, T-007: `plan_job(..., register=<the register>, typicals=reading.typicals)`, so the register binds the
+counts and blocks; after `takeoff.attach`, `takeoff.attach_device_set_asides(job, reading.devices,
+dossier.sheet_pages)` adds each device label's set-asides from the sheets whose units do not count)
+→ header set → `takeoff.attach` → `cross_check`
 → `write_system` per system, then `write_front_end` (the front end is written like a system, from
 `front_end_evidence`, the passages the planner cited for it; nothing is asked when the documents call for none;
 when its writer writes no line, `no_scope_reason` holds why and one question asks the estimator whether the job
