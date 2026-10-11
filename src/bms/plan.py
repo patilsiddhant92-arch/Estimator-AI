@@ -171,11 +171,13 @@ def _lead(subject: str) -> str:
 
 
 class _Planner:
-    def __init__(self, ledger: Ledger, dossier: Dossier | None, playbook: Playbook) -> None:
+    def __init__(self, ledger: Ledger, dossier: Dossier | None, playbook: Playbook, register=None,
+                 recount: dict | None = None) -> None:
         self.ledger = ledger
         self.playbook = playbook
+        self.register = register
         self.reader = Reader(ledger, getattr(dossier, "sources", None) or {}, getattr(dossier, "text", "") or "",
-                             getattr(dossier, "families", ()) or ())
+                             getattr(dossier, "families", ()) or (), register=register, recount=recount)
         self.dossier = dossier
         self.questions: list[str] = []
         self._texts: dict[str, str] | None = None
@@ -2041,8 +2043,17 @@ def _unmatched_sections(planner: _Planner, drafts: list[_Draft]) -> list[str]:
     return asks
 
 
-def plan_job(ledger: Ledger, catalogue: Catalogue, dossier: Dossier, playbook: Playbook) -> Job:
+def plan_job(ledger: Ledger, catalogue: Catalogue, dossier: Dossier, playbook: Playbook, register=None,
+             typicals=()) -> Job:
     """The Job skeleton from the completed ledger (`ledger.complete` is True).
+
+    `register` (takeoff pass Stage 2): the takeoff register (`bms.takeoff.Takeoff`, or anything with its `sheets`,
+    `units`, `set_aside` and `future_items`). With it, a family with register rows counts only from the sources the
+    register admits (`bms.takeoff.admit`, plan Task 2.2: its plan placements counted again over the admitted sheets by
+    their areas, `bms.takeoff.recount`, the floors of `typicals` applied); every number set aside is in
+    `Job.set_aside` with its source and both numbers, after the register's own; a family whose printed count fell
+    below the code's count gets one question ("How many <family> units? <N> print from the new-work sheets; the code
+    counted <M>."); the Job carries the register's `sheets`, `units` and `future_items`. None: nothing changes.
 
     Contract:
     - One System per block the job calls for, each with `key` (unique), `name`, `shape` (a Playbook shape name via
@@ -2067,7 +2078,12 @@ def plan_job(ledger: Ledger, catalogue: Catalogue, dossier: Dossier, playbook: P
       words, its `where` the place (`ledger.sources[source_id]`, shortened by `estimator.ledger.facts.where_short`).
     - Pure: the same ledger, catalogue, dossier and Playbook give the same Job. No AI call.
     """
-    planner = _Planner(ledger, dossier, playbook)
+    if register is not None:
+        from bms import takeoff
+
+        planner = _Planner(ledger, dossier, playbook, register, takeoff.recount(catalogue, register, typicals))
+    else:
+        planner = _Planner(ledger, dossier, playbook)
     own = [squash(f.value) for f in ledger.of_kind("note") if squash(f.subject).casefold() == "question"]
     drafts = planner.drafts()
     planner.general_kind_tags(drafts)
@@ -2090,7 +2106,14 @@ def plan_job(ledger: Ledger, catalogue: Catalogue, dossier: Dossier, playbook: P
     planner.lost(drafts)
     front_end = _front_end(planner)
     exceptions = _exceptions(planner, systems, drafts)      # before the questions: it asks when the Playbook has no form
-    questions = one_count_question_per_family(own + planner.questions + _unmatched_sections(planner, drafts))
+    questions = one_count_question_per_family(own + planner.questions + planner.reader.count_questions
+                                              + _unmatched_sections(planner, drafts))
     name = ledger.job_name or getattr(dossier, "job_name", "") or ""
-    return Job(name=name, systems=tuple(systems), front_end=front_end, exceptions=exceptions,
-               questions=tuple(questions))
+    job = Job(name=name, systems=tuple(systems), front_end=front_end, exceptions=exceptions,
+              questions=tuple(questions))
+    if register is None:
+        return job
+    given = tuple(getattr(register, "set_aside", ()) or ())
+    return replace(job, sheets=tuple(register.sheets), units=tuple(register.units),
+                   set_aside=(*given, *(a for a in planner.reader.set_aside if a not in given)),
+                   future_items=tuple(getattr(register, "future_items", ()) or ()))

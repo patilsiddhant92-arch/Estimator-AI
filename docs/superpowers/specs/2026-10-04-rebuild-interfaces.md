@@ -647,6 +647,31 @@ page <n>"), reason by the sheet's kind (`aside_reason`: demolition -> "demolitio
 one area", enlarged_plan -> "same unit labelled again", else "not a unit of this family"), note "<n> <devices> on
 <sheet> set aside (<reason>); <kept> on the new-work sheets".
 
+Task 2.2 (the planner reads the register):
+```
+recount(catalogue, register, typicals=()) -> {PREFIX: Recount(value, reason)}
+admit(prefix, entries, register, recount=None) -> (kept entries, [SetAside])
+count_question(family, printed, counted) -> str | None
+family_rows(register, family); counted_tags(register, family); uncounted_tags(register, family)
+plan_job(ledger, catalogue, dossier, playbook, register=None, typicals=()) -> Job
+Reader(ledger, dossier_sources=None, dossier_text="", totals=(), register=None, recount=None)
+```
+`recount` places each register family's counted tags over `admissible_pages` (and the governing pages) by
+`area_groups`, the typical floors applied; its reason is "demolition sheet" (or the kind's reason) when a sheet the
+code counted is one the register does not count, else "part plan of one area". `admit` keeps every entry when the
+register has no row of the family; otherwise it drops an entry the register's own set-asides name (family, number,
+source id), sets aside a cross-check count whose sheets all have `counts_units` false, sets aside a number above
+the register's count that the family's uncounted units (not in `COUNTED_STATUSES`) account for (reason by their
+status: demolish / demolish_with_work "demolition sheet", existing_remain / relocate "existing to remain", future
+"future item"), replaces a "plan placements" number that differs from the recount by the recount (the number set
+aside), and adds the register's count (the sum of `Unit.count` of the counted units, citing the first one's refs).
+Each set-aside's note is "<n> set aside (<reason>); <count> <family> on the new-work sheets". The highest kept entry
+prints. `Reader.family` drops the register's uncounted tags from the family's tags. With a register `plan_job`
+returns the Job with the register's `sheets`, `units` and `future_items`, `set_aside` the register's then the
+planner's, and one question per family whose printed count fell below the code's count: "How many <family> units?
+<N> print from the new-work sheets; the code counted <M>." `attach` keeps the planner's set-asides after the
+register's. With no register nothing changes.
+
 ### Workstream 1 — the Playbook content
 Fills `playbook/rules.md` (the topics above; each rule a `###` short name; the practice rules of design §2.7 carry
 over unchanged in meaning; replaces the two `<!-- sample -->` rules), `playbook/shapes.json` (one entry per Master

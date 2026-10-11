@@ -123,6 +123,7 @@ def test_fixture_answer_is_the_register_of_this_job():
 import copy  # noqa: E402
 import dataclasses  # noqa: E402
 import json  # noqa: E402
+import re  # noqa: E402
 
 import pytest  # noqa: E402
 
@@ -491,3 +492,113 @@ def test_device_tally_with_no_register_keeps_every_count():
     kept, aside = takeoff.device_tally(fx.reading().devices, (), "T")
     assert (kept, aside) == (39, [])
 
+
+# ---- Stage 2, Task 2.2: admissible sources in the planner --------------------------------------------------------------
+
+def _plan_registered(ledger=None, register=None) -> Job:
+    return plan_job(ledger or fx.ledger(), fx.catalogue(), fx.dossier(), PLAYBOOK,
+                    register=register if register is not None else _register())
+
+
+def _how_many(job, prefix: str) -> list[str]:
+    return [q for q in job.questions if q.startswith(f"How many {prefix} units?")]
+
+
+def _ledger_with_placements(**placed) -> Ledger:
+    """The fixture ledger as the code counted the attic before T-005a: each family's counts line says more plan
+    placements than there are units (the same unit on the part plans of one area, added up). Invented numbers."""
+    data = fx.ledger().to_dict()
+    for fact in data["facts"]:
+        if fact["kind"] == "count" and fact["subject"] in placed:
+            n, sheets = placed[fact["subject"]]
+            fact["quote"] = re.sub(r"plan placements \d+ \([^)]*\)", f"plan placements {n} ({sheets})", fact["quote"])
+    return Ledger.from_dict(data)
+
+
+def _answer_with(**status) -> dict:
+    """The fixture answer with some units' status changed, each with a reason and a ref that sets it aside."""
+    answer = fx.answer()
+    for tag, value in status.items():
+        unit = _unit(answer, tag.replace("_", "-"))
+        unit.update(status=value, reason="Invented: shown for removal on the demolition plan.",
+                    refs=[{"source_id": "F13", "quote": "EXISTING AHU-6 AND EF-6 TO BE REMOVED",
+                           "where": "MD-401, Mech.pdf page 6"}])
+    return answer
+
+
+def test_the_register_prints_the_new_work_counts():
+    job = _plan_registered()
+    counts = _counts(job)
+    names = ("Air Handling Unit", "Exhaust Fan", "Energy Recovery Unit", "Fan Coil Unit")
+    assert [counts[name].value for name in names] == [5, 5, 1, 55]
+    # the register is on the planned job; the code's counts already equal it on this base (T-005a), so nothing is set
+    # aside and nothing is asked about the counts
+    register = _register()
+    assert (job.sheets, job.units, job.future_items) == (register.sheets, register.units, register.future_items)
+    assert job.set_aside == ()
+    assert not [q for q in job.questions if q.startswith("How many ")]
+    # the register entry is one of the printed count's sources: the first new unit's citation
+    assert register.units[0].refs[0] in counts["Air Handling Unit"].sources
+
+
+def test_without_a_register_nothing_changes():
+    plain, registered = _planned(), plan_job(fx.ledger(), fx.catalogue(), fx.dossier(), PLAYBOOK, register=None)
+    assert plain == registered and plain.set_aside == () and plain.units == ()
+
+
+def test_the_code_s_higher_placement_counts_are_set_aside_with_both_numbers():
+    ledger = _ledger_with_placements(AHU=(21, "M-401 5; M-402 5; M-403 3; M-404 3; MD-401 5"),
+                                     EF=(16, "M-401 5; M-403 3; M-404 3; MD-401 5"),
+                                     ERU=(3, "M-401 1; M-402 1; M-404 1"))
+    before = _counts(plan_job(ledger, fx.catalogue(), fx.dossier(), PLAYBOOK))
+    assert [before[n].value for n in ("Air Handling Unit", "Exhaust Fan", "Energy Recovery Unit")] == [21, 16, 3]
+    job = _plan_registered(ledger)
+    counts = _counts(job)
+    assert [counts[n].value for n in ("Air Handling Unit", "Exhaust Fan", "Energy Recovery Unit", "Fan Coil Unit")] \
+        == [5, 5, 1, 55]
+    # the dropped numbers print nowhere in the count: they are set aside, each with its source and both numbers
+    assert 21 not in {o.value for o in counts["Air Handling Unit"].others}
+    aside = {(a.family, a.value): a for a in job.set_aside}
+    assert set(aside) == {("AHU", 21), ("EF", 16), ("ERU", 3)}
+    assert {a.reason for a in aside.values()} == {"part plan of one area"}
+    assert aside[("AHU", 21)].ref.source_id == "S5" and aside[("AHU", 21)].ref.quote == "plan placements 21"
+    assert aside[("AHU", 21)].note == "21 set aside (part plan of one area); 5 AHU on the new-work sheets"
+    # one question per family whose printed count fell below the code's count, in the lead's words
+    assert _how_many(job, "AHU") == ["How many AHU units? 5 print from the new-work sheets; the code counted 21."]
+    assert _how_many(job, "EF") == ["How many EF units? 5 print from the new-work sheets; the code counted 16."]
+    assert _how_many(job, "ERU") == ["How many ERU units? 1 print from the new-work sheets; the code counted 3."]
+    assert _how_many(job, "FCU") == []
+
+
+def test_a_demolished_scheduled_unit_prints_below_the_schedule_with_one_question():
+    register, problems = _check(_answer_with(AHU_5="demolish"))
+    assert problems == []                    # the floor holds: the row cites the passage that sets it aside
+    job = _plan_registered(register=register)
+    family = next(f for s in job.systems for f in s.families if f.name == "Air Handling Unit")
+    assert family.count.value == 4 and family.tags == ("AHU-1", "AHU-2", "AHU-3", "AHU-4")
+    aside = [a for a in job.set_aside if a.family == "AHU"]
+    assert [(a.value, a.reason) for a in aside] == [(5, "demolition sheet")]
+    assert aside[0].note == "5 set aside (demolition sheet); 4 AHU on the new-work sheets"
+    assert _how_many(job, "AHU") == ["How many AHU units? 4 print from the new-work sheets; the code counted 5."]
+    assert len([q for q in job.questions if "AHU" in q and q.startswith("How many")]) == 1
+
+
+def test_a_count_the_register_sets_aside_is_dropped_and_not_repeated():
+    ledger = _ledger_with_placements(AHU=(21, "M-401 5; M-402 5; M-403 3; M-404 3; MD-401 5"))
+    answer = fx.answer()
+    answer["set_aside"] = [{"family": "AHU", "value": 21, "reason": "part plan of one area",
+                            "ref": {"source_id": "S5", "quote": "plan placements 21", "where": "equipment counts"},
+                            "note": "21 plan placements set aside; 5 units on the new-work sheets"}]
+    register = takeoff.Takeoff(**{k: tuple(getattr(_register(), k)) for k in ("sheets", "units", "future_items",
+                                                                             "questions")},
+                               set_aside=(SetAside.from_dict(answer["set_aside"][0]),))
+    job = _plan_registered(ledger, register)
+    assert _counts(job)["Air Handling Unit"].value == 5
+    assert [(a.family, a.value, a.note) for a in job.set_aside] == [
+        ("AHU", 21, "21 plan placements set aside; 5 units on the new-work sheets")]
+
+
+def test_attach_keeps_the_planner_s_set_asides():
+    ledger = _ledger_with_placements(AHU=(21, "M-401 5; M-402 5; M-403 3; M-404 3; MD-401 5"))
+    job = _plan_registered(ledger)
+    assert takeoff.attach(job, _register()).set_aside == job.set_aside
