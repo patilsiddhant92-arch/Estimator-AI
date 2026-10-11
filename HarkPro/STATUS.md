@@ -14,6 +14,6 @@ Lead: Fable session, from 2026-10-11 afternoon.
 | T-004 | How HarkPro did the first live job (method, no job data) | DONE (report read 2026-10-11) | hark/T-004 | 2026-10-11 |
 | T-005a | Counting: demolition sheets, part-plan overlap, unit tags | OPEN | hark/T-005a | 2026-10-11 |
 | T-005b | Blocks and questions: valves, pumps, one question per family | OPEN | hark/T-005b | 2026-10-11 |
-| T-005c | Proposal and render: header, red BMS name, FUTURE marks | OPEN | hark/T-005c | 2026-10-11 |
+| T-005c | Proposal and render: header, red BMS name, FUTURE marks | MERGED into lead/wave2 2026-10-11 (two lead fixes) | hark/T-005c | 2026-10-11 |
 | T-005d | Writer and evidence: no "Assumed", loose devices, text cut | OPEN | hark/T-005d | 2026-10-11 |
-| T-005e | Master Template format, GEM order, off-hours, prevailing wage | OPEN | hark/T-005e | 2026-10-11 |
+| T-005e | Master Template format, GEM order, off-hours, prevailing wage | OPEN (sent back, see T-005e-fixes.md) | hark/T-005e | 2026-10-11 |
