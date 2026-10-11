@@ -9,4 +9,5 @@ Only the lead edits this file.
 | T-002 | Price book from the revised AME pricing workbook | OPEN | hark/T-002 | 2026-10-11 |
 | T-003 | Review of record, fix run 8ccd0b3..ce07960 | OPEN | hark/T-003 | 2026-10-11 |
 | T-001b | Coverage gate: no citation by bare prefix | OPEN (after T-002, T-003) | hark/T-001b | 2026-10-11 |
-| T-004 | How HarkPro did the first live job (method, no job data) | OPEN | hark/T-004 | 2026-10-11 |
+| T-004 | How HarkPro did the first live job (method, no job data) | DONE | hark/T-004 | 2026-10-11 |
+| T-005 | Fix plan from the first live run (26-0544), sub-tasks a-d in parallel | OPEN | hark/T-005a..d | 2026-10-11 |
