@@ -59,3 +59,28 @@ def test_the_page_and_python_agree_on_folded_letters_and_space_characters(tmp_pa
                                         ("\x1f5", ("words", None))])
 def test_python_takes_the_spaces_the_page_takes_and_no_other(text, said):
     assert review._typed_count(text) == said
+
+
+# ---- a number too long for the page --------------------------------------------------------------------------------
+# JavaScript's parseInt loses digits past 2**53 ("99999999999999999999" is 100000000000000000000 there), and Python's
+# int() refuses a string of more than 4300 digits. A count is a whole number the page holds exactly: at most 15 digits.
+LONG = ["99999999999999999999", "12345678901234567", "1" * 5000, "0000000000000007", "999999999999999",
+        "123456789012345 units"]
+
+
+def test_python_never_raises_on_a_very_long_number():
+    assert review._typed_count("1" * 5000) == ("words", None)
+
+
+@pytest.mark.parametrize("text, said", [("99999999999999999999", ("words", None)), ("999999999999999", ("number",
+                                         999999999999999)), ("123456789012345 units", ("number", 123456789012345))])
+def test_a_count_is_at_most_fifteen_digits(text, said):
+    assert review._typed_count(text) == said
+
+
+@NODE
+def test_the_page_and_python_agree_on_long_numbers(tmp_path):
+    read = run_js(tmp_path, f"console.log(JSON.stringify({json.dumps(LONG)}.map(parseNumber)));")
+    for text, parsed in zip(LONG, read):
+        kind, value = review._typed_count(text)
+        assert (parsed["kind"], parsed["value"] if parsed["kind"] == "number" else None) == (kind, value), text[:30]
