@@ -561,7 +561,9 @@ def _estimate(job_folder: Path, out: Path, cache: Path, mode: Mode, known: dict)
 
     # 3. write every system (all are asked before stopping for answers)
     known["stage"] = "write"
-    evidence = {s.key: ai.system_evidence(s, dossier, ledger) for s in job.systems}   # with its facts checklist (T-005d)
+    # with its facts checklist (T-005d) and, first, its takeoff register (takeoff Task 2.5)
+    evidence = {s.key: ai.system_evidence(s, dossier, ledger, register=takeoff.register_text(
+        job, s, ledger, devices=getattr(reading, "devices", ()) or ())) for s in job.systems}
     # the front end is written like a system (HP 22): its own evidence, from the passages the planner cited for it
     taken = {s.key for s in job.systems}
     front_evidence = (ai.front_end_evidence(job.front_end, dossier, taken, ledger) if job.front_end is not None

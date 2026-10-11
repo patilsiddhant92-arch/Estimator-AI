@@ -574,3 +574,127 @@ def attach_demolition(job: Job) -> Job:
     units keeps an empty Demolition Scope.
     """
     return dataclasses.replace(job, demolition=demolition_lines(job.units))
+
+
+# ---- the writer sees the register (Stage 2, Task 2.5) -----------------------------------------------------------
+
+REGISTER_HEADING = "Takeoff register for this system"
+# a sheet that does not count, in the words of a set-aside reason (`SetAsideReason`)
+_KIND_REASON = {"demolition": "demolition sheet", "part_plan": "part plan of one area",
+                "enlarged_plan": "part plan of one area"}
+_PREFIX = re.compile(r"^([A-Za-z]+)")
+
+
+def _system_prefixes(job: Job, system, ledger) -> set[str]:
+    """The ledger family prefixes of the system's families: from their tags, and from the ledger's family facts whose
+    value is the family's name."""
+    found: set[str] = set()
+    names = {family.name for family in system.families}
+    for family in system.families:
+        found |= {m.group(1) for tag in family.tags if (m := _PREFIX.match(tag))}
+    facts = getattr(ledger, "facts", None) or {}
+    found |= {str(f.subject) for f in facts.values() if f.kind == "family" and str(f.value) in names}
+    return found
+
+
+def _sheet_of(job: Job, document: str, page: int, number: str):
+    return next((s for s in job.sheets if (s.document, s.page) == (document, page)),
+                next((s for s in job.sheets if number and s.number == number), None))
+
+
+def _plural(name: str) -> str:
+    return name if name.endswith("s") else f"{name}s"
+
+
+def _device_lines(job: Job, units: list[Unit], devices) -> list[str]:
+    """One line per device the reading counted on the sheets of the system's areas: the number on the sheets that
+    count, then the numbers set aside with their reason. A set-aside the job already carries for the device (by its
+    label or its name; Task 2.1's `device_tally`) is printed as it is; otherwise the counts on the sheets of those
+    areas that do not count are set aside, by the sheet's kind."""
+    counted = {s.number for u in units if u.status in COUNTED_STATUSES for s in job.sheets if s.number in u.sheets}
+    areas = {s.area for s in job.sheets if s.number in counted and s.area}
+    if not areas:
+        return []
+    kept: dict[tuple[str, str], int] = {}
+    aside: dict[tuple[str, str], dict[str, int]] = {}
+    for row in devices or ():
+        sheet = _sheet_of(job, row.document, row.page, row.sheet)
+        if sheet is None or sheet.area not in areas:
+            continue
+        key = (row.device, row.label)
+        number = row.total if getattr(row, "total", None) is not None else row.count
+        if sheet.counts_units:
+            kept[key] = kept.get(key, 0) + number
+        else:
+            reason = _KIND_REASON.get(sheet.kind, sheet.kind.replace("_", " "))
+            kept.setdefault(key, 0)
+            aside.setdefault(key, {})
+            aside[key][reason] = aside[key].get(reason, 0) + number
+    lines = []
+    for key in kept:
+        device, label = key
+        on_job = [s for s in job.set_aside if s.family in (label, device)]
+        reasons: dict[str, int] = {}
+        if on_job:
+            for row in on_job:
+                reasons[row.reason] = reasons.get(row.reason, 0) + row.value
+        else:
+            reasons = aside.get(key, {})
+        line = f"{_plural(device)}: {kept[key]} on the new-work sheets"
+        line += "".join(f"; {n} set aside ({reason})" for reason, n in reasons.items())
+        lines.append(line)
+    return lines
+
+
+def register_text(job: Job, system, ledger, devices=()) -> str:
+    """The takeoff register of one system, for its writer's evidence (`ai_evidence.evidence(register=...)`): the unit
+    rows of its families (and the rows that serve its units), with their status, count, sheets, reason and ledger ids;
+    the items the takeoff lists as future; the counts set aside for its families; one line per device counted on the
+    sheets of its areas (`devices`: the reading's device counts, kept on the sheets that count and set aside on the
+    others); what the plans pass understood; then the passages the register cites, as "- [F3] “quote” — where" (never a
+    passage line of the evidence, which starts with its id). ""
+    when the job has no register for the system. Deterministic."""
+    prefixes = _system_prefixes(job, system, ledger)
+    units = [u for u in job.units if u.family in prefixes]
+    tags = {u.tag for u in units}
+    units += [u for u in job.units if u not in units and u.serves and u.serves in tags]
+    future = [f for f in job.future_items if f.family in prefixes]
+    if not units and not future:
+        return ""
+    refs: list[Ref] = []
+
+    def cite(found) -> str:
+        for ref in found:
+            if ref not in refs:
+                refs.append(ref)
+        ids = dict.fromkeys(f"[{r.source_id.strip('[] ')}]" for r in found)
+        return f" {' '.join(ids)}" if ids else ""
+
+    out = [f"{REGISTER_HEADING} (one pass over every sheet of the job). Only a unit with status “new” counts in "
+           "this block; a demolished, existing or relocated unit is in the Demolition Scope, never in this block."]
+    if units:
+        out.append("Units:")
+        for unit in units:
+            drawn = f", drawn on {', '.join(unit.sheets)}" if unit.sheets else ""
+            serves = f", serves {unit.serves}" if unit.serves else ""
+            service = f", {unit.service}" if unit.service else ""
+            reason = f" {unit.reason.strip()}" if unit.reason.strip() else ""
+            out.append(f"- {unit.tag}: {unit.status}, count {unit.count}{drawn}{serves}{service}.{reason}"
+                       f"{cite(unit.refs)}")
+    if future:
+        out.append("Future items (each is a line marked future):")
+        out += [f"- {f.family}: {f.item}{cite(f.refs)}" for f in future]
+    aside = [s for s in job.set_aside if s.family in prefixes]
+    if aside:
+        out.append("Counts set aside (not in this block's count):")
+        out += [f"- {s.family} {s.value} ({s.reason}){': ' + s.note if s.note else ''}{cite((s.ref,))}"
+                for s in aside]
+    out += _device_lines(job, units, devices)
+    plans = (getattr(ledger, "understanding", None) or {}).get("plans", "")
+    if plans:
+        out.append(f"What the plans pass understood: {plans}")
+    if refs:
+        # "- " first: these are the register's citations, never passages of the evidence (`ai_evidence._ENTRY`)
+        out.append("The passages the register cites (each is given above under its own id, or in the ledger):")
+        out += [f"- [{r.source_id.strip('[] ')}] “{r.quote}” — {r.where}" for r in refs]
+    return "\n".join(out) + "\n"

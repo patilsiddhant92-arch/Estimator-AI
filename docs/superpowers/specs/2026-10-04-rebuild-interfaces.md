@@ -30,7 +30,7 @@ dependency without the controller (`jsonschema` and `yaml` are not installed —
 | `src/bms/review.py` | `review_page`, `load_decisions`, `apply_decisions`; the decisions history: `SavedDecision`, `load_history`, `save_history`, `merge_decisions(history, saved, *, job=None)`, `apply_seen`, `copies_seen`, `held_back`, `unhonored_decisions`, `system_digest`, `accept_families`; `DECISIONS_FILE`, `DECISIONS_HISTORY`, `NOT_CITED_GROUP` (the heading of the coverage group) | workstream 7 |
 | `tools/measure.py` | `measure`, `MeasureResult`, `LineMatch` | workstream 7 |
 | `src/bms/coverage.py` | `coverage(job, ledger, dossier=None) -> list[Finding]` (the coverage gate: one `check` Finding, rule `"coverage"`, for each ledger fact of a scope kind that nothing in the job cites; pure, report only), `RULE`, `SCOPE_KINDS` | HarkPro T-001 (reviewed by the lead); `run` calls it |
-| `src/bms/takeoff.py` | the takeoff pass (plan 2026-10-11, Stage 1): `take_off`, `prompt`, `answer_schema`, `check_answer`, `attach`, `save`, `load`, `Takeoff`, `TAKEOFF_JOB`, `TAKEOFF_LIMIT`; its prompt `src/bms/prompts/takeoff_job.md` | HarkPro T-006 (reviewed by the lead) |
+| `src/bms/takeoff.py` | the takeoff pass (plan 2026-10-11, Stage 1): `take_off`, `prompt`, `answer_schema`, `check_answer`, `attach`, `save`, `load`, `register_text` (Stage 2, Task 2.5), `Takeoff`, `TAKEOFF_JOB`, `TAKEOFF_LIMIT`; its prompt `src/bms/prompts/takeoff_job.md` | HarkPro T-006 (reviewed by the lead) |
 | `src/bms/run.py` | `estimate`, `RunResult` (the orchestration) | controller |
 | `src/bms/status.py` | `check(out, cache) -> Status` (exit code and plain lines), `Status`, `RUN_STATE` (`"run state.json"`) | controller |
 | `src/bms/doctor.py` | `run_doctor` and its checks (Python, dependencies, `.claude/run-job.json` models, Playbook, cache folder) | controller |
@@ -499,7 +499,8 @@ class Transport(Protocol):
 class ChatTransport:  __init__(cache_dir: Path, job: str, handoff_dir: Path | None = None)
 class ApiTransport:   __init__(cache_dir: Path, model: str | None = None, client=None)
 WRITE_SYSTEM = "write_system"; QC_JOB = "qc_job"; STEPS = ("write", "revise"); CHAT_MODEL = "claude (chat)"
-evidence_for(system: System, dossier: Dossier) -> str
+evidence_for(system: System, dossier: Dossier, register: str = "") -> str      # register (takeoff Task 2.5): printed first
+system_evidence(system: System, dossier: Dossier, ledger=None, *, front_end: bool = False, register: str = "") -> str
 evidence_index(dossier: Dossier) -> dict[str, str]
 write_system(system: System, evidence: str, playbook: Playbook, transport: Transport, *, tags: Sequence[str] = (), ids: Sequence[str] = (), sheets: Sequence[str] = (), source_sheets: Sequence[str] = ()) -> System
 qc_job(job: Job, evidence_index: Mapping[str, str], playbook: Playbook, transport: Transport) -> list[Finding]
@@ -606,6 +607,7 @@ check_answer(answer, ledger, catalogue, reading, index: Mapping[str, str]) -> tu
 take_off(ledger, catalogue, reading, dossier, playbook: Playbook, transport: Transport) -> Takeoff   # raises NoAnswer
 attach(job: Job, takeoff: Takeoff) -> Job
 save(takeoff: Takeoff, path: Path) -> bool; load(path: Path) -> Takeoff
+register_text(job: Job, system: System, ledger, devices=()) -> str   # Stage 2, Task 2.5
 ```
 One request, kind `takeoff_job`, name "Takeoff", extra `{"step": "takeoff"}`, instructions `playbook.rules_text`
 (the cached first system block in API mode), system prompt `prompts/takeoff_job.md`, no pictures, asked through
@@ -626,7 +628,7 @@ fact's quote and value or that source's text; and the schedule floor: every sche
 reading lists them) has a unit row; a scheduled unit whose status is not in `COUNTED_STATUSES`, or whose count is
 below its floor (1 per row, or the row's numeric QTY / QUANTITY column), needs a reason and a ref to a passage other
 than its own schedule and its own schedule row (by the source's name: "<sheet> <title>, ..." or "<title> row <tag>, ...";
-a fact counts by its own source; the schedule's notes are other passages). `attach` replaces `sheets`, `units`, `set_aside` and `future_items` only. `save` writes
+a fact counts by its own source; the schedule's notes are other passages). `attach` replaces `sheets`, `units`, `set_aside` and `future_items` only. `register_text` (Task 2.5) is the register of one system for its writer: the heading "Takeoff register for this system", the unit rows of the system's family prefixes (from its families' tags and the ledger's family facts) and the rows that `serve` its units (`- <tag>: <status>, count <n>, drawn on <sheets>. <reason> [ids]`), the future items of those families, the job's set-asides of those families, one line per device the reading counted on the sheets of the system's areas (`devices`: the reading's `DeviceCount` rows; "<Devices>: <kept> on the new-work sheets; <n> set aside (<reason>)", kept on the `counts_units` sheets, set aside from the job's `SetAside` for that device's label or name when it has one, else from the other sheets of those areas by kind), what the plans pass understood (`ledger.understanding["plans"]`), then the cited passages as `- [F3] “quote” — where` (never a passage line, which starts with its id); "" when the job has no unit row or future item for the system. `ai_evidence.evidence(..., register="")` prints it first, before the "Evidence for" line, and the FUTURE checklist reads the passages only; `ai.evidence_for` and `ai.system_evidence` pass it, and the run passes `register_text(job, system, ledger, devices=reading.devices)` to `system_evidence` for every system. `save` writes
 `{"version": 1, "sheets": [...], "units": [...], "set_aside": [...], "future_items": [...], "questions": [...]}`
 whole or not at all (`ai._write_json`) and returns True; a file that already holds the same register is left as it
 is (False): every later run reads the same cached answer.

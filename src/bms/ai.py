@@ -763,7 +763,7 @@ def _ask_checked(transport, kind: str, name: str, instructions: str, system_prom
 
 # ---- the evidence ------------------------------------------------------------------------------------------------
 
-def evidence_for(system: System, dossier: Dossier) -> str:
+def evidence_for(system: System, dossier: Dossier, register: str = "") -> str:
     """The evidence one system is written from: the dossier lines its refs, family tags and sequence refs point to,
     each kept with its "[S41]" source id and place, so the AI cites them by id. Only this job's text; no example
     from another job. Deterministic.
@@ -784,17 +784,20 @@ def evidence_for(system: System, dossier: Dossier) -> str:
     for word is given once. Then the checklists: the passages that mark an item FUTURE or furnished integral with the
     unit, the end devices its unit schedules list, and, with `ledger`, the controls facts the reading found about it
     (the coverage gate's facts), so each one ends as a line, the clarification or the no-scope reason. `front_end`:
-    the front end's evidence (its notes are those in the front end's own words)."""
-    return system_evidence(system, dossier)
+    the front end's evidence (its notes are those in the front end's own words). `register` (takeoff Task 2.5: the
+    system's takeoff register, `bms.takeoff.register_text`) is printed first."""
+    return system_evidence(system, dossier, register=register)
 
 
-def system_evidence(system: System, dossier: Dossier, ledger=None, *, front_end: bool = False) -> str:
+def system_evidence(system: System, dossier: Dossier, ledger=None, *, front_end: bool = False,
+                    register: str = "") -> str:
     """`evidence_for` with the reading's ledger (T-005d): the same passages, then the checklist of the controls facts
     the reading found about the system, so the writer ends each as a line, the clarification or the no-scope reason
-    (the coverage gate reports what is still uncited after). `front_end`: the front end's evidence."""
+    (the coverage gate reports what is still uncited after). `front_end`: the front end's evidence. `register`: the
+    system's takeoff register (`bms.takeoff.register_text`), printed first."""
     return ai_evidence.evidence(system, dossier.text, dict(dossier.sources or {}),
                                 _sections_of(dossier), dossier.images, dossier.schedules, ledger=ledger,
-                                front_end=front_end)
+                                front_end=front_end, register=register)
 
 
 def _sections_of(dossier: Dossier) -> dict:
