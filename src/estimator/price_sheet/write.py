@@ -16,7 +16,9 @@ from openpyxl.styles import Font
 
 from estimator.files import open_workbook
 from estimator.price_sheet.price_book import PriceBook
-from estimator.price_sheet.rows import FIRST_ROW, FLAG, HOURS, LAST_ROW, QUANTITY, SCOPE, UNIT_PRICE, Sheet, sheet_plan
+from estimator.price_sheet.rows import (
+    FIRST_ROW, FLAG, HOURS, HOURS_BY_ESTIMATOR, LAST_ROW, QUANTITY, SCOPE, UNIT_PRICE, Sheet, sheet_plan,
+)
 from estimator.scope import Job
 
 # a line's own quantity, "Qty (#) <device>" (estimator ruling 15, T-005e): not part of the device's name in the book
@@ -85,7 +87,13 @@ def _fill(ws, sheet: Sheet, book: PriceBook, labor: set[str] = frozenset()) -> i
             _flag(ws, r, QUANTITY_PENDING)     # its lines carry no quantity, so none of them is priced
         if row.quantity_pending:
             _flag(ws, r, QUANTITY_PENDING)     # a "(Qty. ##)" line: no quantity, so it is not priced
-        if row.quantity is not None:
+        if row.labor:
+            # Hours stay empty. A known count is not a device price. An unknown count keeps the one flag above.
+            if row.quantity is not None:
+                ws.cell(r, QUANTITY).value = row.quantity
+            if not row.quantity_pending:
+                _flag(ws, r, HOURS_BY_ESTIMATOR)
+        elif row.quantity is not None:
             ws.cell(r, QUANTITY).value = row.quantity
             match = book.lookup(_LINE_QTY.sub("", row.item.text))
             if match is None:

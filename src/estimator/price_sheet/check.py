@@ -11,7 +11,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from estimator.price_sheet.price_book import PriceBook
-from estimator.price_sheet.rows import align, read_sent_rows
+from estimator.price_sheet.rows import HOURS_BY_ESTIMATOR, align, read_sent_rows
 from estimator.text import strip_list_marker
 
 
@@ -31,7 +31,7 @@ def price_check(generated: Path, sent: Path, book: PriceBook, title: str) -> str
         theirs = theirs_by_sheet.get(sheet, [])
         partner = dict(align([r.text for r in ours], [r.text for r in theirs]))
         for index, row in enumerate(ours):
-            if row.quantity is None:
+            if row.quantity is None or row.flag == HOURS_BY_ESTIMATOR:
                 continue
             line = strip_list_marker(row.text)
             sent_price = theirs[partner[index]].unit_price if index in partner else None

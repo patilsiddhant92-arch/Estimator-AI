@@ -20,6 +20,7 @@ HOURS, QUANTITY, SCOPE, UNIT_PRICE, FLAG = 2, 3, 4, 5, 8   # columns B, C, D, E,
 COUNT_TO_FILL = "Qty (##)"                                  # the house form of a count still to be filled
 LINE_QUANTITY_TO_FILL = "(Qty. ##)"                         # the house form of a line's quantity still to be filled
 DEMOLITION_HEADING = "Demolition Scope"                     # T-G1: labor rows under this heading, hours left blank
+HOURS_BY_ESTIMATOR = "HOURS BY ESTIMATOR"                   # a Demolition Scope labor row with a known count
 _QTY_PREFIX = re.compile(r"^Qty \(\d+\) ")
 
 
@@ -33,6 +34,7 @@ class Row:
     count_pending: bool = False      # a block header whose count is still to fill: "Qty (##)"
     quantity_pending: bool = False   # a line whose own quantity is still to fill: "(Qty. ##)", so it is not priced
     red: bool = False                # a line the proposal prints in red (`Run.red`): red here too (T-005e)
+    labor: bool = False              # a Demolition Scope labor row: the estimator fills the hours; it is not a device price
 
 
 @dataclass(frozen=True)
@@ -81,7 +83,8 @@ def _demolition_rows(block: Block, ref: tuple) -> list[Row]:
     rows = [] if block.joined else [Row()]
     rows.append(Row(DEMOLITION_HEADING, ref=ref))
     for j, item in enumerate(block.items):
-        rows.append(Row(_labor_text(item.text), quantity=item.quantity, item=item, ref=ref + ("items", j), red=True))
+        rows.append(Row(_labor_text(item.text), quantity=item.quantity, item=item, ref=ref + ("items", j),
+                        quantity_pending=item.quantity is None, red=True, labor=True))
     return rows
 
 
@@ -112,6 +115,7 @@ class SentRow:
     unit_price: float | None
     hours_raw: object = None       # the cell's own value, for reporting what couldn't be used
     quantity_raw: object = None
+    flag: str | None = None        # column H, so a labor row is not counted as PRICE PENDING
 
 
 def _number(value) -> float | None:
@@ -135,8 +139,10 @@ def read_sent_rows(path: Path) -> dict[str, list[SentRow]]:
             text = ws.cell(r, SCOPE).value
             if isinstance(text, str) and text.strip():
                 hours_cell, quantity_cell = ws.cell(r, HOURS).value, ws.cell(r, QUANTITY).value
+                flag_cell = ws.cell(r, FLAG).value
                 rows.append(SentRow(ws.title, r, text, _number(hours_cell), _whole(quantity_cell),
-                                    _number(ws.cell(r, UNIT_PRICE).value), hours_cell, quantity_cell))
+                                    _number(ws.cell(r, UNIT_PRICE).value), hours_cell, quantity_cell,
+                                    flag_cell if isinstance(flag_cell, str) else None))
         sheets[ws.title] = rows
     return sheets
 
