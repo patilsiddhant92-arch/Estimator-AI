@@ -29,12 +29,16 @@ Two transports share the same steps:
 
 Request kinds (what `/run-job` dispatches on): `write_system` for both writing and revising a system (extra
 `"step": "write" | "revise"`, `"plan_key": system.key`, `"images"`; a revise request's "system" is the system's name
-with " (revise)"), `qc_job` for the QC pass (extra `"step": "qc"`). In chat mode the request's `system_prompt` is
-the Playbook rules text, a blank line, then the step's instructions (`src/bms/prompts/`).
+with " (revise)"; the front end is written and revised as a block of its own, "Front End" and "Front End (revise)",
+`plan_key` its key: `write_front_end`, `revise_front_end`), `qc_job` for the QC pass (extra `"step": "qc"`). In chat
+mode the request's `system_prompt` is the Playbook rules text, a blank line, then the step's instructions
+(`src/bms/prompts/`).
 
 Ground rules the steps hold: every device cites this job's evidence by id (an answer citing an id the evidence does
 not carry is refused); the Master Template shape is only the frame (slots and their print form, never a line);
-every assumption says what and why; one clarification per block; the skeleton's planner fields always win.
+every assumption says what and why; one clarification per block; the skeleton's planner fields always win (a revise
+may correct a family's count or the alternate that a must_fix finding about the whole block asks for, checked against
+the evidence: the highest count prints and no count is dropped, `_corrections`).
 A cosmetic slip in client text (a leading label, a source id) is cleaned on intake instead of refused, and logged
 as [{"system", "change"}] in `<cache>/intake.json` (one log per run).
 """
@@ -45,7 +49,7 @@ import hashlib
 import json
 import os
 import re
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Protocol, runtime_checkable
@@ -54,7 +58,8 @@ from estimator.writing.dossier import Dossier
 from estimator.writing.judge import DEFAULT_MODEL, KEY_VARIABLE, MODEL_VARIABLE, _key, _plain
 
 from bms import ai_evidence
-from bms.model import Device, Family, Finding, Job, ModelError, Ref, System, json_schema, schema_errors
+from bms.model import (ALTERNATES, Count, Device, Family, Finding, FrontEnd, Job, ModelError, OtherCount, Ref,
+                       System, json_schema, schema_errors)
 from bms.playbook import Playbook, Shape
 from bms.validate import RULE
 from bms.citations import WHERE_ADVICE, SourceIds, label_off, plan_refs, ref_sheets, system_tags
@@ -898,12 +903,14 @@ def _finding_text(n: int, finding: Finding) -> str:
     return f"{n}. [{finding.rule}] {about}: {finding.what} Fix: {finding.fix}"
 
 
-def _revise_prompt(system: System, findings: Sequence[Finding], shape: Shape | None, evidence: str) -> str:
+def _revise_prompt(system: System, findings: Sequence[Finding], shape: Shape | None, evidence: str,
+                   revise: frozenset[str] = frozenset(), hold: frozenset[str] = frozenset()) -> str:
     return "\n\n".join(p for p in [
         "The block as written:\n" + json.dumps({k: v for k, v in system.to_dict().items() if k != "serves"},
                                                indent=1, ensure_ascii=False),
         "The findings to fix (must fix), and nothing else:\n"
         + "\n".join(_finding_text(n, f) for n, f in enumerate(findings, start=1)),
+        _corrections_text(revise, hold),
         _shape_text(system, shape),
         _heater_text(system),
         "Answer with the whole revised system as JSON in the schema given.",
@@ -945,13 +952,181 @@ def _quote_problem(ref: dict, index: Mapping[str, str]) -> str | None:
     return f"quotes “{quote}” from {sid}, but {sid} does not say that (quote the exact words of the source)"
 
 
+# ---- what a revise may correct of the planner's fields (HP 17) ---------------------------------------------------------
+
+# The Playbook rules a finding about a block's count is under (`validate.RULE`); any other whole-block finding asks for a
+# count when its fix sets one ("Set the Exhaust Fan count to 4").
+COUNT_RULES = frozenset({RULE["higher"], RULE["unknown"]})
+ALTERNATE_RULE = "Never invent an alternate"
+_SETS_COUNT = re.compile(r"\b(?:set|carry|print|correct|change|make|use|raise)\b[^.]{0,80}\bcount\b"
+                         r"|\bcount\b[^.]{0,40}\bto\s+\d+", re.I)
+_SAYS_ALTERNATE = re.compile(r"\balternates?\b", re.I)
+
+
+def _revisions(findings: Sequence[Finding], system: System) -> frozenset[str]:
+    """What the must_fix findings about the whole block let a revise correct of the planner's fields: "count" (a
+    family's count) when one is under a count rule or its fix sets a count, "alternate" when one is under the alternate
+    rule or its fix names the alternate. A finding about one line, or about a line the block lacks (AI-16), opens
+    neither."""
+    found: set[str] = set()
+    for f in findings:
+        if f.severity != "must_fix" or f.device_id is not None or _missing_device(f, system):
+            continue
+        if f.rule in COUNT_RULES or _SETS_COUNT.search(f.fix or ""):
+            found.add("count")
+        if f.rule == ALTERNATE_RULE or _SAYS_ALTERNATE.search(f.fix or ""):
+            found.add("alternate")
+    return frozenset(found)
+
+
+def _corrections_text(revise: frozenset[str], hold: frozenset[str] = frozenset()) -> str:
+    """The paragraph of a revise question that says which planner fields the writer may correct ("" when none)."""
+    if not revise:
+        return ""
+    parts = []
+    if "count" in revise:
+        parts.append(
+            "a family's count: set the count of the family a finding names to the number the evidence gives, with "
+            "the passages that give it as sources (source_id exactly as the evidence gives it, the exact quoted "
+            "words, the place). The highest count prints, so the highest the evidence gives is the value. Keep "
+            "every count the family already has: the app keeps each one with its source in others. The family keeps "
+            "its name and its tags. Set each line counted from that family to the new count, and work out the tech "
+            "hours again" + (f". Do not change the count of {', '.join(sorted(hold))}: the estimator set "
+                             f"{'it' if len(hold) == 1 else 'them'}" if hold else ""))
+    if "alternate" in revise:
+        parts.append("the alternate: set it as the finding says. Use add or deduct only when a passage of the evidence "
+                     "says this system is an add or a deduct alternate; otherwise use base.")
+    return ("You may correct these planner fields of the block, because a finding above asks for it. "
+            + " ".join(f"({n}) {p}" for n, p in enumerate(parts, start=1))
+            + " Copy every other planner field exactly as given. The app checks each correction against the "
+            "evidence and refuses one the evidence does not support.")
+
+
+def _count_entries(count: Count) -> list[tuple[int, Ref | None]]:
+    """Every count a Count holds, one entry for each source that backs it (a count with none: one entry without a ref),
+    the printed count first."""
+    entries: list[tuple[int, Ref | None]] = []
+    if count.value is not None:
+        entries += [(count.value, r) for r in count.sources] or [(count.value, None)]
+    return entries + [(o.value, o.ref) for o in count.others]
+
+
+def _count_from(entries: Sequence[tuple[int, Ref | None]], added_up: OtherCount | None) -> Count:
+    """The Count of `entries`: the highest number is the value (never undershoot) with the refs that give it, every
+    other number is in `others` with its ref, none dropped. The sum ruling L1 left out (`added_up`) stays only while it
+    is above the printed count."""
+    from bms.counts import NO_SOURCE_QUOTE
+    if not entries:
+        return Count(None)
+    top = max(n for n, _ in entries)
+    sources = tuple(dict.fromkeys(r for n, r in entries if n == top and r is not None))
+    others = tuple(dict.fromkeys(OtherCount(n, r if r is not None else Ref("", NO_SOURCE_QUOTE, ""))
+                                 for n, r in entries if n != top))
+    return Count(top, sources, others, added_up if added_up is not None and added_up.value > top else None)
+
+
+def _correct_count(family: Family, given, known: frozenset[str], index: Mapping[str, str] | None,
+                   log: list[str]) -> tuple[Count | None, list[str]]:
+    """The family's count after a revise answer's correction (HP 17), or the problems that refuse it. The answer's
+    count is read for the counts it adds: each count it names that the family does not have, with its source. The
+    family's own counts stay (the answer cannot drop or lower one), so the result is the family's counts and the
+    added ones with the highest as the value, every other in `others` with its source: the highest prints and the
+    "*" note names both numbers. A count the answer adds is 1 or more and cites a source this system's evidence carries
+    (the plan count check's record given without a source aside), each quote in its source. None: no count is
+    added."""
+    from bms.counts import NO_SOURCE_QUOTE
+    label = f"the {family.name} count"
+    if not isinstance(given, dict):
+        return None, []
+    errors = schema_errors(given, json_schema(Count))
+    if errors:
+        return None, [f"{label} breaks the schema at {e.removeprefix('$.')}" for e in errors]
+    answered = Count.from_dict(given)
+    old = _count_entries(family.count)
+    known_counts = {(n, None if r is None else r.source_id) for n, r in old}      # a count and the source it is from
+    added: list[tuple[int, Ref | None]] = []
+    for number, ref in _count_entries(answered):
+        ref = ref if ref is None else replace(ref, source_id=str(ref.source_id).strip().strip("[]"))
+        found = (number, None if ref is None else ref.source_id)
+        if found not in known_counts:
+            known_counts.add(found)
+            added.append((number, ref))
+    if not added:
+        return None, []
+    problems: list[str] = []
+    for number, ref in added:
+        if number < 1:
+            problems.append(f"{label} gets {number}: a count is 1 or more, with the source that gives it")
+        elif ref is None:
+            problems.append(f"{label} gets {number} with no source: cite the evidence that gives it")
+        elif ref.source_id not in known and not (not ref.source_id and ref.quote == NO_SOURCE_QUOTE):
+            problems.append(f"{label} cites {ref.source_id or 'an empty id'}, not in this system's evidence (cite "
+                            "the ids the evidence gives)")
+        elif index is not None and (bad := _quote_problem(ref.to_dict(), index)):
+            problems.append(f"{label}'s source {bad}")
+    if problems:
+        return None, list(dict.fromkeys(problems))
+    count = _count_from([*old, *added], family.count.added_up)
+    if count == family.count:
+        return None, []
+    numbers = ", ".join(str(n) for n, _ in added)
+    log.append(f"{label}: {family.count.highest()} corrected to {count.highest()} as a finding asked (the answer "
+               f"adds {numbers}; every earlier count stays with its source)")
+    return count, []
+
+
+def _corrections(answer: dict, skeleton: System, revise: frozenset[str], known: frozenset[str],
+                 index: Mapping[str, str] | None, changes: list[str] | None,
+                 hold: frozenset[str] = frozenset()) -> tuple[dict, list[str]]:
+    """The planner's fields a revise answer corrects (HP 17), checked, as the skeleton fields to use instead of the
+    skeleton's own: `families` with the corrected counts (a family keeps its name and tags; only its count changes,
+    `_correct_count`) and `alternate` (an add or deduct alternate needs a passage of the evidence that says so, and
+    "base" needs none). A family named in `hold` (the estimator set its count) never changes. Each correction is added
+    to `changes` (the intake log). The problems returned refuse the answer."""
+    out: dict = {}
+    problems: list[str] = []
+    log = changes if changes is not None else []
+    if "alternate" in revise:
+        kind = answer.get("alternate")
+        if kind in ALTERNATES and kind != skeleton.alternate:
+            if kind != "base" and not _alternate_said(kind, index or {}, skeleton):
+                problems.append(f"it sets the alternate to {kind!r}, but no passage of the evidence says this system "
+                                f"is a {kind} alternate: keep {skeleton.alternate!r}")
+            else:
+                out["alternate"] = kind
+                log.append(f"alternate: {skeleton.alternate!r} corrected to {kind!r} as a finding asked")
+    if "count" in revise and isinstance(answer.get("families"), list):
+        given = {str(f.get("name", "")).casefold(): f for f in answer["families"] if isinstance(f, dict)}
+        families, changed = [], False
+        for family in skeleton.families:
+            answered = given.get(family.name.casefold())
+            count, why = (None, []) if family.name in hold or not answered else _correct_count(
+                family, answered.get("count"), known, index, log)
+            problems += why
+            families.append(replace(family, count=count) if count is not None else family)
+            changed = changed or count is not None
+        if changed:
+            out["families"] = [f.to_dict() for f in families]
+    return out, problems
+
+
+def _alternate_said(kind: str, index: Mapping[str, str], system: System) -> bool:
+    """A passage of the evidence (its sources by id, `_sent_index`), or the block's own name, says the system is an
+    add or deduct alternate: the kind word and "alternate" side by side ("add alternate 2", "alternate 1 (deduct)")."""
+    near = re.compile(rf"\b{re.escape(kind)}\b[^.\n]{{0,40}}\balternates?\b|\balternates?\b[^.\n]{{0,40}}\b"
+                      rf"{re.escape(kind)}\b", re.I)
+    return any(near.search(text or "") for text in (*index.values(), system.name, *(f.name for f in system.families)))
+
+
 def _check_system(answer, skeleton: System, shape: Shape | None, known: frozenset[str],
                   keep: Sequence[Device] = (), originals: Sequence[Device] = (),
                   changes: list[str] | None = None, tags: Sequence[str] = (),
                   ids: Sequence[str] = (), sheets: Sequence[str] = (),
                   source_sheets: Sequence[str] = (),
                   index: Mapping[str, str] | None = None,
-                  recount: bool = False, block: Mapping | None = None) -> tuple[System | None, list[str]]:
+                  recount: bool = False, block: Mapping | None = None,
+                  revise: frozenset[str] = frozenset(), hold: frozenset[str] = frozenset()
+                  ) -> tuple[System | None, list[str]]:
     """A System answer made usable, or the problems that stop it: the skeleton's fields win; untouched devices
     (`keep`) are put back as they were; labels come off the client texts (`_normalise`, each change added to
     `changes`) and a client text that prints a source id is refused;
@@ -960,11 +1135,18 @@ def _check_system(answer, skeleton: System, shape: Shape | None, known: frozense
     a device is in its source; slots fit the shape; a known count is 1 or more; at most one clarification;
     every assumption says what and why; device ids unique and of this system. With `recount` (the count rewrite)
     a kept device takes the count the answer gives it (`_recounted`). With `block` (a revise whose findings all
-    name devices) the block's clarifications, tech hours and no-scope reason are the original's (AI-10)."""
+    name devices) the block's clarifications, tech hours and no-scope reason are the original's (AI-10). With
+    `revise` (a revise whose must_fix findings about the whole block ask for it, `_revisions`: "count",
+    "alternate") the answer may correct a family's count or the alternate, each checked against the evidence
+    (`_corrections`); a family named in `hold` keeps its count."""
     from bms.counts import NO_SOURCE_QUOTE
     if not isinstance(answer, dict):
         return None, ["the answer is not a JSON object"]
-    answer = {"no_scope_reason": None, **answer, **_skeleton_dict(skeleton), **(block or {})}  # no field: null
+    corrected, refused = _corrections(answer, skeleton, revise, known, index, changes, hold) if revise else ({}, [])
+    if refused:
+        return None, refused
+    answer = {"no_scope_reason": None, **answer, **_skeleton_dict(skeleton), **corrected,
+              **(block or {})}  # no field: null
     if keep:
         answer = dict(answer, devices=_put_back(answer.get("devices"), keep, originals,
                                                 skeleton.families if recount else (), skeleton.key))
@@ -1327,17 +1509,19 @@ def _ask_system(transport, name: str, playbook: Playbook, step: str, prompt: str
                 images: Sequence[Path], system: System, shape: Shape | None, known: frozenset[str],
                 keep: Sequence[Device] = (), originals: Sequence[Device] = (), tags: Sequence[str] = (),
                 ids: Sequence[str] = (), sheets: Sequence[str] = (), source_sheets: Sequence[str] = (),
-                evidence: str = "", recount: bool = False, block: Mapping | None = None) -> System:
+                evidence: str = "", recount: bool = False, block: Mapping | None = None,
+                revise: frozenset[str] = frozenset(), hold: frozenset[str] = frozenset()) -> System:
     """One WRITE_SYSTEM question checked by `_check_system`, every quote against the `evidence` sent; what the
     intake cleaned in the used answer goes to the transport's intake log. `recount`: the count rewrite's
-    (`_recounted`); `block`: the block fields a device-only revise keeps."""
+    (`_recounted`); `block`: the block fields a device-only revise keeps; `revise` and `hold`: the planner fields a
+    revise may correct, and the families whose count it may not (`_corrections`)."""
     changes: list[str] = []
     index = _sent_index(evidence)
 
     def check(answer):
         changes.clear()                     # only the used answer's changes are logged
         return _check_system(answer, system, shape, known, keep, originals, changes, tags, ids, sheets,
-                             source_sheets, index, recount, block)
+                             source_sheets, index, recount, block, revise, hold)
 
     written = _ask_checked(transport, WRITE_SYSTEM, name, playbook.rules_text, _instructions(step), prompt,
                            json_schema(System), extra, images, check)
@@ -1347,7 +1531,8 @@ def _ask_system(transport, name: str, playbook: Playbook, step: str, prompt: str
 
 def revise_system(system: System, findings: Sequence[Finding], evidence: str, playbook: Playbook,
                   transport: Transport, *, tags: Sequence[str] = (), ids: Sequence[str] = (),
-                  sheets: Sequence[str] = (), source_sheets: Sequence[str] = ()) -> System:
+                  sheets: Sequence[str] = (), source_sheets: Sequence[str] = (),
+                  hold_counts: Sequence[str] = ()) -> System:
     """The system revised for its `must_fix` findings only (the others are ignored), one round: one WRITE_SYSTEM
     request with extra step "revise"; same schema, checks and kept skeleton fields as `write_system`. With no
     must_fix finding for this system it returns `system` unchanged without asking. Raises NoAnswer.
@@ -1356,7 +1541,15 @@ def revise_system(system: System, findings: Sequence[Finding], evidence: str, pl
     device is kept exactly as it was (put back if the answer changed or dropped it), and so are the block's
     clarifications, tech hours and no-scope reason (AI-10). A finding about a device the system lacks (QC's
     `_missing_device`) is about no device (AI-16): the writer is told it and may add the line it asks for, but it
-    neither opens the whole block nor lets the other devices change."""
+    neither opens the whole block nor lets the other devices change.
+
+    Corrections (HP 17): a must_fix finding about the whole block under a count rule, or whose fix sets a count, lets
+    the answer correct a family's count; one under the alternate rule, or whose fix names the alternate, lets it
+    correct the alternate (`_revisions`). Every other planner field still wins. A count correction adds the counts the
+    evidence gives: the highest is the value, every count the family already had stays in `others` with its source,
+    so the "*" note names both numbers and no count is lowered or dropped; an added count cites the evidence (id and
+    quote) or the answer is refused. An add or deduct alternate needs a passage of the evidence that says so. A family
+    named in `hold_counts` (the estimator set its count) keeps it."""
     mine = [f for f in findings if f.severity == "must_fix" and f.system_key == system.key]
     if not mine:
         return system
@@ -1367,12 +1560,159 @@ def revise_system(system: System, findings: Sequence[Finding], evidence: str, pl
     keep = () if whole else tuple(d for d in system.devices if d.id not in named)
     block = None if whole else {k: v for k, v in system.to_dict().items()
                                 if k in ("clarifications", "tech_hours", "no_scope_reason")}
+    hold = frozenset(hold_counts)
+    revise = _revisions(mine, system)
+    if all(f.name in hold for f in system.families):
+        revise -= {"count"}                 # every count of the block is the estimator's
     # the evidence and the planner's refs only: an id the earlier answer wrote is no evidence of itself
     known = ai_evidence.cited_ids(evidence) | _ref_ids(ai_evidence.system_refs(system))
     return _ask_system(transport, f"{system.name} (revise)", playbook, "revise_system",
-                       _revise_prompt(system, mine, shape, evidence),
+                       _revise_prompt(system, mine, shape, evidence, revise,
+                                      hold & {f.name for f in system.families}),
                        {"step": "revise", "plan_key": system.key, "images": listing}, images, system, shape, known,
-                       keep, system.devices, tags, ids, sheets, source_sheets, evidence, block=block)
+                       keep, system.devices, tags, ids, sheets, source_sheets, evidence, block=block,
+                       revise=revise, hold=hold)
+
+
+# ---- the front end: written and revised as a block of its own (HP 22, 186, 192d) ----------------------------------------
+
+FRONT_END_KEY = "FE"                # the front end's key while it is written: its device ids are "FE.d1", "FE.d2" ...
+FRONT_END_NAME = "Front End"
+FRONT_END_TOPIC = "front end"       # the Playbook topic ("## Front end") whose rules are about it
+_FRONT_END_WORDS = re.compile(r"\bfront[\s-]*end\b", re.I)
+_EXCEPTION_WORDS = re.compile(r"\bnamed\s+exceptions?\b", re.I)
+
+
+def _front_end_key(front: FrontEnd, taken: Iterable[str] = ()) -> str:
+    """The key of the front end's block: the one its lines already carry in their ids, else FRONT_END_KEY, or that key
+    with a number when a system of the job has it (a device id is unique in the job)."""
+    for device in front.devices:
+        head, dot, _ = device.id.partition(".")
+        if dot and head:
+            return head
+    held, key, n = set(taken), FRONT_END_KEY, 1
+    while key in held:
+        n += 1
+        key = f"{FRONT_END_KEY}{n}"
+    return key
+
+
+def front_end_system(front: FrontEnd, taken: Iterable[str] = ()) -> System:
+    """The front end as a block the writer and the revise answer, and its evidence is chosen for: key FRONT_END_KEY, no
+    shape (its lines print in the generic form), the planner's front-end refs as its cited passages (so its evidence
+    carries the specification passages the reading found the front end in), integrated (so its evidence carries the
+    integration passages too), and the front end's own lines, clarifications, tech hours and reason."""
+    return System(key=_front_end_key(front, taken), name=FRONT_END_NAME, shape="", control="integration",
+                  families=(), sequence_refs=tuple(front.refs), devices=front.devices,
+                  clarifications=front.clarifications, tech_hours=front.tech_hours,
+                  no_scope_reason=front.no_scope_reason)
+
+
+def front_end_evidence(front: FrontEnd, dossier: Dossier, taken: Iterable[str] = ()) -> str:
+    """The evidence the front end is written from: the dossier passages its planner refs and its name point to
+    (`evidence_for` of `front_end_system`). Only this job's text."""
+    return evidence_for(front_end_system(front, taken), dossier)
+
+
+def is_front_end_finding(finding: Finding, front: FrontEnd | None, playbook: Playbook | None = None) -> bool:
+    """A finding about the front end. Its system key is the whole job's ("": the front end and the job's exceptions
+    share it), so it is one that names a front-end line, or names none and is about the front end as a whole: it is
+    under a rule of the Playbook's "Front end" part, says "front end" in its words, or is no finding about a named
+    exception (the validator's findings about the front end's own clarification name no line)."""
+    if front is None or finding.system_key != "":
+        return False
+    if finding.device_id is not None:
+        return finding.device_id in {d.id for d in front.devices}
+    rule = playbook.rules.get(finding.rule) if playbook is not None else None
+    if rule is not None and rule.topic.strip().casefold() == FRONT_END_TOPIC:
+        return True
+    words = f"{finding.what} {finding.fix}"
+    return bool(_FRONT_END_WORDS.search(words)) or not _EXCEPTION_WORDS.search(words)
+
+
+def _template_wording(mode: str) -> str:
+    """The Master Template's front-end lines for the mode, in its order (assets/front_end.json), for the writer as
+    house wording only: "" when the file cannot be read."""
+    from estimator.writing.front_end import FRONT_END_FILE, _load
+    try:
+        variant = _load(FRONT_END_FILE)["variants"][mode]
+    except (OSError, KeyError, ValueError, TypeError):
+        return ""
+    out = []
+    for line in variant:
+        parts = ", ".join(str(p).strip() for p in line.get("lines", ()) if str(p).strip())
+        out.append(f"- {str(line.get('text', '')).strip()}" + (f" (its parts: {parts})" if parts else ""))
+    return "\n".join(out)
+
+
+def _front_end_prompt(front: FrontEnd, system: System, evidence: str) -> str:
+    skeleton = {k: v for k, v in _skeleton_dict(system).items() if k != "serves"}
+    said = [f"The front end as the planner read it from this job's documents: mode {front.mode}"
+            + (f"; the existing BMS the documents name is {front.existing_system_name}"
+               if front.mode == "extend-existing" and front.existing_system_name else "") + "."]
+    said += (["What the documents call for, in the reading's words (write a line for each the documents call for, "
+              "citing its passage):", *(f"- {line}" for line in front.lines)]
+             if front.lines else ["The reading found no front-end line in the documents."])
+    if front.notes:
+        said += ["Client notes the reading found for the front end (they go in the front end's one note clarification, "
+                 "joined, only where a passage supports them):", *(f"- {note}" for note in front.notes)]
+    house = _template_wording(front.mode)
+    return "\n\n".join(p for p in [
+        "The block, as the planner set it up (copy these fields as they are):\n"
+        + json.dumps(skeleton, indent=1, ensure_ascii=False),
+        "\n".join(said),
+        ("The Master Template's front-end lines, in its order. This is house wording and order only: a line is "
+         "written only when the evidence calls for it, and a part is a line of its own:\n" + house) if house else "",
+        f"Answer with the whole block as JSON in the schema given; number the devices {system.key}.d1, "
+        f"{system.key}.d2 and so on, in print order.",
+        "The evidence:\n" + evidence.strip()] if p)
+
+
+def _onto(front: FrontEnd, written: System) -> FrontEnd:
+    """The front end with the lines, clarifications, tech hours and reason of its written block."""
+    return replace(front, devices=written.devices, clarifications=written.clarifications,
+                   tech_hours=written.tech_hours, no_scope_reason=written.no_scope_reason)
+
+
+def write_front_end(front: FrontEnd, evidence: str, playbook: Playbook, transport: Transport, *,
+                    tags: Sequence[str] = (), ids: Sequence[str] = (), sheets: Sequence[str] = (),
+                    source_sheets: Sequence[str] = (), taken: Iterable[str] = ()) -> FrontEnd:
+    """The front end with its `devices`, `clarifications`, `tech_hours` and `no_scope_reason` written from `evidence`
+    (`front_end_evidence`), as `write_system` writes a block: one WRITE_SYSTEM request (name "Front End", extra step
+    "write", plan_key the front end's key), the same schema and the same checks (every line cites this job's
+    evidence by id and quote, one clarification, a block with no line says why). The Master Template's front-end
+    lines are given as house wording only. `taken` are the keys of the job's systems (the front end's key avoids
+    them). Asked only when the planner carried something the documents say about the front end (`lines` or `notes`)
+    and nothing is written yet; else `front` is returned without asking. Raises NoAnswer as `write_system`."""
+    if front.devices or front.clarifications or front.no_scope_reason or not (front.lines or front.notes):
+        return front
+    system = front_end_system(front, taken)
+    images, listing = _pictures(evidence)
+    known = ai_evidence.cited_ids(evidence) | _ref_ids(ai_evidence.system_refs(system))
+    written = _ask_system(transport, FRONT_END_NAME, playbook, "write_front_end",
+                          _front_end_prompt(front, system, evidence),
+                          {"step": "write", "plan_key": system.key, "images": listing}, images, system, None, known,
+                          tags=tags, ids=ids, sheets=sheets, source_sheets=source_sheets, evidence=evidence)
+    return _onto(front, written)
+
+
+def revise_front_end(front: FrontEnd, findings: Sequence[Finding], evidence: str, playbook: Playbook,
+                     transport: Transport, *, tags: Sequence[str] = (), ids: Sequence[str] = (),
+                     sheets: Sequence[str] = (), source_sheets: Sequence[str] = (),
+                     taken: Iterable[str] = ()) -> FrontEnd:
+    """The front end revised for its `must_fix` findings (`is_front_end_finding`), one round, as `revise_system`
+    revises a block (the request's name is "Front End (revise)"); `front` unchanged, without asking, when there is
+    none. Raises NoAnswer."""
+    if not (front.devices or front.clarifications or front.lines or front.notes):
+        return front                        # the documents call for no front end: nothing to revise, none is written
+    system = front_end_system(front, taken)
+    mine = [replace(f, system_key=system.key) for f in findings
+            if f.severity == "must_fix" and is_front_end_finding(f, front, playbook)]
+    if not mine:
+        return front
+    revised = revise_system(system, mine, evidence, playbook, transport, tags=tags, ids=ids, sheets=sheets,
+                            source_sheets=source_sheets)
+    return _onto(front, revised)
 
 
 # ---- QC -------------------------------------------------------------------------------------------------------------
@@ -1440,6 +1780,7 @@ def _quote_findings(job: Job, index: Mapping[str, str], rule: str) -> list[Findi
     out: list[Finding] = []
     # the planner's refs: of each system for its own lines, of the whole job for the front end and the exceptions
     planned_job = frozenset(_ref_ids([*(r for s in job.systems for r in ai_evidence.system_refs(s)),
+                                      *(job.front_end.refs if job.front_end is not None else ()),
                                       *(r for e in job.exceptions for r in e.refs)]))
     planned = planned_job
 

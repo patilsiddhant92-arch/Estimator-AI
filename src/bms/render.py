@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import datetime as dt
 import re
+from collections.abc import Sequence
 from dataclasses import dataclass, field, replace
 
 from estimator.price_sheet.write import PriceSheetError, check_fit
@@ -26,7 +27,7 @@ from estimator.reading.inventory import COUNT_CAUSE_WORDS, COUNT_CAUSES_LEAD
 from estimator.writing.write import tag_list
 
 from bms.citations import SHEET, SourceIds, clarification_text, squash as _squash, strip_label
-from bms.model import CLARIFICATION_KINDS, Clarification, Count, Device, FrontEnd, Job, Ref, System
+from bms.model import CLARIFICATION_KINDS, UNNAMED_EXISTING, Clarification, Count, Device, FrontEnd, Job, Ref, System
 from bms.playbook import DEFAULT_ORDER, Playbook, Shape
 
 SEQUENCE_ONLY_ORDER = 20            # a block whose count prints "Qty (##)": after the equipment (shapes.json "order")
@@ -97,8 +98,10 @@ def render(job: Job, playbook: Playbook) -> ProposalDraft:
       other counts by sheet number, never a file name.
     - A damper family linked under a fan (a system with other, non-damper families) prints no header of its own;
       each other family prints its own header, its count the highest the documents give.
-    - A system with no devices prints nothing in the proposal: it is one `note` line in `lines` ("left out, no
-      lines written", with the writer's reason) for the Evidence Package only.
+    - A system with no devices prints no block: it is one `note` line in `lines` ("left out, no lines written", with
+      the writer's reason) for the Evidence Package, or, when the documents put it outside AME's scope (a named
+      exception of `job.exceptions` has its key, `plan._exceptions`, HP 24), the EXCEPTION line(s) in the job's own
+      words, which `named_exceptions` prints (`left_out_text`).
     - `job.header` must be set (the run sets it): it becomes `scope.header` (`date` parsed from ISO).
     - Blocks print in the Playbook's block order (`block_order`: the shape's `order`, Global Points first; a block
       whose count prints "Qty (##)" after the equipment blocks), the plan's own order kept within one order number.
@@ -119,20 +122,7 @@ def render(job: Job, playbook: Playbook) -> ProposalDraft:
     lines: list[RenderedLine] = []
     ids = SourceIds.of_job(job)
     front = _front_end(job.front_end, playbook, lines, ids)
-    base: list[Block] = []
-    alternates: dict[str, list[tuple[Block, ...]]] = {"add": [], "deduct": []}
-    after: dict[str, list[RenderedLine]] = {"add": [], "deduct": []}      # print order: base, add alternates, deducts
-    for system in sorted(job.systems, key=lambda s: block_order(s, playbook)):      # stable: the plan's order kept
-        printed: list[RenderedLine] = []
-        blocks = _system_blocks(system, playbook, printed, ids)
-        if system.alternate in alternates and blocks:
-            alternates[system.alternate].append(blocks)
-        elif system.alternate == "base":
-            base.extend(blocks)
-        (lines if system.alternate == "base" else after[system.alternate]).extend(printed)
-    lines += after["add"] + after["deduct"]
-    adds, deducts = (_alternates(alternates[side], playbook) for side in ("add", "deduct"))
-    exceptions = []
+    exception_lines: list[tuple[str, str]] = []                  # (the block it is about, "" for none; the line)
     for x in job.exceptions:
         if not x.text.strip():
             continue
@@ -140,8 +130,22 @@ def render(job: Job, playbook: Playbook) -> ProposalDraft:
         if not text:
             # nothing but issued ids: left out (the validator's must_fix on the whole job names it), never a crash
             continue
-        exceptions.append(text)
-    exceptions = tuple(exceptions)
+        exception_lines.append((x.system_key, text))
+    exceptions = tuple(text for _, text in exception_lines)
+    base: list[Block] = []
+    alternates: dict[str, list[tuple[Block, ...]]] = {"add": [], "deduct": []}
+    after: dict[str, list[RenderedLine]] = {"add": [], "deduct": []}      # print order: base, add alternates, deducts
+    for system in sorted(job.systems, key=lambda s: block_order(s, playbook)):      # stable: the plan's order kept
+        printed: list[RenderedLine] = []
+        mine = tuple(text for key, text in exception_lines if key and key == system.key)
+        blocks = _system_blocks(system, playbook, printed, ids, mine)
+        if system.alternate in alternates and blocks:
+            alternates[system.alternate].append(blocks)
+        elif system.alternate == "base":
+            base.extend(blocks)
+        (lines if system.alternate == "base" else after[system.alternate]).extend(printed)
+    lines += after["add"] + after["deduct"]
+    adds, deducts = (_alternates(alternates[side], playbook) for side in ("add", "deduct"))
     try:
         scope = ScopeJob(header=header, front_end=front, blocks=tuple(base), add_alternates=tuple(adds),
                          deduct_alternates=tuple(deducts), named_exceptions=exceptions)
@@ -700,9 +704,14 @@ def _header_text(form: str, name: str, tags: tuple[str, ...], count: Count, play
 LEFT_OUT = "{name}: left out, no lines written"
 
 
-def left_out_text(system: System) -> str:
-    """The Evidence Package note for a system with no lines (it prints nothing in the proposal), with the writer's
-    reason: its no_scope_reason, else what its clarifications say."""
+def left_out_text(system: System, exceptions: Sequence[str] = ()) -> str:
+    """The note for a system with no lines (it prints no block). When the documents put the system outside AME's scope
+    (HP 24: `exceptions` are the lines of the named exceptions of its key, `plan._exceptions`, as the proposal prints
+    them), the note is that EXCEPTION line, in the job's own words, one line for each, never a fixed text. Otherwise
+    it says the system is left out, with the writer's reason: its no_scope_reason, else what its clarifications say
+    (the Evidence Package's note)."""
+    if exceptions:
+        return "\n".join(exceptions)
     reason = (_trim(system.no_scope_reason or "")
               or "; ".join(_trim(c.text) for c in system.clarifications if _trim(c.text)))
     return LEFT_OUT.format(name=system.name) + (f" ({reason})" if reason else "")
@@ -731,12 +740,14 @@ def block_order(system: System, playbook: Playbook) -> int:
     return order
 
 
-def _system_blocks(system: System, playbook: Playbook, out: list[RenderedLine],
-                   ids: SourceIds) -> tuple[Block, ...]:
+def _system_blocks(system: System, playbook: Playbook, out: list[RenderedLine], ids: SourceIds,
+                   exceptions: Sequence[str] = ()) -> tuple[Block, ...]:
     """One block, or one header per family stacked over the shared lines (the lines sit under the last header,
-    the tech hours on the first). A system with no lines prints nothing: it is a note for the Evidence Package."""
+    the tech hours on the first). A system with no lines prints no block: it is a note (`left_out_text`: its named
+    exception lines when it has any, which print among the proposal's exceptions)."""
     if not system.devices:
-        out.append(RenderedLine(system.key, None, "note", left_out_text(system), None, None))
+        out += [RenderedLine(system.key, None, "note", line, None, None)
+                for line in left_out_text(system, exceptions).split("\n")]
         return ()
     shape = _shape_of(system, playbook)
     form = shape.header if shape is not None else playbook.wording.header.get("generic", GENERIC_HEADER)
@@ -778,6 +789,16 @@ def _traced(key: str, printed: list[_Printed], notes: list[str]) -> list[Rendere
 
 # ---- the front end ---------------------------------------------------------------------------------------------
 
+def existing_system_name(front: FrontEnd) -> str | None:
+    """The name the proposal prints for the existing BMS (HP 9): None for a new system (a name left on it is not
+    printed), the name the documents give (white space squeezed), else the plain fill-in `UNNAMED_EXISTING` (rules.md
+    "Front end mode"). The old writer refuses an existing BMS with no name; the planner has asked for it in a
+    question, so the proposal prints the fill-in and the estimator completes it."""
+    if front.mode != "extend-existing":
+        return None
+    return _squash(front.existing_system_name or "") or UNNAMED_EXISTING
+
+
 def _front_end(front: FrontEnd | None, playbook: Playbook, out: list[RenderedLine],
                ids: SourceIds) -> ScopeFrontEnd:
     if front is None:
@@ -787,7 +808,7 @@ def _front_end(front: FrontEnd | None, playbook: Playbook, out: list[RenderedLin
     out += _traced("", printed, notes)
     try:
         items = _items(printed, False) + [Item(kind="note", runs=(Run(text=n),)) for n in notes]
-        return ScopeFrontEnd(mode=front.mode, existing_system_name=front.existing_system_name,
+        return ScopeFrontEnd(mode=front.mode, existing_system_name=existing_system_name(front),
                              items=tuple(items), tech_hours=front.tech_hours)
     except ValueError as error:
         raise RenderError(f"the front end cannot be printed: {error}") from error

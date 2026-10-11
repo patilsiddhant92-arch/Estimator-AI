@@ -27,7 +27,11 @@
       }
     ],
     "clarifications": [],
-    "tech_hours": 8.0
+    "tech_hours": 8.0,
+    "lines": ["Furnish the BMS server software and graphics"],
+    "notes": [],
+    "refs": [{"source_id": "S1", "quote": "provide a new building management system with graphics", "where": "23 09 23, Specs.pdf page 2"}],
+    "no_scope_reason": null
   },
   "systems": [
     {

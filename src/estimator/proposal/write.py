@@ -221,7 +221,9 @@ def _delete_from_until(first: Paragraph, stop: Paragraph) -> None:
         element.getparent().remove(element)
 
 
-def _set_existing_name(heading: Paragraph, name: str) -> None:
+def _set_existing_name(heading: Paragraph, name: str, *, required: bool = True) -> None:
+    """Write `name` over the red sample in a paragraph. `required`: a paragraph with no red sample is a changed
+    template (refused); otherwise there is nothing to replace and it is left as it is."""
     runs = heading._p.findall(qn("w:r"))
     red = []
     for run in runs:
@@ -229,6 +231,8 @@ def _set_existing_name(heading: Paragraph, name: str) -> None:
         if colour is not None and (colour.get(qn("w:val")) or "").upper() == layout.EXISTING_NAME_COLOUR:
             red.append(run)
     if not red:
+        if not required:
+            return
         raise TemplateError("the red placeholder for the existing system's name is gone")
     # The placeholder carries the spaces either side of the name ("Honeywell / Niagara N4 "); keep them.
     original = "".join(_run_text(run) for run in red)
@@ -261,6 +265,9 @@ def _keep_front_end(document: DocxDocument, job: Job) -> Paragraph:
     _delete_from_until(openings[0], openings[1])
     _delete_between(existing_heading, add_heading)
     _set_existing_name(existing_heading, job.front_end.existing_system_name)
+    # HP 25: the opening sentence ("... an extension of the existing District Wide BMS system.") carries a red sample
+    # name too. It names this job's existing system, never the template's sample.
+    _set_existing_name(openings[1], job.front_end.existing_system_name, required=False)
     return existing_heading
 
 

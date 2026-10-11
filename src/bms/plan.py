@@ -32,10 +32,11 @@ from dataclasses import dataclass, field, replace
 from estimator.catalogue.job import Catalogue
 from estimator.ledger.facts import Fact, Ledger
 from estimator.writing.dossier import Dossier, sections_in
+from estimator.writing.write import tag_list
 
 from bms import ai_evidence
 from bms.citations import without_ledger_brackets
-from bms.model import Count, Family, FrontEnd, Job, Ref, ScopeException, Served, System
+from bms.model import UNNAMED_EXISTING, Count, Family, FrontEnd, Job, Ref, ScopeException, Served, System
 from bms.plan_groups import family_of_tag, members, part_count, parts, split_apart, unread
 from bms.plan_read import NO_KIND, FamilyFacts, Reader, naming, names_in, squash, tag_words
 from bms.playbook import Playbook, Shape
@@ -1449,7 +1450,23 @@ def _with_served(systems: list[System], drafts: list[_Draft]) -> list[System]:
     return [replace(s, serves=tuple(serves[id(d)])) if id(d) in serves else s for s, d in zip(systems, drafts)]
 
 
+# The front end's equipment, as a provider fact's subject names it (rules.md "Front end lines cite the specification"):
+# the network level control panel, a workstation, a server, a portable operator terminal, a UPS, graphics and the IT
+# infrastructure (network switches, panels, fiber or ethernet). The Playbook's own list, in words a subject uses.
+_FRONT_END_ITEM = re.compile(
+    r"\bwork\s*stations?\b|\bservers?\b|\blaptops?\b|\btablets?\b|\bportable\s+(?:operator|terminal)|"
+    r"\boperator(?:'s|’s)?\s+(?:terminal|interface|station|computer|pc)\b|\bfront[\s-]*end\b|\bhead[\s-]*end\b|"
+    r"\bups\b|\buninterruptible\b|\bnetwork[\s-]+level\b|\bnetwork\s+(?:panel|controller|switch\w*|backbone|riser)\b|"
+    r"\b(?:ethernet|lan|managed|floor)\s+switch\w*|\bfib(?:er|re)\b|\bethernet\b|\bbackbone\b|"
+    r"\bit\s+infrastructure\b|\bgraphics?\b", re.I)
+
+
 def _front_end(planner: _Planner) -> FrontEnd:
+    """The front end the job's documents call for, planned from the ledger (HP 22, 186, 192d): its mode, the existing
+    system's name, and what the reading found the documents say about it, with citations, for the writer to write the
+    lines from (`bms.ai.write_front_end`): each front-end line and client note of the spec pass, and each provider
+    fact whose subject is a front-end item (who provides a workstation, a server, the network switches ...). The plan
+    holds no standard line; when the documents call for none, no front end is written and a question says so."""
     facts = planner.ledger.of_kind("front_end")
     by = lambda subject: [squash(f.value) for f in facts if squash(f.subject).casefold() == subject]  # noqa: E731
     mode = next((m for m in by("mode") if m in ("new-system", "extend-existing")), "")
@@ -1458,10 +1475,98 @@ def _front_end(planner: _Planner) -> FrontEnd:
         planner.questions.append("The documents do not say whether the BMS is new or extends an existing one; "
                                  "which is it? The plan assumes a new system.")
         mode = "new-system"
-    return FrontEnd(mode=mode, existing_system_name=existing if mode == "extend-existing" else None)
+    if mode == "extend-existing" and not existing:
+        # HP 9: the proposal prints the fill-in; the estimator completes it
+        planner.questions.append("The documents say this job extends an existing BMS, but they do not name it. What "
+                                 f"is the name of the existing BMS? The proposal prints {UNNAMED_EXISTING} in its "
+                                 "place until you write the name.")
+    said = lambda subject: [f for f in facts if squash(f.subject).casefold() == subject and squash(f.value)]  # noqa: E731
+    lines, notes = said("line"), said("note")
+    given = [f for f in planner.ledger.of_kind("provider")
+             if squash(f.value) and _FRONT_END_ITEM.search(squash(f.subject))]
+    if not (lines or notes or given):
+        planner.questions.append("The documents call for no front-end equipment (a workstation, a server, a network "
+                                 "panel, graphics or the like), so no front end is written. If this job needs a "
+                                 "front end, say what it is and where the documents call for it.")
+    return FrontEnd(
+        mode=mode, existing_system_name=existing if mode == "extend-existing" else None,
+        lines=tuple(dict.fromkeys([*(squash(f.value) for f in lines),
+                                   *(f"{squash(f.subject)}: {squash(f.value)}" for f in given)])),
+        notes=tuple(dict.fromkeys(squash(f.value) for f in notes)),
+        refs=tuple(dict.fromkeys(planner.reader.fact_ref(f) for f in [*lines, *notes, *given] if f.source_id)))
+
+
+# What a provider fact says when the BMS work on the equipment it names is outside AME's scope (HP 24): no controls in
+# the contract, or controls by others (`_NO_CONTROLS`, which also makes the block's control "none"), BMS or DDC work by
+# others, existing equipment that stays as it is.
+_REMAINS = re.compile(r"\bexisting\b[^.;]{0,60}\bto\s+remain\b|\bto\s+remain\b|\bremains?\s+as[\s-]*is\b", re.I)
+_WORK_BY_OTHERS = re.compile(r"\b(?:bms|ddc|controls?|work)\b[^.;]{0,40}\bby\s+others\b", re.I)
+_NOT_BY_OTHERS = re.compile(r"\bnot\s+by\s+others\b", re.I)
+# The estimator's form of a named exception, as rules.md "Named exceptions" words it. `_exception_line` reads the form
+# from the Playbook's own text; this stands in only while no rule of the Playbook holds one.
+EXCEPTION_FORM = "EXCEPTION TO ANY WORK WITH {equipment} - {reason}"
+_FORM_IN_RULE = re.compile(r'"(EXCEPTION[^"]*?)\s*Qty\s*\(n\)\s*<tags>([^"]*?)<reason>([^"]*)"')
+
+
+def _outside_ame(value: str) -> bool:
+    """A provider fact's value puts the work outside AME's scope."""
+    return bool(value) and not _NOT_BY_OTHERS.search(value) and bool(
+        _NO_CONTROLS.search(value) or _REMAINS.search(value) or _WORK_BY_OTHERS.search(value))
+
+
+def _excepted_equipment(system: System) -> str:
+    """What a named exception names, as a block's header does: "Qty (2) EF-1, 2" for each family (its tags, or its
+    name when it has none), the count that prints (the highest the documents give) or "##" when none is known."""
+    parts = []
+    for family in system.families:
+        n = family.count.highest()
+        parts.append(f"Qty ({'##' if n is None else n}) {tag_list(list(family.tags)) if family.tags else family.name}")
+    return ", ".join(parts) or system.name
+
+
+def _exception_line(playbook: Playbook, equipment: str, reason: str) -> str:
+    """The exception in the estimator's form: the form of the Playbook's rule (the one that quotes `"EXCEPTION ... Qty
+    (n) <tags> ... <reason>"`) with the equipment and the reason put in; EXCEPTION_FORM when no rule holds one."""
+    for rule in playbook.rules.values():
+        found = _FORM_IN_RULE.search(squash(rule.text))
+        if found:
+            head, middle, tail = found.groups()
+            return squash(f"{head} {equipment}{middle}{reason}{tail}")
+    return EXCEPTION_FORM.format(equipment=equipment, reason=reason)
+
+
+def _outside_scope(planner: _Planner, systems: list[System], drafts: list[_Draft],
+                   covered: set[str]) -> list[ScopeException]:
+    """The named exceptions the documents' provider facts make (HP 24): a planned system whose BMS work a provider fact
+    puts outside AME's scope (`_outside_ame`) gets one, in the estimator's form, per reason: the equipment as its header
+    names it, and the reason in the fact's own words (as the documents write them: a flag word in capitals would print
+    as the Playbook's "Words the client never sees" forbids); it cites every fact that says it. Not for a system an
+    exception note already names (`covered`: the reading's own line stands), not for a front-end item (the front end's
+    client note carries it) and not for equipment no block of the plan holds. No line of fixed text: the reason is the
+    documents'."""
+    key_of = {id(d): s.key for s, d in zip(systems, drafts)}
+    by_key = {s.key: s for s in systems}
+    found: dict[tuple[str, str], list[Fact]] = {}
+    for fact in planner.ledger.of_kind("provider"):
+        value, subject = squash(fact.value), squash(fact.subject)
+        if not _outside_ame(value) or _FRONT_END_ITEM.search(subject):
+            continue
+        for key in dict.fromkeys(key_of[id(d)] for d in _named(drafts, subject)):    # every block the fact names
+            if key not in covered:
+                found.setdefault((key, value.casefold()), []).append(fact)
+    out = []
+    for (key, _), facts in found.items():
+        refs = tuple(dict.fromkeys(planner.reader.fact_ref(f) for f in facts if f.source_id))
+        reason = squash(facts[0].value)
+        out.append(ScopeException(system_key=key, refs=refs,
+                                  text=_exception_line(planner.playbook, _excepted_equipment(by_key[key]), reason)))
+    return out
 
 
 def _exceptions(planner: _Planner, systems: list[System], drafts: list[_Draft]) -> tuple[ScopeException, ...]:
+    """The job's named exceptions: the reading's exception notes (their own words, naming the block they are about),
+    then those the documents' provider facts make for a block whose BMS work is outside AME's scope (`_outside_scope`).
+    Each cites its fact."""
     out = []
     for fact in planner.ledger.of_kind("note"):
         if squash(fact.subject).casefold() != "exception":
@@ -1472,6 +1577,7 @@ def _exceptions(planner: _Planner, systems: list[System], drafts: list[_Draft]) 
         named = _named(drafts, text)
         key = next((s.key for s, d in zip(systems, drafts) if named and d is named[0]), "")
         out.append(ScopeException(system_key=key, text=text, refs=(planner.reader.fact_ref(fact),)))
+    out += _outside_scope(planner, systems, drafts, {x.system_key for x in out if x.system_key})
     return tuple(out)
 
 
@@ -1509,8 +1615,14 @@ def plan_job(ledger: Ledger, catalogue: Catalogue, dossier: Dossier, playbook: P
     - Groups the practice rules keep together are one System: a VRF / split group with its indoor, condensing and
       branch-selector families; dampers linked to a fan are under that fan's system (not a system of their own);
       duct heaters in one place.
-    - A system the documents name but AME does not do goes to `Job.exceptions`; open questions to `Job.questions`.
-    - `Job.front_end` is set (mode from the ledger's front_end facts); `Job.header` stays None (the run sets it).
+    - A system the documents name but AME does not do goes to `Job.exceptions` (an exception note of the reading, or a
+      provider fact that puts its BMS work outside AME's scope: not in contract, controls by others, existing to
+      remain; each cites its fact, the line is the estimator's form with the documents' words); open questions to
+      `Job.questions`.
+    - `Job.front_end` is set (mode and the existing system's name from the ledger's front_end facts; `lines`, `notes`
+      and `refs` what the front_end facts and the provider facts about front-end items say, with citations, for the
+      front end's writer; a question when the documents call for no front end, or name no existing BMS to extend);
+      `Job.header` stays None (the run sets it).
     - Every Ref's `source_id` is a ledger / dossier source id ("S41", "I2", "Q7", "F17"), its `quote` the exact
       words, its `where` the place (`ledger.sources[source_id]`, shortened by `estimator.ledger.facts.where_short`).
     - Pure: the same ledger, catalogue, dossier and Playbook give the same Job. No AI call.
