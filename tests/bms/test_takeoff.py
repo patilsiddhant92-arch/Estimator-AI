@@ -117,3 +117,255 @@ def test_fixture_answer_is_the_register_of_this_job():
         assert all(schema_errors(row, json_schema(cls)) == [] for row in answer[key]), key
     scheduled = {row.tag for schedule in fx.reading().schedules for row in schedule.rows}
     assert scheduled <= set(by_tag)
+
+
+# ---- Task 1.3: bms.takeoff ------------------------------------------------------------------------------------------
+
+import copy  # noqa: E402
+import dataclasses  # noqa: E402
+import json  # noqa: E402
+
+import pytest  # noqa: E402
+
+from bms import ai, takeoff  # noqa: E402
+from bms.model import Job  # noqa: E402
+
+
+class FakeTransport:
+    """Answers from a queue, as `tests/bms/test_ai.py`'s does; records every question."""
+
+    def __init__(self, *answers):
+        self.answers = list(answers)
+        self.asked: list[dict] = []
+        self.waiting = 0
+        self.last_error = None
+
+    def ask(self, kind, name, instructions, system_prompt, prompt, schema, extra=None, images=()):
+        self.asked.append(dict(kind=kind, name=name, instructions=instructions, system_prompt=system_prompt,
+                               prompt=prompt, schema=schema, extra=extra, images=tuple(images)))
+        if not self.answers:
+            raise ai.NoAnswer("no answer queued", waiting=True)
+        return copy.deepcopy(self.answers.pop(0))
+
+
+def _take_off(*answers):
+    transport = FakeTransport(*answers)
+    result = takeoff.take_off(fx.ledger(), fx.catalogue(), fx.reading(), fx.dossier(), PLAYBOOK, transport)
+    return result, transport
+
+
+def _check(answer):
+    return takeoff.check_answer(answer, fx.ledger(), fx.catalogue(), fx.reading(), ai.evidence_index(fx.dossier()))
+
+
+def test_the_request_carries_the_whole_job():
+    _, transport = _take_off(fx.answer())
+    (asked,) = transport.asked
+    assert asked["kind"] == "takeoff_job" == takeoff.TAKEOFF_JOB and asked["extra"] == {"step": "takeoff"}
+    assert asked["instructions"] == PLAYBOOK.rules_text
+    prompt_file = Path(takeoff.__file__).parent / "prompts" / "takeoff_job.md"
+    assert asked["system_prompt"] == prompt_file.read_text(encoding="utf-8").strip()
+    assert asked["schema"] == takeoff.answer_schema() and asked["images"] == ()
+    text, ledger = asked["prompt"], fx.ledger()
+    assert all(fact.line() in text for fact in ledger.facts.values())
+    assert all(paragraph in text for paragraph in ledger.understanding.values())
+    assert "- plans: The plans show five new air handlers" in text
+    sheet_lines = [line for line in text.splitlines() if line.startswith("Mech.pdf | page ")]
+    assert [line.split(" | ")[2] for line in sheet_lines] == SHEET_NUMBERS
+    assert ("Mech.pdf | page 6 | MD-401 | MECHANICAL DEMOLITION DUCTWORK ATTIC PLAN | code guess: Plans, Demolition | "
+            "text: S15 | labels: ") in text
+    md401 = next(line for line in sheet_lines if "| MD-401 |" in line)
+    # the code's own tally, as it is: "(D)AHU-6" is no label `line_labels` reads, so the AI sees it only in the notes
+    assert "AHU-1 x1" in md401 and "EF-5 x1" in md401 and "AHU-6" not in md401
+    assert next(line for line in sheet_lines if "| MD-201 |" in line).endswith("labels: none")
+    m201 = next(line for line in sheet_lines if "| M-201 |" in line)
+    assert m201.endswith("labels: FCU-1 x25") and "code guess: Plans" in m201
+    assert "code guess: Control diagrams" in next(line for line in sheet_lines if "| M-701 |" in line)
+    for n in range(1, 6):                                            # the M-601 rows
+        assert f"AHU-{n}: TAG=AHU-{n}; " in text and f"EF-{n}: TAG=EF-{n}; " in text
+    assert "M-601 FAN COIL UNIT SCHEDULE" in text and "FCU-1: TAG=FCU-1; QTY=; CFM=400" in text
+    assert "MD-401 KEY NOTES 1: EXISTING AHU-6 AND EF-6 TO BE REMOVED" in text      # the keynote
+    for line in ("M-201 Thermostat (T) 14", "M-202 Thermostat (T) 16", "MD-201 Thermostat (T) 9"):
+        assert line in text                                          # the thermostat counts
+    headings = ["Ledger facts", "What each reading pass understood", "Sheets", "Schedules", "Notes on the sheets",
+                "Sequence sections", "Devices counted on the sheets"]
+    at = [text.splitlines().index(f"## {h}") for h in headings]
+    assert at == sorted(at)                                          # the sections in the plan's order
+
+
+def test_the_prompt_is_the_same_twice():
+    first = takeoff.prompt(fx.ledger(), fx.catalogue(), fx.reading(), fx.dossier())
+    assert first == takeoff.prompt(fx.ledger(), fx.catalogue(), fx.reading(), fx.dossier())
+
+
+def test_a_prompt_over_the_limit_stops_in_words(monkeypatch):
+    monkeypatch.setattr(takeoff, "TAKEOFF_LIMIT", 100)
+    with pytest.raises(ValueError, match=r"^Stopped: the takeoff request is too long \(\d+ characters\)"):
+        takeoff.prompt(fx.ledger(), fx.catalogue(), fx.reading(), fx.dossier())
+
+
+def test_the_answer_schema_is_the_five_lists():
+    schema = takeoff.answer_schema()
+    assert schema["type"] == "object" and schema["additionalProperties"] is False
+    assert schema["required"] == ["sheets", "units", "set_aside", "future_items", "questions"]
+    assert schema["properties"]["units"] == {"type": "array", "items": json_schema(Unit)}
+    assert schema["properties"]["sheets"]["items"] == json_schema(SheetClass)
+    assert schema["properties"]["set_aside"]["items"] == json_schema(SetAside)
+    assert schema["properties"]["future_items"]["items"] == json_schema(FutureItem)
+    assert schema["properties"]["questions"] == {"type": "array", "items": {"type": "string"}}
+    assert schema_errors(fx.answer(), schema) == []
+
+
+def test_a_good_answer_loads():
+    result, _ = _take_off(fx.answer())
+    assert isinstance(result, takeoff.Takeoff)
+    # the base fixture (takeoff/s1, Task 1.2) has 14 units: it carries no pump rows yet (plan Task 1.2, amended)
+    assert len(result.sheets) == 10 and len(result.units) == len(fx.answer()["units"]) == 14
+    assert all(Unit.from_dict(unit.to_dict()) == unit for unit in result.units)
+    assert [s.number for s in result.sheets] == SHEET_NUMBERS
+    assert len(result.future_items) == 1 and result.set_aside == () and result.questions == ()
+
+
+def _unit(answer, tag):
+    return next(u for u in answer["units"] if u["tag"] == tag)
+
+
+def _drop_sheet(a):
+    a["sheets"] = [s for s in a["sheets"] if s["number"] != "M-402"]
+
+
+def _twice_sheet(a):
+    a["sheets"].append(copy.deepcopy(a["sheets"][2]))
+
+
+def _unknown_sheet(a):
+    a["sheets"].append({**copy.deepcopy(a["sheets"][1]), "page": 11, "number": "M-999"})
+
+
+def _no_area(a):
+    next(s for s in a["sheets"] if s["number"] == "M-403")["area"] = ""
+
+
+def _no_row(a):
+    a["units"] = [u for u in a["units"] if u["tag"] != "AHU-4"]
+
+
+def _unknown_id(a):
+    _unit(a, "AHU-2")["refs"][0]["source_id"] = "F99"
+
+
+def _wrong_quote(a):
+    _unit(a, "AHU-3")["refs"][0]["quote"] = "AHU-9 is scheduled"
+
+
+def _demolition_counts(a):
+    next(s for s in a["sheets"] if s["number"] == "MD-401")["counts_units"] = True
+
+
+def _two_rows(a):
+    a["units"].append(copy.deepcopy(_unit(a, "EF-2")))
+
+
+def _serves_nothing(a):
+    _unit(a, "EF-3")["serves"] = "AHU-12"
+
+
+def _set_aside_unknown(a):
+    a["set_aside"] = [{"family": "AHU", "value": 16, "reason": "demolition sheet", "note": "16 set aside; 5 stay",
+                       "ref": {"source_id": "S77", "quote": "plan placements 16", "where": "nowhere"}}]
+
+
+@pytest.mark.parametrize("spoil, names", [
+    (_drop_sheet, "M-402"), (_twice_sheet, "M-402"), (_unknown_sheet, "M-999"), (_no_area, "M-403"),
+    (_no_row, "AHU-4"), (_unknown_id, "F99"), (_wrong_quote, "AHU-9 is scheduled"), (_demolition_counts, "MD-401"),
+    (_two_rows, "EF-2"), (_serves_nothing, "AHU-12"), (_set_aside_unknown, "S77")])
+def test_an_answer_with_a_problem_is_refused(spoil, names):
+    answer = fx.answer()
+    spoil(answer)
+    value, problems = _check(answer)
+    assert value is None and problems
+    assert any(names in problem for problem in problems), problems
+
+
+def test_a_demolition_sheet_that_counts_is_kept_with_a_ref():
+    answer = fx.answer()
+    sheet = next(s for s in answer["sheets"] if s["number"] == "MD-401")
+    sheet.update(counts_units=True, refs=[{"source_id": "F13", "quote": "EXISTING AHU-6 AND EF-6 TO BE REMOVED",
+                                           "where": "KEY NOTES 1, MD-401, Mech.pdf page 6"}])
+    value, problems = _check(answer)
+    assert problems == [] and value is not None
+
+
+def test_a_schema_error_or_a_model_error_is_refused():
+    answer = fx.answer()
+    del answer["units"]
+    value, problems = _check(answer)
+    assert value is None and any("units" in p for p in problems)
+    answer = fx.answer()
+    _unit(answer, "AHU-1")["refs"] = []                               # a Unit with no ref is a ModelError
+    value, problems = _check(answer)
+    assert value is None and any("units[0]" in p for p in problems), problems    # AHU-1 is the first unit row
+
+
+def test_the_schedule_is_the_floor():
+    answer = fx.answer()
+    _unit(answer, "AHU-5").update(status="demolish", reason="")
+    value, problems = _check(answer)
+    assert value is None and any("AHU-5" in p for p in problems), problems
+    _unit(answer, "AHU-5")["reason"] = "Shown for removal."              # a reason, but only the schedule cited
+    value, problems = _check(answer)
+    assert value is None and any("AHU-5" in p for p in problems), problems
+    _unit(answer, "AHU-5").update(
+        reason="Shown for removal by the keynote.",
+        refs=[{"source_id": "F13", "quote": "EXISTING AHU-6 AND EF-6 TO BE REMOVED", "where": "MD-401"}])
+    value, problems = _check(answer)
+    assert problems == [] and next(u for u in value.units if u.tag == "AHU-5").status == "demolish"
+
+
+def test_a_numeric_quantity_column_is_part_of_the_floor():
+    reading = fx.reading()
+    fcu = reading.schedules[3]
+    row = dataclasses.replace(fcu.rows[0], cells={**fcu.rows[0].cells, "QTY": "60"})
+    reading.schedules = (*reading.schedules[:3], dataclasses.replace(fcu, rows=(row,)))
+    index = ai.evidence_index(fx.dossier())
+    answer = fx.answer()
+    _, problems = takeoff.check_answer(answer, fx.ledger(), fx.catalogue(), fx.reading(), index)
+    assert problems == []                                            # a blank QTY: the floor is the one row
+    _unit(answer, "FCU-1")["reason"] = ""
+    value, problems = takeoff.check_answer(answer, fx.ledger(), fx.catalogue(), reading, index)
+    assert value is None and any("FCU-1" in p and "60" in p for p in problems), problems
+    _unit(answer, "FCU-1")["reason"] = "Five of the scheduled sixty are shown for a later phase."
+    value, problems = takeoff.check_answer(answer, fx.ledger(), fx.catalogue(), reading, index)
+    assert problems == [] and value is not None
+
+
+def test_a_refused_answer_raises_no_answer():
+    answer = fx.answer()
+    _no_row(answer)
+    with pytest.raises(ai.NoAnswer):
+        _take_off(answer)
+
+
+def _planned() -> Job:
+    return plan_job(fx.ledger(), fx.catalogue(), fx.dossier(), PLAYBOOK)
+
+
+def test_counts_do_not_change():
+    job = _planned()
+    register, _ = _take_off(fx.answer())
+    attached = takeoff.attach(job, register)
+    changed = [f.name for f in dataclasses.fields(Job) if getattr(attached, f.name) != getattr(job, f.name)]
+    # set_aside is () in this answer, so it equals the planned job's; no other field changes
+    assert changed == ["sheets", "units", "future_items"]
+    assert attached.sheets == register.sheets and attached.units == register.units
+    assert attached.future_items == register.future_items and attached.set_aside == register.set_aside
+    assert _counts(attached) == _counts(job)
+    assert attached.systems == job.systems
+
+
+def test_save_and_load(tmp_path):
+    register, _ = _take_off(fx.answer())
+    path = tmp_path / "00-1111 Takeoff.json"
+    takeoff.save(register, path)
+    assert json.loads(path.read_text(encoding="utf-8"))["version"] == 1
+    assert takeoff.load(path) == register
