@@ -128,17 +128,30 @@ def _standing_accepts(entries: list[SavedDecision], key: str, job: Job | None = 
     return standing
 
 
+def _held_counts(decisions, key: str) -> tuple[str, ...]:
+    """The names of the families of system `key` whose count the estimator set (a family change among `decisions`):
+    a revise never changes them (HP 17)."""
+    return tuple(dict.fromkeys(d.family_name for d in decisions
+                               if d.system_key == key and d.action == "change" and d.family_name is not None))
+
+
 def _revised(system, findings, evidence, playbook, transport, job=None, decisions=None, ids=None, sheets=(),
-             source_sheets=None):
+             source_sheets=None, hold_counts=(), typed=frozenset()):
     """Revise, then flag quantity disagreements again. Devices accepted by the estimator stay accepted, unless a
-    decision in `decisions` changes a family count of this system (the new count flags the system again)."""
+    decision in `decisions` changes a family count of this system (the new count flags the system again). A revise
+    may correct a family's count (HP 17, `ai.revise_system`): every line still at the old count it was counted from
+    takes the new one (`_carry_new_counts`; a line in `typed` keeps the count the estimator typed), and a family in
+    `hold_counts` (the estimator set its count) keeps it."""
+    held = {"hold_counts": tuple(hold_counts)} if hold_counts else {}
     if job is None:
-        revised = ai.revise_system(system, findings, evidence, playbook, transport)
+        revised = ai.revise_system(system, findings, evidence, playbook, transport, **held)
     else:
         revised = ai.revise_system(system, findings, evidence, playbook, transport, tags=job_tags(job),
                                     ids=job_ids(job) if ids is None else ids, sheets=sheets,
                                     source_sheets=tuple(job.source_sheets) if source_sheets is None
-                                    else source_sheets)
+                                    else source_sheets, **held)
+    if revised.families != system.families:
+        revised = _carry_new_counts(system, revised, revised, frozenset(typed))
     flagged = flag_written_devices(revised)
     if not decisions:
         return flagged
@@ -613,7 +626,9 @@ def _estimate(job_folder: Path, out: Path, cache: Path, mode: Mode, known: dict)
             job = job.with_system(_revised(system, [f for f in must_fix if f.system_key == key],
                                             evidence[key], playbook, transport, job,
                                             decisions=_standing_accepts(history, key, decided_from),
-                                            ids=issued(job), sheets=sheets(job), source_sheets=source(job)))
+                                            ids=issued(job), sheets=sheets(job), source_sheets=source(job),
+                                            hold_counts=_held_counts(decisions, key),
+                                            typed=_typed_counts(decisions, key, decided_from)))
 
         except ai.NoAnswer as missing:
             pending.append(_not_answered(system.name, missing))
