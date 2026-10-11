@@ -56,8 +56,9 @@ Full suite
 - After D4 (97eb2b3): `tests/bms/test_review*.py` 635 passed, 1 failed (test_review_final3 resource code, baseline);
   `test_review_older_count_name_safe.py`, `test_review_typed_count_parity.py`, `test_review_typed_counts.py`,
   `test_count_added_up.py`, `test_run_older_page_words.py`, `test_run.py` all pass.
-  A full-suite run at the tip was started but had not finished when I pushed (the sandbox was shared with the
-  T-002 suite); D4 changes only `_COUNT_NAME`.
+- hark/T-003 at 97eb2b3 (all fixes), `-n 2`: 11 failed, 4453 passed, 10 skipped. All 11 are in the 12 baseline
+  (5 test_ai chat, test_assets python pin, test_main open folder, test_review_final3 resource code, test_status_review
+  normal exit, test_revert_audit tools change, test_revert_audit_review class test). No failure outside the baseline.
 
 4. What I checked and found correct
 - Ruling L1, inventory (`inventory.py` `plan_groups`, `_same_floor_and_area`, `_place_facts`, `placements`,
