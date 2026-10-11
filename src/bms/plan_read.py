@@ -265,6 +265,7 @@ class Reader:
         self.register = register
         self.recount = dict(recount or {})
         self.set_aside: list = []           # the numbers the register set aside (`bms.takeoff.SetAside`), in order
+        self.placed_by: dict[tuple[str, int], str] = {}   # (prefix, plan placements number) -> its sheet by sheet text
         self.count_questions: list[str] = []   # one per family whose printed count fell below the code's count
         self.dossier_sources = dict(dossier_sources or {})
         self.dossier_text = str(dossier_text or "")
@@ -319,11 +320,20 @@ class Reader:
                 seen.add((n, squash(sid)))
                 out.append((n, (self.ref(sid, quote),)))
         for _, sid, quote in said:
+            for found in _PLACED_BY.finditer(quote or ""):       # T-007b: the sheet by sheet text of the placements
+                self.placed_by.setdefault((squash(fact.subject).casefold(), int(found.group(1))), found.group(2))
             for clause, n in counts_clauses(quote):
                 if (n, squash(sid)) not in seen:
                     seen.add((n, squash(sid)))
                     out.append((n, (self.ref(sid, clause),)))
         return out
+
+    def _family_name(self, prefix: str) -> str:
+        """The family's short name for its question ("Air Handling Unit"): the one `family` gives, from the ledger's
+        unit fact of the prefix; "" when the ledger has none."""
+        key = squash(prefix).casefold()
+        fact = next((f for f in self.family_facts() if squash(f.subject).casefold() == key), None)
+        return short_name(fact.value, prefix) if fact is not None and squash(fact.value) else ""
 
     def _count(self, facts: list[Fact], extra: list[tuple[int, tuple[Ref, ...]]], prefix: str = "") -> Count:
         """The Count of every number the facts and the extra entries give: the highest prints, its refs are the
@@ -335,9 +345,11 @@ class Reader:
             from bms import takeoff
 
             code = max(n for n, _ in entries)
-            entries, aside = takeoff.admit(prefix, entries, self.register, self.recount)
+            entries, aside = takeoff.admit(prefix, entries, self.register, self.recount,
+                                          {n: t for (p, n), t in self.placed_by.items() if p == squash(prefix).casefold()})
             self.set_aside += [a for a in aside if a not in self.set_aside]
-            question = takeoff.count_question(prefix, max((n for n, _ in entries), default=None), code)
+            question = takeoff.count_question(prefix, max((n for n, _ in entries), default=None), code,
+                                              self._family_name(prefix))
             if question and question not in self.count_questions:
                 self.count_questions.append(question)
         if not entries:
@@ -722,6 +734,7 @@ class Reader:
 
 
 _SOURCE_LINE = re.compile(r"^\s*\[([A-Za-z]{1,4}\d+[a-z]?)\]\s?(.*)$")
+_PLACED_BY = re.compile(r"plan placements (\d+) \(([^)]*)\)")
 _COUNTS_CLAUSE = re.compile(r"\b(schedule rows|quantity column total|distinct tags|plan placements|riser)\s+(\d+)\b",
                             re.I)
 

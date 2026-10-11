@@ -391,7 +391,8 @@ _PLACEMENTS = "plan placements"
 # why a scheduled unit that is not counted takes its schedule's number out of the count
 _STATUS_REASON = {"demolish": "demolition sheet", "demolish_with_work": "demolition sheet",
                   "existing_remain": "existing to remain", "relocate": "existing to remain", "future": "future item"}
-QUESTION = "How many {family} units? {printed} print from the new-work sheets; the code counted {counted}."
+QUESTION = "How many {family}? {printed} print from the new-work sheets; the code counted {counted}."
+_BREAKDOWN = re.compile(r"([A-Za-z]+[\w.]*(?:-[\w.]+)*)\s+(\d+)")
 
 
 @dataclass(frozen=True)
@@ -444,7 +445,7 @@ def recount(catalogue, register, typicals=()) -> dict[str, Recount]:
         if not tags:
             out[family] = Recount(0, "demolition sheet")
             continue
-        found = placements(catalogue, tags, typicals, pages=pages, groups=groups)
+        found = placements(catalogue, tags, typicals, pages=pages, groups=groups, admitted=pages)
         code = placements(catalogue, tags, typicals)
         shown = {name for p in code.values() for name in p.on_plans}     # the sheets the code counted
         excluded = [by_number[name] for name in shown if name in by_number and not by_number[name].counts_units]
@@ -459,7 +460,8 @@ def _on_excluded_sheets(where: str, sheets) -> bool:
     return bool(named) and not any(s.counts_units for s in named)
 
 
-def admit(prefix: str, entries, register, recount: dict | None = None) -> tuple[list, list[SetAside]]:
+def admit(prefix: str, entries, register, recount: dict | None = None,
+          breakdown: dict | None = None) -> tuple[list, list[SetAside]]:
     """The numbers a family's count may print from, by the register (Task 2.2): `entries` are (number, refs) as the
     planner reads them (`plan_read.Reader._entries`). Returns (the entries kept, the numbers set aside).
 
@@ -473,7 +475,11 @@ def admit(prefix: str, entries, register, recount: dict | None = None) -> tuple[
       and the recount kept in its place (none when the recount is 0);
     - the register's own count is added: the sum of `Unit.count` over the family's units whose status counts,
       citing the first such unit's refs.
-    The highest kept entry prints (the planner's rule, unchanged)."""
+    The highest kept entry prints (the planner's rule, unchanged).
+
+    `breakdown` (T-007b): the counts line's sheet by sheet text of a "plan placements" number ({number: "M-401 5;
+    M-402 5; MD-401 5"}). With it a dropped placement number is set aside by sheet, one `SetAside` for each reason
+    (`_split_by_sheet`), each with its own number, its sheets named in its note, and the printed count."""
     rows = family_rows(register, prefix) if register is not None else []
     if not rows:
         return list(entries), []
@@ -506,7 +512,16 @@ def admit(prefix: str, entries, register, recount: dict | None = None) -> tuple[
             set_aside(n, ref, _STATUS_REASON.get(uncounted[0].status, "not a unit of this family"))
             continue
         if str(ref.quote).startswith(_PLACEMENTS) and again is not None and again.value != n:
-            set_aside(n, ref, again.reason)
+            parts = _split_by_sheet((breakdown or {}).get(n, ""), n, register)
+            if parts:
+                for reason, value, named in parts:
+                    if not any((a.value, a.reason) == (value, reason) for a in aside):
+                        aside.append(SetAside(
+                            family=family, value=value, ref=ref, reason=reason,
+                            note=f"{value} set aside ({reason}: {', '.join(named)}); {counted} {family} on the "
+                                 "new-work sheets"))
+            else:
+                set_aside(n, ref, again.reason)
             if again.value:
                 kept.append((again.value, register_refs or tuple(refs)))
             continue
@@ -516,11 +531,42 @@ def admit(prefix: str, entries, register, recount: dict | None = None) -> tuple[
     return kept, aside
 
 
-def count_question(family: str, printed: int | None, counted: int | None) -> str | None:
-    """The one question for a family whose printed count fell below the code's count (Task 2.2), else None."""
+def count_question(family: str, printed: int | None, counted: int | None, name: str = "") -> str | None:
+    """The one question for a family whose printed count fell below the code's count (Task 2.2), else None. `family`
+    is the prefix; with the family's `name` it reads "How many Air Handling Units (AHU)? 5 print from the new-work
+    sheets; the code counted 21." (T-007b: the name in the plural, the prefix in brackets); with no name, the prefix
+    alone."""
     if printed is None or counted is None or printed >= counted:
         return None
-    return QUESTION.format(family=family, printed=printed, counted=counted)
+    label = f"{_plural(name)} ({family})" if name.strip() else family
+    return QUESTION.format(family=label, printed=printed, counted=counted)
+
+
+def _split_by_sheet(breakdown: str, n: int, register) -> list[tuple[str, int, list[str]]] | None:
+    """T-007b: the dropped placement number `n` given the sheet by sheet by the counts line ("M-401 5; M-402 5;
+    MD-401 5"), as [(reason, number, sheets)], one row per reason in the order the sheets first show it. Each sheet's
+    reason is its own: a sheet the register does not count has its kind's reason (`aside_reason`: "demolition
+    sheet"); the sheets it counts are "part plan of one area" when they are all of one area, else "same unit labelled
+    again". None when the line names no sheet, names a sheet the register does not list, or its numbers do not add up
+    to `n` (the caller keeps the single reason then)."""
+    by_number = {s.number: s for s in getattr(register, "sheets", ()) or () if s.number}
+    pairs = [(m.group(1), int(m.group(2))) for m in _BREAKDOWN.finditer(breakdown or "")]
+    if not pairs or sum(v for _, v in pairs) != n or any(name not in by_number for name, _ in pairs):
+        return None
+    counted_areas = {" ".join(by_number[name].area.split()).casefold() for name, _ in pairs
+                     if by_number[name].counts_units}
+    rows: dict[str, list] = {}
+    for name, value in pairs:
+        sheet = by_number[name]
+        if sheet.counts_units:
+            reason = "part plan of one area" if len(counted_areas) <= 1 else "same unit labelled again"
+        else:
+            reason = aside_reason(sheet)
+        row = rows.setdefault(reason, [0, []])
+        row[0] += value
+        if name not in row[1]:
+            row[1].append(name)
+    return [(reason, value, sheets) for reason, (value, sheets) in rows.items()]
 
 
 # ---- Demolition Scope (T-G1) -------------------------------------------------------------------------------

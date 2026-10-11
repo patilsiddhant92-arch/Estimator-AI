@@ -1447,7 +1447,7 @@ class _Planner:
         ref = count.sources[0] if count.sources else Ref(source_id="", quote="", where="")
         note = (f"{lower} set aside (the takeoff's units add up to {total}, the family's count is {count.value}); "
                 f"{higher} {family} print")
-        aside = SetAside(family=family, value=lower, ref=ref, reason="not a unit of this family", note=note)
+        aside = SetAside(family=family, value=lower, ref=ref, reason="count by unit register", note=note)
         if aside not in self.reader.set_aside:
             self.reader.set_aside.append(aside)
         if keep:
@@ -2213,7 +2213,7 @@ def plan_job(ledger: Ledger, catalogue: Catalogue, dossier: Dossier, playbook: P
     register admits (`bms.takeoff.admit`, plan Task 2.2: its plan placements counted again over the admitted sheets by
     their areas, `bms.takeoff.recount`, the floors of `typicals` applied); every number set aside is in
     `Job.set_aside` with its source and both numbers, after the register's own; a family whose printed count fell
-    below the code's count gets one question ("How many <family> units? <N> print from the new-work sheets; the code
+    below the code's count gets one question ("How many <Family plural> (<PREFIX>)? <N> print from the new-work sheets; the code
     counted <M>."); the Job carries the register's `sheets`, `units` and `future_items`. None: nothing changes.
 
     Contract:

@@ -737,14 +737,18 @@ def plan_area_doubts(plans, areas: dict[tuple[str, int], int] | None = None
 
 def placements(catalogue, tags: Iterable[str], typicals: Sequence = (),
                pages: Collection[tuple[str, int]] | None = None,
-               groups: dict | None = None) -> dict[str, Placements]:
+               groups: dict | None = None, admitted: Collection[tuple[str, int]] | None = None) -> dict[str, Placements]:
     """Each tag's labels on the plan sheets and on the riser diagrams, read from the counted pages of each sheet
     (`counting_pages`), and its count on the plans by the one counting rule (`plan_groups`, `plan_count`), the
     floors of each typical sheet applied (1.4). A type sized "X.0" is also labelled "X" (HRU-4).
 
     `groups` (takeoff pass Stage 2, Task 2.1): the plan groups to count by, in the form `plan_groups` returns
     ((document, page) -> the group's sheets), used in place of the code's own `plan_groups` when given: the takeoff
-    register's areas (`bms.takeoff.area_groups`). A sheet in no given group is a group of its own."""
+    register's areas (`bms.takeoff.area_groups`). A sheet in no given group is a group of its own.
+
+    `admitted` (T-007b): the (document, page) of the sheets the takeoff register admits (`counts_units` true). The
+    register decides: a page in it is read even when its title says demolition. A page not in it keeps the title
+    check. None (no register): the title check stands for every page."""
     keys = label_keys(tags)
     if not keys:
         return {}
@@ -764,7 +768,7 @@ def placements(catalogue, tags: Iterable[str], typicals: Sequence = (),
                 or "Schedules" in sheet.types):
             continue
         riser = bool(_RISER.search(sheet.title or "")) or any("riser" in t for t in sheet.types)
-        if is_demolition(sheet):
+        if is_demolition(sheet) and (record.document, record.page) not in (admitted or ()):
             if "Plans" in sheet.types or riser:
                 demolished.append((sheet, record))
             continue
