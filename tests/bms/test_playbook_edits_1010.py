@@ -185,7 +185,7 @@ def test_exhaust_fan_has_a_space_thermostat_slot_after_space_temperature():
     fan = PLAYBOOK.shape("Exhaust Fan")
     assert fan.line_order[fan.line_order.index("space_temperature") + 1] == "space_thermostat"
     assert fan.slot_kinds["space_thermostat"] == "device"
-    assert fan.wording["space_thermostat"] == "{verb} {device}{owner}{qty}"
+    assert fan.wording["space_thermostat"] == "{verb} {device}{owner}"
 
 
 def test_an_exhaust_fan_with_points_and_no_controller_is_four_hours_per_fan():
