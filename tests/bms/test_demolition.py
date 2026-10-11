@@ -1,0 +1,60 @@
+"""The Demolition Scope (T-G1). Every name here is invented."""
+from __future__ import annotations
+
+import takeoff_fixture as fx
+
+from bms.model import Ref, Unit
+from bms.takeoff import demolition_lines
+
+
+def _unit(family: str, status: str, count: int = 1, tag: str = "", reason: str = "",
+          refs: tuple[Ref, ...] = ()) -> Unit:
+    tag = tag or f"{family}-1"
+    held = refs or (Ref("S1", tag, "MD-101, Mech.pdf page 6"),)
+    return Unit(family, tag, (tag,), status, count, (), held, reason=reason)
+
+
+def test_the_fixture_answer_is_one_ahu_demo_and_one_ef_demo():
+    """answer.json: AHU-6 and EF-6 are demolish, count 1. Every other unit is new work."""
+    lines = demolition_lines(tuple(Unit.from_dict(row) for row in fx.answer()["units"]))
+    assert [(line.family, line.action, line.count) for line in lines] == [("AHU", "demo", 1), ("EF", "demo", 1)]
+    assert [line.note for line in lines] == ["", ""]
+    assert all(line.refs and line.refs[0].source_id == "F13" for line in lines)
+
+
+def test_lines_group_by_family_and_action():
+    shown = Ref("S1", "AHU-6 shown for demolition", "MD-101, Mech.pdf page 6")
+    work = Ref("S2", "remove the existing controls", "MD-101, Mech.pdf page 6")
+    remain = Ref("S3", "FCU-2 to remain", "M-201, Mech.pdf page 7")
+    move = Ref("S4", "VAV-3 relocate", "M-202, Mech.pdf page 8")
+    units = (
+        _unit("AHU", "demolish", 1, "AHU-6", refs=(shown,)),
+        _unit("AHU", "demolish_with_work", 2, "AHU-7", "existing controls removed", (work,)),
+        _unit("AHU", "new", 1, "AHU-1", refs=(shown,)),
+        _unit("FCU", "existing_remain", 4, "FCU-2", refs=(remain,)),
+        _unit("VAV", "relocate", 1, "VAV-3", refs=(move,)),
+        _unit("EF", "future", 1, "EF-9", refs=(shown,)),
+    )
+    lines = demolition_lines(units)
+    assert [(line.family, line.action, line.count, line.note) for line in lines] == [
+        ("AHU", "demo", 3, "existing controls removed"),
+        ("FCU", "existing to remain", 4, ""),
+        ("VAV", "relocation", 1, ""),
+    ]
+    assert lines[0].refs == (shown, work)
+
+
+def test_named_work_reasons_join_in_unit_order():
+    ref = Ref("S1", "demo", "MD-1, Mech.pdf page 1")
+    units = (
+        _unit("AHU", "demolish_with_work", reason="existing controls removed", refs=(ref,)),
+        _unit("AHU", "demolish_with_work", tag="AHU-2", reason="pneumatic tubing removed", refs=(ref,)),
+        _unit("AHU", "demolish_with_work", tag="AHU-3", reason="  ", refs=(ref,)),
+    )
+    (line,) = demolition_lines(units)
+    assert line.count == 3 and line.refs == (ref,)
+    assert line.note == "existing controls removed; pneumatic tubing removed"
+
+
+def test_no_units_gives_no_lines():
+    assert demolition_lines(()) == ()
