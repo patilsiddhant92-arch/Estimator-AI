@@ -18,7 +18,7 @@ from estimator.text import squash, strip_list_marker
 FIRST_ROW, LAST_ROW = 6, 396                               # the rows that hold Material Total = Unit Price × Quantity
 HOURS, QUANTITY, SCOPE, UNIT_PRICE, FLAG = 2, 3, 4, 5, 8   # columns B, C, D, E, H
 COUNT_TO_FILL = "Qty (##)"                                  # the house form of a count still to be filled
-LINE_QUANTITY_TO_FILL = "(Qty. ##)"                         # the house form of a line's quantity still to be filled
+LINE_QUANTITY_TO_FILL = "(Qty. ##)"                         # the older end form of a line's quantity still to fill
 DEMOLITION_HEADING = "Demolition Scope"                     # T-G1: labor rows under this heading, hours left blank
 _QTY_PREFIX = re.compile(r"^Qty \(\d+\) ")
 
@@ -31,7 +31,7 @@ class Row:
     item: Item | None = None         # set for a line or note
     ref: tuple = ()                  # where in Job.model_dump() this row came from
     count_pending: bool = False      # a block header whose count is still to fill: "Qty (##)"
-    quantity_pending: bool = False   # a line whose own quantity is still to fill: "(Qty. ##)", so it is not priced
+    quantity_pending: bool = False   # a line whose own quantity is still to fill: "Qty (##)" or "(Qty. ##)"
     red: bool = False                # a line the proposal prints in red (`Run.red`): red here too (T-005e)
 
 
@@ -96,8 +96,9 @@ def _block_rows(block: Block, number: int | None, ref: tuple) -> list[Row]:
 
 def _item_row(item: Item, markers: dict[int, str], ref: tuple) -> Row:
     text = squash(item.text) if item.kind == "note" else f"{markers[item.depth]}  {squash(item.text)}"
-    pending = item.kind == "line" and item.quantity is None and (LINE_QUANTITY_TO_FILL in item.text
-                                                                   or COUNT_TO_FILL in item.text)   # T-005e: "Qty (##) <device>"
+    bare = squash(item.text)
+    pending = item.kind == "line" and item.quantity is None and (
+        bare.startswith("Qty (##)") or LINE_QUANTITY_TO_FILL in bare or COUNT_TO_FILL in bare)
     return Row(text, hours=item.tech_hours, quantity=item.quantity, item=item, ref=ref, quantity_pending=pending,
                red=any(run.red for run in item.runs))
 

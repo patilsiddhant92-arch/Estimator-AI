@@ -37,7 +37,7 @@ from estimator.proposal.layout import EXISTING_SYSTEM_HEADING
 from bms.playbook import DEFAULT_ORDER, Playbook, Shape
 
 SEQUENCE_ONLY_ORDER = 20            # a block whose count prints "Qty (##)": after the equipment (shapes.json "order")
-GENERIC_FORM = "{verb} {device}{owner}{qty}"       # a system or a slot with no shape
+GENERIC_FORM = "{verb} {device}{owner}"          # a system or a slot with no shape
 GENERIC_HEADER = "Qty ({n}) {name} {tags}"         # a system with no shape (wording.json "header.generic" when set)
 ALTERNATE_LABEL = "ALT #{k}: {name}"               # an alternate's label (wording.json "alternate_label" when set)
 _AFTER_LINES = ("confirm", "assumed", "per_drawings", "note")      # the order of the "*" lines
@@ -160,7 +160,7 @@ def render(job: Job, playbook: Playbook) -> ProposalDraft:
     - Base systems become `scope.blocks`; `alternate` "add" / "deduct" systems go into `scope.add_alternates` /
       `scope.deduct_alternates`, each labelled "ALT #k: <name>" (adds and deducts numbered apart);
       `job.exceptions` become `scope.named_exceptions`; `job.front_end` the FrontEnd.
-    - A system with no shape is rendered in the generic form "{verb} {device}{owner}{qty}" in device order.
+    - A system with no shape is rendered in the generic form "{verb} {device}{owner}" in device order.
     - Never adds a line that is not a field of the Job (nothing internal reaches the client document), except the
       Master Template's existing-BMS front-end lines T-005e names (`_existing_template_lines`), its "OR" line between
       two alternatives, and the pump VFD Control GEM v4 always writes (`_gem_devices`). GEM v4 also prints a valve
@@ -617,6 +617,14 @@ def _slot_form(shape: Shape | None, slot: str) -> str:
     return GENERIC_FORM
 
 
+def line_prints_quantity(form: str, slot_kind: str | None) -> bool:
+    """A device line prints "Qty (N)" in front when its wording names a verb or a device and the slot is not an
+    interlock. That is the set of lines whose form ended with {qty}, plus Unit Ventilators terminal_strip_device."""
+    if slot_kind == "interlock":
+        return False
+    return "{verb}" in form or "{device}" in form
+
+
 def line_form(device: Device, shape: Shape | None, playbook: Playbook) -> str:
     """The wording a device's line prints with: its slot's wording in the shape (else the generic form), a fixed
     integration slot's house line in a block whose shape lacks it, or a house line printed as written."""
@@ -645,10 +653,12 @@ def _device_lines(devices, shape: Shape | None, system: System | None, playbook:
     device of the parent slot listed before it (else the last one listed), with no verb; with no parent device it
     prints in its own slot's place. A line of the integration trio whose slot the shape sets under no parent (a block
     with no shape) prints at the trio's own depth (wording.json integration_trio.depths: the rep line one level in).
-    Every line prints its slot's wording. A line carries a quantity form only when its slot's wording has {qty} and its
-    quantity is unknown or not the block's own count; `qty_notes` (device id -> the quantity note) puts a device's
-    other counts on its own line instead (GEM v4 ~609). Two lines of one Master Template "OR" group printed next to
-    each other get an "OR" line between them, and only the first is priced (`bms.order.alternatives`)."""
+    Every line prints its slot's wording. A line whose wording names a verb or a device, and whose slot is not an
+    interlock (`line_prints_quantity`), prints "Qty (N)" in front when its count is unknown or not the block's own
+    count (`wording.json` quantity.unknown / quantity.line), and only then. `qty_notes` (device id -> the quantity
+    note) puts a device's other counts after its own line (GEM v4 ~609); the note does not add the prefix.
+    Two lines of one Master Template "OR" group printed next to each other get an "OR" line between them, and only
+    the first is priced (`bms.order.alternatives`)."""
     devices = list(devices)
     qty_notes = qty_notes or {}
     line_order = shape.line_order if shape is not None else ()
@@ -657,7 +667,6 @@ def _device_lines(devices, shape: Shape | None, system: System | None, playbook:
     casing = _casing(playbook)
     what = _title(system.name, casing) if system is not None and system.control == "integration" else ""
     quantity_words = playbook.wording.quantity
-    header_words = playbook.wording.header
     house_lines, _ = _fixed_texts(playbook, shape)
     trio = dict(zip(playbook.wording.integration_trio, playbook.wording.integration_depths))
     front_end = shape is None and system is None
@@ -667,22 +676,23 @@ def _device_lines(devices, shape: Shape | None, system: System | None, playbook:
         owner = _owner(device, playbook)
         form = line_form(device, shape, playbook)
         fixed = house_lines.get(_plain(device.name))     # a house line printed as written (line_form chose it)
-        qty, shown = "", _title(device.name, casing)
-        if "{qty}" in form:
-            # ruling 15: the quantity in the line itself, "Qty (#) <device>", and its other counts after it
-            if number is None or number not in reference or device.id in qty_notes:
-                n = header_words["unknown_count"] if number is None else str(number)
-                if "{device}" in form:
-                    shown = f"{LINE_QTY.format(n=n)} {shown}"
-                else:
-                    qty = quantity_words["unknown"] if number is None else quantity_words["line"].format(n=number)
-            qty += qty_notes.get(device.id, "")
+        shown = _title(device.name, casing)
+        slot_kind = shape.slot_kinds.get(device.slot) if shape is not None else None
         if _PLACEHOLDER.search(form):
-            text = _fill(form, verb=device.verb, device=shown, owner=owner, qty=qty, what=what)
+            text = _fill(form, verb=device.verb, device=shown, owner=owner, qty="", what=what)
         elif fixed is not None and owner and fixed not in playbook.wording.integration_trio:
             text = _squash(form + owner)             # a shape's house line another party furnishes keeps its bracket
         else:
             text = form
+        if line_prints_quantity(form, slot_kind):
+            # ruling 15, G-002: "Qty (N) <device line>", in front of the verb, only when N is not the block's count;
+            # other counts stay after the line and never add the prefix (rules.md "Line quantity")
+            note = qty_notes.get(device.id, "")
+            if number is None or number not in reference:
+                prefix = quantity_words["unknown"] if number is None else quantity_words["line"].format(n=number)
+                text = prefix + text
+            if note:
+                text += note
         worded.append((text, form, device.verb if "{verb}" in form else None))
 
     def kind_of(i: int) -> str | None:
@@ -852,7 +862,6 @@ def _pump_minimums(system: System, shape: Shape | None, devices: list[Device]) -
 
 # ---- the quantity notes on a device's own line (GEM v4 ~609) -------------------------------------------------------
 
-LINE_QTY = "Qty ({n})"            # a line's own quantity, before its device (ruling 15: "Qty (#) <device>")
 LINE_COUNTS = " ({counts})"        # its other counts after it: " (4 per M-601; 2 per M-401)"
 
 
