@@ -286,12 +286,12 @@ def test_demolition_work_on_a_unit_reaches_its_block_and_work_naming_none_is_ask
     remove = ledger.add("note", "FCU", "Existing FCUs and associated controls are removed and disposed of", "S5",
                         "REMOVE AND DISPOSE OF EXISTING FAN COIL UNIT AND ASSOCIATED CONTROLS.", "plans", SETTLED)
     ledger.add("note", "general", "Obsolete controls at the existing temperature control center are removed", "S5",
-               "REMOVE OBSOLETE CONTROLS AT THE EXISTING TCMC.", "plans", SETTLED)
+               "REMOVE OBSOLETE CONTROLS AT THE EXISTING CONTROL ROOM KQZ.", "plans", SETTLED)
     ledger.add("note", "FCU", "Existing ductwork is removed", "S5", "REMOVE EXISTING DUCTWORK.", "plans", SETTLED)
     job = _plan(ledger, PLANT)
     (fcu,) = job.systems
     assert [r.source_id for r in fcu.sequence_refs] == ["S5"]
     assert fcu.sequence_refs[0].quote == remove.quote
-    (asked,) = [q for q in job.questions if "TCMC" in q]
+    (asked,) = [q for q in job.questions if "KQZ" in q]
     assert "removal" in asked and "MD-101" in asked
     assert not any("DUCTWORK" in q for q in job.questions)
