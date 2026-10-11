@@ -70,6 +70,7 @@ from bms.evidence import write_evidence
 from bms.labor import labor_conditions, labor_findings, with_labor, with_warranty
 from bms.model import Decision, Device, Finding, Header, Job, ModelError, System
 from bms.plan import plan_job
+from bms.takeoff import attach_demolition
 from bms.playbook import load_playbook
 from bms.citations import SourceIds
 from bms.render import RenderError, render
@@ -535,6 +536,7 @@ def _estimate(job_folder: Path, out: Path, cache: Path, mode: Mode, known: dict)
         # never refused
         source_sheets=source_sheets(ledger.sources, getattr(dossier, "sources", None) or {}))
     job = takeoff.attach(job, register)
+    job = attach_demolition(job)    # T-G1: the Demolition Scope from the register's units
     asked = transport.waiting
     job = cross_check(job, catalogue, cache, transport=transport)
     job_file = out / f"{quote} Job.json"

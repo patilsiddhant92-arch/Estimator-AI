@@ -62,6 +62,7 @@ missing required key, wrong type or a value outside an enumeration raises `Model
 | `SheetKind` | "new_work", "demolition", "part_plan", "enlarged_plan", "riser", "schedule", "detail", "control_diagram", "other" | `SHEET_KINDS` |
 | `UnitStatus` | "new", "demolish", "demolish_with_work", "existing_remain", "relocate", "future" | `UNIT_STATUSES` |
 | `SetAsideReason` | "demolition sheet", "same unit labelled again", "part plan of one area", "future item", "existing to remain", "not a unit of this family" | `SET_ASIDE_REASONS` |
+| `DemolitionAction` | "demo", "existing to remain", "relocation" | `DEMOLITION_ACTIONS` |
 
 `Flag` has no "future" value: `Device.mark` (T-005c) carries a future item. The last three enumerations are the
 takeoff register's (takeoff pass plan 2026-10-11). `COUNTED_STATUSES` is a constant tuple of the model, not an
@@ -131,14 +132,21 @@ FrontEnd:       mode: FrontEndMode, existing_system_name: str | None = None, dev
                   the documents call for none: lines and notes are empty and nothing is written.
 Header:         quote_number: str, reference: str, mep_engineer: str, based_on: tuple[str], date: str (ISO),
                 to: str = "All Bidders"                                     # mirrors estimator.scope.Header
+DemolitionLine: family: str, action: DemolitionAction, count: int,
+                refs: tuple[Ref] (>= 1, enforced: ModelError), note: str = ""
+                  One line of the Demolition Scope (T-G1). action is what the line says: "demo", "existing to remain"
+                  or "relocation". count is how many units the line covers. refs cites this job (at least one).
+                  note names demolition work when the documents name it; "" when they do not.
 Job:            name: str, systems: tuple[System] = (), front_end: FrontEnd | None = None,
                 exceptions: tuple[ScopeException] = (), questions: tuple[str] = (), header: Header | None = None,
-                source_sheets: tuple[str] = ()
+                source_sheets: tuple[str] = (), demolition: tuple[DemolitionLine] = ()
                   source_sheets: the id-shaped sheet numbers the ledger's sources' wheres name (upper case, sorted;
                   set once by the run, `bms.citations.source_sheets`); not part of K (`job_sheets`, the planner's
                   wheres) since FINAL-J: a known sheet only in a where and right after a sheet word in client text
                   (`SourceIds.source_sheets`); a bare one that is an issued id stays refused / must_fix / cut. () on an
                   old Job.json.
+                  demolition (T-G1): the Demolition Scope lines, one per family and action. () on a Job saved before
+                  the field.
                   job.system(key) -> System (KeyError); job.with_system(system) -> Job (replaced by key).
 Finding:        rule: str, system_key: str, device_id: str | None, severity: Severity, what: str, fix: str
                   rule = a Playbook rule name (### heading); system_key "" for the front end / whole job.

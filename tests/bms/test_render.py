@@ -462,7 +462,7 @@ def test_a_system_with_no_lines_prints_no_header_and_is_kept_for_the_evidence_pa
     empty = system([], key="EMPTY", name="Invented Units",
                    clarifications=(Clarification("note", "the invented units have no BMS work"),))
     out = render(replace(job, systems=(job.system("EF"), empty)), playbook)
-    assert [b.header for b in out.scope.blocks] == ["Qty (3) Exhaust Fans EF-1 thru 3"]
+    assert [b.header for b in out.scope.blocks] == ["Qty (3) Exhaust Fans EF-1 thru 3", "Demolition Scope"]
     left = [l for l in out.lines if l.system_key == "EMPTY"]
     assert [(l.kind, l.device_id) for l in left] == [("note", None)]
     assert "no lines written" in left[0].text and "the invented units have no BMS work" in left[0].text
@@ -489,7 +489,8 @@ def test_a_damper_family_under_a_fan_prints_no_header_of_its_own(job, playbook):
     assert ef_lines[1:] == ["Furnish and Install DDC Controller", "Furnish Fan Start / Stop and Status",
                             "Furnish and Install Qty (2) Motorized Damper Actuator"]
     assert texts(out, "MD")[0] == "Qty (4) Motorized Dampers"
-    assert [b.header for b in out.scope.blocks] == ["Qty (3) Exhaust Fans EF-1 thru 3", "Qty (4) Motorized Dampers"]
+    assert [b.header for b in out.scope.blocks] == ["Qty (3) Exhaust Fans EF-1 thru 3", "Qty (4) Motorized Dampers",
+                                                   "Demolition Scope"]
 
 
 # ---- the header never undershoots ------------------------------------------------------------------------------
@@ -500,7 +501,7 @@ def test_each_family_header_prints_its_highest_count(job, playbook):
     out = render(one(job, system([device()], families=fams, shape="")), playbook)
     assert [l.text for l in out.lines if l.kind == "header"] == [       # (T-005e: ruling 15, the counts in the line)
         "Qty (6) Indoor Unit IU-1 (6 per M-1; 4 elsewhere in the documents; 1 per M-1)",
-        "Qty (2) Condensing Unit CU-1"]
+        "Qty (2) Condensing Unit CU-1", "Demolition Scope"]
 
 
 def test_a_quantity_prints_only_when_it_differs_from_the_blocks_count(job, playbook):
@@ -578,7 +579,7 @@ def test_extend_existing_front_end_and_deduct_alternate(job, playbook):
         "Furnish Network Level Control Panel", "Furnish 3-D Graphics to match existing",
         "Furnish Necessary Training on New Controls", "Furnish and Install Link", "*tie to the old head end",
         AME_ONLY_FLAG]
-    assert len(out.scope.deduct_alternates) == 1 and out.scope.blocks == ()
+    assert len(out.scope.deduct_alternates) == 1 and [b.header for b in out.scope.blocks] == ["Demolition Scope"]
 
 
 def test_nothing_internal_reaches_the_client_text(draft, job):

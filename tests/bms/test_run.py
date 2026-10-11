@@ -1011,3 +1011,37 @@ def test_takeoff_changes_no_count(job_folder, tmp_path, monkeypatch):
     def counts(job):
         return {(s.key, f.name): f.count for s in job.systems for f in s.families}
     assert counts(saved) == counts(without) and counts(saved)
+
+
+def test_a_run_with_demolish_units_writes_the_demolition_block(job_folder, tmp_path, monkeypatch):
+    """T-G1: a unit with status demolish is a Demolition Scope line on the saved Job and in the proposal."""
+    from dataclasses import replace
+    from docx import Document
+
+    from bms import run
+    from bms.model import Job, Ref, Unit
+
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    real = run.takeoff.attach
+
+    def with_demolish(*args, **kwargs):
+        attached = real(*args, **kwargs)
+        ref = Ref("S1", "AHU-9 shown for demolition only", "MD-101, Invented.pdf page 1")
+        unit = Unit("AHU", "AHU-9", ("(D)AHU-9",), "demolish", 1, (), (ref,))
+        return replace(attached, units=(*attached.units, unit))
+
+    monkeypatch.setattr(run.takeoff, "attach", with_demolish)
+    out, cache = tmp_path / "out", tmp_path / "cache"
+    result = estimate(job_folder, out, cache, "chat")
+    for _ in range(25):
+        if result.status == "done":
+            break
+        assert result.status == "waiting" and result.waiting >= 1
+        assert answer_all(cache)
+        result = estimate(job_folder, out, cache, "chat")
+    assert result.status == "done", (result.stage, result.messages)
+    saved = Job.from_json(result.job_file.read_text(encoding="utf-8"))
+    assert [(line.family, line.action, line.count, line.note) for line in saved.demolition] == [("AHU", "demo", 1, "")]
+    words = "\n".join(paragraph.text for paragraph in Document(str(result.proposal)).paragraphs)
+    assert "Demolition Scope" in words
+    assert "Qty (1) AHU demo" in words

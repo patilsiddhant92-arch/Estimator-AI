@@ -393,5 +393,14 @@
       "item": "outside airflow measuring station",
       "refs": [{"source_id": "Q5", "quote": "outside airflow measuring station (future)", "where": "23 09 93, Specs.pdf page 13"}]
     }
+  ],
+  "demolition": [
+    {
+      "family": "EF",
+      "action": "demo",
+      "count": 2,
+      "refs": [{"source_id": "S15", "quote": "EF-2 EF-3 EXISTING TO BE REMOVED", "where": "MD-101, Drawings.pdf page 6"}],
+      "note": ""
+    }
   ]
 }
