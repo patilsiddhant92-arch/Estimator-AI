@@ -13,6 +13,8 @@
 - `minimum_points()`, `valve_rules()`: the words of the pump minimum and the valve rules.
 - `front_end_rank(text)`, `front_end_entry(text)`, `existing_lines()`: the Master Template's front-end order and its
   "Extension of Existing" lines; `new_lines()` its New front end's "Default" lines.
+- `group_line(shape_name)`, `group_lines()`: the Master Template entry's unnumbered group line over a stacked block of
+  that shape ("Chilled Water System"), or "" when the entry prints none (T-005e evening correction).
 
 The words live in the asset, never here. Pure functions; the asset is read once.
 """
@@ -175,3 +177,13 @@ def existing_lines() -> tuple[tuple[str, str], ...]:
 def new_lines() -> tuple[tuple[str, str], ...]:
     """The Master Template's New front-end "Default" lines in its order (3-D Graphics, Training): (text, entry)."""
     return load().new
+
+
+def group_lines() -> dict[str, str]:
+    """The shapes whose Master Template entry prints a group line over its stacked Qty headers: {shape: the line}."""
+    return {k: v for k, v in load().data.get("group_lines", {}).items() if k != "about"}
+
+
+def group_line(shape_name: str | None) -> str:
+    """The group line of that shape's Master Template entry, or "" when the entry prints none."""
+    return group_lines().get(shape_name or "", "")

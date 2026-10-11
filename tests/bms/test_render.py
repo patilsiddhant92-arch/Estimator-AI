@@ -82,12 +82,13 @@ def test_exhaust_fan_block_golden(draft):
 
 
 def test_vrf_stacks_one_header_per_family_over_one_set_of_lines(draft):
-    # T-005e addendum: no sub-heading over the stacked headers (heading "Qty (#) <system>" only)
-    assert texts(draft, "VRF")[:3] == ["Qty (4) Indoor Unit FCU-1 thru 4", "Qty (1) Condensing Unit CU-1",
+    # T-005e evening correction (lead, 2026-10-11): the Master Template VRF entry prints its "VRF System" group line
+    # over the stacked headers, unnumbered
+    assert texts(draft, "VRF")[:4] == ["VRF System", "Qty (4) Indoor Unit FCU-1 thru 4", "Qty (1) Condensing Unit CU-1",
                                        "Qty (2) Branch Selector BS-1, 2 (2 per M-102; 1 per M-002)"]
-    assert all(b.numbered for b in draft.scope.blocks)
+    assert [b.header for b in draft.scope.blocks if not b.numbered] == ["VRF System"]
     blocks = [b for b in draft.scope.blocks if b.header.startswith(("Qty (4) Indoor", "Qty (1) Cond", "Qty (2) Branch"))]
-    assert [b.joined for b in blocks] == [False, True, True]
+    assert [b.joined for b in blocks] == [True, True, True]     # T-005e: joined under the group line
     assert blocks[0].items == () and blocks[1].items == () and blocks[2].items
     assert blocks[0].tech_hours == 6.0 and blocks[2].tech_hours is None
     assert "Furnish BMS Communication Wiring to VRF Factory Controls" in texts(draft, "VRF")
