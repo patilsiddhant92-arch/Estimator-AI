@@ -675,14 +675,18 @@ planner's, and one question per family whose printed count fell below the code's
 <N> print from the new-work sheets; the code counted <M>." `attach` keeps the planner's set-asides after the
 register's. With no register nothing changes.
 
-Task 2.3 (blocks from the register), in `plan_job` after `link_dampers`: `serve_units` moves a family whose register
-units all serve tags of one other block into that block whole (control valves under their air handlers, a family of
-that block); for pumps only the `with_plant` units move, into the plant's block, counted one per tag. Then
-`split_by_service`: a block whose remote units (`with_plant` false) carry two or more services becomes one block per
-service, named "<Service> <kind>" ("Chilled Water Pump", "Hot Water Pump"; the T-005b service names), kind "pumps"
-for a pump family, each counted one per tag; a `with_plant` pump never leaves its plant. Before the systems are
-built, `register_tags` keeps in each family only the tags of its counted units when the register has rows for it.
-The text-based `split_pumps` and `link_valves` (T-005b) still run for families the register does not place.
+Task 2.3 (blocks from the register; T-007 review fixes). The register feeds T-005b's own paths:
+`split_pumps` takes a remote pump's service from its register row (`with_plant` false; the row wins over a text) and
+never puts a `with_plant` pump in a service block; only pump families split (a valve keeps its name). `link_valves`
+ties each control valve to the one block holding the unit its register row `serves` (the row wins over a text).
+After `link_dampers`, `serve_units` moves a non-valve family whose register units all serve tags of one other block
+into it whole, and a pump family's `with_plant` units into the plant's block. Every split or part move counts each
+tag by its register row (`Unit.count`; one for a tag with no row). A count never drops in silence (`_parts_hold`):
+when the units' total differs from the family's count, the higher prints, the lower is set aside on `Job.set_aside`
+(reason "not a unit of this family", the note giving both numbers) and one "<Family> (<PREFIX>): ...; confirm the
+count." question asks; when the family's count is the higher, the family is neither split nor moved (T-005b's
+guard). Before the systems are built, `register_tags` keeps in each family only the tags of its counted units when
+the register has rows for it.
 
 ### Workstream 1 — the Playbook content
 Fills `playbook/rules.md` (the topics above; each rule a `###` short name; the practice rules of design §2.7 carry
