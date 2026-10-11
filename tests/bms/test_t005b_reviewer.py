@@ -105,3 +105,19 @@ def test_a_lower_valve_count_is_named_in_one_question_when_the_valves_move():
     (asked,) = _valve_questions(job)
     assert "4" in asked and "3 per M-201" in asked and asked.endswith("confirm the count.")
 
+
+def test_a_plumbing_hot_water_pump_does_not_land_in_the_hot_water_block():
+    """The tag strip takes out tag runs only (P-1, P-1 thru 3), never a word that starts with the prefix letter:
+    "plumbing" stays in the text, so a plumbing hot water pump says no heating hot water service."""
+    ledger = _ledger()
+    ledger.add("family", "P", "Pump", "S1", "P Pump", "schedules", SETTLED)
+    ledger.add("unit", "P", "P-11 thru 13", "S1", "Tags: P-11 thru 13", "schedules", SETTLED)
+    ledger.add("count", "P", 3, "S1", "P rows 3", "schedules", SETTLED)
+    ledger.add("device", "P-11 chilled water pump", 1, "S1", "P-11 CHW", "schedules", SETTLED)
+    ledger.add("device", "P-12 heating hot water pump", 1, "S1", "P-12 HHW", "schedules", SETTLED)
+    ledger.add("device", "P-13 plumbing hot water recirculation pump", 1, "S1", "P-13 PLUMBING HW RECIRC",
+               "schedules", SETTLED)
+    job = _plan(ledger)
+    hot = [s for s in job.systems if s.name == "Hot Water Pump"]
+    assert hot and all("P-13" not in f.tags for s in hot for f in s.families)
+    assert any("P-13" in f.tags for s in job.systems for f in s.families)          # never lost

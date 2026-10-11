@@ -1722,9 +1722,11 @@ def _services_said(text: str) -> list[str]:
 
 
 def _tag_runs(prefix: str) -> re.Pattern:
-    """A run of a family's tags as a text writes them: "CV-1", "P-1,3,5", "CV-1 thru 10", "P-1 and P-2"."""
+    """A run of a family's tags as a text writes them: "CV-1", "P-1,3,5", "CV-1 thru 10", "P-1 and P-2", "CV-AHU-1".
+    The prefix heads a tag only with a dash after it, or a number (glued or after one space): a word that only starts
+    with the prefix's letters ("plumbing", "pump", "VAV-3" for prefix V) is no tag and stays in the text."""
     p = re.escape(prefix)
-    return re.compile(rf"(?<![A-Za-z0-9]){p}[- ]?[A-Za-z0-9.]+(?:-[A-Za-z0-9.]+)*"
+    return re.compile(rf"(?<![A-Za-z0-9]){p}(?:-[A-Za-z0-9.]+| ?\d[A-Za-z0-9.]*)(?:-[A-Za-z0-9.]+)*"
                       rf"(?:\s*(?:,|&|\band\b|\bthru\b|\bthrough\b|\bto\b)\s*(?:{p}[- ]?)?\d+[A-Za-z]?"
                       rf"(?![A-Za-z0-9]))*", re.I)
 
