@@ -1,6 +1,7 @@
 """ws5, HP 24: when the job's documents put equipment or work outside AME's scope (by others, existing to remain, not in
 contract), the planner makes a named exception that cites them, and the renderer prints it as an EXCEPTION line in the
-job's own words. No line of fixed text. Every job here is invented."""
+job's own words. No line of fixed text: the form is the Playbook's; a Playbook that gives none gets a question for the
+estimator, and no EXCEPTION line is written from code. Every job here is invented."""
 from __future__ import annotations
 
 import dataclasses
@@ -13,7 +14,7 @@ from estimator.ledger.facts import SETTLED, Ledger
 from estimator.writing.dossier import Dossier
 
 from bms import plan
-from bms.model import Job, Ref, ScopeException, System
+from bms.model import Header, Job, Ref, ScopeException, System
 from bms.plan import plan_job
 from bms.plan_read import squash
 from bms.playbook import Rule, load_playbook
@@ -24,6 +25,11 @@ SAMPLE = load_playbook(FIXTURES / "sample_playbook")
 SOURCES = {"S3": "M-501, Drawings.pdf page 6 (schedule)", "S4": "23 09 00, Specs.pdf page 4",
            "S5": "M-101, Drawings.pdf page 2 (sheet text)"}
 FRAME = "EXCEPTION TO ANY WORK WITH"
+# An invented Playbook that words the form of a named exception: the sample Playbook gives none, the repo's does.
+FORM_RULE = Rule("Exceptions and alternates", "Named exceptions",
+                 "A unit the documents leave with no BMS work is a named exception in the estimator's form: "
+                 '"EXCEPTION TO ANY WORK WITH Qty (n) <tags> - <reason>".')
+FORMED = dataclasses.replace(SAMPLE, rules={**SAMPLE.rules, FORM_RULE.name: FORM_RULE})
 
 
 def _ledger() -> Ledger:
@@ -39,7 +45,7 @@ def _family(ledger: Ledger, prefix: str, name: str, tags: str, count: int) -> No
     ledger.add("count", prefix, count, "S3", f"{prefix} rows {count}", "schedules", SETTLED)
 
 
-def _plan(ledger: Ledger, playbook=SAMPLE) -> Job:
+def _plan(ledger: Ledger, playbook=FORMED) -> Job:
     dossier = Dossier(job_name="Invented Job", text="", images=(), sources={}, families=(), device_totals={},
                       counts={}, stats={})
     return plan_job(ledger, None, dossier, playbook)
@@ -147,6 +153,77 @@ def test_an_unknown_count_prints_hashes():
     ledger.add("family", "FP", "Fire Pump", "S3", "FP Fire Pump", "schedules", SETTLED)
     _provider(ledger, "FP", "not in contract", "N.I.C.")
     assert _plan(ledger).exceptions[0].text == f"{FRAME} Qty (##) Fire Pump - not in contract"
+
+
+# ---- a Playbook that gives no form: a question, never a line from code ------------------------------------------------
+
+def _asked(job: Job) -> list[str]:
+    """The questions about the form of a named exception."""
+    return [q for q in job.questions if "named exception" in q]
+
+
+def test_a_playbook_without_the_form_gives_a_question_and_no_exception_line():
+    assert "Named exceptions" not in SAMPLE.rules                      # the sample Playbook words no form
+    ledger = _ledger()
+    _family(ledger, "FP", "Fire Pump", "FP-1", 1)
+    _provider(ledger, "FP", "not in contract", "N.I.C.")
+    job = _plan(ledger, SAMPLE)
+    (exception,) = job.exceptions
+    assert exception.system_key == "FP" and exception.text == ""                         # no line written from code
+    assert exception.refs == (Ref("S4", "N.I.C.", "23 09 00, Specs.pdf page 4"),)         # its citation stays
+    (question,) = _asked(job)
+    # it names the item, the documents' reason and the citation (where and quote); it holds no EXCEPTION line
+    for named in ("Qty (1) FP-1", "not in contract", "23 09 00, Specs.pdf page 4", '"N.I.C."'):
+        assert named in question, named
+    assert FRAME not in question
+
+
+def test_each_item_without_a_form_is_asked_about_with_its_own_citation():
+    ledger = _ledger()
+    _family(ledger, "FP", "Fire Pump", "FP-1", 1)
+    _family(ledger, "UH", "Unit Heater", "UH-1", 1)
+    _provider(ledger, "FP", "N.I.C.", "fire pump N.I.C.")
+    _provider(ledger, "UH", "BMS work by others, per the sprinkler drawings", "heater BMS work by others", "S5")
+    job = _plan(ledger, SAMPLE)
+    assert [x.text for x in job.exceptions] == ["", ""] and [x.system_key for x in job.exceptions] == ["FP", "UH"]
+    fp, uh = _asked(job)
+    assert "Qty (1) FP-1" in fp and "fire pump N.I.C." in fp and "23 09 00, Specs.pdf page 4" in fp
+    assert "Qty (1) UH-1" in uh and "heater BMS work by others" in uh and "M-101, Drawings.pdf page 2" in uh
+    assert "UH-1" not in fp and "FP-1" not in uh
+
+
+def test_facts_that_give_one_reason_are_one_question_naming_each_citation():
+    ledger = _ledger()
+    _family(ledger, "FP", "Fire Pump", "FP-1", 1)
+    _provider(ledger, "FP", "not in contract", "fire pump not in contract")
+    _provider(ledger, "FP-1", "Not In Contract", "FP-1 NIC", "S5")
+    job = _plan(ledger, SAMPLE)
+    (question,) = _asked(job)
+    assert "fire pump not in contract" in question and "FP-1 NIC" in question
+    assert [r.source_id for r in job.exceptions[0].refs] == ["S4", "S5"]
+
+
+def test_no_exception_line_reaches_the_proposal_without_a_form():
+    ledger = _ledger()
+    _family(ledger, "FP", "Fire Pump", "FP-1", 1)
+    _provider(ledger, "FP", "not in contract", "N.I.C.")
+    job = dataclasses.replace(_plan(ledger, SAMPLE), header=Header("00-0000", "Invented", "Engineer", ("M-1",),
+                                                                     "2026-10-04"))
+    draft = render(job, SAMPLE)
+    assert draft.scope.named_exceptions == ()
+    assert not [line for line in draft.lines if FRAME in line.text]
+
+
+def test_a_playbook_that_gives_the_form_asks_nothing_about_it():
+    ledger = _ledger()
+    _family(ledger, "FP", "Fire Pump", "FP-1", 1)
+    _provider(ledger, "FP", "not in contract", "N.I.C.")
+    assert _asked(_plan(ledger, FORMED)) == []
+
+
+def test_the_code_holds_no_fixed_exception_wording():
+    assert not hasattr(plan, "EXCEPTION_FORM")
+    assert FRAME not in Path(plan.__file__).read_text(encoding="utf-8")
 
 
 # ---- the render ------------------------------------------------------------------------------------------------------
