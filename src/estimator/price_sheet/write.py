@@ -104,8 +104,8 @@ def _fill(ws, sheet: Sheet, book: PriceBook, labor: set[str] = frozenset()) -> i
                 if match.needs_review:
                     _flag(ws, r, PRICE_NEEDS_REVIEW)
         if row.red:
-            for column in (HOURS, QUANTITY, SCOPE):
-                ws.cell(r, column).font = _RED_FONT
+            ws.cell(r, SCOPE).font = _RED_FONT
+            ws.cell(r, FLAG).font = _FLAG_FONT
     return pending
 
 
