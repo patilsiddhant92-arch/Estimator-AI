@@ -95,11 +95,15 @@ def test_fixture_type_tag_labels_on_a_demolition_plan_are_left_out(tmp_path):
             f"with the demolition sheets, {new + more}") in _line("FCU", d)
 
 
-def test_fixture_demolition_unit_with_work_named_is_counted(tmp_path):
+def test_fixture_demolition_unit_with_work_named_is_not_added_and_keeps_its_work(tmp_path):
+    # the lead's ruling on the T-005a review: kept for the Demolition Scope block, never in the new-work count
     catalogue, reading = _job(work_note=True)
     assert set(demolition_work(catalogue, [DEMO_UNIT])) == {DEMO_UNIT}
     d = build_dossier(catalogue, reading, tmp_path)
-    assert d.counts["AHU"]["plan_placements"] == N + 1
+    assert d.counts["AHU"]["plan_placements"] == N
+    placed = placements(catalogue, UNITS + [DEMO_UNIT])
+    assert placed[DEMO_UNIT].count == 0 and placed[DEMO_UNIT].demolition
+    assert "REFURBISH EXISTING " + DEMO_UNIT in placed[DEMO_UNIT].demolition_work
 
 
 def test_fixture_removal_line_names_no_work():

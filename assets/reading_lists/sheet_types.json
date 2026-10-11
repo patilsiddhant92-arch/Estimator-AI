@@ -16,7 +16,7 @@
   ],
   "demolition_new_work": ["\\bNEW\\s+WORK\\b", "\\bNEW\\s+CONSTRUCTION\\b"],
   "demolition_work_about": "Ruling 1 (2026-10-11): a unit on a demolition sheet is left out of every count unless the documents name work on it. A line of any sheet that names the unit's tag and one of these words names work on it (refurbishment of an existing unit, relocation of its sensors or thermostats). A demolition sheet whose title also matches demolition_new_work is a new-work sheet too, and is counted.",
-  "demolition_work": ["\\bREFURBISH\\w*", "\\bRECONDITION\\w*", "\\bRETROFIT\\w*", "\\bRELOCAT\\w*", "\\bREWORK\\w*", "\\bREBUILD\\w*", "\\bOVERHAUL\\w*", "\\bUPGRAD\\w*", "\\bREPLACE\\s+(?:THE\\s+)?(?:EXISTING\\s+)?(?:THERMOSTATS?|SENSORS?|CONTROLS?|CONTROLLERS?|ACTUATORS?|VALVES?)\\b", "\\bNEW\\s+(?:DDC\\s+)?CONTROLS?\\b"],
+  "demolition_work": ["\\bREFURBISH\\w*", "\\bRECONDITION\\w*", "\\bRETROFIT\\w*", "\\bRELOCAT\\w*", "\\bREWORK\\w*", "\\bREBUILD\\w*", "\\bOVERHAUL\\w*", "\\bUPGRAD\\w*", "\\bREPLACE\\s+(?:THE\\s+)?(?:EXISTING\\s+)?(?:THERMOSTATS?|SENSORS?|CONTROLS?|CONTROLLERS?|ACTUATORS?|VALVES?)\\b", "\\b(?:THERMOSTATS?|SENSORS?|CONTROLS?|CONTROLLERS?|ACTUATORS?|VALVES?)\\s+(?:TO|SHALL)\\s+BE\\s+REPLACED\\b", "\\bNEW\\s+(?:DDC\\s+)?CONTROLS?\\b"],
   "disciplines_by_title": [
     {"name": "Mechanical", "patterns": ["\\bMECHANICAL\\b", "\\bHVAC\\b"]},
     {"name": "Plumbing", "patterns": ["\\bPLUMBING\\b", "\\bSANITARY\\b", "\\bDOMESTIC\\s+WATER\\b"]},

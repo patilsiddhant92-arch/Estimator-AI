@@ -142,14 +142,18 @@ def test_a_type_tag_on_a_demolition_plan_is_left_out_and_named_with_both_numbers
             "sheets, 8") in _line("FCU", d)
 
 
-def test_a_unit_on_a_demolition_plan_with_work_named_on_it_is_counted(tmp_path):
+def test_a_unit_on_a_demolition_plan_with_work_named_on_it_is_not_added_and_its_work_is_named(tmp_path):
+    # the lead's ruling on the T-005a review: not added to the new-work count; the work is named for the Demolition
+    # Scope block
     pages, sheets = _with_demolition("REFURBISH EXISTING AHU-6 AND RELOCATE ITS SPACE SENSOR.")
     catalogue, reading = _penthouse(pages, sheets)
     assert set(demolition_work(catalogue, ["AHU-6", "EF-6"])) == {"AHU-6"}
     d = build_dossier(catalogue, reading, tmp_path)
-    assert d.counts["AHU"]["plan_placements"] == 6
+    assert d.counts["AHU"]["plan_placements"] == 5
     line = _line("AHU", d)
-    assert "AHU-6 is on demolition sheets only (MD 315.00), counted: the documents name work on it" in line
+    assert "AHU-6 is on demolition sheets only (MD 315.00): left out of the count, 5; with the demolition sheets, 6" in line
+    assert ("AHU-6 on demolition sheets (MD 315.00): the documents name work on it ('1. REFURBISH EXISTING AHU-6 AND "
+            "RELOCATE ITS SPACE SENSOR.'): for the Demolition Scope, not added to the new-work count") in line
 
 
 def test_the_inventory_leaves_a_demolition_unit_out():

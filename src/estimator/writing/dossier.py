@@ -898,17 +898,17 @@ def _counts(catalogue, reading, counted_pages: frozenset, multipliers: dict) -> 
     evidence: dict[tuple[str, int], Counter] = {}       # the labels alone: which plans are one plan group
     for sheet, key, record, is_plan, is_riser, edge in read:
         tallies[key], evidence[key] = tallies_of(key, record, edge, is_plan)
-    # Ruling 1 (T-005a): a demolition plan's units are left out of every count, unless a line of the documents names
-    # work on the unit (`demolition_work`); those are counted where the demolition plan shows them. What is left out
-    # is kept (`left_out`) so the counts line names it with both numbers.
+    # Ruling 1 (T-005a): a demolition plan's units are left out of every new-work count. The lead's ruling on the
+    # T-005a review: also a unit whose documents name work on it (`demolition_work`); the work is named beside it, for
+    # the Demolition Scope block. What is left out is kept (`left_out`) so the counts line names it with both numbers.
     worked = demolition_work(catalogue, {t for key in demolished for t in tallies[key]}) if demolished else {}
     left_out: dict[tuple[str, int], Counter] = {}
     for key in demolished:
-        left_out[key] = Counter({t: n for t, n in tallies[key].items() if t not in worked})
-        tallies[key] = Counter({t: n for t, n in tallies[key].items() if t in worked})
-        evidence[key] = Counter({t: n for t, n in evidence[key].items() if t in worked})
+        left_out[key] = Counter(tallies[key])
+        tallies[key] = Counter()
+        evidence[key] = Counter()
     left_read = [entry for entry in read if entry[1] in demolished]
-    read = [entry for entry in read if entry[1] not in demolished or tallies[entry[1]]]
+    read = [entry for entry in read if entry[1] not in demolished]
     # Lead rulings FINAL-I and L1, the one counting rule shared with the inventory (`plan_groups`, `plan_count`): plan
     # sheets are one plan group only when they are in one document and either show the same floor and area for other
     # trades (L1: no tag evidence needed), or their titles have the same words with a floor among them and they repeat
@@ -1024,8 +1024,8 @@ def _demolition_notes(left_read: list, left_out: dict, worked: dict, labels: dic
                       buildings: dict | None = None) -> dict[str, list[str]]:
     """prefix -> the counts line's reading notes for what the demolition plans show (ruling 1 of 2026-10-11, T-005a),
     each with both numbers: a unit only on demolition plans, left out ("AHU-6 is on demolition sheets only (MD
-    315.00): left out of the count, 5; with the demolition sheets, 6"); a type's labels on them, left out; a unit
-    counted there because the documents name work on it. A unit's tag also on a new-work plan changes nothing (one
+    315.00): left out of the count, 5; with the demolition sheets, 6"); a type's labels on them, left out; the work
+    the documents name on a demolition unit, for the Demolition Scope (never added to the new-work count). A unit's tag also on a new-work plan changes nothing (one
     unit in the job, ruling 2) and is not named. Only families that have a counts line are named."""
     on_demo: dict[tuple[str, str], list] = defaultdict(list)
     for sheet, key, *_rest in left_read:
@@ -1063,17 +1063,16 @@ def _demolition_notes(left_read: list, left_out: dict, worked: dict, labels: dic
         notes[prefix].insert(0, f"{named} {'is' if len(tags) == 1 else 'are'} on demolition sheets only "
                                 f"({', '.join(sheets)}): left out of the count, {total}; with the demolition sheets, "
                                 f"{total + sum(n for _t, _s, n in found)}")
+    # the lead's ruling on the T-005a review: a demolition unit with named work is not added to the new-work count;
+    # its work is named for the Demolition Scope block (a new-work plan that also draws it has counted it already)
     for tag, line in sorted(worked.items(), key=lambda item: _natural(item[0])):
         prefix = tag if tag in code_patterns else _prefix(tag)
-        if prefix not in families or (prefix, tag) not in places:
+        demo = on_demo.get((prefix, tag))
+        if prefix not in families or families[prefix].air_only or not demo:
             continue
-        shown = [key for key, _n, _f in places[(prefix, tag)]]
-        demolished = {key for _sheet, key, *_r in left_read}
-        demo_sheets = list(dict.fromkeys(labels[key] for key in shown if key in demolished))
-        if demo_sheets:
-            only = "only " if all(key in demolished for key in shown) else ""
-            notes[prefix].append(f"{tag} is on demolition sheets {only}({', '.join(demo_sheets)}), counted: the "
-                                 f"documents name work on it ('{line[:120]}')")
+        demo_sheets = list(dict.fromkeys(labels[key] for key, _n, _f in demo))
+        notes[prefix].append(f"{tag} on demolition sheets ({', '.join(demo_sheets)}): the documents name work on it "
+                             f"('{line[:120]}'): for the Demolition Scope, not added to the new-work count")
     return notes
 
 

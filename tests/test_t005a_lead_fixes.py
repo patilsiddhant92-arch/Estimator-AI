@@ -54,3 +54,33 @@ def test_a_scheduled_unit_tag_on_two_floors_keeps_its_sum_in_the_inventory_total
     [vav] = [t for t in totals if t.prefix == "VAV"]
     assert (vav.scheduled, vav.summed) == (2, 3)
     assert any("(M-171, M-172)" in f and "2 units counted, 3 if the sheets were added up" in f for f in vav.flags)
+
+
+# ---- ruling (2): a demolition unit with named work stays out of the new-work count ----------------------------------
+
+def _with_work_note():
+    """RTU-1..2 on a new-work roof plan; RTU-1..3 on the demolition roof plan; a note names work on RTU-3."""
+    pages = [_page(DWG, 1, "RTU-1\nRTU-2"), _page(DWG, 2, "RTU-1\nRTU-2\nRTU-3"),
+             _page(DWG, 3, "GENERAL NOTES\n4. EXISTING RTU-3 CONTROLS TO BE REPLACED."),
+             _page(DWG, 4, "RTU SCHEDULE\nRTU-1\nRTU-2")]
+    sheets = [_sheet(1, "M-191", "HVAC ROOF PLAN"),
+              _sheet(2, "MD-191", "HVAC ROOF DEMOLITION PLAN", types=("Plans", "Demolition")),
+              _sheet(3, "M-091", "MECHANICAL NOTES", types=("Notes and legends",)),
+              _sheet(4, "M-691", "MECHANICAL SCHEDULES", types=("Schedules",))]
+    schedules = [_schedule("RTU SCHEDULE", ["RTU-1", "RTU-2"], 4, sheet="M-691")]
+    return _catalogue(pages, sheets, ["RTU-1", "RTU-2", "RTU-3"]), _reading(schedules)
+
+
+def test_a_demolition_unit_with_controls_to_be_replaced_is_not_in_the_new_count_and_keeps_its_work(tmp_path):
+    catalogue, reading = _with_work_note()
+    placed = placements(catalogue, ["RTU-1", "RTU-2", "RTU-3"])
+    assert placed["RTU-3"].count == 0
+    assert placed["RTU-3"].demolition == {"MD-191": 1}
+    assert placed["RTU-3"].demolition_work == "4. EXISTING RTU-3 CONTROLS TO BE REPLACED."
+    assert placed["RTU-1"].count == 1 and placed["RTU-1"].demolition_work == ""      # no work named on RTU-1
+    d = build_dossier(catalogue, reading, tmp_path)
+    assert d.counts["RTU"]["plan_placements"] == 2
+    line = _line("RTU", d)
+    assert "RTU-3 is on demolition sheets only (MD-191): left out of the count, 2; with the demolition sheets, 3" in line
+    assert ("RTU-3 on demolition sheets (MD-191): the documents name work on it ('4. EXISTING RTU-3 CONTROLS TO BE "
+            "REPLACED.'): for the Demolition Scope, not added to the new-work count") in line

@@ -214,7 +214,10 @@ class Placements:
     same_plan: tuple[tuple[str, ...], ...] = ()   # the sheets (by name) of each plan group that shows this tag on 2 or
                                                   # more of them: counted as one plan, not added (L1)
     demolition: dict[str, int] = field(default_factory=dict)   # demolition sheet -> labels on it, left out of every
-                                                               # count (ruling 1 of 2026-10-11, T-005a)
+                                                               # new-work count (ruling 1 of 2026-10-11, T-005a), for
+                                                               # the Demolition Scope block
+    demolition_work: str = ""    # the documents' line naming work on this demolition unit (`demolition_work`), "" if
+                                 # none: printed beside it in the Demolition Scope, never added to the new-work count
 
     @property
     def drawn(self) -> int:
@@ -778,12 +781,9 @@ def placements(catalogue, tags: Iterable[str], typicals: Sequence = (),
         for tag, n in plan_labels(record.text, keys, line_labels(record.text, keys)).items():
             if tag not in asked:
                 continue
-            if tag in worked:          # the documents name work on this unit: counted where the demolition plan shows it
-                tallies.setdefault(key, {})[tag] = n
-            else:
-                left_out[tag][labels[key]] = left_out[tag].get(labels[key], 0) + n
-        if key in tallies:
-            read.append((sheet, record, False))
+            # the lead's ruling on the T-005a review: a unit with named work is NOT added to the new-work count; it
+            # stays here, its work kept beside it (`Placements.demolition_work`), for the Demolition Scope block
+            left_out[tag][labels[key]] = left_out[tag].get(labels[key], 0) + n
     found: dict[str, list] = defaultdict(list)            # tag -> [((document, page), labels, floors)]
     buildings = plan_buildings(sheet for sheet, _r, riser in read if not riser)
     on_plans: dict[str, dict[str, int]] = defaultdict(dict)
@@ -828,7 +828,8 @@ def placements(catalogue, tags: Iterable[str], typicals: Sequence = (),
                           plan_count(mine, groups, True) if mine else 0,
                           apart,
                           plan_count(mine, {}, True) if mine else 0,
-                          same_plan(mine, per_place), dict(left_out.get(tag, {})))
+                          same_plan(mine, per_place), dict(left_out.get(tag, {})),
+                          worked.get(tag, "") if tag in left_out else "")
 
     return {tag: placed(tag) for tag in set(on_plans) | set(on_risers) | set(left_out)}
 
@@ -837,9 +838,10 @@ def placements(catalogue, tags: Iterable[str], typicals: Sequence = (),
 
 def demolition_work(catalogue, tags: Iterable[str]) -> dict[str, str]:
     """tag -> the first line of the documents (any page: a note, a keyed note, the spec) that names the tag and work
-    on it (`sheet_types.work_words`: refurbish, relocate its sensor, new controls ...). Such a unit is counted where a
-    demolition plan shows it (ruling 1); every other unit a demolition plan shows is left out of the counts. A line
-    that only removes a unit or keeps it ("REMOVE EXISTING AHU-6", "EXISTING TO REMAIN") names no work."""
+    on it (`sheet_types.work_words`: refurbish, relocate its sensor, new controls ...). The lead's ruling on the T-005a
+    review: such a unit is still left out of the new-work counts, like every unit a demolition plan shows; the line is
+    kept beside it (`Placements.demolition_work`) for the Demolition Scope block. A line that only removes a unit or
+    keeps it ("REMOVE EXISTING AHU-6", "EXISTING TO REMAIN") names no work."""
     wanted = {t for t in tags if t}
     if not wanted:
         return {}
