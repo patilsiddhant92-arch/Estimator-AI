@@ -554,10 +554,11 @@ def _estimate(job_folder: Path, out: Path, cache: Path, mode: Mode, known: dict)
 
     # 3. write every system (all are asked before stopping for answers)
     known["stage"] = "write"
-    evidence = {s.key: ai.evidence_for(s, dossier) for s in job.systems}
+    evidence = {s.key: ai.system_evidence(s, dossier, ledger) for s in job.systems}   # with its facts checklist (T-005d)
     # the front end is written like a system (HP 22): its own evidence, from the passages the planner cited for it
     taken = {s.key for s in job.systems}
-    front_evidence = ai.front_end_evidence(job.front_end, dossier, taken) if job.front_end is not None else ""
+    front_evidence = (ai.front_end_evidence(job.front_end, dossier, taken, ledger) if job.front_end is not None
+                      else "")
     # I, one set for every writer and the revise: every id of the job and of every system's evidence (the front
     # end's too). A ref may cite only its system's evidence, so the final job's ids (the validator's and the
     # renderer's I) are in it, and a text one writer accepts is never an issued id once a later system cites it.

@@ -57,8 +57,12 @@ IMAGE_VERSION = 1            # raise when the way pictures are rendered changes
 IMAGES_FOLDER = "dossier-images"
 PLAN_NOTES_LIMIT = 3_000     # characters of one sheet's notes in 7b
 PLAN_NOTE_DISCIPLINES = ("Mechanical", "Controls", "Plumbing")
-PLAN_TEXT_LIMIT = 8_000     # characters of one plan sheet's own text in 7c (repeats collapsed first)
+PLAN_TEXT_LIMIT = 24_000    # characters of one plan sheet's own text in 7c (repeats collapsed first; T-005d: 8,000 cut a
+                            # general notes sheet's BMS notes off)
 PLAN_TEXT_TOTAL = 400_000   # characters of all plan sheets' text in 7c
+PLAN_TEXT_FLOOR = 8_000     # T-005d should fix 6: when 24,000 a sheet would pass the total, the plan sheets share it
+                            # (each cut to an even share, never under this); the controls sheets keep 24,000
+_CONTROLS_TITLE = re.compile(r"\b(?:CONTROLS?|SEQUENCES?|POINTS?|DIAGRAMS?|SCHEMATICS?|BMS|BAS|ATC|DDC)\b", re.I)
 
 _QUANTITY_HEADERS = ("QTY", "QUANTITY", "NO OF UNITS", "NO. OF UNITS", "NUMBER OF UNITS", "NO. REQ'D", "NO REQD",
                      "UNITS REQUIRED", "COUNT")
@@ -1390,7 +1394,7 @@ def _plan_sheet_notes(catalogue, reading, ids: _Ids, given: set) -> list[str]:
 
 PLAN_TEXT_HEAD = ("--- 7c PLAN SHEET TEXT ---",
                   "(Each mechanical, controls and plumbing sheet's own text, as printed, for notes written beside the "
-                  f"drawing; cut at {PLAN_TEXT_LIMIT:,} characters a sheet.)")
+                  f"drawing; cut at {PLAN_TEXT_LIMIT:,} characters a sheet, less on a large job.)")
 
 
 @dataclass
@@ -1419,16 +1423,18 @@ def _sheet_text_lines(chosen: dict, texts: dict, ids: _Ids, given: _SheetText, w
     """One line per chosen sheet: "[S] <place> <title>: <its text>", cut at PLAN_TEXT_LIMIT, within the
     PLAN_TEXT_TOTAL that `given` counts across 7c."""
     lines: list[str] = []
+    squashed = {key: _collapse_repeats(_squash(texts.get((sheet.document, sheet.page)))) for key, sheet in chosen.items()}
+    cuts = _sheet_cuts(chosen, squashed, PLAN_TEXT_TOTAL - given.used)
     for n, (key, sheet) in enumerate(chosen.items()):
-        text = _collapse_repeats(_squash(texts.get((sheet.document, sheet.page))))
+        text = squashed[key]
         if not text:
             continue
-        if given.stopped or given.used + min(len(text), PLAN_TEXT_LIMIT) > PLAN_TEXT_TOTAL:
+        if given.stopped or given.used + min(len(text), cuts[key]) > PLAN_TEXT_TOTAL:
             lines.append(f"(Stopped at {PLAN_TEXT_TOTAL:,} characters: {_plural(len(chosen) - n, what)} "
                          "not given.)")
             given.stopped = True
             break
-        cut = text[:PLAN_TEXT_LIMIT] + (" …" if len(text) > PLAN_TEXT_LIMIT else "")
+        cut = text[:cuts[key]] + (" …" if len(text) > cuts[key] else "")
         where = _place(sheet.number, sheet.document, sheet.page)
         sid = ids.new(f"{where} (sheet text)")
         lines.append(f"[{sid}] {where} {sheet.title or ''}: {cut}".replace("  ", " "))
@@ -1436,6 +1442,39 @@ def _sheet_text_lines(chosen: dict, texts: dict, ids: _Ids, given: _SheetText, w
         given.pages[sid] = key
         given.used += len(cut)
     return lines
+
+
+def _is_controls_sheet(sheet) -> bool:
+    """A sheet that draws the controls: its discipline is Controls or its title says controls, a sequence, points or a
+    diagram."""
+    return getattr(sheet, "discipline", "") == "Controls" or bool(_CONTROLS_TITLE.search(getattr(sheet, "title", "") or ""))
+
+
+def _sheet_cuts(chosen: dict, texts: dict, room: int) -> dict:
+    """Each chosen sheet's cut (T-005d should fix 6). Within `room` every sheet keeps PLAN_TEXT_LIMIT. When that
+    would pass `room`, the controls sheets keep PLAN_TEXT_LIMIT and the other sheets share what is left: one even cut
+    for all, as high as fits, never under PLAN_TEXT_FLOOR (then the sheets past the total stop as before). The sheet
+    order, and so every source id, is unchanged; a large job's later sheets keep their text instead of losing it."""
+    sizes = {key: min(len(texts.get(key) or ""), PLAN_TEXT_LIMIT) for key in chosen}
+    cuts = {key: PLAN_TEXT_LIMIT for key in chosen}
+    if sum(sizes.values()) <= room:
+        return cuts
+    others = [key for key, sheet in chosen.items() if not _is_controls_sheet(sheet)]
+    left = room - sum(size for key, size in sizes.items() if key not in others)
+    lo, hi = PLAN_TEXT_FLOOR, PLAN_TEXT_LIMIT
+    if sum(min(sizes[key], lo) for key in others) > left:
+        best = lo
+    else:
+        while lo < hi:                               # the highest even cut that fits
+            mid = (lo + hi + 1) // 2
+            if sum(min(sizes[key], mid) for key in others) <= left:
+                lo = mid
+            else:
+                hi = mid - 1
+        best = lo
+    for key in others:
+        cuts[key] = best
+    return cuts
 
 
 def _plan_sheet_text(catalogue, texts: dict, ids: _Ids, printed: _Printed, counted,

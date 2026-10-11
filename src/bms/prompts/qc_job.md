@@ -14,6 +14,11 @@ Check every device and every count:
 - A block with no devices is right when its no_scope_reason says why and the sources agree; do not ask for lines the sources do not call for.
 - Texts: client text (assumption what and why, clarification text, no_scope_reason) never names a Playbook rule, a rule heading, a finding id or a source id; it names the document in a few plain words ("the mechanical schedule", "the sequence of operations", "sheet M-101.00"). Your own fix texts follow the same rule when they tell the writer what to write. A device name, assumption, clarification or no_scope_reason that prints a source id is a "must_fix" finding naming the id; its fix names the document in words and cites it as a Ref (Wrong: valves per S141. Right: valves per the mechanical schedule.). A tag the documents give (a fan "F1") or a sheet number ("sheet S101") is not a source id. Never send one back as a finding: a real tag or sheet number stays as written. An assumption or a clarification that names a Playbook rule or a rule heading instead of the document in words, starts with a label ("Confirm", "Assumed:", "Quantity"), or runs long (an assumption over about 25 words, a clarification over about 40) is a "check" finding.
 
+<!-- T-005d -->
+- Marks and stated facts (rulings 6 and 7): a line whose source marks the item FUTURE carries mark "future" and a mark_note “FUTURE AS PER <source>”; a line that does not is a "must_fix" finding. A device a unit schedule lists as furnished with the unit, written as a line without mark "notice", is a "check" finding. An assumption about something a cited schedule or the sequence states is a "must_fix" finding: its fix is to cite the passage and drop the assumption.
+- End devices a unit schedule lists (shipped loose, mounted in a duct or in the field) that no line carries are missing lines ("must_fix").
+<!-- end of T-005d -->
+
 Each finding names:
 - rule: the name of the Playbook rule it is about, exactly as listed;
 - system_key: the system's key ("" for the front end or the whole job);
