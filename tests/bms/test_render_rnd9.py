@@ -102,9 +102,10 @@ def test_the_cause_words_print_when_the_printed_count_has_a_sheet_too(pb):
                           OtherCount(1, Ref("S3", "schedule rows 1", "equipment counts for EF"))))
     fam = Family("Exhaust Fan", ("EF-1",), count)
     out = texts(render(job(system([device(qty=12)], families=(fam,), shape="")), pb), "EF")
-    [note] = [t for t in out if t.startswith("*Qty.")]
+    # T-005e (ruling 15): the counts in brackets on the header, no "*Qty." note
+    assert not any(t.startswith("*Qty.") for t in out), out
+    [note] = [t for t in out if "(12 per M-101" in t]
     assert words in note
-    assert note.startswith("*Qty. (12) per M-101")
 
 
 def test_the_alternate_label_form_comes_from_the_wording_when_set(pb):

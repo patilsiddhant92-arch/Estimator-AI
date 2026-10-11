@@ -28,10 +28,18 @@ from estimator.files import open_docx
 from estimator.proposal import layout
 from estimator.proposal.layout import ParagraphFormat
 from estimator.proposal.word import WordLists
-from estimator.scope import Alternate, Block, Header, Item, Job, Run
+from estimator.scope import Alternate, Block, Header, Item, Job, LaborCondition, Run
 from estimator.text import squash
 
 _XML_SPACE = "{http://www.w3.org/XML/1998/namespace}space"
+RED = RGBColor(0xFF, 0x00, 0x00)        # a run the estimator must notice (`Run.red`, T-005e)
+
+# T-005e: the template's working-hours clarification and off-hours exclusion, and what replaces them when the job's
+# documents call for off-hours work or prevailing wage (`Job.labor_conditions`), in red, citing the documents
+NORMAL_HOURS = "All labor will be performed during normal business working hours"
+OFF_HOURS_EXCLUSION = "All off-hours or overtime labor"
+OFF_HOURS_CLARIFICATION = "All labor for the off-hours work the documents call for is included (As per {source})."
+WAGE_CLARIFICATION = "All labor is priced at prevailing wage rates, as the documents require (As per {source})."
 
 
 class TemplateError(ValueError):
@@ -75,6 +83,7 @@ def write_proposal(job: Job, template_path: Path, out_path: Path) -> Path:
     _write_alternates(document, layout.ADD_ALTERNATES, job.add_alternates)
     _write_alternates(document, layout.DEDUCT_ALTERNATES, job.deduct_alternates)
     _add_named_exceptions(document, job.named_exceptions)
+    _write_labor_conditions(document, job.labor_conditions)
     out_path.parent.mkdir(parents=True, exist_ok=True)
     document.save(str(out_path))
     return out_path
@@ -452,3 +461,52 @@ def _add_named_exceptions(document: DocxDocument, exceptions: tuple[str, ...]) -
         _replace_text(Paragraph(clone, last._parent), text)
         cursor.addnext(clone)
         cursor = clone
+
+
+# --- off-hours work and prevailing wage (T-005e) --------------------------------------------------------------------
+
+def _make_red(paragraph: Paragraph) -> None:
+    for run in paragraph.runs:
+        run.font.color.rgb = RED
+
+
+def _clarification_after(cursor: Paragraph, text: str) -> Paragraph:
+    """A red clarification like the template's own (a copy of `cursor`'s paragraph, its text replaced), after it."""
+    clone = copy.deepcopy(cursor._p)
+    added = Paragraph(clone, cursor._parent)
+    _replace_text(added, text)
+    _make_red(added)
+    cursor._p.addnext(clone)
+    return added
+
+
+def _write_labor_conditions(document: DocxDocument, conditions: tuple[LaborCondition, ...]) -> None:
+    """When the job's documents call for off-hours work or prevailing wage, the proposal says so in red, citing them,
+    and never excludes it in silence: the working-hours clarification becomes the off-hours one, the off-hours
+    exclusion is taken out (the scope's "Labor Conditions" line carries it), and a prevailing-wage clarification follows
+    the first clarification. Nothing changes when there is no condition."""
+    if not conditions:
+        return
+    paragraphs = document.paragraphs
+    start = next(i for i, p in enumerate(paragraphs) if squash(p.text).startswith(layout.CLARIFICATIONS))
+    first = next((p for p in paragraphs[start + 1:] if squash(p.text)), None)
+    if first is None:
+        raise TemplateError("the clarifications section has no line")
+    by_kind = {c.kind: c for c in conditions}
+    cursor = first
+    off = by_kind.get("off-hours")
+    if off is not None:
+        text = OFF_HOURS_CLARIFICATION.format(source=off.source)
+        normal = next((p for p in paragraphs[start + 1:] if squash(p.text).startswith(NORMAL_HOURS)), None)
+        if normal is not None:
+            _replace_text(normal, text)
+            _make_red(normal)
+            cursor = normal
+        else:
+            cursor = _clarification_after(first, text)
+        for paragraph in document.paragraphs:
+            if squash(paragraph.text).startswith(OFF_HOURS_EXCLUSION):
+                paragraph._p.getparent().remove(paragraph._p)
+    wage = by_kind.get("prevailing-wage")
+    if wage is not None:
+        _clarification_after(cursor, WAGE_CLARIFICATION.format(source=wage.source))

@@ -90,7 +90,8 @@ def test_a_type_tag_once_on_each_of_two_floors_is_not_called_one_unit_shown_agai
     catalogue, reading = _job([("M-101", "HVAC FIRST FLOOR PLAN", "CUH-A\nVAV-1"),
                                ("M-102", "HVAC SECOND FLOOR PLAN", "CUH-A\nVAV-2")], ["CUH-A"])
     note = _note(_family_count(catalogue, reading, "CUH", tmp_path), "Cabinet Unit Heater", ("CUH-A",))
-    assert note and "(2) per plan placements" in note[0]
+    # T-005e (ruling 15): the counts in brackets on the line, no "*Qty." note
+    assert note and "(2 per plan placements" in note[0]
     assert "shown on several plans" not in note[0]
 
 

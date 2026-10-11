@@ -1,0 +1,431 @@
+{
+  "about": "The order of points inside a block (T-005e; GEM v4 'SOW ORDER - STANDARD TEMPLATE', GEM v4 lines ~395-432, estimator 2026-10-11). A block with a shape (its Master Template entry) prints its template slots in the shape's line order (GEM v4 ~396-402: 'Write its lines, in its order'). The standard order places every other line: the lines of the catch-all slots below, a slot the shape lacks, and every line of a block with no shape. Each such line gets the position of the first rule below that it matches; it prints after the block's last template line of the same position, else after the first template line of a lower position and before the next template line of a higher one. The Playbook wins (lead ruling 2026-10-11, playbook/rules.md 'Standard order' and 'Integration lines last'): the plain work statements of the other_wiring slot, with no verb (19), print before the integration group (20), which is always last in the block, the VFD group first. Demolition work prints in the proposal's own Demolition Scope block (estimator ruling 2026-10-11), not here. A sub-line stays directly under its parent line. Read by src/bms/order.py. Every pattern is a regular expression matched without regard to case on the line as printed (verb included). Edit the words here, never in code.",
+  "positions": {
+    "1": "DDC controller (and the panel or timeclock a block is built on)",
+    "2": "field sensors and transmitters",
+    "3": "safety and pressure switches",
+    "4": "leak detectors",
+    "5": "standalone current switches",
+    "6": "interposing relays",
+    "7": "damper actuators",
+    "8": "fan and pump signals: start/stop and status, VFD control, VFD fault, VFD speed feedback, safety stop",
+    "9": "primary equipment signals: boiler, chiller, cooling tower enable, status, fault",
+    "10": "position feedback and open/closed status",
+    "11": "other hardwired outputs",
+    "12": "power wiring",
+    "13": "fire alarm Wire lines",
+    "14": "Furnish and Wire filter switches",
+    "15": "Furnish and Wire airflow stations",
+    "16": "Furnish and Wire valves (and valves with any verb)",
+    "17": "Install and Wire",
+    "18": "other Wire lines, interlocks and tie-ins",
+    "19": "wiring runs and plain work statements with no verb (coordination, testing): before the integration lines (playbook/rules.md 'Standard order')",
+    "20": "the integration lines, always last in the block (VFD group first; playbook/rules.md 'Integration lines last')"
+  },
+  "rules": [
+    {
+      "position": 20,
+      "slot_kinds": [
+        "integration"
+      ]
+    },
+    {
+      "position": 20,
+      "words": [
+        "\\bBMS\\s+communication\\s+wiring\\b",
+        "^map\\s+available\\s+points\\b",
+        "\\brequires\\s+mfr\\.?\\s+rep\\b"
+      ]
+    },
+    {
+      "position": 12,
+      "words": [
+        "\\bpower\\s+loop\\b",
+        "\\b24\\s*-?\\s*V\\b",
+        "\\btransformers?\\b",
+        "\\bpower\\s+wiring\\b"
+      ]
+    },
+    {
+      "position": 13,
+      "slots": [
+        "fire_alarm"
+      ]
+    },
+    {
+      "position": 13,
+      "verbs": [
+        "Wire"
+      ],
+      "words": [
+        "\\bfire\\s+alarm\\b",
+        "\\bFA\\b",
+        "\\bsmoke\\b"
+      ]
+    },
+    {
+      "position": 18,
+      "slot_kinds": [
+        "interlock"
+      ]
+    },
+    {
+      "position": 18,
+      "words": [
+        "^(?:low\\s+voltage\\s+)?interlock\\b",
+        "^tie[- ]?in\\b",
+        "^necessary\\s+low\\s+voltage\\b"
+      ]
+    },
+    {
+      "position": 19,
+      "slot_kinds": [
+        "wiring"
+      ],
+      "verbs": [
+        ""
+      ]
+    },
+    {
+      "position": 17,
+      "verbs": [
+        "Install and Wire"
+      ]
+    },
+    {
+      "position": 18,
+      "verbs": [
+        "Wire"
+      ]
+    },
+    {
+      "position": 14,
+      "verbs": [
+        "Furnish and Wire",
+        "Furnish and Install"
+      ],
+      "words": [
+        "\\bfilters?\\b"
+      ]
+    },
+    {
+      "position": 15,
+      "verbs": [
+        "Furnish and Wire"
+      ],
+      "words": [
+        "\\bair\\s*flow\\s+(?:measuring\\s+|monitoring\\s+)?stations?\\b",
+        "\\bflow\\s+measuring\\s+stations?\\b",
+        "\\bAFMS\\b"
+      ]
+    },
+    {
+      "position": 10,
+      "verbs": [
+        "Furnish"
+      ],
+      "words": [
+        "\\bposition\\s+feedback\\b",
+        "\\bopen\\s*/\\s*clos(?:e|ed)\\s+status\\b",
+        "\\bend\\s+switch\\b",
+        "\\bvalve\\s+position\\b"
+      ]
+    },
+    {
+      "position": 16,
+      "words": [
+        "\\bvalves?\\b"
+      ],
+      "not_words": [
+        "\\bposition\\s+feedback\\b",
+        "\\bposition\\b",
+        "\\bend\\s+switch\\b"
+      ]
+    },
+    {
+      "position": 1,
+      "words": [
+        "\\bcontrollers?\\b",
+        "\\bDDC\\b",
+        "\\bpanels?\\b",
+        "\\benclosures?\\b",
+        "\\btime\\s*clocks?\\b",
+        "\\bsensaphone\\b"
+      ],
+      "not_words": [
+        "\\bsetpoint\\b",
+        "\\brelays?\\b"
+      ]
+    },
+    {
+      "position": 4,
+      "words": [
+        "\\bleak\\b"
+      ]
+    },
+    {
+      "position": 5,
+      "words": [
+        "\\bcurrent\\s+(?:switch|sensor|transducer)e?s?\\b",
+        "\\bCTs?\\b"
+      ]
+    },
+    {
+      "position": 5,
+      "verbs": [
+        "Furnish and Install"
+      ],
+      "words": [
+        "\\bstatus\\b"
+      ]
+    },
+    {
+      "position": 6,
+      "words": [
+        "\\brelays?\\b"
+      ]
+    },
+    {
+      "position": 7,
+      "words": [
+        "\\bdampers?\\b",
+        "\\bactuators?\\b"
+      ]
+    },
+    {
+      "position": 3,
+      "words": [
+        "\\bswitch(?:es)?\\b",
+        "\\bfreeze\\s*-?\\s*stats?\\b",
+        "\\bfirestats?\\b",
+        "\\baquastats?\\b",
+        "\\b(?:high|low)\\s+limit\\b"
+      ]
+    },
+    {
+      "position": 8,
+      "verbs": [
+        "Furnish"
+      ],
+      "words": [
+        "\\bVFDs?\\b",
+        "\\bvariable\\s+(?:frequency|speed)\\b",
+        "\\bsafety\\s+stop\\b"
+      ]
+    },
+    {
+      "position": 8,
+      "verbs": [
+        "Furnish"
+      ],
+      "words": [
+        "\\bstart\\s*[/-]?\\s*stop\\b"
+      ]
+    },
+    {
+      "position": 9,
+      "verbs": [
+        "Furnish"
+      ],
+      "words": [
+        "\\bboilers?\\b",
+        "\\bchillers?\\b",
+        "\\bcooling\\s+towers?\\b",
+        "\\bheat\\s+pumps?\\b",
+        "\\bgeothermal\\b",
+        "\\bcondensing\\s+units?\\b"
+      ]
+    },
+    {
+      "position": 8,
+      "verbs": [
+        "Furnish"
+      ],
+      "words": [
+        "\\bfans?\\b",
+        "\\bpumps?\\b",
+        "\\bwheels?\\b",
+        "\\bstart\\s*/\\s*stop\\b"
+      ]
+    },
+    {
+      "position": 11,
+      "verbs": [
+        "Furnish"
+      ]
+    },
+    {
+      "position": 2,
+      "verbs": [
+        "Furnish and Install"
+      ]
+    },
+    {
+      "position": 16,
+      "verbs": [
+        "Furnish and Wire"
+      ]
+    }
+  ],
+  "default_position": 11,
+  "front_end": {
+    "about": "The Master Template's front-end order (New, then Extension of Existing): a line takes the rank of the first entry whose words it matches; a line no entry matches prints after them, in the writer's order.",
+    "order": [
+      {
+        "name": "network level control panel",
+        "words": [
+          "\\bnetwork\\s+(?:level\\s+)?(?:control\\s+)?(?:panels?|controllers?)\\b",
+          "\\bbuilding\\s+level\\s+controllers?\\b",
+          "\\bsupervisory\\s+controllers?\\b",
+          "\\bJACE\\b",
+          "\\bNAC\\b"
+        ]
+      },
+      {
+        "name": "PC workstation",
+        "words": [
+          "\\bworkstations?\\b",
+          "\\bfront[- ]end\\s+PCs?\\b",
+          "\\boperator\\s+(?:PC|computer)\\b"
+        ]
+      },
+      {
+        "name": "BMS server",
+        "words": [
+          "\\bservers?\\b"
+        ]
+      },
+      {
+        "name": "portable operator terminal",
+        "words": [
+          "\\bPOT\\b",
+          "\\blaptops?\\b",
+          "\\btablets?\\b",
+          "\\bportable\\s+operator"
+        ]
+      },
+      {
+        "name": "UPS",
+        "words": [
+          "\\bUPS\\b",
+          "\\bbattery\\s+back-?\\s*up\\b"
+        ]
+      },
+      {
+        "name": "graphics",
+        "words": [
+          "\\bgraphics?\\b"
+        ]
+      },
+      {
+        "name": "training",
+        "words": [
+          "\\btraining\\b"
+        ]
+      },
+      {
+        "name": "IT infrastructure",
+        "words": [
+          "\\bIT\\s+infrastructure\\b",
+          "\\bnetwork\\s+switch(?:es)?\\b",
+          "^panels?$",
+          "\\bfib(?:er|re)\\b",
+          "\\bethernet\\b"
+        ]
+      }
+    ],
+    "existing_lines": {
+      "about": "An EXISTING BMS front end (mode extend-existing) prints the Master Template's 'Extension of Existing' lines, in its order. A line the writer wrote from this job's documents that matches one (its 'match' words) stands, citing the job; a template line the job does not speak to is printed in the template's words. Not printed when the writer wrote no front-end line and said why (the documents give the whole front end to others).",
+      "lines": [
+        {
+          "text": "Furnish Network Level Control Panel",
+          "match": "network level control panel"
+        },
+        {
+          "text": "Furnish 3-D Graphics to match existing",
+          "match": "graphics"
+        },
+        {
+          "text": "Furnish Necessary Training on New Controls",
+          "match": "training"
+        }
+      ]
+    },
+    "new_lines": {
+      "about": "A NEW system front end prints the Master Template's 'Default' lines (its New front end marks 3-D Graphics and Training 'Default', template ~58-61; estimator ruling 19, 2026-10-11 afternoon: the front-end section defines the standard lines). A line the writer wrote of the same entry stands. Not printed when the documents call for no front end, or the writer wrote no front-end line and said why.",
+      "lines": [
+        {
+          "text": "Furnish 3-D Graphics",
+          "match": "graphics"
+        },
+        {
+          "text": "Furnish Necessary Training on New Controls",
+          "match": "training"
+        }
+      ]
+    }
+  },
+  "catch_all_slots": {
+    "about": "The Playbook's catch-all slots (rules.md 'Placing a device in a slot'): a line in one of them, or in a slot the shape lacks, is placed by the standard order, never printed after the valves by its slot's place.",
+    "slots": [
+      "other_device",
+      "other_point",
+      "fire_alarm",
+      "other_valve",
+      "other_install_and_wire",
+      "other_wire",
+      "other_interlock",
+      "other_wiring"
+    ]
+  },
+  "integration": {
+    "about": "GEM v4 'INTEGRATION LINES': the VFD group comes first when both apply.",
+    "first_slots": [
+      "vfd_comm_wiring",
+      "vfd_map_points",
+      "vfd_rep_assist"
+    ]
+  },
+  "alternatives": {
+    "about": "The Master Template's 'OR' lines (its Fire / Smoke Dampers and VAV entries): when a block prints lines of two slots of one group next to each other, the word prints on a line between them, and only the first of the alternatives is priced. Keyed by shape name.",
+    "word": "OR",
+    "groups": {
+      "Fire / Smoke Dampers": [
+        [
+          "end_switch_status",
+          "fan_starter_interlock"
+        ]
+      ],
+      "VAV / Fan VAV": [
+        [
+          "hot_water_valve",
+          "electric_heat_enable",
+          "electric_heat_scr"
+        ],
+        [
+          "power_loop",
+          "transformer"
+        ]
+      ]
+    }
+  },
+  "minimum_points": {
+    "about": "A pump AME's own DDC controller runs gets Start/Stop and Status; VFD Control only when the documents show a VFD on that pump (playbook/rules.md 'Minimum points on AME-run equipment'; lead ruling 2026-10-11: the Playbook wins over GEM v4 ~346-351 'always'). Fault and speed feedback print only when the documents call them (they are never added). A block under field control whose pump Start/Stop line has no VFD Control line for that pump, but another line of the block names that pump's VFD (vfd_control words, e.g. a VFD Fault) or the Start/Stop line's own quote names a VFD, gets one, citing the Start/Stop line's sources, in the shape's VFD slot for that pump (start_stop -> vfd_control, else vfd), else other_point.",
+    "pump": "\\bpumps?\\b",
+    "start_stop": "\\bstart\\s*[/-]?\\s*stop\\b",
+    "stem_end": "\\s*\\bstart\\s*[/-]?\\s*stop\\b.*$",
+    "vfd_control": "\\b(?:VFDs?|variable\\s+(?:frequency|speed)(?:\\s+drives?)?)\\b",
+    "not_control": "\\b(?:fault|malfunction|alarm|feedback|safety\\s+stop|status)\\b",
+    "line": "{pump} VFD Control"
+  },
+  "valves": {
+    "about": "GEM v4 ~228: all valves and actuators are always Furnish and Wire (a valve line written Furnish and Install prints Furnish and Wire). GEM v4 ~291 and ~294: a valve inside a factory-controlled unit (packaged or integration control) that the unit maker furnishes and AME does not install is not a controls line: it is left out, with a note for the Evidence Package.",
+    "words": "\\bvalves?\\b",
+    "not_words": "\\b(?:position\\s+feedback|end\\s+switch|open\\s*/\\s*clos(?:e|ed)\\s+status)\\b",
+    "factory_controls": [
+      "packaged",
+      "integration"
+    ],
+    "left_out": "{line}: left out, a valve inside a factory-controlled unit is the unit maker's"
+  }
+}

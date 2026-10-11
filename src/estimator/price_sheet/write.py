@@ -9,6 +9,7 @@ total is never mistaken for a complete one.
 """
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 from openpyxl.styles import Font
@@ -18,12 +19,17 @@ from estimator.price_sheet.price_book import PriceBook
 from estimator.price_sheet.rows import FIRST_ROW, FLAG, HOURS, LAST_ROW, QUANTITY, SCOPE, UNIT_PRICE, Sheet, sheet_plan
 from estimator.scope import Job
 
+# a line's own quantity, "Qty (#) <device>" (estimator ruling 15, T-005e): not part of the device's name in the book
+_LINE_QTY = re.compile(r"\bQty \((?:\d+|#+)\)\s*")
+
 PRICE_PENDING = "PRICE PENDING"
 PRICE_NEEDS_REVIEW = "PRICE NEEDS REVIEW"   # the price book's own note questions this price
+LABOR_PREMIUM = "LABOR PREMIUM - ESTIMATOR TO PRICE"   # off-hours work or prevailing wage the documents call for
 QUANTITY_PENDING = "QUANTITY PENDING"       # a "Qty (##)" block or a "(Qty. ##)" line: still to fill, unpriced
 BASE_LABEL = "Base Bid"
 MAX_SHEETS = 10
 _FLAG_FONT = Font(bold=True, color="C00000")
+_RED_FONT = Font(color="FF0000")            # a line the proposal prints in red (T-005e)
 
 
 class PriceSheetError(ValueError):
@@ -47,12 +53,13 @@ def check_fit(job: Job) -> list[Sheet]:
 def write_price_sheet(job: Job, template_path: Path, book: PriceBook, out_path: Path) -> Path:
     plan = check_fit(job)
     workbook = open_workbook(template_path)    # formulas kept as formulas
+    labor = {condition.text for condition in job.labor_conditions}
     pending = 0
     for index, sheet in enumerate(plan):
         template_title = f"Price Sheet {index + 1}"
         if sheet.title != template_title:
             _rename_sheet(workbook, template_title, sheet.title)
-        pending += _fill(workbook[sheet.title], sheet, book)
+        pending += _fill(workbook[sheet.title], sheet, book, labor)
     counts = sum(1 for sheet in plan for row in sheet.rows if row.count_pending)
     quantities = sum(1 for sheet in plan for row in sheet.rows if row.quantity_pending)
     _fill_summary(workbook["Summary"], job, plan, pending, counts, quantities)
@@ -62,12 +69,16 @@ def write_price_sheet(job: Job, template_path: Path, book: PriceBook, out_path: 
     return out_path
 
 
-def _fill(ws, sheet: Sheet, book: PriceBook) -> int:
+def _fill(ws, sheet: Sheet, book: PriceBook, labor: set[str] = frozenset()) -> int:
     pending = 0
     for offset, row in enumerate(sheet.rows):
         r = FIRST_ROW + offset
         if row.text:
             ws.cell(r, SCOPE).value = row.text
+            if row.red:
+                ws.cell(r, SCOPE).font = _RED_FONT
+        if row.item is not None and row.item.text in labor:
+            _flag(ws, r, LABOR_PREMIUM)        # the documents call for it: never left out, priced by the estimator
         if row.hours is not None:
             ws.cell(r, HOURS).value = row.hours
         if row.count_pending:
@@ -76,7 +87,7 @@ def _fill(ws, sheet: Sheet, book: PriceBook) -> int:
             _flag(ws, r, QUANTITY_PENDING)     # a "(Qty. ##)" line: no quantity, so it is not priced
         if row.quantity is not None:
             ws.cell(r, QUANTITY).value = row.quantity
-            match = book.lookup(row.item.text)
+            match = book.lookup(_LINE_QTY.sub("", row.item.text))
             if match is None:
                 _flag(ws, r, PRICE_PENDING)
                 pending += 1
@@ -129,6 +140,10 @@ def _fill_summary(ws, job: Job, plan: list[Sheet], pending: int, counts: int = 0
         lines, have = ("line", "has") if quantities == 1 else ("lines", "have")
         said.append(f"{quantities} {lines} {have} no quantity yet — (Qty. ##), marked {QUANTITY_PENDING}; "
                     "not priced until the quantity is typed in.")
+    for condition in job.labor_conditions:
+        what = "Off-hours work" if condition.kind == "off-hours" else "Prevailing wage"
+        said.append(f"{what} is called for by the documents ({condition.source}): add its labor premium, marked "
+                    f"{LABOR_PREMIUM} in column H.")
     if said:
         cell = ws["B34"]
         cell.value = " ".join(said)

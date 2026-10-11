@@ -1,0 +1,1268 @@
+{
+  "name": "Invented Academy (invented test job)",
+  "systems": [
+    {
+      "key": "AHU",
+      "name": "Air Handling Units",
+      "shape": "Air Handling Unit",
+      "control": "field",
+      "families": [
+        {
+          "name": "Air Handling Unit",
+          "tags": [
+            "AHU-1",
+            "AHU-2"
+          ],
+          "count": {
+            "value": 2,
+            "sources": [
+              {
+                "source_id": "S1",
+                "quote": "INVENTED-1 INVENTED-2",
+                "where": "M-601, Invented Drawings.pdf page 3"
+              }
+            ],
+            "others": [
+              {
+                "value": 1,
+                "ref": {
+                  "source_id": "S2",
+                  "quote": "q",
+                  "where": "M-201, Invented Drawings.pdf page 5"
+                }
+              }
+            ],
+            "added_up": null
+          }
+        }
+      ],
+      "sequence_refs": [
+        {
+          "source_id": "Q1",
+          "quote": "the invented controls contractor shall run the invented equipment",
+          "where": "23 09 93, Invented Specs.pdf page 7"
+        }
+      ],
+      "devices": [
+        {
+          "id": "AHU.d1",
+          "slot": "vfd_comm_wiring",
+          "name": "BMS Communication Wiring to VFD Controls",
+          "verb": "Furnish",
+          "furnished_by": "AME",
+          "installed_by": "AME",
+          "wired_by": "AME",
+          "quantity": {
+            "value": 2,
+            "sources": [],
+            "others": [],
+            "added_up": null
+          },
+          "refs": [
+            {
+              "source_id": "Q1",
+              "quote": "the invented controls contractor shall run the invented equipment",
+              "where": "23 09 93, Invented Specs.pdf page 7"
+            }
+          ],
+          "assumption": null,
+          "flag": "none",
+          "mark": "",
+          "mark_note": ""
+        },
+        {
+          "id": "AHU.d2",
+          "slot": "hot_water_valve",
+          "name": "Hot Water Control Valve and Actuator",
+          "verb": "Furnish and Install",
+          "furnished_by": "AME",
+          "installed_by": "AME",
+          "wired_by": "AME",
+          "quantity": {
+            "value": 2,
+            "sources": [],
+            "others": [],
+            "added_up": null
+          },
+          "refs": [
+            {
+              "source_id": "Q1",
+              "quote": "the invented controls contractor shall run the invented equipment",
+              "where": "23 09 93, Invented Specs.pdf page 7"
+            }
+          ],
+          "assumption": null,
+          "flag": "none",
+          "mark": "",
+          "mark_note": ""
+        },
+        {
+          "id": "AHU.d3",
+          "slot": "other_point",
+          "name": "Supply Fan VFD Fault",
+          "verb": "Furnish",
+          "furnished_by": "AME",
+          "installed_by": "AME",
+          "wired_by": "AME",
+          "quantity": {
+            "value": 2,
+            "sources": [],
+            "others": [],
+            "added_up": null
+          },
+          "refs": [
+            {
+              "source_id": "Q1",
+              "quote": "the invented controls contractor shall run the invented equipment",
+              "where": "23 09 93, Invented Specs.pdf page 7"
+            }
+          ],
+          "assumption": null,
+          "flag": "none",
+          "mark": "",
+          "mark_note": ""
+        },
+        {
+          "id": "AHU.d4",
+          "slot": "supply_fan_start_stop",
+          "name": "Supply Fan Start/Stop and Status",
+          "verb": "Furnish",
+          "furnished_by": "AME",
+          "installed_by": "AME",
+          "wired_by": "AME",
+          "quantity": {
+            "value": 2,
+            "sources": [],
+            "others": [],
+            "added_up": null
+          },
+          "refs": [
+            {
+              "source_id": "Q1",
+              "quote": "the invented controls contractor shall run the invented equipment",
+              "where": "23 09 93, Invented Specs.pdf page 7"
+            }
+          ],
+          "assumption": null,
+          "flag": "none",
+          "mark": "",
+          "mark_note": ""
+        },
+        {
+          "id": "AHU.d5",
+          "slot": "supply_fan_vfd",
+          "name": "Supply Fan VFD Control",
+          "verb": "Furnish",
+          "furnished_by": "AME",
+          "installed_by": "AME",
+          "wired_by": "AME",
+          "quantity": {
+            "value": 2,
+            "sources": [],
+            "others": [],
+            "added_up": null
+          },
+          "refs": [
+            {
+              "source_id": "Q1",
+              "quote": "the invented controls contractor shall run the invented equipment",
+              "where": "23 09 93, Invented Specs.pdf page 7"
+            }
+          ],
+          "assumption": null,
+          "flag": "none",
+          "mark": "",
+          "mark_note": ""
+        },
+        {
+          "id": "AHU.d6",
+          "slot": "other_device",
+          "name": "Return Air CO2 Sensor",
+          "verb": "Furnish and Install",
+          "furnished_by": "AME",
+          "installed_by": "AME",
+          "wired_by": "AME",
+          "quantity": {
+            "value": 2,
+            "sources": [],
+            "others": [],
+            "added_up": null
+          },
+          "refs": [
+            {
+              "source_id": "Q1",
+              "quote": "the invented controls contractor shall run the invented equipment",
+              "where": "23 09 93, Invented Specs.pdf page 7"
+            }
+          ],
+          "assumption": null,
+          "flag": "none",
+          "mark": "",
+          "mark_note": ""
+        },
+        {
+          "id": "AHU.d7",
+          "slot": "controller",
+          "name": "DDC Controller",
+          "verb": "Furnish and Install",
+          "furnished_by": "AME",
+          "installed_by": "AME",
+          "wired_by": "AME",
+          "quantity": {
+            "value": 2,
+            "sources": [],
+            "others": [],
+            "added_up": null
+          },
+          "refs": [
+            {
+              "source_id": "Q1",
+              "quote": "the invented controls contractor shall run the invented equipment",
+              "where": "23 09 93, Invented Specs.pdf page 7"
+            }
+          ],
+          "assumption": null,
+          "flag": "none",
+          "mark": "",
+          "mark_note": ""
+        },
+        {
+          "id": "AHU.d8",
+          "slot": "discharge_temperature",
+          "name": "Supply Air Temperature Sensor",
+          "verb": "Furnish and Install",
+          "furnished_by": "AME",
+          "installed_by": "AME",
+          "wired_by": "AME",
+          "quantity": {
+            "value": 2,
+            "sources": [],
+            "others": [],
+            "added_up": null
+          },
+          "refs": [
+            {
+              "source_id": "Q1",
+              "quote": "the invented controls contractor shall run the invented equipment",
+              "where": "23 09 93, Invented Specs.pdf page 7"
+            }
+          ],
+          "assumption": null,
+          "flag": "none",
+          "mark": "",
+          "mark_note": ""
+        },
+        {
+          "id": "AHU.d9",
+          "slot": "oa_damper",
+          "name": "Outside Air Damper Actuator",
+          "verb": "Furnish and Install",
+          "furnished_by": "AME",
+          "installed_by": "AME",
+          "wired_by": "AME",
+          "quantity": {
+            "value": 4,
+            "sources": [
+              {
+                "source_id": "S1",
+                "quote": "INVENTED-1 INVENTED-2",
+                "where": "M-601, Invented Drawings.pdf page 3"
+              }
+            ],
+            "others": [
+              {
+                "value": 2,
+                "ref": {
+                  "source_id": "S3",
+                  "quote": "q",
+                  "where": "M-401, Invented Drawings.pdf page 6"
+                }
+              }
+            ],
+            "added_up": null
+          },
+          "refs": [
+            {
+              "source_id": "Q1",
+              "quote": "the invented controls contractor shall run the invented equipment",
+              "where": "23 09 93, Invented Specs.pdf page 7"
+            }
+          ],
+          "assumption": null,
+          "flag": "none",
+          "mark": "",
+          "mark_note": ""
+        },
+        {
+          "id": "AHU.d10",
+          "slot": "other_wiring",
+          "name": "Demolition of Existing Pneumatic Tubing and Sensors",
+          "verb": "Furnish",
+          "furnished_by": "AME",
+          "installed_by": "AME",
+          "wired_by": "AME",
+          "quantity": {
+            "value": 2,
+            "sources": [],
+            "others": [],
+            "added_up": null
+          },
+          "refs": [
+            {
+              "source_id": "Q1",
+              "quote": "the invented controls contractor shall run the invented equipment",
+              "where": "23 09 93, Invented Specs.pdf page 7"
+            }
+          ],
+          "assumption": null,
+          "flag": "none",
+          "mark": "",
+          "mark_note": ""
+        },
+        {
+          "id": "AHU.d11",
+          "slot": "other_interlock",
+          "name": "Associated Exhaust Fan Operation",
+          "verb": "Furnish",
+          "furnished_by": "AME",
+          "installed_by": "AME",
+          "wired_by": "AME",
+          "quantity": {
+            "value": 2,
+            "sources": [],
+            "others": [],
+            "added_up": null
+          },
+          "refs": [
+            {
+              "source_id": "Q1",
+              "quote": "the invented controls contractor shall run the invented equipment",
+              "where": "23 09 93, Invented Specs.pdf page 7"
+            }
+          ],
+          "assumption": null,
+          "flag": "none",
+          "mark": "",
+          "mark_note": ""
+        },
+        {
+          "id": "AHU.d12",
+          "slot": "vfd_map_points",
+          "name": "Map Available Points Via Mfr. Provided BMS Interface",
+          "verb": "Furnish",
+          "furnished_by": "AME",
+          "installed_by": "AME",
+          "wired_by": "AME",
+          "quantity": {
+            "value": 2,
+            "sources": [],
+            "others": [],
+            "added_up": null
+          },
+          "refs": [
+            {
+              "source_id": "Q1",
+              "quote": "the invented controls contractor shall run the invented equipment",
+              "where": "23 09 93, Invented Specs.pdf page 7"
+            }
+          ],
+          "assumption": null,
+          "flag": "none",
+          "mark": "",
+          "mark_note": ""
+        }
+      ],
+      "clarifications": [
+        {
+          "kind": "confirm",
+          "text": "Confirm quantity: invented damper count"
+        },
+        {
+          "kind": "note",
+          "text": "Start/Stop via Fire Alarm System"
+        }
+      ],
+      "tech_hours": 32.0,
+      "alternate": "base",
+      "no_scope_reason": null,
+      "serves": []
+    },
+    {
+      "key": "EF",
+      "name": "Exhaust Fans",
+      "shape": "Exhaust Fan",
+      "control": "field",
+      "families": [
+        {
+          "name": "Exhaust Fan",
+          "tags": [
+            "EF-1",
+            "EF-2",
+            "EF-3"
+          ],
+          "count": {
+            "value": 3,
+            "sources": [
+              {
+                "source_id": "S1",
+                "quote": "INVENTED-1 INVENTED-2",
+                "where": "M-601, Invented Drawings.pdf page 3"
+              }
+            ],
+            "others": [],
+            "added_up": null
+          }
+        }
+      ],
+      "sequence_refs": [
+        {
+          "source_id": "Q1",
+          "quote": "the invented controls contractor shall run the invented equipment",
+          "where": "23 09 93, Invented Specs.pdf page 7"
+        }
+      ],
+      "devices": [
+        {
+          "id": "EF.d1",
+          "slot": "damper_actuator",
+          "name": "Motorized Damper Actuator",
+          "verb": "Furnish and Install",
+          "furnished_by": "AME",
+          "installed_by": "AME",
+          "wired_by": "AME",
+          "quantity": {
+            "value": 3,
+            "sources": [],
+            "others": [],
+            "added_up": null
+          },
+          "refs": [
+            {
+              "source_id": "Q1",
+              "quote": "the invented controls contractor shall run the invented equipment",
+              "where": "23 09 93, Invented Specs.pdf page 7"
+            }
+          ],
+          "assumption": null,
+          "flag": "none",
+          "mark": "",
+          "mark_note": ""
+        },
+        {
+          "id": "EF.d2",
+          "slot": "other_device",
+          "name": "Room Pressure Sensor",
+          "verb": "Furnish and Install",
+          "furnished_by": "AME",
+          "installed_by": "AME",
+          "wired_by": "AME",
+          "quantity": {
+            "value": 3,
+            "sources": [],
+            "others": [],
+            "added_up": null
+          },
+          "refs": [
+            {
+              "source_id": "Q1",
+              "quote": "the invented controls contractor shall run the invented equipment",
+              "where": "23 09 93, Invented Specs.pdf page 7"
+            }
+          ],
+          "assumption": null,
+          "flag": "none",
+          "mark": "",
+          "mark_note": ""
+        },
+        {
+          "id": "EF.d3",
+          "slot": "start_stop_status",
+          "name": "Fan Start/Stop and Status",
+          "verb": "Furnish",
+          "furnished_by": "AME",
+          "installed_by": "AME",
+          "wired_by": "AME",
+          "quantity": {
+            "value": 3,
+            "sources": [],
+            "others": [],
+            "added_up": null
+          },
+          "refs": [
+            {
+              "source_id": "Q1",
+              "quote": "the invented controls contractor shall run the invented equipment",
+              "where": "23 09 93, Invented Specs.pdf page 7"
+            }
+          ],
+          "assumption": null,
+          "flag": "none",
+          "mark": "",
+          "mark_note": ""
+        },
+        {
+          "id": "EF.d4",
+          "slot": "controller",
+          "name": "DDC Controller",
+          "verb": "Furnish and Install",
+          "furnished_by": "AME",
+          "installed_by": "AME",
+          "wired_by": "AME",
+          "quantity": {
+            "value": 3,
+            "sources": [],
+            "others": [],
+            "added_up": null
+          },
+          "refs": [
+            {
+              "source_id": "Q1",
+              "quote": "the invented controls contractor shall run the invented equipment",
+              "where": "23 09 93, Invented Specs.pdf page 7"
+            }
+          ],
+          "assumption": null,
+          "flag": "none",
+          "mark": "",
+          "mark_note": ""
+        },
+        {
+          "id": "EF.d5",
+          "slot": "interlock",
+          "name": "AHU",
+          "verb": "Furnish",
+          "furnished_by": "AME",
+          "installed_by": "AME",
+          "wired_by": "AME",
+          "quantity": {
+            "value": 3,
+            "sources": [],
+            "others": [],
+            "added_up": null
+          },
+          "refs": [
+            {
+              "source_id": "Q1",
+              "quote": "the invented controls contractor shall run the invented equipment",
+              "where": "23 09 93, Invented Specs.pdf page 7"
+            }
+          ],
+          "assumption": null,
+          "flag": "none",
+          "mark": "",
+          "mark_note": ""
+        }
+      ],
+      "clarifications": [],
+      "tech_hours": 12.0,
+      "alternate": "base",
+      "no_scope_reason": null,
+      "serves": []
+    },
+    {
+      "key": "CHW",
+      "name": "Chilled Water System",
+      "shape": "Chilled Water System",
+      "control": "field",
+      "families": [
+        {
+          "name": "Chiller",
+          "tags": [
+            "CH-1"
+          ],
+          "count": {
+            "value": 1,
+            "sources": [
+              {
+                "source_id": "S1",
+                "quote": "INVENTED-1 INVENTED-2",
+                "where": "M-601, Invented Drawings.pdf page 3"
+              }
+            ],
+            "others": [],
+            "added_up": null
+          }
+        },
+        {
+          "name": "Chilled Water Pump",
+          "tags": [
+            "CHWP-1",
+            "CHWP-2"
+          ],
+          "count": {
+            "value": 2,
+            "sources": [
+              {
+                "source_id": "S1",
+                "quote": "INVENTED-1 INVENTED-2",
+                "where": "M-601, Invented Drawings.pdf page 3"
+              }
+            ],
+            "others": [],
+            "added_up": null
+          }
+        }
+      ],
+      "sequence_refs": [
+        {
+          "source_id": "Q1",
+          "quote": "the invented controls contractor shall run the invented equipment",
+          "where": "23 09 93, Invented Specs.pdf page 7"
+        }
+      ],
+      "devices": [
+        {
+          "id": "CHW.d1",
+          "slot": "controller",
+          "name": "DDC Controller",
+          "verb": "Furnish and Install",
+          "furnished_by": "AME",
+          "installed_by": "AME",
+          "wired_by": "AME",
+          "quantity": {
+            "value": 1,
+            "sources": [],
+            "others": [],
+            "added_up": null
+          },
+          "refs": [
+            {
+              "source_id": "Q1",
+              "quote": "the invented controls contractor shall run the invented equipment",
+              "where": "23 09 93, Invented Specs.pdf page 7"
+            }
+          ],
+          "assumption": null,
+          "flag": "none",
+          "mark": "",
+          "mark_note": ""
+        },
+        {
+          "id": "CHW.d2",
+          "slot": "chiller_enable",
+          "name": "Chiller Enable",
+          "verb": "Furnish",
+          "furnished_by": "AME",
+          "installed_by": "AME",
+          "wired_by": "AME",
+          "quantity": {
+            "value": 1,
+            "sources": [],
+            "others": [],
+            "added_up": null
+          },
+          "refs": [
+            {
+              "source_id": "Q1",
+              "quote": "the invented controls contractor shall run the invented equipment",
+              "where": "23 09 93, Invented Specs.pdf page 7"
+            }
+          ],
+          "assumption": null,
+          "flag": "none",
+          "mark": "",
+          "mark_note": ""
+        },
+        {
+          "id": "CHW.d3",
+          "slot": "pump_start_stop",
+          "name": "Chilled Water Pump Start/Stop and Status",
+          "verb": "Furnish",
+          "furnished_by": "AME",
+          "installed_by": "AME",
+          "wired_by": "AME",
+          "quantity": {
+            "value": 2,
+            "sources": [],
+            "others": [],
+            "added_up": null
+          },
+          "refs": [
+            {
+              "source_id": "Q1",
+              "quote": "the invented controls contractor shall run the invented equipment",
+              "where": "23 09 93, Invented Specs.pdf page 7"
+            }
+          ],
+          "assumption": null,
+          "flag": "none",
+          "mark": "",
+          "mark_note": ""
+        },
+        {
+          "id": "CHW.d4",
+          "slot": "pump_vfd_alarm",
+          "name": "Chilled Water Pump VFD Fault",
+          "verb": "Furnish",
+          "furnished_by": "AME",
+          "installed_by": "AME",
+          "wired_by": "AME",
+          "quantity": {
+            "value": 2,
+            "sources": [],
+            "others": [],
+            "added_up": null
+          },
+          "refs": [
+            {
+              "source_id": "Q1",
+              "quote": "the invented controls contractor shall run the invented equipment",
+              "where": "23 09 93, Invented Specs.pdf page 7"
+            }
+          ],
+          "assumption": null,
+          "flag": "none",
+          "mark": "",
+          "mark_note": ""
+        },
+        {
+          "id": "CHW.d5",
+          "slot": "bypass_valve",
+          "name": "Differential Pressure Bypass Valve and Actuator",
+          "verb": "Furnish and Wire",
+          "furnished_by": "AME",
+          "installed_by": "AME",
+          "wired_by": "AME",
+          "quantity": {
+            "value": 1,
+            "sources": [],
+            "others": [],
+            "added_up": null
+          },
+          "refs": [
+            {
+              "source_id": "Q1",
+              "quote": "the invented controls contractor shall run the invented equipment",
+              "where": "23 09 93, Invented Specs.pdf page 7"
+            }
+          ],
+          "assumption": null,
+          "flag": "none",
+          "mark": "",
+          "mark_note": ""
+        }
+      ],
+      "clarifications": [],
+      "tech_hours": 24.0,
+      "alternate": "base",
+      "no_scope_reason": null,
+      "serves": []
+    },
+    {
+      "key": "HW",
+      "name": "Hot Water System",
+      "shape": "Hot Water System",
+      "control": "field",
+      "families": [
+        {
+          "name": "Boiler",
+          "tags": [
+            "B-1",
+            "B-2"
+          ],
+          "count": {
+            "value": 2,
+            "sources": [
+              {
+                "source_id": "S1",
+                "quote": "INVENTED-1 INVENTED-2",
+                "where": "M-601, Invented Drawings.pdf page 3"
+              }
+            ],
+            "others": [],
+            "added_up": null
+          }
+        },
+        {
+          "name": "Hot Water Pump",
+          "tags": [
+            "HWP-1",
+            "HWP-2"
+          ],
+          "count": {
+            "value": 2,
+            "sources": [
+              {
+                "source_id": "S1",
+                "quote": "INVENTED-1 INVENTED-2",
+                "where": "M-601, Invented Drawings.pdf page 3"
+              }
+            ],
+            "others": [],
+            "added_up": null
+          }
+        }
+      ],
+      "sequence_refs": [
+        {
+          "source_id": "Q1",
+          "quote": "the invented controls contractor shall run the invented equipment",
+          "where": "23 09 93, Invented Specs.pdf page 7"
+        }
+      ],
+      "devices": [
+        {
+          "id": "HW.d1",
+          "slot": "controller",
+          "name": "DDC Controller",
+          "verb": "Furnish and Install",
+          "furnished_by": "AME",
+          "installed_by": "AME",
+          "wired_by": "AME",
+          "quantity": {
+            "value": 1,
+            "sources": [],
+            "others": [],
+            "added_up": null
+          },
+          "refs": [
+            {
+              "source_id": "Q1",
+              "quote": "the invented controls contractor shall run the invented equipment",
+              "where": "23 09 93, Invented Specs.pdf page 7"
+            }
+          ],
+          "assumption": null,
+          "flag": "none",
+          "mark": "",
+          "mark_note": ""
+        },
+        {
+          "id": "HW.d2",
+          "slot": "boiler_enable",
+          "name": "Boiler Enable",
+          "verb": "Furnish",
+          "furnished_by": "AME",
+          "installed_by": "AME",
+          "wired_by": "AME",
+          "quantity": {
+            "value": 2,
+            "sources": [],
+            "others": [],
+            "added_up": null
+          },
+          "refs": [
+            {
+              "source_id": "Q1",
+              "quote": "the invented controls contractor shall run the invented equipment",
+              "where": "23 09 93, Invented Specs.pdf page 7"
+            }
+          ],
+          "assumption": null,
+          "flag": "none",
+          "mark": "",
+          "mark_note": ""
+        },
+        {
+          "id": "HW.d3",
+          "slot": "hw_pump_start_stop",
+          "name": "Hot Water Pump Start/Stop and Status",
+          "verb": "Furnish",
+          "furnished_by": "AME",
+          "installed_by": "AME",
+          "wired_by": "AME",
+          "quantity": {
+            "value": 2,
+            "sources": [],
+            "others": [],
+            "added_up": null
+          },
+          "refs": [
+            {
+              "source_id": "Q1",
+              "quote": "the invented controls contractor shall run the invented equipment",
+              "where": "23 09 93, Invented Specs.pdf page 7"
+            }
+          ],
+          "assumption": null,
+          "flag": "none",
+          "mark": "",
+          "mark_note": ""
+        },
+        {
+          "id": "HW.d4",
+          "slot": "hw_pump_vfd",
+          "name": "Hot Water Pump VFD Control",
+          "verb": "Furnish",
+          "furnished_by": "AME",
+          "installed_by": "AME",
+          "wired_by": "AME",
+          "quantity": {
+            "value": 2,
+            "sources": [],
+            "others": [],
+            "added_up": null
+          },
+          "refs": [
+            {
+              "source_id": "Q1",
+              "quote": "the invented controls contractor shall run the invented equipment",
+              "where": "23 09 93, Invented Specs.pdf page 7"
+            }
+          ],
+          "assumption": null,
+          "flag": "none",
+          "mark": "",
+          "mark_note": ""
+        }
+      ],
+      "clarifications": [],
+      "tech_hours": 24.0,
+      "alternate": "base",
+      "no_scope_reason": null,
+      "serves": []
+    },
+    {
+      "key": "RTU",
+      "name": "Rooftop Units",
+      "shape": "Packaged ERU / RTU / AHU",
+      "control": "packaged",
+      "families": [
+        {
+          "name": "Rooftop Unit",
+          "tags": [
+            "RTU-1",
+            "RTU-2"
+          ],
+          "count": {
+            "value": 2,
+            "sources": [
+              {
+                "source_id": "S1",
+                "quote": "INVENTED-1 INVENTED-2",
+                "where": "M-601, Invented Drawings.pdf page 3"
+              }
+            ],
+            "others": [],
+            "added_up": null
+          }
+        }
+      ],
+      "sequence_refs": [
+        {
+          "source_id": "Q1",
+          "quote": "the invented controls contractor shall run the invented equipment",
+          "where": "23 09 93, Invented Specs.pdf page 7"
+        }
+      ],
+      "devices": [
+        {
+          "id": "RTU.d1",
+          "slot": "other_valve",
+          "name": "Hot Gas Reheat Valve",
+          "verb": "Wire",
+          "furnished_by": "Unit Mfr.",
+          "installed_by": "Unit Mfr.",
+          "wired_by": "AME",
+          "quantity": {
+            "value": 2,
+            "sources": [],
+            "others": [],
+            "added_up": null
+          },
+          "refs": [
+            {
+              "source_id": "Q1",
+              "quote": "the invented controls contractor shall run the invented equipment",
+              "where": "23 09 93, Invented Specs.pdf page 7"
+            }
+          ],
+          "assumption": null,
+          "flag": "none",
+          "mark": "",
+          "mark_note": ""
+        },
+        {
+          "id": "RTU.d2",
+          "slot": "supply_air_temperature",
+          "name": "Supply Air Temperature Sensor",
+          "verb": "Install and Wire",
+          "furnished_by": "Unit Mfr.",
+          "installed_by": "AME",
+          "wired_by": "AME",
+          "quantity": {
+            "value": 2,
+            "sources": [],
+            "others": [],
+            "added_up": null
+          },
+          "refs": [
+            {
+              "source_id": "Q1",
+              "quote": "the invented controls contractor shall run the invented equipment",
+              "where": "23 09 93, Invented Specs.pdf page 7"
+            }
+          ],
+          "assumption": null,
+          "flag": "none",
+          "mark": "",
+          "mark_note": ""
+        },
+        {
+          "id": "RTU.d3",
+          "slot": "comm_wiring",
+          "name": "BMS Communication Wiring to Factory Controls",
+          "verb": "Furnish",
+          "furnished_by": "AME",
+          "installed_by": "AME",
+          "wired_by": "AME",
+          "quantity": {
+            "value": 2,
+            "sources": [],
+            "others": [],
+            "added_up": null
+          },
+          "refs": [
+            {
+              "source_id": "Q1",
+              "quote": "the invented controls contractor shall run the invented equipment",
+              "where": "23 09 93, Invented Specs.pdf page 7"
+            }
+          ],
+          "assumption": null,
+          "flag": "none",
+          "mark": "",
+          "mark_note": ""
+        },
+        {
+          "id": "RTU.d4",
+          "slot": "map_points",
+          "name": "Map Available Points Via Mfr. Provided BMS Interface",
+          "verb": "Furnish",
+          "furnished_by": "AME",
+          "installed_by": "AME",
+          "wired_by": "AME",
+          "quantity": {
+            "value": 2,
+            "sources": [],
+            "others": [],
+            "added_up": null
+          },
+          "refs": [
+            {
+              "source_id": "Q1",
+              "quote": "the invented controls contractor shall run the invented equipment",
+              "where": "23 09 93, Invented Specs.pdf page 7"
+            }
+          ],
+          "assumption": null,
+          "flag": "none",
+          "mark": "",
+          "mark_note": ""
+        },
+        {
+          "id": "RTU.d5",
+          "slot": "rep_assist",
+          "name": "Mfr. Rep to assist in integration",
+          "verb": "Furnish",
+          "furnished_by": "AME",
+          "installed_by": "AME",
+          "wired_by": "AME",
+          "quantity": {
+            "value": 2,
+            "sources": [],
+            "others": [],
+            "added_up": null
+          },
+          "refs": [
+            {
+              "source_id": "Q1",
+              "quote": "the invented controls contractor shall run the invented equipment",
+              "where": "23 09 93, Invented Specs.pdf page 7"
+            }
+          ],
+          "assumption": null,
+          "flag": "none",
+          "mark": "",
+          "mark_note": ""
+        }
+      ],
+      "clarifications": [],
+      "tech_hours": 32.0,
+      "alternate": "base",
+      "no_scope_reason": null,
+      "serves": []
+    },
+    {
+      "key": "FSD",
+      "name": "Fire / Smoke Dampers",
+      "shape": "Fire / Smoke Dampers",
+      "control": "field",
+      "families": [
+        {
+          "name": "Fire / Smoke Damper",
+          "tags": [
+            "FSD-1",
+            "FSD-2",
+            "FSD-3",
+            "FSD-4"
+          ],
+          "count": {
+            "value": 4,
+            "sources": [
+              {
+                "source_id": "S1",
+                "quote": "INVENTED-1 INVENTED-2",
+                "where": "M-601, Invented Drawings.pdf page 3"
+              }
+            ],
+            "others": [],
+            "added_up": null
+          }
+        }
+      ],
+      "sequence_refs": [
+        {
+          "source_id": "Q1",
+          "quote": "the invented controls contractor shall run the invented equipment",
+          "where": "23 09 93, Invented Specs.pdf page 7"
+        }
+      ],
+      "devices": [
+        {
+          "id": "FSD.d1",
+          "slot": "interlock_wiring",
+          "name": "Necessary Low Voltage Interlock Wiring",
+          "verb": "Wire",
+          "furnished_by": "AME",
+          "installed_by": "AME",
+          "wired_by": "AME",
+          "quantity": {
+            "value": 4,
+            "sources": [],
+            "others": [],
+            "added_up": null
+          },
+          "refs": [
+            {
+              "source_id": "Q1",
+              "quote": "the invented controls contractor shall run the invented equipment",
+              "where": "23 09 93, Invented Specs.pdf page 7"
+            }
+          ],
+          "assumption": null,
+          "flag": "none",
+          "mark": "",
+          "mark_note": ""
+        },
+        {
+          "id": "FSD.d2",
+          "slot": "end_switch_status",
+          "name": "Open / Close Status",
+          "verb": "Furnish",
+          "furnished_by": "AME",
+          "installed_by": "AME",
+          "wired_by": "AME",
+          "quantity": {
+            "value": 4,
+            "sources": [],
+            "others": [],
+            "added_up": null
+          },
+          "refs": [
+            {
+              "source_id": "Q1",
+              "quote": "the invented controls contractor shall run the invented equipment",
+              "where": "23 09 93, Invented Specs.pdf page 7"
+            }
+          ],
+          "assumption": null,
+          "flag": "none",
+          "mark": "",
+          "mark_note": ""
+        },
+        {
+          "id": "FSD.d3",
+          "slot": "fan_starter_interlock",
+          "name": "Low Voltage Interlock with Associated Unit Fan Starter",
+          "verb": "Wire",
+          "furnished_by": "AME",
+          "installed_by": "AME",
+          "wired_by": "AME",
+          "quantity": {
+            "value": 4,
+            "sources": [],
+            "others": [],
+            "added_up": null
+          },
+          "refs": [
+            {
+              "source_id": "Q1",
+              "quote": "the invented controls contractor shall run the invented equipment",
+              "where": "23 09 93, Invented Specs.pdf page 7"
+            }
+          ],
+          "assumption": null,
+          "flag": "none",
+          "mark": "",
+          "mark_note": ""
+        }
+      ],
+      "clarifications": [],
+      "tech_hours": 2.0,
+      "alternate": "base",
+      "no_scope_reason": null,
+      "serves": []
+    }
+  ],
+  "front_end": {
+    "mode": "extend-existing",
+    "existing_system_name": "Niagara N4",
+    "devices": [
+      {
+        "id": "FE.d1",
+        "slot": "training",
+        "name": "Necessary Training on New Controls",
+        "verb": "Furnish",
+        "furnished_by": "AME",
+        "installed_by": "AME",
+        "wired_by": "AME",
+        "quantity": {
+          "value": 1,
+          "sources": [],
+          "others": [],
+          "added_up": null
+        },
+        "refs": [
+          {
+            "source_id": "Q1",
+            "quote": "the invented controls contractor shall run the invented equipment",
+            "where": "23 09 93, Invented Specs.pdf page 7"
+          }
+        ],
+        "assumption": null,
+        "flag": "none",
+        "mark": "",
+        "mark_note": ""
+      }
+    ],
+    "clarifications": [],
+    "tech_hours": 8.0,
+    "lines": [
+      "tie in to the existing invented BMS"
+    ],
+    "notes": [],
+    "refs": [
+      {
+        "source_id": "Q1",
+        "quote": "the invented controls contractor shall run the invented equipment",
+        "where": "23 09 93, Invented Specs.pdf page 7"
+      }
+    ],
+    "no_scope_reason": null
+  },
+  "exceptions": [],
+  "questions": [],
+  "header": {
+    "quote_number": "00-0001",
+    "reference": "Invented Academy",
+    "mep_engineer": "Invented Engineers",
+    "based_on": [
+      "M-601 Mechanical Schedules (invented)",
+      "23 09 93 Sequence of Operations (invented)"
+    ],
+    "date": "2026-10-11",
+    "to": "All Bidders"
+  },
+  "source_sheets": []
+}
