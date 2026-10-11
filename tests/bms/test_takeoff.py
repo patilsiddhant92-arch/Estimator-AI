@@ -22,25 +22,24 @@ def _counts(job) -> dict:
 
 # ---- the fixture ----------------------------------------------------------------------------------------------
 
-def test_fixture_reproduces_the_defect():
-    """Five new air handlers and five exhaust fans are scheduled, and the plan placements, which add up the part
-    plans and the demolition plan, count more: the higher count prints, as it did for 26-0544."""
+def test_fixture_counts_as_the_code_counts_it_now():
+    """Five new air handlers and five exhaust fans are scheduled, each drawn on several plan sheets (the part plans of
+    one attic and a demolition plan). A numbered unit tag counts once in the job and the demolition plan is set aside,
+    so the plan placements agree with the schedules: 5, 5 and 1. FCU-1, a typical unit drawn 25 times on one floor and
+    30 on the next, keeps its 55."""
     counts = _counts(plan_job(fx.ledger(), fx.catalogue(), fx.dossier(), PLAYBOOK))
-    air, fans = counts["Air Handling Unit"], counts["Exhaust Fan"]
-    assert air.value > 5 and fans.value > 5
-    # characterisation of the 26-0544 defect: the plan placements print, the schedule count of 5 stays beside them
-    assert (air.value, [other.value for other in air.others]) == (16, [5])
-    assert (fans.value, [other.value for other in fans.others]) == (16, [5])
-    assert (air.sources[0].source_id, air.sources[0].quote) == ("S5", "plan placements 16")
-    assert (counts["Energy Recovery Unit"].value, counts["Fan Coil Unit"].value) == (2, 55)   # schedule rows: 1 and 1
+    # T-005a fixed the per-area overcount of 26-0544; the register pass makes this robust on patterns the rules do
+    # not cover
+    names = ("Air Handling Unit", "Exhaust Fan", "Energy Recovery Unit", "Fan Coil Unit")
+    assert [counts[name].value for name in names] == [5, 5, 1, 55]
 
 
 def test_fixture_ledger_counts_agree_with_what_the_code_counts_on_the_plans():
     """The "plan placements" of each count fact's quote are what `placements` gives on the fixture's own sheets, so
     the five fixture files cannot drift apart."""
     catalogue, ledger = fx.catalogue(), fx.ledger()
-    for prefix, tags, said in (("AHU", [f"AHU-{n}" for n in range(1, 6)], 16),
-                               ("EF", [f"EF-{n}" for n in range(1, 6)], 16), ("ERU", ["ERU-1"], 2),
+    for prefix, tags, said in (("AHU", [f"AHU-{n}" for n in range(1, 6)], 5),
+                               ("EF", [f"EF-{n}" for n in range(1, 6)], 5), ("ERU", ["ERU-1"], 1),
                                ("FCU", ["FCU-1"], 55)):
         assert sum(found.count for found in placements(catalogue, tags).values()) == said, prefix
         assert f"plan placements {said} (" in ledger.find("count", prefix).quote
