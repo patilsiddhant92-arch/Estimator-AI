@@ -143,7 +143,7 @@ def test_a_device_quantity_below_the_highest_with_no_source_is_named(job, playbo
     assert notes(job, playbook, system) == []           # T-005e addendum: on the device's own line (GEM v4 ~609)
     draft = render(replace(job, systems=(system,)), playbook)
     assert [l.text for l in draft.lines if l.device_id == "X.d1"] == [
-        "Qty (5) Furnish and Install DDC Controller (5 per M-101; 2 elsewhere in the documents)"]  # G-002
+        "Furnish and Install DDC Controller (5 per M-101; 2 elsewhere in the documents)"]   # no prefix: 5 is the block's
 
 
 def test_a_zero_below_the_highest_is_named_not_dropped(job, playbook):

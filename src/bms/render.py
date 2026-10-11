@@ -655,9 +655,10 @@ def _device_lines(devices, shape: Shape | None, system: System | None, playbook:
     with no shape) prints at the trio's own depth (wording.json integration_trio.depths: the rep line one level in).
     Every line prints its slot's wording. A line whose wording names a verb or a device, and whose slot is not an
     interlock (`line_prints_quantity`), prints "Qty (N)" in front when its count is unknown or not the block's own
-    count (`wording.json` quantity.unknown / quantity.line). `qty_notes` (device id -> the quantity note) puts a
-    device's other counts on its own line instead (GEM v4 ~609). Two lines of one Master Template "OR" group printed next to
-    each other get an "OR" line between them, and only the first is priced (`bms.order.alternatives`)."""
+    count (`wording.json` quantity.unknown / quantity.line), and only then. `qty_notes` (device id -> the quantity
+    note) puts a device's other counts after its own line (GEM v4 ~609); the note does not add the prefix.
+    Two lines of one Master Template "OR" group printed next to each other get an "OR" line between them, and only
+    the first is priced (`bms.order.alternatives`)."""
     devices = list(devices)
     qty_notes = qty_notes or {}
     line_order = shape.line_order if shape is not None else ()
@@ -684,9 +685,10 @@ def _device_lines(devices, shape: Shape | None, system: System | None, playbook:
         else:
             text = form
         if line_prints_quantity(form, slot_kind):
-            # ruling 15, G-002: "Qty (N) <device line>", in front of the verb; other counts stay after the line
+            # ruling 15, G-002: "Qty (N) <device line>", in front of the verb, only when N is not the block's count;
+            # other counts stay after the line and never add the prefix (rules.md "Line quantity")
             note = qty_notes.get(device.id, "")
-            if number is None or number not in reference or device.id in qty_notes:
+            if number is None or number not in reference:
                 prefix = quantity_words["unknown"] if number is None else quantity_words["line"].format(n=number)
                 text = prefix + text
             if note:
