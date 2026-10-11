@@ -1,5 +1,5 @@
 {
-  "about": "The order of points inside a block (T-005e; GEM v4 'SOW ORDER - STANDARD TEMPLATE', GEM v4 lines ~395-432, estimator 2026-10-11). A block with a shape (its Master Template entry) prints its template slots in the shape's line order (GEM v4 ~396-402: 'Write its lines, in its order'). The standard order places every other line: the lines of the catch-all slots below, a slot the shape lacks, and every line of a block with no shape. Each such line gets the position of the first rule below that it matches; it prints after the block's last template line of the same position, else after the first template line of a lower position and before the next template line of a higher one. The integration group (19) is always last within the scope, the VFD group first; the Miscellaneous Responsibilities (20: the plain work statements of the other_wiring slot, with no verb) print after it, before the block's one clarification (GEM v4 ~450-468). A sub-line stays directly under its parent line. Read by src/bms/order.py. Every pattern is a regular expression matched without regard to case on the line as printed (verb included). Edit the words here, never in code.",
+  "about": "The order of points inside a block (T-005e; GEM v4 'SOW ORDER - STANDARD TEMPLATE', GEM v4 lines ~395-432, estimator 2026-10-11). A block with a shape (its Master Template entry) prints its template slots in the shape's line order (GEM v4 ~396-402: 'Write its lines, in its order'). The standard order places every other line: the lines of the catch-all slots below, a slot the shape lacks, and every line of a block with no shape. Each such line gets the position of the first rule below that it matches; it prints after the block's last template line of the same position, else after the first template line of a lower position and before the next template line of a higher one. The Playbook wins (lead ruling 2026-10-11, playbook/rules.md 'Standard order' and 'Integration lines last'): the plain work statements of the other_wiring slot, with no verb (19), print before the integration group (20), which is always last in the block, the VFD group first. Demolition work prints in the proposal's own Demolition Scope block (estimator ruling 2026-10-11), not here. A sub-line stays directly under its parent line. Read by src/bms/order.py. Every pattern is a regular expression matched without regard to case on the line as printed (verb included). Edit the words here, never in code.",
   "positions": {
     "1": "DDC controller (and the panel or timeclock a block is built on)",
     "2": "field sensors and transmitters",
@@ -19,18 +19,18 @@
     "16": "Furnish and Wire valves (and valves with any verb)",
     "17": "Install and Wire",
     "18": "other Wire lines, interlocks and tie-ins",
-    "19": "the integration lines, always last within the scope (VFD group first)",
-    "20": "Miscellaneous Responsibilities: plain work statements with no verb (demolition, coordination, testing)"
+    "19": "wiring runs and plain work statements with no verb (coordination, testing): before the integration lines (playbook/rules.md 'Standard order')",
+    "20": "the integration lines, always last in the block (VFD group first; playbook/rules.md 'Integration lines last')"
   },
   "rules": [
     {
-      "position": 19,
+      "position": 20,
       "slot_kinds": [
         "integration"
       ]
     },
     {
-      "position": 19,
+      "position": 20,
       "words": [
         "\\bBMS\\s+communication\\s+wiring\\b",
         "^map\\s+available\\s+points\\b",
@@ -78,7 +78,7 @@
       ]
     },
     {
-      "position": 20,
+      "position": 19,
       "slot_kinds": [
         "wiring"
       ],

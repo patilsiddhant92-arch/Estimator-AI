@@ -73,8 +73,8 @@ def texts(draft, key: str) -> list[str]:
     ("Install and Wire Space Thermostat (Furnished by Unit Mfr.)", "Install and Wire", 17),
     ("Wire Supply Fan Flow Transmitter (Furnished by Others)", "Wire", 18),
     ("Wire Duct Smoke Detector Relay (Relay Furnished by FA)", "Wire", 13),
-    ("Furnish BMS Communication Wiring to Factory Controls", "Furnish", 19),     # GEM v4: integration 19
-    ("Map Available Points Via Mfr. Provided BMS Interface", None, 19),
+    ("Furnish BMS Communication Wiring to Factory Controls", "Furnish", 20),     # lead ruling: Playbook, last
+    ("Map Available Points Via Mfr. Provided BMS Interface", None, 20),
 ])
 def test_each_line_takes_its_gem_position(text, verb, expected):
     assert order.position(text, verb) == expected
@@ -82,11 +82,12 @@ def test_each_line_takes_its_gem_position(text, verb, expected):
 
 def test_slot_kinds_place_interlocks_wiring_and_integration():
     assert order.position("Interlock with Associated AHU Operation", None, "other_interlock", "interlock") == 18
-    # GEM v4: the Miscellaneous Responsibilities (20) after the integration group (19)
-    assert order.position("Demolition of Existing Pneumatic Tubing", None, "other_wiring", "wiring") == 20
+    # lead ruling 2026-10-11 (the Playbook wins, rules.md:486, :604): plain work statements (19) before the
+    # integration group (20)
+    assert order.position("Coordination of Testing with the TAB Contractor", None, "other_wiring", "wiring") == 19
     assert order.position("Wire Existing Panel to New Controller", "Wire", "other_wiring", "wiring") == 18
     assert order.position("Run 24V Power Loop to VAVs", None, "power_loop", "wiring") == 12
-    assert order.position("anything", "Furnish", "comm_wiring", "integration") == 19
+    assert order.position("anything", "Furnish", "comm_wiring", "integration") == 20
 
 
 def test_an_air_handler_prints_in_the_master_template_order_not_the_writers(job, house):

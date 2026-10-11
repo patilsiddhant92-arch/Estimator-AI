@@ -53,9 +53,9 @@ def test_catch_all_lines_take_their_gem_place_among_the_template_lines(draft):
         "Furnish and Install Qty (4) Outside Air Damper Actuator (4 per M-601; 2 per M-401)",   # ruling 15
         "Furnish and Wire Hot Water Control Valve and Actuator",      # written Furnish and Install (GEM v4 ~228)
         "Interlock with Associated Exhaust Fan Operation",            # other Wire / interlock (18)
-        "Furnish BMS Communication Wiring to VFD Controls",           # the integration group (19)
+        "Demolition of Existing Pneumatic Tubing and Sensors",        # plain work statement (19), lead ruling
+        "Furnish BMS Communication Wiring to VFD Controls",           # the integration group (20): always last
         "Map Available Points Via Mfr. Provided BMS Interface",
-        "Demolition of Existing Pneumatic Tubing and Sensors",        # Miscellaneous Responsibilities (20)
     ]
 
 

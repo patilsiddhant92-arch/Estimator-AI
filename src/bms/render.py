@@ -654,7 +654,7 @@ def _device_lines(devices, shape: Shape | None, system: System | None, playbook:
 
     gem_integration = gem_module.INTEGRATION
 
-    def last_group(i: int) -> bool:          # the integration group, then the Miscellaneous Responsibilities
+    def last_group(i: int) -> bool:          # the integration group: always last in the block (rules.md:486)
         return kind_of(i) == "integration" or gem(i) >= gem_integration
 
     # the template lines (a shape's own slots; not a sub-line, not the integration group) in the shape's order

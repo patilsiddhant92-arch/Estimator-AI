@@ -1,8 +1,8 @@
 """The order of points inside a block and the Master Template's front-end format (T-005e, GEM v4, estimator 2026-10-11).
 
 - `position(text, verb, slot, slot_kind)`: a printed line's place in the GEM v4 standard order (1 the DDC controller
-  ... 18 other Wire, 19 the integration group, 20 the Miscellaneous Responsibilities), from `assets/gem_order.json`'s
-  rules (first match wins).
+  ... 18 other Wire, 19 the plain work statements, 20 the integration group: the Playbook's order), from
+  `assets/gem_order.json`'s rules (first match wins).
 - `is_catch_all(slot, line_order)`: the line is placed by the standard order (a catch-all slot, or a slot the shape
   lacks); every other slot of a shape prints in the shape's line order (its Master Template entry, GEM v4 ~396-402).
 - `place(template, p)`: where a line of position `p` goes among a block's template lines (their positions, in print
@@ -25,8 +25,8 @@ from functools import lru_cache
 from pathlib import Path
 
 ASSET = Path(__file__).resolve().parents[2] / "assets" / "gem_order.json"
-INTEGRATION = 19                    # the integration group: always last within the scope (GEM v4 ~430, ~433-437)
-MISCELLANEOUS = 20                  # the Miscellaneous Responsibilities: after the integration lines (GEM v4 ~466)
+INTEGRATION = 20                    # the integration group: always last in the block (rules.md:486)
+MISCELLANEOUS = 19                  # plain work statements: before the integration lines (rules.md:604)
 
 
 @dataclass(frozen=True)
