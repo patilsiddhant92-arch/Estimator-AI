@@ -117,8 +117,8 @@ def count_sheet(image_path: Path, tag_patterns, *, transport=None,
 def cross_check(job: "Job", catalogue: "Catalogue", cache: Path, *, transport=None) -> "Job":
     """The job with every family's text count checked against the plan counts (design §4.6), run after planning.
 
-    Contract: for each family with tags, the plan sheets (sheet type "Plans", a controls discipline) whose text shows
-    its tags are pictured (`estimator.writing.dossier.sheet_pictures(catalogue, cache, keys, what)`) and counted
+    Contract: for each family with tags, the plan sheets (sheet type "Plans", a controls discipline; never a sheet the
+    takeoff register in `Job.sheets` marks `counts_units` false) whose text shows its tags are pictured (`estimator.writing.dossier.sheet_pictures(catalogue, cache, keys, what)`) and counted
     twice: located on the sheet text, and — with a `transport` — by `count_tags` on the picture (one vision pass per
     sheet for every family on it). Each count different from `Count.value` is added to `Count.others` with its Ref
     (`source_id` "C<n>", quote "located on the sheet text" or "counted on the sheet picture", `where` the sheets);
@@ -284,10 +284,14 @@ class _Check:
                 patterns[(system.key, family.name)] = pattern
                 self.listed.setdefault(pattern, set()).update(family_tags(family.tags))
         records = {(p.document, p.page): p for p in getattr(self.catalogue, "pages", ()) or ()}
+        # the takeoff register (Task 2.4): a sheet it says does not count (`counts_units` false) is never pictured or
+        # counted; a sheet it does not list, or a job with no register (`Job.sheets` empty), is left to the catalogue
+        excluded = {(s.document, s.page) for s in getattr(self.job, "sheets", ()) or () if not s.counts_units}
         plans = [s for s in getattr(self.catalogue, "sheets", ()) or ()
                  if PLAN_TYPE in (s.types or ()) and s.discipline in CONTROLS_DISCIPLINES
                  and (s.document, s.page) in records
-                 and not is_demolition(s)]   # ruling 1 (T-005a): a demolition plan's units are not counted
+                 and not is_demolition(s)   # ruling 1 (T-005a): a demolition plan's units are not counted
+                 and (s.document, s.page) not in excluded]
         # with a transport, a plan whose text names no family's tag is still asked when its page is mostly
         # picture (a raster plan under a vector title block): its tags are only in the picture
         finds = [searcher(pattern) for pattern in patterns.values()]
