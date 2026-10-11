@@ -32,6 +32,11 @@ Severity = Literal["must_fix", "check"]
 FrontEndMode = Literal["new-system", "extend-existing"]
 DecisionAction = Literal["accept", "change", "delete"]
 
+# What the proposal prints for an existing BMS the documents do not name (rules.md "Front end mode"; the same fill-in as
+# assets/front_end.json existing_systems.unnamed): square brackets, so it reads as a blank to complete. The planner asks
+# for the name in a question; the model keeps `existing_system_name` None.
+UNNAMED_EXISTING = "[existing BMS name]"
+
 VERBS: tuple[str, ...] = get_args(Verb)
 CONTROLS: tuple[str, ...] = get_args(Control)
 FLAGS: tuple[str, ...] = get_args(Flag)
@@ -196,7 +201,9 @@ class ScopeException(_Model):
 class FrontEnd(_Model):
     """The front-end block. `mode` picks the proposal template's opening (as `estimator.scope.FrontEnd.mode`)."""
     mode: FrontEndMode = field(**_doc("new-system or extend-existing."))
-    existing_system_name: str | None = field(default=None, **_doc("The existing BMS, when extending one."))
+    existing_system_name: str | None = field(default=None, **_doc(
+        "The existing BMS, when extending one; null when the documents do not name it (the proposal prints a fill-in "
+        "and the planner asks for the name)."))
     devices: tuple[Device, ...] = field(default=(), **_doc("The front-end lines."))
     clarifications: tuple[Clarification, ...] = field(default=(), **_doc("At most one."))
     tech_hours: float | None = field(default=None, **_doc("The front end's tech hours."))
@@ -425,7 +432,7 @@ def schema_errors(value, schema: dict, path: str = "$") -> list[str]:
 
 
 __all__ = ["Verb", "Control", "Flag", "ClarificationKind", "AlternateKind", "Party", "Severity", "FrontEndMode",
-           "VERBS", "CONTROLS", "FLAGS", "CLARIFICATION_KINDS", "ALTERNATES", "PARTIES", "SEVERITIES",
+           "UNNAMED_EXISTING", "VERBS", "CONTROLS", "FLAGS", "CLARIFICATION_KINDS", "ALTERNATES", "PARTIES", "SEVERITIES",
            "FRONT_END_MODES", "DecisionAction", "DECISION_ACTIONS", "ModelError", "Ref", "OtherCount", "Count", "Family", "Assumption", "Device",
            "Clarification", "Served", "System", "ScopeException", "FrontEnd", "Header", "Job", "Finding", "Decision", "MODEL_CLASSES",
            "json_schema", "schema_errors"]

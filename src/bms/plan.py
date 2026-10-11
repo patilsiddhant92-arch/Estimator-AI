@@ -35,7 +35,7 @@ from estimator.writing.dossier import Dossier, sections_in
 
 from bms import ai_evidence
 from bms.citations import without_ledger_brackets
-from bms.model import Count, Family, FrontEnd, Job, Ref, ScopeException, Served, System
+from bms.model import UNNAMED_EXISTING, Count, Family, FrontEnd, Job, Ref, ScopeException, Served, System
 from bms.plan_groups import family_of_tag, members, part_count, parts, split_apart, unread
 from bms.plan_read import NO_KIND, FamilyFacts, Reader, naming, names_in, squash, tag_words
 from bms.playbook import Playbook, Shape
@@ -1447,6 +1447,11 @@ def _front_end(planner: _Planner) -> FrontEnd:
         planner.questions.append("The documents do not say whether the BMS is new or extends an existing one; "
                                  "which is it? The plan assumes a new system.")
         mode = "new-system"
+    if mode == "extend-existing" and not existing:
+        # HP 9: the proposal prints the fill-in; the estimator completes it
+        planner.questions.append("The documents say this job extends an existing BMS, but they do not name it. What "
+                                 f"is the name of the existing BMS? The proposal prints {UNNAMED_EXISTING} in its "
+                                 "place until you write the name.")
     return FrontEnd(mode=mode, existing_system_name=existing if mode == "extend-existing" else None)
 
 

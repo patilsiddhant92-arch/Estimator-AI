@@ -26,7 +26,7 @@ from estimator.reading.inventory import COUNT_CAUSE_WORDS, COUNT_CAUSES_LEAD
 from estimator.writing.write import tag_list
 
 from bms.citations import SHEET, SourceIds, clarification_text, squash as _squash, strip_label
-from bms.model import CLARIFICATION_KINDS, Clarification, Count, Device, FrontEnd, Job, Ref, System
+from bms.model import CLARIFICATION_KINDS, UNNAMED_EXISTING, Clarification, Count, Device, FrontEnd, Job, Ref, System
 from bms.playbook import DEFAULT_ORDER, Playbook, Shape
 
 SEQUENCE_ONLY_ORDER = 20            # a block whose count prints "Qty (##)": after the equipment (shapes.json "order")
@@ -778,6 +778,16 @@ def _traced(key: str, printed: list[_Printed], notes: list[str]) -> list[Rendere
 
 # ---- the front end ---------------------------------------------------------------------------------------------
 
+def existing_system_name(front: FrontEnd) -> str | None:
+    """The name the proposal prints for the existing BMS (HP 9): None for a new system (a name left on it is not
+    printed), the name the documents give (white space squeezed), else the plain fill-in `UNNAMED_EXISTING` (rules.md
+    "Front end mode"). The old writer refuses an existing BMS with no name; the planner has asked for it in a
+    question, so the proposal prints the fill-in and the estimator completes it."""
+    if front.mode != "extend-existing":
+        return None
+    return _squash(front.existing_system_name or "") or UNNAMED_EXISTING
+
+
 def _front_end(front: FrontEnd | None, playbook: Playbook, out: list[RenderedLine],
                ids: SourceIds) -> ScopeFrontEnd:
     if front is None:
@@ -787,7 +797,7 @@ def _front_end(front: FrontEnd | None, playbook: Playbook, out: list[RenderedLin
     out += _traced("", printed, notes)
     try:
         items = _items(printed, False) + [Item(kind="note", runs=(Run(text=n),)) for n in notes]
-        return ScopeFrontEnd(mode=front.mode, existing_system_name=front.existing_system_name,
+        return ScopeFrontEnd(mode=front.mode, existing_system_name=existing_system_name(front),
                              items=tuple(items), tech_hours=front.tech_hours)
     except ValueError as error:
         raise RenderError(f"the front end cannot be printed: {error}") from error
