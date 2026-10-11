@@ -843,8 +843,10 @@ def _with_typed_count(entry: SavedDecision, job: Job | None) -> SavedDecision:
 # number and one unit word and nothing else. Other words stay a rename ("2 pipe FCU"). So does a name the current page
 # saved: its `reason` is the count box text or "renamed to ...", never the name itself. (`UNIT_WORDS` is above, with
 # the typed count it belongs to.)
-_COUNT_NAME = re.compile(r"^\s*([0-9]+|" + "|".join(NUMBER_WORDS) + r")\s+(?:" + "|".join(UNIT_WORDS) + r")\.?\s*$",
-                         re.IGNORECASE)
+# (It reads as the count box does, `_LEADING_COUNT`: ASCII case folding, the page's spaces, at most 15 digits. Before,
+# a saved name "ſix units" or one of thousands of digits raised ValueError and stopped the run. T-003.)
+_COUNT_NAME = re.compile(r"^" + _JS_SPACE_CLASS + r"*([0-9]{1,15}|" + "|".join(NUMBER_WORDS) + r")" + _JS_SPACE_CLASS
+                         + r"+(?:" + "|".join(UNIT_WORDS) + r")\.?" + _JS_SPACE_CLASS + r"*$", re.IGNORECASE | re.ASCII)
 
 
 def _read_count_name(d: Decision, line: Device | None = None) -> Decision:
