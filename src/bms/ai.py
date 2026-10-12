@@ -1304,6 +1304,7 @@ _FREEZESTAT_WORDS = re.compile(r"\bfreeze[\s-]?stats?\b", re.I)
 # a filter switch, a filter status, a filter differential pressure (dp) switch, a dirty filter switch or alarm
 _FILTER_SWITCH_WORDS = re.compile(r"\bfilters?\s+(?:(?:differential\s+)?(?:pressure|dp|d\.p\.)\s+)?(?:switch|status)"
                                   r"\b|\bdirty[\s-]+filters?\s+(?:switch|status|alarm|indicator)\b", re.I)
+_KIND_WORDS = {FREEZESTAT: _FREEZESTAT_WORDS, FILTER_SWITCH: _FILTER_SWITCH_WORDS}
 _RULE_SENTENCE_END = re.compile(r"(?<!\bMfr)\.(?=\s|$)")
 
 
@@ -1347,7 +1348,8 @@ def _freezestat_filter_problems(skeleton: System, shape: Shape | None, devices: 
     A unit with AME's DDC (`_ame_provides_ddc`), for a freezestat and a dirty-filter switch (`owned_device_kind`):
     the line is "Furnish and Wire" furnished and wired by AME, or "Wire" furnished by Unit Mfr. only when a ref it
     cites is in `diagram` (the sequence or the controls diagram), names the device and says the unit manufacturer
-    furnishes it (`stated_parties`). A schedule row or note never moves the device. Any other verb or owner is refused.
+    furnishes it (`stated_parties`); such a ref refuses "Furnish and Wire". Each kind is read on its own in a quote. A
+    schedule row or note never moves the device. Any other verb or owner is refused.
 
     A packaged unit (factory controls): a freezestat line cites a passage in `diagram` that names a freezestat, or is
     refused. A filter switch there stays under "Nothing inside the unit is a line" (not checked here). A line in a
@@ -1369,7 +1371,8 @@ def _freezestat_filter_problems(skeleton: System, shape: Shape | None, devices: 
             continue
         label = f"device {device.get('id') or n + 1} ({device.get('name')})"
         cited = [r for r in device.get("refs") or () if str(r.get("source_id", "")).strip().strip("[]") in diagram]
-        naming = [r for r in cited if owned_device_kind(str(r.get("quote", ""))) == kind]
+        # each kind is read on its own: one passage can name both the freezestat and the filter switch
+        naming = [r for r in cited if _KIND_WORDS[kind].search(str(r.get("quote", "")))]
         if not ame:
             if not naming:
                 problems.append(f"{label} is a freezestat line on a packaged unit that cites no sequence or "
@@ -1377,14 +1380,19 @@ def _freezestat_filter_problems(skeleton: System, shape: Shape | None, devices: 
                                 "Delete the line, or cite the passage that names it.")
             continue
         verb, furnished, wired = device.get("verb"), device.get("furnished_by"), device.get("wired_by")
-        if verb == "Furnish and Wire" and furnished == "AME" and wired == "AME":
-            continue
         by_mfr = [r for r in naming if stated_parties(str(r.get("quote", ""))).get("furnished_by") == "Unit Mfr."]
+        if verb == "Furnish and Wire" and furnished == "AME" and wired == "AME" and not by_mfr:
+            continue
         if verb == "Wire" and furnished == "Unit Mfr." and wired == "AME" and by_mfr:
             continue
-        why = ("no cited sequence or controls-diagram passage says the unit manufacturer furnishes it (a schedule row "
-               "or note is not enough)" if verb == "Wire" and furnished == "Unit Mfr." else
-               f"it is \u201c{verb}\u201d furnished by {furnished}, wired by {wired}")
+        if verb == "Furnish and Wire" and furnished == "AME" and wired == "AME":
+            why = ("a cited sequence or controls-diagram passage says the unit manufacturer furnishes it, so the line "
+                   "is \u201cWire <device> (Furnished by Unit Mfr.)\u201d")
+        elif verb == "Wire" and furnished == "Unit Mfr.":
+            why = ("no cited sequence or controls-diagram passage says the unit manufacturer furnishes it (a schedule "
+                   "row or note is not enough)")
+        else:
+            why = f"it is \u201c{verb}\u201d furnished by {furnished}, wired by {wired}"
         problems.append(f"{label}: {why}; it breaks {_rule_quote(rules, rule)} Write \u201cFurnish and Wire "
                         f"<device>\u201d (furnished and wired by AME), or \u201cWire <device> (Furnished by Unit "
                         "Mfr.)\u201d citing the sequence or controls-diagram passage that gives it to the unit "

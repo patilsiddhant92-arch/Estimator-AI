@@ -297,3 +297,21 @@ def test_a_point_line_of_the_shape_is_not_the_device():
         _, problems = ai._check_system(_answer(shaped, device), shaped, shape, known, (), (), [],
                                        diagram=ai_evidence.sequence_and_diagram_ids(EVIDENCE), rules=PLAYBOOK.rules)
         assert any(f'"{AME_RULE}"' in p for p in problems) is refused, (slot, problems)
+
+
+# ---- review fixes (independent review of T-010 task 1) --------------------------------------------------------------
+
+def test_a_passage_naming_both_devices_counts_for_the_filter_switch_too():
+    """M1: S2 names the freezestat and the dirty-filter switch; it gives each to the unit manufacturer."""
+    written, problems = _check(_unit(), _wire_by_mfr("Dirty Filter Switch", "filter_dp", ("S2",)))
+    assert problems == [] and written.devices[0].furnished_by == "Unit Mfr."
+
+
+@pytest.mark.parametrize("name, slot, cites", [("Freezestat", "freezestat", ("S2",)),
+                                               ("Freezestat", "freezestat", ("S8",)),
+                                               ("Dirty Filter Switch", "filter_dp", ("S2",))])
+def test_furnish_and_wire_is_refused_when_the_sequence_or_diagram_gives_it_to_the_manufacturer(name, slot, cites):
+    """M2: a cited sequence or controls-diagram passage says the unit manufacturer furnishes the device."""
+    written, problems = _check(_unit(), _furnish_and_wire(name, slot, cites))
+    assert written is None
+    assert any(f'"{AME_RULE}"' in p and _first_sentence(AME_RULE) in p for p in problems)
