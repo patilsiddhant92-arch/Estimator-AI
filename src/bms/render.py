@@ -1345,7 +1345,17 @@ OWNER_PAIR = frozenset({"AME", "Unit Mfr."})
 _OWNER_ROLES = (("furnished_by", "furnished"), ("installed_by", "installed"), ("wired_by", "wired"))
 
 
-def _contradiction_lines(system: System, families, playbook: Playbook, ids: SourceIds) -> tuple[list[str], set[str]]:
+def _count_refs(count: Count) -> tuple[Ref, ...]:
+    """Every citation behind a count: its sources, each other count's ref and the sum ruling L1 left out of it, each
+    once, in that order."""
+    refs = [*count.sources, *(o.ref for o in count.others)]
+    if count.added_up is not None:
+        refs.append(count.added_up.ref)
+    return tuple(r for n, r in enumerate(refs) if r not in refs[:n])
+
+
+def _contradiction_lines(system: System, families, playbook: Playbook, ids: SourceIds,
+                         sources: dict[str, tuple[Ref, ...]] | None = None) -> tuple[list[str], set[str]]:
     """The block's red "*" lines (ruling 25), none over RED_LINE_LIMIT (160) characters, and the ids of the
     devices whose owner is contested (their black "*Assumed" line is replaced by the red one, so the contradiction
     prints once).
@@ -1360,13 +1370,18 @@ def _contradiction_lines(system: System, families, playbook: Playbook, ids: Sour
     each cited passage says furnishes, installs or wires it (`ai.stated_parties` on the ref's quote); a role where one
     is AME and the other the unit manufacturer is contested. When no quote settles it, the assumption's own words:
     its what names one of the two and its why the other (`ai._party_of`). Any other pair is no contest of ruling 25:
-    the black "*Assumed" line stays."""
+    the black "*Assumed" line stays.
+
+    `sources`, when given, is filled with the citations behind each line it returns: every source and other count of
+    the family (`_count_refs`) for a count line, the device's refs for an owner line (`contradiction_refs`)."""
     from bms.ai import _party_of, stated_parties          # at call time: bms.ai is the heavy intake module
+    sources = {} if sources is None else sources
     lines: list[str] = []
     for family in families:
         if not _counts_text(family.count, playbook, ids, with_sum=False):
             continue
         name = _squash(ids.without_issued(family.name)).strip() or system.name
+        first = len(lines)
         start, line = COUNTS_DIFFER.format(family=name, counts=""), ""
         for part in _counts_text(family.count, playbook, ids).split("; "):
             if line and len(line) + 2 + len(part) > RED_LINE_LIMIT:
@@ -1374,6 +1389,7 @@ def _contradiction_lines(system: System, families, playbook: Playbook, ids: Sour
                 start, line = COUNTS_CONT.format(family=name, counts=""), ""
             line = f"{line}; {part}" if line else start + part
         lines.append(line)
+        sources.update({t: _count_refs(family.count) for t in lines[first:]})
     owners: set[str] = set()
     for device in system.devices:
         if device.flag != "ownership" or device.assumption is None:
@@ -1398,7 +1414,24 @@ def _contradiction_lines(system: System, families, playbook: Playbook, ids: Sour
             continue
         owners.add(device.id)
         lines += short_points(text)
+        sources.update({t: tuple(device.refs) for t in short_points(text)})
     return [t for t in dict.fromkeys(lines) if t], owners
+
+
+def contradiction_refs(job: Job, playbook: Playbook) -> dict[tuple[str, str], tuple[Ref, ...]]:
+    """The citations behind each red contradiction line `render` prints (T-010, ruling 25), by the block's system key
+    and the line as printed: every source and other count of the family for a count line, the device's refs for an
+    owner line. `draft.lines` holds those lines without them; the Evidence Package lists each line with its
+    citations (`bms.evidence.flagged_lines`). Pure: no line it names is one `render` would not print."""
+    ids = SourceIds.of_job(job)
+    found: dict[tuple[str, str], tuple[Ref, ...]] = {}
+    for system in job.systems:
+        if not system.devices:               # a system with no lines prints no block
+            continue
+        sources: dict[str, tuple[Ref, ...]] = {}
+        _contradiction_lines(system, _header_families(system), playbook, ids, sources)
+        found.update({(system.key, _xml_safe(text)): refs for text, refs in sources.items() if text})
+    return found
 
 
 def _system_blocks(system: System, playbook: Playbook, out: list[RenderedLine], ids: SourceIds,
