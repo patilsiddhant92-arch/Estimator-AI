@@ -80,9 +80,15 @@ def _exclusions(document: DocxDocument) -> list[str]:
         raise ProposalFormatError("can't find the exclusions list")
     _refuse_foreign_children(document, paragraphs[start], paragraphs[end], region="among the exclusions")
     _refuse_deleted_paragraphs(document.paragraphs, paragraphs[start], paragraphs[end])
-    for paragraph in paragraphs[start + 1 : end]:
+    # A ruling 26 sub-bullet (style PR3) sits under a standard exclusion. It is not an edit of that
+    # point and it is not a named exception. The hidden-text check still runs on it.
+    returned = []
+    for paragraph, text in zip(paragraphs[start + 1 : end], texts[start + 1 : end]):
         _refuse_hidden_text(paragraph)
-    return texts[start + 1 : end]
+        if paragraph.style is not None and paragraph.style.name == "PR3":
+            continue
+        returned.append(text)
+    return returned
 
 
 def _clarifications(document: DocxDocument) -> list[str]:
