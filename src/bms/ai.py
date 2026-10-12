@@ -1167,7 +1167,8 @@ def _check_system(answer, skeleton: System, shape: Shape | None, known: frozense
                   index: Mapping[str, str] | None = None,
                   recount: bool = False, block: Mapping | None = None,
                   revise: frozenset[str] = frozenset(), hold: frozenset[str] = frozenset(),
-                  stated: frozenset[str] = frozenset()
+                  stated: frozenset[str] = frozenset(), diagram: frozenset[str] = frozenset(),
+                  rules: Mapping | None = None
                   ) -> tuple[System | None, list[str]]:
     """A System answer made usable, or the problems that stop it: the skeleton's fields win; untouched devices
     (`keep`) are put back as they were; labels come off the client texts (`_normalise`, each change added to
@@ -1189,7 +1190,11 @@ def _check_system(answer, skeleton: System, shape: Shape | None, known: frozense
     the sequence or a points list states the fact, on a line citing one of them (`stated`: the evidence's ids of those
     parts, `ai_evidence.stated_ids`), is no assumption: it is dropped and an "assumed" flag cleared (ruling 6); so is
     an ownership assumption against a cited stated passage that states the owner; one that says the source is silent
-    stays. A flag text that runs long is shortened to points, never refused (`_shorten_flags`)."""
+    stays. A flag text that runs long is shortened to points, never refused (`_shorten_flags`).
+
+    T-010 (ruling 23): with `rules` (the loaded Playbook's rules by name) a freezestat or a dirty-filter switch line
+    follows the two Playbook rules at the end of "Packaged units"; `diagram` is the evidence's ids of its sequence and
+    controls-sheet blocks (`ai_evidence.sequence_and_diagram_ids`). See `_freezestat_filter_problems`."""
     from bms.counts import NO_SOURCE_QUOTE
     if not isinstance(answer, dict):
         return None, ["the answer is not a JSON object"]
@@ -1261,6 +1266,7 @@ def _check_system(answer, skeleton: System, shape: Shape | None, known: frozense
             problems += [f"{label}'s assumption {p}" for p in _text_problems(
                 f"{assumption['what']} {assumption['why']}")]
     problems += _heater_problems(skeleton, answer["devices"], kept_ids)
+    problems += _freezestat_filter_problems(skeleton, shape, answer["devices"], kept_ids, diagram, rules)
     if len(answer["clarifications"]) > 1:
         problems.append(f"it gives {len(answer['clarifications'])} clarifications; a block has at most one")
     for clarification in answer["clarifications"]:
@@ -1284,6 +1290,123 @@ def _check_system(answer, skeleton: System, shape: Shape | None, known: frozense
         return System.from_dict(answer), []
     except ModelError as error:
         return None, [str(error)]
+
+
+# ---- T-010: freezestat and dirty-filter switch ownership (ruling 23) ------------------------------------------------
+
+# the Playbook rules the check quotes (their text is read from the loaded Playbook, never copied here)
+AME_DDC_DEVICE_RULE = "Freezestat and filter switch on a unit with AME controls"
+PACKAGED_FREEZESTAT_RULE = "Freezestat on a packaged unit"
+FREEZESTAT, FILTER_SWITCH = "freezestat", "filter switch"
+# the Playbook shapes' slots of the two devices (playbook/shapes.json)
+_OWNED_SLOTS = {"freezestat": FREEZESTAT, "filter_dp": FILTER_SWITCH}
+# a freezestat by its words (T-010 review, should fix 2): "Freezestat", "Freeze Stat"; the low limit thermostat ("Low
+# Limit Thermostat", "low-limit"); a freeze protection or low temperature thermostat, switch or detector ("Freeze
+# Protection Thermostat", "Low Temperature Detection Thermostat"). A freeze protection pump is none of them.
+_FREEZESTAT_WORDS = re.compile(
+    r"\bfreeze[\s-]?stats?\b|\blow[\s-]?limits?\b"
+    r"|\bfreeze[\s-]+(?:protection|protect|detection|safety)\s+"
+    r"(?:thermostat|stat|switch|sensor|detector|device|cut-?out)s?\b"
+    r"|\blow[\s-]+temp(?:erature)?\s+(?:(?:detection|protection|limit|safety|alarm|cut-?out)\s+)?"
+    r"(?:thermostat|stat|switch|detector|cut-?out)s?\b", re.I)
+# a filter switch, a filter status, a filter differential pressure (dp) switch, a dirty filter switch or alarm
+_FILTER_SWITCH_WORDS = re.compile(r"\bfilters?\s+(?:(?:differential\s+)?(?:pressure|dp|d\.p\.)\s+)?(?:switch|status)"
+                                  r"\b|\bdirty[\s-]+filters?\s+(?:switch|status|alarm|indicator)\b", re.I)
+_KIND_WORDS = {FREEZESTAT: _FREEZESTAT_WORDS, FILTER_SWITCH: _FILTER_SWITCH_WORDS}
+_RULE_SENTENCE_END = re.compile(r"(?<!\bMfr)\.(?=\s|$)")
+
+
+def owned_device_kind(name: str, slot: str = "") -> str | None:
+    """"freezestat" or "filter switch" when a device is one of the two devices of ruling 23, else None: its Playbook
+    slot (`freezestat`, `filter_dp`) or the words of its name ("Low Limit Freezestat", "Freeze Stat", "Low Limit
+    Thermostat", "Freeze Protection Thermostat", "Low Temperature Detection Thermostat", "Dirty Filter Switch",
+    "Filter Status", "Filter Differential Pressure Switch"); never a filter access door or a freeze protection
+    pump."""
+    if str(slot or "") in _OWNED_SLOTS:
+        return _OWNED_SLOTS[str(slot)]
+    words = str(name or "")
+    if _FREEZESTAT_WORDS.search(words):
+        return FREEZESTAT
+    if _FILTER_SWITCH_WORDS.search(words):
+        return FILTER_SWITCH
+    return None
+
+
+def _rule_quote(rules: Mapping, name: str) -> str:
+    """The rule's name in quotes and its first sentence, as the loaded Playbook gives them."""
+    text = " ".join(str(getattr(rules[name], "text", rules[name])).split())
+    m = _RULE_SENTENCE_END.search(text)
+    return f'the Playbook rule "{name}": {text[:m.end()] if m else text}'
+
+
+def _ame_provides_ddc(skeleton: System, devices: Sequence[dict]) -> bool:
+    """A unit with AME's DDC: control "field", or a "packaged" unit whose block has a controller AME furnishes (a
+    controller AME furnishes to the unit manufacturer for the factory, Playbook "Unit control devices when AME provides
+    the controls", which `System.control` may not show)."""
+    if skeleton.control == "field":
+        return True
+    return skeleton.control == "packaged" and any(
+        str(d.get("slot")) == "controller" and d.get("furnished_by") == "AME" for d in devices)
+
+
+def _freezestat_filter_problems(skeleton: System, shape: Shape | None, devices: Sequence[dict], kept_ids: set[str],
+                                diagram: frozenset[str], rules: Mapping | None) -> list[str]:
+    """Ruling 23, each problem quoting its Playbook rule (a rule the loaded Playbook lacks is not checked; a kept
+    device is not checked). The case is `System.control`: no check unless "field" or "packaged".
+
+    A unit with AME's DDC (`_ame_provides_ddc`), for a freezestat and a dirty-filter switch (`owned_device_kind`):
+    the line is "Furnish and Wire" furnished and wired by AME, or "Wire" furnished by Unit Mfr. only when a ref it
+    cites is in `diagram` (the sequence or the controls diagram), names the device and says the unit manufacturer
+    furnishes it (`_furnishers`); such a ref refuses "Furnish and Wire". Each kind is read on its own in a quote. A
+    schedule row or note never moves the device. Any other verb or owner is refused.
+
+    A packaged unit (factory controls): a freezestat line cites a passage in `diagram` that names a freezestat, or is
+    refused. A filter switch there stays under "Nothing inside the unit is a line" (not checked here). A line in a
+    slot the shape gives as a point (a "Filter Status" point line) is a point, not the device: not checked."""
+    if not rules or skeleton.control not in ("field", "packaged"):
+        return []
+    ame = _ame_provides_ddc(skeleton, devices)
+    rule = AME_DDC_DEVICE_RULE if ame else PACKAGED_FREEZESTAT_RULE
+    if rule not in rules:
+        return []
+    problems: list[str] = []
+    for n, device in enumerate(devices):
+        if device.get("id") in kept_ids:
+            continue
+        kind = owned_device_kind(str(device.get("name", "")), str(device.get("slot", "")))
+        if kind is None or (not ame and kind != FREEZESTAT):
+            continue
+        if shape is not None and shape.slot_kinds.get(str(device.get("slot"))) == "point":
+            continue
+        label = f"device {device.get('id') or n + 1} ({device.get('name')})"
+        cited = [r for r in device.get("refs") or () if str(r.get("source_id", "")).strip().strip("[]") in diagram]
+        # each kind is read on its own: one passage can name both the freezestat and the filter switch
+        naming = [r for r in cited if _KIND_WORDS[kind].search(str(r.get("quote", "")))]
+        if not ame:
+            if not naming:
+                problems.append(f"{label} is a freezestat line on a packaged unit that cites no sequence or "
+                                f"controls-diagram passage naming a freezestat; it breaks {_rule_quote(rules, rule)} "
+                                "Delete the line, or cite the passage that names it.")
+            continue
+        verb, furnished, wired = device.get("verb"), device.get("furnished_by"), device.get("wired_by")
+        by_mfr = [r for r in naming if _furnishers(str(r.get("quote", ""))) == {"Unit Mfr."}]
+        if verb == "Furnish and Wire" and furnished == "AME" and wired == "AME" and not by_mfr:
+            continue
+        if verb == "Wire" and furnished == "Unit Mfr." and wired == "AME" and by_mfr:
+            continue
+        if verb == "Furnish and Wire" and furnished == "AME" and wired == "AME":
+            why = ("a cited sequence or controls-diagram passage says the unit manufacturer furnishes it, so the line "
+                   "is \u201cWire <device> (Furnished by Unit Mfr.)\u201d")
+        elif verb == "Wire" and furnished == "Unit Mfr.":
+            why = ("no cited sequence or controls-diagram passage says the unit manufacturer furnishes it (a schedule "
+                   "row or note is not enough)")
+        else:
+            why = f"it is \u201c{verb}\u201d furnished by {furnished}, wired by {wired}"
+        problems.append(f"{label}: {why}; it breaks {_rule_quote(rules, rule)} Write \u201cFurnish and Wire "
+                        f"<device>\u201d (furnished and wired by AME), or \u201cWire <device> (Furnished by Unit "
+                        "Mfr.)\u201d citing the sequence or controls-diagram passage that gives it to the unit "
+                        "manufacturer.")
+    return problems
 
 
 # ---- T-005d: marks, stated facts and short flags ---------------------------------------------------------------------
@@ -1402,10 +1525,8 @@ def _party_of(words: str) -> str | None:
     return None
 
 
-def stated_parties(quote: str) -> dict[str, str]:
-    """Who a passage says furnishes, installs or wires the item: {"furnished_by": "Unit Mfr.", ...}, from "furnished
-    by the unit manufacturer", "provided and installed by the electrical contractor", "factory mounted". A role the
-    passage names twice with two parties is left out (the passage does not settle it)."""
+def _party_sets(quote: str) -> dict[str, set[str]]:
+    """Every party a passage names for each role ("furnished_by", "installed_by", "wired_by")."""
     found: dict[str, set[str]] = {}
     for m in _OWNER_CLAUSE.finditer(str(quote or "")):
         party = _party_of(m.group(3))
@@ -1416,7 +1537,46 @@ def stated_parties(quote: str) -> dict[str, str]:
                 found.setdefault(_ROLE[verb.lower()], set()).add(party)
     for m in _FACTORY_ROLE.finditer(str(quote or "")):
         found.setdefault(_ROLE[m.group(1).lower()], set()).add("Unit Mfr.")
-    return {role: next(iter(parties)) for role, parties in found.items() if len(parties) == 1}
+    return found
+
+
+def stated_parties(quote: str) -> dict[str, str]:
+    """Who a passage says furnishes, installs or wires the item: {"furnished_by": "Unit Mfr.", ...}, from "furnished
+    by the unit manufacturer", "provided and installed by the electrical contractor", "factory mounted". A role the
+    passage names twice with two parties is left out (the passage does not settle it)."""
+    return {role: next(iter(parties)) for role, parties in _party_sets(quote).items() if len(parties) == 1}
+
+
+# T-010 review (should fix 1): two ways a passage gives the furnishing to the unit manufacturer that `stated_parties`
+# does not read. The active voice ("the unit manufacturer shall furnish the freezestat"), and "factory furnished and
+# wired by the controls contractor": the factory furnishes it, the contractor wires it.
+_SHALL_FURNISH = re.compile(r"([^,.;:()]{2,60}?)\s+(?:shall|will|must|(?:is|are)\s+(?:required\s+)?to)\s+"
+                            r"(?:furnish|provide|supply)\b", re.I)
+_FACTORY_FURNISH_AND = re.compile(r"\b(factory[\s-]*(?:furnished|provided|supplied))\s+and\b", re.I)
+
+
+def _last_party(words: str) -> str | None:
+    """The party a few words name last ("the controls contractor and the unit manufacturer": "Unit Mfr."), the one
+    nearest the verb that follows them."""
+    best: tuple[int, str] | None = None
+    for pattern, party in _PARTY_WORDS:
+        for m in pattern.finditer(words):
+            if best is None or m.end() > best[0]:
+                best = (m.end(), party)
+    return best[1] if best else None
+
+
+def _furnishers(quote: str) -> set[str]:
+    """Every party a passage says furnishes the item: "furnished by", "factory furnished" (also before "and wired by
+    the controls contractor": the factory furnishes it) and "<party> shall furnish". Two parties: the passage does
+    not settle it (the set holds both)."""
+    text = _FACTORY_FURNISH_AND.sub(r"\1;", str(quote or ""))
+    found = set(_party_sets(text).get("furnished_by", ()))
+    for m in _SHALL_FURNISH.finditer(text):
+        party = _last_party(m.group(1))
+        if party:
+            found.add(party)
+    return found
 
 
 def _ownership_conflicts(device: dict, refs: Sequence[dict]) -> list[tuple[str, str, str]]:
@@ -1830,11 +1990,12 @@ def _ask_system(transport, name: str, playbook: Playbook, step: str, prompt: str
     changes: list[str] = []
     index = _sent_index(evidence)
     stated = ai_evidence.stated_ids(evidence)
+    diagram = ai_evidence.sequence_and_diagram_ids(evidence)
 
     def check(answer):
         changes.clear()                     # only the used answer's changes are logged
         return _check_system(answer, system, shape, known, keep, originals, changes, tags, ids, sheets,
-                             source_sheets, index, recount, block, revise, hold, stated)
+                             source_sheets, index, recount, block, revise, hold, stated, diagram, playbook.rules)
 
     written = _ask_checked(transport, WRITE_SYSTEM, name, playbook.rules_text, _instructions(step), prompt,
                            json_schema(System), extra, images, check)

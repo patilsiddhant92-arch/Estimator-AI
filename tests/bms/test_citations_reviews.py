@@ -302,12 +302,15 @@ def test_a_count_note_place_is_a_sheet_never_an_id_and_a_stale_note_is_not_rewri
         # ruling 2026-10-05: this job's own ref names S141 as a sheet, so S141 is the sheet, kept everywhere
         # T-005e (rulings 14 and 15): the counts in brackets on the header, the note its own short "*" line
         assert lines[0] == "Qty (5) Exhaust Fans EF-1, 2 (5 per S141; 3 per M-101)", lines
-        assert lines[-1:] == ["**Valves per S141"], lines
+        # T-010 task 2 (ruling 25): the contested count prints one red "*" line after the block's other notes
+        assert lines[-2:] == ["**Valves per S141", "*Exhaust Fan counts differ: 5 per S141; 3 per M-101"], lines
         return
     # T-005e (rulings 14 and 15): the counts in brackets on the header, the note its own short "*" line
     assert lines[0] == (f"Qty (5) Exhaust Fans EF-1, 2 (5 per {place}; 3 per M-101)" if place else
                         "Qty (5) Exhaust Fans EF-1, 2 (5; 3 per M-101)"), lines
-    assert lines[-1:] == ["**Valves per"], lines
+    # T-010 task 2 (ruling 25): the contested count prints one red "*" line after the block's other notes
+    counts = f"5 per {place}; 3 per M-101" if place else "5; 3 per M-101"
+    assert lines[-2:] == ["**Valves per", f"*Exhaust Fan counts differ: {counts}"], lines
     assert not any(token in " ".join(lines) for token in ("S9", "S141"))
 
 

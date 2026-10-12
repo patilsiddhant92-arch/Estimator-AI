@@ -364,11 +364,23 @@ installation at the factory, the control devices on the unit schedule are AME's:
 freezestat, drain pan level sensor and filter switch. They are "Furnish and Install", or "Furnish and Wire" when
 the factory installs the device and AME wires it. Do not write "Install and Wire ... (Furnished by Unit Mfr.)" for
 them unless the documents clearly give the device to the unit manufacturer. When unsure, keep the device as AME's
-and flag the ownership.
+and flag the ownership. The freezestat and the dirty-filter switch are the exception: they are "Furnish and Wire"
+by AME, unless the sequence or the controls diagram says the unit manufacturer furnishes them; on a packaged unit
+with factory controls a freezestat is a line only when the sequence or the controls diagram names it.
 
 ### Template is the ideal case
 The Master Template shows how the system looks in the ideal case. When the sequence says something explicit, it
 is taken into account. AME's task is the right ownership on each line, not restating the sequence.
+
+### Freezestat and filter switch on a unit with AME controls
+On a unit whose DDC AME provides, AME furnishes and wires the freezestat and the dirty-filter switch. The line is
+"Furnish and Wire <device>". The one exception is a sequence or a controls diagram that says the unit manufacturer
+furnishes the device: the line is then "Wire <device> (Furnished by Unit Mfr.)". A schedule row or a schedule note
+alone does not give the device to the unit manufacturer.
+
+### Freezestat on a packaged unit
+On a packaged unit with factory controls AME mostly never furnishes a freezestat. Write no freezestat line unless
+the sequence or the controls diagram names it.
 
 ## Shipped-loose devices
 

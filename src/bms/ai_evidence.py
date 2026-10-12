@@ -977,6 +977,22 @@ def stated_ids(evidence_text: str) -> frozenset[str]:
     return frozenset(found)
 
 
+# the evidence's blocks that are "the sequence or the controls diagram" (T-010, ruling 23): a schedule block is not
+SEQUENCE_DIAGRAM_TITLES = ("The sequence of operation for this system:",
+                           "Controls sheets that name it (control diagrams, points, sequences):")
+
+
+def sequence_and_diagram_ids(evidence_text: str) -> frozenset[str]:
+    """The source ids the evidence gives under its sequence block and its controls-sheet block (control diagrams),
+    as `stated_ids` reads them; never a schedule block's (T-010, ruling 23)."""
+    found: set[str] = set()
+    for chunk in (evidence_text or "").split("\n\n"):
+        title, _, rest = chunk.partition("\n")
+        if title.strip() in SEQUENCE_DIAGRAM_TITLES:
+            found |= {m.group(1) for m in _ENTRY_ID.finditer(rest)}
+    return frozenset(found)
+
+
 _ENTRY_ID = re.compile(r"^\[([A-Z]{1,3}\d+[a-z]?)\]", re.M)
 _CITED = re.compile(r"\[([A-Z]{1,3}\d+[a-z]?)\]")
 

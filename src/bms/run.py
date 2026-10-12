@@ -66,7 +66,7 @@ from bms import ai, ai_evidence, takeoff
 from bms.citations import device_refs, job_ids, job_sheets, job_tags, source_sheets
 from bms.counts import counted_from, cross_check, flag_written_devices, publish_proofs
 from bms.coverage import coverage
-from bms.evidence import write_evidence
+from bms.evidence import flagged_lines, write_evidence
 from bms.labor import labor_conditions, labor_findings, with_labor, with_warranty
 from bms.model import Decision, Device, Finding, Header, Job, ModelError, System
 from bms.plan import plan_job
@@ -806,8 +806,11 @@ def _estimate(job_folder: Path, out: Path, cache: Path, mode: Mode, known: dict)
     # T-005e addendum: the Master Template's warranty lines in the front end, when the specification states it
     draft = with_warranty(draft, getattr(catalogue, "overview", None))
     printed = {line.device_id: line.text for line in draft.lines if line.device_id}
+    # T-010 lead fix: the "*" lines with no device id (the red contradiction lines of ruling 25, with the citations of
+    # their numbers or owners) are in the package too, under their blocks
+    flagged = flagged_lines(job, playbook, draft.lines)
     evidence_file = write_evidence(out / f"{quote} Evidence Package.xlsx", catalogue, reading, ledger, job,
-                                   all_findings, printed)
+                                   all_findings, printed, flagged)
     print(f"Wrote {evidence_file}")
     proposal, sheet = _build(draft.scope, PROPOSAL_TEMPLATE, WORKUP_TEMPLATE, PriceBook.load(PRICE_BOOK, ALIASES), out)
     print(f"Wrote {proposal}")

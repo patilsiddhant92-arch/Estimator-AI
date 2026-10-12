@@ -23,6 +23,12 @@ An assumption says what is assumed and why.
 ### Packaged units
 A packaged unit's points are not furnished by AME; AME integrates through the manufacturer's interface.
 
+### Freezestat and filter switch on a unit with AME controls
+On a unit whose DDC AME provides, AME furnishes and wires the freezestat and the dirty-filter switch.
+
+### Freezestat on a packaged unit
+On a packaged unit AME mostly never furnishes a freezestat.
+
 ## Shipped-loose devices
 
 ### Shipped-loose devices

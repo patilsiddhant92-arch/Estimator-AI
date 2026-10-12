@@ -5,7 +5,9 @@ edited) with the new Job right after the bid check:
 - "Scope lines": per system, every device with its printed line, slot, verb, who furnishes / installs / wires it,
   its quantity and the other counts (and the sum of the sheets of one floor and area when ruling L1 left it above
   the printed count: `Count.added_up`), every citation (source id, where: sheet / spec section / page, and the quote),
-  its assumption (what and why) and its flag; the family counts and the block's clarification too.
+  its assumption (what and why) and its flag; the family counts and the block's clarification too; and the "*" note
+  lines that belong to no device, each under its block (T-010 lead fix): a red contradiction line of ruling 25 with the
+  citations of the numbers or owners in contest, any other flagged note as printed.
 - "Findings": every finding of the validators and the QC left open (rule, system, device, severity, what, fix).
 - "Demolition Scope" (T-G1): one row per demolition line (family, action, count, note, refs as source id, quote, where).
 - "Set aside" (T-007): one row per count the takeoff set aside (family, number, reason, note with both numbers, its ref
@@ -15,7 +17,8 @@ Plain data only: it writes what the Job holds, nothing internal is invented.
 """
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Iterable, Sequence
+from dataclasses import dataclass
 from pathlib import Path
 
 from openpyxl import load_workbook
@@ -25,7 +28,8 @@ from estimator.evidence.workbook import _table
 from estimator.evidence.workbook import write_evidence as write_old_evidence
 
 from bms.model import Count, Device, Finding, Job, Ref, SetAside
-from bms.render import COUNT_ADDED_UP, left_out_text
+from bms.playbook import Playbook
+from bms.render import COUNT_ADDED_UP, RenderedLine, contradiction_refs, left_out_text
 
 SCOPE_TAB, FINDINGS_TAB, DEMOLITION_TAB = "Scope lines", "Findings", "Demolition Scope"
 SET_ASIDE_TAB = "Set aside"
@@ -70,10 +74,39 @@ def _device_row(system: str, device: Device, printed: dict[str, str]) -> list:
             f"{a.what} — why: {a.why}" if a is not None else None, device.flag]
 
 
-def scope_rows(job: Job, printed: dict[str, str] | None = None) -> list[list]:
+@dataclass(frozen=True)
+class FlaggedLine:
+    """A printed "*" note line that belongs to no device: its block's system key ("" for the front end), its text as the
+    proposal prints it and, for a red contradiction line (ruling 25), the citations of the numbers or owners in
+    contest."""
+    system_key: str
+    text: str
+    refs: tuple[Ref, ...] = ()
+
+
+def flagged_lines(job: Job, playbook: Playbook, lines: Iterable[RenderedLine]) -> list[FlaggedLine]:
+    """The "*" note lines of `lines` (a draft's printed lines) that have no device id, in print order, each with the
+    citations `bms.render.contradiction_refs` gives it (none for a note that is no contradiction). The device lines
+    reach the package through `printed`; these did not (T-010 lead fix)."""
+    refs = contradiction_refs(job, playbook)
+    return [FlaggedLine(line.system_key, line.text, refs.get((line.system_key, line.text), ()))
+            for line in lines if line.kind == "note" and not line.device_id and line.text.startswith("*")]
+
+
+def _flagged_row(label: str, line: FlaggedLine) -> list:
+    kind = "contradiction" if line.refs else "flagged note"
+    return [label, None, kind, line.text] + [None] * 8 + [_refs(line.refs) or None, None, None]
+
+
+def scope_rows(job: Job, printed: dict[str, str] | None = None, flagged: Sequence[FlaggedLine] = ()) -> list[list]:
     """The Scope lines rows: per system its family counts, its devices in model order (a system with none: a "left
-    out" row with the writer's reason), its clarification; then the front end's devices and the exceptions."""
+    out" row with the writer's reason), its clarification and its flagged "*" lines (`flagged`, print order); then
+    the front end's devices, clarifications and flagged lines and the exceptions. A flagged line whose block is none
+    of these is listed last as a whole-job row."""
     printed = printed or {}
+    held: dict[str, list[FlaggedLine]] = {}
+    for line in flagged:
+        held.setdefault(line.system_key, []).append(line)
     rows: list[list] = []
     for system in job.systems:
         label = f"{system.name} ({system.key})"
@@ -88,6 +121,7 @@ def scope_rows(job: Job, printed: dict[str, str] | None = None) -> list[list]:
             rows.append([label, None, "left out", left_out_text(system)] + [None] * 11)
         for clarification in system.clarifications:
             rows.append([label, None, f"clarification ({clarification.kind})", clarification.text] + [None] * 11)
+        rows += [_flagged_row(label, line) for line in held.pop(system.key, ())]
         if system.sequence_refs:
             rows.append([label, None, "sequence", None, None, None, None, None, None, None, None, None,
                          _refs(system.sequence_refs), None, None])
@@ -95,9 +129,11 @@ def scope_rows(job: Job, printed: dict[str, str] | None = None) -> list[list]:
         rows += [_device_row("Front end", d, printed) for d in job.front_end.devices]
         for clarification in job.front_end.clarifications:
             rows.append(["Front end", None, f"clarification ({clarification.kind})", clarification.text] + [None] * 11)
+        rows += [_flagged_row("Front end", line) for line in held.pop("", ())]
     for exception in job.exceptions:
         rows.append([exception.system_key or "Whole job", None, "exception", exception.text] + [None] * 8
                     + [_refs(exception.refs), None, None])
+    rows += [_flagged_row("Whole job", line) for lines in held.values() for line in lines]
     return rows
 
 
@@ -121,15 +157,16 @@ def set_aside_rows(set_aside: Sequence[SetAside]) -> list[list]:
 
 
 def write_evidence(path: Path, catalogue, reading, ledger, job: Job, findings: Sequence[Finding] = (),
-                   printed: dict[str, str] | None = None) -> Path:
+                   printed: dict[str, str] | None = None, flagged: Sequence[FlaggedLine] = ()) -> Path:
     """The Evidence Package at `path`: the old workbook from the catalogue, reading and ledger, with the Job's
     Scope lines and the Findings as the second and third tabs, the Demolition Scope as the fourth and the takeoff's
     set-asides ("Set aside") as the fifth. `printed`
-    maps a device id to its printed line (from `bms.render`)."""
+    maps a device id to its printed line (from `bms.render`); `flagged` is the "*" note lines of no device
+    (`flagged_lines`), listed in the Scope lines under their blocks."""
     path = Path(path)
     write_old_evidence(path, catalogue, reading, ledger=ledger)
     book = load_workbook(str(path))
-    tabs = ((SCOPE_TAB, SCOPE_HEADINGS, scope_rows(job, printed)),
+    tabs = ((SCOPE_TAB, SCOPE_HEADINGS, scope_rows(job, printed, flagged)),
             (FINDINGS_TAB, FINDING_HEADINGS, finding_rows(findings)),
             (DEMOLITION_TAB, DEMOLITION_HEADINGS, demolition_rows(job)),
             (SET_ASIDE_TAB, SET_ASIDE_HEADINGS, set_aside_rows(job.set_aside)))

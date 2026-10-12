@@ -155,6 +155,12 @@ def test_a_run_waits_for_its_answers_then_writes_all_four_outputs(job_folder, tm
     device = next(r for r in rows if r[2] == "device")
     assert device[6] == "Furnish and Install" and device[7:10] == ["AME", "AME", "AME"]
     assert "invented place" in device[12] and device[14] == "quantity"
+    # T-010 lead fix: the red count-contradiction line of the proposal (the schedule's 4 against the plan's 3) is a row
+    # of the package too, with the citations of every number
+    (contradiction,) = [r for r in rows if r[2] == "contradiction"]
+    assert contradiction[3].startswith("*") and "counts differ" in contradiction[3]
+    assert "4 per schedule rows" in contradiction[3] and "3 per plan placements" in contradiction[3]
+    assert all(source in contradiction[12] for source in ("S12", "C1", "C2"))
 
     # a further run with every answer cached finishes straight away, writing nothing new to ask
     again = estimate(job_folder, out, cache, "chat")

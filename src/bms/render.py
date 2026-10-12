@@ -1333,6 +1333,107 @@ def _silent_scope_notes(job: Job, playbook: Playbook, ids: SourceIds,
     return on_block, loose
 
 
+# T-010 task 2 (estimator ruling 25, 2026-10-12): a contradiction between sources prints in red in the block, never as
+# a plain bracket alone. One red "*" line per contested family count, one per device whose owner AME and the unit
+# manufacturer contest. The renderer's own words (no wording.json key).
+COUNTS_DIFFER = "*{family} counts differ: {counts}"
+COUNTS_CONT = "*{family} counts differ (cont.): {counts}"     # each further line of a long count contradiction
+RED_LINE_LIMIT = 160                                          # characters of one packed count line
+OWNER_DIFFERS = "*{device}: this line has it {mine}; {place} says {theirs}"
+OWNER_PLACE = "the cited schedule or sequence"           # a contested passage with no printable place
+OWNER_PAIR = frozenset({"AME", "Unit Mfr."})
+_OWNER_ROLES = (("furnished_by", "furnished"), ("installed_by", "installed"), ("wired_by", "wired"))
+
+
+def _count_refs(count: Count) -> tuple[Ref, ...]:
+    """Every citation behind a count: its sources, each other count's ref and the sum ruling L1 left out of it, each
+    once, in that order."""
+    refs = [*count.sources, *(o.ref for o in count.others)]
+    if count.added_up is not None:
+        refs.append(count.added_up.ref)
+    return tuple(r for n, r in enumerate(refs) if r not in refs[:n])
+
+
+def _contradiction_lines(system: System, families, playbook: Playbook, ids: SourceIds,
+                         sources: dict[str, tuple[Ref, ...]] | None = None) -> tuple[list[str], set[str]]:
+    """The block's red "*" lines (ruling 25), none over RED_LINE_LIMIT (160) characters, and the ids of the
+    devices whose owner is contested (their black "*Assumed" line is replaced by the red one, so the contradiction
+    prints once).
+
+    Counts: one line per header family whose other counts differ from the printed count, every number with its place,
+    highest first, in `_count_part`'s words, the sum ruling L1 left out last (a sum alone is no contradiction). A long
+    one is packed into several lines, each continuation starting "*<Family> counts differ (cont.):", so no number
+    stands alone on a line and none is lost.
+
+    Owners: one line per device flagged "ownership" with an assumption (`ai._stated_not_assumed` makes that case).
+    The two parties: for each role, the line's own party (`furnished_by`, `installed_by`, `wired_by`) against who
+    each cited passage says furnishes, installs or wires it (`ai.stated_parties` on the ref's quote); a role where one
+    is AME and the other the unit manufacturer is contested. When no quote settles it, the assumption's own words:
+    its what names one of the two and its why the other (`ai._party_of`). Any other pair is no contest of ruling 25:
+    the black "*Assumed" line stays.
+
+    `sources`, when given, is filled with the citations behind each line it returns: every source and other count of
+    the family (`_count_refs`) for a count line, the device's refs for an owner line (`contradiction_refs`)."""
+    from bms.ai import _party_of, stated_parties          # at call time: bms.ai is the heavy intake module
+    sources = {} if sources is None else sources
+    lines: list[str] = []
+    for family in families:
+        if not _counts_text(family.count, playbook, ids, with_sum=False):
+            continue
+        name = _squash(ids.without_issued(family.name)).strip() or system.name
+        first = len(lines)
+        start, line = COUNTS_DIFFER.format(family=name, counts=""), ""
+        for part in _counts_text(family.count, playbook, ids).split("; "):
+            if line and len(line) + 2 + len(part) > RED_LINE_LIMIT:
+                lines.append(line)
+                start, line = COUNTS_CONT.format(family=name, counts=""), ""
+            line = f"{line}; {part}" if line else start + part
+        lines.append(line)
+        sources.update({t: _count_refs(family.count) for t in lines[first:]})
+    owners: set[str] = set()
+    for device in system.devices:
+        if device.flag != "ownership" or device.assumption is None:
+            continue
+        name = _squash(ids.without_issued(device.name)).strip() or device.name
+        mine, theirs, place = [], [], ""
+        for ref in device.refs:
+            said = stated_parties(ref.quote or "")
+            for role, word in _OWNER_ROLES:
+                own, other = getattr(device, role), said.get(role)
+                if other and {own, other} == OWNER_PAIR and f"{word} by {own}" not in mine:
+                    mine.append(f"{word} by {own}")
+                    theirs.append(f"{word} by {other}")
+                    place = place or _squash(ids.without_issued(ids.place(ref.where), place=True)).strip()
+        what, why = device.assumption.what or "", device.assumption.why or ""
+        if mine:
+            text = OWNER_DIFFERS.format(device=name, mine=", ".join(mine), place=place or OWNER_PLACE,
+                                        theirs=", ".join(theirs))
+        elif {_party_of(what), _party_of(why)} == OWNER_PAIR:
+            text = f"*{name}: " + _squash(ids.without_issued(f"{_trim(what)}; {_trim(why)}")).strip()
+        else:
+            continue
+        owners.add(device.id)
+        lines += short_points(text)
+        sources.update({t: tuple(device.refs) for t in short_points(text)})
+    return [t for t in dict.fromkeys(lines) if t], owners
+
+
+def contradiction_refs(job: Job, playbook: Playbook) -> dict[tuple[str, str], tuple[Ref, ...]]:
+    """The citations behind each red contradiction line `render` prints (T-010, ruling 25), by the block's system key
+    and the line as printed: every source and other count of the family for a count line, the device's refs for an
+    owner line. `draft.lines` holds those lines without them; the Evidence Package lists each line with its
+    citations (`bms.evidence.flagged_lines`). Pure: no line it names is one `render` would not print."""
+    ids = SourceIds.of_job(job)
+    found: dict[tuple[str, str], tuple[Ref, ...]] = {}
+    for system in job.systems:
+        if not system.devices:               # a system with no lines prints no block
+            continue
+        sources: dict[str, tuple[Ref, ...]] = {}
+        _contradiction_lines(system, _header_families(system), playbook, ids, sources)
+        found.update({(system.key, _xml_safe(text)): refs for text, refs in sources.items() if text})
+    return found
+
+
 def _system_blocks(system: System, playbook: Playbook, out: list[RenderedLine], ids: SourceIds,
                    exceptions: Sequence[str] = (), set_aside: Sequence[SetAside] = ()) -> tuple[Block, ...]:
     """One block, or one header per family stacked over the shared lines (the lines sit under the last header,
@@ -1363,10 +1464,13 @@ def _system_blocks(system: System, playbook: Playbook, out: list[RenderedLine], 
     devices = _named(devices, ids)
     qty_notes = _qty_notes(devices, [f.count for f in families], playbook, ids)
     printed = _with_marks(_device_lines(devices, shape, system, playbook, reference, qty_notes), ids)
-    notes = _notes(system.clarifications, system.devices, playbook, ids)
+    red, contested = _contradiction_lines(system, families, playbook, ids)      # T-010: ruling 25, after the rest
+    notes = _notes(system.clarifications, [d for d in system.devices if d.id not in contested], playbook, ids)
     notes += [n for n in _count_note(system, set_aside, ids) if n not in notes]
+    red = [n for n in red if n not in notes]
     try:                                 # every field checked: a blank line, a negative quantity or tech hours
-        items = _items(printed, pending) + [Item(kind="note", runs=(Run(text=n),)) for n in notes]
+        items = (_items(printed, pending) + [Item(kind="note", runs=(Run(text=n),)) for n in notes]
+                 + [Item(kind="note", runs=(Run(text=n, red=True),)) for n in red])
         last = len(headers) - 1
         blocks = [Block(header=h, joined=i > 0 or bool(group), tech_hours=system.tech_hours if i == 0 else None,
                         items=tuple(items) if i == last else ()) for i, h in enumerate(headers)]
@@ -1375,7 +1479,7 @@ def _system_blocks(system: System, playbook: Playbook, out: list[RenderedLine], 
     except ValueError as error:          # pydantic's ValidationError is a ValueError
         raise RenderError(f"system {system.key}: {error}") from error
     out += [RenderedLine(system.key, None, "header", h, None, None) for h in ([group] if group else []) + headers]
-    out += _traced(system.key, printed, notes)
+    out += _traced(system.key, printed, notes + red)
     out += [RenderedLine(system.key, None, "note", line, None, None) for line in left]
     return tuple(blocks)
 
