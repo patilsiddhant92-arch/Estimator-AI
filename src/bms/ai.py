@@ -1176,7 +1176,8 @@ def _check_system(answer, skeleton: System, shape: Shape | None, known: frozense
     a device is in its source; slots fit the shape; a known count is 1 or more; at most one clarification;
     every assumption says what and why; device ids unique and of this system. With `recount` (the count rewrite)
     a kept device takes the count the answer gives it (`_recounted`). With `block` (a revise whose findings all
-    name devices) the block's clarifications, tech hours and no-scope reason are the original's (AI-10). With
+    name devices) the block's clarifications, tech hours and no-scope reason are the original's (AI-10), unless no line is left and
+    the answer gives a no-scope reason: then its reason and clarifications stand and the tech hours are 0. With
     `revise` (a revise whose must_fix findings about the whole block ask for it, `_revisions`: "count",
     "alternate") the answer may correct a family's count or the alternate, each checked against the evidence
     (`_corrections`); a family named in `hold` keeps its count.
@@ -1194,11 +1195,16 @@ def _check_system(answer, skeleton: System, shape: Shape | None, known: frozense
     corrected, refused = _corrections(answer, skeleton, revise, known, index, changes, hold) if revise else ({}, [])
     if refused:
         return None, refused
+    given = answer
     answer = {"no_scope_reason": None, **answer, **_skeleton_dict(skeleton), **corrected,
               **(block or {})}  # no field: null
     if keep:
         answer = dict(answer, devices=_put_back(answer.get("devices"), keep, originals,
                                                 skeleton.families if recount else (), skeleton.key))
+    if block is not None and answer.get("devices") == [] and str(given.get("no_scope_reason") or "").strip():
+        # a device-only revise that leaves no line: the answer's reason and clarifications, no tech hours
+        answer = dict(answer, no_scope_reason=given["no_scope_reason"], tech_hours=0.0,
+                      clarifications=given.get("clarifications", answer.get("clarifications")))
     _late_device_fields(answer, json_schema(System))
     errors = schema_errors(answer, json_schema(System))
     if errors:

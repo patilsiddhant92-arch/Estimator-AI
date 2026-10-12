@@ -149,7 +149,7 @@ def test_the_price_sheet_has_a_red_labor_row_per_line(tmp_path):
 
     from estimator.__main__ import ALIASES, PRICE_BOOK, WORKUP_TEMPLATE
     from estimator.price_sheet.price_book import PriceBook
-    from estimator.price_sheet.rows import HOURS, QUANTITY, SCOPE
+    from estimator.price_sheet.rows import FLAG, HOURS, QUANTITY, SCOPE
     from estimator.price_sheet.write import write_price_sheet
 
     ref = Ref("S1", "shown for removal", "MD-101, Drawings.pdf page 6")
@@ -169,4 +169,11 @@ def test_the_price_sheet_has_a_red_labor_row_per_line(tmp_path):
     assert ws.cell(heading + 2, HOURS).value is None
     for row in (heading + 1, heading + 2):
         assert "FF0000" in str(ws.cell(row, SCOPE).font.color.rgb)
-        assert "FF0000" in str(ws.cell(row, QUANTITY).font.color.rgb)
+        quantity_color = ws.cell(row, QUANTITY).font.color
+        quantity_rgb = "" if quantity_color is None or quantity_color.type == "theme" or quantity_color.rgb is None else str(quantity_color.rgb)
+        assert "FF0000" not in quantity_rgb and "C00000" not in quantity_rgb
+        hours_color = ws.cell(row, HOURS).font.color
+        hours_rgb = "" if hours_color is None or hours_color.type == "theme" or hours_color.rgb is None else str(hours_color.rgb)
+        assert "FF0000" not in hours_rgb and "C00000" not in hours_rgb
+        assert str(ws.cell(row, FLAG).font.color.rgb).endswith("C00000")
+        assert ws.cell(row, FLAG).font.bold is True
