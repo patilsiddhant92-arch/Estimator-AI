@@ -1714,6 +1714,34 @@ def test_a_device_only_revise_keeps_the_clarification_and_the_tech_hours(job, ra
     assert revised.no_scope_reason == system.no_scope_reason
 
 
+# ---- a device-only revise that empties the block keeps the answer's no-scope reason (live-run fix 2026-10-12) -----
+
+def test_a_device_only_revise_that_empties_the_block_keeps_the_answers_reason(job, raw, dossier, playbook):
+    system = job.system("EF")
+    answer = copy.deepcopy(raw["systems"][1])
+    answer.update(devices=[], tech_hours=12.0, no_scope_reason="The fans run on their own packaged controls.",
+                  clarifications=[{"kind": "note", "text": "Fans controlled by others"}])
+    findings = [Finding("Packaged units", "EF", d.id, "must_fix", "w", "f") for d in system.devices]
+    revised = ai.revise_system(system, findings, ai.evidence_for(system, dossier), playbook, FakeTransport(answer))
+    assert revised.devices == ()
+    assert revised.no_scope_reason == "The fans run on their own packaged controls."
+    assert [c.text for c in revised.clarifications] == ["Fans controlled by others"]
+    assert revised.tech_hours == 0
+
+
+def test_a_device_only_revise_with_kept_lines_still_keeps_the_blocks_fields(job, raw, dossier, playbook):
+    system = job.system("EF")
+    answer = copy.deepcopy(raw["systems"][1])
+    answer.update(devices=[], tech_hours=12.0, no_scope_reason="The fans run on their own packaged controls.",
+                  clarifications=[{"kind": "note", "text": "Fans controlled by others"}])
+    finding = Finding("Dampers under their fan", "EF", "EF.d3", "must_fix", "w", "f")
+    revised = ai.revise_system(system, [finding], ai.evidence_for(system, dossier), playbook, FakeTransport(answer))
+    assert [d.id for d in revised.devices] == ["EF.d1", "EF.d2"]
+    assert revised.clarifications == system.clarifications
+    assert revised.tech_hours == system.tech_hours
+    assert revised.no_scope_reason is None
+
+
 # ---- a QC finding about a device the job lacks is about no device in the revise (AI-16) ----------------------------
 
 def test_a_finding_about_a_missing_device_does_not_open_the_whole_block(job, raw, dossier, playbook):
