@@ -107,14 +107,27 @@ def read_standard_lines(template_path: Path) -> tuple[tuple[str, ...], tuple[str
 
 
 def read_named_exceptions(document: DocxDocument, template_path: Path) -> tuple[str, ...]:
-    """Exclusions this job added after the template's standard list."""
+    """Exclusions this job added after the template's standard list.
+
+    T-009 (ruling 22): a proposal prints one of the template's two demolition lines, so it may carry both or lack
+    exactly one of them; it may not lack both. Any other standard line missing, edited or reordered is refused."""
     standard = _exclusions(open_docx(template_path))
     sent = _exclusions(document)
-    if sent[: len(standard)] != standard:
+    demolition = {squash(layout.DEMOLITION_GENERAL), squash(layout.DEMOLITION_SPECIFIC)}
+    at, missing = 0, 0
+    for line in standard:
+        if at < len(sent) and sent[at] == line:
+            at += 1
+        elif line in demolition:
+            missing += 1
+        else:
+            at = -1
+            break
+    if at < 0 or missing > 1:
         raise ProposalFormatError(
             "the standard exclusions were edited, reordered or cut in this proposal; the tool can "
             "only add exceptions after the standard list, so it can't reproduce this one")
-    return tuple(sent[len(standard):])
+    return tuple(sent[at:])
 
 
 # --- the scope of work ------------------------------------------------------------

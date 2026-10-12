@@ -249,6 +249,13 @@ starts with its count, "Qty (N) <device line>", when the device count differs fr
 line. There is no separate quantity note. When two counts differ, the line prints the highest and names each other
 count with where it is, in brackets, for example "(4 per plan placements)".
 
+### Thermostats drawn on plans print the plan count
+The plans draw thermostats, space sensors and wall sensors. When the plans draw them, the count on the plans prints as
+the quantity, even when the sequence calls for more (for example one per unit). The line has no bracket. A short "*"
+line says "Verify", names the sheets where the plans draw them, and names the other number with where it is. The
+estimator checks the count, because the plans can miss a few. This is the one exception to Higher count prints and to
+Never undershoot, and it covers only these devices. Every other device keeps both rules.
+
 ## Clarifications and assumptions
 
 ### One clarification per block

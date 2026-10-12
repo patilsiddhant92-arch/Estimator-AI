@@ -1077,6 +1077,107 @@ def _count_note(system: System, set_aside: Sequence[SetAside], ids: SourceIds) -
         text = _squash(ids.without_issued(text)).strip()
         if text and text not in out:
             out.append(text)
+    out += [n for n in _verify_lines(system, set_aside, ids) if n not in out]
+    return out
+
+
+# T-009 (estimator ruling 21): a thermostat or space sensor line that prints the plan count
+# (`takeoff.apply_plan_counts`) gets one "*Verify" line built from its "plan count prints" set-asides: the sheets of
+# its quantity's sources, then every number that did not print, highest first (ruling D6: none is silent).
+PLAN_COUNT_REASON = "plan count prints"
+VERIFY = "*Verify: "
+VERIFY_LIMIT = 160
+_ASIDE_WORD = re.compile(r" of ([^;()]+) prints$")      # `takeoff.NOTE_FORM` ends with the device word, plural
+_ASIDE_PLAN = re.compile(r"the plan count (\d+) of ")  # the plan count the set-aside was recorded for
+_ADDED_UP_MARK = "(ruling L1"                           # `takeoff.ADDED_UP_FORM`: the L1 sum, never a count
+
+
+def _names_joined(names: Sequence[str]) -> str:
+    return names[0] if len(names) == 1 else f"{', '.join(names[:-1])} and {names[-1]}"
+
+
+def _wrap_verify(head: str, phrases: Sequence[str], names: Sequence[str], word: str, n: int) -> list[str]:
+    """The "*Verify" lines of one device, none over `VERIFY_LIMIT` characters: the pieces joined by "; " while they fit,
+    a new line (with its own "*Verify: ") where they do not; a sheet list too long for one line is split at its
+    commas, never cut."""
+    room = VERIFY_LIMIT - len(VERIFY)
+    pieces = [head, *phrases]
+    if len(head) > room:                                    # the sheets alone fill a line: continue them
+        chunks, current = [], []
+        for name in names:
+            trial = _names_joined([*current, name])
+            if current and len(f"{n} {word} drawn on {trial}") > room:
+                chunks.append(current)
+                current = []
+            current.append(name)
+        chunks.append(current)
+        pieces = [f"{n} {word} drawn on {_names_joined(chunks[0])}",
+                  *(f"also drawn on {_names_joined(c)}" for c in chunks[1:]), *phrases]
+    lines: list[str] = []
+    for piece in pieces:
+        if lines and len(f"{lines[-1]}; {piece}") <= VERIFY_LIMIT:
+            lines[-1] = f"{lines[-1]}; {piece}"
+        else:
+            lines.append(f"{VERIFY}{piece}")
+    return lines
+
+
+def _source_family(system: System, ref: Ref) -> str:
+    """The name of the block's family whose count the source gives: its source id is one of the family's count
+    sources, or its quote says "per <family>" or "each <family>" (one per unit); "" for none. Never an equal number."""
+    source = str(ref.source_id or "").strip().strip("[]").strip()
+    quote = " ".join(str(ref.quote or "").lower().split())
+    for family in system.families:
+        ids = {str(r.source_id or "").strip().strip("[]").strip()
+               for r in (*family.count.sources, *(o.ref for o in family.count.others))} - {""}
+        name = " ".join(family.name.lower().split())
+        if (source and source in ids) or (name and re.search(rf"\b(?:per|each) {re.escape(name)}s?\b", quote)):
+            return family.name
+    return ""
+
+
+def _verify_lines(system: System, set_aside: Sequence[SetAside], ids: SourceIds) -> list[str]:
+    """The block's "*Verify" lines for its thermostat and space sensor lines that print the plan count: "*Verify: 30
+    thermostats drawn on M-201 and M-202; the sequence calls for one per fan coil unit (55)". The other number is
+    named "the sequence calls for one per <family> (<n>)" when its source is one of a family's: the source id of the
+    family's count, or a quote that says "per <family>" or "each <family>"; else "<n> per <place>" as the quantity
+    note names it (`_count_label`). The L1 sum is not named (it is never a count of the job). A sheet with no number is
+    named by its document and page. Each line is at most 160 characters and splits at "; ". Only a device the block
+    still has, that still prints the plan count the set-aside was recorded for, gets a line, and only for a number
+    above that plan count (a typed count, a rewrite or a revise leaves no false "*Verify" line)."""
+    tags = frozenset(p for f in system.families for t in f.tags if (p := _family_prefix(t)))
+    words = _CountWords()
+    out: list[str] = []
+    for device in system.devices:
+        plan = device.quantity.highest()
+        if plan is None:
+            continue
+        mine = sorted((a for a in set_aside if a.reason == PLAN_COUNT_REASON and a.family == device.id
+                       and a.value > plan and _ADDED_UP_MARK not in (a.note or "")
+                       and (found := _ASIDE_PLAN.search(a.note or "")) and int(found[1]) == plan),
+                      key=lambda a: -a.value)
+        if not mine:
+            continue
+        names: list[str] = []
+        for ref in device.quantity.sources:
+            found = _sheets_named((ref.where,), ids, tags)
+            name = found[0] if found else _squash(ids.without_issued(ref.where)).strip()
+            if name and name not in names:
+                names.append(name)
+        if not names:
+            continue
+        word = (_ASIDE_WORD.search(mine[0].note) or [None, "thermostats"])[1]
+        phrases = []
+        for aside in mine:
+            family = _source_family(system, aside.ref)
+            if family:
+                phrases.append(f"the sequence calls for one per {family.lower()} ({aside.value})")
+                continue
+            place = _count_label(aside.value, aside.ref, ids, words.labels)
+            phrases.append(f"{aside.value}{words.per}{place}" if place else f"{aside.value} {words.unlabelled}")
+        head = f"{plan} {word} drawn on {_names_joined(names)}"
+        out += [_squash(ids.without_issued(line)).strip()
+                for line in _wrap_verify(head, list(dict.fromkeys(phrases)), names, word, plan)]
     return out
 
 

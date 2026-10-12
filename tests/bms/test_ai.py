@@ -1101,6 +1101,18 @@ def test_a_shapeless_system_takes_any_slot(job, raw, dossier, playbook):
     assert "no shape" in transport.asked[0]["prompt"].lower()
 
 
+def test_a_shapeless_systems_prompt_puts_a_device_count_at_the_end(job, raw, dossier, playbook):
+    """Ruling 24 (2026-10-12) supersedes ruling 15: no "Qty (N)" in front of a device line."""
+    system = dataclasses.replace(skeleton(job.system("EF")), shape="")
+    answer = _bad(raw, lambda a: a["devices"][0].update(slot="fan_controller"))
+    transport = FakeTransport(answer)
+    ai.write_system(system, ai.evidence_for(system, dossier), playbook, transport)
+    prompt = transport.asked[0]["prompt"]
+    assert ("A device line carries its count at the end as \"(Qty. N Total)\" when it differs from the block "
+            "count; the block header is \"Qty (N) <system>\" with the source breakdown in brackets.") in prompt
+    assert "in front when the count" not in prompt
+
+
 # ---- revise_system --------------------------------------------------------------------------------------------------
 
 def test_revise_without_must_fix_returns_the_system_unasked(job, playbook):
