@@ -154,12 +154,7 @@ def render(job: Job, playbook: Playbook) -> ProposalDraft:
     - A system with no devices prints no block: it is one `note` line in `lines` ("left out, no lines written", with
       the writer's reason) for the Evidence Package, or, when the documents put it outside AME's scope (a named
       exception of `job.exceptions` has its key, `plan._exceptions`, HP 24), the EXCEPTION line(s) in the job's own
-      words, which `named_exceptions` prints (`left_out_text`). A base system with a reason and no named exception
-      also prints one note. The reason names one other base system that has devices (its key, its name or a family
-      tag, as whole words, any case): one "*" line on that block, after its other "*" lines. The reason names none,
-      or more than one: "No BMS scope: <reason>" as the last item of the last base block, before the Demolition
-      Scope. An alternate with no devices keeps today's note only. A reason longer than LONG_CLARIFICATION goes
-      through `short_points`. The carrying block is chosen before this loop, so it can print before or after.
+      words, which `named_exceptions` prints (`left_out_text`).
     - `job.header` must be set (the run sets it): it becomes `scope.header` (`date` parsed from ISO).
     - Blocks print in the Playbook's block order (`block_order`: the shape's `order`, Global Points first; a block
       whose count prints "Qty (##)" after the equipment blocks), the plan's own order kept within one order number.
@@ -1036,6 +1031,7 @@ def _header_text(form: str, name: str, tags: tuple[str, ...], count: Count, play
 
 LEFT_OUT = "{name}: left out, no lines written"
 NO_BMS_SCOPE = "No BMS scope: {reason}"          # a silent base system whose reason names no block, or more than one (G-004)
+_STAR_LIMIT = 160                                # playbook "Line form": a line is at most 160 characters
 
 
 def left_out_text(system: System, exceptions: Sequence[str] = ()) -> str:
@@ -1095,26 +1091,30 @@ def _reason_names_system(reason: str, system: System) -> bool:
     return any(_holds_phrase(reason, token) for token in tokens)
 
 
+def _as_short_line(raw: str, line: str) -> str:
+    """`short_points` when the reason is over 150 characters, or the printed line is over the 160-character line
+    limit. A prefix can push a 150-character reason over that limit."""
+    if len(raw) > LONG_CLARIFICATION or len(line) > _STAR_LIMIT:
+        return short_points(line)
+    return line
+
+
 def _scope_star(system: System, reason: str) -> str:
     """The "*" line for a silent system whose reason names one block. The system's name leads when the reason does
-    not already hold it. One leading star only. A long reason goes through `short_points`."""
+    not already hold it. One leading star only."""
     raw = reason.strip()
     plain = _plain_reason(raw)
     if _holds_phrase(plain, system.name):
         line = raw if raw.startswith("*") else f"*{plain}"
     else:
         line = f"*{system.name}: {plain}"
-    if len(raw) > LONG_CLARIFICATION:
-        line = short_points(line)
-    return line
+    return _as_short_line(raw, line)
 
 
 def _no_bms_line(reason: str) -> str:
     raw = reason.strip()
     line = NO_BMS_SCOPE.format(reason=_plain_reason(raw))
-    if len(raw) > LONG_CLARIFICATION:
-        line = short_points(line)
-    return line
+    return _as_short_line(raw, line)
 
 
 def _block_with_notes(block: Block, notes: Sequence[str]) -> Block:

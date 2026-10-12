@@ -147,15 +147,15 @@ def test_a_notice_line_prints_in_red_with_no_bracket(job, playbook):
 
 def test_a_marked_line_in_a_system_block_prints_red_too(job, playbook):
     system = job.systems[1]
-    device = replace(system.devices[0], mark="future", mark_note="FUTURE AS PER sheet M-710")
+    device = replace(system.devices[0], mark="future", mark_note="FUTURE AS PER sheet M-9.01")
     marked = replace(job, demolition=(), systems=tuple(
         replace(s, devices=(device, *s.devices[1:])) if s.key == system.key else s for s in job.systems))
     draft = render(marked, playbook)
     lines = [i for b in draft.scope.blocks for i in b.items if i.kind == "line"]
     red = [i for i in lines if i.runs[0].red]
-    assert any(i.text.endswith("(FUTURE AS PER sheet M-710)") for i in red)
+    assert any(i.text.endswith("(FUTURE AS PER sheet M-9.01)") for i in red)
     # G-004: an unknown device count is red too. Every other red line is that "Qty (##)" line.
-    assert all(i.text.endswith("(FUTURE AS PER sheet M-710)") or i.text.startswith("Qty (##) ") for i in red)
+    assert all(i.text.endswith("(FUTURE AS PER sheet M-9.01)") or i.text.startswith("Qty (##) ") for i in red)
     assert any(line.text == red[0].text for line in draft.lines)        # the traced line carries the same words
 
 
