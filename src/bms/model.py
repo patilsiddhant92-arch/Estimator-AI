@@ -45,7 +45,8 @@ SheetKind = Literal["new_work", "demolition", "part_plan", "enlarged_plan", "ris
                     "control_diagram", "other"]
 UnitStatus = Literal["new", "demolish", "demolish_with_work", "existing_remain", "relocate", "future"]
 SetAsideReason = Literal["demolition sheet", "same unit labelled again", "part plan of one area", "future item",
-                         "existing to remain", "not a unit of this family", "count by unit register"]
+                         "existing to remain", "not a unit of this family", "count by unit register",
+                         "plan count prints"]
 # what a Demolition Scope line says the job does with that family (T-G1)
 DemolitionAction = Literal["demo", "existing to remain", "relocation"]
 
@@ -318,7 +319,8 @@ class SetAside(_Model):
     ref: Ref = field(**_doc("The source of that number."))
     reason: SetAsideReason = field(**_doc(
         "demolition sheet, same unit labelled again, part plan of one area, future item, existing to remain, not a "
-        "unit of this family or count by unit register (a pump or valve count the unit register changes)."))
+        "unit of this family, count by unit register (a pump or valve count the unit register changes) or plan count "
+        "prints (a thermostat or space sensor line prints the plan count; the sequence's number is set aside, T-009)."))
     note: str = field(default="", **_doc(
         'Both numbers in plain words, e.g. "21 plan placements set aside; 5 units on the new-work sheets".'))
 

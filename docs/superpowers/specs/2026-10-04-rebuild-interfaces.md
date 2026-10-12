@@ -61,7 +61,7 @@ missing required key, wrong type or a value outside an enumeration raises `Model
 | `DecisionAction` | "accept", "change", "delete" | `DECISION_ACTIONS` |
 | `SheetKind` | "new_work", "demolition", "part_plan", "enlarged_plan", "riser", "schedule", "detail", "control_diagram", "other" | `SHEET_KINDS` |
 | `UnitStatus` | "new", "demolish", "demolish_with_work", "existing_remain", "relocate", "future" | `UNIT_STATUSES` |
-| `SetAsideReason` | "demolition sheet", "same unit labelled again", "part plan of one area", "future item", "existing to remain", "not a unit of this family", "count by unit register" | `SET_ASIDE_REASONS` |
+| `SetAsideReason` | "demolition sheet", "same unit labelled again", "part plan of one area", "future item", "existing to remain", "not a unit of this family", "count by unit register", "plan count prints" | `SET_ASIDE_REASONS` |
 | `DemolitionAction` | "demo", "existing to remain", "relocation" | `DEMOLITION_ACTIONS` |
 
 `Flag` has no "future" value: `Device.mark` (T-005c) carries a future item. The last three enumerations are the

@@ -38,6 +38,7 @@ You write the system's devices (its scope lines, in print order), its clarificat
 
 - quantity is a count: value, sources, others. value is the number of this line, the highest any source gives. sources are the refs that give that number; others are every different number another source gives, each with its ref.
 - A line that is one per unit of a family carries that family's count, copied whole (value, sources and others).
+- Thermostats drawn on plans print the plan count: for a thermostat or a space, room, zone or wall temperature sensor line, write the count the sequence gives (for example one per unit) as the line's count, as for any line. The app moves it: when the plans draw fewer, the plan count prints, with a "*Verify" line, and the sequence's number is kept apart with its source. Write no bracket and no note for it. Every other device keeps the highest count.
 - When no source gives the number, value is null (it prints as unknown) and flag is "quantity". Never work out, guess or round a number. When the sources disagree, the higher one is value, every other is in others, and flag is "quantity".
 - flag says why the estimator must look at the line: "quantity" (count unknown or sources disagree), "ownership" (unclear ownership as the Playbook lists it: two parties for one device, split furnishing and installing, in scope and in an exclusion, or a costly device with no party and no default), "assumed" (the line rests on an assumption), "none" otherwise. When more than one applies: quantity first, then ownership, then assumed.
 

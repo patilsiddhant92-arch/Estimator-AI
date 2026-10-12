@@ -606,6 +606,9 @@ def _estimate(job_folder: Path, out: Path, cache: Path, mode: Mode, known: dict)
             pending.append(_not_answered(ai.FRONT_END_NAME, missing))
         else:
             job = _asked_about_front_end(job)
+    # T-009 (ruling 21): a thermostat or space sensor line prints the plan count, the sequence's number set aside
+    job = takeoff.apply_plan_counts(job, getattr(reading, "devices", ()) or (),
+                                    getattr(dossier, "sheet_pages", None) or {}, ledger)
     save(job)
     if pending:
         return RunResult("waiting", "write", waiting=transport.waiting, job_file=job_file, messages=tuple(pending))
