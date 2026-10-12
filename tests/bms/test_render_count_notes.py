@@ -123,7 +123,7 @@ def test_a_front_end_line_names_its_other_counts(job, playbook):
     # T-005e addendum: a device's other counts print on its own line (GEM v4 ~609), not in a "*" note
     assert [l.text for l in draft.lines if l.system_key == "" and l.kind == "note"] == []
     assert [l.text for l in draft.lines if l.system_key == "" and l.kind == "line"][0].endswith(
-        "Qty (3) Furnish and Install BMS Server Software and Graphics (3 per M-101; 1 per M-601)")     # G-002
+        "Furnish and Install BMS Server Software and Graphics (Qty. 3 Total) (3 per M-101; 1 per M-601)")     # ruling 24
 
 
 # ---- the silent cases this run closed ------------------------------------------------------------------------------
@@ -143,7 +143,7 @@ def test_a_device_quantity_below_the_highest_with_no_source_is_named(job, playbo
     assert notes(job, playbook, system) == []           # T-005e addendum: on the device's own line (GEM v4 ~609)
     draft = render(replace(job, systems=(system,)), playbook)
     assert [l.text for l in draft.lines if l.device_id == "X.d1"] == [
-        "Furnish and Install DDC Controller (5 per M-101; 2 elsewhere in the documents)"]   # no prefix: 5 is the block's
+        "Furnish and Install DDC Controller (Qty. 5 Total) (5 per M-101; 2 elsewhere in the documents)"]
 
 
 def test_a_zero_below_the_highest_is_named_not_dropped(job, playbook):

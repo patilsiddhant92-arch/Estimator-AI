@@ -40,8 +40,8 @@
     "tags_joiner": ", "
   },
   "quantity": {
-    "line": "Qty ({n}) ",
-    "unknown": "Qty (##) ",
+    "line": " (Qty. {n} Total)",
+    "unknown": " (Qty. ##)",
     "others_note": "*Qty. {counts}."
   },
   "count_causes": {

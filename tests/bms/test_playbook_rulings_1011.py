@@ -62,20 +62,24 @@ RULINGS = [
       'A "*" line that the estimator must see prints in red.')),
     (15, "Quantities print in the line", "Counts and quantities",
      ('The block heading keeps "Qty (n) <system>".',
-      'A device line inside a block starts with its count, "Qty (N) <device line>", when the device count differs '
-      'from the block count (for example "Qty (33) Furnish and Install Space Temperature Sensor").',
-      'It is never a bracket "(Qty. N Total)" at the end of the line. There is no separate quantity note.')),
+      'A device line ends with "(Qty. N Total)" when its count is known and differs from the block count, or when '
+      'the line carries a note (ruling 24), for example "Furnish and Install Space Temperature Sensor (Qty. 33 '
+      'Total)".',
+      'There is no separate quantity note.')),
     (15, "Never undershoot", "Counts and quantities",
-     ('An unknown count prints "Qty (##)", in a header and in front of a line, flagged to confirm.',)),
+     ('An unknown count prints "Qty (##)" in a header, and "(Qty. ##)" at the end of a device line (ruling 24), '
+      'flagged to confirm.',)),
     (15, "Line quantity", "Counts and quantities",
-     ("in front of the line, as \"Qty (N) <device line>\". When it equals the block's count, the line has no "
-      "quantity in front.",
-      'one line with the total ("Qty (6) Furnish Chiller Enable"), never one line per tag.')),
+     ('at the end of the line (ruling 24), as "<device line> (Qty. N Total)", when the count is known and differs '
+      'from the block\'s count, or when the line carries a note. When the count equals the block\'s count and the '
+      'line carries no note, the line has no quantity words.',
+      'one line with the total ("Furnish Chiller Enable (Qty. 6 Total)"), never one line per tag.')),
     (15, "Line form", "Shapes and wording",
-     ("A line whose count differs from the block's count starts with \"Qty (N)\" before that (see Line quantity).",
+     ('ends with "(Qty. N Total)" (ruling 24; see Line quantity).',
       'Details go after the device in brackets: the owner, "(as per sequence)", "(Location: ...)".')),
     (15, "Untemplated systems", "Shapes and wording",
-     ('in the house form "<quantity><verb> <device><owner>" (the quantity first, see Line quantity)',)),
+     ('in the house form "<verb> <device><owner> (Qty. N Total)" (the quantity at the end, ruling 24, see Line '
+      'quantity)',)),
     (15, "Higher count prints", "Counts and quantities",
      ("Every count that differs from the printed one prints in the same line (see Quantities print in the line).",)),
     (16, "Tech hours never print", "Tech hours",
@@ -109,10 +113,13 @@ def test_the_ruling_text_loads_under_the_rule_name(ruling, name, topic, sentence
     assert [s for s in sentences if s not in plain(rule.text)] == []
 
 
-def test_only_the_ruling_15_rule_names_the_old_bracket_forms_and_it_says_they_are_never_used():
+def test_ruling_24_names_the_end_form_on_the_device_line_rules():
     holding = [n for n, rule in PLAYBOOK.rules.items()
                if "(Qty. N Total)" in plain(rule.text) or "(Qty. ##)" in plain(rule.text)]
-    assert holding == ["Quantities print in the line"]
+    assert holding == ["Never undershoot", "Line quantity", "Quantities print in the line", "Line form",
+                       "Untemplated systems"]
+    assert all("ruling 24" in plain(PLAYBOOK.rule(name).text) for name in holding)
+    assert not any("never used" in plain(rule.text) for rule in PLAYBOOK.rules.values())
 
 
 def test_the_separate_quantity_note_is_gone_from_every_rule_but_the_one_that_says_there_is_none():

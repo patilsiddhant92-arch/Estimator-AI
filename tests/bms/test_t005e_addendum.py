@@ -50,7 +50,7 @@ def test_catch_all_lines_take_their_gem_place_among_the_template_lines(draft):
         "Furnish Supply Fan Start/Stop and Status",
         "Furnish Supply Fan VFD Control",
         "Furnish Supply Fan VFD Fault",                               # catch-all point: with the fan signals
-        "Qty (4) Furnish and Install Outside Air Damper Actuator (4 per M-601; 2 per M-401)",   # ruling 15
+        "Furnish and Install Outside Air Damper Actuator (Qty. 4 Total) (4 per M-601; 2 per M-401)",   # ruling 15
         "Furnish and Wire Hot Water Control Valve and Actuator",      # written Furnish and Install (GEM v4 ~228)
         "Interlock with Associated Exhaust Fan Operation",            # other Wire / interlock (18)
         "Demolition of Existing Pneumatic Tubing and Sensors",        # plain work statement (19), lead ruling
@@ -126,7 +126,7 @@ def test_one_short_star_line_per_item_and_no_quantity_note(draft):
 def test_a_device_quantity_prints_in_its_own_line(draft):
     # GEM v4 ~609 and estimator ruling 15: "Qty (#) <device>", its other counts after it
     damper = next(t for t in lines(draft, "AHU") if "Outside Air Damper" in t)
-    assert damper == "Qty (4) Furnish and Install Outside Air Damper Actuator (4 per M-601; 2 per M-401)"
+    assert damper == "Furnish and Install Outside Air Damper Actuator (Qty. 4 Total) (4 per M-601; 2 per M-401)"
     assert not any("M-401" in t for t in lines(draft, "AHU", "note"))
 
 
