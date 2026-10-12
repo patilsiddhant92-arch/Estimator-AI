@@ -20,8 +20,8 @@ from estimator.text import squash
 FIXTURES = Path(__file__).resolve().parent / "fixtures"
 OFF_PARENT = "All off-hours or overtime labor."
 WAGE_PARENT = "All labor will be performed during normal business working hours"
-HOURS_LINE = "The documents require work between 6 PM and 6 AM (Spec Section 01 14 00)"
-NO_HOURS_LINE = "The documents require off-hours work (Spec Section 01 14 00)"
+HOURS_LINE = "The documents require work between 6 PM and 6 AM (Spec Section 01 14 00)."
+NO_HOURS_LINE = "The documents require off-hours work (Spec Section 01 14 00)."
 WAGE_LINE = ("All labor is priced at prevailing wage rates, as the documents require "
              "(As per Spec Section 00 73 46).")
 RULING_22 = "Any demolition work not"

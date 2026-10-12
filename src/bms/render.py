@@ -714,8 +714,9 @@ def _slot_form(shape: Shape | None, slot: str) -> str:
 
 
 def line_prints_quantity(form: str, slot_kind: str | None) -> bool:
-    """A device line prints "Qty (N)" in front when its wording names a verb or a device and the slot is not an
-    interlock. That is the set of lines whose form ended with {qty}, plus Unit Ventilators terminal_strip_device."""
+    """A device line can end with its quantity, "(Qty. N Total)" (ruling 24), when its wording names a verb or a
+    device and the slot is not an interlock. That is the set of lines whose form ended with {qty}, plus Unit
+    Ventilators terminal_strip_device."""
     if slot_kind == "interlock":
         return False
     return "{verb}" in form or "{device}" in form

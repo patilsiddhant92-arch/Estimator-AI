@@ -68,6 +68,24 @@ def _date(text: str) -> dt.date:
 
 # --- the exclusions ---------------------------------------------------------------
 
+def _form_pattern(form: str) -> re.Pattern[str]:
+    """A sentence form of the writer as a pattern: its words as written, any text in place of each {placeholder}, and
+    the closing full stop optional (a proposal written before the sentence had its full stop still reads)."""
+    words = re.split(r"\{\w+\}", form.removesuffix("."))
+    return re.compile(".+".join(re.escape(word) for word in words) + r"\.?")
+
+
+# The sentences the writer adds as red sub-bullets under an exclusion (ruling 26).
+_WRITER_SUB_BULLETS = tuple(_form_pattern(form) for form in (layout.OFF_HOURS_BETWEEN, layout.OFF_HOURS_UNSTATED))
+
+
+def _is_writer_sub_bullet(paragraph: Paragraph, text: str) -> bool:
+    """A sub-bullet the app wrote: style PR3 and one of the writer's own sentences. Any other PR3 line, red or not, is
+    the estimator's own. The colour is not asked: the estimator may take the red off once the line is checked."""
+    return (paragraph.style is not None and paragraph.style.name == "PR3"
+            and any(form.fullmatch(text) for form in _WRITER_SUB_BULLETS))
+
+
 def _exclusions(document: DocxDocument) -> list[str]:
     # visible_text, not p.text: a paragraph whose only text sits inside a tracked insertion (or
     # any other container p.text can't see) must still be found here, so it can be refused below
@@ -80,12 +98,13 @@ def _exclusions(document: DocxDocument) -> list[str]:
         raise ProposalFormatError("can't find the exclusions list")
     _refuse_foreign_children(document, paragraphs[start], paragraphs[end], region="among the exclusions")
     _refuse_deleted_paragraphs(document.paragraphs, paragraphs[start], paragraphs[end])
-    # A ruling 26 sub-bullet (style PR3) sits under a standard exclusion. It is not an edit of that
-    # point and it is not a named exception. The hidden-text check still runs on it.
+    # A ruling 26 sub-bullet the app wrote sits under a standard exclusion. It is not an edit of that
+    # point and it is not a named exception. Any other PR3 line is the estimator's own: it is read like every other
+    # line. The hidden-text check still runs on every line.
     returned = []
     for paragraph, text in zip(paragraphs[start + 1 : end], texts[start + 1 : end]):
         _refuse_hidden_text(paragraph)
-        if paragraph.style is not None and paragraph.style.name == "PR3":
+        if _is_writer_sub_bullet(paragraph, text):
             continue
         returned.append(text)
     return returned

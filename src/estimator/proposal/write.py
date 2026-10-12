@@ -37,8 +37,6 @@ RED = RGBColor(0xFF, 0x00, 0x00)        # a run the estimator must notice (`Run.
 # Ruling 26: the template points stay. A labor condition is a red PR3 sub-bullet under its own point.
 NORMAL_HOURS = "All labor will be performed during normal business working hours"
 OFF_HOURS_EXCLUSION = "All off-hours or overtime labor"
-OFF_HOURS_BETWEEN = "The documents require work between {hours} ({source})"
-OFF_HOURS_UNSTATED = "The documents require off-hours work ({source})"
 WAGE_CLARIFICATION = "All labor is priced at prevailing wage rates, as the documents require (As per {source})."
 _SUB_BULLET = "PR3"          # the template's third list level, numbered a., b. by the style
 _POINT = "PR2"
@@ -491,9 +489,9 @@ def hours_between(text: str) -> str:
 def _off_hours_sentence(condition: LaborCondition) -> str:
     hours = hours_between(condition.text)
     if not hours:
-        return OFF_HOURS_UNSTATED.format(source=condition.source)
+        return layout.OFF_HOURS_UNSTATED.format(source=condition.source)
     spoken = re.sub(r"\s+to\s+", " and ", hours, count=1, flags=re.IGNORECASE)
-    return OFF_HOURS_BETWEEN.format(hours=spoken, source=condition.source)
+    return layout.OFF_HOURS_BETWEEN.format(hours=spoken, source=condition.source)
 
 
 def _style_name(paragraph: Paragraph) -> str:

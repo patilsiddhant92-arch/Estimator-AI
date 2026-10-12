@@ -30,6 +30,11 @@ DEMOLITION_BLOCK_KEY = "demolition"            # the same strings as bms.render.
 DEMOLITION_BLOCK_HEADING = "Demolition Scope"  # estimator code does not import bms
 BASE_PRICE = "Base Price:"
 EXISTING_NAME_COLOUR = "FF0000"   # the template types the existing system's name in red
+# Ruling 26 (G-005): the sentence the writer prints, in red, as a sub-bullet under the off-hours exclusion ({hours} the
+# time range as spoken, {source} where the documents say it). The reader skips a sub-bullet among the exclusions only
+# when its text has one of these forms (`read._exclusions`).
+OFF_HOURS_BETWEEN = "The documents require work between {hours} ({source})."
+OFF_HOURS_UNSTATED = "The documents require off-hours work ({source})."
 
 # The lists the template defines.
 BLOCK_LINE_LIST = 12              # o ➢ ▪ • at levels 4-8; indents 1800, 2160, 2520, 2880, 3240
