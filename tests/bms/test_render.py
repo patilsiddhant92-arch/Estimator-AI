@@ -250,7 +250,8 @@ def test_a_long_clarification_prints_whole(job):
     pb = load_playbook(ROOT / "playbook")
     long_text = "Confirm quantity: " + "invented words " * 30 + "end"
     out = texts(render(one(job, system([device()], clarifications=(Clarification("confirm", long_text),))), pb), "EF")
-    assert out[-1] == "*" + long_text
+    # T-008: a long note prints one "*" line per point; the first ": " splits a part still over 150 characters
+    assert out[-2:] == ["*Confirm quantity:", "*" + long_text.split(": ", 1)[1]]
 
 
 # ---- source ids: the renderer rewrites no sentence; an issued id left in a stale text goes, token only ----------
