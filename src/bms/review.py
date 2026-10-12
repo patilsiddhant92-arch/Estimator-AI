@@ -611,8 +611,9 @@ button.primary{background:var(--acc);color:#fff;border-color:var(--acc)}
 
 
 def _names_device(text: str, device_id: str) -> bool:
-    """True when `device_id` is a whole id in `text`. `AHU.d2` does not match inside `AHU.d23` or `AHU.d2.1`."""
-    return re.search(rf"(?<![\w.]){re.escape(device_id)}(?![\w.])", text) is not None
+    """True when `device_id` is a whole id in `text`. `AHU.d2` does not match inside `AHU.d23` or `AHU.d2.1`. A full
+    stop that ends the sentence does not belong to the id: `AHU.d2.` matches `AHU.d2`."""
+    return re.search(rf"(?<![\w.]){re.escape(device_id)}(?!\w|\.\w)", text) is not None
 
 
 def _fold_named_flags(questions: list[_Question]) -> list[_Question]:
