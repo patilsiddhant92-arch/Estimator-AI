@@ -12,6 +12,15 @@ from estimator.scope import Alternate
 from estimator.text import strip_list_marker
 
 
+# T-009 (ruling 22): the proposal prints one demolition exclusion. These jobs have no Demolition Scope block, so the
+# general line stays and the template's specific line is gone; everything else is as sent.
+SPECIFIC_DEMOLITION = "Any demolition work not specifically mentioned"
+
+
+def _one_demolition_line(texts):
+    return [t for t in texts if t != SPECIFIC_DEMOLITION]
+
+
 def _build(tmp_path):
     main(["build", str(TEST_JOB_FILE), "--out", str(tmp_path)])
     return tmp_path / "26-0246 Proposal.docx", tmp_path / "26-0246 Price Sheet.xlsx"
@@ -20,7 +29,7 @@ def _build(tmp_path):
 def test_the_proposal_matches_what_was_sent(tmp_path, sent_proposal, proposal_template, test_job, without_prices):
     proposal, _ = _build(tmp_path)
     assert scope_texts(proposal) == scope_texts(sent_proposal)
-    assert closing_texts(proposal) == closing_texts(sent_proposal)
+    assert closing_texts(proposal) == _one_demolition_line(closing_texts(sent_proposal))
     assert opening_texts(proposal) == opening_texts(sent_proposal)
     assert read_proposal(proposal, proposal_template) == without_prices(test_job)
 

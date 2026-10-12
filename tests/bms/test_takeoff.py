@@ -854,4 +854,5 @@ def test_t007b_the_register_admits_a_sheet_the_code_types_as_demolition():
 
 def test_t007b_a_pump_family_the_register_changes_has_the_new_reason():
     from bms.model import SET_ASIDE_REASONS
-    assert SET_ASIDE_REASONS[-1] == "count by unit register"
+    # T-009 added "plan count prints" after it (lead permission): the pin names the T-007b reason by position
+    assert SET_ASIDE_REASONS[-2] == "count by unit register" and SET_ASIDE_REASONS[-1] == "plan count prints"

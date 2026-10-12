@@ -182,6 +182,17 @@ def _families_changed(before: Job, key: str, after: Job) -> bool:
     return before.system(key).families != after.system(key).families
 
 
+def _plan_counts(job: Job, reading, dossier, ledger, decisions=(), before: Job | None = None) -> Job:
+    """T-009 (ruling 21): a thermostat or space sensor line prints the plan count, the sequence's number set aside
+    (`takeoff.apply_plan_counts`). The run calls it after the writers, after the decisions' count rewrites and after
+    the revise, so neither a rewrite nor a revise can print the sequence's number again; it is idempotent. A line whose
+    count the estimator typed (`_typed_counts` against `before`, the job the decisions were made on) keeps it."""
+    typed = frozenset((s.key, device_id) for s in (before.systems if before is not None else ())
+                      for device_id in _typed_counts(decisions, s.key, before)) if decisions else frozenset()
+    return takeoff.apply_plan_counts(job, getattr(reading, "devices", ()) or (),
+                                     getattr(dossier, "sheet_pages", None) or {}, ledger, typed=typed)
+
+
 def _typed_counts(decisions, key: str, before: Job) -> frozenset[str]:
     """The ids of `key`'s lines whose count the estimator set: a device change whose quantity differs from the
     line's as the page showed it (`was`; without one, the line in `before`). A rename or other words-only change
@@ -606,6 +617,8 @@ def _estimate(job_folder: Path, out: Path, cache: Path, mode: Mode, known: dict)
             pending.append(_not_answered(ai.FRONT_END_NAME, missing))
         else:
             job = _asked_about_front_end(job)
+    # T-009 (ruling 21): a thermostat or space sensor line prints the plan count, the sequence's number set aside
+    job = _plan_counts(job, reading, dossier, ledger)
     save(job)
     if pending:
         return RunResult("waiting", "write", waiting=transport.waiting, job_file=job_file, messages=tuple(pending))
@@ -676,6 +689,8 @@ def _estimate(job_folder: Path, out: Path, cache: Path, mode: Mode, known: dict)
 
         except ai.NoAnswer as missing:
             pending.append(_not_answered(system.name, missing))
+    # T-009: a count rewrite may copy the sequence's number back to a thermostat line; the plan count prints again
+    job = _plan_counts(job, reading, dossier, ledger, decisions, decided_from)
     save(job)
     if pending:
         return RunResult("waiting", "write", waiting=transport.waiting, job_file=job_file,
@@ -729,6 +744,8 @@ def _estimate(job_folder: Path, out: Path, cache: Path, mode: Mode, known: dict)
     early = [d for d in decisions if not _matches_nothing(decided_from, d)]
     revised_job = job
     job = apply_seen(job, late, copies)
+    # T-009: a revise may copy the sequence's number back to a thermostat line; the plan count prints again
+    job = _plan_counts(job, reading, dossier, ledger, decisions, decided_from)
 
     def took_effect(decision: Decision) -> bool:
         if not _matches_nothing(decided_from, decision):

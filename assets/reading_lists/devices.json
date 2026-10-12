@@ -27,6 +27,7 @@
     "FZ": "Freezestat"
   },
   "legend_decides": ["TB"],
+  "plan_count_labels": ["T", "TB"],
   "plan_type": "Plans",
   "legend_type": "Notes and legends",
   "legend_title_words": ["\\bLEGENDS?\\b", "\\bSYMBOLS?\\b"],

@@ -382,6 +382,170 @@ def attach_device_set_asides(job: Job, devices, sheet_pages: dict | None = None)
     return dataclasses.replace(job, set_aside=(*job.set_aside, *new)) if new else job
 
 
+# ---- T-009 (estimator ruling 21): the plan count of a thermostat or space sensor prints -----------------------------
+
+PLAN_COUNT_REASON = "plan count prints"
+_LABEL_FILE = Path(__file__).resolve().parents[2] / "assets" / "reading_lists" / "devices.json"
+# the Playbook shape slots whose line is a thermostat or a space, room, zone or wall temperature sensor
+# (playbook/shapes.json); "space_temperature_humidity" is a humidity sensor too (label T/H), "extend_thermostat_wiring"
+# is wiring: both stay out
+PLAN_COUNT_SLOTS = frozenset({"space_sensor", "space_temperature", "space_thermostat", "thermostat",
+                              "alternate_thermostat", "mau_space_temperature", "remote_space_sensor",
+                              "bms_space_sensor"})
+_SPACE_KIND = (r"(?:space|room|zone|wall)\s+(?:temp(?:erature)?\s+)?(?:sensors?|transmitters?|thermostats?)"
+               r"|(?:space|room|zone|wall)\s+temp(?:erature)?")
+_KIND_NAME = re.compile(rf"\b(?:thermostats?|{_SPACE_KIND})\b", re.I)
+_SPACE_NAME = re.compile(rf"\b(?:{_SPACE_KIND})\b", re.I)
+# a name with one of these words is another kind of line, whatever its slot or its other words
+_OTHER_KIND = re.compile(r"humidity|pressure|\bco2?\b|discharge|mixed|outside|duct|wiring|"
+                         r"\bwire|extend|relocat|damper|valve|interlock", re.I)
+# these words make another kind of line only when the name does not say space, room, zone or wall temperature sensor:
+# "Return Air Temperature Sensor" is out, "Room Temperature Sensor with Occupancy Override" is in
+_SOFT_OTHER_KIND = re.compile(r"occupancy|return|supply|status|enable", re.I)
+NOTE_FORM = "{other} not printed ({why}); the plan count {plan} of {word} prints"
+# the sum ruling L1 left out (`Count.added_up`) is kept too, but it is never a count of the job: the "*Verify" line
+# does not name it (`render._verify_lines` knows it by "(ruling L1")
+ADDED_UP_FORM = ("{other} added up over the sheets, not a count (ruling L1; {why}); "
+                 "the plan count {plan} of {word} prints")
+_PLAN_IN_NOTE = re.compile(r"the plan count (\d+) of ")
+
+
+def plan_count_labels(path: Path | None = None) -> tuple[str, ...]:
+    """The plan labels whose count is a thermostat count: `plan_count_labels` of assets/reading_lists/devices.json
+    (the estimator adds a label there, never in code). () when the file has none."""
+    data = json.loads(Path(path or _LABEL_FILE).read_text(encoding="utf-8"))
+    return tuple(str(label) for label in data.get("plan_count_labels", ()))
+
+
+def is_plan_counted_kind(name: str, slot: str = "") -> bool:
+    """True for a thermostat or a space, room, zone or wall temperature sensor line: its slot is one of
+    `PLAN_COUNT_SLOTS` or its name says so, and its name is not another kind of line (humidity, pressure, CO2,
+    discharge, outside or duct air, wiring, a damper, a valve; or occupancy, return, supply, status or enable when it
+    does not say space, room, zone or wall temperature sensor)."""
+    name = " ".join(str(name or "").split())
+    if _OTHER_KIND.search(name) or (_SOFT_OTHER_KIND.search(name) and not _SPACE_NAME.search(name)):
+        return False
+    return slot in PLAN_COUNT_SLOTS or bool(_KIND_NAME.search(name))
+
+
+def _counted_rows(devices, sheets, label: str) -> list:
+    """The device rows of `label` on the sheets that count (`device_tally` keeps the same rows)."""
+    by_key = {_sheet_key(s): s for s in sheets or ()}
+    rows = []
+    for d in devices or ():
+        sheet = by_key.get((d.document, int(d.page)))
+        if d.label == label and d.total > 0 and (sheet is None or sheet.counts_units):
+            rows.append(d)
+    return rows
+
+
+def _block_plan_count(job: Job, system, devices, labels, sheet_pages, ledger):
+    """(the plan count, its Refs, the device word) of one block: the thermostat labels counted on the new-work sheets
+    of the areas of the block (the areas of the sheets its counted units are drawn on, as `_device_lines` finds them),
+    one `Ref` for each counted sheet; None when the block has no area or the plans draw none."""
+    prefixes = _system_prefixes(job, system, ledger)
+    units = [u for u in job.units if u.family in prefixes]
+    tags = {u.tag for u in units}
+    units += [u for u in job.units if u not in units and u.serves and u.serves in tags]
+    counted = {s.number for u in units if u.status in COUNTED_STATUSES for s in job.sheets if s.number in u.sheets}
+    areas = {s.area for s in job.sheets if s.number in counted and s.area}
+    if not areas:
+        return None
+    mine = [row for row in devices or ()
+            if (sheet := _sheet_of(job, row.document, row.page, row.sheet)) is not None and sheet.area in areas]
+    ids = {(doc, int(page)): sid for sid, (doc, page) in (sheet_pages or {}).items()}
+    refs: list[Ref] = []
+    total, word = 0, ""
+    for label in labels:
+        for row in _counted_rows(mine, job.sheets, label):
+            total += row.total
+            word = word or str(row.device).split("/")[0].strip()
+            where = f"{row.sheet}, {row.document} page {row.page}" if row.sheet else f"{row.document} page {row.page}"
+            ref = Ref(source_id=ids.get((row.document, int(row.page)), ""), quote=label, where=where)
+            if ref not in refs:
+                refs.append(ref)
+    return (total, tuple(refs), word) if total > 0 else None
+
+
+def _count_numbers(count) -> list:
+    """Every number a Count holds, with the Ref that gives it (None for a value with no source) and whether it is the
+    sum ruling L1 left out: the value once for each source, the other counts, then the L1 sum."""
+    entries = []
+    if count.value is not None:
+        entries += [(count.value, r, False) for r in count.sources] or [(count.value, None, False)]
+    entries += [(o.value, o.ref, False) for o in count.others]
+    if count.added_up is not None:
+        entries.append((count.added_up.value, count.added_up.ref, True))
+    return entries
+
+
+def _plan_in_note(aside: SetAside) -> int | None:
+    """The plan count a "plan count prints" set-aside was recorded for (from its note), None when the note has none."""
+    found = _PLAN_IN_NOTE.search(aside.note or "")
+    return int(found[1]) if found else None
+
+
+def apply_plan_counts(job: Job, devices, sheet_pages: dict | None = None, ledger=None,
+                      typed: frozenset = frozenset()) -> Job:
+    """Estimator ruling 21 (2026-10-12). A thermostat or space sensor line whose plan count is below another number it
+    holds (the sequence's one per unit) prints the plan count: the line's `quantity` becomes the plan count, backed by
+    one `Ref` for each counted sheet (`_block_plan_count`), no other count; every number it held becomes a `SetAside`
+    with reason "plan count prints", `family` the line's id, the number's own `Ref`, so none is lost; the line is
+    flagged "quantity" (whatever flag it had). The render builds the "*Verify" line from the set-asides
+    (`render._verify_lines`). A line with no plan count, a plan count not below the other numbers, another kind of
+    line, or whose (system key, id) is in `typed` (the estimator typed its count) is left as it is. The step's own
+    set-asides follow the line: a line it reduces again gets a new set (the old ones go), and a line that no longer
+    prints the plan count they were recorded for (a typed count, a rewrite) loses them, as does a line the job no
+    longer has. Run twice it gives the same job: the line then holds only the plan count. The run calls it after the
+    writers, after the decisions' count rewrites and after the revise (`run._plan_counts`), so a later step that
+    copies the sequence's number back is reduced again. Every other device keeps the highest-prints rule."""
+    from bms.counts import NO_SOURCE_QUOTE
+
+    labels = plan_count_labels()
+    if not labels or not devices:
+        return job
+    systems, asides, stale = [], [], set()
+    for system in job.systems:
+        found = _block_plan_count(job, system, devices, labels, sheet_pages, ledger)
+        lines = []
+        for d in system.devices:
+            top = d.quantity.highest()
+            if (found is None or (system.key, d.id) in typed or not is_plan_counted_kind(d.name, d.slot)
+                    or top is None or top <= found[0]):
+                lines.append(d)
+                stale |= {a for a in job.set_aside if a.reason == PLAN_COUNT_REASON and a.family == d.id
+                          and _plan_in_note(a) != top}       # it no longer prints the plan count they describe
+                continue
+            plan, refs, word = found
+            stale |= {a for a in job.set_aside if a.reason == PLAN_COUNT_REASON and a.family == d.id}
+            entries = _count_numbers(d.quantity)
+            kept = tuple(dict.fromkeys((*refs, *(r for n, r, summed in entries
+                                                 if n == plan and r is not None and not summed))))
+            other: list[tuple[int, Ref, bool]] = []
+            for n, r, summed in entries:             # one set-aside for each number and each source that gives it
+                entry = (n, r if r is not None else Ref("", NO_SOURCE_QUOTE, ""), summed)
+                if n != plan and entry not in other:
+                    other.append(entry)
+            for n, ref, summed in sorted(other, key=lambda entry: -entry[0]):
+                why = ref.where or ref.quote or "no source"
+                form = ADDED_UP_FORM if summed else NOTE_FORM
+                asides.append(SetAside(family=d.id, value=n, ref=ref, reason=PLAN_COUNT_REASON,
+                                       note=form.format(word=plural(word or "thermostat"), other=n, why=why,
+                                                        plan=plan)))
+            lines.append(dataclasses.replace(d, quantity=dataclasses.replace(d.quantity, value=plan, sources=kept,
+                                                                              others=(), added_up=None),
+                                             flag="quantity"))
+        systems.append(dataclasses.replace(system, devices=tuple(lines)) if tuple(lines) != system.devices else system)
+    # a line the job no longer has (a revise or a rewrite removed it) keeps no set-aside that says its plan count prints
+    lines_now = {d.id for system in systems for d in system.devices}
+    stale |= {a for a in job.set_aside if a.reason == PLAN_COUNT_REASON and a.family not in lines_now}
+    kept_asides = tuple(a for a in job.set_aside if a not in stale)
+    new = tuple(dict.fromkeys(a for a in asides if a not in kept_asides))
+    if tuple(systems) == job.systems and kept_asides == job.set_aside and not new:
+        return job
+    return dataclasses.replace(job, systems=tuple(systems), set_aside=(*kept_asides, *new))
+
+
 # ---- Task 2.2: the sources a family's count may use ---------------------------------------------------------------
 
 # the counts cross-check's quotes (`bms.counts.LOCATED_QUOTE`, `SEEN_QUOTE`), kept here so this module needs no import

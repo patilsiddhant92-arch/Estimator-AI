@@ -22,6 +22,12 @@ DEDUCT_ALTERNATES = "DEDUCT ALTERNATES:"
 ALTERNATE_LABEL = "ALT #:"
 CLARIFICATIONS = "Clarifications and Inclusions considered:"
 EXCLUSIONS = "Exceptions and Exclusions"
+# T-009 (ruling 22): the template's two demolition exclusions. A proposal prints one: the specific line when the job
+# has a Demolition Scope block, the general one otherwise.
+DEMOLITION_GENERAL = "Any demolition work not mentioned."
+DEMOLITION_SPECIFIC = "Any demolition work not specifically mentioned"
+DEMOLITION_BLOCK_KEY = "demolition"            # the same strings as bms.render.DEMOLITION_KEY / DEMOLITION_HEADING;
+DEMOLITION_BLOCK_HEADING = "Demolition Scope"  # estimator code does not import bms
 BASE_PRICE = "Base Price:"
 EXISTING_NAME_COLOUR = "FF0000"   # the template types the existing system's name in red
 

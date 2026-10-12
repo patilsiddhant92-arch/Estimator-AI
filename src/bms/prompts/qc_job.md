@@ -4,7 +4,7 @@ You are given the written job (or one part of it) as JSON: its systems with thei
 
 Check every device and every count:
 - Each ref: its source says what the quote says, and that passage really calls for the line. A line no source of this job calls for breaks "Every line cites this job".
-- Each count: the value is the highest any cited source gives; every other count is in others with its source; an unknown count is null and flagged; nothing is undershot. A count's added_up is the plain sum over sheets of the same floor and area; it is not a count of the job and never prints as the value (ruling L1). A value below added_up is not an undershoot.
+- Each count: the value is the highest any cited source gives (except a thermostat or space sensor line that the plans draw: Thermostats drawn on plans print the plan count, so its value is the plan count and the sequence's number is not asked for again); every other count is in others with its source; an unknown count is null and flagged; nothing is undershot. A count's added_up is the plain sum over sheets of the same floor and area; it is not a count of the job and never prints as the value (ruling L1). A value below added_up is not an undershoot.
 - Ownership: the verb and who furnishes, installs and wires agree with each other, with the sources and with the Playbook.
 - The Playbook's rules: packaged units, shipped-loose devices, dampers under their fan, duct heaters in one place, VRF and split groups as one block, integration lines, and every other rule given.
 - The block: at most one clarification, in plain words for the client; every assumption says what and why; a line's slot fits its block's shape.
