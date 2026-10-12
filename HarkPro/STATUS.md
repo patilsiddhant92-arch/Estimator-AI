@@ -4,7 +4,7 @@ Only the lead edits this file.
 
 Lead: Fable session, from 2026-10-11 afternoon.
 
-Priority order for HarkPro: T-008 now. The estimator wants the app ready for a job run on Monday 2026-10-13.
+Priority order for HarkPro: T-009 now. T-008 is with the lead for the merge. The estimator wants the app ready for a job run on Monday 2026-10-13.
 
 | Task | Title | Status | Branch | Updated |
 |---|---|---|---|---|
@@ -22,6 +22,7 @@ Priority order for HarkPro: T-008 now. The estimator wants the app ready for a j
 | T-006 | Takeoff pass, Stage 1: sheet classes and unit register, no count changes | MERGED | hark/T-006 | 2026-10-11 |
 | T-007 | Takeoff pass, Stage 2: the register binds counts and blocks (Tasks 2.1 to 2.5, 2.7, part of 2.6) | MERGED into lead/wave2 and rebuild 2026-10-12 (with lead fixes M1-M3, S1; follow-ups listed in reviews/2026-10-12-T-007-core-review.md) | hark/T-007 | 2026-10-12 |
 | T-007b | Takeoff pass, Stage 2 follow-ups: family question form, set-aside reasons, demolition title check, reason "count by unit register" | MERGED into lead/wave2 and rebuild 2026-10-12 (lead dedupe fix) | hark/T-007b | 2026-10-12 |
-| T-008 | Rerun r2 render fixes: valve families print no header, off-hours from facts and key notes, one line per "*" point | OPEN, start now, branch hark/T-008 (base: origin/rebuild 0ff732c) | hark/T-008 | 2026-10-12 |
+| T-008 | Rerun r2 render fixes: valve families print no header, off-hours from facts and key notes, one line per "*" point | MERGING (review passed with lead fixes) | hark/T-008 | 2026-10-12 |
+| T-009 | Thermostat plan-count rule (ruling 21) and one demolition exclusion in the proposal (ruling 22) | OPEN, start now, branch hark/T-009 (base: origin/rebuild 52fd0ce) | hark/T-009 | 2026-10-12 |
 
-Open task: T-008. Start now. The task file is `HarkPro/inbox/T-008.md`; the defect causes are in `HarkPro/inbox/T-008-defects.md`.
+Open task: T-009. Start now. The task file is `HarkPro/inbox/T-009.md`.
