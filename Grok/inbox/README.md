@@ -61,3 +61,20 @@ Do the fixes on the same branch. Add the tests file. Update the report with the 
 4. Tests added (names). Also the real tail of each test run, with its result line.
 5. What you did not do, or could not do as written, and why.
 6. Questions (or "none").
+
+## Self-review before every push (mandatory from 2026-10-12)
+
+Before Grok pushes a task branch, Grok starts a separate agent of its own that did not write the code. Grok gives it this checklist and the branch. It writes its findings into Grok's outbox report under "Self-review", and Grok fixes every item it finds before the push. The lead's review of record still follows; it found these same items in four of five branches this weekend, each costing a round trip.
+
+Checklist:
+
+1. Tests use invented fixtures only. No job text, no real project name, no real sheet number (M114.00, MD 111.00 and the like), no real tag list from a live job, in code, tests, prompts or comments. Replace with invented ones.
+2. Every changed test still asserts the right behaviour. A pin changed to match new output needs a one-line reason in the commit; a pin that now asserts a wrong line (a label alone on a line, a heading out of order) is a defect, not a fix.
+3. The Playbook wins over the GEM and over the Master Template when they disagree; the Master Template entry's own order wins over the GEM order; a line prints only with evidence from this job, except the Master Template front-end house lines. Check every new rule against `playbook/rules.md` and name the rule in the report.
+4. Nothing drops silently: every count reduction records both numbers and a reason (set-aside, '*' line, question). Grep the diff for places that filter, dedupe or replace a number and ask where the dropped value is recorded.
+5. Regexes and text detectors: list three sentences that must NOT match (for off-hours: "unoccupied 6 PM to 6 AM", "after-hours override", "no overtime permitted") and three that must; add them as tests.
+6. Files outside the task's list are not touched. Lead-owned files (`model.py`, `run.py`, the fixtures, `test_contracts.py`, the interfaces spec) are touched only when the task names them, and the report lists every hunk.
+7. The report exists in the outbox before the push, with the real tails of: the touched test files, `pytest tests/bms -q -n 4 -m "not slow"`, and the full suite. "Passed on my machine" without the tail does not count.
+8. Each commit does one task; the subject names the task.
+9. Red text and flags: FUTURE items, a non-AME BMS name, off-hours, prevailing wage and unknown counts ("Qty (##)") print red; one short '*' line per item, none over 160 characters, no label stranded alone.
+10. Run `playbook-lint` if `playbook/` changed, and say so.
