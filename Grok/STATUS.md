@@ -4,7 +4,7 @@ Only the lead edits this file.
 
 Lead: Fable session. Channel opened 2026-10-11 evening.
 
-Priority order for Grok: G-004 now. The estimator wants the app ready for a job run on Monday 2026-10-13.
+Priority order for Grok: G-005 now. The estimator wants the app ready for a job run on Monday 2026-10-13.
 
 | Task | Title | Status | Branch | Updated |
 |---|---|---|---|---|
@@ -12,5 +12,6 @@ Priority order for Grok: G-004 now. The estimator wants the app ready for a job 
 | G-002 | Device-line quantity prefix | MERGED into lead/wave2 and rebuild 2026-10-12 | grok/G-002 | 2026-10-12 |
 | G-003 | Price-sheet polish and user guide | MERGED into lead/wave2 and rebuild 2026-10-12 | grok/G-003 | 2026-10-12 |
 | G-004 | Rerun r2 review and flag fixes: one review question per family, red "Qty (##)", note for a system with no devices | MERGED into lead/wave2 and rebuild 2026-10-12 (one lead fix) | grok/G-004 | 2026-10-12 |
+| G-005 | Quantity form (ruling 24) and sub-bullets in the generic sections (ruling 26) | OPEN, start now | grok/G-005 | 2026-10-12 |
 
-Open task: G-004. Start now. The task file is `Grok/inbox/G-004.md`; the defect causes are in `Grok/inbox/G-004-defects.md`.
+Open task: G-005. Start now. The task file is `Grok/inbox/G-005.md`.
