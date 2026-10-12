@@ -127,6 +127,22 @@ def source_of(found) -> str:
     return f"{document} page {page}".strip() if document else "the documents"
 
 
+_SECTION_NUMBER = re.compile(r"^(\d{2})\s?(\d{2})\s?(\d{2})\b")
+_SHEET = re.compile(r"^([A-Z]{1,3}[-.]?\d+(?:[.-]\d+)*[A-Z]?)\b")
+_SHEET_NAMED = re.compile(r"\bsheet\s+([A-Z]{1,3}[-.]?\d+(?:[.-]\d+)*[A-Z]?)\b", re.I)
+
+
+def fact_source(where: str) -> str:
+    """A ledger source's place in the form `source_of` gives (T-008 review 2B): "Spec Section 01 14 00", "Sheet M-101";
+    "the documents" when it names neither. Never the file name."""
+    head = (where or "").split(",")[0].strip()
+    section = _SECTION_NUMBER.match(head)
+    if section:
+        return "Spec Section " + " ".join(section.groups())
+    sheet = _SHEET.match(head) or _SHEET_NAMED.search(where or "")
+    return f"Sheet {sheet.group(1)}" if sheet else "the documents"
+
+
 def _rows(overview):
     """The overview rows that can speak to working hours or wages: the project conditions, then the standard lines
     the job speaks to; found ones only."""
@@ -158,7 +174,7 @@ def _sources(overview, ledger, notes):
             where = where_short(ledger.sources.get(fact.source_id, ""))
             if fact.kind == "sequence_match" or fact.stage == "sequence" or _SEQUENCE_PLACE.search(where):
                 continue
-            yield " ".join(str(fact.quote or "").split()), where or "the documents", True
+            yield " ".join(str(fact.quote or "").split()), fact_source(where), True
     for note in notes or ():
         if _SEQUENCE_PLACE.search(getattr(note, "block", "") or ""):
             continue

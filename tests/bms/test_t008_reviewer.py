@@ -106,3 +106,17 @@ def test_reviewer_a_label_never_prints_alone():
     text = "*Assumed: " + "one invented sensor in each invented room " * 4
     assert len(text) > LONG_CLARIFICATION
     assert all(len(l.strip("*: ")) > len("Assumed") for l in short_points(text))
+
+
+# ---- task 2, source text (review 2B) ------------------------------------------------------------------------------
+
+@pytest.mark.parametrize("where, said", [
+    ("01 14 00, Invented Bid Binder.pdf page 182 (a spec page)", "Spec Section 01 14 00"),
+    ("011400 Work Restrictions, Invented Binder.pdf page 3", "Spec Section 01 14 00"),
+    ("M-101, Drawings.pdf page 3 (a sheet)", "Sheet M-101"),
+    ("M501.01 schedule, Drawings.pdf page 7", "Sheet M501.01"),
+    ("Invented Drawings.pdf page 3", "the documents"),
+])
+def test_reviewer_a_fact_source_names_the_section_or_sheet_never_the_file(where, said):
+    (found,) = labor_conditions(None, ledger=_fact_ledger(("note", "spec", where, CONDITIONAL)))
+    assert found.source == said and ".pdf" not in found.text
