@@ -96,7 +96,7 @@ def test_a_writer_copying_the_dossiers_note_where_exactly_is_accepted_and_keeps_
     assert _verdicts("where", where, "S201", source) == ACCEPTED
     job = _job_with("where", where, source)
     # T-005e (ruling 15): the counts print on the "Qty (#)" lines, no "*Qty." note
-    note = " ".join(l.text for l in render(job, SAMPLE).lines if l.system_key == "EF" and "Qty (" in l.text)
+    note = " ".join(l.text for l in render(job, SAMPLE).lines if l.system_key == "EF" and ("Qty (" in l.text or "(Qty." in l.text))
     assert "S201" in note
 
 
@@ -175,7 +175,7 @@ def test_a_disguised_issued_id_is_refused_and_never_shows(kind, probe, token):
 def test_a_disguised_id_never_shows_in_the_quantity_note(where):
     job = _job_with("where", where)
     # T-005e (ruling 15): the counts print on the "Qty (#)" lines, no "*Qty." note
-    note = " ".join(l.text for l in render(job, SAMPLE).lines if l.system_key == "EF" and "Qty (" in l.text)
+    note = " ".join(l.text for l in render(job, SAMPLE).lines if l.system_key == "EF" and ("Qty (" in l.text or "(Qty." in l.text))
     assert not re.search(r"[SQIFC]\d", _seen(note), re.IGNORECASE), note
 
 
@@ -184,7 +184,7 @@ def test_a_disguised_source_sheet_in_a_where_prints_as_its_ascii_sheet():
     assert _verdicts("where", where, "S201") == ACCEPTED
     # T-005e (ruling 15): the counts print on the "Qty (#)" lines, no "*Qty." note
     note = " ".join(l.text for l in render(_job_with("where", where), SAMPLE).lines
-                    if l.system_key == "EF" and "Qty (" in l.text)
+                    if l.system_key == "EF" and ("Qty (" in l.text or "(Qty." in l.text))
     assert "S201" in note and "Ѕ" not in note
 
 

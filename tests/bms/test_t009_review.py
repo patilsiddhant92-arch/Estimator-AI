@@ -45,7 +45,7 @@ def test_the_verify_line_and_the_printed_count_survive_the_job_file(planned):
     once = _step(_sequence_writer(planned))
     again = _Job.from_json(once.to_json())
     assert VERIFY in _fcu_notes(again)
-    assert _printed(again).text.startswith("Qty (30)")
+    assert _printed(again).text.endswith("(Qty. 30 Total)")
 
 
 class _Reading:
@@ -70,7 +70,7 @@ def test_a_later_rewrite_back_to_the_sequence_number_still_shows_the_plan_count(
     revised = _again(_rewritten(once, Count(55, (SEQUENCE,))))
     printed = " ".join([_printed(revised).text, *_fcu_notes(revised)])
     assert "30" in printed
-    assert _printed(revised).text.startswith("Qty (30)") and VERIFY in _fcu_notes(revised)
+    assert _printed(revised).text.endswith("(Qty. 30 Total)") and VERIFY in _fcu_notes(revised)
     mine = [a for a in revised.set_aside if a.reason == "plan count prints" and a.family == SENSOR]
     assert mine and all("the plan count 30 of" in a.note and a.value == 55 for a in mine)
     assert revised.set_aside == once.set_aside            # the same, true set-asides: none doubled, none stale

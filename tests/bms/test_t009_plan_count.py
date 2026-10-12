@@ -72,7 +72,7 @@ def _printed(job: Job, device_id: str = SENSOR):
 def test_the_fan_coil_block_prints_the_plan_count_and_the_verify_line(planned):
     job = _step(_sequence_writer(planned))
     line = _printed(job)
-    assert line.text == "Qty (30) Furnish and Install Space Temperature Sensor" and line.quantity == 30
+    assert line.text == "Furnish and Install Space Temperature Sensor (Qty. 30 Total)" and line.quantity == 30
     assert VERIFY in _fcu_notes(job)
     assert _line(job).flag == "quantity"
 

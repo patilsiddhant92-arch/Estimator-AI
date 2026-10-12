@@ -190,13 +190,14 @@ def _line(block, start: str):
 
 def test_an_unknown_device_count_prints_red_qty_hashes():
     block = render(_unit_job(), _playbook()).scope.blocks[0]
-    unknown = _line(block, "Qty (##) ")
-    known = _line(block, "Qty (4) ")
-    future = _line(block, "Qty (2) ")
+    unknown = next(item for item in block.items if item.kind == "line" and item.text.endswith(" (Qty. ##)"))
+    known = next(item for item in block.items if item.kind == "line" and item.text.endswith(" (Qty. 4 Total)"))
+    future = next(item for item in block.items if item.kind == "line" and "Discharge Air" in item.text)
     assert unknown.runs[0].red and unknown.quantity is None and unknown.depth == 1
-    assert unknown.text.startswith("Qty (##) ") and "Control Valve" in unknown.text
-    assert not known.runs[0].red and known.text.startswith("Qty (4) ")
-    assert future.runs[0].red and future.text.startswith("Qty (2) ")
+    assert unknown.text.endswith(" (Qty. ##)") and "Control Valve" in unknown.text
+    assert not unknown.text.startswith("Qty (")
+    assert not known.runs[0].red and known.text.endswith(" (Qty. 4 Total)")
+    assert future.runs[0].red and future.text.endswith("(FUTURE)") and " (Qty. 2 Total)" in future.text
     assert block.header.startswith("Qty (##) ")
     assert all(item.text != block.header for item in block.items)
 
@@ -206,7 +207,7 @@ def test_a_front_end_unknown_count_prints_red_qty_hashes():
     known = _scope_device("other_device", "Server Graphics", 1, "FE.d2")
     job = replace(_unit_job(), front_end=FrontEnd(mode="new-system", devices=(unknown, known)))
     items = render(job, _playbook()).scope.front_end.items
-    red = next(item for item in items if item.kind == "line" and item.text.startswith("Qty (##) "))
+    red = next(item for item in items if item.kind == "line" and item.text.endswith(" (Qty. ##)"))
     black = next(item for item in items if item.kind == "line" and item.text.endswith("Server Graphics"))
     assert red.runs[0].red and red.quantity is None and "Operator Workstation" in red.text
     assert not black.runs[0].red and not black.text.startswith("Qty (##)")
@@ -225,8 +226,8 @@ def test_the_price_sheet_row_for_an_unknown_count_is_red(workup_template, tmp_pa
             return ""
         return str(color.rgb)
 
-    unknown = next(r for text, r in rows.items() if "Qty (##)" in text and "Control Valve" in text)
-    known = next(r for text, r in rows.items() if "Qty (4)" in text and "Space Temperature" in text)
+    unknown = next(r for text, r in rows.items() if "(Qty. ##)" in text and "Control Valve" in text)
+    known = next(r for text, r in rows.items() if "(Qty. 4 Total)" in text and "Space Temperature" in text)
     assert ws.cell(unknown, 8).value == QUANTITY_PENDING
     assert ws.cell(unknown, 3).value is None
     assert rgb(unknown).endswith("FF0000")

@@ -305,19 +305,24 @@ def _red(paragraph) -> bool:
     return bool(runs) and all(r.font.color is not None and str(r.font.color.rgb) == "FF0000" for r in runs)
 
 
-def test_the_proposal_carries_off_hours_and_wage_in_red_and_never_excludes_them(job, playbook, tmp_path):
+def test_the_proposal_keeps_both_labor_points_and_adds_red_sub_bullets(job, playbook, tmp_path):
     document, _ = _written(job, playbook, tmp_path, _Overview(conditions=(OFF, WAGE)))
     paragraphs = [p for p in document.paragraphs if p.text.strip()]
     text = [p.text.strip() for p in paragraphs]
     line = "Off-Hours Labor (6:00 PM to 6:00 AM) Included (As per Spec Section 01 10 00)"
     assert line in text and _red(paragraphs[text.index(line)])
     assert "Labor Conditions" in text
-    assert not any(t.startswith("All off-hours or overtime labor") for t in text)          # no silent exclusion
-    assert not any(t.startswith("All labor will be performed during normal business working hours") for t in text)
-    clar = next(p for p in paragraphs if p.text.startswith("All labor for the off-hours work"))
+    # Ruling 26 keeps the template points. The red lines are sub-bullets under them, not replacements.
+    assert any(t.startswith("All off-hours or overtime labor") for t in text)
+    assert any(t.startswith("All labor will be performed during normal business working hours") for t in text)
+    off = next(p for p in paragraphs if p.text.startswith("The documents require work between"))
     wage = next(p for p in paragraphs if p.text.startswith("All labor is priced at prevailing wage rates"))
-    assert _red(clar) and _red(wage) and "Spec Section 00 73 46" in wage.text
-    assert text.index(clar.text.strip()) < text.index(wage.text.strip())
+    assert _red(off) and "6:00 PM and 6:00 AM" in off.text and "Spec Section 01 10 00" in off.text
+    assert _red(wage) and "Spec Section 00 73 46" in wage.text
+    exclusion = next(i for i, t in enumerate(text) if t.startswith("All off-hours or overtime labor"))
+    normal = next(i for i, t in enumerate(text) if t.startswith("All labor will be performed during normal"))
+    assert text[exclusion + 1] == off.text.strip()
+    assert text[normal + 1] == wage.text.strip()
 
 
 def test_without_conditions_the_template_boilerplate_stays(job, playbook, tmp_path):

@@ -2,8 +2,8 @@
 
 When the job's documents call for off-hours work (e.g. 6 PM to 6 AM) or prevailing wage (e.g. NJ prevailing wage),
 the proposal and the price sheet carry it, in red for the estimator, citing where the documents say it. It is never
-excluded in silence: the template's "normal business working hours" clarification and its "All off-hours or overtime
-labor" exclusion give way to the red line (`estimator.proposal.write`).
+excluded in silence. The template keeps its normal-hours clarification and its "All off-hours or overtime labor"
+exclusion. A red sub-bullet under the point says what the documents require (`estimator.proposal.write`, ruling 26).
 
 - `labor_conditions(overview)`: the conditions the Spec overview found (`estimator.catalogue.overview.SpecOverview`:
   its "Project conditions that change the price" rows and the standard lines the job speaks to), each a

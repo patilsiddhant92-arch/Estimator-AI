@@ -112,7 +112,8 @@ class Header(_Model):
 
 class LaborCondition(_Model):
     """A labor condition the job's documents call for (T-005e): off-hours work or prevailing wage. Both documents
-    carry it in red, citing `source`; the proposal's normal-hours clarification and off-hours exclusion give way."""
+    carry it in red, citing `source`. The proposal prints it as a red sub-bullet under its template point (ruling 26);
+    the template's normal-hours clarification and off-hours exclusion stay."""
 
     kind: Literal["off-hours", "prevailing-wage"]
     text: str = Field(min_length=1)      # the red line, as printed
