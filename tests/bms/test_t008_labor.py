@@ -61,7 +61,7 @@ def test_a_note_without_a_sheet_names_the_document_and_page():
     assert labor_conditions(None, notes=(note,))[0].source == "Drawings.pdf page 4"
 
 
-@pytest.mark.parametrize("text", ["OFF HOURS", "work 6:00 pm - 6:00 am", "nights, weekends"])
+@pytest.mark.parametrize("text", ["OFF HOURS WORK", "work 6:00 pm - 6:00 am", "work nights, weekends"])  # T-008 review 2A: a work word
 def test_the_calls_a_fact_can_make(text):
     assert labor_conditions(None, ledger=_ledger(text))[0].kind == "off-hours"
 

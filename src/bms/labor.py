@@ -77,6 +77,26 @@ def calls_for_off_hours(quote: str) -> bool:
     return False
 
 
+# a fact of the ledger or a key note of the plans speaks to many things; it calls for off-hours work only when the
+# sentence is about the work (a work word) and not about a control sequence (a control word: an "after-hours
+# override", an "unoccupied 6 PM to 6 AM" schedule, a "night setback") (T-008 review 2A)
+_WORK = re.compile(r"\bwork(?:s|ing|ed)?\b|\bconstruction\b|\bshut[- ]?downs?\b|\btie[- ]ins?\b|\bactivit(?:y|ies)\b|"
+                   r"\bcontractors?\b|\bpermitted\b|\bperform(?:s|ed|ing)?\b|\blabou?r\b", re.I)
+_CONTROL = re.compile(r"\b(?:un)?occupied\b|\boverrides?\b|\bset[- ]?backs?\b|\bschedul(?:e|es|ed|ing)\b|\bmodes?\b|"
+                      r"\bset[- ]?points?\b", re.I)
+_SENTENCES = re.compile(r";\s+|\.\s+(?=[A-Z])")
+# a fact from a sequence of operation or a points list, or a plan note in such a block, is never a labor condition
+_SEQUENCE_PLACE = re.compile(r"\b23\s?09\s?93\b|\bsequences?\s+of\s+operations?\b|\bpoints?\s+(?:list|schedule)s?\b",
+                             re.I)
+
+
+def calls_for_off_hours_work(quote: str) -> bool:
+    """`calls_for_off_hours` for a ledger fact or a key note: true only for a sentence that has a work word and no
+    control word."""
+    return any(_WORK.search(s) and not _CONTROL.search(s) and calls_for_off_hours(s)
+               for s in _SENTENCES.split(quote or ""))
+
+
 def calls_for_prevailing_wage(quote: str) -> bool:
     return bool(_WAGE.search(quote or ""))
 
@@ -126,29 +146,37 @@ def _condition(kind: str, source: str, quote: str) -> LaborCondition:
 
 
 def _sources(overview, ledger, notes):
-    """(quote, source) in order: the overview rows, the ledger facts (any kind and state), then the key notes."""
+    """(quote, source, strict) in order: the overview rows, the ledger facts (any kind and state), then the key notes.
+    A fact or a note is strict (`calls_for_off_hours_work`); a fact from a sequence of operation or a points list,
+    and a note in such a block, is left out."""
     if overview is not None:
         for row in _rows(overview):
-            yield " ".join(row.quote.split()), source_of(row)
+            yield " ".join(row.quote.split()), source_of(row), False
     if ledger is not None:
         from estimator.ledger.facts import where_short
         for fact in ledger.facts.values():
-            where = where_short(ledger.sources.get(fact.source_id, "")) or "the documents"
-            yield " ".join(str(fact.quote or "").split()), where
+            where = where_short(ledger.sources.get(fact.source_id, ""))
+            if fact.kind == "sequence_match" or fact.stage == "sequence" or _SEQUENCE_PLACE.search(where):
+                continue
+            yield " ".join(str(fact.quote or "").split()), where or "the documents", True
     for note in notes or ():
+        if _SEQUENCE_PLACE.search(getattr(note, "block", "") or ""):
+            continue
         where = f"Sheet {note.sheet}" if getattr(note, "sheet", None) else (
             f"{(note.document or '').replace(chr(92), '/').rsplit('/', 1)[-1]} page {note.page}".strip())
-        yield " ".join((note.text or "").split()), where or "the documents"
+        yield " ".join((note.text or "").split()), where or "the documents", True
 
 
 def labor_conditions(overview, ledger=None, notes=()) -> tuple[LaborCondition, ...]:
     """At most one off-hours and one prevailing-wage condition, from the first source whose quote calls for it: the
-    Spec overview rows (Found), then the ledger's facts, then the plans' key notes (T-008)."""
+    Spec overview rows (Found), then the ledger's facts, then the plans' key notes (T-008; a fact or a note only when
+    it is about the work, not a control sequence: `calls_for_off_hours_work`)."""
     out: dict[str, LaborCondition] = {}
-    for quote, source in _sources(overview, ledger, notes):
+    for quote, source, strict in _sources(overview, ledger, notes):
         if not quote:
             continue
-        if OFF_HOURS not in out and calls_for_off_hours(quote):
+        off_hours = calls_for_off_hours_work(quote) if strict else calls_for_off_hours(quote)
+        if OFF_HOURS not in out and off_hours:
             out[OFF_HOURS] = _condition(OFF_HOURS, source, quote)
         if PREVAILING_WAGE not in out and calls_for_prevailing_wage(quote):
             out[PREVAILING_WAGE] = _condition(PREVAILING_WAGE, source, quote)
