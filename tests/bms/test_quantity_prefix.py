@@ -84,6 +84,8 @@ def test_the_price_sheet_prices_both_forms_and_holds_an_unknown_line(workup_temp
     assert ws.cell(prefixed, 3).value == 33 and ws.cell(prefixed, 5).value == 142.0
     assert ws.cell(unknown, 8).value == QUANTITY_PENDING
     assert ws.cell(unknown, 3).value is None and ws.cell(unknown, 5).value is None
+    color = ws.cell(unknown, 4).font.color
+    assert color is not None and color.type != "theme" and str(color.rgb).endswith("FF0000")
     old_row = next(r for text, r in rows.items() if "(Qty. 6 Total)" in text)
     assert ws.cell(old_row, 5).value == 142.0
     install = next(r for text, r in rows.items() if "Qty (33) Install and Wire" in text)

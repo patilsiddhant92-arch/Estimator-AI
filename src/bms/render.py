@@ -62,7 +62,7 @@ RED_MARKS = ("future", "notice")
 # the Demolition Scope (T-G1): the last block. "demo" prints as written; the other actions print in these words.
 DEMOLITION_HEADING = "Demolition Scope"
 _ACTION_WORDS = {"demo": "demo", "existing to remain": "Existing to Remain", "relocation": "Relocation"}
-# a "*" line longer than this prints as short points: the first after the label, each other on its own "- " line
+# a "*" note longer than this prints one line per point (`short_points`)
 LONG_CLARIFICATION = 150
 _ABBREVIATIONS = {"mfr", "mfrs", "spec", "specs", "sec", "no", "nos", "e.g", "i.e", "etc", "inc", "co", "corp",
                   "approx", "dwg", "dwgs", "fig", "div", "vol", "st", "ft", "min", "max", "ref", "typ", "incl", "qty",
@@ -71,16 +71,84 @@ _POINT_BREAK = re.compile(r"([.;])\s+")
 _WORD_BEFORE = re.compile(r"([A-Za-z.]+)$")
 
 
-def short_points(text: str) -> str:
-    """A long "*" line as short points (T-005 ruling 5): split after each sentence (". " before a capital, never after
-    an abbreviation such as "Mfr." or "Spec.") and each "; ", the first point after the line's label, each other on a
-    line of its own after "- " (a line break in the one note, so the words are never cut or reworded). A line of at most
-    LONG_CLARIFICATION characters, or one sentence, is given back as it is."""
+_BECAUSE_SPLIT = re.compile(r",\s+(?=because\b)")
+_PLAIN_WORD = re.compile(r"^([A-Z])([a-z]+)\b(?![-\w.]*\d)")
+# a name that is a plain word with a capital but is not to be lower-cased after "because" (T-008)
+_NAMES = {"niagara", "tridium", "honeywell", "johnson", "siemens", "trane", "carrier", "daikin", "taco", "mitsubishi",
+          "lennox", "armstrong", "bell", "gossett", "schneider", "distech", "reliable", "alerton", "andover"}
+
+
+def lower_after_because(text: str) -> str:
+    """The word after a leading "because " in lower case when it is a plain word ("The", "Plan": a capital and then
+    lower-case letters); a tag, an acronym, a sheet number (AHU-1, BMS, M-401) or a name in `_NAMES` ("Niagara") as it is."""
+    found = re.match(r"(because\s+)(\S+)", text)
+    if not found:
+        return text
+    word = _PLAIN_WORD.match(found.group(2))
+    if not word or found.group(2).lower().strip(".,;:") in _NAMES:
+        return text
+    return found.group(1) + found.group(2)[0].lower() + found.group(2)[1:] + text[found.end():]
+
+
+# the left side of a ": " that is a label, never split from its text (T-008 review 3A): a kind's label ("Assumed",
+# "Confirm quantity", "Note") or any other short phrase
+_LABELS = {"assumed", "confirm", "confirm quantity", "note", "notice", "clarification"}
+_LABEL_LENGTH = 25
+
+
+# a quoted passage ("...", or curly quotes) is never split (T-008 review 3B)
+_QUOTED = re.compile(r'"[^"]*"|“[^”]*”')
+
+
+def _quoted(text: str):
+    """The (start, end) spans of the quoted passages of `text`."""
+    return [m.span() for m in _QUOTED.finditer(text)]
+
+
+def _in_quote(spans, at: int) -> bool:
+    return any(start < at < end for start, end in spans)
+
+
+def _split_at_colon(text: str) -> list[str]:
+    """`text` split at its first ": " outside a quote (the colon stays on the first part); whole when the left side is
+    a label."""
+    spans = _quoted(text)
+    at = next((m.start() for m in re.finditer(": ", text) if not _in_quote(spans, m.start())), -1)
+    if at < 0:
+        return [text]
+    head, tail = text[:at], text[at + 2:]
+    left = head.lstrip("*").strip()
+    if not tail.strip() or left.lower() in _LABELS or len(left) < _LABEL_LENGTH:
+        return [text]
+    return [head + ":", tail]
+
+
+def _split_because(text: str) -> list[str]:
+    """`text` split at each ", because" outside a quote (the comma goes)."""
+    spans, parts, start = _quoted(text), [], 0
+    for m in _BECAUSE_SPLIT.finditer(text):
+        if not _in_quote(spans, m.start()):
+            parts.append(text[start:m.start()])
+            start = m.end()
+    return parts + [text[start:]]
+
+
+def short_points(text: str) -> list[str]:
+    """A "*" note as lines, one per point (T-008 task 3; estimator ruling 14: one short line per item). A note of at
+    most LONG_CLARIFICATION characters is one line. A longer one is split after each sentence (". " before a capital,
+    never after an abbreviation such as "Mfr." or "Spec.") and each "; "; a point still longer than that at ", because"
+    (the comma goes, the next line starts "because", its first plain word in lower case); a part still longer at its
+    first ": ", unless the left side is a label ("Assumed", "Confirm quantity": "Label: text" stays one line). The first line keeps the label of its kind; each other starts with the same stars. A part with no
+    split point stays whole, and a quoted passage is never split. No word is cut or changed."""
     text = (text or "").strip()
     if len(text) <= LONG_CLARIFICATION:
-        return text
-    pieces, start = [], 0
+        return [text] if text else []
+    stars = re.match(r"\*+", text)
+    stars = stars.group(0) if stars else ""
+    pieces, start, spans = [], 0, _quoted(text)
     for match in _POINT_BREAK.finditer(text):
+        if _in_quote(spans, match.start()):
+            continue
         if match.group(1) == ".":
             word = _WORD_BEFORE.search(text[start:match.start()])
             if not text[match.end():match.end() + 1].isupper():
@@ -91,9 +159,15 @@ def short_points(text: str) -> str:
         start = match.end()
     pieces.append(text[start:])
     pieces = [p.strip().rstrip(" .;") for p in pieces if p.strip(" .;")]
-    if len(pieces) < 2:
-        return text
-    return "\n".join([pieces[0]] + [f"- {p}" for p in pieces[1:]])
+    parts = []
+    for piece in pieces:
+        parts += [lower_after_because(x) if i else x
+                  for i, x in enumerate(_split_because(piece))] if len(piece) > LONG_CLARIFICATION else [piece]
+    final = []
+    for part in parts:
+        final += _split_at_colon(part) if len(part) > LONG_CLARIFICATION else [part]
+    final = [p.strip() for p in final if p.strip()]
+    return [final[0]] + [p if p.startswith("*") else stars + p for p in final[1:]]
 
 
 class RenderError(ValueError):
@@ -200,18 +274,30 @@ def render(job: Job, playbook: Playbook) -> ProposalDraft:
             continue
         exception_lines.append((x.system_key, text))
     exceptions = tuple(text for _, text in exception_lines)
+    exception_keys = {key for key, _text in exception_lines if key}
+    on_block, loose = _silent_scope_notes(job, playbook, ids, exception_keys)
     base: list[Block] = []
     alternates: dict[str, list[tuple[Block, ...]]] = {"add": [], "deduct": []}
     after: dict[str, list[RenderedLine]] = {"add": [], "deduct": []}      # print order: base, add alternates, deducts
+    last_base_key = ""
     for system in sorted(job.systems, key=lambda s: block_order(s, playbook)):      # stable: the plan's order kept
         printed: list[RenderedLine] = []
         mine = tuple(text for key, text in exception_lines if key and key == system.key)
         blocks = _system_blocks(system, playbook, printed, ids, mine, job.set_aside)
+        extra = on_block.get(system.key, ())
+        if extra and blocks:                 # Case A: the "*" line after this block's other "*" lines
+            blocks = _blocks_with_notes(blocks, extra)
+            printed += [RenderedLine(system.key, None, "note", note, None, None) for note in extra]
         if system.alternate in alternates and blocks:
             alternates[system.alternate].append(blocks)
         elif system.alternate == "base":
+            if blocks:
+                last_base_key = system.key
             base.extend(blocks)
         (lines if system.alternate == "base" else after[system.alternate]).extend(printed)
+    if loose and base:                       # Case B: last item of the last base block, before Demolition Scope
+        base[-1] = _block_with_notes(base[-1], loose)
+        lines += [RenderedLine(last_base_key, None, "note", note, None, None) for note in loose]
     demo = _demolition_block(job, ids)
     if demo is not None:
         base.append(demo)
@@ -411,6 +497,8 @@ def _reason(assumption, ids: SourceIds, playbook: Playbook) -> str:
     because = words.get("because", BECAUSE)
     leads = tuple(lead.lower() for lead in (*words.get("leads", _REASON_LEADS), because))
     lead = "" if why.lower().startswith(leads) else because
+    if lead:
+        why = lower_after_because(f"because {why}")[len("because "):]
     return f"{what}, {lead}{why}"
 
 
@@ -587,6 +675,7 @@ class _Printed:
     quantity: int | None       # the device's quantity (None when unknown)
     priced: bool               # the price sheet prices it (AME furnishes, installs or wires it; not an interlock)
     marker: bool = False       # the Master Template's "OR" line between two alternatives (no device of its own)
+    unknown: bool = False      # the line prints "Qty (##)" because its count is not known (G-004: that run is red)
 
 
 _PLACEHOLDER = re.compile(r"\{[a-z_]+\}")
@@ -678,7 +767,8 @@ def _device_lines(devices, shape: Shape | None, system: System | None, playbook:
     trio = dict(zip(playbook.wording.integration_trio, playbook.wording.integration_depths))
     front_end = shape is None and system is None
     worded: list[tuple[str, str, str | None]] = []      # per device: (its text, its form, its verb when printed)
-    for device in devices:
+    unknown_at: set[int] = set()
+    for index, device in enumerate(devices):
         number = _printed(device.quantity)
         owner = _owner(device, playbook)
         form = line_form(device, shape, playbook)
@@ -696,7 +786,11 @@ def _device_lines(devices, shape: Shape | None, system: System | None, playbook:
             # other counts stay after the line and never add the prefix (rules.md "Line quantity")
             note = qty_notes.get(device.id, "")
             if number is None or number not in reference:
-                prefix = quantity_words["unknown"] if number is None else quantity_words["line"].format(n=number)
+                if number is None:
+                    prefix = quantity_words["unknown"]
+                    unknown_at.add(index)
+                else:
+                    prefix = quantity_words["line"].format(n=number)
                 text = prefix + text
             if note:
                 text += note
@@ -773,7 +867,8 @@ def _device_lines(devices, shape: Shape | None, system: System | None, playbook:
                 {previous.slot, device.slot} <= group for group in groups):
             out.append(_Printed(gem_module.alternative_word(), 1, device, None, None, False, marker=True))
             priced = False                  # an alternative to the line above: only the first is priced
-        out.append(_Printed(text, depth, device, verb, _printed(device.quantity), priced))
+        out.append(_Printed(text, depth, device, verb, _printed(device.quantity), priced,
+                            unknown=i in unknown_at))
         if depth == 1:
             previous = device
     return out
@@ -919,8 +1014,8 @@ def _notes(clarifications: tuple[Clarification, ...], devices, playbook: Playboo
     for device in devices:
         if device.assumption is not None:
             texts["assumed"].append(_reason(device.assumption, ids, playbook))
-    return [short_points(_fill(playbook.wording.clarifications[kind], text=text))
-            for kind in _AFTER_LINES for text in dict.fromkeys(texts[kind])]
+    return [line for kind in _AFTER_LINES for text in dict.fromkeys(texts[kind])
+            for line in short_points(_fill(playbook.wording.clarifications[kind], text=text))]
 
 
 # T-007 Task 2.6 (reduced; estimator ruling 14): a duplicate of one unit the takeoff set aside prints one short '*'
@@ -1112,6 +1207,8 @@ def _header_text(form: str, name: str, tags: tuple[str, ...], count: Count, play
 
 
 LEFT_OUT = "{name}: left out, no lines written"
+NO_BMS_SCOPE = "No BMS scope: {reason}"          # a silent base system whose reason names no block, or more than one (G-004)
+_STAR_LIMIT = 160                                # playbook "Line form": a line is at most 160 characters
 
 
 def left_out_text(system: System, exceptions: Sequence[str] = ()) -> str:
@@ -1132,9 +1229,9 @@ def _is_damper_family(family) -> bool:
 
 
 def _header_families(system: System):
-    """The families that print a header: a damper family linked under a fan (a block with other, non-damper
-    families) prints none, its devices sit under the fan's header; a damper-only block keeps its own."""
-    others = tuple(f for f in system.families if not _is_damper_family(f))
+    """The families that print a header: a damper or valve family linked under a unit (a block with other families)
+    prints none, its devices sit under the unit's header; a block of dampers and valves only keeps its own."""
+    others = tuple(f for f in system.families if not _is_damper_family(f) and not _is_valve(f.name))
     return others if others else system.families
 
 
@@ -1148,6 +1245,90 @@ def block_order(system: System, playbook: Playbook) -> int:
     if order >= DEFAULT_ORDER and all(_printed(f.count) is None for f in families):
         order = max(order, SEQUENCE_ONLY_ORDER)
     return order
+
+
+def _holds_phrase(text: str, phrase: str) -> bool:
+    """True when `phrase` is a whole phrase in `text`, any case. A hyphen is part of the phrase, so the key `ERV`
+    is not a match inside the tag `ERV-1`."""
+    phrase = phrase.strip()
+    if not phrase:
+        return False
+    return re.search(rf"(?i)(?<![A-Za-z0-9-]){re.escape(phrase)}(?![A-Za-z0-9-])", text) is not None
+
+
+def _plain_reason(reason: str) -> str:
+    text = reason.strip()
+    return text[1:].lstrip() if text.startswith("*") else text
+
+
+def _reason_names_system(reason: str, system: System) -> bool:
+    tokens = [system.key, system.name]
+    for family in system.families:
+        tokens.extend(family.tags)
+    return any(_holds_phrase(reason, token) for token in tokens)
+
+
+def _as_short_line(raw: str, line: str) -> list[str]:
+    """The printed lines of a no-scope note: `short_points` (one line per point) when the reason is over 150
+    characters, or the printed line is over the 160-character line limit (a prefix can push a 150-character reason
+    over that limit); the line alone otherwise."""
+    if len(raw) > LONG_CLARIFICATION or len(line) > _STAR_LIMIT:
+        return short_points(line)
+    return [line]
+
+
+def _scope_star(system: System, reason: str) -> list[str]:
+    """The "*" lines for a silent system whose reason names one block. The system's name leads when the reason does
+    not already hold it. One leading star only. A long reason goes through `short_points`: one "*" line per point
+    (T-008 and G-004 reconciled, estimator ruling 14)."""
+    raw = reason.strip()
+    plain = _plain_reason(raw)
+    if _holds_phrase(plain, system.name):
+        line = raw if raw.startswith("*") else f"*{plain}"
+    else:
+        line = f"*{system.name}: {plain}"
+    return _as_short_line(raw, line)
+
+
+def _no_bms_line(reason: str) -> list[str]:
+    """The "No BMS scope" lines for a silent system whose reason names no block: one line, or one line per point
+    when the reason is long (`short_points`)."""
+    raw = reason.strip()
+    line = NO_BMS_SCOPE.format(reason=_plain_reason(raw))
+    return _as_short_line(raw, line)
+
+
+def _block_with_notes(block: Block, notes: Sequence[str]) -> Block:
+    extra = tuple(Item(kind="note", runs=(Run(text=note),)) for note in notes)
+    return block.model_copy(update={"items": block.items + extra})
+
+
+def _blocks_with_notes(blocks: tuple[Block, ...], notes: Sequence[str]) -> tuple[Block, ...]:
+    """The notes go on the last block. That block holds the system's lines and its other "*" lines."""
+    return blocks[:-1] + (_block_with_notes(blocks[-1], notes),)
+
+
+def _silent_scope_notes(job: Job, playbook: Playbook, ids: SourceIds,
+                        exception_keys: set[str]) -> tuple[dict[str, list[str]], list[str]]:
+    """Notes for a base system that has no devices, a reason, and no named exception. Case A is keyed by the one
+    base system the reason names. Case B is the list of "No BMS scope" lines. Chosen here, before the print loop,
+    because that system can print before or after this one."""
+    on_block: dict[str, list[str]] = {}
+    loose: list[str] = []
+    base = [system for system in job.systems if system.alternate == "base"]
+    for system in sorted(job.systems, key=lambda item: block_order(item, playbook)):
+        if system.alternate != "base" or system.devices or system.key in exception_keys:
+            continue
+        reason = ids.without_issued(system.no_scope_reason or "").strip()
+        if not _plain_reason(reason):
+            continue
+        named = [other for other in base
+                 if other.key != system.key and other.devices and _reason_names_system(reason, other)]
+        if len(named) == 1:
+            on_block.setdefault(named[0].key, []).extend(_scope_star(system, reason))
+        else:
+            loose.extend(_no_bms_line(reason))
+    return on_block, loose
 
 
 def _system_blocks(system: System, playbook: Playbook, out: list[RenderedLine], ids: SourceIds,
@@ -1198,7 +1379,8 @@ def _system_blocks(system: System, playbook: Playbook, out: list[RenderedLine], 
 
 
 def _items(printed: list[_Printed], pending: bool) -> list[Item]:
-    return [Item(kind="line", depth=p.depth, runs=(Run(text=p.text, red=not p.marker and p.device.mark in RED_MARKS),),
+    return [Item(kind="line", depth=p.depth, runs=(Run(text=p.text, red=not p.marker and (
+                     p.unknown or p.device.mark in RED_MARKS)),),
                  quantity=p.quantity if (p.priced and not pending) else None) for p in printed]
 
 

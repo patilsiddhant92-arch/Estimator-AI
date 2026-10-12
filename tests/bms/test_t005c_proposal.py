@@ -147,13 +147,15 @@ def test_a_notice_line_prints_in_red_with_no_bracket(job, playbook):
 
 def test_a_marked_line_in_a_system_block_prints_red_too(job, playbook):
     system = job.systems[1]
-    device = replace(system.devices[0], mark="future", mark_note="FUTURE AS PER sheet M-710")
+    device = replace(system.devices[0], mark="future", mark_note="FUTURE AS PER sheet M-9.01")
     marked = replace(job, demolition=(), systems=tuple(
         replace(s, devices=(device, *s.devices[1:])) if s.key == system.key else s for s in job.systems))
     draft = render(marked, playbook)
     lines = [i for b in draft.scope.blocks for i in b.items if i.kind == "line"]
     red = [i for i in lines if i.runs[0].red]
-    assert len(red) == 1 and red[0].text.endswith("(FUTURE AS PER sheet M-710)")
+    assert any(i.text.endswith("(FUTURE AS PER sheet M-9.01)") for i in red)
+    # G-004: an unknown device count is red too. Every other red line is that "Qty (##)" line.
+    assert all(i.text.endswith("(FUTURE AS PER sheet M-9.01)") or i.text.startswith("Qty (##) ") for i in red)
     assert any(line.text == red[0].text for line in draft.lines)        # the traced line carries the same words
 
 
@@ -209,16 +211,17 @@ LONG = ("The BMS integration of the new units is by the County's integrator unde
 
 
 def test_a_long_clarification_prints_as_short_points(job, playbook):
+    # T-008: one "*" line (one note Item) per point, not one paragraph with "- " lines
     front = FrontEnd(mode="new-system", devices=(_device(),), clarifications=(Clarification("confirm", LONG),))
     notes = [i for i in _front_items(job, playbook, front) if i.kind == "note"]
-    (note,) = notes
-    points = note.text.split("\n")
+    points = [n.text for n in notes]
     assert len(points) >= 3
     assert points[0].startswith("*")              # the kind's label, as the Playbook words it
-    assert all(p.startswith("- ") for p in points[1:])
-    assert all(len(p) <= 120 for p in points)
-    words = lambda t: " ".join(t.replace("\n- ", " ").replace(";", " ").replace(".", " ").split())
-    assert words(LONG)[-40:] in words(note.text) and words(LONG)[:40] in words(note.text)     # nothing cut
+    assert all(p.startswith("*") and "\n" not in p for p in points)
+    assert all(len(p) <= 160 for p in points)
+    words = lambda t: " ".join(t.replace("*", " ").replace(";", " ").replace(".", " ").split())
+    joined = " ".join(points)
+    assert words(LONG)[-40:] in words(joined) and words(LONG)[:40] in words(joined)     # nothing cut
 
 
 def test_a_short_clarification_stays_one_line(job, playbook):
@@ -231,7 +234,7 @@ def test_a_short_clarification_stays_one_line(job, playbook):
 def test_an_abbreviation_does_not_split_a_point():
     from bms.render import short_points
     text = "*Confirm Map Available Points Via Mfr. Provided BMS Interface per Spec. Section 23 09 00 " + "x" * 200
-    assert all(not p.endswith("Mfr.") and not p.endswith("Spec.") for p in short_points(text).split("\n"))
+    assert all(not p.endswith("Mfr.") and not p.endswith("Spec.") for p in short_points(text))     # T-008: a list of lines
 
 
 # ---- write.py: the red runs and the red *** -------------------------------------------------------------------------
@@ -304,5 +307,5 @@ def test_a_red_line_and_short_points_print_in_the_document(job, playbook, tmp_pa
     document = _write(replace(job, front_end=front), playbook, tmp_path)
     line = next(p for p in document.paragraphs if note in p.text)
     assert all(_colour(r) == RED for r in line.runs if r.text.strip())
-    points = next(p for p in document.paragraphs if "County's integrator" in p.text)
-    assert points._p.findall(f".//{qn('w:br')}")                    # one paragraph, the points on their own lines
+    points = [p for p in document.paragraphs if p.text.startswith("*") and "integrat" in p.text]
+    assert len(points) >= 2 and not any(p._p.findall(f".//{qn('w:br')}") for p in points)    # T-008: a paragraph each
