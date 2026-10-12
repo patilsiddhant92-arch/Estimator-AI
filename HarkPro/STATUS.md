@@ -4,7 +4,7 @@ Only the lead edits this file.
 
 Lead: Fable session, from 2026-10-11 afternoon.
 
-Priority order for HarkPro: T-009 now. T-008 is with the lead for the merge. The estimator wants the app ready for a job run on Monday 2026-10-13.
+Priority order for HarkPro: T-009 now. T-010 after T-009. The estimator wants the app ready for a job run on Monday 2026-10-13.
 
 | Task | Title | Status | Branch | Updated |
 |---|---|---|---|---|
@@ -24,5 +24,8 @@ Priority order for HarkPro: T-009 now. T-008 is with the lead for the merge. The
 | T-007b | Takeoff pass, Stage 2 follow-ups: family question form, set-aside reasons, demolition title check, reason "count by unit register" | MERGED into lead/wave2 and rebuild 2026-10-12 (lead dedupe fix) | hark/T-007b | 2026-10-12 |
 | T-008 | Rerun r2 render fixes: valve families print no header, off-hours from facts and key notes, one line per "*" point | MERGED into lead/wave2 and rebuild 2026-10-12 (lead fixes 2A, 2B, 3A, 3B) | hark/T-008 | 2026-10-12 |
 | T-009 | Thermostat plan-count rule (ruling 21) and one demolition exclusion in the proposal (ruling 22) | OPEN: task 2 reviewed (one should-fix); task 1 unblocked, option A approved | hark/T-009 | 2026-10-12 |
+| T-010 | Freezestat and filter-switch ownership (ruling 23); source contradictions in red (ruling 25) | OPEN, after T-009 | hark/T-010 | 2026-10-12 |
 
 Open task: T-009. Start now. The task file is `HarkPro/inbox/T-009.md`.
+
+Next task: T-010, after T-009. The task file is `HarkPro/inbox/T-010.md`.
