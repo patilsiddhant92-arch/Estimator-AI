@@ -286,9 +286,7 @@ this report. Items and how each was handled:
   New tests: `test_furnish_and_wire_is_refused_when_the_sequence_or_diagram_gives_it_to_the_manufacturer` (freezestat on a
   sequence passage, freezestat on a controls-diagram passage, dirty filter switch on a sequence passage). This also settles the
   task-1 author's open question about accepting "Furnish and Wire" against such a passage.
-- **Third must-fix item:** the review file named in my brief (`work/t010/self-review.md`) was not in the workspace when the fixes
-  were made, and the brief named only M1 and M2 as must-fix. The third item could not be identified or handled in this round. The
-  lead should treat it as open.
+- **M3, must-fix** (checklist 7): no outbox report on the branch. **Fixed** in the report commit: this file.
 - **S1, should-fix** (render.py). A long count contradiction split by `short_points` into one bare `*N per <place>` line per
   count, so numbers were stranded on lines with no label (checklist 9). **Fixed** in `5bcf785`: the counts are packed into lines of
   160 characters or fewer, each continuation repeating "*<Family> counts differ (cont.):". The test was updated.
