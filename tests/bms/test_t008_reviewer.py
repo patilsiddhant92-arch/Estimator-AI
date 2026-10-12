@@ -101,11 +101,26 @@ def test_reviewer_three_points_and_a_because_keep_every_word_in_order():
     assert norm(" ".join(lines)) == norm(text)
 
 
-@pytest.mark.xfail(strict=True, reason="review finding: the ': ' split cuts at the kind's own label")
-def test_reviewer_a_label_never_prints_alone():
-    text = "*Assumed: " + "one invented sensor in each invented room " * 4
+@pytest.mark.parametrize("label", ["Assumed", "Confirm quantity", "Note"])
+def test_reviewer_a_label_never_prints_alone(label):
+    text = f"*{label}: " + "one invented sensor in each invented room " * 4
     assert len(text) > LONG_CLARIFICATION
-    assert all(len(l.strip("*: ")) > len("Assumed") for l in short_points(text))
+    assert short_points(text) == [text.strip()]                      # "Label: text" stays one line (review 3A)
+
+
+def test_reviewer_a_long_left_side_that_is_no_label_still_splits_at_its_colon():
+    text = "*Confirm the invented riser diagram on the invented sheet: " + "two invented sensors per floor " * 4
+    lines = short_points(text)
+    assert len(lines) == 2 and lines[0].endswith("sheet:") and lines[1].startswith("*two invented")
+
+
+@pytest.mark.xfail(strict=True, reason="review 3B, next commit")
+def test_reviewer_a_quoted_passage_is_never_split():
+    quote = '"Provide one invented sensor per zone; see Sheet M-101. Typical for all floors: east and west."'
+    text = "*Confirm per the invented spec " + quote + "; the invented riser shows " + "two more sensors " * 5
+    lines = short_points(text)
+    assert any(quote in line for line in lines)              # the quote whole, its own punctuation kept (review 3B)
+    assert len(lines) == 2
 
 
 # ---- task 2, source text (review 2B) ------------------------------------------------------------------------------

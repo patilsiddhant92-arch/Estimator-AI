@@ -90,9 +90,19 @@ def lower_after_because(text: str) -> str:
     return found.group(1) + found.group(2)[0].lower() + found.group(2)[1:] + text[found.end():]
 
 
-def _split_first(text: str, pattern: str) -> list[str]:
-    head, sep, tail = text.partition(pattern)
-    return [head + sep.rstrip(), tail] if sep and tail.strip() else [text]
+# the left side of a ": " that is a label, never split from its text (T-008 review 3A): a kind's label ("Assumed",
+# "Confirm quantity", "Note") or any other short phrase
+_LABELS = {"assumed", "confirm", "confirm quantity", "note", "notice", "clarification"}
+_LABEL_LENGTH = 25
+
+
+def _split_at_colon(text: str) -> list[str]:
+    """`text` split at its first ": " (the colon stays on the first part); whole when the left side is a label."""
+    head, sep, tail = text.partition(": ")
+    left = head.lstrip("*").strip()
+    if not sep or not tail.strip() or left.lower() in _LABELS or len(left) < _LABEL_LENGTH:
+        return [text]
+    return [head + ":", tail]
 
 
 def short_points(text: str) -> list[str]:
@@ -100,7 +110,7 @@ def short_points(text: str) -> list[str]:
     most LONG_CLARIFICATION characters is one line. A longer one is split after each sentence (". " before a capital,
     never after an abbreviation such as "Mfr." or "Spec.") and each "; "; a point still longer than that at ", because"
     (the comma goes, the next line starts "because", its first plain word in lower case); a part still longer at its
-    first ": ". The first line keeps the label of its kind; each other starts with the same stars. A part with no
+    first ": ", unless the left side is a label ("Assumed", "Confirm quantity": "Label: text" stays one line). The first line keeps the label of its kind; each other starts with the same stars. A part with no
     split point stays whole. No word is cut or changed."""
     text = (text or "").strip()
     if len(text) <= LONG_CLARIFICATION:
@@ -125,7 +135,7 @@ def short_points(text: str) -> list[str]:
                   for i, x in enumerate(_BECAUSE_SPLIT.split(piece))] if len(piece) > LONG_CLARIFICATION else [piece]
     final = []
     for part in parts:
-        final += _split_first(part, ": ") if len(part) > LONG_CLARIFICATION else [part]
+        final += _split_at_colon(part) if len(part) > LONG_CLARIFICATION else [part]
     final = [p.strip() for p in final if p.strip()]
     return [final[0]] + [p if p.startswith("*") else stars + p for p in final[1:]]
 

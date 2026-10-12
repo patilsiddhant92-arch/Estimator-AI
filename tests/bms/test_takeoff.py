@@ -774,6 +774,7 @@ def test_takeoff_end_to_end(tmp_path):
     at = blocks.index("Qty (5) Air Handling Unit AHU-1 thru 5")
     assert not any("Control Valve" in b for b in blocks)      # T-008: a valve family prints no header of its own
     assert not draft.scope.blocks[at + 1].joined
+    assert draft.scope.blocks[at].items          # T-008: the AHU header carries the lines
     assert "Qty (1) Chilled Water Pump P-1" in blocks and "Qty (1) Hot Water Pump P-2" in blocks
     assert blocks.index("Qty (2) Pump P-3, 4") == blocks.index("Qty (1) Boiler B-1") + 1
     # the Demolition Scope is the last block before the alternates; AHU-6 and EF-6 are in no header or count
