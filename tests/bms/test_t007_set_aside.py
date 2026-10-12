@@ -46,12 +46,12 @@ def _star(notes: list[str]) -> list[str]:
 
 def test_a_part_plan_set_aside_prints_one_short_star_line_with_both_sheets(playbook):
     job = _job(SetAside("EF", 2, PART_PLANS, "part plan of one area"))
-    assert _star(_ef_notes(job, playbook)) == ["*EF counted once on part plans M-403 and M-404"]
+    assert _star(_ef_notes(job, playbook)) == ["*EF counted once on part plans M-403 and M-404: 2 set aside, 3 counted"]
 
 
 def test_a_unit_labelled_again_prints_one_short_star_line(playbook):
     job = _job(SetAside("EF", 4, LABELLED, "same unit labelled again", note="EF-2 labelled again as EF-2A on M-202"))
-    assert _star(_ef_notes(job, playbook)) == ["*EF counted once, labelled again on M-201 and M-202"]
+    assert _star(_ef_notes(job, playbook)) == ["*EF counted once, labelled again on M-201 and M-202: 4 set aside, 3 counted"]
 
 
 def test_a_demolition_sheet_set_aside_prints_no_star_line(playbook):
@@ -68,7 +68,7 @@ def test_each_duplicate_is_its_own_line_and_only_in_its_family_block(playbook):
     assert len(_star(_ef_notes(job, playbook))) == 2
     draft = render(job, playbook)
     rtu = [l.text for l in draft.lines if l.kind == "note" and l.system_key == "RTU"]
-    assert _star(rtu) == ["*RTU counted once on part plans M-403 and M-404"]
+    assert _star(rtu) == ["*RTU counted once on part plans M-403 and M-404: 2 set aside, 2 counted"]
     vrf = [l.text for l in draft.lines if l.kind == "note" and l.system_key == "VRF"]
     assert _star(vrf) == []
 
@@ -78,7 +78,7 @@ def test_the_star_line_is_a_note_item_in_the_block_and_carries_no_tech_hours(pla
     draft = render(job, playbook)
     block = next(b for b in draft.scope.blocks if "EF-1" in b.header)
     texts = [i.runs[0].text for i in block.items if i.kind == "note"]
-    assert "*EF counted once on part plans M-403 and M-404" in texts
+    assert "*EF counted once on part plans M-403 and M-404: 2 set aside, 3 counted" in texts
     assert not any("hour" in t.lower() for t in texts if "counted once" in t)
 
 

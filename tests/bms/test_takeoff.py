@@ -501,7 +501,7 @@ def _plan_registered(ledger=None, register=None) -> Job:
 
 
 def _how_many(job, prefix: str) -> list[str]:
-    return [q for q in job.questions if q.startswith(f"How many {prefix} units?")]
+    return [q for q in job.questions if f"({prefix})? " in q and q.startswith("How many ")]
 
 
 def _ledger_with_placements(**placed) -> Ledger:
@@ -558,15 +558,22 @@ def test_the_code_s_higher_placement_counts_are_set_aside_with_both_numbers():
         == [5, 5, 1, 55]
     # the dropped numbers print nowhere in the count: they are set aside, each with its source and both numbers
     assert 21 not in {o.value for o in counts["Air Handling Unit"].others}
-    aside = {(a.family, a.value): a for a in job.set_aside}
-    assert set(aside) == {("AHU", 21), ("EF", 16), ("ERU", 3)}
-    assert {a.reason for a in aside.values()} == {"part plan of one area"}
-    assert aside[("AHU", 21)].ref.source_id == "S5" and aside[("AHU", 21)].ref.quote == "plan placements 21"
-    assert aside[("AHU", 21)].note == "21 set aside (part plan of one area); 5 AHU on the new-work sheets"
-    # one question per family whose printed count fell below the code's count, in the lead's words
-    assert _how_many(job, "AHU") == ["How many AHU units? 5 print from the new-work sheets; the code counted 21."]
-    assert _how_many(job, "EF") == ["How many EF units? 5 print from the new-work sheets; the code counted 16."]
-    assert _how_many(job, "ERU") == ["How many ERU units? 1 print from the new-work sheets; the code counted 3."]
+    # T-007b: each dropped number is set aside by sheet, one row per reason, the parts adding up to the number
+    aside = {(a.family, a.reason): a for a in job.set_aside}
+    assert {(a.family, a.reason, a.value) for a in job.set_aside} == {
+        ("AHU", "demolition sheet", 5), ("AHU", "part plan of one area", 16),
+        ("EF", "demolition sheet", 5), ("EF", "part plan of one area", 11),
+        ("ERU", "part plan of one area", 3)}
+    ahu = aside[("AHU", "part plan of one area")]
+    assert ahu.ref.source_id == "S5" and ahu.ref.quote == "plan placements 21"
+    assert ahu.note == "16 set aside (part plan of one area: M-401, M-402, M-403, M-404); 5 AHU on the new-work sheets"
+    assert aside[("AHU", "demolition sheet")].note == "5 set aside (demolition sheet: MD-401); 5 AHU on the new-work sheets"
+    # one question per family whose printed count fell below the code's count, the family named, its prefix in brackets
+    assert _how_many(job, "AHU") == [
+        "How many Air Handling Units (AHU)? 5 print from the new-work sheets; the code counted 21."]
+    assert _how_many(job, "EF") == ["How many Exhaust Fans (EF)? 5 print from the new-work sheets; the code counted 16."]
+    assert _how_many(job, "ERU") == [
+        "How many Energy Recovery Units (ERU)? 1 print from the new-work sheets; the code counted 3."]
     assert _how_many(job, "FCU") == []
 
 
@@ -579,7 +586,7 @@ def test_a_demolished_scheduled_unit_prints_below_the_schedule_with_one_question
     aside = [a for a in job.set_aside if a.family == "AHU"]
     assert [(a.value, a.reason) for a in aside] == [(5, "demolition sheet")]
     assert aside[0].note == "5 set aside (demolition sheet); 4 AHU on the new-work sheets"
-    assert _how_many(job, "AHU") == ["How many AHU units? 4 print from the new-work sheets; the code counted 5."]
+    assert _how_many(job, "AHU") == ["How many Air Handling Units (AHU)? 4 print from the new-work sheets; the code counted 5."]
     assert len([q for q in job.questions if "AHU" in q and q.startswith("How many")]) == 1
 
 
@@ -776,7 +783,7 @@ def test_takeoff_end_to_end(tmp_path):
     assert all("AHU-6" not in f.tags and "EF-6" not in f.tags for s in job.systems for f in s.families)
     # at most one count question per family, in the lead's form
     asked = [q for q in job.questions if q.startswith("How many ")]
-    assert len(asked) == len({q.split(" units?")[0] for q in asked})
+    assert len(asked) == len({q.split("? ")[0] for q in asked})
     # the writer's evidence carries the register (Task 2.5) and the Evidence Package lists every set-aside (Task 2.6)
     from bms.evidence import set_aside_rows
 
@@ -786,3 +793,63 @@ def test_takeoff_end_to_end(tmp_path):
     # the set-asides and the demolition lines are in Job.json
     saved = Job.from_json(job.to_json())
     assert saved.set_aside == job.set_aside and saved.demolition == job.demolition and saved.units == job.units
+
+
+# ---- T-007b: family question form, set-aside reasons by sheet, the register decides a demolition-titled sheet -------
+
+def test_t007b_the_star_line_names_the_sheets_and_both_numbers():
+    from bms.citations import SourceIds
+    from bms.render import _count_note
+    ledger = _ledger_with_placements(AHU=(21, "M-401 5; M-402 5; M-403 3; M-404 3; MD-401 5"))
+    job = _plan_registered(ledger)
+    ahu = next(s for s in job.systems if any(f.name == "Air Handling Unit" for f in s.families))
+    assert _count_note(ahu, job.set_aside, SourceIds.of_job(job)) == [
+        "*AHU counted once on part plans M-401, M-402, M-403 and M-404: 16 set aside, 5 counted"]
+
+
+def test_t007b_a_mixed_number_is_one_set_aside_per_reason_and_the_parts_add_up():
+    ledger = _ledger_with_placements(AHU=(21, "M-401 5; M-402 5; M-403 3; M-404 3; MD-401 5"))
+    job = _plan_registered(ledger)
+    parts = [(a.reason, a.value) for a in job.set_aside if a.family == "AHU"]
+    assert parts == [("part plan of one area", 16), ("demolition sheet", 5)] or \
+        sorted(parts) == [("demolition sheet", 5), ("part plan of one area", 16)]
+    assert sum(v for _, v in parts) == 21
+    assert next(c for s in job.systems for f in s.families for c in [f.count] if f.name == "Air Handling Unit").value == 5
+
+
+def test_t007b_a_number_with_no_sheets_in_its_quote_keeps_the_single_reason():
+    data = fx.ledger().to_dict()
+    for fact in data["facts"]:
+        if fact["kind"] == "count" and fact["subject"] == "AHU":
+            fact["quote"] = fact["quote"].replace("plan placements 5 (M-401 5; M-402 5; M-403 3; M-404 3)",
+                                                  "plan placements 21")
+    job = _plan_registered(Ledger.from_dict(data))
+    assert [(a.reason, a.value) for a in job.set_aside if a.family == "AHU"] == [("part plan of one area", 21)]
+
+
+def test_t007b_the_register_admits_a_sheet_the_code_types_as_demolition():
+    from bms import takeoff as tk
+    answer = fx.answer()
+    sheet = next(s for s in answer["sheets"] if s["number"] == "MD-401")
+    sheet.update(counts_units=True, refs=[{"source_id": "F13", "quote": "EXISTING AHU-6 AND EF-6 TO BE REMOVED",
+                                           "where": "KEY NOTES 1, MD-401, Mech.pdf page 6"}])
+    value, problems = _check(answer)
+    assert problems == [] and value is not None
+    plain = tk.recount(fx.catalogue(), _register())
+    admitted = tk.recount(fx.catalogue(), value)
+    # MD-401 is read now: its AHU-6 label is no scheduled tag (the tags counted are the family's own), so the count
+    # holds and the page was not skipped by its title
+    assert admitted == plain              # the same counts: MD-401 repeats units of its area
+    from estimator.reading.inventory import placements
+    pages = tk.admissible_pages(value.sheets)
+    md = next(s for s in fx.catalogue().sheets if s.number == "MD-401")
+    tags = [f"AHU-{n}" for n in range(1, 7)]
+    held = placements(fx.catalogue(), tags, pages=pages, admitted=pages)
+    skipped = placements(fx.catalogue(), tags, pages=pages)
+    assert sum(p.count for p in held.values()) >= sum(p.count for p in skipped.values())
+    assert any("MD-401" in p.on_plans for p in held.values()) and md.number == "MD-401"
+
+
+def test_t007b_a_pump_family_the_register_changes_has_the_new_reason():
+    from bms.model import SET_ASIDE_REASONS
+    assert SET_ASIDE_REASONS[-1] == "count by unit register"
