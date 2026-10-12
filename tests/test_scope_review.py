@@ -400,3 +400,14 @@ def test_the_summary_has_a_scope_review_line():
     # flow meters".
     assert lines[index + 1] == ("Scope review: 2 standard exclusions the job asks for; 1 other systems to connect to; "
                                 "1 who-does-what lines.")
+
+
+def test_a_conditional_working_hours_sentence_is_found_not_ruled_out():
+    overview = _division_1("If no hours are named in the permit then the Contractor work hours shall be "
+                           "Monday to Friday 7:00 pm - 5:00 am.")
+    assert _topic(overview.conditions, "Working hours: off-hours, night or weekend work").status == FOUND
+
+
+def test_a_ban_on_night_work_is_still_ruled_out():
+    overview = _division_1("No Contractor night work shall be done during off-hours.")
+    assert _topic(overview.conditions, "Working hours: off-hours, night or weekend work").status == RULED_OUT

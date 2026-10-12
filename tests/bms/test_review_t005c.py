@@ -71,6 +71,7 @@ def test_short_points_keep_every_word():
             "per Spec. Section 23 09 23; the Electrical Contractor provides 120 V power to each panel. The Owner "
             "furnishes the network drop, e.g. at the 2nd floor IDF. Approx. 4 panels are shown on sheet M-701.")
     out = short_points(text)
-    assert "\n- " in out
-    words = lambda s: [w.strip(".;") for w in re.split(r"\s+", s.replace("\n- ", " ")) if w.strip(".;")]
-    assert words(out) == words(text)
+    assert len(out) >= 2 and all(line.startswith("*") for line in out)       # T-008: one "*" line per point
+    words = lambda s: [w.strip(".;") for w in re.split(r"\s+", s) if w.strip(".;*")]
+    words2 = words
+    assert [w.lstrip("*") for w in words(" ".join(out))] == [w.lstrip("*") for w in words(text)]
