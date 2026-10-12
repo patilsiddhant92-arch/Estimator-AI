@@ -155,7 +155,7 @@ def test_a_marked_line_in_a_system_block_prints_red_too(job, playbook):
     red = [i for i in lines if i.runs[0].red]
     assert any(i.text.endswith("(FUTURE AS PER sheet M-9.01)") for i in red)
     # G-004: an unknown device count is red too. Every other red line is that "Qty (##)" line.
-    assert all(i.text.endswith("(FUTURE AS PER sheet M-9.01)") or i.text.startswith("Qty (##) ") for i in red)
+    assert all(i.text.endswith("(FUTURE AS PER sheet M-9.01)") or i.text.endswith(" (Qty. ##)") for i in red)
     assert any(line.text == red[0].text for line in draft.lines)        # the traced line carries the same words
 
 

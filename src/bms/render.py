@@ -750,9 +750,10 @@ def _device_lines(devices, shape: Shape | None, system: System | None, playbook:
     prints in its own slot's place. A line of the integration trio whose slot the shape sets under no parent (a block
     with no shape) prints at the trio's own depth (wording.json integration_trio.depths: the rep line one level in).
     Every line prints its slot's wording. A line whose wording names a verb or a device, and whose slot is not an
-    interlock (`line_prints_quantity`), prints "Qty (N)" in front when its count is unknown or not the block's own
-    count (`wording.json` quantity.unknown / quantity.line), and only then. `qty_notes` (device id -> the quantity
-    note) puts a device's other counts after its own line (GEM v4 ~609); the note does not add the prefix.
+    interlock (`line_prints_quantity`), ends with "(Qty. N Total)" (ruling 24; `wording.json` quantity.line) when its
+    count is known and is not the block's own count, or when the line carries a note. An unknown count ends with
+    "(Qty. ##)" (`quantity.unknown`) and the line is marked unknown. `qty_notes` (device id -> the quantity note)
+    puts a device's other counts after those words (GEM v4 ~609).
     Two lines of one Master Template "OR" group printed next to each other get an "OR" line between them, and only
     the first is priced (`bms.order.alternatives`)."""
     devices = list(devices)
@@ -782,16 +783,16 @@ def _device_lines(devices, shape: Shape | None, system: System | None, playbook:
         else:
             text = form
         if line_prints_quantity(form, slot_kind):
-            # ruling 15, G-002: "Qty (N) <device line>", in front of the verb, only when N is not the block's count;
-            # other counts stay after the line and never add the prefix (rules.md "Line quantity")
+            # ruling 24: "(Qty. N Total)" after the owner bracket and before other counts. The words print when the
+            # count is unknown, is not the block's count, or the line carries a note (rules.md "Line quantity").
             note = qty_notes.get(device.id, "")
-            if number is None or number not in reference:
+            if number is None or number not in reference or note:
                 if number is None:
-                    prefix = quantity_words["unknown"]
+                    suffix = quantity_words["unknown"]
                     unknown_at.add(index)
                 else:
-                    prefix = quantity_words["line"].format(n=number)
-                text = prefix + text
+                    suffix = quantity_words["line"].format(n=number)
+                text += suffix
             if note:
                 text += note
         worded.append((text, form, device.verb if "{verb}" in form else None))

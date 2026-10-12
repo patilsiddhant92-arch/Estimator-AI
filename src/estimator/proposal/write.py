@@ -34,12 +34,17 @@ from estimator.text import squash
 _XML_SPACE = "{http://www.w3.org/XML/1998/namespace}space"
 RED = RGBColor(0xFF, 0x00, 0x00)        # a run the estimator must notice (`Run.red`, T-005e)
 
-# T-005e: the template's working-hours clarification and off-hours exclusion, and what replaces them when the job's
-# documents call for off-hours work or prevailing wage (`Job.labor_conditions`), in red, citing the documents
+# Ruling 26: the template points stay. A labor condition is a red PR3 sub-bullet under its own point.
 NORMAL_HOURS = "All labor will be performed during normal business working hours"
 OFF_HOURS_EXCLUSION = "All off-hours or overtime labor"
-OFF_HOURS_CLARIFICATION = "All labor for the off-hours work the documents call for is included (As per {source})."
+OFF_HOURS_BETWEEN = "The documents require work between {hours} ({source})"
+OFF_HOURS_UNSTATED = "The documents require off-hours work ({source})"
 WAGE_CLARIFICATION = "All labor is priced at prevailing wage rates, as the documents require (As per {source})."
+_SUB_BULLET = "PR3"          # the template's third list level, numbered a., b. by the style
+_POINT = "PR2"
+_FIRST_BRACKETS = re.compile(r"\(([^)]*)\)")
+_HOUR_RANGE = re.compile(
+    r"\d{1,2}(?::\d{2})?\s*(?:AM|PM)\s+to\s+\d{1,2}(?::\d{2})?\s*(?:AM|PM)", re.IGNORECASE)
 
 
 class TemplateError(ValueError):
@@ -471,9 +476,55 @@ def _make_red(paragraph: Paragraph) -> None:
         run.font.color.rgb = RED
 
 
-def _clarification_after(cursor: Paragraph, text: str) -> Paragraph:
-    """A red clarification like the template's own (a copy of `cursor`'s paragraph, its text replaced), after it."""
-    clone = copy.deepcopy(cursor._p)
+def hours_between(text: str) -> str:
+    """The time range in the first brackets of a labor line, or "" when those brackets are not a range.
+
+    "Off-Hours Labor (6 PM to 6 AM) Included (As per ...)" gives "6 PM to 6 AM". "Off-Hours Labor Included (As per
+    ...)" gives "", because the first brackets are the source, not hours (ruling 26)."""
+    found = _FIRST_BRACKETS.search(text or "")
+    if found is None:
+        return ""
+    inner = found.group(1).strip()
+    return inner if _HOUR_RANGE.fullmatch(inner) else ""
+
+
+def _off_hours_sentence(condition: LaborCondition) -> str:
+    hours = hours_between(condition.text)
+    if not hours:
+        return OFF_HOURS_UNSTATED.format(source=condition.source)
+    spoken = re.sub(r"\s+to\s+", " and ", hours, count=1, flags=re.IGNORECASE)
+    return OFF_HOURS_BETWEEN.format(hours=spoken, source=condition.source)
+
+
+def _style_name(paragraph: Paragraph) -> str:
+    return paragraph.style.name if paragraph.style is not None else ""
+
+
+def _heading_index(paragraphs, heading: str) -> int:
+    for index, paragraph in enumerate(paragraphs):
+        if squash(paragraph.text).startswith(heading):
+            return index
+    raise TemplateError(f"the template has no {heading!r}")
+
+
+def _point(paragraphs, start: int, end: int, prefix: str) -> Paragraph | None:
+    return next((p for p in paragraphs[start + 1:end] if squash(p.text).startswith(prefix)), None)
+
+
+def _wage_parent(paragraphs, clar: int, excl: int) -> Paragraph | None:
+    """The clarifications point about wages or labor rates, or the normal-hours point when the template has none."""
+    for paragraph in paragraphs[clar + 1:excl]:
+        if _style_name(paragraph) != _POINT:
+            continue
+        text = squash(paragraph.text).lower()
+        if "wage" in text or "labor rate" in text:
+            return paragraph
+    return _point(paragraphs, clar, excl, NORMAL_HOURS)
+
+
+def _sub_bullet_after(cursor: Paragraph, prototype: Paragraph, text: str) -> Paragraph:
+    """A red PR3 sub-bullet, copied from a template sub-bullet, inserted directly after `cursor`."""
+    clone = copy.deepcopy(prototype._p)
     added = Paragraph(clone, cursor._parent)
     _replace_text(added, text)
     _make_red(added)
@@ -504,32 +555,36 @@ def _keep_one_demolition_exclusion(document: DocxDocument, job: Job) -> None:
 
 
 def _write_labor_conditions(document: DocxDocument, conditions: tuple[LaborCondition, ...]) -> None:
-    """When the job's documents call for off-hours work or prevailing wage, the proposal says so in red, citing them,
-    and never excludes it in silence: the working-hours clarification becomes the off-hours one, the off-hours
-    exclusion is taken out (the scope's "Labor Conditions" line carries it), and a prevailing-wage clarification follows
-    the first clarification. Nothing changes when there is no condition."""
+    """A red sub-bullet under the template point a labor condition belongs to (ruling 26).
+
+    The template points stay, in their text, order and numbering. Off-hours work goes under the off-hours exclusion.
+    Prevailing wage keeps its sentence and goes under the wage point, or under the normal-hours clarification when
+    the template has no wage point. Two sub-bullets under one parent stay in that order: off-hours, then wage.
+    Nothing changes when there is no condition. A missing parent raises TemplateError."""
     if not conditions:
         return
-    paragraphs = document.paragraphs
-    start = next(i for i, p in enumerate(paragraphs) if squash(p.text).startswith(layout.CLARIFICATIONS))
-    first = next((p for p in paragraphs[start + 1:] if squash(p.text)), None)
-    if first is None:
-        raise TemplateError("the clarifications section has no line")
+    paragraphs = list(document.paragraphs)
+    clar = _heading_index(paragraphs, layout.CLARIFICATIONS)
+    excl = _heading_index(paragraphs, layout.EXCLUSIONS)
+    base = _heading_index(paragraphs, layout.BASE_PRICE)
+    prototype = next((p for p in paragraphs[clar + 1:excl] if _style_name(p) == _SUB_BULLET), None)
+    if prototype is None:
+        raise TemplateError("the clarifications section has no sub-bullet to copy")
     by_kind = {c.kind: c for c in conditions}
-    cursor = first
+    planned: list[tuple[Paragraph, str]] = []
     off = by_kind.get("off-hours")
     if off is not None:
-        text = OFF_HOURS_CLARIFICATION.format(source=off.source)
-        normal = next((p for p in paragraphs[start + 1:] if squash(p.text).startswith(NORMAL_HOURS)), None)
-        if normal is not None:
-            _replace_text(normal, text)
-            _make_red(normal)
-            cursor = normal
-        else:
-            cursor = _clarification_after(first, text)
-        for paragraph in document.paragraphs:
-            if squash(paragraph.text).startswith(OFF_HOURS_EXCLUSION):
-                paragraph._p.getparent().remove(paragraph._p)
+        parent = _point(paragraphs, excl, base, OFF_HOURS_EXCLUSION)
+        if parent is None:
+            raise TemplateError("the exclusions section has no off-hours point")
+        planned.append((parent, _off_hours_sentence(off)))
     wage = by_kind.get("prevailing-wage")
     if wage is not None:
-        _clarification_after(cursor, WAGE_CLARIFICATION.format(source=wage.source))
+        parent = _wage_parent(paragraphs, clar, excl)
+        if parent is None:
+            raise TemplateError("the clarifications section has no labor point")
+        planned.append((parent, WAGE_CLARIFICATION.format(source=wage.source)))
+    cursor_at: dict[int, Paragraph] = {}
+    for parent, text in planned:
+        cursor = cursor_at.get(id(parent._p), parent)
+        cursor_at[id(parent._p)] = _sub_bullet_after(cursor, prototype, text)

@@ -62,7 +62,7 @@ def test_a_valve_family_under_an_ahu_prints_no_header_of_its_own(job, playbook):
     assert not any("Control Valve" in h for h in _headers(out, "AHU"))
     block = next(b for b in out.scope.blocks if b.header.startswith("Qty (5) Air Handling Unit"))
     assert block.tech_hours == 12 and len(block.items) >= 2
-    assert any("Qty (10)" in i.text and "Control Valve" in i.text for i in block.items)      # a valve's own count stays
+    assert any("(Qty. 10 Total)" in i.text and "Control Valve" in i.text for i in block.items)
 
 
 def test_a_valve_only_system_keeps_its_own_header(job, playbook):

@@ -1,4 +1,4 @@
-"""G-002: a device line prints its own count in front, "Qty (N) <device line>".
+"""G-005 ruling 24: a device line ends with "(Qty. N Total)". The old prefix still prices.
 
 The sample job and the sample Playbook only. Counts and names here are invented.
 """
@@ -45,14 +45,15 @@ def _lines(draft):
     return [line.text for line in draft.lines if line.system_key == "CUH"]
 
 
-def test_a_different_count_prints_in_front_and_the_block_count_does_not():
+def test_a_different_count_prints_at_the_end_and_the_block_count_does_not():
     playbook = load_playbook(FIXTURES / "sample_playbook")
     lines = _lines(render(_job(), playbook))
     assert lines[0].startswith("Qty (5) ") and "UH-1" in lines[0]
     assert "Furnish and Install Space Temperature Sensor" in lines
-    assert "Qty (33) Furnish and Install Space Temperature Sensor" in lines
-    assert "Qty (##) " in "\n".join(lines) and "Control Valve" in "\n".join(lines)
-    assert not any("(Qty." in line or line.endswith("Total)") for line in lines)
+    assert "Furnish and Install Space Temperature Sensor (Qty. 33 Total)" in lines
+    joined = "\n".join(lines)
+    assert " (Qty. ##)" in joined and "Control Valve" in joined
+    assert not any(line.startswith("Qty (") and ("Sensor" in line or "Valve" in line) for line in lines)
 
 
 def test_an_unknown_device_count_is_flagged():
@@ -78,10 +79,10 @@ def test_the_price_sheet_prices_both_forms_and_holds_an_unknown_line(workup_temp
     rows = {str(ws.cell(r, 4).value): r for r in range(6, 80) if ws.cell(r, 4).value}
     same = next(r for text, r in rows.items() if text.endswith("Furnish and Install Space Temperature Sensor")
                 and "Qty (33)" not in text and "(Qty." not in text)
-    prefixed = next(r for text, r in rows.items() if "Qty (33) Furnish and Install Space Temperature Sensor" in text)
-    unknown = next(r for text, r in rows.items() if "Qty (##)" in text and "Control Valve" in text)
+    ended = next(r for text, r in rows.items() if "(Qty. 33 Total)" in text and "Space Temperature Sensor" in text)
+    unknown = next(r for text, r in rows.items() if "(Qty. ##)" in text and "Control Valve" in text)
     assert ws.cell(same, 3).value == 5 and ws.cell(same, 5).value == 142.0
-    assert ws.cell(prefixed, 3).value == 33 and ws.cell(prefixed, 5).value == 142.0
+    assert ws.cell(ended, 3).value == 33 and ws.cell(ended, 5).value == 142.0
     assert ws.cell(unknown, 8).value == QUANTITY_PENDING
     assert ws.cell(unknown, 3).value is None and ws.cell(unknown, 5).value is None
     color = ws.cell(unknown, 4).font.color

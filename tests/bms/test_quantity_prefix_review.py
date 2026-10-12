@@ -44,43 +44,40 @@ def _ef_devices(damper: int):
             _device("EF.d2", "damper_actuator", "Motorized Damper Actuator", damper))
 
 
-def test_a_33_line_prints_the_prefix_and_a_5_line_prints_none():
+def test_a_33_line_prints_the_end_form_and_a_5_line_prints_none():
     playbook = load_playbook(FIXTURES / "sample_playbook")
     lines = _lines(render(_job("EF", "Exhaust Fan", _ef_devices(33)), playbook), "EF")
     assert lines[0].startswith("Qty (5) Exhaust Fans")
     assert "Furnish and Install DDC Controller" in lines
-    assert "Qty (33) Furnish and Install Motorized Damper Actuator" in lines
-    assert not any(line.startswith("Qty (5) Furnish") for line in lines)
-    assert not any("(Qty." in line or "Total)" in line for line in lines)
+    assert "Furnish and Install Motorized Damper Actuator (Qty. 33 Total)" in lines
+    assert not any(line.startswith("Qty (") and "Furnish" in line for line in lines)
 
 
-def test_the_prefix_does_not_move_a_line():
-    """The GEM order reads the printed text: the prefix must not change where a line prints."""
+def test_the_end_form_does_not_move_a_line():
+    """The GEM order reads the printed text: the end form must not change where a line prints."""
     playbook = load_playbook(FIXTURES / "sample_playbook")
     plain = _lines(render(_job("EF", "Exhaust Fan", _ef_devices(5)), playbook), "EF")
-    prefixed = _lines(render(_job("EF", "Exhaust Fan", _ef_devices(33)), playbook), "EF")
-    assert [t.removeprefix("Qty (33) ") for t in prefixed] == plain
+    marked = _lines(render(_job("EF", "Exhaust Fan", _ef_devices(33)), playbook), "EF")
+    assert [t.removesuffix(" (Qty. 33 Total)") for t in marked] == plain
 
 
-def test_the_real_vav_shape_prints_the_prefix_only_on_a_different_count():
+def test_the_real_vav_shape_prints_the_end_form_only_on_a_different_count():
     playbook = load_playbook(PLAYBOOK)
     devices = (_device("V.d1", "controller", "DDC Controller", 5),
                _device("V.d2", "space_sensor", "Space Temperature Sensor", 33),
                _device("V.d3", "discharge_temperature", "Discharge Air Temperature Sensor", 5))
     lines = _lines(render(_job("VAV", "VAV / Fan VAV", devices), playbook), "VAV")
     assert lines[0].startswith("Qty (5) ")
-    assert "Qty (33) Furnish and Install Space Temperature Sensor" in lines
+    assert "Furnish and Install Space Temperature Sensor (Qty. 33 Total)" in lines
     assert "Furnish and Install DDC Controller" in lines
     assert "Furnish and Install Discharge Air Temperature Sensor" in lines
     plain = _lines(render(_job("VAV", "VAV / Fan VAV", devices[:1] + (replace(devices[1], quantity=Count(value=5)),)
                                + devices[2:]), playbook), "VAV")
-    assert [t.removeprefix("Qty (33) ") for t in lines] == plain
+    assert [t.removesuffix(" (Qty. 33 Total)") for t in lines] == plain
 
 
-def test_a_line_with_a_count_note_equal_to_the_block_count_prints_no_prefix():
-    """Lead fix on the G-002 review (rules.md "Line quantity"): the prefix depends only on a count that differs from
-    the block's. A damper line of 5 in a block of 5 that also names a lower count of 4 keeps its note after the line
-    and has no "Qty (5)" in front; a damper line of 33 with the same note keeps both."""
+def test_a_line_with_a_count_note_prints_the_total_before_the_note():
+    """Ruling 24: a note (other counts) prints "(Qty. N Total)" even when N is the block's count. The note follows."""
     playbook = load_playbook(FIXTURES / "sample_playbook")
     plan = Ref(source_id="S2", quote="invented count 4", where="M-601, Drawings.pdf page 2")
 
@@ -92,8 +89,10 @@ def test_a_line_with_a_count_note_equal_to_the_block_count_prints_no_prefix():
         assert lines[0].startswith("Qty (5) Exhaust Fans")
         return next(line for line in lines if "Motorized Damper Actuator" in line)
 
-    assert damper_line(5) == "Furnish and Install Motorized Damper Actuator (5 per M-1; 4 per M-601)"
-    assert damper_line(33) == "Qty (33) Furnish and Install Motorized Damper Actuator (33 per M-1; 4 per M-601)"
+    assert damper_line(5) == ("Furnish and Install Motorized Damper Actuator (Qty. 5 Total) "
+                              "(5 per M-1; 4 per M-601)")
+    assert damper_line(33) == ("Furnish and Install Motorized Damper Actuator (Qty. 33 Total) "
+                               "(33 per M-1; 4 per M-601)")
 
 
 def test_the_price_sheet_reads_both_lines(workup_template, tmp_path):
@@ -104,7 +103,8 @@ def test_the_price_sheet_reads_both_lines(workup_template, tmp_path):
     path = write_price_sheet(draft.scope, workup_template, book, tmp_path / "s.xlsx")
     ws = load_workbook(path)["Price Sheet 1"]
     rows = {str(ws.cell(r, 4).value): r for r in range(6, 80) if ws.cell(r, 4).value}
-    damper = next(r for t, r in rows.items() if t.endswith("Qty (33) Furnish and Install Motorized Damper Actuator"))
+    damper = next(r for t, r in rows.items()
+                  if t.endswith("Furnish and Install Motorized Damper Actuator (Qty. 33 Total)"))
     controller = next(r for t, r in rows.items() if t.endswith("Furnish and Install DDC Controller"))
     assert (ws.cell(damper, 3).value, ws.cell(damper, 5).value) == (33, 210.0)
     assert (ws.cell(controller, 3).value, ws.cell(controller, 5).value) == (5, 900.0)
