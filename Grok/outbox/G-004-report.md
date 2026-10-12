@@ -4,7 +4,7 @@
 
 - Task id: G-004.
 - Branch: `grok/G-004`.
-- Code tip: `8fc296d60f1b8779664b4a8d0597028bbd0d73ce`.
+- Code tip: `f6b293fa3f713d895d3b861ab989c83be78c565d`.
 - Base: `52fd0ce5fc80f93bf2eb02cf4e75d80353a76f41` (`origin/rebuild` at the start of this branch). `0ff732c` is an ancestor of that commit.
 - This file is the report commit on the same branch.
 
@@ -15,6 +15,7 @@ Commits on this branch after the base:
 - `ce9456d5cd4dbcf69226e9db3dfe26604e4f8055` review: one question per family, with a sub-point for each
 - `e665c0aba70182525a536d9122bfad7a8f42341a` render: print an unknown device count in red
 - `8fc296d60f1b8779664b4a8d0597028bbd0d73ce` render: note a system that has no devices
+- `f6b293fa3f713d895d3b861ab989c83be78c565d` review: cap a no-device note at 160 characters and match a sentence-final id
 
 Diff stat of those three commits against the base:
 
@@ -28,6 +29,8 @@ Diff stat of those three commits against the base:
  tests/bms/test_t005c_proposal.py    |   4 +-
  7 files changed, 601 insertions(+), 34 deletions(-)
 ```
+
+The self-review commit changes 4 files: 52 insertions, 19 deletions.
 
 ## 3. What changed
 
@@ -61,6 +64,9 @@ New tests in `tests/bms/test_g004_review_flags.py`:
 - `test_an_alternate_with_no_devices_prints_no_scope_note_on_the_base_bid`
 - `test_a_long_reason_prints_as_short_points`
 - `test_a_job_with_no_block_keeps_todays_left_out_note`
+- `test_a_device_id_matches_only_as_a_whole_id`
+- `test_a_block_name_matches_only_as_a_whole_phrase`
+- `test_a_composed_line_over_160_characters_is_short_points`
 
 Each new-behavior test failed before the code for that task. The commands ran from `D:\EA-grok-g004` with `PYTHONPATH=src` and `D:\Estimator AI\.venv\Scripts\python.exe`.
 
@@ -160,7 +166,7 @@ How a reason is matched to a block: whole phrase, any case, hyphen included in t
 
 The `*` line is `*{name}: {reason}` when the reason does not already hold the silent system's name as a whole phrase. It is `*{reason}` when the reason already holds that name. A reason that already starts with `*` keeps one star.
 
-`short_points` runs on the composed line only when the reason itself is longer than 150 characters. `short_points` was not edited.
+`short_points` runs on the composed line when the reason is longer than 150 characters, or when the printed line is longer than 160 characters. Playbook rule "Line form" sets that 160-character limit. `short_points` was not edited.
 
 The silent system's left-out line stays in `draft.lines`. The new note is also a `RenderedLine` in `draft.lines`, under the carrier's key for the `*` line, and under the last base system's key for `No BMS scope`.
 
@@ -170,6 +176,37 @@ The silent system's left-out line stays in `draft.lines`. The new note is also a
 - `evidence.py` was not edited. The Scope lines tab still builds the left-out row from `left_out_text`. That row still holds the writer's reason. The new proposal note is in `draft.lines`.
 - No merge. No rebase. No push of any branch except `grok/G-004`.
 
-## 8. Questions
+## 8. Self-review
+
+A separate reviewer applied the inbox checklist of 2026-10-12 after the first push. These items were fixed in `f6b293f` before this push.
+
+- A reason of 150 characters plus the `*Coil Bank: ` prefix printed 162 characters. `short_points` now runs when the printed line is longer than 160 characters. Playbook rule "Line form". The rule "One clarification per block" asks for one short `*` line.
+- The device-id check did not match an id at the end of a sentence (`Cite AHU.d2.`). It still rejects `AHU.d23` and `AHU.d2.1`. The phrase check has three sentences that match `ERV-1` and three that do not match the key `ERV` inside a longer tag.
+- The `render` docstring sentences added for the note were removed. The helpers next to `LEFT_OUT` stay.
+- The future-line pin in `test_t005c_proposal.py` now uses the invented sheet `M-9.01`.
+
+The fold still copies the dropped flag words onto the keeping sub-point. No printed count is reduced. `playbook/` was not changed, so playbook-lint was not run.
+
+Touched proof files after the fix:
+
+```
+290 passed in 33.57s
+```
+
+`pytest tests/bms -q -n 4 -p no:cacheprovider -m "not slow"`:
+
+```
+2999 passed, 4 xfailed in 482.48s (0:08:02)
+```
+
+`pytest tests -q -n 4 -p no:cacheprovider -m "not slow"`:
+
+```
+5346 passed, 4 xfailed in 1230.66s (0:20:30)
+```
+
+Zero failures.
+
+## 9. Questions
 
 None.
