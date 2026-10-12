@@ -152,14 +152,17 @@ def test_another_kind_of_device_prints_the_highest_count(planned):
 
 # 7. the kind detector
 @pytest.mark.parametrize("name", ["Space Temperature Sensor", "Space Thermostat", "Zone Temperature Sensor",
-                                  "Wall Mounted Room Thermostat", "Thermostat"])
+                                  "Wall Mounted Room Thermostat", "Thermostat",
+                                  "Room Temperature Sensor with Occupancy Override",
+                                  "Space Temperature Sensor (return air plenum)"])
 def test_the_kind_detector_matches_thermostats_and_space_sensors(name):
     assert takeoff.is_plan_counted_kind(name, "other_device")
 
 
 @pytest.mark.parametrize("name", ["Discharge Air Temperature Sensor", "Space Pressure Sensor",
                                   "Outside Air Humidity Sensor", "Space Temperature and Humidity Sensor",
-                                  "Extend control wiring for relocated existing thermostat", "Return Air CO2 Sensor"])
+                                  "Extend control wiring for relocated existing thermostat", "Return Air CO2 Sensor",
+                                  "Return Air Temperature Sensor", "Supply Air Temperature Sensor", "Occupancy Sensor"])
 def test_the_kind_detector_leaves_other_kinds_out(name):
     assert not takeoff.is_plan_counted_kind(name, "other_device")
 
@@ -209,6 +212,76 @@ def test_a_typed_count_keeps_the_count_the_estimator_typed(planned):
 
     after = apply_decisions(once, [decision])
     assert _line(after).quantity.value == 33
+    # the line no longer prints the plan count: no "*Verify" line names a plan count that does not print
+    assert _printed(after).quantity == 33
+    assert not any(n.startswith("*Verify") for n in _fcu_notes(after))
+
+
+def _with_line(job: Job, line: Device) -> Job:
+    system = job.system("FCU")
+    return job.with_system(dataclasses.replace(system, devices=tuple(line if d.id == SENSOR else d
+                                                                      for d in system.devices)))
+
+
+def test_a_typed_sixty_prints_no_verify_line(planned):
+    from bms.review import apply_decisions
+
+    once = _step(_sequence_writer(planned))
+    typed = dataclasses.replace(_line(once), quantity=Count(60, (SEQUENCE,)))
+    after = apply_decisions(once, [Decision("FCU", "change", device_id=SENSOR, device=typed, was=_line(once))])
+    assert _printed(after).quantity == 60
+    assert not any(n.startswith("*Verify") for n in _fcu_notes(after))
+
+
+def test_a_line_rewritten_at_sixty_prints_no_verify_line(planned):
+    """The family-count rewrite (or the revise) writes the line again after the step: the set-aside no longer
+    describes it, so no "*Verify" line prints from it."""
+    once = _step(_sequence_writer(planned))
+    after = _with_line(once, dataclasses.replace(_line(once), quantity=Count(60, (SEQUENCE,))))
+    assert _printed(after).quantity == 60
+    assert not any(n.startswith("*Verify") for n in _fcu_notes(after))
+
+
+def test_the_step_clears_its_own_set_aside_for_a_typed_line(planned):
+    from bms.review import apply_decisions
+
+    once = _step(_sequence_writer(planned))
+    typed = dataclasses.replace(_line(once), quantity=Count(33, (SEQUENCE,)))
+    after = apply_decisions(once, [Decision("FCU", "change", device_id=SENSOR, device=typed, was=_line(once))])
+    again = takeoff.apply_plan_counts(after, fx.reading().devices, fx.dossier().sheet_pages,
+                                      typed=frozenset({("FCU", SENSOR)}))
+    assert not [a for a in again.set_aside if a.reason == "plan count prints"]
+    assert _line(again).quantity.value == 33
+    assert [(a.family, a.reason) for a in again.set_aside] == [("T", "demolition sheet")]
+    assert takeoff.apply_plan_counts(again, fx.reading().devices, fx.dossier().sheet_pages,
+                                     typed=frozenset({("FCU", SENSOR)})) == again
+
+
+def test_the_step_replaces_its_set_asides_when_it_reduces_a_rewritten_line(planned):
+    once = _step(_sequence_writer(planned))
+    rewritten = _with_line(once, dataclasses.replace(_line(once), quantity=Count(60, (SEQUENCE,))))
+    again = _step(rewritten)
+    asides = [(a.value, a.ref) for a in again.set_aside if a.reason == "plan count prints"]
+    assert asides == [(60, SEQUENCE)]                  # the 55 it no longer holds is not kept as its number
+    assert _line(again).quantity.value == 30
+    assert "*Verify: 30 thermostats drawn on M-201 and M-202; the sequence calls for one per fan coil unit (60)" \
+        in _fcu_notes(again)
+    assert _step(again) == again
+
+
+def test_the_flag_is_quantity_whatever_flag_the_line_had(planned):
+    job = _sequence_writer(planned)
+    job = _with_line(job, dataclasses.replace(_line(job), flag="ownership"))
+    assert _line(_step(job)).flag == "quantity"
+
+
+def test_a_number_equal_to_a_family_count_but_from_another_source_is_named_by_its_place(planned):
+    """"one per <family>" is chosen by the number's source, never by an equal number: 55 from the schedule on M-601
+    is named by its place."""
+    schedule = Ref("S1", "AIR HANDLING UNIT SCHEDULE", "M-601, Mech.pdf page 1")
+    after = _step(_sequence_writer(planned, Count(55, (schedule,))))
+    (note,) = [n for n in _fcu_notes(after) if n.startswith("*Verify")]
+    assert note == "*Verify: 30 thermostats drawn on M-201 and M-202; 55 per M-601"
 
 
 def test_a_line_the_estimator_typed_is_skipped_by_name(planned):
@@ -240,6 +313,28 @@ def test_a_plan_count_on_twelve_sheets_prints_as_two_short_star_lines(planned):
     assert "the sequence calls for one per fan coil unit (55)" in text
 
 
+def test_a_sheet_list_too_long_for_one_line_continues_with_also_drawn_on(planned):
+    rows, sheets = [], []
+    base = [s for s in planned.sheets if s.number == "M-201"][0]
+    for n in range(25):
+        number = f"M-3{n:02d}"
+        sheets.append(dataclasses.replace(base, page=40 + n, number=number))
+        rows.append(dataclasses.replace(fx.reading().devices[0], sheet=number, page=40 + n, count=1, total=1))
+    job = _sequence_writer(planned)
+    job = dataclasses.replace(job, sheets=(*job.sheets, *sheets))
+    pages = dict(fx.dossier().sheet_pages)
+    pages.update({f"S9{n:02d}": ("Mech.pdf", 40 + n) for n in range(25)})
+    after = takeoff.apply_plan_counts(job, tuple(rows), pages)
+    assert _line(after).quantity.value == 25
+    verify = [n for n in _fcu_notes(after) if n.startswith("*Verify")]
+    assert len(verify) >= 2 and all(len(n) <= 160 for n in verify)
+    assert verify[0].startswith("*Verify: 25 thermostats drawn on M-300, M-301")
+    assert verify[1].startswith("*Verify: also drawn on ")
+    text = " ".join(verify)
+    assert all(f"M-3{n:02d}" in text for n in range(25))
+    assert text.endswith("the sequence calls for one per fan coil unit (55)")
+
+
 # 12. the Playbook rule
 def test_the_playbook_has_the_rule_in_counts_and_quantities():
     playbook = load_playbook(Path(__file__).resolve().parents[2] / "playbook")
@@ -265,7 +360,8 @@ def test_the_run_calls_the_step_once_after_the_writers_and_before_the_decisions(
 
 def test_no_source_of_the_other_numbers_is_lost(planned):
     """Every number and every source that gives it stays as a set-aside (checklist 4): two sources of 55, a 40 and the
-    sum ruling L1 left out."""
+    sum ruling L1 left out. The "*Verify" line names every count but not the L1 sum (never a count of the job), and
+    names the 55 of M-601 by its place (its source is not the sequence's one per unit)."""
     second = Ref("S2", "one per unit", "M-601, Mech.pdf page 1")
     count = Count(55, (SEQUENCE, second), (OtherCount(40, second),), OtherCount(70, second))
     after = _step(_sequence_writer(planned, count))
@@ -273,5 +369,6 @@ def test_no_source_of_the_other_numbers_is_lost(planned):
     assert asides == [(70, second), (55, SEQUENCE), (55, second), (40, second)]
     assert _line(after).quantity.others == () and _line(after).quantity.added_up is None
     (note,) = [n for n in _fcu_notes(after) if n.startswith("*Verify")]
-    assert note == ("*Verify: 30 thermostats drawn on M-201 and M-202; 70 per M-601; "
-                    "the sequence calls for one per fan coil unit (55); 40 per M-601")
+    assert note == ("*Verify: 30 thermostats drawn on M-201 and M-202; "
+                    "the sequence calls for one per fan coil unit (55); 55 per M-601; 40 per M-601")
+    assert "70" not in note
