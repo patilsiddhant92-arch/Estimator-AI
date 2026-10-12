@@ -13,7 +13,8 @@ from bms import review
 from bms.model import (Count, Decision, DemolitionLine, Device, Family, Finding, FrontEnd, Job, OtherCount, Ref,
                        ScopeException, System)
 from bms.playbook import load_playbook
-from bms.render import _no_bms_line, render
+from bms.render import _holds_phrase, _no_bms_line, render
+from bms.review import _names_device
 from estimator.price_sheet.price_book import BookItem, PriceBook
 from estimator.price_sheet.write import QUANTITY_PENDING, write_price_sheet
 
@@ -398,6 +399,44 @@ def test_no_bms_line_gives_a_list_of_lines():
         "No BMS scope: The documents give this system to others."]
     lines = _no_bms_line(_LONG_NO_SCOPE)
     assert len(lines) == 3 and lines[0].startswith("No BMS scope: ") and max(map(len, lines)) <= 160
+
+
+def test_a_device_id_matches_only_as_a_whole_id():
+    must = ("The interlock for AHU.d2 is open.", "Cite AHU.d2.", "AHU.d2 stands alone")
+    must_not = ("The note names AHU.d23 only.", "See AHU.d2.1 for the point.", "AHU.d20 is a different point.")
+    assert all(_names_device(text, "AHU.d2") for text in must)
+    assert not any(_names_device(text, "AHU.d2") for text in must_not)
+
+
+def test_a_block_name_matches_only_as_a_whole_phrase():
+    must = ("The coil valves are counted with ERV-1.", "Counted with erv-1 today.", "ERV-1 leads the list.")
+    must_not = ("The coil valves are counted with ERV-1.", "Tag ERV-10 is another unit.", "The ERVX unit is different.")
+    assert all(_holds_phrase(text, "ERV-1") for text in must)
+    assert not any(_holds_phrase(text, "ERV") for text in must_not)
+    assert not _holds_phrase("The Coil Banks stay in the room.", "Coil Bank")
+
+
+def test_a_composed_line_over_160_characters_is_short_points():
+    reason = ("The coil valves are counted with ERV-1 because the documents show one set word word word word word. "
+              "The second sentence finishes this invented reason.")
+    assert len(reason) == 150 and len("*Coil Bank: " + reason) > 160
+    draft = render(_job_of(_silent("CB", "Coil Bank", reason),
+                           _carrier("ERV", "Energy Recovery Ventilator", "ERV-1")), _playbook())
+    items = draft.scope.blocks[0].items[-2:]               # T-008 list form: one note item per point
+    points = [item.text for item in items]
+    assert [item.kind for item in items] == ["note", "note"]
+    assert points[0].startswith("*Coil Bank: ") and points[1].startswith("*The second sentence")
+    assert all(point.startswith("*") and "\n" not in point and len(point) <= 160 for point in points)
+    loose = ("The documents give this system to others and the note stays one invented sentence word word word. "
+             "The second sentence finishes this invented reason.")
+    assert len(loose) <= 150 and len("No BMS scope: " + loose) > 160
+    other = render(_job_of(_carrier("ERV", "Energy Recovery Ventilator", "ERV-1"),
+                           _silent("CB", "Coil Bank", loose)), _playbook())
+    items = other.scope.blocks[0].items[-2:]
+    lines = [item.text for item in items]
+    assert [item.kind for item in items] == ["note", "note"]
+    assert lines[0].startswith("No BMS scope: ") and lines[1].startswith("The second sentence")
+    assert all("\n" not in line and len(line) <= 160 for line in lines)
 
 
 def test_a_job_with_no_block_keeps_todays_left_out_note():
