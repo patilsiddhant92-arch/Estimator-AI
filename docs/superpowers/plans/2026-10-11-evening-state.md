@@ -85,3 +85,5 @@ Merged since the last update:
 26-0544 rerun completed at about 05:50 India time into out/26-0544-r2 (29 requests answered: 5 reading passes, 1 takeoff, 7 counts, 9 writes, 1 QC, 6 revises; 3 re-dispatched; one app defect found and fixed mid-run: a partial revise that empties a block lost its no_scope_reason).
 
 Next: the estimator reviews out/26-0544-r2; then 26-0559.
+
+- Monday 2026-10-12 09:40: T-008 (+lead fixes) and G-004 (+Grok self-review fixes) on rebuild e28ff96, full suite 5,416. Estimator rulings 21-26 recorded (thermostat plan count + verify flag; one demolition exclusion; freezestat/filter switch ownership; "(Qty. N Total)" at the end of device lines with the source breakdown in the header; contradictions in red; generic sections keep their points and get red sub-bullets). Open: HarkPro T-009 task 1 (thermostat rule, option A), T-010 (ownership rules, contradictions red); Grok G-005 (quantity form, sub-bullets). Self-review checklist is mandatory in both channels. No job run until the estimator asks.

@@ -117,8 +117,10 @@ def test_alternatives_print_an_or_line_and_only_the_first_is_priced(draft):
 def test_one_short_star_line_per_item_and_no_quantity_note(draft):
     # estimator ruling 14 (2026-10-11 afternoon): one short '*' line per item; ruling 15: no separate quantity note,
     # the family's other counts print on its header line
+    # T-010 task 2 (ruling 25): the contested family count adds one red "*" line after the block's other notes
     assert lines(draft, "AHU", "note") == ["*Confirm quantity: invented damper count",
-                                           "**Start/Stop via Fire Alarm System"]
+                                           "**Start/Stop via Fire Alarm System",
+                                           "*Air Handling Unit counts differ: 2 per M-601; 1 per M-201"]
     assert lines(draft, "AHU", "header") == ["Qty (2) Air Handling Units AHU-1, 2 (2 per M-601; 1 per M-201)"]
     assert not any(t.startswith("*Qty") for l in draft.lines for t in [l.text])
 
