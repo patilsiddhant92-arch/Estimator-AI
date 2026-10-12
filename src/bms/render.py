@@ -587,6 +587,7 @@ class _Printed:
     quantity: int | None       # the device's quantity (None when unknown)
     priced: bool               # the price sheet prices it (AME furnishes, installs or wires it; not an interlock)
     marker: bool = False       # the Master Template's "OR" line between two alternatives (no device of its own)
+    unknown: bool = False      # the line prints "Qty (##)" because its count is not known (G-004: that run is red)
 
 
 _PLACEHOLDER = re.compile(r"\{[a-z_]+\}")
@@ -678,7 +679,8 @@ def _device_lines(devices, shape: Shape | None, system: System | None, playbook:
     trio = dict(zip(playbook.wording.integration_trio, playbook.wording.integration_depths))
     front_end = shape is None and system is None
     worded: list[tuple[str, str, str | None]] = []      # per device: (its text, its form, its verb when printed)
-    for device in devices:
+    unknown_at: set[int] = set()
+    for index, device in enumerate(devices):
         number = _printed(device.quantity)
         owner = _owner(device, playbook)
         form = line_form(device, shape, playbook)
@@ -696,7 +698,11 @@ def _device_lines(devices, shape: Shape | None, system: System | None, playbook:
             # other counts stay after the line and never add the prefix (rules.md "Line quantity")
             note = qty_notes.get(device.id, "")
             if number is None or number not in reference:
-                prefix = quantity_words["unknown"] if number is None else quantity_words["line"].format(n=number)
+                if number is None:
+                    prefix = quantity_words["unknown"]
+                    unknown_at.add(index)
+                else:
+                    prefix = quantity_words["line"].format(n=number)
                 text = prefix + text
             if note:
                 text += note
@@ -773,7 +779,8 @@ def _device_lines(devices, shape: Shape | None, system: System | None, playbook:
                 {previous.slot, device.slot} <= group for group in groups):
             out.append(_Printed(gem_module.alternative_word(), 1, device, None, None, False, marker=True))
             priced = False                  # an alternative to the line above: only the first is priced
-        out.append(_Printed(text, depth, device, verb, _printed(device.quantity), priced))
+        out.append(_Printed(text, depth, device, verb, _printed(device.quantity), priced,
+                            unknown=i in unknown_at))
         if depth == 1:
             previous = device
     return out
@@ -1097,7 +1104,8 @@ def _system_blocks(system: System, playbook: Playbook, out: list[RenderedLine], 
 
 
 def _items(printed: list[_Printed], pending: bool) -> list[Item]:
-    return [Item(kind="line", depth=p.depth, runs=(Run(text=p.text, red=not p.marker and p.device.mark in RED_MARKS),),
+    return [Item(kind="line", depth=p.depth, runs=(Run(text=p.text, red=not p.marker and (
+                     p.unknown or p.device.mark in RED_MARKS)),),
                  quantity=p.quantity if (p.priced and not pending) else None) for p in printed]
 
 

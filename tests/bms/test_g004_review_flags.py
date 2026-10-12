@@ -1,11 +1,20 @@
-"""G-004 Task 1: one review question per family, with a sub-point for each old question. Invented data only."""
+"""G-004: one review question per family, a red "Qty (##)" on an unknown device count, and a note for a system
+with no devices. Invented data only."""
 from __future__ import annotations
 
 import json
 import re
+from dataclasses import replace
+from pathlib import Path
+
+from openpyxl import load_workbook
 
 from bms import review
 from bms.model import Count, Decision, Device, Family, Finding, FrontEnd, Job, OtherCount, Ref, System
+from bms.playbook import load_playbook
+from bms.render import render
+from estimator.price_sheet.price_book import BookItem, PriceBook
+from estimator.price_sheet.write import QUANTITY_PENDING, write_price_sheet
 
 REF = Ref("S1", "AHU row", "M-501, Invented.pdf page 6")
 OTHER = Ref("S2", "AHU rows 3", "M-601, Invented.pdf page 7")
@@ -147,3 +156,76 @@ def test_front_end_questions_use_one_group_named_front_end(tmp_path):
     page = _page(job, tmp_path=tmp_path)
     assert _headings(page) == ["Front end: 1 point to check"]
     assert _qdata(page)[0]["device_id"] == "FE.d1"
+
+
+# ---- Task 2: an unknown device count prints "Qty (##)" in red ---------------------------------------------------
+
+
+def _scope_device(slot: str, name: str, qty: int | None, id: str, mark: str = "") -> Device:
+    return Device(id=id, slot=slot, name=name, verb="Furnish and Install", furnished_by="AME", installed_by="AME",
+                  wired_by="AME", quantity=Count(qty, (REF,)), refs=(REF,), mark=mark)
+
+
+def _unit_job() -> Job:
+    known = _scope_device("space_temperature", "Space Temperature Sensor", 4, "UH.d1")
+    future = _scope_device("discharge_air", "Discharge Air Sensor", 2, "UH.d2", mark="future")
+    unknown = _scope_device("control_valve", "Control Valve", None, "UH.d3")
+    system = System(key="UH", name="Unit Heaters", shape="Unit Heater", control="field",
+                    families=(Family("Cabinet Unit Heater", ("UH-1",), Count(None, (REF,))),),
+                    devices=(known, future, unknown))
+    base = Job.from_dict(json.loads((Path(__file__).resolve().parent / "fixtures" / "sample_job.json")
+                                    .read_text(encoding="utf-8")))
+    return replace(base, systems=(system,), demolition=(), front_end=FrontEnd(mode="new-system"))
+
+
+def _playbook():
+    return load_playbook(Path(__file__).resolve().parent / "fixtures" / "sample_playbook")
+
+
+def _line(block, start: str):
+    return next(item for item in block.items if item.kind == "line" and item.text.startswith(start))
+
+
+def test_an_unknown_device_count_prints_red_qty_hashes():
+    block = render(_unit_job(), _playbook()).scope.blocks[0]
+    unknown = _line(block, "Qty (##) ")
+    known = _line(block, "Qty (4) ")
+    future = _line(block, "Qty (2) ")
+    assert unknown.runs[0].red and unknown.quantity is None and unknown.depth == 1
+    assert unknown.text.startswith("Qty (##) ") and "Control Valve" in unknown.text
+    assert not known.runs[0].red and known.text.startswith("Qty (4) ")
+    assert future.runs[0].red and future.text.startswith("Qty (2) ")
+    assert block.header.startswith("Qty (##) ")
+    assert all(item.text != block.header for item in block.items)
+
+
+def test_a_front_end_unknown_count_prints_red_qty_hashes():
+    unknown = _scope_device("other_device", "Operator Workstation", None, "FE.d1")
+    known = _scope_device("other_device", "Server Graphics", 1, "FE.d2")
+    job = replace(_unit_job(), front_end=FrontEnd(mode="new-system", devices=(unknown, known)))
+    items = render(job, _playbook()).scope.front_end.items
+    red = next(item for item in items if item.kind == "line" and item.text.startswith("Qty (##) "))
+    black = next(item for item in items if item.kind == "line" and item.text.endswith("Server Graphics"))
+    assert red.runs[0].red and red.quantity is None and "Operator Workstation" in red.text
+    assert not black.runs[0].red and not black.text.startswith("Qty (##)")
+
+
+def test_the_price_sheet_row_for_an_unknown_count_is_red(workup_template, tmp_path):
+    book = PriceBook([BookItem("Control Valve", 10.0, "Std Parts Pricing", 1, False)], {})
+    scope = render(_unit_job(), _playbook()).scope
+    path = write_price_sheet(scope, workup_template, book, tmp_path / "sheet.xlsx")
+    ws = load_workbook(path)["Price Sheet 1"]
+    rows = {str(ws.cell(r, 4).value): r for r in range(6, 80) if ws.cell(r, 4).value}
+
+    def rgb(row: int) -> str:
+        color = ws.cell(row, 4).font.color
+        if color is None or color.type == "theme" or color.rgb is None:
+            return ""
+        return str(color.rgb)
+
+    unknown = next(r for text, r in rows.items() if "Qty (##)" in text and "Control Valve" in text)
+    known = next(r for text, r in rows.items() if "Qty (4)" in text and "Space Temperature" in text)
+    assert ws.cell(unknown, 8).value == QUANTITY_PENDING
+    assert ws.cell(unknown, 3).value is None
+    assert rgb(unknown).endswith("FF0000")
+    assert not rgb(known).endswith("FF0000") and not rgb(known).endswith("C00000")
