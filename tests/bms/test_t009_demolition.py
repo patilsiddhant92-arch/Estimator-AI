@@ -166,3 +166,38 @@ def test_read_named_exceptions_refuses_a_proposal_that_lacks_another_standard_li
 
 def test_the_two_template_texts_are_in_layout():
     assert layout.DEMOLITION_GENERAL == GENERAL.rstrip(".") + "." and layout.DEMOLITION_SPECIFIC == SPECIFIC
+
+
+# --- review of record: only the exclusions section is searched, never the scope lines ---------------------------
+
+def _with_scope_line(scope, text: str):
+    block = Block(header="Invented Other Work", items=(Item(kind="line", depth=1, runs=(Run(text=text),)),),
+                  numbered=False)
+    return scope.model_copy(update={"blocks": scope.blocks + (block,)})
+
+
+def _paragraphs_with(document, text: str) -> list[str]:
+    return [p.text for p in document.paragraphs if squash(p.text) == squash(text)]
+
+
+def test_a_scope_line_with_the_dropped_text_stays_when_the_job_has_no_demolition_block(job, playbook, tmp_path):
+    scope = _with_scope_line(render(_without_demolition(job), playbook).scope, SPECIFIC)
+    document = _write(scope, tmp_path)
+    assert len(_paragraphs_with(document, SPECIFIC)) == 1          # the scope line; the specific exclusion is dropped
+    assert _demolition_lines(document) == [GENERAL]               # the exclusions list still has exactly one
+
+
+def test_a_scope_line_with_the_dropped_text_stays_when_the_job_has_a_demolition_block(job, playbook, tmp_path):
+    scope = _with_scope_line(render(_with_demolition(job), playbook).scope, GENERAL)
+    document = _write(scope, tmp_path)
+    assert len(_paragraphs_with(document, GENERAL)) == 1           # the scope line; the general exclusion is dropped
+    assert _demolition_lines(document) == [SPECIFIC]
+
+
+def test_the_scope_line_is_not_taken_for_the_line_to_keep(job, playbook, tmp_path):
+    # a scope line that has the text of the line to keep must not stop the exclusion from being dropped or kept right:
+    # the template's own exclusion line is in the exclusions list, and the job's scope line is not counted for it
+    scope = _with_scope_line(render(_without_demolition(job), playbook).scope, GENERAL)
+    document = _write(scope, tmp_path)
+    assert len(_paragraphs_with(document, GENERAL)) == 2           # scope line plus the kept general exclusion
+    assert _demolition_lines(document) == [GENERAL]
