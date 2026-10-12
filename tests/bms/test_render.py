@@ -99,6 +99,9 @@ def test_unknown_count_prints_hashes_and_quantity_unknown(draft):
     cuh = texts(draft, "CUH")
     assert cuh[0] == "Qty (##) Cabinet Unit Heaters"
     assert cuh[1] == "Qty (##) Furnish and Install Space Temperature Sensor"       # T-005e: ruling 15
+    block = next(b for b in draft.scope.blocks if b.header == cuh[0])
+    line = next(i for i in block.items if i.kind == "line" and i.text == cuh[1])
+    assert line.runs[0].red and line.quantity is None          # G-004: the device line is red; the header is not an item
     assert cuh[2].startswith("*one sensor per heater, because ")      # T-005e: ruling 14, one "*" line per item
     assert cuh[3] == "*Cabinet unit heater quantity as per drawings"
 

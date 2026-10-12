@@ -117,21 +117,32 @@ def test_flagged_devices_and_counts_with_others_and_assumptions_are_questions(jo
     assert "Cabinet Unit Heater" in families     # an unknown count
 
 
-def test_cap_about_fifteen_and_show_all(job, tmp_path):
-    findings = [_find("EF", None, "check", f"check {n}") for n in range(30)]
-    text = _page(job, findings, tmp_path)
-    total = len(review._questions(job, findings))
-    assert total > review.MAX_QUESTIONS
-    assert text.count('class="q extra"') == total - review.MAX_QUESTIONS
-    assert text.count('class="q"') == review.MAX_QUESTIONS
+def test_cap_about_fifteen_and_show_all(tmp_path):
+    """A family group counts as one question. Sixteen groups show fifteen; the last group is hidden as a whole."""
+    from bms.model import Device, System
+    ref = Ref("S1", "row", "M-1, Invented.pdf page 1")
+    systems = []
+    for n in range(16):
+        device = Device(id=f"S{n}.d1", slot="other_device", name=f"Point {n}", verb="Furnish and Install",
+                        furnished_by="AME", installed_by="AME", wired_by="AME", quantity=Count(1, (ref,)),
+                        refs=(ref,), flag="ownership")
+        systems.append(System(key=f"S{n}", name=f"System {n}", shape="Air Handling Unit", control="field",
+                              families=(Family(f"Family {n}", (), Count(1, (ref,))),), devices=(device,)))
+    text = _page(Job(name="Invented", systems=tuple(systems)), [], tmp_path)
+    assert text.count('<section class="group extra">') == 1
+    assert text.count('<section class="group">') == review.MAX_QUESTIONS
+    assert 'class="q extra"' not in text
+    assert f"{review.MAX_QUESTIONS} of 16 question(s) shown" in text
     assert "Show all questions" in text
 
 
 def test_must_fix_never_hidden_behind_the_cap(job, tmp_path):
     findings = [_find("EF", None, "check", f"check {n}") for n in range(30)] + [_find("DH", None, "must_fix", "urgent")]
     text = _page(job, findings, tmp_path)
-    shown = re.findall(r'<div class="q" id="q\d+"[^>]*>.*?</div>\s*<div class="buttons">', text, re.S)
-    assert any("urgent" in block for block in shown)
+    groups = re.findall(r'<section class="group(?: extra)?">.*?</section>', text, re.S)
+    urgent = next(block for block in groups if "urgent" in block)
+    assert urgent.startswith('<section class="group">')
+    assert "Must fix" in urgent
 
 
 def test_count_shows_its_others_and_proof_image(job, tmp_path):

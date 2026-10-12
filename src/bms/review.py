@@ -590,7 +590,8 @@ header.top{position:sticky;top:0;background:var(--card);border-bottom:1px solid 
 h1{font-size:18px;margin:0 0 4px}main{max-width:900px;margin:0 auto;padding:16px}
 .card{background:var(--card);border:1px solid var(--line);border-radius:8px;margin:0 0 16px;padding:12px 16px}
 .card h2{font-size:16px;margin:0 0 8px}.q{border-top:1px solid var(--line);padding:10px 0}
-.q.extra{display:none}body.all .q.extra{display:block}.more{display:block}body.all .more{display:none}
+.q.extra{display:none}body.all .q.extra{display:block}.group.extra{display:none}body.all .group.extra{display:block}.more{display:block}body.all .more{display:none}
+.group h3{font-size:15px;margin:10px 0 0}
 .qtitle{font-weight:600}
 .tag{display:inline-block;font-size:12px;border-radius:4px;padding:1px 6px;border:1px solid var(--line);color:var(--mute)}
 .tag.r0{color:var(--bad);border-color:var(--bad)}.tag.r1{color:var(--warn);border-color:var(--warn)}
@@ -609,15 +610,92 @@ button.primary{background:var(--acc);color:#fff;border-color:var(--acc)}
 """
 
 
+def _names_device(text: str, device_id: str) -> bool:
+    """True when `device_id` is a whole id in `text`. `AHU.d2` does not match inside `AHU.d23` or `AHU.d2.1`."""
+    return re.search(rf"(?<![\w.]){re.escape(device_id)}(?![\w.])", text) is not None
+
+
+def _fold_named_flags(questions: list[_Question]) -> list[_Question]:
+    """A finding on device A that names device B of the same system, as a whole id in the title or the notes, carries
+    B's flag words on A's sub-point. B's flag-only question is not its own sub-point. A question that has its own
+    finding stays, and a flag whose id is only named inside a longer id stays."""
+    by_id = {(q.system_key, q.device_id): q for q in questions if q.device_id}
+    drop: set[int] = set()
+    for question in questions:
+        if question.finding_rule is None or not question.device_id:
+            continue
+        blob = "\n".join((question.title, *question.notes))
+        for (key, device_id), other in by_id.items():
+            if key != question.system_key or device_id == question.device_id:
+                continue
+            if other.finding_rule is not None or other.device is None or other.device.flag == "none":
+                continue
+            if not _names_device(blob, device_id):
+                continue
+            words = _FLAG_WORDS[other.device.flag]
+            if words not in question.notes:
+                question.notes = question.notes + (words,)
+            drop.add(id(other))
+    return [question for question in questions if id(question) not in drop]
+
+
+@dataclass
+class _Group:
+    system_key: str
+    name: str
+    questions: list[_Question]
+    rank: int
+    order: int
+
+
+def _review_groups(job: Job, questions: list[_Question]) -> list[_Group]:
+    """One group per family. A device or system question joins that family when the system has exactly one. With more
+    than one family, or with none, those questions join one group named for the system. The front end's group is
+    "Front end". Rank is the lowest rank of the sub-points."""
+    names = {system.key: system.name for system in job.systems}
+    families = {system.key: tuple(family.name for family in system.families) for system in job.systems}
+    if job.front_end is not None:
+        families.setdefault("", ())
+    buckets: dict[tuple[str, str], list[_Question]] = {}
+    for question in questions:
+        fams = families.get(question.system_key, ())
+        if question.level == "family" and question.family_name:
+            label = question.family_name
+        elif len(fams) == 1:
+            label = fams[0]
+        elif question.system_key == "" and job.front_end is not None:
+            label = "Front end"
+        elif question.system_key == "":
+            label = "Whole job"
+        else:
+            label = names.get(question.system_key, question.system_key)
+        buckets.setdefault((question.system_key, label), []).append(question)
+    groups: list[_Group] = []
+    for (key, label), items in buckets.items():
+        ordered = sorted(items, key=lambda q: (q.rank, q.order))
+        groups.append(_Group(key, label, ordered, min(q.rank for q in ordered), min(q.order for q in ordered)))
+    groups.sort(key=lambda group: (group.rank, group.order))
+    return groups
+
+
+def _group_html(group: _Group, extra: bool, proofs: dict[str, list[str]] | None) -> str:
+    n = len(group.questions)
+    point = "point" if n == 1 else "points"
+    inner = "".join(_question_html(question, False, proofs) for question in group.questions)
+    kind = "group extra" if extra else "group"
+    return f'<section class="{kind}"><h3>{_e(f"{group.name}: {n} {point} to check")}</h3>{inner}</section>'
+
+
 def review_page(job: Job, findings: Sequence[Finding], out_dir: Path) -> Path:
     """Write `out_dir/Review.html` and return its path.
 
-    One card per system (and one for the front end and the whole job when they have questions) with its open
-    questions: the findings, flagged devices and counts with others, and assumptions, ranked must_fix first, then
-    counts flagged, then assumptions, then checks. Only the top MAX_QUESTIONS for the job show at first; "Show all"
-    reveals the rest. Each count shows every source and other count, and the proof image when a Ref points to a
-    relative image path. Buttons Accept / Change / Delete per question; "Save decisions" downloads `decisions.json`
-    (a list of `Decision.to_dict()`), which the estimator saves into `out_dir`. One self-contained file.
+    One card per system (and one for the front end and the whole job when they have questions). Inside a card, the
+    questions are grouped by family. A group counts as one question toward MAX_QUESTIONS. "Show all" reveals a hidden
+    group. Each old question stays one sub-point, with its own Accept, Change and Delete. Findings, flagged devices,
+    counts with others, and assumptions rank must_fix first, then counts flagged, then assumptions, then checks. Each
+    count shows every source and other count, and the proof image when a Ref points to a relative image path.
+    "Save decisions" downloads `decisions.json` (a list of `Decision.to_dict()`), which the estimator saves into
+    `out_dir`. One self-contained file.
 
     The coverage gate's findings (rule `bms.coverage.RULE`: a fact the reading found that nothing in the job cites)
     are no questions. They are listed in one group of their own, NOT_CITED_GROUP, after the cards: each as the gate
@@ -625,29 +703,31 @@ def review_page(job: Job, findings: Sequence[Finding], out_dir: Path) -> Path:
     ones. With none, the page has no such group."""
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
-    ranked = _ranked(_questions(job, findings))
+    questions = _fold_named_flags(_questions(job, findings))
+    grouped = _review_groups(job, questions)
     uncited = [f for f in findings if f.rule == COVERAGE_RULE]
     proofs = count_proofs(out_dir)
-    visible = {q.qid for q in ranked[:MAX_QUESTIONS]}
+    visible = {id(group) for group in grouped[:MAX_QUESTIONS]}
 
     cards: list[tuple[str, str]] = [(s.key, f"{s.name} ({s.key})") for s in job.systems]
     if job.front_end is not None:
         cards.append(("", "Front end and whole job"))
     known = {key for key, _ in cards}
-    for q in ranked:
-        if q.system_key not in known:
-            known.add(q.system_key)
-            cards.append((q.system_key, "Whole job" if q.system_key == "" else q.system_key))
+    for question in questions:
+        if question.system_key not in known:
+            known.add(question.system_key)
+            cards.append((question.system_key, "Whole job" if question.system_key == "" else question.system_key))
 
     body: list[str] = []
     for key, title in cards:
-        mine = [q for q in ranked if q.system_key == key]
-        hidden = sum(1 for q in mine if q.qid not in visible)
-        inner = "".join(_question_html(q, q.qid not in visible, proofs) for q in mine)
+        mine = [group for group in grouped if group.system_key == key]
         if not mine:
             inner = '<p class="empty">Nothing to ask here.</p>'
-        elif hidden == len(mine):
-            inner += f'<p class="empty more">{hidden} more question(s) under "Show all questions".</p>'
+        else:
+            hidden = sum(1 for group in mine if id(group) not in visible)
+            inner = "".join(_group_html(group, id(group) not in visible, proofs) for group in mine)
+            if hidden:
+                inner += f'<p class="empty more">{hidden} more question(s) under "Show all questions".</p>'
         body.append(f'<section class="card" data-system="{_e(key)}"><h2>{_e(title)}</h2>{inner}</section>')
     if uncited:
         body.append(_not_cited_html(uncited))
@@ -655,7 +735,7 @@ def review_page(job: Job, findings: Sequence[Finding], out_dir: Path) -> Path:
         body.append('<section class="card"><h2>Open questions for the client</h2><ul>'
                     + "".join(f"<li>{_e(t)}</li>" for t in job.questions) + "</ul></section>")
 
-    total = len(ranked)
+    total = len(grouped)
     page = f"""<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Review {_e(job.name)}</title><style>{_CSS}</style></head><body>
