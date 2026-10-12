@@ -96,13 +96,41 @@ _LABELS = {"assumed", "confirm", "confirm quantity", "note", "notice", "clarific
 _LABEL_LENGTH = 25
 
 
+# a quoted passage ("...", or curly quotes) is never split (T-008 review 3B)
+_QUOTED = re.compile(r'"[^"]*"|“[^”]*”')
+
+
+def _quoted(text: str):
+    """The (start, end) spans of the quoted passages of `text`."""
+    return [m.span() for m in _QUOTED.finditer(text)]
+
+
+def _in_quote(spans, at: int) -> bool:
+    return any(start < at < end for start, end in spans)
+
+
 def _split_at_colon(text: str) -> list[str]:
-    """`text` split at its first ": " (the colon stays on the first part); whole when the left side is a label."""
-    head, sep, tail = text.partition(": ")
+    """`text` split at its first ": " outside a quote (the colon stays on the first part); whole when the left side is
+    a label."""
+    spans = _quoted(text)
+    at = next((m.start() for m in re.finditer(": ", text) if not _in_quote(spans, m.start())), -1)
+    if at < 0:
+        return [text]
+    head, tail = text[:at], text[at + 2:]
     left = head.lstrip("*").strip()
-    if not sep or not tail.strip() or left.lower() in _LABELS or len(left) < _LABEL_LENGTH:
+    if not tail.strip() or left.lower() in _LABELS or len(left) < _LABEL_LENGTH:
         return [text]
     return [head + ":", tail]
+
+
+def _split_because(text: str) -> list[str]:
+    """`text` split at each ", because" outside a quote (the comma goes)."""
+    spans, parts, start = _quoted(text), [], 0
+    for m in _BECAUSE_SPLIT.finditer(text):
+        if not _in_quote(spans, m.start()):
+            parts.append(text[start:m.start()])
+            start = m.end()
+    return parts + [text[start:]]
 
 
 def short_points(text: str) -> list[str]:
@@ -111,14 +139,16 @@ def short_points(text: str) -> list[str]:
     never after an abbreviation such as "Mfr." or "Spec.") and each "; "; a point still longer than that at ", because"
     (the comma goes, the next line starts "because", its first plain word in lower case); a part still longer at its
     first ": ", unless the left side is a label ("Assumed", "Confirm quantity": "Label: text" stays one line). The first line keeps the label of its kind; each other starts with the same stars. A part with no
-    split point stays whole. No word is cut or changed."""
+    split point stays whole, and a quoted passage is never split. No word is cut or changed."""
     text = (text or "").strip()
     if len(text) <= LONG_CLARIFICATION:
         return [text] if text else []
     stars = re.match(r"\*+", text)
     stars = stars.group(0) if stars else ""
-    pieces, start = [], 0
+    pieces, start, spans = [], 0, _quoted(text)
     for match in _POINT_BREAK.finditer(text):
+        if _in_quote(spans, match.start()):
+            continue
         if match.group(1) == ".":
             word = _WORD_BEFORE.search(text[start:match.start()])
             if not text[match.end():match.end() + 1].isupper():
@@ -132,7 +162,7 @@ def short_points(text: str) -> list[str]:
     parts = []
     for piece in pieces:
         parts += [lower_after_because(x) if i else x
-                  for i, x in enumerate(_BECAUSE_SPLIT.split(piece))] if len(piece) > LONG_CLARIFICATION else [piece]
+                  for i, x in enumerate(_split_because(piece))] if len(piece) > LONG_CLARIFICATION else [piece]
     final = []
     for part in parts:
         final += _split_at_colon(part) if len(part) > LONG_CLARIFICATION else [part]

@@ -114,7 +114,6 @@ def test_reviewer_a_long_left_side_that_is_no_label_still_splits_at_its_colon():
     assert len(lines) == 2 and lines[0].endswith("sheet:") and lines[1].startswith("*two invented")
 
 
-@pytest.mark.xfail(strict=True, reason="review 3B, next commit")
 def test_reviewer_a_quoted_passage_is_never_split():
     quote = '"Provide one invented sensor per zone; see Sheet M-101. Typical for all floors: east and west."'
     text = "*Confirm per the invented spec " + quote + "; the invented riser shows " + "two more sensors " * 5
