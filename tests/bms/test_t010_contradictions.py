@@ -207,10 +207,12 @@ def test_a_long_count_contradiction_prints_as_short_lines_with_every_number(pb):
     red = red_notes(draft)
     assert len(red) > 1
     assert all(len(t) <= 160 and t.startswith("*") for t in red)
-    joined = " ".join(red)
-    for n in range(1, 20):
-        assert f"{n} per M-9{n:02d}" in joined
-    assert "55" in joined
+    # packed: the first line names the contradiction, each continuation repeats the family (no bare number line)
+    assert red[0].startswith("*Fan Coil Unit counts differ: 55 per M-901; ")
+    assert all(t.startswith("*Fan Coil Unit counts differ (cont.): ") for t in red[1:])
+    assert len(red) < 19
+    numbers = [p for t in red for p in t.split(": ", 1)[1].split("; ")]
+    assert numbers == ["55 per M-901"] + [f"{n} per M-9{n:02d}" for n in range(19, 0, -1)]
     assert all(t in traced_notes(draft) for t in red)
 
 

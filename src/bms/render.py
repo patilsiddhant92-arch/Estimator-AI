@@ -1337,64 +1337,68 @@ def _silent_scope_notes(job: Job, playbook: Playbook, ids: SourceIds,
 # a plain bracket alone. One red "*" line per contested family count, one per device whose owner AME and the unit
 # manufacturer contest. The renderer's own words (no wording.json key).
 COUNTS_DIFFER = "*{family} counts differ: {counts}"
+COUNTS_CONT = "*{family} counts differ (cont.): {counts}"     # each further line of a long count contradiction
+RED_LINE_LIMIT = 160                                          # characters of one packed count line
 OWNER_DIFFERS = "*{device}: this line has it {mine}; {place} says {theirs}"
 OWNER_PLACE = "the cited schedule or sequence"           # a contested passage with no printable place
 OWNER_PAIR = frozenset({"AME", "Unit Mfr."})
 _OWNER_ROLES = (("furnished_by", "furnished"), ("installed_by", "installed"), ("wired_by", "wired"))
 
 
-def _owner_contest(device: Device, ids: SourceIds) -> str:
-    """The red "*" line of a device whose owner the sources contradict (ruling 25), "" when there is none. Only a
-    device flagged "ownership" with an assumption (`ai._stated_not_assumed` makes that case) is read. The two
-    parties: for each role, the line's own party (`furnished_by`, `installed_by`, `wired_by`) against who each cited
-    passage says furnishes, installs or wires it (`ai.stated_parties` on the ref's quote); a role where one is AME
-    and the other the unit manufacturer is contested. When no quote settles it, the assumption's own words: its what
-    names one of the two and its why the other (`ai._party_of`). Any other pair is no contest of ruling 25: the black
-    "*Assumed" line stays."""
-    from bms.ai import _party_of, stated_parties          # at call time: bms.ai is the heavy intake module
-    if device.flag != "ownership" or device.assumption is None:
-        return ""
-    name = _squash(ids.without_issued(device.name)).strip() or device.name
-    mine, theirs, place = [], [], ""
-    for ref in device.refs:
-        said = stated_parties(ref.quote or "")
-        for role, word in _OWNER_ROLES:
-            line, other = getattr(device, role), said.get(role)
-            if other and {line, other} == OWNER_PAIR and f"{word} by {line}" not in mine:
-                mine.append(f"{word} by {line}")
-                theirs.append(f"{word} by {other}")
-                place = place or _squash(ids.without_issued(ids.place(ref.where), place=True)).strip()
-    if mine:
-        return OWNER_DIFFERS.format(device=name, mine=", ".join(mine), place=place or OWNER_PLACE,
-                                    theirs=", ".join(theirs))
-    what, why = device.assumption.what or "", device.assumption.why or ""
-    if {_party_of(what), _party_of(why)} == OWNER_PAIR:
-        return f"*{name}: " + _squash(ids.without_issued(f"{_trim(what)}; {_trim(why)}")).strip()
-    return ""
-
-
 def _contradiction_lines(system: System, families, playbook: Playbook, ids: SourceIds) -> tuple[list[str], set[str]]:
-    """The block's red "*" lines (ruling 25), as short lines (`short_points`, none over 160 characters): one per
-    header family whose other counts differ from the printed count (every number with its place, highest first, in
-    `_count_part`'s words, the sum ruling L1 left out last; a sum alone is no contradiction), then one per device
-    whose owner AME and the unit manufacturer contest (`_owner_contest`). Also the ids of those devices: their black
-    "*Assumed" line is replaced by the red one, so the contradiction prints once."""
+    """The block's red "*" lines (ruling 25), none over RED_LINE_LIMIT (160) characters, and the ids of the
+    devices whose owner is contested (their black "*Assumed" line is replaced by the red one, so the contradiction
+    prints once).
+
+    Counts: one line per header family whose other counts differ from the printed count, every number with its place,
+    highest first, in `_count_part`'s words, the sum ruling L1 left out last (a sum alone is no contradiction). A long
+    one is packed into several lines, each continuation starting "*<Family> counts differ (cont.):", so no number
+    stands alone on a line and none is lost.
+
+    Owners: one line per device flagged "ownership" with an assumption (`ai._stated_not_assumed` makes that case).
+    The two parties: for each role, the line's own party (`furnished_by`, `installed_by`, `wired_by`) against who
+    each cited passage says furnishes, installs or wires it (`ai.stated_parties` on the ref's quote); a role where one
+    is AME and the other the unit manufacturer is contested. When no quote settles it, the assumption's own words:
+    its what names one of the two and its why the other (`ai._party_of`). Any other pair is no contest of ruling 25:
+    the black "*Assumed" line stays."""
+    from bms.ai import _party_of, stated_parties          # at call time: bms.ai is the heavy intake module
     lines: list[str] = []
     for family in families:
         if not _counts_text(family.count, playbook, ids, with_sum=False):
             continue
         name = _squash(ids.without_issued(family.name)).strip() or system.name
-        lines.append(COUNTS_DIFFER.format(family=name, counts=_counts_text(family.count, playbook, ids)))
+        start, line = COUNTS_DIFFER.format(family=name, counts=""), ""
+        for part in _counts_text(family.count, playbook, ids).split("; "):
+            if line and len(line) + 2 + len(part) > RED_LINE_LIMIT:
+                lines.append(line)
+                start, line = COUNTS_CONT.format(family=name, counts=""), ""
+            line = f"{line}; {part}" if line else start + part
+        lines.append(line)
     owners: set[str] = set()
     for device in system.devices:
-        line = _owner_contest(device, ids)
-        if line:
-            owners.add(device.id)
-            lines.append(line)
-    out: list[str] = []
-    for text in dict.fromkeys(lines):
-        out += [p for p in short_points(text) if p not in out]
-    return out, owners
+        if device.flag != "ownership" or device.assumption is None:
+            continue
+        name = _squash(ids.without_issued(device.name)).strip() or device.name
+        mine, theirs, place = [], [], ""
+        for ref in device.refs:
+            said = stated_parties(ref.quote or "")
+            for role, word in _OWNER_ROLES:
+                own, other = getattr(device, role), said.get(role)
+                if other and {own, other} == OWNER_PAIR and f"{word} by {own}" not in mine:
+                    mine.append(f"{word} by {own}")
+                    theirs.append(f"{word} by {other}")
+                    place = place or _squash(ids.without_issued(ids.place(ref.where), place=True)).strip()
+        what, why = device.assumption.what or "", device.assumption.why or ""
+        if mine:
+            text = OWNER_DIFFERS.format(device=name, mine=", ".join(mine), place=place or OWNER_PLACE,
+                                        theirs=", ".join(theirs))
+        elif {_party_of(what), _party_of(why)} == OWNER_PAIR:
+            text = f"*{name}: " + _squash(ids.without_issued(f"{_trim(what)}; {_trim(why)}")).strip()
+        else:
+            continue
+        owners.add(device.id)
+        lines += short_points(text)
+    return [t for t in dict.fromkeys(lines) if t], owners
 
 
 def _system_blocks(system: System, playbook: Playbook, out: list[RenderedLine], ids: SourceIds,
