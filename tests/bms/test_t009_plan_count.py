@@ -351,11 +351,18 @@ def test_the_three_prompts_name_the_rule():
         assert "Thermostats drawn on plans print the plan count" in (root / name).read_text("utf-8"), name
 
 
-def test_the_run_calls_the_step_once_after_the_writers_and_before_the_decisions():
+def test_the_run_calls_the_step_after_the_writers_the_count_rewrites_and_the_revise():
+    # T-009 review (lead decision): the step runs again after the decisions' count rewrites and after the revise, so
+    # neither can print the sequence's number again; `run._plan_counts` is the one place that calls it
     source = (Path(__file__).resolve().parents[2] / "src" / "bms" / "run.py").read_text("utf-8")
     assert source.count("takeoff.apply_plan_counts(") == 1
-    call = source.index("takeoff.apply_plan_counts(")
-    assert source.index("ai.write_system(") < call < source.index("history = merge_decisions(")
+    body = source[source.index("def _estimate("):]
+    calls = [i for i in range(len(body)) if body.startswith("_plan_counts(", i)]
+    assert len(calls) == 3
+    assert body.index("ai.write_system(") < calls[0] < body.index("history = merge_decisions(")
+    assert body.index("ai.rewrite_for_count(") < calls[1] < body.index("findings = validate(job, playbook)")
+    last_validate = body.rindex("findings = validate(job, playbook)")
+    assert body.index("job = apply_seen(job, late, copies)") < calls[2] < last_validate
 
 
 def test_no_source_of_the_other_numbers_is_lost(planned):

@@ -495,8 +495,10 @@ def apply_plan_counts(job: Job, devices, sheet_pages: dict | None = None, ledger
     (`render._verify_lines`). A line with no plan count, a plan count not below the other numbers, another kind of
     line, or whose (system key, id) is in `typed` (the estimator typed its count) is left as it is. The step's own
     set-asides follow the line: a line it reduces again gets a new set (the old ones go), and a line that no longer
-    prints the plan count they were recorded for (a typed count, a rewrite) loses them. Run twice it gives the same
-    job: the line then holds only the plan count. Every other device keeps the highest-prints rule."""
+    prints the plan count they were recorded for (a typed count, a rewrite) loses them, as does a line the job no
+    longer has. Run twice it gives the same job: the line then holds only the plan count. The run calls it after the
+    writers, after the decisions' count rewrites and after the revise (`run._plan_counts`), so a later step that
+    copies the sequence's number back is reduced again. Every other device keeps the highest-prints rule."""
     from bms.counts import NO_SOURCE_QUOTE
 
     labels = plan_count_labels()
@@ -534,6 +536,9 @@ def apply_plan_counts(job: Job, devices, sheet_pages: dict | None = None, ledger
                                                                               others=(), added_up=None),
                                              flag="quantity"))
         systems.append(dataclasses.replace(system, devices=tuple(lines)) if tuple(lines) != system.devices else system)
+    # a line the job no longer has (a revise or a rewrite removed it) keeps no set-aside that says its plan count prints
+    lines_now = {d.id for system in systems for d in system.devices}
+    stale |= {a for a in job.set_aside if a.reason == PLAN_COUNT_REASON and a.family not in lines_now}
     kept_asides = tuple(a for a in job.set_aside if a not in stale)
     new = tuple(dict.fromkeys(a for a in asides if a not in kept_asides))
     if tuple(systems) == job.systems and kept_asides == job.set_aside and not new:
