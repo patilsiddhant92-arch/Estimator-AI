@@ -62,7 +62,7 @@ RED_MARKS = ("future", "notice")
 # the Demolition Scope (T-G1): the last block. "demo" prints as written; the other actions print in these words.
 DEMOLITION_HEADING = "Demolition Scope"
 _ACTION_WORDS = {"demo": "demo", "existing to remain": "Existing to Remain", "relocation": "Relocation"}
-# a "*" line longer than this prints as short points: the first after the label, each other on its own "- " line
+# a "*" note longer than this prints one line per point (`short_points`)
 LONG_CLARIFICATION = 150
 _ABBREVIATIONS = {"mfr", "mfrs", "spec", "specs", "sec", "no", "nos", "e.g", "i.e", "etc", "inc", "co", "corp",
                   "approx", "dwg", "dwgs", "fig", "div", "vol", "st", "ft", "min", "max", "ref", "typ", "incl", "qty",
@@ -71,16 +71,84 @@ _POINT_BREAK = re.compile(r"([.;])\s+")
 _WORD_BEFORE = re.compile(r"([A-Za-z.]+)$")
 
 
-def short_points(text: str) -> str:
-    """A long "*" line as short points (T-005 ruling 5): split after each sentence (". " before a capital, never after
-    an abbreviation such as "Mfr." or "Spec.") and each "; ", the first point after the line's label, each other on a
-    line of its own after "- " (a line break in the one note, so the words are never cut or reworded). A line of at most
-    LONG_CLARIFICATION characters, or one sentence, is given back as it is."""
+_BECAUSE_SPLIT = re.compile(r",\s+(?=because\b)")
+_PLAIN_WORD = re.compile(r"^([A-Z])([a-z]+)\b(?![-\w.]*\d)")
+# a name that is a plain word with a capital but is not to be lower-cased after "because" (T-008)
+_NAMES = {"niagara", "tridium", "honeywell", "johnson", "siemens", "trane", "carrier", "daikin", "taco", "mitsubishi",
+          "lennox", "armstrong", "bell", "gossett", "schneider", "distech", "reliable", "alerton", "andover"}
+
+
+def lower_after_because(text: str) -> str:
+    """The word after a leading "because " in lower case when it is a plain word ("The", "Plan": a capital and then
+    lower-case letters); a tag, an acronym, a sheet number (AHU-1, BMS, M-401) or a name in `_NAMES` ("Niagara") as it is."""
+    found = re.match(r"(because\s+)(\S+)", text)
+    if not found:
+        return text
+    word = _PLAIN_WORD.match(found.group(2))
+    if not word or found.group(2).lower().strip(".,;:") in _NAMES:
+        return text
+    return found.group(1) + found.group(2)[0].lower() + found.group(2)[1:] + text[found.end():]
+
+
+# the left side of a ": " that is a label, never split from its text (T-008 review 3A): a kind's label ("Assumed",
+# "Confirm quantity", "Note") or any other short phrase
+_LABELS = {"assumed", "confirm", "confirm quantity", "note", "notice", "clarification"}
+_LABEL_LENGTH = 25
+
+
+# a quoted passage ("...", or curly quotes) is never split (T-008 review 3B)
+_QUOTED = re.compile(r'"[^"]*"|“[^”]*”')
+
+
+def _quoted(text: str):
+    """The (start, end) spans of the quoted passages of `text`."""
+    return [m.span() for m in _QUOTED.finditer(text)]
+
+
+def _in_quote(spans, at: int) -> bool:
+    return any(start < at < end for start, end in spans)
+
+
+def _split_at_colon(text: str) -> list[str]:
+    """`text` split at its first ": " outside a quote (the colon stays on the first part); whole when the left side is
+    a label."""
+    spans = _quoted(text)
+    at = next((m.start() for m in re.finditer(": ", text) if not _in_quote(spans, m.start())), -1)
+    if at < 0:
+        return [text]
+    head, tail = text[:at], text[at + 2:]
+    left = head.lstrip("*").strip()
+    if not tail.strip() or left.lower() in _LABELS or len(left) < _LABEL_LENGTH:
+        return [text]
+    return [head + ":", tail]
+
+
+def _split_because(text: str) -> list[str]:
+    """`text` split at each ", because" outside a quote (the comma goes)."""
+    spans, parts, start = _quoted(text), [], 0
+    for m in _BECAUSE_SPLIT.finditer(text):
+        if not _in_quote(spans, m.start()):
+            parts.append(text[start:m.start()])
+            start = m.end()
+    return parts + [text[start:]]
+
+
+def short_points(text: str) -> list[str]:
+    """A "*" note as lines, one per point (T-008 task 3; estimator ruling 14: one short line per item). A note of at
+    most LONG_CLARIFICATION characters is one line. A longer one is split after each sentence (". " before a capital,
+    never after an abbreviation such as "Mfr." or "Spec.") and each "; "; a point still longer than that at ", because"
+    (the comma goes, the next line starts "because", its first plain word in lower case); a part still longer at its
+    first ": ", unless the left side is a label ("Assumed", "Confirm quantity": "Label: text" stays one line). The first line keeps the label of its kind; each other starts with the same stars. A part with no
+    split point stays whole, and a quoted passage is never split. No word is cut or changed."""
     text = (text or "").strip()
     if len(text) <= LONG_CLARIFICATION:
-        return text
-    pieces, start = [], 0
+        return [text] if text else []
+    stars = re.match(r"\*+", text)
+    stars = stars.group(0) if stars else ""
+    pieces, start, spans = [], 0, _quoted(text)
     for match in _POINT_BREAK.finditer(text):
+        if _in_quote(spans, match.start()):
+            continue
         if match.group(1) == ".":
             word = _WORD_BEFORE.search(text[start:match.start()])
             if not text[match.end():match.end() + 1].isupper():
@@ -91,9 +159,15 @@ def short_points(text: str) -> str:
         start = match.end()
     pieces.append(text[start:])
     pieces = [p.strip().rstrip(" .;") for p in pieces if p.strip(" .;")]
-    if len(pieces) < 2:
-        return text
-    return "\n".join([pieces[0]] + [f"- {p}" for p in pieces[1:]])
+    parts = []
+    for piece in pieces:
+        parts += [lower_after_because(x) if i else x
+                  for i, x in enumerate(_split_because(piece))] if len(piece) > LONG_CLARIFICATION else [piece]
+    final = []
+    for part in parts:
+        final += _split_at_colon(part) if len(part) > LONG_CLARIFICATION else [part]
+    final = [p.strip() for p in final if p.strip()]
+    return [final[0]] + [p if p.startswith("*") else stars + p for p in final[1:]]
 
 
 class RenderError(ValueError):
@@ -411,6 +485,8 @@ def _reason(assumption, ids: SourceIds, playbook: Playbook) -> str:
     because = words.get("because", BECAUSE)
     leads = tuple(lead.lower() for lead in (*words.get("leads", _REASON_LEADS), because))
     lead = "" if why.lower().startswith(leads) else because
+    if lead:
+        why = lower_after_because(f"because {why}")[len("because "):]
     return f"{what}, {lead}{why}"
 
 
@@ -919,8 +995,8 @@ def _notes(clarifications: tuple[Clarification, ...], devices, playbook: Playboo
     for device in devices:
         if device.assumption is not None:
             texts["assumed"].append(_reason(device.assumption, ids, playbook))
-    return [short_points(_fill(playbook.wording.clarifications[kind], text=text))
-            for kind in _AFTER_LINES for text in dict.fromkeys(texts[kind])]
+    return [line for kind in _AFTER_LINES for text in dict.fromkeys(texts[kind])
+            for line in short_points(_fill(playbook.wording.clarifications[kind], text=text))]
 
 
 # T-007 Task 2.6 (reduced; estimator ruling 14): a duplicate of one unit the takeoff set aside prints one short '*'
@@ -1031,9 +1107,9 @@ def _is_damper_family(family) -> bool:
 
 
 def _header_families(system: System):
-    """The families that print a header: a damper family linked under a fan (a block with other, non-damper
-    families) prints none, its devices sit under the fan's header; a damper-only block keeps its own."""
-    others = tuple(f for f in system.families if not _is_damper_family(f))
+    """The families that print a header: a damper or valve family linked under a unit (a block with other families)
+    prints none, its devices sit under the unit's header; a block of dampers and valves only keeps its own."""
+    others = tuple(f for f in system.families if not _is_damper_family(f) and not _is_valve(f.name))
     return others if others else system.families
 
 

@@ -32,7 +32,7 @@ WAGE_LINE = "{state}Prevailing Wage Labor Rates Included (As per {source})"
 
 _OFF_HOURS = re.compile(
     r"\boff[- ]hours?\b|\bafter[- ]hours\b|\bovertime\b|\bpremium\s+time\b|"
-    r"\b(?:night|weekend|evening|second|third)s?[- ](?:work|shifts?|hours)\b|\bnights?\s+(?:and|or)\s+weekends?\b|"
+    r"\b(?:night|weekend|evening|second|third)s?[- ](?:work|shifts?|hours)\b|\bnights?\s*(?:,|and|or)\s*weekends?\b|"
     r"\boutside\s+(?:of\s+)?(?:the\s+)?(?:normal|regular|standard)\s+(?:business\s+|working\s+|work\s+)*hours\b", re.I)
 _TIME = r"\d{1,2}(?::\d{2})?\s*(?:a\.?\s?m\.?|p\.?\s?m\.?)"
 _RANGE = re.compile(rf"({_TIME})\s*(?:to|and|until|thru|through|-|–|—)\s*({_TIME})", re.I)
@@ -60,7 +60,7 @@ def hours_of(quote: str) -> str:
 # call for it (T-005e review finding 5)
 _NEGATION = re.compile(r"\b(?:no|not|never|nor|without|prohibited|forbidden|disallowed)\b|\bshall\s+not\b|"
                        r"\bcannot\b|\bcan't\b|\bwon't\b", re.I)
-_CLAUSES = re.compile(r"[.;:]\s+|\s+(?:but|however|except)\s+", re.I)
+_CLAUSES = re.compile(r"[.;:]\s+|\s+(?:but|however|except|then)\s+", re.I)
 
 
 def calls_for_off_hours(quote: str) -> bool:
@@ -75,6 +75,26 @@ def calls_for_off_hours(quote: str) -> bool:
         if found and "P" in _clock(found.group(1)):
             return True
     return False
+
+
+# a fact of the ledger or a key note of the plans speaks to many things; it calls for off-hours work only when the
+# sentence is about the work (a work word) and not about a control sequence (a control word: an "after-hours
+# override", an "unoccupied 6 PM to 6 AM" schedule, a "night setback") (T-008 review 2A)
+_WORK = re.compile(r"\bwork(?:s|ing|ed)?\b|\bconstruction\b|\bshut[- ]?downs?\b|\btie[- ]ins?\b|\bactivit(?:y|ies)\b|"
+                   r"\bcontractors?\b|\bpermitted\b|\bperform(?:s|ed|ing)?\b|\blabou?r\b", re.I)
+_CONTROL = re.compile(r"\b(?:un)?occupied\b|\boverrides?\b|\bset[- ]?backs?\b|\bschedul(?:e|es|ed|ing)\b|\bmodes?\b|"
+                      r"\bset[- ]?points?\b", re.I)
+_SENTENCES = re.compile(r";\s+|\.\s+(?=[A-Z])")
+# a fact from a sequence of operation or a points list, or a plan note in such a block, is never a labor condition
+_SEQUENCE_PLACE = re.compile(r"\b23\s?09\s?93\b|\bsequences?\s+of\s+operations?\b|\bpoints?\s+(?:list|schedule)s?\b",
+                             re.I)
+
+
+def calls_for_off_hours_work(quote: str) -> bool:
+    """`calls_for_off_hours` for a ledger fact or a key note: true only for a sentence that has a work word and no
+    control word."""
+    return any(_WORK.search(s) and not _CONTROL.search(s) and calls_for_off_hours(s)
+               for s in _SENTENCES.split(quote or ""))
 
 
 def calls_for_prevailing_wage(quote: str) -> bool:
@@ -107,6 +127,22 @@ def source_of(found) -> str:
     return f"{document} page {page}".strip() if document else "the documents"
 
 
+_SECTION_NUMBER = re.compile(r"^(\d{2})\s?(\d{2})\s?(\d{2})\b")
+_SHEET = re.compile(r"^([A-Z]{1,3}[-.]?\d+(?:[.-]\d+)*[A-Z]?)\b")
+_SHEET_NAMED = re.compile(r"\bsheet\s+([A-Z]{1,3}[-.]?\d+(?:[.-]\d+)*[A-Z]?)\b", re.I)
+
+
+def fact_source(where: str) -> str:
+    """A ledger source's place in the form `source_of` gives (T-008 review 2B): "Spec Section 01 14 00", "Sheet M-101";
+    "the documents" when it names neither. Never the file name."""
+    head = (where or "").split(",")[0].strip()
+    section = _SECTION_NUMBER.match(head)
+    if section:
+        return "Spec Section " + " ".join(section.groups())
+    sheet = _SHEET.match(head) or _SHEET_NAMED.search(where or "")
+    return f"Sheet {sheet.group(1)}" if sheet else "the documents"
+
+
 def _rows(overview):
     """The overview rows that can speak to working hours or wages: the project conditions, then the standard lines
     the job speaks to; found ones only."""
@@ -115,23 +151,51 @@ def _rows(overview):
             yield row
 
 
-def labor_conditions(overview) -> tuple[LaborCondition, ...]:
-    """At most one off-hours and one prevailing-wage condition, from the first row whose quote calls for it."""
+def _condition(kind: str, source: str, quote: str) -> LaborCondition:
+    if kind == OFF_HOURS:
+        hours = hours_of(quote)
+        return LaborCondition(kind=kind, source=source, quote=quote,
+                              text=OFF_HOURS_LINE.format(hours=f" ({hours})" if hours else "", source=source))
+    state = state_of(quote)
+    return LaborCondition(kind=kind, source=source, quote=quote,
+                          text=WAGE_LINE.format(state=f"{state} " if state else "", source=source))
+
+
+def _sources(overview, ledger, notes):
+    """(quote, source, strict) in order: the overview rows, the ledger facts (any kind and state), then the key notes.
+    A fact or a note is strict (`calls_for_off_hours_work`); a fact from a sequence of operation or a points list,
+    and a note in such a block, is left out."""
+    if overview is not None:
+        for row in _rows(overview):
+            yield " ".join(row.quote.split()), source_of(row), False
+    if ledger is not None:
+        from estimator.ledger.facts import where_short
+        for fact in ledger.facts.values():
+            where = where_short(ledger.sources.get(fact.source_id, ""))
+            if fact.kind == "sequence_match" or fact.stage == "sequence" or _SEQUENCE_PLACE.search(where):
+                continue
+            yield " ".join(str(fact.quote or "").split()), fact_source(where), True
+    for note in notes or ():
+        if _SEQUENCE_PLACE.search(getattr(note, "block", "") or ""):
+            continue
+        where = f"Sheet {note.sheet}" if getattr(note, "sheet", None) else (
+            f"{(note.document or '').replace(chr(92), '/').rsplit('/', 1)[-1]} page {note.page}".strip())
+        yield " ".join((note.text or "").split()), where or "the documents", True
+
+
+def labor_conditions(overview, ledger=None, notes=()) -> tuple[LaborCondition, ...]:
+    """At most one off-hours and one prevailing-wage condition, from the first source whose quote calls for it: the
+    Spec overview rows (Found), then the ledger's facts, then the plans' key notes (T-008; a fact or a note only when
+    it is about the work, not a control sequence: `calls_for_off_hours_work`)."""
     out: dict[str, LaborCondition] = {}
-    if overview is None:
-        return ()
-    for row in _rows(overview):
-        quote = " ".join(row.quote.split())
-        if OFF_HOURS not in out and calls_for_off_hours(quote):
-            hours = hours_of(quote)
-            out[OFF_HOURS] = LaborCondition(kind=OFF_HOURS, source=source_of(row), quote=quote,
-                                            text=OFF_HOURS_LINE.format(hours=f" ({hours})" if hours else "",
-                                                                       source=source_of(row)))
+    for quote, source, strict in _sources(overview, ledger, notes):
+        if not quote:
+            continue
+        off_hours = calls_for_off_hours_work(quote) if strict else calls_for_off_hours(quote)
+        if OFF_HOURS not in out and off_hours:
+            out[OFF_HOURS] = _condition(OFF_HOURS, source, quote)
         if PREVAILING_WAGE not in out and calls_for_prevailing_wage(quote):
-            state = state_of(quote)
-            out[PREVAILING_WAGE] = LaborCondition(kind=PREVAILING_WAGE, source=source_of(row), quote=quote,
-                                                  text=WAGE_LINE.format(state=f"{state} " if state else "",
-                                                                        source=source_of(row)))
+            out[PREVAILING_WAGE] = _condition(PREVAILING_WAGE, source, quote)
     return tuple(out[k] for k in (OFF_HOURS, PREVAILING_WAGE) if k in out)
 
 

@@ -9,7 +9,7 @@
     "\\bnot\\s+(?:be\\s+)?acceptable\\b",
     "\\b(?:is|are)\\s+not\\s+required\\b",
     "\\bnot\\s+be\\s+used\\b",
-    "\\bno\\s+[a-z][^.;]{0,60}?\\bshall\\s+be\\b"
+    "(?<!\\bif )\\bno\\s+[a-z](?:(?!\\bthen\\b)[^.;]){0,60}?\\bshall\\s+be\\b"
   ],
 
   "controls_party_words": [

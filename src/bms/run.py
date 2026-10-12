@@ -780,7 +780,7 @@ def _estimate(job_folder: Path, out: Path, cache: Path, mode: Mode, known: dict)
         print(f"Wrote {manifest}")
     # T-005e: off-hours work and prevailing wage the documents call for: findings for the review page and the Evidence
     # Package, and red lines in the proposal and the price sheet (with_labor below)
-    conditions = labor_conditions(getattr(catalogue, "overview", None))
+    conditions = labor_conditions(getattr(catalogue, "overview", None), ledger, getattr(reading, "notes", ()))
     all_findings = (*all_findings, *labor_findings(conditions))
     review = review_page(job, all_findings, out)
     print(f"Wrote {review}")
