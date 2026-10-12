@@ -402,6 +402,16 @@ def test_the_takeoff_prompt_carries_the_amended_ruling_list():
     assert '"' not in text and "“Demolition Scope”" in text and "(“Attic”, “Level 2 east”)" in text
 
 
+def test_the_takeoff_prompt_puts_a_device_count_at_the_end():
+    """Ruling 24 (2026-10-12) supersedes ruling 15: the count of a device line prints at its end, not in front."""
+    text = (Path(takeoff.__file__).parent / "prompts" / "takeoff_job.md").read_text(encoding="utf-8")
+    rulings = text.split("## The estimator's rulings of 2026-10-11", 1)[1].split("## Plain words", 1)[0]
+    (item,) = [line for line in rulings.splitlines() if line.startswith("15.")]
+    assert item == ("15. A device line carries its count at the end as “(Qty. N Total)” when it differs from the "
+                    "block count; the block header is “Qty (N) <system>” with the source breakdown in brackets.")
+    assert "Qty (#)" not in text and "in front" not in text
+
+
 # ---- Task 1.5: the run tests' answerer --------------------------------------------------------------------------------
 
 def test_the_run_tests_answerer_answers_a_takeoff_request_the_checks_keep():

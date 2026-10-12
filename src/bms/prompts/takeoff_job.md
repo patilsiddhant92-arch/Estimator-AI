@@ -41,7 +41,7 @@ You are given the whole job as the reading left it: every ledger fact with its i
 9. Pumps are split by service, unless ruling 18 puts them in a plant block.
 10. Devices a unit schedule says are shipped loose are read into the scope.
 14. A '*' note is one short line per item.
-15. Quantities print as “Qty (#) <device>”.
+15. A device line carries its count at the end as “(Qty. N Total)” when it differs from the block count; the block header is “Qty (N) <system>” with the source breakdown in brackets.
 17. Units from demolition sheets print in a “Demolition Scope” block, last in the proposal (“Qty (##) AHU demo”, “Qty (##) FCU Existing to Remain”, “Qty (##) VAV Relocation”), never in the new-work counts.
 18. Pumps are part of the plant block when the plant is in the job's scope and they serve it; they are a block of their own per service when the job shows remote pumps. The documents decide.
 

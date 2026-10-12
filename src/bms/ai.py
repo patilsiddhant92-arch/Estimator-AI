@@ -831,8 +831,9 @@ def _shape_text(system: System, shape: Shape | None) -> str:
         missing = (f" (its shape {system.shape!r} is not in the Playbook)" if system.shape else "")
         return (f"No shape: this system has no Playbook shape{missing}, so it is an untemplated system. Name each "
                 "slot yourself (short lower-case words joined by underscores that say what the line is); its lines "
-                "print as \"{verb} {device}{owner}\", and the renderer puts \"Qty (N) \" in front when the count "
-                "differs from the block's.")
+                "print as \"{verb} {device}{owner}\". A device line carries its count at the end as "
+                "\"(Qty. N Total)\" when it differs from the block count; the block header is \"Qty (N) <system>\" "
+                "with the source breakdown in brackets.")
     lines = [f"The shape of its block: {shape.name}",
              f"Header form: {shape.header}",
              "Slots, in print order (slot, its kind, how its line prints):"]
