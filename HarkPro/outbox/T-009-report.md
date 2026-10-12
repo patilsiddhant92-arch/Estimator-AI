@@ -13,7 +13,8 @@
   - d7826e2 T-009 task 1 self-review fixes: no false "*Verify" line, flag quantity, source-based "one per", wider
     kind detector
   - 8f9690f Merge origin/rebuild (e28ff96, T-008 and G-004) into hark/T-009
-  - the report commit that carries this file (the branch tip).
+  - 8e13926 T-009: report (tasks 1 and 2, self-review, test tails) (pushed by the watcher run)
+  - the report commit that adds the separate `tests/bms` run and the deviation note (the branch tip).
 
 ## 2. What I changed
 
@@ -193,8 +194,18 @@ Proposed sentences (not made):
   These 8 environment tests also fail on an unchanged `origin/rebuild` e28ff96 (clean worktree, run: `8 failed, 238
   passed` over the same files; the revert-audit tests passed there under low load). `tests/bms/test_status_review.py`
   normal-exit (known flaky) passed this time.
-- `pytest tests/bms -q -n 2 -m "not slow"` count (from the full run's junit file): 3108 passed, 6 failed (5 test_ai chat,
-  1 review_final3 resource code), 6 skipped. (The sandbox has 2 CPUs; the README's `-n 4` was run as `-n 2`.)
+- `pytest tests/bms -q -n 2 -p no:cacheprovider -m "not slow"`, run on its own on the merged tip by the fixer agent:
+  `6 failed, 3108 passed, 2 skipped, 4 xfailed, 186 warnings in 722.37s (0:12:02)`. The 6, all known baseline:
+  4 chat tests in `tests/bms/test_ai.py` (`test_chat_writes_a_request_then_reads_the_answer_and_caches_it`,
+  `test_chat_refuses_an_answer_that_breaks_the_schema`, `test_a_cached_answer_clears_a_request_left_behind_by_a_killed_run`,
+  `test_write_system_through_the_chat_rejects_and_asks_again`; the fifth passed this time),
+  `tests/bms/test_review_final3.py::test_a_real_child_failing_with_the_resource_code_is_run_three_times_then_reported`
+  and the known-flaky `tests/bms/test_status_review.py::test_every_normal_exit_writes_the_state_whole_and_status_agrees`
+  (another project's test run shared the 2 CPUs). The junit file of the full run above agrees: 5469 tests, 9 failures,
+  the 9 named.
+- T-009 and pinned files again on the tip: `pytest tests/bms/test_t009_plan_count.py tests/bms/test_t009_demolition.py
+  tests/bms/test_takeoff_evidence.py tests/test_end_to_end.py tests/test_round_trip.py tests/test_write_scope.py
+  tests/test_write_cover.py -q -n 2` -> `116 passed in 30.36s`; `python -m bms playbook-lint` -> clean.
 - Before the merge of `rebuild`, the same full suite at d7826e2's parent ran `10 failed, 5358 passed` (the 9 plus the
   known-flaky revert-audit tools-change test); no failure was caused by this branch.
 
@@ -258,6 +269,9 @@ files and the lead-approved hunks above; 7 this report with tails; 8 one task pe
 "*Verify" lines at most 160 characters, flag `quantity`; 10 `playbook-lint` clean (above).
 
 ## Deviation
-The watcher run has no tool to start a reviewer, so the review was done by a separate reviewer agent and the fixes by a
-separate fixer agent, in their own worktrees (wt/T-009-review, wt/T-009-fix); the watcher run merged their commit and
-ran the final suites. The T-009 rules allow only the self-review agent; none of the agents started further subagents.
+The T-009 rules allow one agent besides the worker: the self-review agent. The estimator (Siddhant) told Hark to finish
+T-009 now with multiple agents. So the reviewer and the fixer are separate agents: the reviewer (its own context, did
+not write the code) reviewed c496e11 in wt/T-009-review; the fixer made d7826e2 in wt/T-009-fix. The scheduled watcher
+run, which had started the task in wt/T-009, merged d7826e2 and `origin/rebuild`, ran the full suite and pushed
+8e13926; the fixer then ran `tests/bms` on its own (above) and pushed the tip. None of the agents started further
+subagents.
