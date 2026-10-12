@@ -1333,6 +1333,70 @@ def _silent_scope_notes(job: Job, playbook: Playbook, ids: SourceIds,
     return on_block, loose
 
 
+# T-010 task 2 (estimator ruling 25, 2026-10-12): a contradiction between sources prints in red in the block, never as
+# a plain bracket alone. One red "*" line per contested family count, one per device whose owner AME and the unit
+# manufacturer contest. The renderer's own words (no wording.json key).
+COUNTS_DIFFER = "*{family} counts differ: {counts}"
+OWNER_DIFFERS = "*{device}: this line has it {mine}; {place} says {theirs}"
+OWNER_PLACE = "the cited schedule or sequence"           # a contested passage with no printable place
+OWNER_PAIR = frozenset({"AME", "Unit Mfr."})
+_OWNER_ROLES = (("furnished_by", "furnished"), ("installed_by", "installed"), ("wired_by", "wired"))
+
+
+def _owner_contest(device: Device, ids: SourceIds) -> str:
+    """The red "*" line of a device whose owner the sources contradict (ruling 25), "" when there is none. Only a
+    device flagged "ownership" with an assumption (`ai._stated_not_assumed` makes that case) is read. The two
+    parties: for each role, the line's own party (`furnished_by`, `installed_by`, `wired_by`) against who each cited
+    passage says furnishes, installs or wires it (`ai.stated_parties` on the ref's quote); a role where one is AME
+    and the other the unit manufacturer is contested. When no quote settles it, the assumption's own words: its what
+    names one of the two and its why the other (`ai._party_of`). Any other pair is no contest of ruling 25: the black
+    "*Assumed" line stays."""
+    from bms.ai import _party_of, stated_parties          # at call time: bms.ai is the heavy intake module
+    if device.flag != "ownership" or device.assumption is None:
+        return ""
+    name = _squash(ids.without_issued(device.name)).strip() or device.name
+    mine, theirs, place = [], [], ""
+    for ref in device.refs:
+        said = stated_parties(ref.quote or "")
+        for role, word in _OWNER_ROLES:
+            line, other = getattr(device, role), said.get(role)
+            if other and {line, other} == OWNER_PAIR and f"{word} by {line}" not in mine:
+                mine.append(f"{word} by {line}")
+                theirs.append(f"{word} by {other}")
+                place = place or _squash(ids.without_issued(ids.place(ref.where), place=True)).strip()
+    if mine:
+        return OWNER_DIFFERS.format(device=name, mine=", ".join(mine), place=place or OWNER_PLACE,
+                                    theirs=", ".join(theirs))
+    what, why = device.assumption.what or "", device.assumption.why or ""
+    if {_party_of(what), _party_of(why)} == OWNER_PAIR:
+        return f"*{name}: " + _squash(ids.without_issued(f"{_trim(what)}; {_trim(why)}")).strip()
+    return ""
+
+
+def _contradiction_lines(system: System, families, playbook: Playbook, ids: SourceIds) -> tuple[list[str], set[str]]:
+    """The block's red "*" lines (ruling 25), as short lines (`short_points`, none over 160 characters): one per
+    header family whose other counts differ from the printed count (every number with its place, highest first, in
+    `_count_part`'s words, the sum ruling L1 left out last; a sum alone is no contradiction), then one per device
+    whose owner AME and the unit manufacturer contest (`_owner_contest`). Also the ids of those devices: their black
+    "*Assumed" line is replaced by the red one, so the contradiction prints once."""
+    lines: list[str] = []
+    for family in families:
+        if not _counts_text(family.count, playbook, ids, with_sum=False):
+            continue
+        name = _squash(ids.without_issued(family.name)).strip() or system.name
+        lines.append(COUNTS_DIFFER.format(family=name, counts=_counts_text(family.count, playbook, ids)))
+    owners: set[str] = set()
+    for device in system.devices:
+        line = _owner_contest(device, ids)
+        if line:
+            owners.add(device.id)
+            lines.append(line)
+    out: list[str] = []
+    for text in dict.fromkeys(lines):
+        out += [p for p in short_points(text) if p not in out]
+    return out, owners
+
+
 def _system_blocks(system: System, playbook: Playbook, out: list[RenderedLine], ids: SourceIds,
                    exceptions: Sequence[str] = (), set_aside: Sequence[SetAside] = ()) -> tuple[Block, ...]:
     """One block, or one header per family stacked over the shared lines (the lines sit under the last header,
@@ -1363,10 +1427,13 @@ def _system_blocks(system: System, playbook: Playbook, out: list[RenderedLine], 
     devices = _named(devices, ids)
     qty_notes = _qty_notes(devices, [f.count for f in families], playbook, ids)
     printed = _with_marks(_device_lines(devices, shape, system, playbook, reference, qty_notes), ids)
-    notes = _notes(system.clarifications, system.devices, playbook, ids)
+    red, contested = _contradiction_lines(system, families, playbook, ids)      # T-010: ruling 25, after the rest
+    notes = _notes(system.clarifications, [d for d in system.devices if d.id not in contested], playbook, ids)
     notes += [n for n in _count_note(system, set_aside, ids) if n not in notes]
+    red = [n for n in red if n not in notes]
     try:                                 # every field checked: a blank line, a negative quantity or tech hours
-        items = _items(printed, pending) + [Item(kind="note", runs=(Run(text=n),)) for n in notes]
+        items = (_items(printed, pending) + [Item(kind="note", runs=(Run(text=n),)) for n in notes]
+                 + [Item(kind="note", runs=(Run(text=n, red=True),)) for n in red])
         last = len(headers) - 1
         blocks = [Block(header=h, joined=i > 0 or bool(group), tech_hours=system.tech_hours if i == 0 else None,
                         items=tuple(items) if i == last else ()) for i, h in enumerate(headers)]
@@ -1375,7 +1442,7 @@ def _system_blocks(system: System, playbook: Playbook, out: list[RenderedLine], 
     except ValueError as error:          # pydantic's ValidationError is a ValueError
         raise RenderError(f"system {system.key}: {error}") from error
     out += [RenderedLine(system.key, None, "header", h, None, None) for h in ([group] if group else []) + headers]
-    out += _traced(system.key, printed, notes)
+    out += _traced(system.key, printed, notes + red)
     out += [RenderedLine(system.key, None, "note", line, None, None) for line in left]
     return tuple(blocks)
 

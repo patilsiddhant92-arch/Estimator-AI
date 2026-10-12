@@ -354,7 +354,8 @@ def test_the_note_names_both_numbers_and_the_printed_count_stays_the_highest(job
 def test_the_note_puts_the_sum_after_every_other_count(job, playbook):
     count = Count(6, (PLAN,), (OtherCount(4, SCHEDULE),), SUM)
     system = block([family(count)], [device(Count(6))])
-    assert notes(job, playbook, system) == []                                  # T-005e (ruling 15)
+    # T-005e (ruling 15); T-010 task 2 (ruling 25): the contested count's red "*" line, the sum last as in the bracket
+    assert notes(job, playbook, system) == [f"*Exhaust Fan counts differ: 6 per M-101; 4 per M-601; {SAID}"]
     assert headers(job, playbook, system) == [f"6 per M-101; 4 per M-601; {SAID}"]
 
 
@@ -383,7 +384,8 @@ def test_an_unknown_count_names_no_sum(job, playbook):
 def test_a_line_that_carries_the_family_count_adds_no_second_note(job, playbook, carried):
     count = Count(6, (PLAN,), (OtherCount(4, SCHEDULE),), SUM)
     system = block([family(count)], [device(carried)])
-    assert notes(job, playbook, system) == []                                  # T-005e (ruling 15)
+    # T-005e (ruling 15); T-010 task 2 (ruling 25): the family's one red "*" line, no second note for the line
+    assert notes(job, playbook, system) == [f"*Exhaust Fan counts differ: 6 per M-101; 4 per M-601; {SAID}"]
     assert headers(job, playbook, system) == [f"6 per M-101; 4 per M-601; {SAID}"]
     draft = render(replace(job, systems=(system,)), playbook)
     assert [l.text for l in draft.lines if l.device_id == "X.d1"] == ["Furnish and Install DDC Controller"]

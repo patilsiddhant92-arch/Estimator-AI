@@ -98,11 +98,12 @@ def test_every_kind_of_other_count_prints_with_its_number_and_its_place(job, pla
     count = Count(value=9, sources=(Ref("S9", "q", "M-900, Invented Set.pdf page 1"),),
                   others=(OtherCount(4, other),))
     system = block([family(count)], [device(Count(value=9))])
-    assert notes(job, playbook, system) == []                # T-005e (ruling 15): no separate quantity note
     found = headers(job, playbook, system)                   # T-005e (ruling 15): in brackets on the header
     expected = f"9 per M-900; 4 {place}" if place == "elsewhere in the documents" else \
         f"9 per M-900; 4 per {place}"
     assert found == [expected]
+    # T-010 task 2 (ruling 25): no quantity note; the contested count prints one red "*" line with the same numbers
+    assert notes(job, playbook, system) == [f"*Exhaust Fan counts differ: {expected}"]
 
 
 def test_an_alternate_block_names_its_other_counts_too(job, playbook):
@@ -110,7 +111,8 @@ def test_an_alternate_block_names_its_other_counts_too(job, playbook):
     system = block([family(count)], [device(Count(value=6))], alternate="add")
     draft = render(replace(job, systems=(system,)), playbook)
     items = [i.runs[0].text for b in draft.scope.add_alternates[0].blocks for i in b.items if i.kind == "note"]
-    assert items == []                                       # T-005e (ruling 15): no separate quantity note
+    # T-010 task 2 (ruling 25): no quantity note; the contested count prints one red "*" line with the same numbers
+    assert items == ["*Exhaust Fan counts differ: 6 per M-101; 4 per M-601"]
     heads = [l.text for l in draft.lines if l.system_key == "EF" and l.kind == "header"]
     assert heads == ["Qty (6) Exhaust Fans EF-1, 2 (6 per M-101; 4 per M-601)"]      # T-005e (ruling 15)
 
@@ -133,7 +135,9 @@ def test_a_printed_count_below_the_highest_with_no_source_is_named(job, playbook
     vanish. It prints now, with the plain words for a count that has no place."""
     count = Count(value=4, sources=(), others=(OtherCount(6, PLAN),))
     system = block([family(count)], [device(Count(value=6))])
-    assert notes(job, playbook, system) == []                # T-005e (ruling 15): on the header, no note
+    # T-010 task 2 (ruling 25): no quantity note; the contested count prints one red "*" line with the same numbers
+    assert notes(job, playbook, system) == [
+        "*Exhaust Fan counts differ: 6 per M-101; 4 elsewhere in the documents"]
     assert headers(job, playbook, system) == ["6 per M-101; 4 elsewhere in the documents"]
 
 
@@ -149,7 +153,9 @@ def test_a_device_quantity_below_the_highest_with_no_source_is_named(job, playbo
 def test_a_zero_below_the_highest_is_named_not_dropped(job, playbook):
     count = Count(value=0, sources=(), others=(OtherCount(3, PLAN),))
     system = block([family(count)], [device(Count(value=3))])
-    assert notes(job, playbook, system) == []                # T-005e (ruling 15): on the header, no note
+    # T-010 task 2 (ruling 25): no quantity note; the contested count prints one red "*" line with the same numbers
+    assert notes(job, playbook, system) == [
+        "*Exhaust Fan counts differ: 3 per M-101; 0 elsewhere in the documents"]
     assert headers(job, playbook, system) == ["3 per M-101; 0 elsewhere in the documents"]
 
 
@@ -160,14 +166,17 @@ def test_two_families_with_the_same_counts_each_name_their_own_note(job, playboo
     system = block([family(same, "Indoor Unit", ("IU-1",)), family(same, "Branch Selector", ("BS-1",))],
                    [device(Count(value=6))])
     # T-005e (ruling 15): each family's counts on its own header, no "*Qty." note
-    assert notes(job, playbook, system) == []
+    # T-010 task 2 (ruling 25): one red "*" line for each contested family, none dropped as a repeat
+    assert notes(job, playbook, system) == ["*Indoor Unit counts differ: 6 per M-101; 4 per M-601",
+                                            "*Branch Selector counts differ: 6 per M-101; 4 per M-601"]
     assert headers(job, playbook, system) == ["6 per M-101; 4 per M-601", "6 per M-101; 4 per M-601"]
 
 
 def test_a_line_that_carries_its_familys_count_still_prints_it_once(job, playbook):
     same = Count(value=6, sources=(PLAN,), others=(OtherCount(4, SCHEDULE),))
     system = block([family(same)], [device(same)])
-    assert notes(job, playbook, system) == []                # T-005e (ruling 15): on the header, once
+    # T-005e (ruling 15): on the header, once; T-010 task 2 (ruling 25): plus the family's one red "*" line
+    assert notes(job, playbook, system) == ["*Exhaust Fan counts differ: 6 per M-101; 4 per M-601"]
     assert headers(job, playbook, system) == ["6 per M-101; 4 per M-601"]
     draft = render(replace(job, systems=(system,)), playbook)
     assert [l.text for l in draft.lines if l.device_id == "X.d1"] == ["Furnish and Install DDC Controller"]

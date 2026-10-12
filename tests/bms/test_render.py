@@ -69,6 +69,8 @@ def test_rooftop_block_golden(draft):
         # T-005e: ruling 14: one short "*" line per item
         "*one detector per unit, because the schedule note names a detector for each unit without a count",
         "*Unit count carried at 2; the roof plan shows 1",
+        # T-010 task 2 (ruling 25): the contested family count, one red "*" line after the block's other notes
+        "*Rooftop Unit counts differ: 2 per M-001; 1 per M-101",
     ]
 
 
@@ -109,7 +111,9 @@ def test_unknown_count_prints_hashes_and_quantity_unknown(draft):
 def test_confirm_note_and_count_note_for_vrf(draft):
     notes = [l.text for l in draft.lines if l.system_key == "VRF" and l.kind == "note"]
     # (ruling D6, 2026-10-07; T-005e: ruling 15, the other counts on the family's header, no quantity note)
-    assert notes == ["*Branch selector count: 2 on the plan picture, 1 on the schedule - to be confirmed"]
+    # T-010 task 2 (ruling 25): the contested family count adds one red "*" line after the writer's confirm
+    assert notes == ["*Branch selector count: 2 on the plan picture, 1 on the schedule - to be confirmed",
+                     "*Branch Selector counts differ: 2 per M-102; 1 per M-002"]
     assert "Qty (2) Branch Selector BS-1, 2 (2 per M-102; 1 per M-002)" in texts(draft, "VRF")
 
 
@@ -216,7 +220,9 @@ def test_count_note_is_one_line_per_block_beside_the_confirm(job, playbook):
     clar = (Clarification("confirm", "Confirm quantity: 3 fans carried per the schedule"),)
     out = texts(render(one(job, system([d], families=(fam,), shape="", clarifications=clar)), pb), "EF")
     # T-005e: ruling 14 (one short "*" line per item) and 15 (the other counts in the header, no quantity note)
-    assert out[0].endswith(" (3; 2 per Q-1)") and out[-1] == "*Confirm quantity: 3 fans carried per the schedule"
+    # T-010 task 2 (ruling 25): the contested family count prints one red "*" line after the confirm
+    assert out[0].endswith(" (3; 2 per Q-1)") and out[-2:] == ["*Confirm quantity: 3 fans carried per the schedule",
+                                                               "*Exhaust Fan counts differ: 3; 2 per Q-1"]
     assert not any(t.startswith("*Qty") for t in out)
 
 
@@ -774,7 +780,11 @@ def test_a_two_family_count_note_names_each_family():
     # a device that carries its family's count does not print that count a second time
     fan_device = replace(device(qty=20), quantity=fans.count)
     out = texts(render(_repo_job(system([fan_device], families=(fans, heaters), shape="")), pb), "EF")
-    assert sum("15 per Q-2.00" in t for t in out) == 1 and not any(t.startswith("*") for t in out)
+    # T-010 task 2 (ruling 25): each contested family count prints one red "*" line (the bracket stays); no other
+    # "*" line, and the device line does not print the family's count again
+    assert [t for t in out if t.startswith("*")] == ["*Exhaust Fan counts differ: 20 per Q-1.00; 15 per Q-2.00",
+                                                     "*Unit Heater counts differ: 4 per Q-3.00; 3 per Q-4.00"]
+    assert sum("15 per Q-2.00" in t for t in out if not t.startswith("*")) == 1
 
 
 def test_count_note_folds_the_same_value_from_the_same_label():
