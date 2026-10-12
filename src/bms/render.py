@@ -154,7 +154,12 @@ def render(job: Job, playbook: Playbook) -> ProposalDraft:
     - A system with no devices prints no block: it is one `note` line in `lines` ("left out, no lines written", with
       the writer's reason) for the Evidence Package, or, when the documents put it outside AME's scope (a named
       exception of `job.exceptions` has its key, `plan._exceptions`, HP 24), the EXCEPTION line(s) in the job's own
-      words, which `named_exceptions` prints (`left_out_text`).
+      words, which `named_exceptions` prints (`left_out_text`). A base system with a reason and no named exception
+      also prints one note. The reason names one other base system that has devices (its key, its name or a family
+      tag, as whole words, any case): one "*" line on that block, after its other "*" lines. The reason names none,
+      or more than one: "No BMS scope: <reason>" as the last item of the last base block, before the Demolition
+      Scope. An alternate with no devices keeps today's note only. A reason longer than LONG_CLARIFICATION goes
+      through `short_points`. The carrying block is chosen before this loop, so it can print before or after.
     - `job.header` must be set (the run sets it): it becomes `scope.header` (`date` parsed from ISO).
     - Blocks print in the Playbook's block order (`block_order`: the shape's `order`, Global Points first; a block
       whose count prints "Qty (##)" after the equipment blocks), the plan's own order kept within one order number.
@@ -200,18 +205,30 @@ def render(job: Job, playbook: Playbook) -> ProposalDraft:
             continue
         exception_lines.append((x.system_key, text))
     exceptions = tuple(text for _, text in exception_lines)
+    exception_keys = {key for key, _text in exception_lines if key}
+    on_block, loose = _silent_scope_notes(job, playbook, ids, exception_keys)
     base: list[Block] = []
     alternates: dict[str, list[tuple[Block, ...]]] = {"add": [], "deduct": []}
     after: dict[str, list[RenderedLine]] = {"add": [], "deduct": []}      # print order: base, add alternates, deducts
+    last_base_key = ""
     for system in sorted(job.systems, key=lambda s: block_order(s, playbook)):      # stable: the plan's order kept
         printed: list[RenderedLine] = []
         mine = tuple(text for key, text in exception_lines if key and key == system.key)
         blocks = _system_blocks(system, playbook, printed, ids, mine, job.set_aside)
+        extra = on_block.get(system.key, ())
+        if extra and blocks:                 # Case A: the "*" line after this block's other "*" lines
+            blocks = _blocks_with_notes(blocks, extra)
+            printed += [RenderedLine(system.key, None, "note", note, None, None) for note in extra]
         if system.alternate in alternates and blocks:
             alternates[system.alternate].append(blocks)
         elif system.alternate == "base":
+            if blocks:
+                last_base_key = system.key
             base.extend(blocks)
         (lines if system.alternate == "base" else after[system.alternate]).extend(printed)
+    if loose and base:                       # Case B: last item of the last base block, before Demolition Scope
+        base[-1] = _block_with_notes(base[-1], loose)
+        lines += [RenderedLine(last_base_key, None, "note", note, None, None) for note in loose]
     demo = _demolition_block(job, ids)
     if demo is not None:
         base.append(demo)
@@ -1018,6 +1035,7 @@ def _header_text(form: str, name: str, tags: tuple[str, ...], count: Count, play
 
 
 LEFT_OUT = "{name}: left out, no lines written"
+NO_BMS_SCOPE = "No BMS scope: {reason}"          # a silent base system whose reason names no block, or more than one (G-004)
 
 
 def left_out_text(system: System, exceptions: Sequence[str] = ()) -> str:
@@ -1054,6 +1072,82 @@ def block_order(system: System, playbook: Playbook) -> int:
     if order >= DEFAULT_ORDER and all(_printed(f.count) is None for f in families):
         order = max(order, SEQUENCE_ONLY_ORDER)
     return order
+
+
+def _holds_phrase(text: str, phrase: str) -> bool:
+    """True when `phrase` is a whole phrase in `text`, any case. A hyphen is part of the phrase, so the key `ERV`
+    is not a match inside the tag `ERV-1`."""
+    phrase = phrase.strip()
+    if not phrase:
+        return False
+    return re.search(rf"(?i)(?<![A-Za-z0-9-]){re.escape(phrase)}(?![A-Za-z0-9-])", text) is not None
+
+
+def _plain_reason(reason: str) -> str:
+    text = reason.strip()
+    return text[1:].lstrip() if text.startswith("*") else text
+
+
+def _reason_names_system(reason: str, system: System) -> bool:
+    tokens = [system.key, system.name]
+    for family in system.families:
+        tokens.extend(family.tags)
+    return any(_holds_phrase(reason, token) for token in tokens)
+
+
+def _scope_star(system: System, reason: str) -> str:
+    """The "*" line for a silent system whose reason names one block. The system's name leads when the reason does
+    not already hold it. One leading star only. A long reason goes through `short_points`."""
+    raw = reason.strip()
+    plain = _plain_reason(raw)
+    if _holds_phrase(plain, system.name):
+        line = raw if raw.startswith("*") else f"*{plain}"
+    else:
+        line = f"*{system.name}: {plain}"
+    if len(raw) > LONG_CLARIFICATION:
+        line = short_points(line)
+    return line
+
+
+def _no_bms_line(reason: str) -> str:
+    raw = reason.strip()
+    line = NO_BMS_SCOPE.format(reason=_plain_reason(raw))
+    if len(raw) > LONG_CLARIFICATION:
+        line = short_points(line)
+    return line
+
+
+def _block_with_notes(block: Block, notes: Sequence[str]) -> Block:
+    extra = tuple(Item(kind="note", runs=(Run(text=note),)) for note in notes)
+    return block.model_copy(update={"items": block.items + extra})
+
+
+def _blocks_with_notes(blocks: tuple[Block, ...], notes: Sequence[str]) -> tuple[Block, ...]:
+    """The notes go on the last block. That block holds the system's lines and its other "*" lines."""
+    return blocks[:-1] + (_block_with_notes(blocks[-1], notes),)
+
+
+def _silent_scope_notes(job: Job, playbook: Playbook, ids: SourceIds,
+                        exception_keys: set[str]) -> tuple[dict[str, list[str]], list[str]]:
+    """Notes for a base system that has no devices, a reason, and no named exception. Case A is keyed by the one
+    base system the reason names. Case B is the list of "No BMS scope" lines. Chosen here, before the print loop,
+    because that system can print before or after this one."""
+    on_block: dict[str, list[str]] = {}
+    loose: list[str] = []
+    base = [system for system in job.systems if system.alternate == "base"]
+    for system in sorted(job.systems, key=lambda item: block_order(item, playbook)):
+        if system.alternate != "base" or system.devices or system.key in exception_keys:
+            continue
+        reason = ids.without_issued(system.no_scope_reason or "").strip()
+        if not _plain_reason(reason):
+            continue
+        named = [other for other in base
+                 if other.key != system.key and other.devices and _reason_names_system(reason, other)]
+        if len(named) == 1:
+            on_block.setdefault(named[0].key, []).append(_scope_star(system, reason))
+        else:
+            loose.append(_no_bms_line(reason))
+    return on_block, loose
 
 
 def _system_blocks(system: System, playbook: Playbook, out: list[RenderedLine], ids: SourceIds,

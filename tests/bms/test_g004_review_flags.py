@@ -10,7 +10,8 @@ from pathlib import Path
 from openpyxl import load_workbook
 
 from bms import review
-from bms.model import Count, Decision, Device, Family, Finding, FrontEnd, Job, OtherCount, Ref, System
+from bms.model import (Count, Decision, DemolitionLine, Device, Family, Finding, FrontEnd, Job, OtherCount, Ref,
+                       ScopeException, System)
 from bms.playbook import load_playbook
 from bms.render import render
 from estimator.price_sheet.price_book import BookItem, PriceBook
@@ -229,3 +230,138 @@ def test_the_price_sheet_row_for_an_unknown_count_is_red(workup_template, tmp_pa
     assert ws.cell(unknown, 3).value is None
     assert rgb(unknown).endswith("FF0000")
     assert not rgb(known).endswith("FF0000") and not rgb(known).endswith("C00000")
+
+
+# ---- Task 3: a system with no devices prints one note ----------------------------------------------------------
+
+_COIL_REASON = "The coil valves are counted with ERV-1."
+_COIL_STAR = "*Coil Bank: The coil valves are counted with ERV-1."
+
+
+def _carrier(key: str, name: str, tag: str) -> System:
+    device = _scope_device("space_temperature", "Space Temperature Sensor", 1, f"{key}.d1")
+    return System(key=key, name=name, shape="Unit Heater", control="field",
+                  families=(Family(name, (tag,), Count(1, (REF,))),), devices=(device,))
+
+
+def _silent(key: str, name: str, reason: str | None, alternate: str = "base") -> System:
+    # A known family count keeps this system in the equipment block order, so a test can put it before the carrier.
+    return System(key=key, name=name, shape="", control="none",
+                  families=(Family(name, (), Count(1, (REF,))),), devices=(), alternate=alternate,
+                  no_scope_reason=reason)
+
+
+def _job_of(*systems: System, demolition: tuple[DemolitionLine, ...] = ()) -> Job:
+    base = Job.from_dict(json.loads((Path(__file__).resolve().parent / "fixtures" / "sample_job.json")
+                                    .read_text(encoding="utf-8")))
+    return replace(base, systems=systems, demolition=demolition, exceptions=(), set_aside=(),
+                   front_end=FrontEnd(mode="new-system"))
+
+
+def _demo() -> tuple[DemolitionLine, ...]:
+    return (DemolitionLine("UH", "demo", 1, (REF,)),)
+
+
+def test_a_reason_that_names_one_block_prints_a_star_line_on_that_block():
+    erv = _carrier("ERV", "Energy Recovery Ventilator", "ERV-1")
+    coil = _silent("CB", "Coil Bank", _COIL_REASON)
+    for systems in ((coil, erv), (erv, coil)):
+        draft = render(_job_of(*systems), _playbook())
+        assert len(draft.scope.blocks) == 1
+        assert draft.scope.blocks[0].items[-1].kind == "note"
+        assert draft.scope.blocks[0].items[-1].text == _COIL_STAR
+        assert [line.text for line in draft.lines if line.system_key == "ERV" and line.kind == "note"
+                and line.text == _COIL_STAR] == [_COIL_STAR]
+        coil_lines = [line.text for line in draft.lines if line.system_key == "CB"]
+        assert len(coil_lines) == 1 and "left out, no lines written" in coil_lines[0]
+        assert "The coil valves are counted with ERV-1" in coil_lines[0]
+
+
+def test_a_reason_that_holds_the_system_name_does_not_repeat_it():
+    reason = "Coil Bank valves are counted with ERV-1."
+    draft = render(_job_of(_silent("CB", "Coil Bank", reason),
+                           _carrier("ERV", "Energy Recovery Ventilator", "ERV-1")), _playbook())
+    assert draft.scope.blocks[0].items[-1].text == f"*{reason}"
+
+
+def test_a_reason_that_names_no_block_prints_no_bms_scope_before_demolition():
+    reason = "The documents give this system to others."
+    draft = render(_job_of(_carrier("ERV", "Energy Recovery Ventilator", "ERV-1"),
+                           _silent("CB", "Coil Bank", reason), demolition=_demo()), _playbook())
+    blocks = draft.scope.blocks
+    note = f"No BMS scope: {reason}"
+    assert blocks[-1].header == "Demolition Scope"
+    assert blocks[-2].items[-1].kind == "note" and blocks[-2].items[-1].text == note
+    assert all("No BMS scope" not in item.text for item in blocks[-1].items)
+    texts = [line.text for line in draft.lines]
+    assert texts.index(note) < texts.index("Demolition Scope")
+    assert any(line.system_key == "CB" and "left out, no lines written" in line.text for line in draft.lines)
+
+
+def test_a_reason_that_names_two_blocks_prints_no_bms_scope_on_the_last_block_only():
+    reason = "The valves are counted with ERV-1 and AHU-1."
+    draft = render(_job_of(_carrier("ERV", "Energy Recovery Ventilator", "ERV-1"),
+                           _carrier("AHU", "Air Handling Unit", "AHU-1"),
+                           _silent("CB", "Coil Bank", reason), demolition=_demo()), _playbook())
+    note = f"No BMS scope: {reason}"
+    equipment = [block for block in draft.scope.blocks if block.header != "Demolition Scope"]
+    assert equipment[-1].items[-1].text == note
+    assert all(item.text != note for item in equipment[0].items)
+    assert not any(item.text.startswith("*Coil Bank") for block in draft.scope.blocks for item in block.items)
+
+
+def test_a_key_inside_a_longer_tag_does_not_name_that_block():
+    reason = "The coil valves are counted with ERV-1."
+    draft = render(_job_of(_silent("CB", "Coil Bank", reason),
+                           _carrier("ERV", "Energy Recovery Ventilator", "ERV-2")), _playbook())
+    assert draft.scope.blocks[0].items[-1].text == f"No BMS scope: {reason}"
+    assert not any(item.text.startswith("*Coil Bank") for item in draft.scope.blocks[0].items)
+
+
+def test_a_named_exception_prints_no_scope_note():
+    line = "EXCEPTION: Qty (1) CB-1 - not in this contract"
+    job = replace(_job_of(_carrier("ERV", "Energy Recovery Ventilator", "ERV-1"),
+                          _silent("CB", "Coil Bank", _COIL_REASON)),
+                  exceptions=(ScopeException("CB", line, (REF,)),))
+    draft = render(job, _playbook())
+    assert [item.text for item in draft.lines if item.system_key == "CB"] == [line]
+    assert draft.scope.named_exceptions == (line,)
+    assert not any("No BMS scope" in item.text or item.text.startswith("*Coil Bank")
+                   for block in draft.scope.blocks for item in block.items)
+
+
+def test_a_system_with_no_reason_prints_no_scope_note():
+    draft = render(_job_of(_carrier("ERV", "Energy Recovery Ventilator", "ERV-1"),
+                           _silent("CB", "Coil Bank", None)), _playbook())
+    assert not any("No BMS scope" in item.text or "Coil Bank" in item.text
+                   for block in draft.scope.blocks for item in block.items)
+    assert [line.text for line in draft.lines if line.system_key == "CB"] == [
+        "Coil Bank: left out, no lines written"]
+
+
+def test_an_alternate_with_no_devices_prints_no_scope_note_on_the_base_bid():
+    draft = render(_job_of(_carrier("ERV", "Energy Recovery Ventilator", "ERV-1"),
+                           _silent("CB", "Coil Bank", _COIL_REASON, alternate="add")), _playbook())
+    assert not any("No BMS scope" in item.text or item.text.startswith("*Coil Bank")
+                   for block in draft.scope.blocks for item in block.items)
+    assert any(line.system_key == "CB" and "left out, no lines written" in line.text for line in draft.lines)
+
+
+def test_a_long_reason_prints_as_short_points():
+    reason = ("The coil valves are counted with ERV-1 because the documents show one set of valves for both units. "
+              "The second sentence keeps this invented reason past the short point limit of one hundred and fifty "
+              "characters.")
+    assert len(reason) > 150
+    draft = render(_job_of(_silent("CB", "Coil Bank", reason),
+                           _carrier("ERV", "Energy Recovery Ventilator", "ERV-1")), _playbook())
+    note = draft.scope.blocks[0].items[-1].text
+    assert note.startswith("*Coil Bank: ") and "\n- " in note and "ERV-1" in note
+    assert any(line.system_key == "ERV" and line.kind == "note" and line.text == note for line in draft.lines)
+
+
+def test_a_job_with_no_block_keeps_todays_left_out_note():
+    draft = render(_job_of(_silent("CB", "Coil Bank", "The documents give this system to others.")), _playbook())
+    assert draft.scope.blocks == ()
+    assert [line.text for line in draft.lines if line.system_key == "CB"] == [
+        "Coil Bank: left out, no lines written (The documents give this system to others)"]
+    assert not any("No BMS scope" in line.text for line in draft.lines)
