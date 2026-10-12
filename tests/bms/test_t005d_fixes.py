@@ -144,7 +144,8 @@ def test_a_controls_sheet_with_no_room_left_stops_the_run_with_a_plain_message(m
                                  "the schedule doesn't state how many"])
 def test_an_assumption_that_says_the_schedule_is_silent_is_kept(playbook, why):
     device = _device("Filter Switch", "S12", "FILTER SWITCH QUANTITY BY OTHERS", "M-602, Plans.pdf page 6",
-                     flag="assumed", assumption={"what": "one switch per unit", "why": why})
+                     flag="assumed", assumption={"what": "one switch per unit", "why": why},
+                     verb="Furnish and Wire", installed_by="Unit Mfr.")     # T-010 ruling 23: a filter switch
     written, _ = _write(playbook, device)
     assert written.devices[0].assumption is not None and written.devices[0].flag == "assumed"
 
