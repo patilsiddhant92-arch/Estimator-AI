@@ -127,7 +127,9 @@ def test_the_rest_of_the_template_is_untouched(bare_job, proposal_template, tmp_
     out_texts = _texts(write_proposal(bare_job, proposal_template, tmp_path / "p.docx"))
     template_texts = _texts(proposal_template)
     start = next(i for i, t in enumerate(template_texts) if t == layout.ADD_ALTERNATES)
-    assert out_texts[out_texts.index(layout.ADD_ALTERNATES):] == template_texts[start:]
+    # T-009 (ruling 22): a job with no Demolition Scope block prints the general demolition line only
+    kept = [t for t in template_texts[start:] if t != "Any demolition work not specifically mentioned"]
+    assert out_texts[out_texts.index(layout.ADD_ALTERNATES):] == kept
 
 
 def test_delete_from_until_refuses_a_stop_before_first(proposal_template):

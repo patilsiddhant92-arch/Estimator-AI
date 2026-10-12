@@ -82,6 +82,7 @@ def write_proposal(job: Job, template_path: Path, out_path: Path) -> Path:
     _write_scope(heading, job)
     _write_alternates(document, layout.ADD_ALTERNATES, job.add_alternates)
     _write_alternates(document, layout.DEDUCT_ALTERNATES, job.deduct_alternates)
+    _keep_one_demolition_exclusion(document, job)
     _add_named_exceptions(document, job.named_exceptions)
     _write_labor_conditions(document, job.labor_conditions)
     out_path.parent.mkdir(parents=True, exist_ok=True)
@@ -478,6 +479,22 @@ def _clarification_after(cursor: Paragraph, text: str) -> Paragraph:
     _make_red(added)
     cursor._p.addnext(clone)
     return added
+
+
+def _keep_one_demolition_exclusion(document: DocxDocument, job: Job) -> None:
+    """T-009 (ruling 22): print one demolition exclusion. A job with a Demolition Scope block keeps the template's
+    specific line and loses the general one; any other job keeps the general line and loses the specific one. Each line
+    is found by its text, never by its place. A template that has only one of them (or neither) keeps what it has."""
+    has_scope = any(b.key == layout.DEMOLITION_BLOCK_KEY or squash(b.header) == layout.DEMOLITION_BLOCK_HEADING
+                    for b in job.blocks)
+    keep, drop = ((layout.DEMOLITION_SPECIFIC, layout.DEMOLITION_GENERAL) if has_scope
+                  else (layout.DEMOLITION_GENERAL, layout.DEMOLITION_SPECIFIC))
+    paragraphs = list(document.paragraphs)
+    if not any(squash(p.text) == squash(keep) for p in paragraphs):
+        return   # the template has only the other line (or neither): print what it has
+    for paragraph in paragraphs:
+        if squash(paragraph.text) == squash(drop):
+            paragraph._p.getparent().remove(paragraph._p)
 
 
 def _write_labor_conditions(document: DocxDocument, conditions: tuple[LaborCondition, ...]) -> None:

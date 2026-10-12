@@ -8,6 +8,15 @@ from estimator.scope import Alternate, FrontEnd
 from estimator.text import squash
 
 
+# T-009 (ruling 22): the proposal prints one demolition exclusion. These jobs have no Demolition Scope block, so the
+# general line stays and the template's specific line is gone; everything else is as sent.
+SPECIFIC_DEMOLITION = "Any demolition work not specifically mentioned"
+
+
+def _one_demolition_line(texts):
+    return [t for t in texts if t != SPECIFIC_DEMOLITION]
+
+
 def test_a_written_job_reads_back_the_same(small_job, proposal_template, tmp_path, without_prices):
     out = write_proposal(small_job, proposal_template, tmp_path / "p.docx")
     assert read_proposal(out, proposal_template) == without_prices(small_job)
@@ -46,6 +55,6 @@ def test_two_add_and_two_deduct_alternates_round_trip(small_job, proposal_templa
 def test_26_0246_written_out_again_matches_what_was_sent(sent_job, proposal_template, sent_proposal, tmp_path):
     out = write_proposal(sent_job, proposal_template, tmp_path / "26-0246.docx")
     assert scope_texts(out) == scope_texts(sent_proposal)
-    assert closing_texts(out) == closing_texts(sent_proposal)
+    assert closing_texts(out) == _one_demolition_line(closing_texts(sent_proposal))
     assert opening_texts(out) == opening_texts(sent_proposal)
     assert read_proposal(out, proposal_template) == sent_job
