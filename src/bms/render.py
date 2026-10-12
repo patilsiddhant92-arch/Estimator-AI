@@ -233,7 +233,8 @@ def render(job: Job, playbook: Playbook) -> ProposalDraft:
       tag, as whole words, any case): one "*" line on that block, after its other "*" lines. The reason names none,
       or more than one: "No BMS scope: <reason>" as the last item of the last base block, before the Demolition
       Scope. An alternate with no devices keeps today's note only. A reason longer than LONG_CLARIFICATION goes
-      through `short_points`. The carrying block is chosen before this loop, so it can print before or after.
+      through `short_points`: one line per point. The carrying block is chosen before this loop, so it can print
+      before or after.
     - `job.header` must be set (the run sets it): it becomes `scope.header` (`date` parsed from ISO).
     - Blocks print in the Playbook's block order (`block_order`: the shape's `order`, Global Points first; a block
       whose count prints "Qty (##)" after the equipment blocks), the plan's own order kept within one order number.
@@ -1171,26 +1172,25 @@ def _reason_names_system(reason: str, system: System) -> bool:
     return any(_holds_phrase(reason, token) for token in tokens)
 
 
-def _scope_star(system: System, reason: str) -> str:
-    """The "*" line for a silent system whose reason names one block. The system's name leads when the reason does
-    not already hold it. One leading star only. A long reason goes through `short_points`."""
+def _scope_star(system: System, reason: str) -> list[str]:
+    """The "*" lines for a silent system whose reason names one block. The system's name leads when the reason does
+    not already hold it. One leading star only. A long reason goes through `short_points`: one "*" line per point
+    (T-008 and G-004 reconciled, estimator ruling 14)."""
     raw = reason.strip()
     plain = _plain_reason(raw)
     if _holds_phrase(plain, system.name):
         line = raw if raw.startswith("*") else f"*{plain}"
     else:
         line = f"*{system.name}: {plain}"
-    if len(raw) > LONG_CLARIFICATION:
-        line = short_points(line)
-    return line
+    return short_points(line) if len(raw) > LONG_CLARIFICATION else [line]
 
 
-def _no_bms_line(reason: str) -> str:
+def _no_bms_line(reason: str) -> list[str]:
+    """The "No BMS scope" lines for a silent system whose reason names no block: one line, or one line per point
+    when the reason is long (`short_points`)."""
     raw = reason.strip()
     line = NO_BMS_SCOPE.format(reason=_plain_reason(raw))
-    if len(raw) > LONG_CLARIFICATION:
-        line = short_points(line)
-    return line
+    return short_points(line) if len(raw) > LONG_CLARIFICATION else [line]
 
 
 def _block_with_notes(block: Block, notes: Sequence[str]) -> Block:
@@ -1220,9 +1220,9 @@ def _silent_scope_notes(job: Job, playbook: Playbook, ids: SourceIds,
         named = [other for other in base
                  if other.key != system.key and other.devices and _reason_names_system(reason, other)]
         if len(named) == 1:
-            on_block.setdefault(named[0].key, []).append(_scope_star(system, reason))
+            on_block.setdefault(named[0].key, []).extend(_scope_star(system, reason))
         else:
-            loose.append(_no_bms_line(reason))
+            loose.extend(_no_bms_line(reason))
     return on_block, loose
 
 

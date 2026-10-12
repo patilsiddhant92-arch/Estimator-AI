@@ -13,7 +13,7 @@ from bms import review
 from bms.model import (Count, Decision, DemolitionLine, Device, Family, Finding, FrontEnd, Job, OtherCount, Ref,
                        ScopeException, System)
 from bms.playbook import load_playbook
-from bms.render import render
+from bms.render import _no_bms_line, render
 from estimator.price_sheet.price_book import BookItem, PriceBook
 from estimator.price_sheet.write import QUANTITY_PENDING, write_price_sheet
 
@@ -347,16 +347,57 @@ def test_an_alternate_with_no_devices_prints_no_scope_note_on_the_base_bid():
     assert any(line.system_key == "CB" and "left out, no lines written" in line.text for line in draft.lines)
 
 
+def _words(text: str) -> list[str]:
+    return re.findall(r"[\w'-]+", text.lower())
+
+
 def test_a_long_reason_prints_as_short_points():
+    # T-008 and G-004 reconciled (estimator ruling 14): one "*" note item per point, not one note with line breaks
     reason = ("The coil valves are counted with ERV-1 because the documents show one set of valves for both units. "
               "The second sentence keeps this invented reason past the short point limit of one hundred and fifty "
               "characters.")
     assert len(reason) > 150
     draft = render(_job_of(_silent("CB", "Coil Bank", reason),
                            _carrier("ERV", "Energy Recovery Ventilator", "ERV-1")), _playbook())
-    note = draft.scope.blocks[0].items[-1].text
-    assert note.startswith("*Coil Bank: ") and "\n- " in note and "ERV-1" in note
-    assert any(line.system_key == "ERV" and line.kind == "note" and line.text == note for line in draft.lines)
+    items = draft.scope.blocks[0].items[-2:]                  # the carrier has no other "*" line: the points close it
+    points = [item.text for item in items]
+    assert [item.kind for item in items] == ["note", "note"]
+    assert points[0].startswith("*Coil Bank: ") and "ERV-1" in points[0]
+    assert points[1].startswith("*The second sentence")
+    assert all(point.startswith("*") and "\n" not in point and len(point) <= 160 for point in points)
+    assert _words(" ".join(points)) == _words(f"*Coil Bank: {reason}")
+    carrier = [line.text for line in draft.lines if line.system_key == "ERV" and line.kind == "note"]
+    assert carrier[-2:] == points
+
+
+_LONG_NO_SCOPE = ("The documents give the fan coil controls to the plumbing contractor. "
+                  "The sequence for those units is on the mechanical sheets only. "
+                  "The estimator confirms with the engineer that no BMS point is wanted on them.")
+
+
+def test_a_long_no_scope_reason_prints_one_short_line_per_point():
+    assert len(_LONG_NO_SCOPE) > 150
+    draft = render(_job_of(_carrier("ERV", "Energy Recovery Ventilator", "ERV-1"),
+                           _silent("CB", "Coil Bank", _LONG_NO_SCOPE), demolition=_demo()), _playbook())
+    blocks = draft.scope.blocks
+    assert blocks[-1].header == "Demolition Scope"
+    items = blocks[-2].items
+    first = next(i for i, item in enumerate(items) if item.text.startswith("No BMS scope: "))
+    lines = [item.text for item in items[first:]]
+    assert len(lines) == 3 and all(item.kind == "note" for item in items[first:])
+    assert all("\n" not in line and len(line) <= 160 for line in lines)
+    assert _words(" ".join(lines)) == _words(f"No BMS scope: {_LONG_NO_SCOPE}")
+    assert all("No BMS scope" not in item.text for item in blocks[-1].items)
+    texts = [line.text for line in draft.lines]
+    start = texts.index(lines[0])
+    assert texts[start:start + 3] == lines and start + 2 < texts.index("Demolition Scope")
+
+
+def test_no_bms_line_gives_a_list_of_lines():
+    assert _no_bms_line("The documents give this system to others.") == [
+        "No BMS scope: The documents give this system to others."]
+    lines = _no_bms_line(_LONG_NO_SCOPE)
+    assert len(lines) == 3 and lines[0].startswith("No BMS scope: ") and max(map(len, lines)) <= 160
 
 
 def test_a_job_with_no_block_keeps_todays_left_out_note():
