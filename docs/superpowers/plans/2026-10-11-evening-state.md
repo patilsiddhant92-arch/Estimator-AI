@@ -69,3 +69,19 @@ Permission rules: the estimator was given the `settings.local.json` allow list f
 API mode: on hold until the estimator's admin answers.
 
 - Monday 2026-10-12 early morning: G-002 (quantity prefix) and T-007 (Stage 2 wiring, with lead fixes M1-M3, S1) merged; rebuild a6f7afc, full suite 5,321 passed. G-003 (price-sheet polish, user guide) in review. The 26-0544 run started from the main folder at about 04:00 into out/26-0544-r2.
+
+## Monday 2026-10-12 morning: build complete, first rerun done
+
+Rebuild head after the merge of `lead/wave2`: 69422b0. `lead/wave2` and `rebuild` now hold the same work.
+Full suite on `lead/wave2` before the merge: 5,341 passed, 4 xfailed.
+
+Merged since the last update:
+- G-002 (Grok): the device-line quantity prefix.
+- T-007 (HarkPro): takeoff pass Stage 2 wiring, with the lead fixes M1 to M3 and S1.
+- G-003 (Grok): price-sheet polish and the user guide.
+- T-007b (HarkPro): the Stage 2 follow-ups, with the lead's dedupe fix.
+- `lead/revise-noscope` (lead): the live-run intake fix. A partial revise that empties a block keeps the answer's `no_scope_reason`.
+
+26-0544 rerun completed at about 05:50 India time into out/26-0544-r2 (29 requests answered: 5 reading passes, 1 takeoff, 7 counts, 9 writes, 1 QC, 6 revises; 3 re-dispatched; one app defect found and fixed mid-run: a partial revise that empties a block lost its no_scope_reason).
+
+Next: the estimator reviews out/26-0544-r2; then 26-0559.
