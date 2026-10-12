@@ -32,7 +32,7 @@ WAGE_LINE = "{state}Prevailing Wage Labor Rates Included (As per {source})"
 
 _OFF_HOURS = re.compile(
     r"\boff[- ]hours?\b|\bafter[- ]hours\b|\bovertime\b|\bpremium\s+time\b|"
-    r"\b(?:night|weekend|evening|second|third)s?[- ](?:work|shifts?|hours)\b|\bnights?\s+(?:and|or)\s+weekends?\b|"
+    r"\b(?:night|weekend|evening|second|third)s?[- ](?:work|shifts?|hours)\b|\bnights?\s*(?:,|and|or)\s*weekends?\b|"
     r"\boutside\s+(?:of\s+)?(?:the\s+)?(?:normal|regular|standard)\s+(?:business\s+|working\s+|work\s+)*hours\b", re.I)
 _TIME = r"\d{1,2}(?::\d{2})?\s*(?:a\.?\s?m\.?|p\.?\s?m\.?)"
 _RANGE = re.compile(rf"({_TIME})\s*(?:to|and|until|thru|through|-|–|—)\s*({_TIME})", re.I)
@@ -60,7 +60,7 @@ def hours_of(quote: str) -> str:
 # call for it (T-005e review finding 5)
 _NEGATION = re.compile(r"\b(?:no|not|never|nor|without|prohibited|forbidden|disallowed)\b|\bshall\s+not\b|"
                        r"\bcannot\b|\bcan't\b|\bwon't\b", re.I)
-_CLAUSES = re.compile(r"[.;:]\s+|\s+(?:but|however|except)\s+", re.I)
+_CLAUSES = re.compile(r"[.;:]\s+|\s+(?:but|however|except|then)\s+", re.I)
 
 
 def calls_for_off_hours(quote: str) -> bool:
@@ -115,23 +115,43 @@ def _rows(overview):
             yield row
 
 
-def labor_conditions(overview) -> tuple[LaborCondition, ...]:
-    """At most one off-hours and one prevailing-wage condition, from the first row whose quote calls for it."""
+def _condition(kind: str, source: str, quote: str) -> LaborCondition:
+    if kind == OFF_HOURS:
+        hours = hours_of(quote)
+        return LaborCondition(kind=kind, source=source, quote=quote,
+                              text=OFF_HOURS_LINE.format(hours=f" ({hours})" if hours else "", source=source))
+    state = state_of(quote)
+    return LaborCondition(kind=kind, source=source, quote=quote,
+                          text=WAGE_LINE.format(state=f"{state} " if state else "", source=source))
+
+
+def _sources(overview, ledger, notes):
+    """(quote, source) in order: the overview rows, the ledger facts (any kind and state), then the key notes."""
+    if overview is not None:
+        for row in _rows(overview):
+            yield " ".join(row.quote.split()), source_of(row)
+    if ledger is not None:
+        from estimator.ledger.facts import where_short
+        for fact in ledger.facts.values():
+            where = where_short(ledger.sources.get(fact.source_id, "")) or "the documents"
+            yield " ".join(str(fact.quote or "").split()), where
+    for note in notes or ():
+        where = f"Sheet {note.sheet}" if getattr(note, "sheet", None) else (
+            f"{(note.document or '').replace(chr(92), '/').rsplit('/', 1)[-1]} page {note.page}".strip())
+        yield " ".join((note.text or "").split()), where or "the documents"
+
+
+def labor_conditions(overview, ledger=None, notes=()) -> tuple[LaborCondition, ...]:
+    """At most one off-hours and one prevailing-wage condition, from the first source whose quote calls for it: the
+    Spec overview rows (Found), then the ledger's facts, then the plans' key notes (T-008)."""
     out: dict[str, LaborCondition] = {}
-    if overview is None:
-        return ()
-    for row in _rows(overview):
-        quote = " ".join(row.quote.split())
+    for quote, source in _sources(overview, ledger, notes):
+        if not quote:
+            continue
         if OFF_HOURS not in out and calls_for_off_hours(quote):
-            hours = hours_of(quote)
-            out[OFF_HOURS] = LaborCondition(kind=OFF_HOURS, source=source_of(row), quote=quote,
-                                            text=OFF_HOURS_LINE.format(hours=f" ({hours})" if hours else "",
-                                                                       source=source_of(row)))
+            out[OFF_HOURS] = _condition(OFF_HOURS, source, quote)
         if PREVAILING_WAGE not in out and calls_for_prevailing_wage(quote):
-            state = state_of(quote)
-            out[PREVAILING_WAGE] = LaborCondition(kind=PREVAILING_WAGE, source=source_of(row), quote=quote,
-                                                  text=WAGE_LINE.format(state=f"{state} " if state else "",
-                                                                        source=source_of(row)))
+            out[PREVAILING_WAGE] = _condition(PREVAILING_WAGE, source, quote)
     return tuple(out[k] for k in (OFF_HOURS, PREVAILING_WAGE) if k in out)
 
 
